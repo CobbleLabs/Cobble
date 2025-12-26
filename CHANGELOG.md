@@ -6,6 +6,22 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/).
 
 ---
 
+## [0.7.1] - 2025-12-26
+
+### Changed
+- **AimAssist: Ultra Smooth Mode**
+  - Si ya estás apuntando a la hitbox del target, no fuerza rotación (más natural)
+  - Nuevo scale de speed 0-10: 0=mínimo, 5=balanceado, 10=rápido pero smooth
+  - Exponential decay scaling: desacelera suavemente al acercarse al target
+  - Defaults suaves: hSpeed=5, vSpeed=3, FOV=60°
+  - Update rate ajustado a 2-8ms para smoothness óptimo
+  - Clamp de rotación al 80% del ángulo restante
+
+### Fixed
+- Warning de conversión double→float en cálculo de hitbox
+
+---
+
 ## [0.7.0] - 2025-12-26
 
 ### Changed

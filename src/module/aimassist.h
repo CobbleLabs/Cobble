@@ -25,11 +25,12 @@ public:
 		bool verticalAim = false;
 		bool hurtTimeBoost = true;
 		
-		float horizontalSpeed = 25.0f;
-		float verticalSpeed = 12.0f;
-		float maxFov = 90.0f;
-		float maxDistance = 4.5f;
-		float randomization = 0.25f;
+		// Speed 0-10 scale: 0=minimal, 5=balanced, 10=fast but smooth
+		float horizontalSpeed = 5.0f;
+		float verticalSpeed = 3.0f;
+		float maxFov = 60.0f;
+		float maxDistance = 4.0f;
+		float randomization = 0.15f;
 	} settings;
 
 private:
@@ -52,6 +53,16 @@ private:
 	
 	// Calculates smooth rotation amount using MC sensitivity formula
 	float calculateSmoothRotation(float angleDiff, float speed, float deltaMs, int hurtTime);
+	
+	// Check if player is already aiming at target's hitbox
+	bool isAimingAtHitbox(double localX, double localY, double localZ,
+						   float localYaw, float localPitch,
+						   double targetX, double targetY, double targetZ);
+	
+	// Easing functions for smooth movement
+	float easeOutQuad(float t);
+	float easeOutCubic(float t);
 };
 
 extern AimAssist aimAssist;
+

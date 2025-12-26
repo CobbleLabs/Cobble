@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -13,7 +14,13 @@
             --text: #eaeaea;
             --text-dim: #8a8a9a;
         }
-        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
         body {
             font-family: 'Segoe UI', system-ui, sans-serif;
             background: var(--bg);
@@ -21,41 +28,226 @@
             min-height: 100vh;
             padding: 20px;
         }
-        .container { max-width: 600px; margin: 0 auto; }
-        header { text-align: center; margin-bottom: 30px; }
-        h1 { font-size: 2rem; margin-bottom: 5px; }
-        h1 span { color: var(--primary); }
-        .subtitle { color: var(--text-dim); font-size: 0.9rem; }
-        .module-card { background: var(--card); border-radius: 12px; padding: 20px; margin-bottom: 20px; }
-        .module-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; }
-        .module-title { font-size: 1.2rem; font-weight: 600; }
-        .toggle { width: 50px; height: 26px; background: var(--accent); border-radius: 13px; cursor: pointer; position: relative; transition: background 0.3s; }
-        .toggle.active { background: var(--primary); }
-        .toggle::after { content: ''; position: absolute; width: 20px; height: 20px; background: white; border-radius: 50%; top: 3px; left: 3px; transition: transform 0.3s; }
-        .toggle.active::after { transform: translateX(24px); }
-        .setting-row { margin-bottom: 15px; }
-        .setting-label { display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 0.9rem; }
-        .setting-value { color: var(--primary); font-weight: 600; }
-        input[type="range"] { width: 100%; height: 6px; border-radius: 3px; background: var(--accent); outline: none; -webkit-appearance: none; appearance: none; }
-        input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; width: 16px; height: 16px; border-radius: 50%; background: var(--primary); cursor: pointer; }
-        .checkbox-row { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; cursor: pointer; }
-        .checkbox { width: 20px; height: 20px; border: 2px solid var(--accent); border-radius: 4px; display: flex; align-items: center; justify-content: center; transition: all 0.2s; }
-        .checkbox.checked { background: var(--primary); border-color: var(--primary); }
-        .checkbox.checked::after { content: '✓'; color: white; font-size: 12px; }
-        .keybind-btn { background: var(--accent); border: none; color: var(--text); padding: 8px 16px; border-radius: 6px; cursor: pointer; font-size: 0.9rem; transition: background 0.2s; }
-        .keybind-btn:hover { background: var(--primary); }
-        .keybind-btn.listening { background: var(--primary); animation: pulse 1s infinite; }
-        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.6; } }
-        .section-divider { height: 1px; background: var(--accent); margin: 15px 0; }
-        .actions { display: flex; gap: 10px; margin-top: 20px; }
-        .btn { flex: 1; padding: 12px; border: none; border-radius: 8px; font-size: 1rem; cursor: pointer; transition: all 0.2s; }
-        .btn-primary { background: var(--primary); color: white; }
-        .btn-secondary { background: var(--accent); color: var(--text); }
-        .btn:hover { transform: translateY(-2px); }
-        .status { text-align: center; margin-top: 15px; font-size: 0.85rem; color: var(--text-dim); }
-        .status.success { color: #4ade80; }
+
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+        }
+
+        header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+
+        h1 {
+            font-size: 2rem;
+            margin-bottom: 5px;
+        }
+
+        h1 span {
+            color: var(--primary);
+        }
+
+        .subtitle {
+            color: var(--text-dim);
+            font-size: 0.9rem;
+        }
+
+        .module-card {
+            background: var(--card);
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+
+        .module-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+
+        .module-title {
+            font-size: 1.2rem;
+            font-weight: 600;
+        }
+
+        .toggle {
+            width: 50px;
+            height: 26px;
+            background: var(--accent);
+            border-radius: 13px;
+            cursor: pointer;
+            position: relative;
+            transition: background 0.3s;
+        }
+
+        .toggle.active {
+            background: var(--primary);
+        }
+
+        .toggle::after {
+            content: '';
+            position: absolute;
+            width: 20px;
+            height: 20px;
+            background: white;
+            border-radius: 50%;
+            top: 3px;
+            left: 3px;
+            transition: transform 0.3s;
+        }
+
+        .toggle.active::after {
+            transform: translateX(24px);
+        }
+
+        .setting-row {
+            margin-bottom: 15px;
+        }
+
+        .setting-label {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 8px;
+            font-size: 0.9rem;
+        }
+
+        .setting-value {
+            color: var(--primary);
+            font-weight: 600;
+        }
+
+        input[type="range"] {
+            width: 100%;
+            height: 6px;
+            border-radius: 3px;
+            background: var(--accent);
+            outline: none;
+            -webkit-appearance: none;
+            appearance: none;
+        }
+
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background: var(--primary);
+            cursor: pointer;
+        }
+
+        .checkbox-row {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 10px;
+            cursor: pointer;
+        }
+
+        .checkbox {
+            width: 20px;
+            height: 20px;
+            border: 2px solid var(--accent);
+            border-radius: 4px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s;
+        }
+
+        .checkbox.checked {
+            background: var(--primary);
+            border-color: var(--primary);
+        }
+
+        .checkbox.checked::after {
+            content: '✓';
+            color: white;
+            font-size: 12px;
+        }
+
+        .keybind-btn {
+            background: var(--accent);
+            border: none;
+            color: var(--text);
+            padding: 8px 16px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.9rem;
+            transition: background 0.2s;
+        }
+
+        .keybind-btn:hover {
+            background: var(--primary);
+        }
+
+        .keybind-btn.listening {
+            background: var(--primary);
+            animation: pulse 1s infinite;
+        }
+
+        @keyframes pulse {
+
+            0%,
+            100% {
+                opacity: 1;
+            }
+
+            50% {
+                opacity: 0.6;
+            }
+        }
+
+        .section-divider {
+            height: 1px;
+            background: var(--accent);
+            margin: 15px 0;
+        }
+
+        .actions {
+            display: flex;
+            gap: 10px;
+            margin-top: 20px;
+        }
+
+        .btn {
+            flex: 1;
+            padding: 12px;
+            border: none;
+            border-radius: 8px;
+            font-size: 1rem;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .btn-primary {
+            background: var(--primary);
+            color: white;
+        }
+
+        .btn-secondary {
+            background: var(--accent);
+            color: var(--text);
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
+        }
+
+        .status {
+            text-align: center;
+            margin-top: 15px;
+            font-size: 0.85rem;
+            color: var(--text-dim);
+        }
+
+        .status.success {
+            color: #4ade80;
+        }
     </style>
 </head>
+
 <body>
     <div class="container">
         <header>
@@ -76,30 +268,48 @@
             </div>
             <div class="section-divider"></div>
             <div class="setting-row">
-                <div class="setting-label"><span>Min CPS</span><span class="setting-value" id="minCps-value">10</span></div>
-                <input type="range" id="minCps" min="1" max="20" value="10" oninput="updateSlider(this, 'minCps-value')">
+                <div class="setting-label"><span>Min CPS</span><span class="setting-value" id="minCps-value">10</span>
+                </div>
+                <input type="range" id="minCps" min="1" max="20" value="10"
+                    oninput="updateSlider(this, 'minCps-value')">
             </div>
             <div class="setting-row">
-                <div class="setting-label"><span>Max CPS</span><span class="setting-value" id="maxCps-value">14</span></div>
-                <input type="range" id="maxCps" min="1" max="25" value="14" oninput="updateSlider(this, 'maxCps-value')">
+                <div class="setting-label"><span>Max CPS</span><span class="setting-value" id="maxCps-value">14</span>
+                </div>
+                <input type="range" id="maxCps" min="1" max="25" value="14"
+                    oninput="updateSlider(this, 'maxCps-value')">
             </div>
             <div class="section-divider"></div>
-            <div class="checkbox-row" onclick="toggleCheckbox(this)"><div class="checkbox" data-setting="weaponOnly"></div><span>Weapon Only</span></div>
-            <div class="checkbox-row" onclick="toggleCheckbox(this)"><div class="checkbox checked" data-setting="ignoreBlocks"></div><span>Ignore Blocks</span></div>
-            <div class="checkbox-row" onclick="toggleCheckbox(this)"><div class="checkbox" data-setting="workInInventory"></div><span>Work in Inventory</span></div>
+            <div class="checkbox-row" onclick="toggleCheckbox(this)">
+                <div class="checkbox" data-setting="weaponOnly"></div><span>Weapon Only</span>
+            </div>
+            <div class="checkbox-row" onclick="toggleCheckbox(this)">
+                <div class="checkbox checked" data-setting="ignoreBlocks"></div><span>Ignore Blocks</span>
+            </div>
+            <div class="checkbox-row" onclick="toggleCheckbox(this)">
+                <div class="checkbox" data-setting="workInInventory"></div><span>Work in Inventory</span>
+            </div>
             <div class="section-divider"></div>
-            <div class="checkbox-row" onclick="toggleCheckbox(this)"><div class="checkbox checked" data-setting="advancedMode"></div><span>Advanced Randomization</span></div>
-            <div class="setting-row">
-                <div class="setting-label"><span>Drop Chance (%)</span><span class="setting-value" id="dropChance-value">5</span></div>
-                <input type="range" id="dropChance" min="0" max="20" value="5" oninput="updateSlider(this, 'dropChance-value')">
+            <div class="checkbox-row" onclick="toggleCheckbox(this)">
+                <div class="checkbox checked" data-setting="advancedMode"></div><span>Advanced Randomization</span>
             </div>
             <div class="setting-row">
-                <div class="setting-label"><span>Spike Chance (%)</span><span class="setting-value" id="spikeChance-value">10</span></div>
-                <input type="range" id="spikeChance" min="0" max="30" value="10" oninput="updateSlider(this, 'spikeChance-value')">
+                <div class="setting-label"><span>Drop Chance (%)</span><span class="setting-value"
+                        id="dropChance-value">5</span></div>
+                <input type="range" id="dropChance" min="0" max="20" value="5"
+                    oninput="updateSlider(this, 'dropChance-value')">
             </div>
             <div class="setting-row">
-                <div class="setting-label"><span>Kurtosis</span><span class="setting-value" id="kurtosis-value">2.0</span></div>
-                <input type="range" id="kurtosis" min="0" max="50" value="20" oninput="updateSlider(this, 'kurtosis-value', 0.1)">
+                <div class="setting-label"><span>Spike Chance (%)</span><span class="setting-value"
+                        id="spikeChance-value">10</span></div>
+                <input type="range" id="spikeChance" min="0" max="30" value="10"
+                    oninput="updateSlider(this, 'spikeChance-value')">
+            </div>
+            <div class="setting-row">
+                <div class="setting-label"><span>Kurtosis</span><span class="setting-value"
+                        id="kurtosis-value">2.0</span></div>
+                <input type="range" id="kurtosis" min="0" max="50" value="20"
+                    oninput="updateSlider(this, 'kurtosis-value', 0.1)">
             </div>
         </div>
 
@@ -116,33 +326,56 @@
             </div>
             <div class="section-divider"></div>
             <div class="setting-row">
-                <div class="setting-label"><span>Horizontal Speed</span><span class="setting-value" id="aa-hspeed-value">25</span></div>
-                <input type="range" id="aa-hspeed" min="1" max="50" value="25" oninput="updateSlider(this, 'aa-hspeed-value')">
+                <div class="setting-label"><span>Horizontal Speed</span><span class="setting-value"
+                        id="aa-hspeed-value">5</span></div>
+                <input type="range" id="aa-hspeed" min="0" max="10" value="5" step="0.5"
+                    oninput="updateSlider(this, 'aa-hspeed-value')">
             </div>
             <div class="setting-row">
-                <div class="setting-label"><span>Vertical Speed</span><span class="setting-value" id="aa-vspeed-value">12</span></div>
-                <input type="range" id="aa-vspeed" min="1" max="50" value="12" oninput="updateSlider(this, 'aa-vspeed-value')">
+                <div class="setting-label"><span>Vertical Speed</span><span class="setting-value"
+                        id="aa-vspeed-value">3</span></div>
+                <input type="range" id="aa-vspeed" min="0" max="10" value="3" step="0.5"
+                    oninput="updateSlider(this, 'aa-vspeed-value')">
             </div>
             <div class="setting-row">
-                <div class="setting-label"><span>FOV</span><span class="setting-value" id="aa-fov-value">90</span></div>
-                <input type="range" id="aa-fov" min="10" max="180" value="90" oninput="updateSlider(this, 'aa-fov-value')">
+                <div class="setting-label"><span>FOV</span><span class="setting-value" id="aa-fov-value">60</span></div>
+                <input type="range" id="aa-fov" min="10" max="180" value="60"
+                    oninput="updateSlider(this, 'aa-fov-value')">
             </div>
             <div class="setting-row">
-                <div class="setting-label"><span>Distance</span><span class="setting-value" id="aa-distance-value">4.5</span></div>
-                <input type="range" id="aa-distance" min="10" max="80" value="45" oninput="updateSlider(this, 'aa-distance-value', 0.1)">
+                <div class="setting-label"><span>Distance</span><span class="setting-value"
+                        id="aa-distance-value">4.0</span></div>
+                <input type="range" id="aa-distance" min="10" max="80" value="40"
+                    oninput="updateSlider(this, 'aa-distance-value', 0.1)">
             </div>
             <div class="setting-row">
-                <div class="setting-label"><span>Randomization</span><span class="setting-value" id="aa-random-value">0.25</span></div>
-                <input type="range" id="aa-random" min="0" max="50" value="25" oninput="updateSlider(this, 'aa-random-value', 0.01)">
+                <div class="setting-label"><span>Randomization</span><span class="setting-value"
+                        id="aa-random-value">0.15</span></div>
+                <input type="range" id="aa-random" min="0" max="50" value="15"
+                    oninput="updateSlider(this, 'aa-random-value', 0.01)">
             </div>
             <div class="section-divider"></div>
-            <div class="checkbox-row" onclick="toggleCheckbox(this)"><div class="checkbox checked" data-setting="aa-visibilityCheck"></div><span>Visibility Check</span></div>
-            <div class="checkbox-row" onclick="toggleCheckbox(this)"><div class="checkbox checked" data-setting="aa-ignoreInvisible"></div><span>Ignore Invisible</span></div>
-            <div class="checkbox-row" onclick="toggleCheckbox(this)"><div class="checkbox" data-setting="aa-onlySprinting"></div><span>Only Sprinting</span></div>
-            <div class="checkbox-row" onclick="toggleCheckbox(this)"><div class="checkbox checked" data-setting="aa-onlyClicking"></div><span>Only Clicking</span></div>
-            <div class="checkbox-row" onclick="toggleCheckbox(this)"><div class="checkbox checked" data-setting="aa-targetLock"></div><span>Target Lock</span></div>
-            <div class="checkbox-row" onclick="toggleCheckbox(this)"><div class="checkbox" data-setting="aa-verticalAim"></div><span>Vertical Aim</span></div>
-            <div class="checkbox-row" onclick="toggleCheckbox(this)"><div class="checkbox checked" data-setting="aa-hurtTimeBoost"></div><span>Hurt Time Boost</span></div>
+            <div class="checkbox-row" onclick="toggleCheckbox(this)">
+                <div class="checkbox checked" data-setting="aa-visibilityCheck"></div><span>Visibility Check</span>
+            </div>
+            <div class="checkbox-row" onclick="toggleCheckbox(this)">
+                <div class="checkbox checked" data-setting="aa-ignoreInvisible"></div><span>Ignore Invisible</span>
+            </div>
+            <div class="checkbox-row" onclick="toggleCheckbox(this)">
+                <div class="checkbox" data-setting="aa-onlySprinting"></div><span>Only Sprinting</span>
+            </div>
+            <div class="checkbox-row" onclick="toggleCheckbox(this)">
+                <div class="checkbox checked" data-setting="aa-onlyClicking"></div><span>Only Clicking</span>
+            </div>
+            <div class="checkbox-row" onclick="toggleCheckbox(this)">
+                <div class="checkbox checked" data-setting="aa-targetLock"></div><span>Target Lock</span>
+            </div>
+            <div class="checkbox-row" onclick="toggleCheckbox(this)">
+                <div class="checkbox" data-setting="aa-verticalAim"></div><span>Vertical Aim</span>
+            </div>
+            <div class="checkbox-row" onclick="toggleCheckbox(this)">
+                <div class="checkbox checked" data-setting="aa-hurtTimeBoost"></div><span>Hurt Time Boost</span>
+            </div>
         </div>
 
         <div class="actions">
@@ -158,7 +391,7 @@
         function connect() {
             ws = new WebSocket('ws://localhost:8765');
             ws.onopen = () => { connected = true; showStatus('Connected', 'success'); ws.send(JSON.stringify({ type: 'getConfig' })); };
-            ws.onmessage = (e) => { try { const d = JSON.parse(e.data); if (d.type === 'config' || d.type === 'configAll') applyConfigFromServer(d); } catch(err) {} };
+            ws.onmessage = (e) => { try { const d = JSON.parse(e.data); if (d.type === 'config' || d.type === 'configAll') applyConfigFromServer(d); } catch (err) { } };
             ws.onclose = () => { connected = false; showStatus('Disconnected - retrying...'); setTimeout(connect, 2000); };
             ws.onerror = () => showStatus('Connection error');
         }
@@ -205,8 +438,8 @@
                 type: 'config', module: 'aimassist',
                 enabled: document.querySelector('[data-setting="aa-enabled"]').classList.contains('active'),
                 keybind: document.querySelector('[data-setting="aa-keybind"]').textContent,
-                horizontalSpeed: parseInt(document.getElementById('aa-hspeed').value),
-                verticalSpeed: parseInt(document.getElementById('aa-vspeed').value),
+                horizontalSpeed: parseFloat(document.getElementById('aa-hspeed').value),
+                verticalSpeed: parseFloat(document.getElementById('aa-vspeed').value),
                 maxFov: parseInt(document.getElementById('aa-fov').value),
                 maxDistance: parseFloat(document.getElementById('aa-distance').value) * 0.1,
                 randomization: parseFloat(document.getElementById('aa-random').value) * 0.01,
@@ -266,4 +499,5 @@
         connect();
     </script>
 </body>
+
 </html>
