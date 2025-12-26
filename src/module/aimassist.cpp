@@ -31,6 +31,9 @@ void AimAssist::onDisable()
 {
 	log_ok("AimAssist disabled");
 	hasLockedTarget = false;
+	hasLastPosition = false;
+	smoothVelocityX = 0.0;
+	smoothVelocityZ = 0.0;
 }
 
 bool AimAssist::isAimingAtHitbox(double localX, double localY, double localZ, 
@@ -53,16 +56,16 @@ bool AimAssist::isAimingAtHitbox(double localX, double localY, double localZ,
 	// Calculate angular size of hitbox at this distance
 	float hitboxAngularWidth = static_cast<float>(std::atan2(HITBOX_HALF, horizDist)) * (180.0f / PI);
 	
-	// Check if yaw is within hitbox bounds (with small margin)
-	if (yawDiff > hitboxAngularWidth + 1.0f) return false;
+	// Check if yaw is within hitbox bounds (with large margin for comfort)
+	if (yawDiff > hitboxAngularWidth + 5.0f) return false;
 	
 	// Check pitch - calculate angles to top and bottom of hitbox
 	float pitchToBottom = getPitchTo(targetX - localX, targetY - localY, targetZ - localZ);
 	float pitchToTop = getPitchTo(targetX - localX, (targetY + HITBOX_HEIGHT) - localY, targetZ - localZ);
 	
-	// Add margin for smooth transition
-	float pitchMin = (std::min)(pitchToBottom, pitchToTop) - 2.0f;
-	float pitchMax = (std::max)(pitchToBottom, pitchToTop) + 2.0f;
+	// Add large margin for smooth transition (don't be picky)
+	float pitchMin = (std::min)(pitchToBottom, pitchToTop) - 8.0f;
+	float pitchMax = (std::max)(pitchToBottom, pitchToTop) + 8.0f;
 	
 	return (localPitch >= pitchMin && localPitch <= pitchMax);
 }
@@ -78,6 +81,52 @@ float AimAssist::easeOutCubic(float t)
 	// Cubic ease-out: even smoother
 	float t1 = t - 1.0f;
 	return t1 * t1 * t1 + 1.0f;
+}
+
+void AimAssist::updateVelocity(double targetX, double targetZ, float deltaMs)
+{
+	if (!hasLastPosition) {
+		lastTargetX = targetX;
+		lastTargetZ = targetZ;
+		hasLastPosition = true;
+		return;
+	}
+	
+	// Calculate raw velocity (blocks per ms)
+	double rawVelX = (targetX - lastTargetX) / deltaMs;
+	double rawVelZ = (targetZ - lastTargetZ) / deltaMs;
+	
+	// Smooth velocity with exponential moving average (very smooth)
+	// Lower alpha = smoother but more lag; higher = more responsive
+	double alpha = 0.15; // Balanced smoothing
+	smoothVelocityX = alpha * rawVelX + (1.0 - alpha) * smoothVelocityX;
+	smoothVelocityZ = alpha * rawVelZ + (1.0 - alpha) * smoothVelocityZ;
+	
+	// Clamp velocity to reasonable values (max ~0.3 blocks/ms = sprinting speed)
+	double maxVel = 0.02; // Per ms
+	if (std::abs(smoothVelocityX) > maxVel) smoothVelocityX = (smoothVelocityX > 0 ? 1 : -1) * maxVel;
+	if (std::abs(smoothVelocityZ) > maxVel) smoothVelocityZ = (smoothVelocityZ > 0 ? 1 : -1) * maxVel;
+	
+	lastTargetX = targetX;
+	lastTargetZ = targetZ;
+}
+
+void AimAssist::getPredictedPosition(double targetX, double targetZ, double& outX, double& outZ)
+{
+	// Prediction amount 0-30 maps to 0-0.3 multiplier
+	if (settings.prediction <= 0.0f || !hasLastPosition) {
+		outX = targetX;
+		outZ = targetZ;
+		return;
+	}
+	
+	// Convert prediction setting (0-30) to time ahead in ms
+	// At 15%, we predict about 50ms ahead
+	float predictionMs = settings.prediction * 3.33f; // 0-30 -> 0-100ms
+	
+	// Apply prediction based on smoothed velocity
+	outX = targetX + smoothVelocityX * predictionMs;
+	outZ = targetZ + smoothVelocityZ * predictionMs;
 }
 
 void AimAssist::onUpdate()
@@ -168,9 +217,23 @@ void AimAssist::onUpdate()
 			bestTarget = &p;
 			bestTargetY = p.posY;
 			
-			// Update lock position
-			lockedTargetX = p.posX;
-			lockedTargetZ = p.posZ;
+			// Update velocity tracking for prediction
+			updateVelocity(p.posX, p.posZ, deltaMs);
+			
+			// Get predicted position for aiming
+			double predictedX, predictedZ;
+			getPredictedPosition(p.posX, p.posZ, predictedX, predictedZ);
+			
+			// Recalculate yaw to predicted position (smoother tracking)
+			float predictedYawDiff = wrapAngle(getYawTo(predictedX - localX, predictedZ - localZ) - localYaw);
+			
+			// Blend between current and predicted (smooth transition)
+			float predictionBlend = settings.prediction / 100.0f;
+			bestYawDiff = yawDiff * (1.0f - predictionBlend) + predictedYawDiff * predictionBlend;
+			
+			// Update lock position to predicted
+			lockedTargetX = predictedX;
+			lockedTargetZ = predictedZ;
 		}
 	}
 
@@ -195,8 +258,8 @@ void AimAssist::onUpdate()
 		return; // Already on target, no assist needed
 	}
 
-	// Very small dead zone (0.15°) for precision
-	if (std::abs(bestYawDiff) < 0.15f && std::abs(bestPitchDiff) < 0.15f) return;
+	// Generous dead zone (2°) - don't be too precise, be relaxed
+	if (std::abs(bestYawDiff) < 2.0f && std::abs(bestPitchDiff) < 2.0f) return;
 
 	// Calculate smooth rotations with easing
 	float yawRotation = calculateSmoothRotation(bestYawDiff, settings.horizontalSpeed, deltaMs, hurtTime);
@@ -237,54 +300,35 @@ void AimAssist::onUpdate()
 
 float AimAssist::calculateSmoothRotation(float angleDiff, float speed, float deltaMs, int hurtTime)
 {
+	// Dream-Advanced style calculation
 	// MC sensitivity formula: (sensitivity * 0.6 + 0.2)^3 * 8
 	float sens = MC_SENSITIVITY * 0.6f + 0.2f;
 	float mcFactor = sens * sens * sens * 8.0f;
 	
-	// Speed now 0-10 scale. Map to effective multiplier.
-	// 0 = minimal assist, 5 = balanced, 10 = fast but smooth
-	float speedMultiplier = 0.1f + (speed / 10.0f) * 0.9f; // 0.1 to 1.0
-	
-	// Exponential decay scaling: smoother as angle decreases
 	float absAngle = std::abs(angleDiff);
-	float angleScale;
 	
-	if (absAngle < 3.0f) {
-		// Very close: smooth slowdown
-		angleScale = 0.3f + (absAngle / 3.0f) * 0.2f;
-	} else if (absAngle < 10.0f) {
-		// Medium range: good progression
-		angleScale = 0.5f + (absAngle - 3.0f) / 7.0f * 0.3f;
-	} else if (absAngle < 30.0f) {
-		// Larger angles: faster catch up
-		angleScale = 0.8f + (absAngle - 10.0f) / 20.0f * 0.2f;
-	} else {
-		// Very large angles: full speed
-		angleScale = 1.0f;
-	}
+	// Dream-Advanced: speed * (angle / 45) * random
+	// Random range is wider when hurt
+	float randomMin = 0.725f;
+	float randomMax = (hurtTime > 15) ? 2.25f : 1.35f;
+	float randomFactor = randomFloat(randomMin, randomMax);
 	
-	// Hurt time boost: subtle increase when being hit
-	float hurtBoost = 1.0f;
-	if (settings.hurtTimeBoost && hurtTime > 5) {
-		hurtBoost = 1.15f + (hurtTime / 40.0f);
-		hurtBoost = (std::min)(hurtBoost, 1.5f);
-	}
+	// Speed scaling: (angle / 45) gives 0-1 for most combat scenarios
+	float angleScaling = absAngle / 45.0f;
+	angleScaling = (std::min)(angleScaling, 1.0f);
 	
-	// Calculate base rotation - HIGHER multiplier for responsive feel
-	// speed 5 at 5ms deltaMs should give ~0.3-0.5 deg rotation for medium angles
-	float baseRotation = speedMultiplier * 0.15f * mcFactor * angleScale * hurtBoost;
+	// Calculate aim speed (as int for discrete movements like Dream-Advanced)
+	int aimSpeed = static_cast<int>(speed * angleScaling * randomFactor);
+	if (aimSpeed < 1) aimSpeed = 1;
 	
-	// Time-based scaling
-	float timeScale = deltaMs * 0.1f;
-	
-	// Direction
+	// Final rotation using MC sensitivity formula
+	// Dream-Advanced: sens^3 * 8 * 0.03 * deltaMs * direction * aimSpeed
 	float direction = (angleDiff > 0) ? 1.0f : -1.0f;
+	float rotation = mcFactor * 0.03f * deltaMs * direction * static_cast<float>(aimSpeed);
 	
-	float rotation = baseRotation * timeScale * direction;
-	
-	// Micro-threshold for stuck prevention
-	if (std::abs(rotation) < 0.01f && absAngle > 1.0f) {
-		rotation = 0.01f * direction;
+	// Clamp to not overshoot
+	if (std::abs(rotation) > absAngle) {
+		rotation = angleDiff * 0.8f;
 	}
 	
 	return rotation;

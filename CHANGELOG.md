@@ -6,6 +6,25 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/).
 
 ---
 
+## [0.7.2] - 2025-12-26
+
+### Added
+- **Ctrl+C / Cerrar ventana** para descargar el cliente sin cerrar Minecraft
+  - Console handler que termina limpiamente el DLL
+  - Desactiva módulos antes de descargar
+  - Minecraft sigue corriendo normalmente
+- Título de consola: "Cobble Client"
+- Instrucciones claras al iniciar (R, V, Ctrl+C)
+
+### Changed
+- **Consola aislada**: El chat de Minecraft ya no aparece en nuestra consola
+  - Logger usa WriteConsole directamente en vez de redirigir stdout
+- **Consola sin spam**: Solo loguea enable/disable de módulos
+- AutoClicker: Max CPS ahora limitado a 20
+- AutoClicker: Validación min ≤ max en sliders
+
+---
+
 ## [0.7.1] - 2025-12-26
 
 ### Changed

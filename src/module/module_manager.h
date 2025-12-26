@@ -28,6 +28,9 @@ private:
 	
 	// Keybind state tracking to detect key press (not hold)
 	bool keyStates[256] = { false };
+	
+	// Check if Minecraft window is focused
+	bool isMinecraftFocused();
 };
 
 extern ModuleManager moduleManager;

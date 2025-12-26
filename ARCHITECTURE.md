@@ -110,3 +110,17 @@ Output: bin/Debug/Cobble.dll
 - Loop principal: 1ms delay para responsividad
 - Edge detection en keybinds (no repeat)
 - WebSocket reconecta automáticamente
+
+## Known Bugs / TODO
+
+### 🐛 Console close crashea Minecraft
+**Descripción**: Cerrar la consola (X o Ctrl+C) termina crasheando Minecraft, aunque el handler retorna TRUE.
+
+**Causa**: La consola está atada al proceso host (Minecraft/Lunar). Windows envía CTRL_CLOSE_EVENT y eventualmente mata el proceso si no termina rápido.
+
+**Soluciones propuestas**:
+1. **Sin consola** - Quitar la consola y usar solo Web UI (recomendado)
+2. **Inyector separado** - Crear un .exe que mantenga su propia consola e inyecte el DLL. Comunicación via named pipe.
+
+**Workaround actual**: `fastShutdown()` intenta hacer cleanup rápido pero no es 100% efectivo.
+

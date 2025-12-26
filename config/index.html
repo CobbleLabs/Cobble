@@ -251,8 +251,8 @@
 <body>
     <div class="container">
         <header>
-            <h1><span>Cobble</span> Config</h1>
-            <p class="subtitle">Ghost Client Configuration</p>
+            <h1><span>Cobble Client</span></h1>
+            <p class="subtitle">Dashboard</p>
         </header>
 
         <!-- AutoClicker Module -->
@@ -270,14 +270,12 @@
             <div class="setting-row">
                 <div class="setting-label"><span>Min CPS</span><span class="setting-value" id="minCps-value">10</span>
                 </div>
-                <input type="range" id="minCps" min="1" max="20" value="10"
-                    oninput="updateSlider(this, 'minCps-value')">
+                <input type="range" id="minCps" min="1" max="20" value="10" oninput="updateCpsSlider(this, 'min')">
             </div>
             <div class="setting-row">
                 <div class="setting-label"><span>Max CPS</span><span class="setting-value" id="maxCps-value">14</span>
                 </div>
-                <input type="range" id="maxCps" min="1" max="25" value="14"
-                    oninput="updateSlider(this, 'maxCps-value')">
+                <input type="range" id="maxCps" min="1" max="20" value="14" oninput="updateCpsSlider(this, 'max')">
             </div>
             <div class="section-divider"></div>
             <div class="checkbox-row" onclick="toggleCheckbox(this)">
@@ -339,7 +337,7 @@
             </div>
             <div class="setting-row">
                 <div class="setting-label"><span>FOV</span><span class="setting-value" id="aa-fov-value">60</span></div>
-                <input type="range" id="aa-fov" min="10" max="180" value="60"
+                <input type="range" id="aa-fov" min="10" max="360" value="60"
                     oninput="updateSlider(this, 'aa-fov-value')">
             </div>
             <div class="setting-row">
@@ -353,6 +351,12 @@
                         id="aa-random-value">0.15</span></div>
                 <input type="range" id="aa-random" min="0" max="50" value="15"
                     oninput="updateSlider(this, 'aa-random-value', 0.01)">
+            </div>
+            <div class="setting-row">
+                <div class="setting-label"><span>Prediction</span><span class="setting-value"
+                        id="aa-prediction-value">15</span></div>
+                <input type="range" id="aa-prediction" min="0" max="30" value="15"
+                    oninput="updateSlider(this, 'aa-prediction-value')">
             </div>
             <div class="section-divider"></div>
             <div class="checkbox-row" onclick="toggleCheckbox(this)">
@@ -407,6 +411,26 @@
             sendConfig();
         }
 
+        // CPS slider with min/max validation
+        function updateCpsSlider(input, type) {
+            const minSlider = document.getElementById('minCps');
+            const maxSlider = document.getElementById('maxCps');
+            let minVal = parseInt(minSlider.value);
+            let maxVal = parseInt(maxSlider.value);
+
+            if (type === 'min' && minVal > maxVal) {
+                minSlider.value = maxVal;
+                minVal = maxVal;
+            } else if (type === 'max' && maxVal < minVal) {
+                maxSlider.value = minVal;
+                maxVal = minVal;
+            }
+
+            document.getElementById('minCps-value').textContent = minSlider.value;
+            document.getElementById('maxCps-value').textContent = maxSlider.value;
+            sendConfig();
+        }
+
         function toggleModule(el) { el.classList.toggle('active'); sendConfig(); }
         function toggleCheckbox(row) { row.querySelector('.checkbox').classList.toggle('checked'); sendConfig(); }
 
@@ -449,7 +473,8 @@
                 onlyClicking: document.querySelector('[data-setting="aa-onlyClicking"]').classList.contains('checked'),
                 targetLock: document.querySelector('[data-setting="aa-targetLock"]').classList.contains('checked'),
                 verticalAim: document.querySelector('[data-setting="aa-verticalAim"]').classList.contains('checked'),
-                hurtTimeBoost: document.querySelector('[data-setting="aa-hurtTimeBoost"]').classList.contains('checked')
+                hurtTimeBoost: document.querySelector('[data-setting="aa-hurtTimeBoost"]').classList.contains('checked'),
+                prediction: parseFloat(document.getElementById('aa-prediction').value)
             };
         }
 
@@ -491,6 +516,10 @@
             document.querySelector('[data-setting="aa-targetLock"]').classList.toggle('checked', c.targetLock);
             document.querySelector('[data-setting="aa-verticalAim"]').classList.toggle('checked', c.verticalAim);
             document.querySelector('[data-setting="aa-hurtTimeBoost"]').classList.toggle('checked', c.hurtTimeBoost);
+            if (c.prediction !== undefined) {
+                document.getElementById('aa-prediction').value = c.prediction;
+                document.getElementById('aa-prediction-value').textContent = Math.round(c.prediction);
+            }
         }
 
         function saveConfig() { sendConfig(); showStatus('Config saved', 'success'); }

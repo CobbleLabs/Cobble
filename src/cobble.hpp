@@ -10,6 +10,7 @@ namespace cobble {
 	struct context {
 		static void initialize();
 		static void shutdown();
+		static void fastShutdown();
 
 		static inline bool is_running;
 	};

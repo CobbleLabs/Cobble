@@ -6,12 +6,39 @@
 #include "module/aimassist.h"
 #include "web/config.h"
 
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <Windows.h>
+#include <atomic>
+
+// Flag for shutdown signaling
+static std::atomic<bool> shutdownRequested{ false };
+
+// Console Ctrl handler - MUST return quickly
+BOOL WINAPI ConsoleCtrlHandler(DWORD dwCtrlType)
+{
+	switch (dwCtrlType) {
+		case CTRL_C_EVENT:
+		case CTRL_BREAK_EVENT:
+		case CTRL_CLOSE_EVENT:
+			// Signal shutdown, don't block
+			shutdownRequested = true;
+			cobble::context::is_running = false;
+			return TRUE; // Handled - don't kill process
+		default:
+			return FALSE;
+	}
+}
+
 void cobble::context::initialize()
 {
 	logger.initialize();
 	
+	// Install console control handler (Ctrl+C, window close, etc)
+	SetConsoleCtrlHandler(ConsoleCtrlHandler, TRUE);
+	
 	log_debug("starting cobble...");
-	std::cout.flush();
 	
 	Java::Init();
 
@@ -37,13 +64,16 @@ void cobble::context::initialize()
 	Web_Init();
 
 	log_ok("cobble initialized");
-	log_prompt("press R to toggle autoclicker");
-	log_prompt("press V to toggle aimassist");
-	log_prompt("web config: ws://localhost:8765");
+	logger.writeRaw("\n");
+	log_prompt("R = toggle autoclicker");
+	log_prompt("V = toggle aimassist");
+	log_prompt("Ctrl+C = unload client");
+	logger.writeRaw("\n");
+	log_debug("dashboard: open config/index.html");
 
 	is_running = true;
 
-	while (is_running)
+	while (is_running && !shutdownRequested)
 	{
 		// Refresh player state each tick
 		player.refresh();
@@ -54,12 +84,39 @@ void cobble::context::initialize()
 		std::this_thread::sleep_for(std::chrono::milliseconds(1));
 	}
 
-	shutdown();
+	// Only shutdown if we're still in control (not being force-killed)
+	if (!shutdownRequested) {
+		shutdown();
+	} else {
+		// Fast shutdown for Ctrl+C/close - don't do heavy cleanup
+		fastShutdown();
+	}
 }
 
 void cobble::context::shutdown()
 {
+	logger.writeRaw("\n");
+	log_warn("unloading cobble...");
+	
+	// Disable all modules first
+	autoClicker.setEnabled(false);
+	aimAssist.setEnabled(false);
+	
 	Web_Shutdown();
 	Java::Kill();
+	
+	log_ok("cobble unloaded cleanly");
+	std::this_thread::sleep_for(std::chrono::milliseconds(100));
+	
 	logger.shutdown();
+}
+
+void cobble::context::fastShutdown()
+{
+	// Quick cleanup - console is closing, don't log
+	autoClicker.setEnabled(false);
+	aimAssist.setEnabled(false);
+	
+	// Stop websocket
+	Web_Shutdown();
 }

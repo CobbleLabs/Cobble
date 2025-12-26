@@ -25,12 +25,15 @@ public:
 		bool verticalAim = false;
 		bool hurtTimeBoost = true;
 		
-		// Speed 0-10 scale: 0=minimal, 5=balanced, 10=fast but smooth
+		// Speed 0-10 scale: 0=minimal, 5=balanced, 10=very fast
 		float horizontalSpeed = 5.0f;
 		float verticalSpeed = 3.0f;
 		float maxFov = 60.0f;
 		float maxDistance = 4.0f;
 		float randomization = 0.15f;
+		
+		// Movement prediction (0-30%): subtle lead aim for smooth tracking
+		float prediction = 15.0f; // 15% default - subtle but effective
 	} settings;
 
 private:
@@ -44,6 +47,13 @@ private:
 	double lockedTargetX = 0.0;
 	double lockedTargetZ = 0.0;
 	bool hasLockedTarget = false;
+	
+	// Velocity tracking for prediction
+	double lastTargetX = 0.0;
+	double lastTargetZ = 0.0;
+	double smoothVelocityX = 0.0;
+	double smoothVelocityZ = 0.0;
+	bool hasLastPosition = false;
 
 	float getYawTo(double deltaX, double deltaZ);
 	float getPitchTo(double deltaX, double deltaY, double deltaZ);
@@ -62,6 +72,10 @@ private:
 	// Easing functions for smooth movement
 	float easeOutQuad(float t);
 	float easeOutCubic(float t);
+	
+	// Smooth velocity tracking
+	void updateVelocity(double targetX, double targetZ, float deltaMs);
+	void getPredictedPosition(double targetX, double targetZ, double& outX, double& outZ);
 };
 
 extern AimAssist aimAssist;

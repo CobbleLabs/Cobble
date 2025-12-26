@@ -1,6 +1,29 @@
 #include "module_manager.h"
+#include "../sdk/minecraft.h"
+
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <Windows.h>
+#include <Psapi.h>
 
 ModuleManager moduleManager;
+
+// Check if Minecraft/Lunar window is the foreground window
+bool ModuleManager::isMinecraftFocused()
+{
+	HWND foreground = GetForegroundWindow();
+	if (!foreground) return false;
+	
+	// Get the process ID of the foreground window
+	DWORD foregroundPid = 0;
+	GetWindowThreadProcessId(foreground, &foregroundPid);
+	
+	// Compare with our process
+	DWORD ourPid = GetCurrentProcessId();
+	
+	return foregroundPid == ourPid;
+}
 
 void ModuleManager::registerModule(Module* mod)
 {
@@ -9,6 +32,9 @@ void ModuleManager::registerModule(Module* mod)
 
 void ModuleManager::update()
 {
+	// Only process keybinds and modules when Minecraft is focused
+	if (!isMinecraftFocused()) return;
+	
 	checkKeybinds();
 
 	for (auto* mod : modules)

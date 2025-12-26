@@ -1,6 +1,6 @@
 #pragma once
 
-#include <iostream>
+#include <string>
 #include <string_view>
 #include <Windows.h>
 #include <shared_mutex>
@@ -14,59 +14,88 @@ enum class message_type : std::uint32_t {
 	error = 12
 };
 
-inline std::ostream& operator<< (std::ostream& os, const message_type type)
-{
-	switch (type)
-	{
-	case message_type::debug:	return os << ".";
-	case message_type::success:	return os << "+";
-	case message_type::error:	return os << "!";
-	case message_type::prompt:	return os << ">";
-	case message_type::warning:	return os << "*";
-	default: return os << "";
-	}
-}
-
 class c_logger {
 public:
 	void initialize() {
 		AllocConsole();
-
-		FILE* conin, * conout;
-
-		freopen_s(&conin, "conin$", "r", stdin);
-		freopen_s(&conout, "conout$", "w", stdout);
-		freopen_s(&conout, "conout$", "w", stderr);
-
-		std::cout << "\n";
-		std::cout << "   COBBLE CLIENT\n";
-		std::cout << "\n";
+		
+		// Create a new console screen buffer for our output only
+		consoleHandle = CreateConsoleScreenBuffer(
+			GENERIC_READ | GENERIC_WRITE,
+			FILE_SHARE_READ | FILE_SHARE_WRITE,
+			nullptr,
+			CONSOLE_TEXTMODE_BUFFER,
+			nullptr
+		);
+		
+		if (consoleHandle != INVALID_HANDLE_VALUE) {
+			// Make our buffer the active one
+			SetConsoleActiveScreenBuffer(consoleHandle);
+		}
+		
+		// Set console title
+		SetConsoleTitleA("Cobble Client");
+		
+		// Print header
+		writeRaw("\n");
+		writeRaw("   COBBLE CLIENT\n");
+		writeRaw("\n");
 	}
 
 	void shutdown() {
+		if (consoleHandle && consoleHandle != INVALID_HANDLE_VALUE) {
+			CloseHandle(consoleHandle);
+		}
+		consoleHandle = nullptr;
 		FreeConsole();
 	}
 
 	void print(const message_type type, std::string_view func, std::string_view message) {
-		const auto console = GetStdHandle(STD_OUTPUT_HANDLE);
+		if (!consoleHandle || consoleHandle == INVALID_HANDLE_VALUE) return;
+		
 		std::unique_lock<decltype(mutex)> lock(mutex);
 
 		if (type != message_type::none) {
-			SetConsoleTextAttribute(console, 7);
-			std::cout << "[ ";
+			SetConsoleTextAttribute(consoleHandle, 7);
+			writeRawUnlocked("[ ");
 
-			SetConsoleTextAttribute(console, (WORD)(type));
-			std::cout << type;
+			SetConsoleTextAttribute(consoleHandle, (WORD)(type));
+			writeRawUnlocked(getTypeChar(type));
 
-			SetConsoleTextAttribute(console, 7);
-			std::cout << " ] ";
+			SetConsoleTextAttribute(consoleHandle, 7);
+			writeRawUnlocked(" ] ");
 		}
 
-		SetConsoleTextAttribute(console, 7);
-		std::cout << message << "\n";
+		SetConsoleTextAttribute(consoleHandle, 7);
+		writeRawUnlocked(std::string(message));
+		writeRawUnlocked("\n");
 	}
+	
+	void writeRaw(const std::string& text) {
+		if (!consoleHandle || consoleHandle == INVALID_HANDLE_VALUE) return;
+		std::unique_lock<decltype(mutex)> lock(mutex);
+		writeRawUnlocked(text);
+	}
+
 private:
+	HANDLE consoleHandle = nullptr;
 	std::shared_timed_mutex mutex{};
+	
+	void writeRawUnlocked(const std::string& text) {
+		DWORD written;
+		WriteConsoleA(consoleHandle, text.c_str(), (DWORD)text.size(), &written, nullptr);
+	}
+	
+	const char* getTypeChar(message_type type) {
+		switch (type) {
+			case message_type::debug:   return ".";
+			case message_type::success: return "+";
+			case message_type::error:   return "!";
+			case message_type::prompt:  return ">";
+			case message_type::warning: return "*";
+			default: return "";
+		}
+	}
 };
 
 inline auto logger = c_logger();

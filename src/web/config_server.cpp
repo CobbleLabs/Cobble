@@ -182,7 +182,6 @@ bool ConfigServer::acceptClient() {
 	if (select(0, &readfds, nullptr, nullptr, &timeout) > 0) {
 		clientSocket = accept(serverSocket, nullptr, nullptr);
 		if (clientSocket != INVALID_SOCKET) {
-			log_debug("WebSocket: client connected");
 			return true;
 		}
 	}
@@ -218,7 +217,7 @@ bool ConfigServer::handleWebSocketHandshake() {
 		"Sec-WebSocket-Accept: " + encoded + "\r\n\r\n";
 
 	send(clientSocket, response.c_str(), (int)response.size(), 0);
-	log_debug("WebSocket: handshake complete");
+	// Handshake complete - silent
 	return true;
 }
 

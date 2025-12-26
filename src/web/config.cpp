@@ -73,8 +73,6 @@ namespace {
 }
 
 void Config::apply(const std::string& json) {
-	log_debug("Config received: " + json.substr(0, 100) + "...");
-	
 	// Check message type
 	std::string type = getValue(json, "type");
 	
@@ -96,18 +94,21 @@ void Config::apply(const std::string& json) {
 			aimAssist.settings.maxFov = getFloat(json, "maxFov", 90.0f);
 			aimAssist.settings.maxDistance = getFloat(json, "maxDistance", 4.5f);
 			aimAssist.settings.randomization = getFloat(json, "randomization", 0.25f);
+			aimAssist.settings.prediction = getFloat(json, "prediction", 15.0f);
 			
 			std::string keybindStr = getValue(json, "keybind");
 			if (!keybindStr.empty()) {
 				aimAssist.keybind = keyStringToVK(keybindStr);
 			}
 			
+			bool wasEnabled = aimAssist.enabled;
 			bool enabled = getBool(json, "enabled");
 			aimAssist.setEnabled(enabled);
 			
-			log_ok("AimAssist config applied: hSpeed=" + std::to_string((int)aimAssist.settings.horizontalSpeed) +
-				   ", fov=" + std::to_string((int)aimAssist.settings.maxFov) +
-				   ", enabled=" + (enabled ? "true" : "false"));
+			// Only log state changes
+			if (enabled != wasEnabled) {
+				log_ok(enabled ? "AimAssist enabled" : "AimAssist disabled");
+			}
 		}
 		else {
 			// Default: Apply AutoClicker settings
@@ -126,18 +127,18 @@ void Config::apply(const std::string& json) {
 				autoClicker.keybind = keyStringToVK(keybindStr);
 			}
 			
+			bool wasEnabled = autoClicker.enabled;
 			bool enabled = getBool(json, "enabled");
 			autoClicker.setEnabled(enabled);
 			
-			log_ok("AutoClicker config applied: CPS=" + std::to_string((int)autoClicker.settings.minCPS) + 
-				   "-" + std::to_string((int)autoClicker.settings.maxCPS) + 
-				   ", key=" + vkToKeyString(autoClicker.keybind) +
-				   ", enabled=" + (enabled ? "true" : "false"));
+			// Only log state changes
+			if (enabled != wasEnabled) {
+				log_ok(enabled ? "AutoClicker enabled" : "AutoClicker disabled");
+			}
 		}
 	}
 	else if (type == "getConfig") {
-		// Send current config to client
-		log_debug("Sending current config to client");
+		// Send current config to client (silent)
 		configServer.sendMessage(serialize());
 	}
 	else {
@@ -180,7 +181,8 @@ std::string Config::serialize() {
 	ss << "\"verticalSpeed\":" << aimAssist.settings.verticalSpeed << ",";
 	ss << "\"maxFov\":" << aimAssist.settings.maxFov << ",";
 	ss << "\"maxDistance\":" << aimAssist.settings.maxDistance << ",";
-	ss << "\"randomization\":" << aimAssist.settings.randomization;
+	ss << "\"randomization\":" << aimAssist.settings.randomization << ",";
+	ss << "\"prediction\":" << aimAssist.settings.prediction;
 	ss << "}";
 	
 	ss << "}";
