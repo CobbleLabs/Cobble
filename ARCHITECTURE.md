@@ -7,15 +7,29 @@ Ghost client inyectable para Lunar Client (Minecraft) via JNI.
 ```
 Cobble/
 ├── src/
-│   ├── main.cpp          # Entry point (DllMain)
-│   ├── cobble.cpp/.hpp   # Context principal y ciclo de vida
+│   ├── main.cpp              # Entry point (DllMain)
+│   ├── cobble.cpp/.hpp       # Context principal y ciclo de vida
 │   ├── jni/
-│   │   ├── java.cpp/.h   # Puente JNI y ClassLoader
+│   │   └── java.cpp/.h       # Puente JNI y ClassLoader
+│   ├── sdk/
+│   │   ├── version.h         # Enum de versiones MC
+│   │   ├── jstring_util.h    # Conversión jstring ↔ std::string
+│   │   ├── minecraft.cpp/.h  # Wrapper Minecraft (thePlayer, theWorld, etc)
+│   │   └── player.cpp/.h     # Wrapper LocalPlayer (pos, motion, health, etc)
+│   ├── module/
+│   │   ├── module.h          # Base class para módulos
+│   │   ├── module_manager.h/.cpp  # Registro y keybinds
+│   │   └── autoclicker.h/.cpp     # AutoClicker con randomización
+│   ├── web/
+│   │   ├── config_server.h/.cpp   # WebSocket server (WinSock)
+│   │   └── config.h/.cpp          # Parser JSON y sync de config
 │   └── util/
-│       └── logger.hpp    # Sistema de logging a consola
+│       └── logger.hpp        # Sistema de logging a consola
+├── config/
+│   └── index.html            # Web GUI para configuración
 ├── ext/
-│   └── jni/              # Headers JNI y jvm.lib
-└── bin/                  # DLL compilada
+│   └── jni/                  # Headers JNI y jvm.lib
+└── bin/                      # DLL compilada
 ```
 
 ## Ciclo de Vida
@@ -23,67 +37,76 @@ Cobble/
 ```
 DllMain (DLL_PROCESS_ATTACH)
     └── CreateThread → cobble::context::initialize()
-                           ├── logger.initialize()      # Consola
-                           ├── Java::Init()             # JNI attach + ClassLoader
-                           ├── Main loop (5ms tick)
-                           └── shutdown() on exit
+                           ├── logger.initialize()
+                           ├── Java::Init()               # JNI + ClassLoader
+                           ├── SDK_Init()                 # Minecraft wrapper
+                           ├── moduleManager.register()   # Registrar módulos
+                           ├── Web_Init()                 # WebSocket server
+                           ├── Main loop (1ms tick)
+                           │     ├── player.refresh()
+                           │     └── moduleManager.update()
+                           └── shutdown() → Web_Shutdown() → Java::Kill()
 ```
 
-## Componentes
+## Componentes Principales
 
-### `cobble::context`
-- **initialize()**: Setup inicial, loop principal
-- **shutdown()**: Limpieza ordenada
-- **is_running**: Flag de control del loop
+### SDK (`src/sdk/`)
+- **Minecraft**: Wrapper para `net.minecraft.client.Minecraft`
+  - `getPlayer()`, `getWorld()`, `isInGui()`, `isTargetingBlock()`
+  - `clickMouse()`, `setLeftClickCounter()`, `setRightClickDelay()`
+- **LocalPlayer**: Wrapper para EntityPlayerSP + EntityLivingBase + Entity
+  - Posición, movimiento, rotación
+  - `getHealth()`, `getHurtTime()`, `isOnGround()`
+  - `isSprinting()`, `setSprinting()`, `jump()`
+  - `getHeldItemId()` - para detección de armas
 
-### `Java` (JNI Bridge)
-- **Init()**: Attach a la JVM, obtiene JNIEnv y JVMTI, configura ClassLoader
-- **Kill()**: Detach de la JVM
-- **AssignClass()**: Busca clases via ClassLoader de Minecraft
-- **Env/tiEnv**: Punteros globales a JNIEnv y jvmtiEnv
+### Sistema de Módulos (`src/module/`)
+- **Module**: Base class con `onEnable()`, `onDisable()`, `onUpdate()`, keybind
+- **ModuleManager**: Registro, detección de keybinds (edge detection), tick loop
+- **AutoClicker**: 
+  - SendMessage clicking (registra en CPS counters)
+  - Randomización: drop chance, spike chance, kurtosis
+  - Weapon-only mode (swords, axes por ID)
+  - Ignore blocks (via MouseOver)
 
-### ClassLoader Setup
-El ClassLoader se obtiene iterando todos los threads de la JVM y buscando el que puede cargar `net.minecraft.client.Minecraft`. Esto es necesario porque las clases de Minecraft están en un ClassLoader custom, no en el bootstrap.
+### Web Config (`src/web/`)
+- **ConfigServer**: WebSocket server puro WinSock (puerto 8765)
+  - Handshake WebSocket
+  - Frame encoding/decoding
+  - SHA-1 para Accept key
+- **Config**: Parser JSON simple, sync bidireccional
+  - `apply()`: Recibe config del browser
+  - `serialize()`: Envía config actual al browser
 
 ## Threading
 
 | Contexto | Thread |
 |----------|--------|
 | DllMain | Thread del loader |
-| initialize()/loop | Thread creado por CreateThread |
-| Llamadas JNI | Mismo thread del loop (attached) |
+| Main loop | Thread creado (attached a JVM) |
+| WebSocket accept | Thread separado (serverLoop) |
+| Llamadas JNI | Solo desde main loop thread |
 
-> **Importante**: `Java::Env` solo es válido en el thread donde se hizo `AttachCurrentThread`. No usar desde otros threads.
+> **Importante**: `Java::Env` solo es válido en el thread attached. El WebSocket server no hace llamadas JNI directas.
 
 ## Build
 
-### Visual Studio (recomendado)
+### Visual Studio
 ```
-Abrir Cobble.sln → Build → Release x64
-```
-
-### CMake (alternativo)
-```bash
-mkdir build && cd build
-cmake .. -A x64
-cmake --build . --config Release
+Abrir Cobble.sln → Build → Debug/Release x64
+Output: bin/Debug/Cobble.dll
 ```
 
-## Dependencias
+## Web Config
 
-- **jvm.lib**: Import library para JNI_GetCreatedJavaVMs
-- **Headers JNI**: jni.h, jni_md.h, jvmti.h
-
-## Agregar Features
-
-1. Crear archivos en `src/` o subcarpeta apropiada
-2. Incluir desde `cobble.hpp` si es necesario
-3. Inicializar en `cobble::context::initialize()` después de `Java::Init()`
-4. Limpiar en `shutdown()` en orden inverso
+1. Inyectar DLL en Minecraft
+2. Abrir `config/index.html` en navegador
+3. Cambios se aplican en tiempo real via WebSocket
 
 ## Notas de Estabilidad
 
-- No llamar JNI desde threads no-attached
-- DeleteLocalRef para evitar leaks de referencias locales
-- El loop principal tiene delay de 5ms para no saturar CPU
-- Siempre verificar punteros JNI antes de usarlos (pueden ser null)
+- DeleteLocalRef para evitar memory leaks de JNI
+- WIN32_LEAN_AND_MEAN antes de WinSock2.h
+- Loop principal: 1ms delay para responsividad
+- Edge detection en keybinds (no repeat)
+- WebSocket reconecta automáticamente
