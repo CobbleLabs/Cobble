@@ -13,8 +13,6 @@ CMakeConfigureLog.yaml
 # Visual Studio / MSVC
 # =========================
 .vs/
-*.sln
-*.vcxproj*
 *.filters
 *.user
 *.idb
