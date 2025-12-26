@@ -1,0 +1,13 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="17.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <CustomBuild Include="C:\Users\xac\Documents\Codes\Syra\CobbleClient\build\CMakeFiles\7521a21b7b1d7401d4b7a46d71de7990\generate.stamp.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="CMake Rules">
+      <UniqueIdentifier>{35EF5610-C3C3-3C48-9372-11795D670E1B}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+</Project>

@@ -1,0 +1,3 @@
+C:/Users/xac/Documents/Codes/Syra/CobbleClient/build/CMakeFiles/Cobble.dir
+C:/Users/xac/Documents/Codes/Syra/CobbleClient/build/CMakeFiles/ALL_BUILD.dir
+C:/Users/xac/Documents/Codes/Syra/CobbleClient/build/CMakeFiles/ZERO_CHECK.dir

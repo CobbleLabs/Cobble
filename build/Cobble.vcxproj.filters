@@ -1,0 +1,36 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="17.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <ClCompile Include="C:\Users\xac\Documents\Codes\Syra\CobbleClient\src\main.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\xac\Documents\Codes\Syra\CobbleClient\src\cobble.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\xac\Documents\Codes\Syra\CobbleClient\src\jni\java.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="C:\Users\xac\Documents\Codes\Syra\CobbleClient\src\cobble.hpp">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\xac\Documents\Codes\Syra\CobbleClient\src\jni\java.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\xac\Documents\Codes\Syra\CobbleClient\src\util\logger.hpp">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <CustomBuild Include="C:\Users\xac\Documents\Codes\Syra\CobbleClient\CMakeLists.txt" />
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="Header Files">
+      <UniqueIdentifier>{D43AD9CE-09BD-3BDA-BF0A-477FEBF02610}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files">
+      <UniqueIdentifier>{B6350EEE-D404-3277-8205-EBCEFF455955}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+</Project>

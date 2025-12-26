@@ -1,0 +1,10 @@
+^C:\USERS\XAC\DOCUMENTS\CODES\SYRA\COBBLECLIENT\CMAKELISTS.TXT
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -SC:/Users/xac/Documents/Codes/Syra/CobbleClient -BC:/Users/xac/Documents/Codes/Syra/CobbleClient/build --check-stamp-file C:/Users/xac/Documents/Codes/Syra/CobbleClient/build/CMakeFiles/generate.stamp
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
