@@ -88,9 +88,14 @@ void Config::apply(const std::string& json) {
 			aimAssist.settings.ignoreInvisible = getBool(json, "ignoreInvisible", true);
 			aimAssist.settings.onlySprinting = getBool(json, "onlySprinting");
 			aimAssist.settings.onlyClicking = getBool(json, "onlyClicking", true);
-			aimAssist.settings.speed = getFloat(json, "speed", 15.0f);
+			aimAssist.settings.targetLock = getBool(json, "targetLock", true);
+			aimAssist.settings.verticalAim = getBool(json, "verticalAim");
+			aimAssist.settings.hurtTimeBoost = getBool(json, "hurtTimeBoost", true);
+			aimAssist.settings.horizontalSpeed = getFloat(json, "horizontalSpeed", 25.0f);
+			aimAssist.settings.verticalSpeed = getFloat(json, "verticalSpeed", 12.0f);
 			aimAssist.settings.maxFov = getFloat(json, "maxFov", 90.0f);
 			aimAssist.settings.maxDistance = getFloat(json, "maxDistance", 4.5f);
+			aimAssist.settings.randomization = getFloat(json, "randomization", 0.25f);
 			
 			std::string keybindStr = getValue(json, "keybind");
 			if (!keybindStr.empty()) {
@@ -100,7 +105,7 @@ void Config::apply(const std::string& json) {
 			bool enabled = getBool(json, "enabled");
 			aimAssist.setEnabled(enabled);
 			
-			log_ok("AimAssist config applied: speed=" + std::to_string((int)aimAssist.settings.speed) +
+			log_ok("AimAssist config applied: hSpeed=" + std::to_string((int)aimAssist.settings.horizontalSpeed) +
 				   ", fov=" + std::to_string((int)aimAssist.settings.maxFov) +
 				   ", enabled=" + (enabled ? "true" : "false"));
 		}
@@ -168,9 +173,14 @@ std::string Config::serialize() {
 	ss << "\"ignoreInvisible\":" << (aimAssist.settings.ignoreInvisible ? "true" : "false") << ",";
 	ss << "\"onlySprinting\":" << (aimAssist.settings.onlySprinting ? "true" : "false") << ",";
 	ss << "\"onlyClicking\":" << (aimAssist.settings.onlyClicking ? "true" : "false") << ",";
-	ss << "\"speed\":" << aimAssist.settings.speed << ",";
+	ss << "\"targetLock\":" << (aimAssist.settings.targetLock ? "true" : "false") << ",";
+	ss << "\"verticalAim\":" << (aimAssist.settings.verticalAim ? "true" : "false") << ",";
+	ss << "\"hurtTimeBoost\":" << (aimAssist.settings.hurtTimeBoost ? "true" : "false") << ",";
+	ss << "\"horizontalSpeed\":" << aimAssist.settings.horizontalSpeed << ",";
+	ss << "\"verticalSpeed\":" << aimAssist.settings.verticalSpeed << ",";
 	ss << "\"maxFov\":" << aimAssist.settings.maxFov << ",";
-	ss << "\"maxDistance\":" << aimAssist.settings.maxDistance;
+	ss << "\"maxDistance\":" << aimAssist.settings.maxDistance << ",";
+	ss << "\"randomization\":" << aimAssist.settings.randomization;
 	ss << "}";
 	
 	ss << "}";

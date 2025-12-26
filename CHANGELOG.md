@@ -6,6 +6,44 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/).
 
 ---
 
+## [0.7.0] - 2025-12-26
+
+### Changed
+- **AimAssist: Reescritura completa** basada en Dream-Advanced
+  - Timer-based updates (1-10ms) para smoothness óptimo
+  - Fórmula de sensibilidad de MC: `(sens * 0.6 + 0.2)^3 * 8`
+  - Hurt Time Boost: rota más rápido cuando te golpean
+  - Target Lock: mantiene el mismo target mientras clickeas
+  - Vertical Aim: opcional, ajusta pitch además de yaw
+  - Randomization: variación natural en el movimiento
+  - Speed scaling por ángulo (ángulos grandes = rotación más rápida)
+  - Horizontal/Vertical speed separados
+
+### Added
+- Nuevos settings de AimAssist:
+  - `horizontalSpeed` / `verticalSpeed` separados
+  - `targetLock` - lockea en un target
+  - `verticalAim` - ajusta pitch
+  - `hurtTimeBoost` - más rápido cuando te pegan
+  - `randomization` - variación natural
+
+---
+
+## [0.6.1] - 2025-12-26
+
+### Changed
+- **AimAssist: Smoothing mejorado**
+  - Interpolación exponencial en lugar de lineal
+  - Ajuste dinámico por distancia (más rápido cerca)
+  - Ajuste por ángulo (correcciones pequeñas más suaves)
+  - Dead zone reducida a 0.5° para precisión
+- **AimAssist: Distancia horizontal**
+  - Usa solo X,Z para cálculo de distancia (ignora Y)
+  - Más preciso para detección de reach en PvP
+  - Prioriza targets por distancia, luego por ángulo
+
+---
+
 ## [0.6.0] - 2025-12-26
 
 ### Added

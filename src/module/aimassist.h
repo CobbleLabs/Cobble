@@ -2,13 +2,11 @@
 
 #include "module.h"
 #include <cmath>
+#include <chrono>
+#include <random>
 
-// Smooth aim assistance towards nearby players
-// Features:
-// - Visibility check (only aim at visible players)
-// - Invisible player filtering
-// - Only when clicking/sprinting options
-// - Configurable FOV, speed, and distance
+// Premium AimAssist with advanced smoothing techniques
+// Based on professional ghost client implementations
 class AimAssist : public Module
 {
 public:
@@ -23,23 +21,37 @@ public:
 		bool ignoreInvisible = true;
 		bool onlySprinting = false;
 		bool onlyClicking = true;
+		bool targetLock = true;
+		bool verticalAim = false;
+		bool hurtTimeBoost = true;
 		
-		float speed = 15.0f;       // Rotation speed (higher = faster snap)
-		float maxFov = 90.0f;      // Max angle to consider targets
-		float maxDistance = 4.5f;  // Max distance to target
+		float horizontalSpeed = 25.0f;
+		float verticalSpeed = 12.0f;
+		float maxFov = 90.0f;
+		float maxDistance = 4.5f;
+		float randomization = 0.25f;
 	} settings;
 
 private:
 	static constexpr float PI = 3.14159265358979323846f;
+	static constexpr float MC_SENSITIVITY = 0.5f;
 
-	// Calculate yaw angle to target position
-	float calculateYawTo(double targetX, double targetZ);
+	std::mt19937 rng;
+	std::chrono::steady_clock::time_point lastUpdate;
+	
+	// Target lock state
+	double lockedTargetX = 0.0;
+	double lockedTargetZ = 0.0;
+	bool hasLockedTarget = false;
 
-	// Wrap angle to -180 to 180 range
+	float getYawTo(double deltaX, double deltaZ);
+	float getPitchTo(double deltaX, double deltaY, double deltaZ);
 	float wrapAngle(float angle);
-
-	// Get distance between two 3D points
-	double getDistance(double x1, double y1, double z1, double x2, double y2, double z2);
+	double getHorizontalDistance(double x1, double z1, double x2, double z2);
+	float randomFloat(float min, float max);
+	
+	// Calculates smooth rotation amount using MC sensitivity formula
+	float calculateSmoothRotation(float angleDiff, float speed, float deltaMs, int hurtTime);
 };
 
 extern AimAssist aimAssist;
