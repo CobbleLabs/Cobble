@@ -40,6 +40,10 @@ private:
 	std::mt19937 rng;
 	float normalCps = 0.0f;
 
+public:
+	// For AimAssist integration - when was the last auto-click
+	std::chrono::steady_clock::time_point lastAutoClick;
+
 	void calculateNextDelay();
 	bool shouldClick();
 	void doClick();

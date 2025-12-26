@@ -5,8 +5,6 @@
 #include <chrono>
 #include <random>
 
-// Premium AimAssist with advanced smoothing techniques
-// Based on professional ghost client implementations
 class AimAssist : public Module
 {
 public:
@@ -24,16 +22,13 @@ public:
 		bool targetLock = true;
 		bool verticalAim = false;
 		bool hurtTimeBoost = true;
-		
-		// Speed 0-10 scale: 0=minimal, 5=balanced, 10=very fast
-		float horizontalSpeed = 5.0f;
-		float verticalSpeed = 3.0f;
-		float maxFov = 60.0f;
-		float maxDistance = 4.0f;
-		float randomization = 0.15f;
-		
-		// Movement prediction (0-30%): subtle lead aim for smooth tracking
-		float prediction = 15.0f; // 15% default - subtle but effective
+
+		float horizontalSpeed = 3.0f;
+		float verticalSpeed = 2.0f;
+		float maxFov = 90.0f;
+		float maxDistance = 4.5f;
+		float randomization = 0.20f;
+		float prediction = 12.0f;
 	} settings;
 
 private:
@@ -54,6 +49,20 @@ private:
 	double smoothVelocityX = 0.0;
 	double smoothVelocityZ = 0.0;
 	bool hasLastPosition = false;
+	
+	// HUMAN-LIKE: Angular velocity (inertia system)
+	float yawVelocity = 0.0f;
+	float pitchVelocity = 0.0f;
+	
+	// For oscillation
+	int tickCounter = 0;
+	
+	// CLICK-TRIGGERED: Assistance only in windows after clicks
+	std::chrono::steady_clock::time_point lastClickTime;
+	bool wasClicking = false;
+	bool inAssistanceWindow = false;
+	float currentWindowDuration = 0.0f;  // Fixed per click, not recalculated
+	bool assistAppliedThisClick = false; // Only ONE pulse per click
 
 	float getYawTo(double deltaX, double deltaZ);
 	float getPitchTo(double deltaX, double deltaY, double deltaZ);

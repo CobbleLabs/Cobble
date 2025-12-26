@@ -85,6 +85,7 @@ void AutoClicker::onUpdate()
 	// Perform click
 	doClick();
 	lastClick = now;
+	lastAutoClick = now; // Notify AimAssist
 	calculateNextDelay();
 }
 
@@ -126,6 +127,11 @@ void AutoClicker::calculateNextDelay()
 
 	// Convert CPS to delay in milliseconds
 	nextDelayMs = static_cast<int>(1000.0f / cps);
+	
+	// ANTI-DETECTION: Add micro-jitter (±5ms random variation)
+	std::uniform_int_distribution<int> jitterDist(-5, 5);
+	nextDelayMs += jitterDist(rng);
+	nextDelayMs = (std::max)(nextDelayMs, 40); // Minimum 40ms (25 CPS max)
 }
 
 void AutoClicker::doClick()
