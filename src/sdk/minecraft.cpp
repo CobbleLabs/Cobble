@@ -158,3 +158,116 @@ bool Minecraft::isTargetingBlock()
 
 	return result;
 }
+
+std::vector<PlayerInfo> Minecraft::getPlayerList()
+{
+	std::vector<PlayerInfo> result;
+	if (!isValid()) return result;
+
+	jobject world = getWorld();
+	if (!world) return result;
+
+	jclass worldCls = nullptr;
+	if (!Java::AssignClass("net.minecraft.client.multiplayer.WorldClient", worldCls)) {
+		Java::Env->DeleteLocalRef(world);
+		return result;
+	}
+
+	// Get playerEntities field (List<EntityPlayer>)
+	jfieldID fid_playerEntities = Java::Env->GetFieldID(worldCls, "playerEntities", "Ljava/util/List;");
+	if (!fid_playerEntities) {
+		Java::Env->DeleteLocalRef(world);
+		Java::Env->DeleteLocalRef(worldCls);
+		return result;
+	}
+
+	jobject playerList = Java::Env->GetObjectField(world, fid_playerEntities);
+	Java::Env->DeleteLocalRef(world);
+	Java::Env->DeleteLocalRef(worldCls);
+
+	if (!playerList) return result;
+
+	// Get List methods
+	jclass listCls = Java::Env->GetObjectClass(playerList);
+	jmethodID mid_size = Java::Env->GetMethodID(listCls, "size", "()I");
+	jmethodID mid_get = Java::Env->GetMethodID(listCls, "get", "(I)Ljava/lang/Object;");
+
+	if (!mid_size || !mid_get) {
+		Java::Env->DeleteLocalRef(playerList);
+		Java::Env->DeleteLocalRef(listCls);
+		return result;
+	}
+
+	int size = Java::Env->CallIntMethod(playerList, mid_size);
+
+	// Get Entity class for position fields
+	jclass entityCls = nullptr;
+	if (!Java::AssignClass("net.minecraft.entity.Entity", entityCls)) {
+		Java::Env->DeleteLocalRef(playerList);
+		Java::Env->DeleteLocalRef(listCls);
+		return result;
+	}
+
+	jfieldID fid_posX = Java::Env->GetFieldID(entityCls, "posX", "D");
+	jfieldID fid_posY = Java::Env->GetFieldID(entityCls, "posY", "D");
+	jfieldID fid_posZ = Java::Env->GetFieldID(entityCls, "posZ", "D");
+	jmethodID mid_isInvisible = Java::Env->GetMethodID(entityCls, "isInvisible", "()Z");
+
+	jobject localPlayer = getPlayer();
+
+	for (int i = 0; i < size; i++) {
+		jobject entity = Java::Env->CallObjectMethod(playerList, mid_get, i);
+		if (!entity) continue;
+
+		// Skip local player
+		if (localPlayer && Java::Env->IsSameObject(entity, localPlayer)) {
+			Java::Env->DeleteLocalRef(entity);
+			continue;
+		}
+
+		PlayerInfo info;
+		info.instance = entity;
+		info.posX = Java::Env->GetDoubleField(entity, fid_posX);
+		info.posY = Java::Env->GetDoubleField(entity, fid_posY);
+		info.posZ = Java::Env->GetDoubleField(entity, fid_posZ);
+		info.isInvisible = mid_isInvisible ? Java::Env->CallBooleanMethod(entity, mid_isInvisible) : false;
+
+		result.push_back(info);
+	}
+
+	if (localPlayer) Java::Env->DeleteLocalRef(localPlayer);
+	Java::Env->DeleteLocalRef(entityCls);
+	Java::Env->DeleteLocalRef(playerList);
+	Java::Env->DeleteLocalRef(listCls);
+
+	return result;
+}
+
+bool Minecraft::canEntityBeSeen(jobject target)
+{
+	if (!isValid() || !target) return false;
+
+	jobject localPlayer = getPlayer();
+	if (!localPlayer) return false;
+
+	// Get EntityLivingBase class for canEntityBeSeen method
+	jclass livingCls = nullptr;
+	if (!Java::AssignClass("net.minecraft.entity.EntityLivingBase", livingCls)) {
+		Java::Env->DeleteLocalRef(localPlayer);
+		return false;
+	}
+
+	jmethodID mid_canSee = Java::Env->GetMethodID(livingCls, "canEntityBeSeen", "(Lnet/minecraft/entity/Entity;)Z");
+	if (!mid_canSee) {
+		Java::Env->DeleteLocalRef(localPlayer);
+		Java::Env->DeleteLocalRef(livingCls);
+		return false;
+	}
+
+	bool result = Java::Env->CallBooleanMethod(localPlayer, mid_canSee, target);
+
+	Java::Env->DeleteLocalRef(localPlayer);
+	Java::Env->DeleteLocalRef(livingCls);
+
+	return result;
+}

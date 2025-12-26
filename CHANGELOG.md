@@ -6,6 +6,32 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/).
 
 ---
 
+## [0.6.0] - 2025-12-26
+
+### Added
+- **AimAssist Module** - Rotación suave hacia jugadores cercanos
+  - Visibility check (solo apunta a jugadores visibles)
+  - Ignore invisible players
+  - Only when clicking/sprinting options
+  - Configurable: speed, FOV, distance
+  - Keybind: V (default)
+- **SDK: Player List** (`mc.getPlayerList()`)
+  - Obtiene todos los jugadores del mundo vía JNI
+  - Excluye automáticamente al jugador local
+  - Incluye posición e invisibilidad de cada jugador
+- **SDK: Visibility Check** (`mc.canEntityBeSeen()`)
+  - Wrapper para EntityLivingBase.canEntityBeSeen()
+- **Web GUI: AimAssist Panel**
+  - Sliders para speed, FOV, distance
+  - Checkboxes para visibility, invisible, sprinting, clicking
+  - Keybind configurable
+
+### Changed
+- Config serialization ahora envía ambos módulos en un solo mensaje (`configAll`)
+- Web GUI soporta múltiples módulos independientes
+
+---
+
 ## [0.5.0] - 2025-12-26
 
 ### Added

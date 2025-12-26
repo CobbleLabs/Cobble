@@ -79,30 +79,56 @@ void Config::apply(const std::string& json) {
 	std::string type = getValue(json, "type");
 	
 	if (type == "config") {
-		// Apply AutoClicker settings
-		autoClicker.settings.minCPS = getFloat(json, "minCPS", 10.0f);
-		autoClicker.settings.maxCPS = getFloat(json, "maxCPS", 14.0f);
-		autoClicker.settings.weaponOnly = getBool(json, "weaponOnly");
-		autoClicker.settings.ignoreBlocks = getBool(json, "ignoreBlocks", true);
-		autoClicker.settings.workInInventory = getBool(json, "workInInventory");
-		autoClicker.settings.advancedMode = getBool(json, "advancedMode", true);
-		autoClicker.settings.dropChance = getFloat(json, "dropChance", 5.0f);
-		autoClicker.settings.spikeChance = getFloat(json, "spikeChance", 10.0f);
-		autoClicker.settings.kurtosis = getFloat(json, "kurtosis", 2.0f);
+		// Determine which module config this is for
+		std::string module = getValue(json, "module");
 		
-		// Keybind
-		std::string keybindStr = getValue(json, "keybind");
-		if (!keybindStr.empty()) {
-			autoClicker.keybind = keyStringToVK(keybindStr);
+		if (module == "aimassist") {
+			// Apply AimAssist settings
+			aimAssist.settings.visibilityCheck = getBool(json, "visibilityCheck", true);
+			aimAssist.settings.ignoreInvisible = getBool(json, "ignoreInvisible", true);
+			aimAssist.settings.onlySprinting = getBool(json, "onlySprinting");
+			aimAssist.settings.onlyClicking = getBool(json, "onlyClicking", true);
+			aimAssist.settings.speed = getFloat(json, "speed", 15.0f);
+			aimAssist.settings.maxFov = getFloat(json, "maxFov", 90.0f);
+			aimAssist.settings.maxDistance = getFloat(json, "maxDistance", 4.5f);
+			
+			std::string keybindStr = getValue(json, "keybind");
+			if (!keybindStr.empty()) {
+				aimAssist.keybind = keyStringToVK(keybindStr);
+			}
+			
+			bool enabled = getBool(json, "enabled");
+			aimAssist.setEnabled(enabled);
+			
+			log_ok("AimAssist config applied: speed=" + std::to_string((int)aimAssist.settings.speed) +
+				   ", fov=" + std::to_string((int)aimAssist.settings.maxFov) +
+				   ", enabled=" + (enabled ? "true" : "false"));
 		}
-		
-		bool enabled = getBool(json, "enabled");
-		autoClicker.setEnabled(enabled);
-		
-		log_ok("Config applied: CPS=" + std::to_string((int)autoClicker.settings.minCPS) + 
-			   "-" + std::to_string((int)autoClicker.settings.maxCPS) + 
-			   ", key=" + vkToKeyString(autoClicker.keybind) +
-			   ", enabled=" + (enabled ? "true" : "false"));
+		else {
+			// Default: Apply AutoClicker settings
+			autoClicker.settings.minCPS = getFloat(json, "minCPS", 10.0f);
+			autoClicker.settings.maxCPS = getFloat(json, "maxCPS", 14.0f);
+			autoClicker.settings.weaponOnly = getBool(json, "weaponOnly");
+			autoClicker.settings.ignoreBlocks = getBool(json, "ignoreBlocks", true);
+			autoClicker.settings.workInInventory = getBool(json, "workInInventory");
+			autoClicker.settings.advancedMode = getBool(json, "advancedMode", true);
+			autoClicker.settings.dropChance = getFloat(json, "dropChance", 5.0f);
+			autoClicker.settings.spikeChance = getFloat(json, "spikeChance", 10.0f);
+			autoClicker.settings.kurtosis = getFloat(json, "kurtosis", 2.0f);
+			
+			std::string keybindStr = getValue(json, "keybind");
+			if (!keybindStr.empty()) {
+				autoClicker.keybind = keyStringToVK(keybindStr);
+			}
+			
+			bool enabled = getBool(json, "enabled");
+			autoClicker.setEnabled(enabled);
+			
+			log_ok("AutoClicker config applied: CPS=" + std::to_string((int)autoClicker.settings.minCPS) + 
+				   "-" + std::to_string((int)autoClicker.settings.maxCPS) + 
+				   ", key=" + vkToKeyString(autoClicker.keybind) +
+				   ", enabled=" + (enabled ? "true" : "false"));
+		}
 	}
 	else if (type == "getConfig") {
 		// Send current config to client
@@ -117,7 +143,10 @@ void Config::apply(const std::string& json) {
 std::string Config::serialize() {
 	std::ostringstream ss;
 	ss << "{";
-	ss << "\"type\":\"config\",";
+	ss << "\"type\":\"configAll\",";
+	
+	// AutoClicker config
+	ss << "\"autoclicker\":{";
 	ss << "\"enabled\":" << (autoClicker.enabled ? "true" : "false") << ",";
 	ss << "\"keybind\":\"" << vkToKeyString(autoClicker.keybind) << "\",";
 	ss << "\"minCPS\":" << autoClicker.settings.minCPS << ",";
@@ -129,6 +158,21 @@ std::string Config::serialize() {
 	ss << "\"dropChance\":" << autoClicker.settings.dropChance << ",";
 	ss << "\"spikeChance\":" << autoClicker.settings.spikeChance << ",";
 	ss << "\"kurtosis\":" << autoClicker.settings.kurtosis;
+	ss << "},";
+	
+	// AimAssist config
+	ss << "\"aimassist\":{";
+	ss << "\"enabled\":" << (aimAssist.enabled ? "true" : "false") << ",";
+	ss << "\"keybind\":\"" << vkToKeyString(aimAssist.keybind) << "\",";
+	ss << "\"visibilityCheck\":" << (aimAssist.settings.visibilityCheck ? "true" : "false") << ",";
+	ss << "\"ignoreInvisible\":" << (aimAssist.settings.ignoreInvisible ? "true" : "false") << ",";
+	ss << "\"onlySprinting\":" << (aimAssist.settings.onlySprinting ? "true" : "false") << ",";
+	ss << "\"onlyClicking\":" << (aimAssist.settings.onlyClicking ? "true" : "false") << ",";
+	ss << "\"speed\":" << aimAssist.settings.speed << ",";
+	ss << "\"maxFov\":" << aimAssist.settings.maxFov << ",";
+	ss << "\"maxDistance\":" << aimAssist.settings.maxDistance;
+	ss << "}";
+	
 	ss << "}";
 	return ss.str();
 }

@@ -342,6 +342,72 @@
             </div>
         </div>
 
+        <!-- AimAssist Module -->
+        <div class="module-card" data-module="aimassist">
+            <div class="module-header">
+                <div class="module-title">AimAssist</div>
+                <div class="toggle" data-setting="aa-enabled" onclick="toggleModule(this)"></div>
+            </div>
+
+            <div class="setting-row">
+                <div class="setting-label">
+                    <span>Keybind</span>
+                    <button class="keybind-btn" data-setting="aa-keybind" onclick="listenKeybind(this)">V</button>
+                </div>
+            </div>
+
+            <div class="section-divider"></div>
+
+            <div class="setting-row">
+                <div class="setting-label">
+                    <span>Speed</span>
+                    <span class="setting-value" id="aa-speed-value">15</span>
+                </div>
+                <input type="range" id="aa-speed" min="1" max="50" value="15"
+                    oninput="updateSlider(this, 'aa-speed-value')">
+            </div>
+
+            <div class="setting-row">
+                <div class="setting-label">
+                    <span>FOV</span>
+                    <span class="setting-value" id="aa-fov-value">90</span>
+                </div>
+                <input type="range" id="aa-fov" min="10" max="180" value="90"
+                    oninput="updateSlider(this, 'aa-fov-value')">
+            </div>
+
+            <div class="setting-row">
+                <div class="setting-label">
+                    <span>Distance</span>
+                    <span class="setting-value" id="aa-distance-value">4.5</span>
+                </div>
+                <input type="range" id="aa-distance" min="10" max="80" value="45"
+                    oninput="updateSlider(this, 'aa-distance-value', 0.1)">
+            </div>
+
+            <div class="section-divider"></div>
+
+            <div class="checkbox-row" onclick="toggleCheckbox(this)">
+                <div class="checkbox checked" data-setting="aa-visibilityCheck"></div>
+                <span>Visibility Check</span>
+            </div>
+
+            <div class="checkbox-row" onclick="toggleCheckbox(this)">
+                <div class="checkbox checked" data-setting="aa-ignoreInvisible"></div>
+                <span>Ignore Invisible</span>
+            </div>
+
+            <div class="checkbox-row" onclick="toggleCheckbox(this)">
+                <div class="checkbox" data-setting="aa-onlySprinting"></div>
+                <span>Only Sprinting</span>
+            </div>
+
+            <div class="checkbox-row" onclick="toggleCheckbox(this)">
+                <div class="checkbox checked" data-setting="aa-onlyClicking"></div>
+                <span>Only Clicking</span>
+            </div>
+        </div>
+
         <div class="actions">
             <button class="btn btn-secondary" onclick="loadConfig()">Load</button>
             <button class="btn btn-primary" onclick="saveConfig()">Save</button>
@@ -368,7 +434,7 @@
             ws.onmessage = (event) => {
                 try {
                     const data = JSON.parse(event.data);
-                    if (data.type === 'config') {
+                    if (data.type === 'config' || data.type === 'configAll') {
                         applyConfigFromServer(data);
                     }
                 } catch (e) {
@@ -432,9 +498,10 @@
             document.addEventListener('keydown', handler);
         }
 
-        function gatherConfig() {
+        function gatherAutoClickerConfig() {
             return {
                 type: 'config',
+                module: 'autoclicker',
                 enabled: document.querySelector('[data-setting="enabled"]').classList.contains('active'),
                 keybind: document.querySelector('[data-setting="keybind"]').textContent,
                 minCPS: parseInt(document.getElementById('minCps').value),
@@ -449,19 +516,43 @@
             };
         }
 
+        function gatherAimAssistConfig() {
+            return {
+                type: 'config',
+                module: 'aimassist',
+                enabled: document.querySelector('[data-setting="aa-enabled"]').classList.contains('active'),
+                keybind: document.querySelector('[data-setting="aa-keybind"]').textContent,
+                speed: parseInt(document.getElementById('aa-speed').value),
+                maxFov: parseInt(document.getElementById('aa-fov').value),
+                maxDistance: parseFloat(document.getElementById('aa-distance').value) * 0.1,
+                visibilityCheck: document.querySelector('[data-setting="aa-visibilityCheck"]').classList.contains('checked'),
+                ignoreInvisible: document.querySelector('[data-setting="aa-ignoreInvisible"]').classList.contains('checked'),
+                onlySprinting: document.querySelector('[data-setting="aa-onlySprinting"]').classList.contains('checked'),
+                onlyClicking: document.querySelector('[data-setting="aa-onlyClicking"]').classList.contains('checked')
+            };
+        }
+
         function sendConfig() {
             if (ws && connected) {
-                ws.send(JSON.stringify(gatherConfig()));
+                ws.send(JSON.stringify(gatherAutoClickerConfig()));
+                ws.send(JSON.stringify(gatherAimAssistConfig()));
             }
-            // Also save to localStorage as backup
-            localStorage.setItem('cobble_config', JSON.stringify(gatherConfig()));
         }
 
         function applyConfigFromServer(cfg) {
+            if (cfg.type === 'configAll') {
+                // Handle combined config response
+                if (cfg.autoclicker) applyAutoClickerConfig(cfg.autoclicker);
+                if (cfg.aimassist) applyAimAssistConfig(cfg.aimassist);
+            } else if (cfg.type === 'config') {
+                applyAutoClickerConfig(cfg);
+            }
+        }
+
+        function applyAutoClickerConfig(cfg) {
             const toggle = document.querySelector('[data-setting="enabled"]');
             toggle.classList.toggle('active', cfg.enabled);
 
-            // Keybind
             if (cfg.keybind) {
                 document.querySelector('[data-setting="keybind"]').textContent = cfg.keybind;
             }
@@ -481,6 +572,27 @@
             document.querySelector('[data-setting="ignoreBlocks"]').classList.toggle('checked', cfg.ignoreBlocks);
             document.querySelector('[data-setting="workInInventory"]').classList.toggle('checked', cfg.workInInventory);
             document.querySelector('[data-setting="advancedMode"]').classList.toggle('checked', cfg.advancedMode);
+        }
+
+        function applyAimAssistConfig(cfg) {
+            const toggle = document.querySelector('[data-setting="aa-enabled"]');
+            toggle.classList.toggle('active', cfg.enabled);
+
+            if (cfg.keybind) {
+                document.querySelector('[data-setting="aa-keybind"]').textContent = cfg.keybind;
+            }
+
+            document.getElementById('aa-speed').value = cfg.speed;
+            document.getElementById('aa-speed-value').textContent = Math.round(cfg.speed);
+            document.getElementById('aa-fov').value = cfg.maxFov;
+            document.getElementById('aa-fov-value').textContent = Math.round(cfg.maxFov);
+            document.getElementById('aa-distance').value = cfg.maxDistance * 10;
+            document.getElementById('aa-distance-value').textContent = cfg.maxDistance.toFixed(1);
+
+            document.querySelector('[data-setting="aa-visibilityCheck"]').classList.toggle('checked', cfg.visibilityCheck);
+            document.querySelector('[data-setting="aa-ignoreInvisible"]').classList.toggle('checked', cfg.ignoreInvisible);
+            document.querySelector('[data-setting="aa-onlySprinting"]').classList.toggle('checked', cfg.onlySprinting);
+            document.querySelector('[data-setting="aa-onlyClicking"]').classList.toggle('checked', cfg.onlyClicking);
         }
 
         function saveConfig() {

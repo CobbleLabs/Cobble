@@ -3,6 +3,7 @@
 #include "cobble.hpp"
 #include "module/module_manager.h"
 #include "module/autoclicker.h"
+#include "module/aimassist.h"
 #include "web/config.h"
 
 void cobble::context::initialize()
@@ -27,6 +28,7 @@ void cobble::context::initialize()
 
 	// Register modules
 	moduleManager.registerModule(&autoClicker);
+	moduleManager.registerModule(&aimAssist);
 
 	// Start WebSocket server for web config
 	configServer.onMessage([](const std::string& msg) {
@@ -36,6 +38,7 @@ void cobble::context::initialize()
 
 	log_ok("cobble initialized");
 	log_prompt("press R to toggle autoclicker");
+	log_prompt("press V to toggle aimassist");
 	log_prompt("web config: ws://localhost:8765");
 
 	is_running = true;

@@ -3,6 +3,17 @@
 #include "../jni/java.h"
 #include "jstring_util.h"
 #include "player.h"
+#include <vector>
+
+// Data for a remote player in the world
+struct PlayerInfo
+{
+	jobject instance = nullptr;
+	double posX = 0.0;
+	double posY = 0.0;
+	double posZ = 0.0;
+	bool isInvisible = false;
+};
 
 // Simplified wrapper for net.minecraft.client.Minecraft
 // Only exposes what's needed for basic ghost client
@@ -29,6 +40,12 @@ struct Minecraft
 
 	// MouseOver - check what player is looking at
 	bool isTargetingBlock();
+
+	// Get all players in the world (excluding local player)
+	std::vector<PlayerInfo> getPlayerList();
+
+	// Check if local player can see target entity
+	bool canEntityBeSeen(jobject target);
 
 	jclass cls = nullptr;
 	jobject instance = nullptr;

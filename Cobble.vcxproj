@@ -90,6 +90,7 @@
     <ClCompile Include="src\sdk\player.cpp" />
     <ClCompile Include="src\module\module_manager.cpp" />
     <ClCompile Include="src\module\autoclicker.cpp" />
+    <ClCompile Include="src\module\aimassist.cpp" />
     <ClCompile Include="src\web\config_server.cpp" />
     <ClCompile Include="src\web\config.cpp" />
   </ItemGroup>
@@ -104,6 +105,7 @@
     <ClInclude Include="src\module\module.h" />
     <ClInclude Include="src\module\module_manager.h" />
     <ClInclude Include="src\module\autoclicker.h" />
+    <ClInclude Include="src\module\aimassist.h" />
     <ClInclude Include="src\web\config_server.h" />
     <ClInclude Include="src\web\config.h" />
     <ClInclude Include="ext\jni\jni.h" />
