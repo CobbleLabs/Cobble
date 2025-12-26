@@ -1,0 +1,502 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cobble Config</title>
+    <style>
+        :root {
+            --bg: #1a1a2e;
+            --card: #16213e;
+            --accent: #0f3460;
+            --primary: #e94560;
+            --text: #eaeaea;
+            --text-dim: #8a8a9a;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+        }
+
+        header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+
+        h1 {
+            font-size: 2rem;
+            margin-bottom: 5px;
+        }
+
+        h1 span {
+            color: var(--primary);
+        }
+
+        .subtitle {
+            color: var(--text-dim);
+            font-size: 0.9rem;
+        }
+
+        .module-card {
+            background: var(--card);
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+
+        .module-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+
+        .module-title {
+            font-size: 1.2rem;
+            font-weight: 600;
+        }
+
+        .toggle {
+            width: 50px;
+            height: 26px;
+            background: var(--accent);
+            border-radius: 13px;
+            cursor: pointer;
+            position: relative;
+            transition: background 0.3s;
+        }
+
+        .toggle.active {
+            background: var(--primary);
+        }
+
+        .toggle::after {
+            content: '';
+            position: absolute;
+            width: 20px;
+            height: 20px;
+            background: white;
+            border-radius: 50%;
+            top: 3px;
+            left: 3px;
+            transition: transform 0.3s;
+        }
+
+        .toggle.active::after {
+            transform: translateX(24px);
+        }
+
+        .setting-row {
+            margin-bottom: 15px;
+        }
+
+        .setting-label {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 8px;
+            font-size: 0.9rem;
+        }
+
+        .setting-value {
+            color: var(--primary);
+            font-weight: 600;
+        }
+
+        input[type="range"] {
+            width: 100%;
+            height: 6px;
+            border-radius: 3px;
+            background: var(--accent);
+            outline: none;
+            -webkit-appearance: none;
+        }
+
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background: var(--primary);
+            cursor: pointer;
+        }
+
+        .checkbox-row {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 10px;
+            cursor: pointer;
+        }
+
+        .checkbox {
+            width: 20px;
+            height: 20px;
+            border: 2px solid var(--accent);
+            border-radius: 4px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s;
+        }
+
+        .checkbox.checked {
+            background: var(--primary);
+            border-color: var(--primary);
+        }
+
+        .checkbox.checked::after {
+            content: '✓';
+            color: white;
+            font-size: 12px;
+        }
+
+        .keybind-btn {
+            background: var(--accent);
+            border: none;
+            color: var(--text);
+            padding: 8px 16px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.9rem;
+            transition: background 0.2s;
+        }
+
+        .keybind-btn:hover {
+            background: var(--primary);
+        }
+
+        .keybind-btn.listening {
+            background: var(--primary);
+            animation: pulse 1s infinite;
+        }
+
+        @keyframes pulse {
+
+            0%,
+            100% {
+                opacity: 1;
+            }
+
+            50% {
+                opacity: 0.6;
+            }
+        }
+
+        .section-divider {
+            height: 1px;
+            background: var(--accent);
+            margin: 15px 0;
+        }
+
+        .actions {
+            display: flex;
+            gap: 10px;
+            margin-top: 20px;
+        }
+
+        .btn {
+            flex: 1;
+            padding: 12px;
+            border: none;
+            border-radius: 8px;
+            font-size: 1rem;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .btn-primary {
+            background: var(--primary);
+            color: white;
+        }
+
+        .btn-secondary {
+            background: var(--accent);
+            color: var(--text);
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
+        }
+
+        .status {
+            text-align: center;
+            margin-top: 15px;
+            font-size: 0.85rem;
+            color: var(--text-dim);
+        }
+
+        .status.success {
+            color: #4ade80;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <header>
+            <h1><span>Cobble</span> Config</h1>
+            <p class="subtitle">Ghost Client Configuration</p>
+        </header>
+
+        <!-- AutoClicker Module -->
+        <div class="module-card" data-module="autoclicker">
+            <div class="module-header">
+                <div class="module-title">AutoClicker</div>
+                <div class="toggle" data-setting="enabled" onclick="toggleModule(this)"></div>
+            </div>
+
+            <div class="setting-row">
+                <div class="setting-label">
+                    <span>Keybind</span>
+                    <button class="keybind-btn" data-setting="keybind" onclick="listenKeybind(this)">R</button>
+                </div>
+            </div>
+
+            <div class="section-divider"></div>
+
+            <div class="setting-row">
+                <div class="setting-label">
+                    <span>Min CPS</span>
+                    <span class="setting-value" id="minCps-value">10</span>
+                </div>
+                <input type="range" id="minCps" min="1" max="20" value="10"
+                    oninput="updateSlider(this, 'minCps-value')">
+            </div>
+
+            <div class="setting-row">
+                <div class="setting-label">
+                    <span>Max CPS</span>
+                    <span class="setting-value" id="maxCps-value">14</span>
+                </div>
+                <input type="range" id="maxCps" min="1" max="25" value="14"
+                    oninput="updateSlider(this, 'maxCps-value')">
+            </div>
+
+            <div class="section-divider"></div>
+
+            <div class="checkbox-row" onclick="toggleCheckbox(this)">
+                <div class="checkbox" data-setting="weaponOnly"></div>
+                <span>Weapon Only</span>
+            </div>
+
+            <div class="checkbox-row" onclick="toggleCheckbox(this)">
+                <div class="checkbox checked" data-setting="ignoreBlocks"></div>
+                <span>Ignore Blocks</span>
+            </div>
+
+            <div class="checkbox-row" onclick="toggleCheckbox(this)">
+                <div class="checkbox" data-setting="workInInventory"></div>
+                <span>Work in Inventory</span>
+            </div>
+
+            <div class="section-divider"></div>
+
+            <div class="checkbox-row" onclick="toggleCheckbox(this)">
+                <div class="checkbox checked" data-setting="advancedMode"></div>
+                <span>Advanced Randomization</span>
+            </div>
+
+            <div id="advanced-settings">
+                <div class="setting-row">
+                    <div class="setting-label">
+                        <span>Drop Chance (%)</span>
+                        <span class="setting-value" id="dropChance-value">5</span>
+                    </div>
+                    <input type="range" id="dropChance" min="0" max="20" value="5"
+                        oninput="updateSlider(this, 'dropChance-value')">
+                </div>
+
+                <div class="setting-row">
+                    <div class="setting-label">
+                        <span>Spike Chance (%)</span>
+                        <span class="setting-value" id="spikeChance-value">10</span>
+                    </div>
+                    <input type="range" id="spikeChance" min="0" max="30" value="10"
+                        oninput="updateSlider(this, 'spikeChance-value')">
+                </div>
+
+                <div class="setting-row">
+                    <div class="setting-label">
+                        <span>Kurtosis</span>
+                        <span class="setting-value" id="kurtosis-value">2.0</span>
+                    </div>
+                    <input type="range" id="kurtosis" min="0" max="50" value="20"
+                        oninput="updateSlider(this, 'kurtosis-value', 0.1)">
+                </div>
+            </div>
+        </div>
+
+        <div class="actions">
+            <button class="btn btn-secondary" onclick="loadConfig()">Load</button>
+            <button class="btn btn-primary" onclick="saveConfig()">Save</button>
+        </div>
+
+        <div class="status" id="status"></div>
+    </div>
+
+    <script>
+        // WebSocket connection to C++ server
+        let ws = null;
+        let connected = false;
+
+        function connect() {
+            ws = new WebSocket('ws://localhost:8765');
+
+            ws.onopen = () => {
+                connected = true;
+                showStatus('Connected to Cobble', 'success');
+                // Request current config
+                ws.send(JSON.stringify({ type: 'getConfig' }));
+            };
+
+            ws.onmessage = (event) => {
+                try {
+                    const data = JSON.parse(event.data);
+                    if (data.type === 'config') {
+                        applyConfigFromServer(data);
+                    }
+                } catch (e) {
+                    console.error('Failed to parse message:', e);
+                }
+            };
+
+            ws.onclose = () => {
+                connected = false;
+                showStatus('Disconnected - retrying...', 'error');
+                setTimeout(connect, 2000);
+            };
+
+            ws.onerror = () => {
+                showStatus('Connection error', 'error');
+            };
+        }
+
+        function showStatus(text, type = '') {
+            const status = document.getElementById('status');
+            status.textContent = text;
+            status.className = 'status ' + type;
+            if (type === 'success') {
+                setTimeout(() => {
+                    status.textContent = connected ? 'Connected' : '';
+                    status.className = 'status success';
+                }, 2000);
+            }
+        }
+
+        function updateSlider(input, valueId, multiplier = 1) {
+            const value = input.value * multiplier;
+            document.getElementById(valueId).textContent =
+                multiplier < 1 ? value.toFixed(1) : value;
+            sendConfig();
+        }
+
+        function toggleModule(element) {
+            element.classList.toggle('active');
+            sendConfig();
+        }
+
+        function toggleCheckbox(row) {
+            const checkbox = row.querySelector('.checkbox');
+            checkbox.classList.toggle('checked');
+            sendConfig();
+        }
+
+        function listenKeybind(btn) {
+            btn.classList.add('listening');
+            btn.textContent = '...';
+
+            const handler = (e) => {
+                e.preventDefault();
+                btn.textContent = e.key.toUpperCase();
+                btn.classList.remove('listening');
+                document.removeEventListener('keydown', handler);
+                sendConfig();
+            };
+
+            document.addEventListener('keydown', handler);
+        }
+
+        function gatherConfig() {
+            return {
+                type: 'config',
+                enabled: document.querySelector('[data-setting="enabled"]').classList.contains('active'),
+                keybind: document.querySelector('[data-setting="keybind"]').textContent,
+                minCPS: parseInt(document.getElementById('minCps').value),
+                maxCPS: parseInt(document.getElementById('maxCps').value),
+                weaponOnly: document.querySelector('[data-setting="weaponOnly"]').classList.contains('checked'),
+                ignoreBlocks: document.querySelector('[data-setting="ignoreBlocks"]').classList.contains('checked'),
+                workInInventory: document.querySelector('[data-setting="workInInventory"]').classList.contains('checked'),
+                advancedMode: document.querySelector('[data-setting="advancedMode"]').classList.contains('checked'),
+                dropChance: parseInt(document.getElementById('dropChance').value),
+                spikeChance: parseInt(document.getElementById('spikeChance').value),
+                kurtosis: parseFloat(document.getElementById('kurtosis').value) * 0.1
+            };
+        }
+
+        function sendConfig() {
+            if (ws && connected) {
+                ws.send(JSON.stringify(gatherConfig()));
+            }
+            // Also save to localStorage as backup
+            localStorage.setItem('cobble_config', JSON.stringify(gatherConfig()));
+        }
+
+        function applyConfigFromServer(cfg) {
+            const toggle = document.querySelector('[data-setting="enabled"]');
+            toggle.classList.toggle('active', cfg.enabled);
+
+            // Keybind
+            if (cfg.keybind) {
+                document.querySelector('[data-setting="keybind"]').textContent = cfg.keybind;
+            }
+
+            document.getElementById('minCps').value = cfg.minCPS;
+            document.getElementById('minCps-value').textContent = Math.round(cfg.minCPS);
+            document.getElementById('maxCps').value = cfg.maxCPS;
+            document.getElementById('maxCps-value').textContent = Math.round(cfg.maxCPS);
+            document.getElementById('dropChance').value = cfg.dropChance;
+            document.getElementById('dropChance-value').textContent = Math.round(cfg.dropChance);
+            document.getElementById('spikeChance').value = cfg.spikeChance;
+            document.getElementById('spikeChance-value').textContent = Math.round(cfg.spikeChance);
+            document.getElementById('kurtosis').value = cfg.kurtosis * 10;
+            document.getElementById('kurtosis-value').textContent = cfg.kurtosis.toFixed(1);
+
+            document.querySelector('[data-setting="weaponOnly"]').classList.toggle('checked', cfg.weaponOnly);
+            document.querySelector('[data-setting="ignoreBlocks"]').classList.toggle('checked', cfg.ignoreBlocks);
+            document.querySelector('[data-setting="workInInventory"]').classList.toggle('checked', cfg.workInInventory);
+            document.querySelector('[data-setting="advancedMode"]').classList.toggle('checked', cfg.advancedMode);
+        }
+
+        function saveConfig() {
+            sendConfig();
+            showStatus('Config saved', 'success');
+        }
+
+        function loadConfig() {
+            if (ws && connected) {
+                ws.send(JSON.stringify({ type: 'getConfig' }));
+            }
+        }
+
+        // Connect on load
+        connect();
+    </script>
+</body>
+
+</html>

@@ -2,6 +2,7 @@
 
 #include "jni/java.h"
 #include "util/logger.hpp"
+#include "sdk/minecraft.h"
 
 #include <thread>
 

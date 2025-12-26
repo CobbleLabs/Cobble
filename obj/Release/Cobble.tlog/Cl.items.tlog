@@ -1,4 +1,3 @@
-C:\Users\xac\Documents\Codes\Syra\CobbleClient\src\main.cpp;C:\Users\xac\Documents\Codes\Syra\CobbleClient\obj\Release\main.obj
-C:\Users\xac\Documents\Codes\Syra\CobbleClient\src\cobble.cpp;C:\Users\xac\Documents\Codes\Syra\CobbleClient\obj\Release\cobble.obj
-C:\Users\xac\Documents\Codes\Syra\CobbleClient\src\jni\jni_context.cpp;C:\Users\xac\Documents\Codes\Syra\CobbleClient\obj\Release\jni_context.obj
-C:\Users\xac\Documents\Codes\Syra\CobbleClient\src\util\logger.cpp;C:\Users\xac\Documents\Codes\Syra\CobbleClient\obj\Release\logger.obj
+D:\Syra\Cobble\src\main.cpp;D:\Syra\Cobble\obj\Release\main.obj
+D:\Syra\Cobble\src\cobble.cpp;D:\Syra\Cobble\obj\Release\cobble.obj
+D:\Syra\Cobble\src\jni\java.cpp;D:\Syra\Cobble\obj\Release\java.obj

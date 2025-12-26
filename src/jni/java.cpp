@@ -1,5 +1,6 @@
 #include "java.h"
 #include "../util/logger.hpp"
+#include "../sdk/jstring_util.h"
 
 JavaVM* vm;
 jobject classLoader;
@@ -62,31 +63,49 @@ void setupClassLoader()
 void Java::Init()
 {
     Java::Initialized = false;
+    log_debug("starting java init...");
 
     // Check if there is any Java VMs in the injected thread
-    jsize count;
-    if (JNI_GetCreatedJavaVMs(&vm, 1, &count) != JNI_OK || count == 0)
+    jsize count = 0;
+    if (JNI_GetCreatedJavaVMs(&vm, 1, &count) != JNI_OK || count == 0) {
+        log_err("no java vm found");
         return;
-
+    }
+    log_ok("found java vm");
 
     jint res = vm->GetEnv((void**)&Java::Env, JNI_VERSION_1_6);
-    log_ok("got java env");
-
-    if (res == JNI_EDETACHED)
+    
+    if (res == JNI_EDETACHED) {
+        log_debug("thread not attached, attaching...");
         res = vm->AttachCurrentThread((void**)&Java::Env, nullptr);
+    }
 
+    if (res != JNI_OK) {
+        log_err("failed to get/attach jni env");
+        return;
+    }
+
+    if (Java::Env == nullptr) {
+        log_err("jni env is null");
+        return;
+    }
     log_ok("attached to java");
 
-    if (res != JNI_OK)
-        return;
+    jint tiRes = vm->GetEnv((void**)&Java::tiEnv, JVMTI_VERSION_1_2);
+    if (tiRes != JNI_OK || Java::tiEnv == nullptr) {
+        log_warn("jvmti not available (not critical)");
+    }
 
-    if (Java::Env == nullptr)
-        vm->DestroyJavaVM();
-
-    vm->GetEnv((void**)&Java::tiEnv, JVMTI_VERSION_1_2);
+    log_debug("setting up classloader...");
     setupClassLoader();
 
+    if (!Java::Initialized) {
+        log_err("classloader setup failed");
+        return;
+    }
     log_ok("classloader ready");
+
+    GetMinecraftVersion();
 }
 
 void Java::Kill()
@@ -106,4 +125,43 @@ bool Java::AssignClass(std::string name, jclass &out)
     }
         
     return false;
+}
+
+void Java::GetMinecraftVersion()
+{
+    Java::Version = MinecraftVersion::UNDEFINED;
+
+    jclass minecraftClass = nullptr;
+    if (!AssignClass("net.minecraft.client.Minecraft", minecraftClass))
+        return;
+
+    jmethodID getMinecraft = Env->GetStaticMethodID(minecraftClass, "getMinecraft", "()Lnet/minecraft/client/Minecraft;");
+    if (!getMinecraft) return;
+
+    jobject minecraft = Env->CallStaticObjectMethod(minecraftClass, getMinecraft);
+    if (!minecraft) return;
+
+    jfieldID launchedVersionField = Env->GetFieldID(minecraftClass, "launchedVersion", "Ljava/lang/String;");
+    if (!launchedVersionField) return;
+
+    jstring versionStr = (jstring)Env->GetObjectField(minecraft, launchedVersionField);
+    if (!versionStr) return;
+
+    std::string version = jstringToString(versionStr);
+
+    if (version == "1.8.9") {
+        Java::Version = MinecraftVersion::MC_1_8_9;
+        log_ok("detected minecraft 1.8.9");
+    }
+    else if (version == "1.7.10") {
+        Java::Version = MinecraftVersion::MC_1_7_10;
+        log_ok("detected minecraft 1.7.10");
+    }
+    else {
+        log_warn("unknown minecraft version: " + version);
+    }
+
+    Env->DeleteLocalRef(versionStr);
+    Env->DeleteLocalRef(minecraft);
+    Env->DeleteLocalRef(minecraftClass);
 }

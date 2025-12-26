@@ -11,6 +11,8 @@ add_library(Cobble SHARED
     src/jni/java.cpp
     src/jni/java.h
     src/util/logger.hpp
+    src/sdk/version.h
+    src/sdk/jstring_util.h
 )
 
 target_include_directories(Cobble PRIVATE
