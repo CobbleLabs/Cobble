@@ -211,6 +211,9 @@ std::vector<PlayerInfo> Minecraft::getPlayerList()
 	jfieldID fid_posX = Java::Env->GetFieldID(entityCls, "posX", "D");
 	jfieldID fid_posY = Java::Env->GetFieldID(entityCls, "posY", "D");
 	jfieldID fid_posZ = Java::Env->GetFieldID(entityCls, "posZ", "D");
+	jfieldID fid_lastPosX = Java::Env->GetFieldID(entityCls, "lastTickPosX", "D");
+	jfieldID fid_lastPosY = Java::Env->GetFieldID(entityCls, "lastTickPosY", "D");
+	jfieldID fid_lastPosZ = Java::Env->GetFieldID(entityCls, "lastTickPosZ", "D");
 	jmethodID mid_isInvisible = Java::Env->GetMethodID(entityCls, "isInvisible", "()Z");
 
 	jobject localPlayer = getPlayer();
@@ -230,7 +233,36 @@ std::vector<PlayerInfo> Minecraft::getPlayerList()
 		info.posX = Java::Env->GetDoubleField(entity, fid_posX);
 		info.posY = Java::Env->GetDoubleField(entity, fid_posY);
 		info.posZ = Java::Env->GetDoubleField(entity, fid_posZ);
+		info.lastPosX = fid_lastPosX ? Java::Env->GetDoubleField(entity, fid_lastPosX) : info.posX;
+		info.lastPosY = fid_lastPosY ? Java::Env->GetDoubleField(entity, fid_lastPosY) : info.posY;
+		info.lastPosZ = fid_lastPosZ ? Java::Env->GetDoubleField(entity, fid_lastPosZ) : info.posZ;
 		info.isInvisible = mid_isInvisible ? Java::Env->CallBooleanMethod(entity, mid_isInvisible) : false;
+		
+		// Get player name
+		jmethodID mid_getName = Java::Env->GetMethodID(entityCls, "getName", "()Ljava/lang/String;");
+		if (mid_getName) {
+			jstring jname = (jstring)Java::Env->CallObjectMethod(entity, mid_getName);
+			if (jname) {
+				info.name = jstringToString(jname);
+				Java::Env->DeleteLocalRef(jname);
+			}
+		}
+		if (info.name.empty()) info.name = "Player";
+		
+		// Get health (EntityLivingBase methods)
+		jclass livingCls = nullptr;
+		if (Java::AssignClass("net.minecraft.entity.EntityLivingBase", livingCls)) {
+			jmethodID mid_getHealth = Java::Env->GetMethodID(livingCls, "getHealth", "()F");
+			jmethodID mid_getMaxHealth = Java::Env->GetMethodID(livingCls, "getMaxHealth", "()F");
+			
+			if (mid_getHealth) {
+				info.health = Java::Env->CallFloatMethod(entity, mid_getHealth);
+			}
+			if (mid_getMaxHealth) {
+				info.maxHealth = Java::Env->CallFloatMethod(entity, mid_getMaxHealth);
+			}
+			Java::Env->DeleteLocalRef(livingCls);
+		}
 
 		result.push_back(info);
 	}
@@ -269,5 +301,72 @@ bool Minecraft::canEntityBeSeen(jobject target)
 	Java::Env->DeleteLocalRef(localPlayer);
 	Java::Env->DeleteLocalRef(livingCls);
 
+	return result;
+}
+
+RenderPos Minecraft::getRenderPos()
+{
+	RenderPos result;
+	if (!isValid()) return result;
+	
+	// Get RenderManager from Minecraft
+	jfieldID fid_renderManager = Java::Env->GetFieldID(cls, "renderManager", "Lnet/minecraft/client/renderer/entity/RenderManager;");
+	if (!fid_renderManager) {
+		Java::Env->ExceptionClear();
+		return result;
+	}
+	
+	jobject renderManager = Java::Env->GetObjectField(instance, fid_renderManager);
+	if (!renderManager) return result;
+	
+	jclass rmCls = Java::Env->GetObjectClass(renderManager);
+	
+	jfieldID fid_renderPosX = Java::Env->GetFieldID(rmCls, "renderPosX", "D");
+	jfieldID fid_renderPosY = Java::Env->GetFieldID(rmCls, "renderPosY", "D");
+	jfieldID fid_renderPosZ = Java::Env->GetFieldID(rmCls, "renderPosZ", "D");
+	
+	if (fid_renderPosX && fid_renderPosY && fid_renderPosZ) {
+		result.x = Java::Env->GetDoubleField(renderManager, fid_renderPosX);
+		result.y = Java::Env->GetDoubleField(renderManager, fid_renderPosY);
+		result.z = Java::Env->GetDoubleField(renderManager, fid_renderPosZ);
+	}
+	
+	Java::Env->DeleteLocalRef(rmCls);
+	Java::Env->DeleteLocalRef(renderManager);
+	
+	return result;
+}
+
+float Minecraft::getPartialTicks()
+{
+	if (!isValid()) return 0.0f;
+	
+	// Get Timer from Minecraft
+	jfieldID fid_timer = Java::Env->GetFieldID(cls, "timer", "Lnet/minecraft/util/Timer;");
+	if (!fid_timer) {
+		Java::Env->ExceptionClear();
+		return 0.0f;
+	}
+	
+	jobject timer = Java::Env->GetObjectField(instance, fid_timer);
+	if (!timer) return 0.0f;
+	
+	jclass timerCls = Java::Env->GetObjectClass(timer);
+	
+	// Try 1.8 field name first, then 1.7
+	jfieldID fid_renderPartialTicks = Java::Env->GetFieldID(timerCls, "renderPartialTicks", "F");
+	if (!fid_renderPartialTicks) {
+		Java::Env->ExceptionClear();
+		fid_renderPartialTicks = Java::Env->GetFieldID(timerCls, "field_74281_c", "F"); // SRG name
+	}
+	
+	float result = 0.0f;
+	if (fid_renderPartialTicks) {
+		result = Java::Env->GetFloatField(timer, fid_renderPartialTicks);
+	}
+	
+	Java::Env->DeleteLocalRef(timerCls);
+	Java::Env->DeleteLocalRef(timer);
+	
 	return result;
 }

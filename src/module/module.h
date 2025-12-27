@@ -19,6 +19,9 @@ struct Module
 
 	// Called every tick while enabled
 	virtual void onUpdate() {}
+	
+	// Called every frame for rendering (visual modules)
+	virtual void onRender() {}
 
 	void toggle()
 	{

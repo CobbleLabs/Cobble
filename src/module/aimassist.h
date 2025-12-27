@@ -3,7 +3,10 @@
 #include "module.h"
 #include <cmath>
 #include <chrono>
+#include <random>
 
+// Premium AimAssist with advanced smoothing techniques
+// Based on professional ghost client implementations
 class AimAssist : public Module
 {
 public:
@@ -21,52 +24,34 @@ public:
 		bool targetLock = true;
 		bool verticalAim = false;
 		bool hurtTimeBoost = true;
-		bool blatantMode = false;      // Aggressive mode: no smoothing, instant lock
-
-		float horizontalSpeed = 5.0f;  // 1-10, controls correction strength
-		float maxFov = 90.0f;           // Max angle to consider targets
-		float maxDistance = 4.0f;       // Max distance to assist
+		
+		float horizontalSpeed = 25.0f;
+		float verticalSpeed = 12.0f;
+		float maxFov = 90.0f;
+		float maxDistance = 4.5f;
+		float randomization = 0.25f;
 	} settings;
 
 private:
 	static constexpr float PI = 3.14159265358979323846f;
+	static constexpr float MC_SENSITIVITY = 0.5f;
 
+	std::mt19937 rng;
 	std::chrono::steady_clock::time_point lastUpdate;
 	
 	// Target lock state
 	double lockedTargetX = 0.0;
 	double lockedTargetZ = 0.0;
 	bool hasLockedTarget = false;
-	
-	// Click gating
-	float clickActivation = 0.0f;
-		
-	// Current "velocity" or momentum of the mouse movement
-	double currentSensX = 0.0;
-	double currentSensY = 0.0;
-	
-	// Prediction state
-	double lastTargetX = 0.0;
-	double lastTargetZ = 0.0;
-	bool hasLastPosition = false;
-	double smoothVelocityX = 0.0;
-	double smoothVelocityZ = 0.0;
-	
-	// Warm-up timer: How long we've been tracking current target
-	float trackingTimeMs = 0.0f;
 
-	// Helper functions
 	float getYawTo(double deltaX, double deltaZ);
 	float getPitchTo(double deltaX, double deltaY, double deltaZ);
 	float wrapAngle(float angle);
 	double getHorizontalDistance(double x1, double z1, double x2, double z2);
+	float randomFloat(float min, float max);
 	
-	// Prediction helpers
-	void updateVelocity(double targetX, double targetZ, float deltaMs);
-	void getPredictedPosition(double targetX, double targetZ, double& outX, double& outZ);
-	
-	// The core physics tracker
-	void smoothTrack(float desiredYaw, float desiredPitch, float deltaMs);
+	// Calculates smooth rotation amount using MC sensitivity formula
+	float calculateSmoothRotation(float angleDiff, float speed, float deltaMs, int hurtTime);
 };
 
 extern AimAssist aimAssist;

@@ -71,7 +71,7 @@
       <PreprocessorDefinitions>NDEBUG;_WINDOWS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp20</LanguageStandard>
-      <AdditionalIncludeDirectories>$(ProjectDir)ext\jni;$(ProjectDir)src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(ProjectDir)ext\jni;$(ProjectDir)ext\imgui;$(ProjectDir)src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <Optimization>Disabled</Optimization>
       <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
     </ClCompile>
@@ -80,7 +80,7 @@
       <EnableCOMDATFolding>false</EnableCOMDATFolding>
       <OptimizeReferences>false</OptimizeReferences>
       <GenerateDebugInformation>false</GenerateDebugInformation>
-      <AdditionalDependencies>$(ProjectDir)ext\jni\jvm.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>$(ProjectDir)ext\jni\jvm.lib;opengl32.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
@@ -92,8 +92,22 @@
     <ClCompile Include="src\module\module_manager.cpp" />
     <ClCompile Include="src\module\autoclicker.cpp" />
     <ClCompile Include="src\module\aimassist.cpp" />
+    <ClCompile Include="src\module\nametags.cpp" />
     <ClCompile Include="src\web\config_server.cpp" />
     <ClCompile Include="src\web\config.cpp" />
+    <ClCompile Include="src\overlay\overlay.cpp" />
+    <ClCompile Include="src\util\math\math.cpp" />
+    <ClCompile Include="src\util\math\worldToScreen.cpp" />
+    <ClCompile Include="ext\imgui\imgui.cpp" />
+    <ClCompile Include="ext\imgui\imgui_draw.cpp" />
+    <ClCompile Include="ext\imgui\imgui_tables.cpp" />
+    <ClCompile Include="ext\imgui\imgui_widgets.cpp" />
+    <ClCompile Include="ext\imgui\imgui_impl_opengl2.cpp" />
+    <ClCompile Include="ext\imgui\imgui_impl_win32.cpp" />
+    <ClCompile Include="ext\minhook\buffer.c" />
+    <ClCompile Include="ext\minhook\hook.c" />
+    <ClCompile Include="ext\minhook\trampoline.c" />
+    <ClCompile Include="ext\minhook\hde\hde64.c" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="src\cobble.hpp" />

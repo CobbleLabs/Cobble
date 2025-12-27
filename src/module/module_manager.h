@@ -10,6 +10,7 @@ class ModuleManager
 public:
 	void registerModule(Module* mod);
 	void update();
+	void onRender();  // Called from overlay for visual modules
 	void checkKeybinds();
 
 	template<typename T>

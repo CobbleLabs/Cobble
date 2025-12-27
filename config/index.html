@@ -4,15 +4,16 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Cobble Config</title>
+    <title>Cobble</title>
     <style>
         :root {
             --bg: #1a1a2e;
             --card: #16213e;
             --accent: #0f3460;
             --primary: #e94560;
+            --success: #4ade80;
             --text: #eaeaea;
-            --text-dim: #8a8a9a;
+            --dim: #8a8a9a;
         }
 
         * {
@@ -22,7 +23,7 @@
         }
 
         body {
-            font-family: 'Segoe UI', system-ui, sans-serif;
+            font-family: 'Segoe UI', sans-serif;
             background: var(--bg);
             color: var(--text);
             min-height: 100vh;
@@ -30,220 +31,174 @@
         }
 
         .container {
-            max-width: 600px;
+            max-width: 500px;
             margin: 0 auto;
         }
 
         header {
             text-align: center;
-            margin-bottom: 30px;
+            margin-bottom: 25px;
         }
 
         h1 {
-            font-size: 2rem;
-            margin-bottom: 5px;
+            font-size: 1.8rem;
         }
 
         h1 span {
             color: var(--primary);
         }
 
-        .subtitle {
-            color: var(--text-dim);
-            font-size: 0.9rem;
+        .sub {
+            color: var(--dim);
+            font-size: 0.85rem;
         }
 
-        .module-card {
+        .card {
             background: var(--card);
             border-radius: 12px;
-            padding: 20px;
-            margin-bottom: 20px;
+            padding: 18px;
+            margin-bottom: 18px;
         }
 
-        .module-header {
+        .header {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            margin-bottom: 15px;
+            margin-bottom: 12px;
         }
 
-        .module-title {
-            font-size: 1.2rem;
+        .title {
+            font-size: 1.1rem;
             font-weight: 600;
         }
 
         .toggle {
-            width: 50px;
-            height: 26px;
+            width: 46px;
+            height: 24px;
             background: var(--accent);
-            border-radius: 13px;
+            border-radius: 12px;
             cursor: pointer;
             position: relative;
-            transition: background 0.3s;
+            transition: background 0.2s;
         }
 
-        .toggle.active {
+        .toggle.on {
             background: var(--primary);
         }
 
         .toggle::after {
             content: '';
             position: absolute;
-            width: 20px;
-            height: 20px;
-            background: white;
+            width: 18px;
+            height: 18px;
+            background: #fff;
             border-radius: 50%;
             top: 3px;
             left: 3px;
-            transition: transform 0.3s;
+            transition: transform 0.2s;
         }
 
-        .toggle.active::after {
-            transform: translateX(24px);
+        .toggle.on::after {
+            transform: translateX(22px);
         }
 
-        .setting-row {
-            margin-bottom: 15px;
+        .row {
+            margin-bottom: 12px;
         }
 
-        .setting-label {
+        .label {
             display: flex;
             justify-content: space-between;
-            margin-bottom: 8px;
-            font-size: 0.9rem;
+            margin-bottom: 6px;
+            font-size: 0.85rem;
         }
 
-        .setting-value {
+        .val {
             color: var(--primary);
             font-weight: 600;
         }
 
         input[type="range"] {
             width: 100%;
-            height: 6px;
+            height: 5px;
             border-radius: 3px;
             background: var(--accent);
-            outline: none;
             -webkit-appearance: none;
-            appearance: none;
         }
 
         input[type="range"]::-webkit-slider-thumb {
             -webkit-appearance: none;
-            width: 16px;
-            height: 16px;
+            width: 14px;
+            height: 14px;
             border-radius: 50%;
             background: var(--primary);
             cursor: pointer;
         }
 
-        .checkbox-row {
+        .check-row {
             display: flex;
             align-items: center;
-            gap: 10px;
-            margin-bottom: 10px;
+            gap: 8px;
+            margin-bottom: 8px;
             cursor: pointer;
+            font-size: 0.9rem;
         }
 
-        .checkbox {
-            width: 20px;
-            height: 20px;
+        .check {
+            width: 18px;
+            height: 18px;
             border: 2px solid var(--accent);
             border-radius: 4px;
             display: flex;
             align-items: center;
             justify-content: center;
-            transition: all 0.2s;
         }
 
-        .checkbox.checked {
+        .check.on {
             background: var(--primary);
             border-color: var(--primary);
         }
 
-        .checkbox.checked::after {
+        .check.on::after {
             content: '✓';
-            color: white;
-            font-size: 12px;
+            color: #fff;
+            font-size: 10px;
         }
 
-        .keybind-btn {
+        .keybind {
             background: var(--accent);
             border: none;
             color: var(--text);
-            padding: 8px 16px;
-            border-radius: 6px;
+            padding: 6px 12px;
+            border-radius: 5px;
             cursor: pointer;
-            font-size: 0.9rem;
-            transition: background 0.2s;
         }
 
-        .keybind-btn:hover {
+        .keybind:hover {
             background: var(--primary);
         }
 
-        .keybind-btn.listening {
-            background: var(--primary);
-            animation: pulse 1s infinite;
-        }
-
-        @keyframes pulse {
-
-            0%,
-            100% {
-                opacity: 1;
-            }
-
-            50% {
-                opacity: 0.6;
-            }
-        }
-
-        .section-divider {
+        .div {
             height: 1px;
             background: var(--accent);
-            margin: 15px 0;
+            margin: 12px 0;
         }
 
-        .actions {
-            display: flex;
-            gap: 10px;
-            margin-top: 20px;
-        }
-
-        .btn {
-            flex: 1;
-            padding: 12px;
-            border: none;
-            border-radius: 8px;
-            font-size: 1rem;
-            cursor: pointer;
-            transition: all 0.2s;
-        }
-
-        .btn-primary {
-            background: var(--primary);
-            color: white;
-        }
-
-        .btn-secondary {
-            background: var(--accent);
-            color: var(--text);
-        }
-
-        .btn:hover {
-            transform: translateY(-2px);
+        .sec {
+            color: var(--dim);
+            font-size: 0.75rem;
+            margin-bottom: 6px;
         }
 
         .status {
             text-align: center;
-            margin-top: 15px;
-            font-size: 0.85rem;
-            color: var(--text-dim);
+            margin-top: 12px;
+            font-size: 0.8rem;
+            color: var(--dim);
         }
 
-        .status.success {
-            color: #4ade80;
+        .status.ok {
+            color: var(--success);
         }
     </style>
 </head>
@@ -251,260 +206,249 @@
 <body>
     <div class="container">
         <header>
-            <h1><span>Cobble Client</span></h1>
-            <p class="subtitle">Dashboard</p>
+            <h1><span>Cobble</span></h1>
+            <p class="sub">Dream-Advanced Style AimAssist</p>
         </header>
 
-        <!-- AutoClicker Module -->
-        <div class="module-card">
-            <div class="module-header">
-                <div class="module-title">AutoClicker</div>
-                <div class="toggle" data-setting="enabled" onclick="toggleModule(this)"></div>
+        <!-- AutoClicker -->
+        <div class="card">
+            <div class="header">
+                <div class="title">AutoClicker</div>
+                <div class="toggle" id="ac-toggle" onclick="tog(this)"></div>
             </div>
-            <div class="setting-row">
-                <div class="setting-label"><span>Keybind</span>
-                    <button class="keybind-btn" data-setting="keybind" onclick="listenKeybind(this)">R</button>
-                </div>
+            <div class="row">
+                <div class="label"><span>Keybind</span><button class="keybind" id="ac-key"
+                        onclick="listenKey(this)">R</button></div>
             </div>
-            <div class="section-divider"></div>
-            <div class="setting-row">
-                <div class="setting-label"><span>Min CPS</span><span class="setting-value" id="minCps-value">10</span>
-                </div>
-                <input type="range" id="minCps" min="1" max="20" value="10" oninput="updateCpsSlider(this, 'min')">
+            <div class="div"></div>
+            <div class="row">
+                <div class="label"><span>Min CPS</span><span class="val" id="ac-min-v">10</span></div>
+                <input type="range" id="ac-min" min="1" max="20" value="10" oninput="upd(this,'ac-min-v');send()">
             </div>
-            <div class="setting-row">
-                <div class="setting-label"><span>Max CPS</span><span class="setting-value" id="maxCps-value">14</span>
-                </div>
-                <input type="range" id="maxCps" min="1" max="20" value="14" oninput="updateCpsSlider(this, 'max')">
+            <div class="row">
+                <div class="label"><span>Max CPS</span><span class="val" id="ac-max-v">14</span></div>
+                <input type="range" id="ac-max" min="1" max="20" value="14" oninput="upd(this,'ac-max-v');send()">
             </div>
-            <div class="section-divider"></div>
-            <div class="checkbox-row" onclick="toggleCheckbox(this)">
-                <div class="checkbox" data-setting="weaponOnly"></div><span>Weapon Only</span>
+            <div class="div"></div>
+            <div class="check-row" onclick="chk(this)">
+                <div class="check" id="ac-weapon"></div><span>Weapon Only</span>
             </div>
-            <div class="checkbox-row" onclick="toggleCheckbox(this)">
-                <div class="checkbox checked" data-setting="ignoreBlocks"></div><span>Ignore Blocks</span>
-            </div>
-            <div class="checkbox-row" onclick="toggleCheckbox(this)">
-                <div class="checkbox" data-setting="workInInventory"></div><span>Work in Inventory</span>
-            </div>
-            <div class="section-divider"></div>
-            <div class="checkbox-row" onclick="toggleCheckbox(this)">
-                <div class="checkbox checked" data-setting="advancedMode"></div><span>Advanced Randomization</span>
-            </div>
-            <div class="setting-row">
-                <div class="setting-label"><span>Drop Chance (%)</span><span class="setting-value"
-                        id="dropChance-value">5</span></div>
-                <input type="range" id="dropChance" min="0" max="20" value="5"
-                    oninput="updateSlider(this, 'dropChance-value')">
-            </div>
-            <div class="setting-row">
-                <div class="setting-label"><span>Spike Chance (%)</span><span class="setting-value"
-                        id="spikeChance-value">10</span></div>
-                <input type="range" id="spikeChance" min="0" max="30" value="10"
-                    oninput="updateSlider(this, 'spikeChance-value')">
-            </div>
-            <div class="setting-row">
-                <div class="setting-label"><span>Kurtosis</span><span class="setting-value"
-                        id="kurtosis-value">2.0</span></div>
-                <input type="range" id="kurtosis" min="0" max="50" value="20"
-                    oninput="updateSlider(this, 'kurtosis-value', 0.1)">
+            <div class="check-row" onclick="chk(this)">
+                <div class="check on" id="ac-blocks"></div><span>Ignore Blocks</span>
             </div>
         </div>
 
-        <!-- AimAssist Module -->
-        <div class="module-card">
-            <div class="module-header">
-                <div class="module-title">AimAssist</div>
-                <div class="toggle" data-setting="aa-enabled" onclick="toggleModule(this)"></div>
+        <!-- AimAssist -->
+        <div class="card">
+            <div class="header">
+                <div class="title">AimAssist</div>
+                <div class="toggle" id="aa-toggle" onclick="tog(this)"></div>
             </div>
-            <div class="setting-row">
-                <div class="setting-label"><span>Keybind</span>
-                    <button class="keybind-btn" data-setting="aa-keybind" onclick="listenKeybind(this)">V</button>
-                </div>
+            <div class="row">
+                <div class="label"><span>Keybind</span><button class="keybind" id="aa-key"
+                        onclick="listenKey(this)">V</button></div>
             </div>
-            <div class="section-divider"></div>
-            <!-- BLATANT MODE - Special highlight -->
-            <div class="checkbox-row" onclick="toggleCheckbox(this)"
-                style="background: rgba(233, 69, 96, 0.15); padding: 10px; border-radius: 8px; margin-bottom: 15px;">
-                <div class="checkbox" data-setting="aa-blatantMode"></div><span
-                    style="color: var(--primary); font-weight: 600;">⚡ Blatant Mode</span>
+
+            <div class="div"></div>
+            <div class="sec">SPEED</div>
+            <div class="row">
+                <div class="label"><span>Horizontal Speed</span><span class="val" id="aa-hspeed-v">25</span></div>
+                <input type="range" id="aa-hspeed" min="1" max="100" value="25"
+                    oninput="upd(this,'aa-hspeed-v');send()">
             </div>
-            <div class="setting-row">
-                <div class="setting-label"><span>Horizontal Speed</span><span class="setting-value"
-                        id="aa-hspeed-value">5</span></div>
-                <input type="range" id="aa-hspeed" min="1" max="10" value="5" step="0.5"
-                    oninput="updateSlider(this, 'aa-hspeed-value')">
+            <div class="row">
+                <div class="label"><span>Vertical Speed</span><span class="val" id="aa-vspeed-v">12</span></div>
+                <input type="range" id="aa-vspeed" min="1" max="100" value="12"
+                    oninput="upd(this,'aa-vspeed-v');send()">
             </div>
-            <div class="setting-row">
-                <div class="setting-label"><span>FOV</span><span class="setting-value" id="aa-fov-value">90</span></div>
-                <input type="range" id="aa-fov" min="10" max="360" value="90"
-                    oninput="updateSlider(this, 'aa-fov-value')">
+
+            <div class="div"></div>
+            <div class="sec">RANGE</div>
+            <div class="row">
+                <div class="label"><span>Max FOV</span><span class="val" id="aa-fov-v">90</span></div>
+                <input type="range" id="aa-fov" min="10" max="180" value="90" oninput="upd(this,'aa-fov-v');send()">
             </div>
-            <div class="setting-row">
-                <div class="setting-label"><span>Distance</span><span class="setting-value"
-                        id="aa-distance-value">4.0</span></div>
-                <input type="range" id="aa-distance" min="10" max="80" value="40"
-                    oninput="updateSlider(this, 'aa-distance-value', 0.1)">
+            <div class="row">
+                <div class="label"><span>Max Distance</span><span class="val" id="aa-dist-v">4.5</span></div>
+                <input type="range" id="aa-dist" min="10" max="80" value="45"
+                    oninput="upd(this,'aa-dist-v',0.1);send()">
             </div>
-            <div class="section-divider"></div>
-            <div class="checkbox-row" onclick="toggleCheckbox(this)">
-                <div class="checkbox checked" data-setting="aa-visibilityCheck"></div><span>Visibility Check</span>
+
+            <div class="div"></div>
+            <div class="sec">HUMANIZATION</div>
+            <div class="row">
+                <div class="label"><span>Randomization</span><span class="val" id="aa-rand-v">0.25</span></div>
+                <input type="range" id="aa-rand" min="0" max="50" value="25"
+                    oninput="upd(this,'aa-rand-v',0.01);send()">
             </div>
-            <div class="checkbox-row" onclick="toggleCheckbox(this)">
-                <div class="checkbox checked" data-setting="aa-ignoreInvisible"></div><span>Ignore Invisible</span>
+
+            <div class="div"></div>
+            <div class="sec">FEATURES</div>
+            <div class="check-row" onclick="chk(this)">
+                <div class="check on" id="aa-clicking"></div><span>Only Clicking</span>
             </div>
-            <div class="checkbox-row" onclick="toggleCheckbox(this)">
-                <div class="checkbox" data-setting="aa-onlySprinting"></div><span>Only Sprinting</span>
+            <div class="check-row" onclick="chk(this)">
+                <div class="check" id="aa-sprinting"></div><span>Only Sprinting</span>
             </div>
-            <div class="checkbox-row" onclick="toggleCheckbox(this)">
-                <div class="checkbox checked" data-setting="aa-onlyClicking"></div><span>Only Clicking</span>
+            <div class="check-row" onclick="chk(this)">
+                <div class="check" id="aa-vertical"></div><span>Vertical Aim</span>
             </div>
-            <div class="checkbox-row" onclick="toggleCheckbox(this)">
-                <div class="checkbox checked" data-setting="aa-targetLock"></div><span>Target Lock</span>
+            <div class="check-row" onclick="chk(this)">
+                <div class="check on" id="aa-visibility"></div><span>Visibility Check</span>
             </div>
-            <div class="checkbox-row" onclick="toggleCheckbox(this)">
-                <div class="checkbox" data-setting="aa-verticalAim"></div><span>Vertical Aim</span>
+            <div class="check-row" onclick="chk(this)">
+                <div class="check on" id="aa-invisible"></div><span>Ignore Invisible</span>
             </div>
-            <div class="checkbox-row" onclick="toggleCheckbox(this)">
-                <div class="checkbox checked" data-setting="aa-hurtTimeBoost"></div><span>Hurt Time Boost</span>
+            <div class="check-row" onclick="chk(this)">
+                <div class="check on" id="aa-lock"></div><span>Target Lock</span>
+            </div>
+            <div class="check-row" onclick="chk(this)">
+                <div class="check on" id="aa-hurt"></div><span>Hurt Time Boost</span>
             </div>
         </div>
 
-        <div class="actions">
-            <button class="btn btn-secondary" onclick="loadConfig()">Load</button>
-            <button class="btn btn-primary" onclick="saveConfig()">Save</button>
+        <!-- NameTags -->
+        <div class="card">
+            <div class="header">
+                <div class="title">NameTags</div>
+                <div class="toggle" id="nt-toggle" onclick="tog(this)"></div>
+            </div>
+            <div class="row">
+                <div class="label"><span>Keybind</span><button class="keybind" id="nt-key"
+                        onclick="listenKey(this)">N</button></div>
+            </div>
+
+            <div class="div"></div>
+            <div class="sec">SETTINGS</div>
+            <div class="row">
+                <div class="label"><span>Range</span><span class="val" id="nt-range-v">64</span></div>
+                <input type="range" id="nt-range" min="16" max="128" value="64" oninput="upd(this,'nt-range-v');send()">
+            </div>
+            <div class="row">
+                <div class="label"><span>Scale</span><span class="val" id="nt-scale-v">1.00</span></div>
+                <input type="range" id="nt-scale" min="50" max="200" value="100"
+                    oninput="upd(this,'nt-scale-v',0.01);send()">
+            </div>
+
+            <div class="div"></div>
+            <div class="sec">DISPLAY</div>
+            <div class="check-row" onclick="chk(this)">
+                <div class="check" id="nt-distscale"></div><span>Distance Scaling</span>
+            </div>
+            <div class="check-row" onclick="chk(this)">
+                <div class="check on" id="nt-bg"></div><span>Background</span>
+            </div>
+            <div class="check-row" onclick="chk(this)">
+                <div class="check on" id="nt-health"></div><span>Show Health</span>
+            </div>
+            <div class="check-row" onclick="chk(this)">
+                <div class="check on" id="nt-distance"></div><span>Show Distance</span>
+            </div>
         </div>
+
         <div class="status" id="status"></div>
     </div>
 
     <script>
-        let ws = null, connected = false;
+        let ws, connected = false;
 
         function connect() {
             ws = new WebSocket('ws://localhost:8765');
-            ws.onopen = () => { connected = true; showStatus('Connected', 'success'); ws.send(JSON.stringify({ type: 'getConfig' })); };
-            ws.onmessage = (e) => { try { const d = JSON.parse(e.data); if (d.type === 'config' || d.type === 'configAll') applyConfigFromServer(d); } catch (err) { } };
-            ws.onclose = () => { connected = false; showStatus('Disconnected - retrying...'); setTimeout(connect, 2000); };
-            ws.onerror = () => showStatus('Connection error');
+            ws.onopen = () => { connected = true; show('Connected', 'ok'); ws.send('{"type":"getConfig"}'); setInterval(() => { if (ws && connected) ws.send('{"type":"getConfig"}') }, 500); };
+            ws.onmessage = e => { try { let d = JSON.parse(e.data); if (d.type === 'configAll') apply(d); } catch { } };
+            ws.onclose = () => { connected = false; show('Reconnecting...'); setTimeout(connect, 2000); };
         }
 
-        function showStatus(text, type = '') {
-            const s = document.getElementById('status');
-            s.textContent = text; s.className = 'status ' + type;
-            if (type === 'success') setTimeout(() => { s.textContent = connected ? 'Connected' : ''; s.className = 'status success'; }, 2000);
+        function show(t, c = '') { let s = document.getElementById('status'); s.textContent = t; s.className = 'status ' + c; }
+        function upd(el, id, m = 1) { document.getElementById(id).textContent = m < 1 ? (el.value * m).toFixed(2) : el.value; }
+        function tog(el) { el.classList.toggle('on'); send(); }
+        function chk(row) { row.querySelector('.check').classList.toggle('on'); send(); }
+        function listenKey(btn) {
+            btn.textContent = '...';
+            document.addEventListener('keydown', e => { e.preventDefault(); btn.textContent = e.key.toUpperCase(); send(); }, { once: true });
         }
 
-        function updateSlider(input, valueId, mult = 1) {
-            document.getElementById(valueId).textContent = mult < 1 ? (input.value * mult).toFixed(2) : input.value;
-            sendConfig();
-        }
-
-        // CPS slider with min/max validation
-        function updateCpsSlider(input, type) {
-            const minSlider = document.getElementById('minCps');
-            const maxSlider = document.getElementById('maxCps');
-            let minVal = parseInt(minSlider.value);
-            let maxVal = parseInt(maxSlider.value);
-
-            if (type === 'min' && minVal > maxVal) {
-                minSlider.value = maxVal;
-                minVal = maxVal;
-            } else if (type === 'max' && maxVal < minVal) {
-                maxSlider.value = minVal;
-                maxVal = minVal;
-            }
-
-            document.getElementById('minCps-value').textContent = minSlider.value;
-            document.getElementById('maxCps-value').textContent = maxSlider.value;
-            sendConfig();
-        }
-
-        function toggleModule(el) { el.classList.toggle('active'); sendConfig(); }
-        function toggleCheckbox(row) { row.querySelector('.checkbox').classList.toggle('checked'); sendConfig(); }
-
-        function listenKeybind(btn) {
-            btn.classList.add('listening'); btn.textContent = '...';
-            const h = (e) => { e.preventDefault(); btn.textContent = e.key.toUpperCase(); btn.classList.remove('listening'); document.removeEventListener('keydown', h); sendConfig(); };
-            document.addEventListener('keydown', h);
-        }
-
-        function gatherAutoClickerConfig() {
-            return {
+        function send() {
+            if (!ws || !connected) return;
+            ws.send(JSON.stringify({
                 type: 'config', module: 'autoclicker',
-                enabled: document.querySelector('[data-setting="enabled"]').classList.contains('active'),
-                keybind: document.querySelector('[data-setting="keybind"]').textContent,
-                minCPS: parseInt(document.getElementById('minCps').value),
-                maxCPS: parseInt(document.getElementById('maxCps').value),
-                weaponOnly: document.querySelector('[data-setting="weaponOnly"]').classList.contains('checked'),
-                ignoreBlocks: document.querySelector('[data-setting="ignoreBlocks"]').classList.contains('checked'),
-                workInInventory: document.querySelector('[data-setting="workInInventory"]').classList.contains('checked'),
-                advancedMode: document.querySelector('[data-setting="advancedMode"]').classList.contains('checked'),
-                dropChance: parseInt(document.getElementById('dropChance').value),
-                spikeChance: parseInt(document.getElementById('spikeChance').value),
-                kurtosis: parseFloat(document.getElementById('kurtosis').value) * 0.1
-            };
-        }
-
-        function gatherAimAssistConfig() {
-            return {
+                enabled: document.getElementById('ac-toggle').classList.contains('on'),
+                keybind: document.getElementById('ac-key').textContent,
+                minCPS: +document.getElementById('ac-min').value,
+                maxCPS: +document.getElementById('ac-max').value,
+                weaponOnly: document.getElementById('ac-weapon').classList.contains('on'),
+                ignoreBlocks: document.getElementById('ac-blocks').classList.contains('on'),
+                advancedMode: true, dropChance: 5, spikeChance: 10, kurtosis: 2
+            }));
+            ws.send(JSON.stringify({
                 type: 'config', module: 'aimassist',
-                enabled: document.querySelector('[data-setting="aa-enabled"]').classList.contains('active'),
-                keybind: document.querySelector('[data-setting="aa-keybind"]').textContent,
-                blatantMode: document.querySelector('[data-setting="aa-blatantMode"]').classList.contains('checked'),
-                horizontalSpeed: parseFloat(document.getElementById('aa-hspeed').value),
-                maxFov: parseInt(document.getElementById('aa-fov').value),
-                maxDistance: parseFloat(document.getElementById('aa-distance').value) * 0.1,
-                visibilityCheck: document.querySelector('[data-setting="aa-visibilityCheck"]').classList.contains('checked'),
-                ignoreInvisible: document.querySelector('[data-setting="aa-ignoreInvisible"]').classList.contains('checked'),
-                onlySprinting: document.querySelector('[data-setting="aa-onlySprinting"]').classList.contains('checked'),
-                onlyClicking: document.querySelector('[data-setting="aa-onlyClicking"]').classList.contains('checked'),
-                targetLock: document.querySelector('[data-setting="aa-targetLock"]').classList.contains('checked'),
-                verticalAim: document.querySelector('[data-setting="aa-verticalAim"]').classList.contains('checked'),
-                hurtTimeBoost: document.querySelector('[data-setting="aa-hurtTimeBoost"]').classList.contains('checked')
-            };
+                enabled: document.getElementById('aa-toggle').classList.contains('on'),
+                keybind: document.getElementById('aa-key').textContent,
+                horizontalSpeed: +document.getElementById('aa-hspeed').value,
+                verticalSpeed: +document.getElementById('aa-vspeed').value,
+                maxFov: +document.getElementById('aa-fov').value,
+                maxDistance: +document.getElementById('aa-dist').value * 0.1,
+                randomization: +document.getElementById('aa-rand').value * 0.01,
+                onlyClicking: document.getElementById('aa-clicking').classList.contains('on'),
+                onlySprinting: document.getElementById('aa-sprinting').classList.contains('on'),
+                verticalAim: document.getElementById('aa-vertical').classList.contains('on'),
+                visibilityCheck: document.getElementById('aa-visibility').classList.contains('on'),
+                ignoreInvisible: document.getElementById('aa-invisible').classList.contains('on'),
+                targetLock: document.getElementById('aa-lock').classList.contains('on'),
+                hurtTimeBoost: document.getElementById('aa-hurt').classList.contains('on')
+            }));
+            ws.send(JSON.stringify({
+                type: 'config', module: 'nametags',
+                enabled: document.getElementById('nt-toggle').classList.contains('on'),
+                keybind: document.getElementById('nt-key').textContent,
+                range: +document.getElementById('nt-range').value,
+                scale: +document.getElementById('nt-scale').value * 0.01,
+                distanceScale: document.getElementById('nt-distscale').classList.contains('on'),
+                background: document.getElementById('nt-bg').classList.contains('on'),
+                showHealth: document.getElementById('nt-health').classList.contains('on'),
+                showDistance: document.getElementById('nt-distance').classList.contains('on')
+            }));
         }
 
-        function sendConfig() { if (ws && connected) { ws.send(JSON.stringify(gatherAutoClickerConfig())); ws.send(JSON.stringify(gatherAimAssistConfig())); } }
-
-        function applyConfigFromServer(cfg) {
-            if (cfg.type === 'configAll') {
-                if (cfg.autoclicker) applyAutoClickerConfig(cfg.autoclicker);
-                if (cfg.aimassist) applyAimAssistConfig(cfg.aimassist);
+        function apply(d) {
+            if (d.autoclicker) {
+                let c = d.autoclicker;
+                document.getElementById('ac-toggle').classList.toggle('on', c.enabled);
+                document.getElementById('ac-key').textContent = c.keybind || 'R';
+                document.getElementById('ac-min').value = c.minCPS; document.getElementById('ac-min-v').textContent = Math.round(c.minCPS);
+                document.getElementById('ac-max').value = c.maxCPS; document.getElementById('ac-max-v').textContent = Math.round(c.maxCPS);
+                document.getElementById('ac-weapon').classList.toggle('on', c.weaponOnly);
+                document.getElementById('ac-blocks').classList.toggle('on', c.ignoreBlocks);
+            }
+            if (d.aimassist) {
+                let c = d.aimassist;
+                document.getElementById('aa-toggle').classList.toggle('on', c.enabled);
+                document.getElementById('aa-key').textContent = c.keybind || 'V';
+                document.getElementById('aa-hspeed').value = c.horizontalSpeed; document.getElementById('aa-hspeed-v').textContent = Math.round(c.horizontalSpeed);
+                document.getElementById('aa-vspeed').value = c.verticalSpeed; document.getElementById('aa-vspeed-v').textContent = Math.round(c.verticalSpeed);
+                document.getElementById('aa-fov').value = c.maxFov; document.getElementById('aa-fov-v').textContent = Math.round(c.maxFov);
+                document.getElementById('aa-dist').value = c.maxDistance * 10; document.getElementById('aa-dist-v').textContent = c.maxDistance.toFixed(1);
+                document.getElementById('aa-rand').value = c.randomization * 100; document.getElementById('aa-rand-v').textContent = c.randomization.toFixed(2);
+                document.getElementById('aa-clicking').classList.toggle('on', c.onlyClicking !== false);
+                document.getElementById('aa-sprinting').classList.toggle('on', c.onlySprinting === true);
+                document.getElementById('aa-vertical').classList.toggle('on', c.verticalAim === true);
+                document.getElementById('aa-visibility').classList.toggle('on', c.visibilityCheck !== false);
+                document.getElementById('aa-invisible').classList.toggle('on', c.ignoreInvisible !== false);
+                document.getElementById('aa-lock').classList.toggle('on', c.targetLock !== false);
+                document.getElementById('aa-hurt').classList.toggle('on', c.hurtTimeBoost !== false);
+            }
+            if (d.nametags) {
+                let c = d.nametags;
+                document.getElementById('nt-toggle').classList.toggle('on', c.enabled);
+                document.getElementById('nt-key').textContent = c.keybind || 'N';
+                document.getElementById('nt-range').value = c.range; document.getElementById('nt-range-v').textContent = Math.round(c.range);
+                document.getElementById('nt-scale').value = c.scale * 100; document.getElementById('nt-scale-v').textContent = c.scale.toFixed(2);
+                document.getElementById('nt-distscale').classList.toggle('on', c.distanceScale === true);
+                document.getElementById('nt-bg').classList.toggle('on', c.background !== false);
+                document.getElementById('nt-health').classList.toggle('on', c.showHealth !== false);
+                document.getElementById('nt-distance').classList.toggle('on', c.showDistance !== false);
             }
         }
-
-        function applyAutoClickerConfig(c) {
-            document.querySelector('[data-setting="enabled"]').classList.toggle('active', c.enabled);
-            if (c.keybind) document.querySelector('[data-setting="keybind"]').textContent = c.keybind;
-            document.getElementById('minCps').value = c.minCPS; document.getElementById('minCps-value').textContent = Math.round(c.minCPS);
-            document.getElementById('maxCps').value = c.maxCPS; document.getElementById('maxCps-value').textContent = Math.round(c.maxCPS);
-            document.getElementById('dropChance').value = c.dropChance; document.getElementById('dropChance-value').textContent = Math.round(c.dropChance);
-            document.getElementById('spikeChance').value = c.spikeChance; document.getElementById('spikeChance-value').textContent = Math.round(c.spikeChance);
-            document.getElementById('kurtosis').value = c.kurtosis * 10; document.getElementById('kurtosis-value').textContent = c.kurtosis.toFixed(1);
-            document.querySelector('[data-setting="weaponOnly"]').classList.toggle('checked', c.weaponOnly);
-            document.querySelector('[data-setting="ignoreBlocks"]').classList.toggle('checked', c.ignoreBlocks);
-            document.querySelector('[data-setting="workInInventory"]').classList.toggle('checked', c.workInInventory);
-            document.querySelector('[data-setting="advancedMode"]').classList.toggle('checked', c.advancedMode);
-        }
-
-        function applyAimAssistConfig(c) {
-            document.querySelector('[data-setting="aa-enabled"]').classList.toggle('active', c.enabled);
-            if (c.keybind) document.querySelector('[data-setting="aa-keybind"]').textContent = c.keybind;
-            document.querySelector('[data-setting="aa-blatantMode"]').classList.toggle('checked', c.blatantMode || false);
-            document.getElementById('aa-hspeed').value = c.horizontalSpeed; document.getElementById('aa-hspeed-value').textContent = Math.round(c.horizontalSpeed);
-            document.getElementById('aa-fov').value = c.maxFov; document.getElementById('aa-fov-value').textContent = Math.round(c.maxFov);
-            document.getElementById('aa-distance').value = c.maxDistance * 10; document.getElementById('aa-distance-value').textContent = c.maxDistance.toFixed(1);
-            document.querySelector('[data-setting="aa-visibilityCheck"]').classList.toggle('checked', c.visibilityCheck);
-            document.querySelector('[data-setting="aa-ignoreInvisible"]').classList.toggle('checked', c.ignoreInvisible);
-            document.querySelector('[data-setting="aa-onlySprinting"]').classList.toggle('checked', c.onlySprinting);
-            document.querySelector('[data-setting="aa-onlyClicking"]').classList.toggle('checked', c.onlyClicking);
-            document.querySelector('[data-setting="aa-targetLock"]').classList.toggle('checked', c.targetLock);
-            document.querySelector('[data-setting="aa-verticalAim"]').classList.toggle('checked', c.verticalAim);
-            document.querySelector('[data-setting="aa-hurtTimeBoost"]').classList.toggle('checked', c.hurtTimeBoost);
-        }
-
-        function saveConfig() { sendConfig(); showStatus('Config saved', 'success'); }
-        function loadConfig() { if (ws && connected) ws.send(JSON.stringify({ type: 'getConfig' })); }
 
         connect();
     </script>

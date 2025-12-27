@@ -217,7 +217,7 @@ bool ConfigServer::handleWebSocketHandshake() {
 		"Sec-WebSocket-Accept: " + encoded + "\r\n\r\n";
 
 	send(clientSocket, response.c_str(), (int)response.size(), 0);
-	// Handshake complete - silent
+	log_ok("WebSocket client connected");
 	return true;
 }
 

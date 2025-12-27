@@ -9,10 +9,24 @@
 struct PlayerInfo
 {
 	jobject instance = nullptr;
+	std::string name;
 	double posX = 0.0;
 	double posY = 0.0;
 	double posZ = 0.0;
+	double lastPosX = 0.0;
+	double lastPosY = 0.0;
+	double lastPosZ = 0.0;
+	float health = 20.0f;
+	float maxHealth = 20.0f;
 	bool isInvisible = false;
+};
+
+// Render position for WorldToScreen calculations
+struct RenderPos
+{
+	double x = 0.0;
+	double y = 0.0;
+	double z = 0.0;
 };
 
 // Simplified wrapper for net.minecraft.client.Minecraft
@@ -46,6 +60,10 @@ struct Minecraft
 
 	// Check if local player can see target entity
 	bool canEntityBeSeen(jobject target);
+	
+	// Render info for ESP/NameTags
+	RenderPos getRenderPos();
+	float getPartialTicks();
 
 	jclass cls = nullptr;
 	jobject instance = nullptr;

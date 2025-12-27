@@ -4,7 +4,9 @@
 #include "module/module_manager.h"
 #include "module/autoclicker.h"
 #include "module/aimassist.h"
+#include "module/nametags.h"
 #include "web/config.h"
+#include "overlay/overlay.h"
 
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
@@ -56,6 +58,13 @@ void cobble::context::initialize()
 	// Register modules
 	moduleManager.registerModule(&autoClicker);
 	moduleManager.registerModule(&aimAssist);
+	moduleManager.registerModule(&nameTags);
+	
+	// Initialize overlay with delay - OpenGL context needs time to be ready
+	std::thread([]() {
+		std::this_thread::sleep_for(std::chrono::seconds(3));
+		Overlay::Init();
+	}).detach();
 
 	// Start WebSocket server for web config
 	configServer.onMessage([](const std::string& msg) {
@@ -67,6 +76,7 @@ void cobble::context::initialize()
 	logger.writeRaw("\n");
 	log_prompt("R = toggle autoclicker");
 	log_prompt("V = toggle aimassist");
+	log_prompt("N = toggle nametags");
 	log_prompt("Ctrl+C = unload client");
 	logger.writeRaw("\n");
 	log_debug("dashboard: open config/index.html");
@@ -101,7 +111,9 @@ void cobble::context::shutdown()
 	// Disable all modules first
 	autoClicker.setEnabled(false);
 	aimAssist.setEnabled(false);
+	nameTags.setEnabled(false);
 	
+	Overlay::Shutdown();
 	Web_Shutdown();
 	Java::Kill();
 	
@@ -116,7 +128,9 @@ void cobble::context::fastShutdown()
 	// Quick cleanup - console is closing, don't log
 	autoClicker.setEnabled(false);
 	aimAssist.setEnabled(false);
+	nameTags.setEnabled(false);
 	
+	Overlay::Shutdown();
 	// Stop websocket
 	Web_Shutdown();
 }

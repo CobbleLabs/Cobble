@@ -44,6 +44,15 @@ void ModuleManager::update()
 	}
 }
 
+void ModuleManager::onRender()
+{
+	for (auto* mod : modules)
+	{
+		if (mod->enabled)
+			mod->onRender();
+	}
+}
+
 void ModuleManager::checkKeybinds()
 {
 	for (auto* mod : modules)
