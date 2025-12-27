@@ -1,5 +1,4 @@
 #include "aimassist.h"
-#include "autoclicker.h"
 #include "../sdk/minecraft.h"
 #include "../util/logger.hpp"
 
@@ -10,14 +9,13 @@
 #define NOMINMAX
 #endif
 #include <Windows.h>
+#include <algorithm>
 
 AimAssist aimAssist;
 
 AimAssist::AimAssist() : Module("AimAssist")
 {
 	keybind = 'V';
-	std::random_device rd;
-	rng.seed(rd());
 	lastUpdate = std::chrono::steady_clock::now();
 }
 
@@ -26,117 +24,25 @@ void AimAssist::onEnable()
 	log_ok("AimAssist enabled");
 	hasLockedTarget = false;
 	lastUpdate = std::chrono::steady_clock::now();
+	
+	// Reset physics
+	currentSensX = 0.0;
+	currentSensY = 0.0;
+	clickActivation = 0.0f;
 }
 
 void AimAssist::onDisable()
 {
 	log_ok("AimAssist disabled");
 	hasLockedTarget = false;
-	hasLastPosition = false;
-	smoothVelocityX = 0.0;
-	smoothVelocityZ = 0.0;
-	yawVelocity = 0.0f;
-	pitchVelocity = 0.0f;
-	tickCounter = 0;
+	currentSensX = 0.0;
+	currentSensY = 0.0;
+	clickActivation = 0.0f;
 }
 
-bool AimAssist::isAimingAtHitbox(double localX, double localY, double localZ, 
-								  float localYaw, float localPitch,
-								  double targetX, double targetY, double targetZ)
-{
-	// Player hitbox: 0.6 width, 1.8 height
-	constexpr float HITBOX_WIDTH = 0.6f;
-	constexpr float HITBOX_HEIGHT = 1.8f;
-	constexpr float HITBOX_HALF = HITBOX_WIDTH / 2.0f;
-	
-	// Calculate angles to hitbox corners
-	float yawToCenter = getYawTo(targetX - localX, targetZ - localZ);
-	float yawDiff = std::abs(wrapAngle(yawToCenter - localYaw));
-	
-	// Calculate horizontal distance
-	double horizDist = getHorizontalDistance(localX, localZ, targetX, targetZ);
-	if (horizDist < 0.1) return true; // Very close, consider on target
-	
-	// Calculate angular size of hitbox at this distance
-	float hitboxAngularWidth = static_cast<float>(std::atan2(HITBOX_HALF, horizDist)) * (180.0f / PI);
-	
-	// Check if yaw is within hitbox bounds (with large margin for comfort)
-	if (yawDiff > hitboxAngularWidth + 5.0f) return false;
-	
-	// Check pitch - calculate angles to top and bottom of hitbox
-	float pitchToBottom = getPitchTo(targetX - localX, targetY - localY, targetZ - localZ);
-	float pitchToTop = getPitchTo(targetX - localX, (targetY + HITBOX_HEIGHT) - localY, targetZ - localZ);
-	
-	// Add large margin for smooth transition (don't be picky)
-	float pitchMin = (std::min)(pitchToBottom, pitchToTop) - 8.0f;
-	float pitchMax = (std::max)(pitchToBottom, pitchToTop) + 8.0f;
-	
-	return (localPitch >= pitchMin && localPitch <= pitchMax);
-}
-
-float AimAssist::easeOutQuad(float t)
-{
-	// Quadratic ease-out: slower as approaching target
-	return t * (2.0f - t);
-}
-
-float AimAssist::easeOutCubic(float t)
-{
-	// Cubic ease-out: even smoother
-	float t1 = t - 1.0f;
-	return t1 * t1 * t1 + 1.0f;
-}
-
-void AimAssist::updateVelocity(double targetX, double targetZ, float deltaMs)
-{
-	if (!hasLastPosition) {
-		lastTargetX = targetX;
-		lastTargetZ = targetZ;
-		hasLastPosition = true;
-		return;
-	}
-	
-	// Calculate raw velocity (blocks per ms)
-	double rawVelX = (targetX - lastTargetX) / deltaMs;
-	double rawVelZ = (targetZ - lastTargetZ) / deltaMs;
-	
-	// Smooth velocity with exponential moving average (very smooth)
-	// Lower alpha = smoother but more lag; higher = more responsive
-	double alpha = 0.15; // Balanced smoothing
-	smoothVelocityX = alpha * rawVelX + (1.0 - alpha) * smoothVelocityX;
-	smoothVelocityZ = alpha * rawVelZ + (1.0 - alpha) * smoothVelocityZ;
-	
-	// Clamp velocity to reasonable values (max ~0.3 blocks/ms = sprinting speed)
-	double maxVel = 0.02; // Per ms
-	if (std::abs(smoothVelocityX) > maxVel) smoothVelocityX = (smoothVelocityX > 0 ? 1 : -1) * maxVel;
-	if (std::abs(smoothVelocityZ) > maxVel) smoothVelocityZ = (smoothVelocityZ > 0 ? 1 : -1) * maxVel;
-	
-	lastTargetX = targetX;
-	lastTargetZ = targetZ;
-}
-
-void AimAssist::getPredictedPosition(double targetX, double targetZ, double& outX, double& outZ)
-{
-	// Prediction amount 0-30 maps to 0-0.3 multiplier
-	if (settings.prediction <= 0.0f || !hasLastPosition) {
-		outX = targetX;
-		outZ = targetZ;
-		return;
-	}
-	
-	// Convert prediction setting (0-30) to time ahead in ms
-	float predictionMs = settings.prediction * 3.33f; // 0-30 -> 0-100ms
-	
-	// Apply prediction based on smoothed velocity
-	outX = targetX + smoothVelocityX * predictionMs;
-	outZ = targetZ + smoothVelocityZ * predictionMs;
-	
-	// HUMAN-LIKE: Prediction error (humans over/underestimate)
-	float error = randomFloat(-0.15f, 0.15f);
-	outX += error;
-	outZ -= error * 0.7f;
-}
-
+// ============================================================
+// MAIN UPDATE: Continuous Tracking Engine
+// ============================================================
 void AimAssist::onUpdate()
 {
 	if (!player.isValid()) return;
@@ -145,147 +51,97 @@ void AimAssist::onUpdate()
 	// Only when sprinting check
 	if (settings.onlySprinting && !player.isSprinting()) return;
 
-	// CLICK-TRIGGERED PARADIGM: Only assist during/after clicks
-	bool isClicking = (GetAsyncKeyState(VK_LBUTTON) & 0x8000) != 0;
 	auto now = std::chrono::steady_clock::now();
-	
-	// Detect AutoClicker NEW click (timestamp changed since we last checked)
-	static std::chrono::steady_clock::time_point lastProcessedAutoClick;
-	bool newAutoClick = (autoClicker.enabled && autoClicker.lastAutoClick != lastProcessedAutoClick);
-	if (newAutoClick) {
-		lastProcessedAutoClick = autoClicker.lastAutoClick;
-	}
-	
-	// Detect new click (manual edge detection OR new autoclick)
-	bool newManualClick = isClicking && !wasClicking;
-	bool newClick = newManualClick || newAutoClick;
-	
-	if (newClick) {
-		lastClickTime = now;
-		currentWindowDuration = randomFloat(30.0f, 80.0f);
-		assistAppliedThisClick = false; // Reset for new click
-		log_debug("Click detected");
-	}
-	wasClicking = isClicking;
-	
-	// Calculate time since last click
-	float msSinceClick = std::chrono::duration<float, std::milli>(now - lastClickTime).count();
-	
-	// Use fixed window duration (not recalculated)
-	inAssistanceWindow = (msSinceClick < currentWindowDuration);
-	
-	// SINGLE PULSE: If already applied assist this click → stop
-	if (assistAppliedThisClick) {
-		yawVelocity *= 0.95f;
-		pitchVelocity *= 0.95f;
-		return;
-	}
-	
-	// If not clicking AND outside assistance window → NO ASSIST
-	if (!isClicking && !inAssistanceWindow) {
-		yawVelocity *= 0.95f;
-		pitchVelocity *= 0.95f;
-		hasLockedTarget = false;
-		return;
-	}
-	
-	// Calculate delta time since last update
 	float deltaMs = std::chrono::duration<float, std::milli>(now - lastUpdate).count();
-	
-	// Minimum delay with randomization
-	float minDelay = randomFloat(1.0f, 3.0f);
-	if (deltaMs < minDelay) return;
-	
-	// Cap deltaMs with jitter
-	float maxDelay = randomFloat(8.0f, 12.0f);
-	if (deltaMs > maxDelay) deltaMs = randomFloat(3.0f, 8.0f);
-	
 	lastUpdate = now;
+	
+	// Clamp delta to prevent crazy jumps on lag spikes
+	if (deltaMs > 50.0f) deltaMs = 50.0f;
 
-	// Get player list from world
+	// --- Click Logic (Ramp up/down) ---
+	bool isClicking = (GetAsyncKeyState(VK_LBUTTON) & 0x8000) != 0;
+	
+	// Ramp speed: fast reaction
+	float rampSpeed = 0.005f * deltaMs;
+	
+	if (settings.onlyClicking && !isClicking) {
+		clickActivation = (std::max)(0.0f, clickActivation - rampSpeed * 3.0f); // Decay fast
+	} else {
+		clickActivation = (std::min)(1.0f, clickActivation + rampSpeed);
+	}
+
+	if (clickActivation <= 0.01f) {
+		hasLockedTarget = false;
+		// Reset inertia when not aiming
+		currentSensX = 0.0;
+		currentSensY = 0.0;
+		return;
+	}
+
+// ============================================================
+	// TARGET SELECTION
+	// ============================================================
 	auto players = mc.getPlayerList();
 	if (players.empty()) {
 		hasLockedTarget = false;
+		hasLastPosition = false;
+		currentSensX *= 0.85; // Friction slide
+		currentSensY *= 0.85;
 		return;
 	}
 
 	double localX = player.getPosX();
-	double localY = player.getPosY() + 1.62; // Eye height
+	double localY = player.getPosY() + 1.62;
 	double localZ = player.getPosZ();
 	float localYaw = player.getYaw();
 	float localPitch = player.getPitch();
-	int hurtTime = player.getHurtTime();
 
-	// Find best target
-	float bestYawDiff = 999.0f;
-	float bestPitchDiff = 999.0f;
-	double bestDistance = 999.0;
-	PlayerInfo* bestTarget = nullptr;
-	double bestTargetY = 0.0;
+	float bestScore = -999999.0f;
+	float desiredYaw = localYaw;
+	float desiredPitch = localPitch;
+	bool foundTarget = false;
+	
+	// Vars for prediction
+	double targetPosX = 0.0;
+	double targetPosZ = 0.0;
 
-	for (auto& p : players) {
-		// Skip invisible players if configured
-		if (settings.ignoreInvisible && p.isInvisible) continue;
+	for (auto& other : players) {
+		if (!other.instance) continue;
+		if (settings.ignoreInvisible && other.isInvisible) continue;
 
-		// Horizontal distance for reach detection
-		double dist = getHorizontalDistance(localX, localZ, p.posX, p.posZ);
-		if (dist > settings.maxDistance || dist < 0.5) continue;
+		double targetX = other.posX;
+		double targetY = other.posY + 0.9;
+		double targetZ = other.posZ;
 
-		// Visibility check
-		if (settings.visibilityCheck && !mc.canEntityBeSeen(p.instance)) continue;
+		double distance = getHorizontalDistance(localX, localZ, targetX, targetZ);
+		if (distance > settings.maxDistance || distance < 0.5) continue;
 
-		// Target lock: prefer locked target if valid
-		if (settings.targetLock && hasLockedTarget) {
-			double lockDist = getHorizontalDistance(p.posX, p.posZ, lockedTargetX, lockedTargetZ);
-			if (lockDist > 0.5) continue;
-		}
-
-		// Aim at body center (posY + 0.9 for body, +1.62 for head)
-		double targetY = p.posY + 0.9;
+		float targetYaw = getYawTo(targetX - localX, targetZ - localZ);
+		float yawDiff = wrapAngle(targetYaw - localYaw);
+		if (std::abs(yawDiff) > settings.maxFov / 2.0f) continue;
 		
-		// Height adjustment: if we're above, aim at their head
-		if (localY > p.posY + 1.8) {
-			targetY = p.posY + 1.8;
-		} else if (localY > p.posY) {
-			targetY = localY;
+		float score = -static_cast<float>(distance) * 2.0f - std::abs(yawDiff) * 0.5f;
+
+		if (settings.targetLock && hasLockedTarget) {
+			if (std::abs(targetX - lockedTargetX) < 1.0 && std::abs(targetZ - lockedTargetZ) < 1.0) {
+				score += 10.0f;
+			}
 		}
 
-		// Calculate angle differences
-		float yawDiff = wrapAngle(getYawTo(p.posX - localX, p.posZ - localZ) - localYaw);
-		float pitchDiff = getPitchTo(p.posX - localX, targetY - localY, p.posZ - localZ) - localPitch;
-
-		// FOV check (horizontal only)
-		if (std::abs(yawDiff) > settings.maxFov) continue;
-
-		// Prioritize by angle difference
-		if (std::abs(yawDiff) < std::abs(bestYawDiff)) {
-			bestYawDiff = yawDiff;
-			bestPitchDiff = pitchDiff;
-			bestDistance = dist;
-			bestTarget = &p;
-			bestTargetY = p.posY;
+		if (score > bestScore) {
+			bestScore = score;
+			desiredYaw = targetYaw;
+			desiredPitch = getPitchTo(targetX - localX, targetY - localY, targetZ - localZ);
 			
-			// Update velocity tracking for prediction
-			updateVelocity(p.posX, p.posZ, deltaMs);
-			
-			// Get predicted position for aiming
-			double predictedX, predictedZ;
-			getPredictedPosition(p.posX, p.posZ, predictedX, predictedZ);
-			
-			// Recalculate yaw to predicted position (smoother tracking)
-			float predictedYawDiff = wrapAngle(getYawTo(predictedX - localX, predictedZ - localZ) - localYaw);
-			
-			// Blend between current and predicted (smooth transition)
-			float predictionBlend = settings.prediction / 100.0f;
-			bestYawDiff = yawDiff * (1.0f - predictionBlend) + predictedYawDiff * predictionBlend;
-			
-			// Update lock position to predicted
-			lockedTargetX = predictedX;
-			lockedTargetZ = predictedZ;
+			lockedTargetX = targetX;
+			lockedTargetZ = targetZ;
+			targetPosX = targetX;
+			targetPosZ = targetZ;
+			foundTarget = true;
 		}
 	}
-
-	// Clean up player instances
+	
+	// Cleanup
 	for (auto& p : players) {
 		if (p.instance) {
 			Java::Env->DeleteLocalRef(p.instance);
@@ -293,144 +149,198 @@ void AimAssist::onUpdate()
 		}
 	}
 
-	if (!bestTarget) {
+	if (!foundTarget) {
 		hasLockedTarget = false;
-		// HUMAN-LIKE: Decay velocity when no target (don't snap stop)
-		yawVelocity *= 0.9f;
-		pitchVelocity *= 0.9f;
+		hasLastPosition = false;
+		currentSensX *= 0.85; // Friction slide
+		currentSensY *= 0.85;
 		return;
 	}
 
+	// Detect NEW target acquisition
+	// Only reset if: 1) we weren't tracking before, AND 2) target is actually different
+	bool wasTracking = hasLockedTarget;
+	bool isSameTarget = wasTracking && 
+		(std::abs(targetPosX - lockedTargetX) < 2.0) && 
+		(std::abs(targetPosZ - lockedTargetZ) < 2.0);
+	
+	// Only reset state if it's a DIFFERENT target, not just re-clicking same one
+	bool isNewTarget = !wasTracking || !isSameTarget;
+	
 	hasLockedTarget = true;
-	tickCounter++;
-
-	float absYawError = std::abs(bestYawDiff);
-	float absPitchError = std::abs(bestPitchDiff);
+	lockedTargetX = targetPosX;
+	lockedTargetZ = targetPosZ;
 	
-	// Speed factor (0-10 scale): 0=very slow, 5=balanced, 10=fast
-	float speedMult = 0.2f + (settings.horizontalSpeed / 10.0f) * 0.8f; // 0.2 to 1.0
-
-	// ============================================================
-	// HYBRID AIM SYSTEM:
-	// Phase 1 (>7°): Smooth tracking - "going to target" (AimLab-like)
-	// Phase 2 (3-7°): Transition - fading out
-	// Phase 3 (<3°): Pulse only on clicks - final micro-adjustment
-	// ============================================================
-
-	if (absYawError > 7.0f) {
-		// PHASE 1: SMOOTH TRACKING (continuous, flowing)
-		float baseStrength = 0.006f * speedMult; // Reduced for balanced feel
-		// Adjusted: starts from 3° so initial movement is more decisive
-		float slowDown = (std::max)(0.0f, (std::min)((absYawError - 3.0f) / 10.0f, 1.0f));
-		
-		float yawDelta = bestYawDiff * baseStrength * slowDown * deltaMs;
-		// Pitch follows less (yaw leads, pitch accompanies)
-		float pitchDelta = settings.verticalAim ? bestPitchDiff * baseStrength * slowDown * deltaMs * 0.4f : 0.0f;
-		
-		// Clamp to human-like max
-		yawDelta = (std::max)(-0.6f, (std::min)(yawDelta, 0.6f));
-		pitchDelta = (std::max)(-0.4f, (std::min)(pitchDelta, 0.4f));
-		
-		// Randomization
-		if (settings.randomization > 0.0f) {
-			yawDelta *= 1.0f + randomFloat(-settings.randomization * 0.2f, settings.randomization * 0.2f);
-		}
-		
-		player.setYaw(localYaw + yawDelta);
-		if (settings.verticalAim && std::abs(pitchDelta) > 0.01f) {
-			float newPitch = localPitch + pitchDelta;
-			newPitch = (std::max)(-90.0f, (std::min)(90.0f, newPitch));
-			player.setPitch(newPitch);
-		}
-		return;
+	// Reset state on NEW (different) target to prevent snap
+	if (isNewTarget && !isSameTarget) {
+		currentSensX = 0.0;
+		currentSensY = 0.0;
+		smoothVelocityX = 0.0;
+		smoothVelocityZ = 0.0;
+		trackingTimeMs = 0.0f;
+		hasLastPosition = false;
+	} else {
+		// Same target or continuing - increment tracking time
+		trackingTimeMs += deltaMs;
+		// Cap trackingTimeMs to prevent overflow
+		if (trackingTimeMs > 10000.0f) trackingTimeMs = 10000.0f;
 	}
 	
-	if (absYawError > 3.0f) {
-		// PHASE 2: TRANSITION (fading out - smooth deceleration)
-		float t = (absYawError - 3.0f) / 4.0f; // 0 to 1
-		float fade = t * t; // Ease-out curve
-		
-		float baseStrength = 0.004f * speedMult; // Reduced
-		float yawDelta = bestYawDiff * baseStrength * fade * deltaMs;
-		float pitchDelta = settings.verticalAim ? bestPitchDiff * baseStrength * fade * deltaMs * 0.5f : 0.0f;
-		
-		yawDelta = (std::max)(-0.35f, (std::min)(yawDelta, 0.35f));
-		pitchDelta = (std::max)(-0.25f, (std::min)(pitchDelta, 0.25f));
-		
-		player.setYaw(localYaw + yawDelta);
-		if (settings.verticalAim && std::abs(pitchDelta) > 0.01f) {
-			float newPitch = localPitch + pitchDelta;
-			newPitch = (std::max)(-90.0f, (std::min)(90.0f, newPitch));
-			player.setPitch(newPitch);
-		}
-		return;
-	}
+	// Update velocity for strafe prediction
+	updateVelocity(targetPosX, targetPosZ, deltaMs);
 	
-	// PHASE 3: CLICK PULSE ONLY (< 3° error)
-	// Only apply micro-correction on NEW clicks, not continuously
-	if (!assistAppliedThisClick && inAssistanceWindow) {
-		// Micro-correction: 5-12% of remaining error
-		float correctionPercent = randomFloat(0.05f, 0.12f) * speedMult;
-		float yawCorrection = bestYawDiff * correctionPercent;
-		float pitchCorrection = settings.verticalAim ? bestPitchDiff * correctionPercent * 0.7f : 0.0f;
+	// Apply strafe prediction (WITH DISTANCE CLAMP)
+	if (hasLastPosition) {
+		// Ramp up prediction based on distance
+		// Close range (< 2m): No prediction (avoids jitter)
+		// Mid range (2m - 5m): Linear ramp
+		// Long range (> 5m): Full prediction
+		float distToTarget = (float)getHorizontalDistance(localX, localZ, targetPosX, targetPosZ);
+		float predFactor = (std::max)(0.0f, (std::min)(1.0f, (distToTarget - 2.0f) / 3.0f));
 		
-		// Hurt time boost
-		if (settings.hurtTimeBoost && hurtTime > 15) {
-			yawCorrection *= randomFloat(1.1f, 1.4f);
-		}
-		
-		// Very small clamp
-		yawCorrection = (std::max)(-0.5f, (std::min)(yawCorrection, 0.5f));
-		
-		if (std::abs(yawCorrection) > 0.02f) {
-			player.setYaw(localYaw + yawCorrection);
-			assistAppliedThisClick = true;
-		}
-		if (settings.verticalAim && std::abs(pitchCorrection) > 0.02f) {
-			float newPitch = localPitch + pitchCorrection;
-			newPitch = (std::max)(-90.0f, (std::min)(90.0f, newPitch));
-			player.setPitch(newPitch);
-			assistAppliedThisClick = true;
+		if (predFactor > 0.01f) {
+			// REDUCED PREDICTION TIME: 40ms max (more stable for PvP)
+			double predictionTime = 40.0 * predFactor;
+			double predX = targetPosX + smoothVelocityX * predictionTime;
+			double predZ = targetPosZ + smoothVelocityZ * predictionTime;
+			
+			// Interpolate between raw target and predicted target based on distance
+			double finalTargetX = targetPosX + (predX - targetPosX) * predFactor;
+			double finalTargetZ = targetPosZ + (predZ - targetPosZ) * predFactor;
+			
+			desiredYaw = getYawTo(finalTargetX - localX, finalTargetZ - localZ);
 		}
 	}
+
+	// --- TRACKING CONTINUO ---
+	smoothTrack(desiredYaw, desiredPitch, deltaMs);
 }
 
-float AimAssist::calculateSmoothRotation(float angleDiff, float speed, float deltaMs, int hurtTime)
+// ============================================================
+// SMOOTH TRACKING: Humanized with dynamic deadzone and soft falloff
+// ============================================================
+void AimAssist::smoothTrack(float desiredYaw, float desiredPitch, float deltaMs)
 {
-	// Dream-Advanced style calculation
-	// MC sensitivity formula: (sensitivity * 0.6 + 0.2)^3 * 8
-	float sens = MC_SENSITIVITY * 0.6f + 0.2f;
-	float mcFactor = sens * sens * sens * 8.0f;
+	float currentYaw = player.getYaw();
+	float currentPitch = player.getPitch();
+
+	// 1. Calculate raw error
+	float yawDiff = wrapAngle(desiredYaw - currentYaw);
+	float pitchDiff = desiredPitch - currentPitch;
+	float absYawDiff = std::abs(yawDiff);
+	float absPitchDiff = std::abs(pitchDiff);
+
+	// 2. DYNAMIC DEADZONE based on hitbox angle at distance
+	// Player hitbox is ~0.6m wide. At distance D, the angle subtended is:
+	// angle = 2 * atan(0.3 / D) in degrees
+	// At 4m: ~8.5°, at 3m: ~11.4°, at 2m: ~17°
+	float distToTarget = (float)getHorizontalDistance(
+		player.getPosX(), player.getPosZ(), lockedTargetX, lockedTargetZ);
+	distToTarget = (std::max)(1.0f, distToTarget); // Prevent division issues
 	
-	float absAngle = std::abs(angleDiff);
+	// Calculate hitbox angle (half-width, so we use 0.3m)
+	float hitboxHalfAngle = std::atan(0.3f / distToTarget) * (180.0f / PI);
+	// Add some margin (player can be off-center and still hit)
+	float deadzoneAngle = hitboxHalfAngle * 1.2f; // 120% of hitbox = comfortable zone
+	deadzoneAngle = (std::max)(2.0f, (std::min)(deadzoneAngle, 12.0f)); // Clamp 2°-12°
 	
-	// Dream-Advanced: speed * (angle / 45) * random
-	// Random range is wider when hurt
-	float randomMin = 0.725f;
-	float randomMax = (hurtTime > 15) ? 2.25f : 1.35f;
-	float randomFactor = randomFloat(randomMin, randomMax);
+	// 3. If already inside hitbox zone, DON'T CORRECT
+	if (absYawDiff < deadzoneAngle) {
+		// Smoothly decay any residual velocity
+		currentSensX *= 0.7;
+		currentSensY *= 0.7;
+		
+		// Debug: show we're in deadzone
+		static float dzDebugTimer = 0.0f;
+		dzDebugTimer += deltaMs;
+		if (dzDebugTimer > 1000.0f) {
+			dzDebugTimer = 0.0f;
+			log_debug("AA: In hitbox deadzone, no correction needed");
+		}
+		return;
+	}
+
+	// 4. SOFT FALLOFF: Reduce strength as we approach the deadzone edge
+	// This prevents the "snap to edge then stop" feeling
+	// falloffZone = area between deadzone and full-strength zone
+	float falloffStart = deadzoneAngle;
+	float falloffEnd = deadzoneAngle + 15.0f; // Full strength at 15° past deadzone
 	
-	// Speed scaling: (angle / 45) gives 0-1 for most combat scenarios
-	float angleScaling = absAngle / 45.0f;
-	angleScaling = (std::min)(angleScaling, 1.0f);
+	float falloffFactor = (absYawDiff - falloffStart) / (falloffEnd - falloffStart);
+	falloffFactor = (std::max)(0.05f, (std::min)(1.0f, falloffFactor)); // Never fully zero
 	
-	// Calculate aim speed (as int for discrete movements like Dream-Advanced)
-	int aimSpeed = static_cast<int>(speed * angleScaling * randomFactor);
-	if (aimSpeed < 1) aimSpeed = 1;
+	// Apply a smooth curve (ease-in) so it ramps up gently
+	falloffFactor = falloffFactor * falloffFactor; // Quadratic ease-in
+
+	// 5. Calculate base correction strength
+	float speedMult = settings.horizontalSpeed / 10.0f;
 	
-	// Final rotation using MC sensitivity formula
-	// Dream-Advanced: sens^3 * 8 * 0.03 * deltaMs * direction * aimSpeed
-	float direction = (angleDiff > 0) ? 1.0f : -1.0f;
-	float rotation = mcFactor * 0.03f * deltaMs * direction * static_cast<float>(aimSpeed);
+	// Warmup: start slow, ramp up over 400ms (slightly longer for smoothness)
+	float warmupProgress = (std::min)(1.0f, trackingTimeMs / 400.0f);
+	float warmupMult = 0.15f + 0.85f * warmupProgress; // 15% to 100%
 	
-	// Clamp to not overshoot
-	if (std::abs(rotation) > absAngle) {
-		rotation = angleDiff * 0.8f;
+	// Click activation
+	float clickMult = clickActivation;
+	
+	// Combined strength with falloff applied
+	// Base max is 0.35 (35% of error per frame at 60fps) - less aggressive than before
+	float strength = speedMult * warmupMult * clickMult * falloffFactor * 0.35f;
+	
+	// 6. Frame-rate independent correction
+	float timeFactor = deltaMs / 16.67f;
+	
+	// 7. Calculate corrections
+	float correctionX = yawDiff * strength * timeFactor;
+	float correctionY = pitchDiff * strength * timeFactor * 0.5f; // Pitch even slower
+	
+	// 8. MINIMUM CORRECTION THRESHOLD
+	// If the correction is too small, don't apply it (prevents micro-jitter)
+	float minCorrection = 0.05f * timeFactor;
+	if (std::abs(correctionX) < minCorrection) {
+		correctionX = 0.0f;
+	}
+	if (std::abs(correctionY) < minCorrection) {
+		correctionY = 0.0f;
 	}
 	
-	return rotation;
+	// Cap correction to reasonable values (max 2° per frame at 60fps - reduced from 3°)
+	float maxCorrection = 2.0f * timeFactor;
+	correctionX = (std::max)(-maxCorrection, (std::min)(correctionX, maxCorrection));
+	correctionY = (std::max)(-maxCorrection, (std::min)(correctionY, maxCorrection));
+	
+	// 9. SMOOTHER BLENDING (50/50 instead of 30/70)
+	// Higher blend with previous frame = smoother but slightly more lag
+	currentSensX = currentSensX * 0.5 + correctionX * 0.5;
+	currentSensY = currentSensY * 0.5 + correctionY * 0.5;
+	
+	// 10. Apply movement
+	float newYaw = currentYaw + static_cast<float>(currentSensX);
+	float newPitch = currentPitch;
+	
+	if (settings.verticalAim) {
+		newPitch += static_cast<float>(currentSensY);
+		newPitch = (std::max)(-90.0f, (std::min)(90.0f, newPitch));
+	}
+
+	player.setYaw(newYaw);
+	if (settings.verticalAim) {
+		player.setPitch(newPitch);
+	}
+	
+	// Debug
+	static float debugTimer = 0.0f;
+	debugTimer += deltaMs;
+	if (debugTimer > 500.0f) {
+		debugTimer = 0.0f;
+		std::ostringstream ss;
+		ss << "AA: diff=" << absYawDiff << "° dz=" << deadzoneAngle << "° falloff=" << (int)(falloffFactor*100) << "% str=" << strength;
+		log_debug(ss.str().c_str());
+	}
 }
 
+// ============================================================
+// HELPER FUNCTIONS
+// ============================================================
 float AimAssist::getYawTo(double deltaX, double deltaZ)
 {
 	return static_cast<float>(std::atan2(deltaZ, deltaX)) * (180.0f / PI) - 90.0f;
@@ -457,8 +367,41 @@ double AimAssist::getHorizontalDistance(double x1, double z1, double x2, double 
 	return std::sqrt(dx * dx + dz * dz);
 }
 
-float AimAssist::randomFloat(float min, float max)
+void AimAssist::updateVelocity(double targetX, double targetZ, float deltaMs)
 {
-	std::uniform_real_distribution<float> dist(min, max);
-	return dist(rng);
+	if (!hasLastPosition) {
+		lastTargetX = targetX;
+		lastTargetZ = targetZ;
+		hasLastPosition = true;
+		return;
+	}
+	
+	// Simple velocity calculation
+	double rawVelX = (targetX - lastTargetX) / deltaMs;
+	double rawVelZ = (targetZ - lastTargetZ) / deltaMs;
+	
+	// Smooth it (Very high smoothing because position updates are discrete/noisy)
+	// Alpha 0.05 means we trust the history more than the instant change
+	double alpha = 0.05;
+	smoothVelocityX = alpha * rawVelX + (1.0 - alpha) * smoothVelocityX;
+	smoothVelocityZ = alpha * rawVelZ + (1.0 - alpha) * smoothVelocityZ;
+	
+	// Clamp max velocity (sprinting is ~0.02 blocks/ms, fall/kb can be higher)
+	double maxVel = 0.04;
+	if (std::abs(smoothVelocityX) > maxVel) smoothVelocityX = (smoothVelocityX > 0 ? 1 : -1) * maxVel;
+	if (std::abs(smoothVelocityZ) > maxVel) smoothVelocityZ = (smoothVelocityZ > 0 ? 1 : -1) * maxVel;
+	
+	// Zero out negligible velocity (prevents residual drift causing oscillation)
+	if (std::abs(smoothVelocityX) < 0.001) smoothVelocityX = 0.0;
+	if (std::abs(smoothVelocityZ) < 0.001) smoothVelocityZ = 0.0;
+	
+	lastTargetX = targetX;
+	lastTargetZ = targetZ;
+}
+
+void AimAssist::getPredictedPosition(double targetX, double targetZ, double& outX, double& outZ)
+{
+	// Legacy helper, now we do simple prediction inline
+	outX = targetX + smoothVelocityX * 150.0;
+	outZ = targetZ + smoothVelocityZ * 150.0;
 }

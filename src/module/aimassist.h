@@ -3,7 +3,6 @@
 #include "module.h"
 #include <cmath>
 #include <chrono>
-#include <random>
 
 class AimAssist : public Module
 {
@@ -23,19 +22,14 @@ public:
 		bool verticalAim = false;
 		bool hurtTimeBoost = true;
 
-		float horizontalSpeed = 3.0f;
-		float verticalSpeed = 2.0f;
-		float maxFov = 90.0f;
-		float maxDistance = 4.5f;
-		float randomization = 0.20f;
-		float prediction = 12.0f;
+		float horizontalSpeed = 5.0f;  // 1-10, controls correction strength
+		float maxFov = 90.0f;           // Max angle to consider targets
+		float maxDistance = 4.0f;       // Max distance to assist
 	} settings;
 
 private:
 	static constexpr float PI = 3.14159265358979323846f;
-	static constexpr float MC_SENSITIVITY = 0.5f;
 
-	std::mt19937 rng;
 	std::chrono::steady_clock::time_point lastUpdate;
 	
 	// Target lock state
@@ -43,49 +37,35 @@ private:
 	double lockedTargetZ = 0.0;
 	bool hasLockedTarget = false;
 	
-	// Velocity tracking for prediction
+	// Click gating
+	float clickActivation = 0.0f;
+		
+	// Current "velocity" or momentum of the mouse movement
+	double currentSensX = 0.0;
+	double currentSensY = 0.0;
+	
+	// Prediction state
 	double lastTargetX = 0.0;
 	double lastTargetZ = 0.0;
+	bool hasLastPosition = false;
 	double smoothVelocityX = 0.0;
 	double smoothVelocityZ = 0.0;
-	bool hasLastPosition = false;
 	
-	// HUMAN-LIKE: Angular velocity (inertia system)
-	float yawVelocity = 0.0f;
-	float pitchVelocity = 0.0f;
-	
-	// For oscillation
-	int tickCounter = 0;
-	
-	// CLICK-TRIGGERED: Assistance only in windows after clicks
-	std::chrono::steady_clock::time_point lastClickTime;
-	bool wasClicking = false;
-	bool inAssistanceWindow = false;
-	float currentWindowDuration = 0.0f;  // Fixed per click, not recalculated
-	bool assistAppliedThisClick = false; // Only ONE pulse per click
+	// Warm-up timer: How long we've been tracking current target
+	float trackingTimeMs = 0.0f;
 
+	// Helper functions
 	float getYawTo(double deltaX, double deltaZ);
 	float getPitchTo(double deltaX, double deltaY, double deltaZ);
 	float wrapAngle(float angle);
 	double getHorizontalDistance(double x1, double z1, double x2, double z2);
-	float randomFloat(float min, float max);
 	
-	// Calculates smooth rotation amount using MC sensitivity formula
-	float calculateSmoothRotation(float angleDiff, float speed, float deltaMs, int hurtTime);
-	
-	// Check if player is already aiming at target's hitbox
-	bool isAimingAtHitbox(double localX, double localY, double localZ,
-						   float localYaw, float localPitch,
-						   double targetX, double targetY, double targetZ);
-	
-	// Easing functions for smooth movement
-	float easeOutQuad(float t);
-	float easeOutCubic(float t);
-	
-	// Smooth velocity tracking
+	// Prediction helpers
 	void updateVelocity(double targetX, double targetZ, float deltaMs);
 	void getPredictedPosition(double targetX, double targetZ, double& outX, double& outZ);
+	
+	// The core physics tracker
+	void smoothTrack(float desiredYaw, float desiredPitch, float deltaMs);
 };
 
 extern AimAssist aimAssist;
-

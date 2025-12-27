@@ -89,12 +89,9 @@ void Config::apply(const std::string& json) {
 			aimAssist.settings.targetLock = getBool(json, "targetLock", true);
 			aimAssist.settings.verticalAim = getBool(json, "verticalAim");
 			aimAssist.settings.hurtTimeBoost = getBool(json, "hurtTimeBoost", true);
-			aimAssist.settings.horizontalSpeed = getFloat(json, "horizontalSpeed", 25.0f);
-			aimAssist.settings.verticalSpeed = getFloat(json, "verticalSpeed", 12.0f);
+			aimAssist.settings.horizontalSpeed = getFloat(json, "horizontalSpeed", 5.0f);
 			aimAssist.settings.maxFov = getFloat(json, "maxFov", 90.0f);
-			aimAssist.settings.maxDistance = getFloat(json, "maxDistance", 4.5f);
-			aimAssist.settings.randomization = getFloat(json, "randomization", 0.25f);
-			aimAssist.settings.prediction = getFloat(json, "prediction", 15.0f);
+			aimAssist.settings.maxDistance = getFloat(json, "maxDistance", 4.0f);
 			
 			std::string keybindStr = getValue(json, "keybind");
 			if (!keybindStr.empty()) {
@@ -178,11 +175,8 @@ std::string Config::serialize() {
 	ss << "\"verticalAim\":" << (aimAssist.settings.verticalAim ? "true" : "false") << ",";
 	ss << "\"hurtTimeBoost\":" << (aimAssist.settings.hurtTimeBoost ? "true" : "false") << ",";
 	ss << "\"horizontalSpeed\":" << aimAssist.settings.horizontalSpeed << ",";
-	ss << "\"verticalSpeed\":" << aimAssist.settings.verticalSpeed << ",";
 	ss << "\"maxFov\":" << aimAssist.settings.maxFov << ",";
-	ss << "\"maxDistance\":" << aimAssist.settings.maxDistance << ",";
-	ss << "\"randomization\":" << aimAssist.settings.randomization << ",";
-	ss << "\"prediction\":" << aimAssist.settings.prediction;
+	ss << "\"maxDistance\":" << aimAssist.settings.maxDistance;
 	ss << "}";
 	
 	ss << "}";
