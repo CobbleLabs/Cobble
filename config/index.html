@@ -323,17 +323,17 @@
                 </div>
             </div>
             <div class="section-divider"></div>
-            <div class="setting-row">
-                <div class="setting-label"><span>Horizontal Speed</span><span class="setting-value"
-                        id="aa-hspeed-value">3</span></div>
-                <input type="range" id="aa-hspeed" min="0" max="10" value="3" step="0.5"
-                    oninput="updateSlider(this, 'aa-hspeed-value')">
+            <!-- BLATANT MODE - Special highlight -->
+            <div class="checkbox-row" onclick="toggleCheckbox(this)"
+                style="background: rgba(233, 69, 96, 0.15); padding: 10px; border-radius: 8px; margin-bottom: 15px;">
+                <div class="checkbox" data-setting="aa-blatantMode"></div><span
+                    style="color: var(--primary); font-weight: 600;">⚡ Blatant Mode</span>
             </div>
             <div class="setting-row">
-                <div class="setting-label"><span>Vertical Speed</span><span class="setting-value"
-                        id="aa-vspeed-value">2</span></div>
-                <input type="range" id="aa-vspeed" min="0" max="10" value="2" step="0.5"
-                    oninput="updateSlider(this, 'aa-vspeed-value')">
+                <div class="setting-label"><span>Horizontal Speed</span><span class="setting-value"
+                        id="aa-hspeed-value">5</span></div>
+                <input type="range" id="aa-hspeed" min="1" max="10" value="5" step="0.5"
+                    oninput="updateSlider(this, 'aa-hspeed-value')">
             </div>
             <div class="setting-row">
                 <div class="setting-label"><span>FOV</span><span class="setting-value" id="aa-fov-value">90</span></div>
@@ -342,21 +342,9 @@
             </div>
             <div class="setting-row">
                 <div class="setting-label"><span>Distance</span><span class="setting-value"
-                        id="aa-distance-value">4.5</span></div>
-                <input type="range" id="aa-distance" min="10" max="80" value="45"
+                        id="aa-distance-value">4.0</span></div>
+                <input type="range" id="aa-distance" min="10" max="80" value="40"
                     oninput="updateSlider(this, 'aa-distance-value', 0.1)">
-            </div>
-            <div class="setting-row">
-                <div class="setting-label"><span>Randomization</span><span class="setting-value"
-                        id="aa-random-value">0.20</span></div>
-                <input type="range" id="aa-random" min="0" max="50" value="20"
-                    oninput="updateSlider(this, 'aa-random-value', 0.01)">
-            </div>
-            <div class="setting-row">
-                <div class="setting-label"><span>Prediction</span><span class="setting-value"
-                        id="aa-prediction-value">12</span></div>
-                <input type="range" id="aa-prediction" min="0" max="30" value="12"
-                    oninput="updateSlider(this, 'aa-prediction-value')">
             </div>
             <div class="section-divider"></div>
             <div class="checkbox-row" onclick="toggleCheckbox(this)">
@@ -462,19 +450,17 @@
                 type: 'config', module: 'aimassist',
                 enabled: document.querySelector('[data-setting="aa-enabled"]').classList.contains('active'),
                 keybind: document.querySelector('[data-setting="aa-keybind"]').textContent,
+                blatantMode: document.querySelector('[data-setting="aa-blatantMode"]').classList.contains('checked'),
                 horizontalSpeed: parseFloat(document.getElementById('aa-hspeed').value),
-                verticalSpeed: parseFloat(document.getElementById('aa-vspeed').value),
                 maxFov: parseInt(document.getElementById('aa-fov').value),
                 maxDistance: parseFloat(document.getElementById('aa-distance').value) * 0.1,
-                randomization: parseFloat(document.getElementById('aa-random').value) * 0.01,
                 visibilityCheck: document.querySelector('[data-setting="aa-visibilityCheck"]').classList.contains('checked'),
                 ignoreInvisible: document.querySelector('[data-setting="aa-ignoreInvisible"]').classList.contains('checked'),
                 onlySprinting: document.querySelector('[data-setting="aa-onlySprinting"]').classList.contains('checked'),
                 onlyClicking: document.querySelector('[data-setting="aa-onlyClicking"]').classList.contains('checked'),
                 targetLock: document.querySelector('[data-setting="aa-targetLock"]').classList.contains('checked'),
                 verticalAim: document.querySelector('[data-setting="aa-verticalAim"]').classList.contains('checked'),
-                hurtTimeBoost: document.querySelector('[data-setting="aa-hurtTimeBoost"]').classList.contains('checked'),
-                prediction: parseFloat(document.getElementById('aa-prediction').value)
+                hurtTimeBoost: document.querySelector('[data-setting="aa-hurtTimeBoost"]').classList.contains('checked')
             };
         }
 
@@ -504,11 +490,10 @@
         function applyAimAssistConfig(c) {
             document.querySelector('[data-setting="aa-enabled"]').classList.toggle('active', c.enabled);
             if (c.keybind) document.querySelector('[data-setting="aa-keybind"]').textContent = c.keybind;
+            document.querySelector('[data-setting="aa-blatantMode"]').classList.toggle('checked', c.blatantMode || false);
             document.getElementById('aa-hspeed').value = c.horizontalSpeed; document.getElementById('aa-hspeed-value').textContent = Math.round(c.horizontalSpeed);
-            document.getElementById('aa-vspeed').value = c.verticalSpeed; document.getElementById('aa-vspeed-value').textContent = Math.round(c.verticalSpeed);
             document.getElementById('aa-fov').value = c.maxFov; document.getElementById('aa-fov-value').textContent = Math.round(c.maxFov);
             document.getElementById('aa-distance').value = c.maxDistance * 10; document.getElementById('aa-distance-value').textContent = c.maxDistance.toFixed(1);
-            document.getElementById('aa-random').value = c.randomization * 100; document.getElementById('aa-random-value').textContent = c.randomization.toFixed(2);
             document.querySelector('[data-setting="aa-visibilityCheck"]').classList.toggle('checked', c.visibilityCheck);
             document.querySelector('[data-setting="aa-ignoreInvisible"]').classList.toggle('checked', c.ignoreInvisible);
             document.querySelector('[data-setting="aa-onlySprinting"]').classList.toggle('checked', c.onlySprinting);
@@ -516,10 +501,6 @@
             document.querySelector('[data-setting="aa-targetLock"]').classList.toggle('checked', c.targetLock);
             document.querySelector('[data-setting="aa-verticalAim"]').classList.toggle('checked', c.verticalAim);
             document.querySelector('[data-setting="aa-hurtTimeBoost"]').classList.toggle('checked', c.hurtTimeBoost);
-            if (c.prediction !== undefined) {
-                document.getElementById('aa-prediction').value = c.prediction;
-                document.getElementById('aa-prediction-value').textContent = Math.round(c.prediction);
-            }
         }
 
         function saveConfig() { sendConfig(); showStatus('Config saved', 'success'); }

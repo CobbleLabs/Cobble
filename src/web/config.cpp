@@ -89,6 +89,7 @@ void Config::apply(const std::string& json) {
 			aimAssist.settings.targetLock = getBool(json, "targetLock", true);
 			aimAssist.settings.verticalAim = getBool(json, "verticalAim");
 			aimAssist.settings.hurtTimeBoost = getBool(json, "hurtTimeBoost", true);
+			aimAssist.settings.blatantMode = getBool(json, "blatantMode");
 			aimAssist.settings.horizontalSpeed = getFloat(json, "horizontalSpeed", 5.0f);
 			aimAssist.settings.maxFov = getFloat(json, "maxFov", 90.0f);
 			aimAssist.settings.maxDistance = getFloat(json, "maxDistance", 4.0f);
@@ -174,6 +175,7 @@ std::string Config::serialize() {
 	ss << "\"targetLock\":" << (aimAssist.settings.targetLock ? "true" : "false") << ",";
 	ss << "\"verticalAim\":" << (aimAssist.settings.verticalAim ? "true" : "false") << ",";
 	ss << "\"hurtTimeBoost\":" << (aimAssist.settings.hurtTimeBoost ? "true" : "false") << ",";
+	ss << "\"blatantMode\":" << (aimAssist.settings.blatantMode ? "true" : "false") << ",";
 	ss << "\"horizontalSpeed\":" << aimAssist.settings.horizontalSpeed << ",";
 	ss << "\"maxFov\":" << aimAssist.settings.maxFov << ",";
 	ss << "\"maxDistance\":" << aimAssist.settings.maxDistance;

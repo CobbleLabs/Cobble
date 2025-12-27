@@ -229,6 +229,56 @@ void AimAssist::smoothTrack(float desiredYaw, float desiredPitch, float deltaMs)
 	float pitchDiff = desiredPitch - currentPitch;
 	float absYawDiff = std::abs(yawDiff);
 	float absPitchDiff = std::abs(pitchDiff);
+	
+	// ============================================================
+	// BLATANT MODE: Skip all smoothing, instant correction
+	// ============================================================
+	if (settings.blatantMode) {
+		float timeFactor = deltaMs / 16.67f;
+		
+		// Very aggressive correction: 80% of error per frame
+		float strength = (settings.horizontalSpeed / 10.0f) * 0.8f;
+		
+		float correctionX = yawDiff * strength * timeFactor;
+		float correctionY = pitchDiff * strength * timeFactor * 0.7f;
+		
+		// Higher cap: 10° per frame
+		float maxCorr = 10.0f * timeFactor;
+		correctionX = (std::max)(-maxCorr, (std::min)(correctionX, maxCorr));
+		correctionY = (std::max)(-maxCorr, (std::min)(correctionY, maxCorr));
+		
+		// Minimal blending (90% new, 10% old)
+		currentSensX = currentSensX * 0.1 + correctionX * 0.9;
+		currentSensY = currentSensY * 0.1 + correctionY * 0.9;
+		
+		float newYaw = currentYaw + static_cast<float>(currentSensX);
+		float newPitch = currentPitch;
+		
+		if (settings.verticalAim) {
+			newPitch += static_cast<float>(currentSensY);
+			newPitch = (std::max)(-90.0f, (std::min)(90.0f, newPitch));
+		}
+		
+		player.setYaw(newYaw);
+		if (settings.verticalAim) {
+			player.setPitch(newPitch);
+		}
+		
+		// Debug
+		static float blatantDebug = 0.0f;
+		blatantDebug += deltaMs;
+		if (blatantDebug > 500.0f) {
+			blatantDebug = 0.0f;
+			std::ostringstream ss;
+			ss << "AA [BLATANT]: diff=" << absYawDiff << "° corr=" << currentSensX;
+			log_debug(ss.str().c_str());
+		}
+		return;
+	}
+
+	// ============================================================
+	// LEGIT MODE: Humanized tracking (below)
+	// ============================================================
 
 	// 2. DYNAMIC DEADZONE based on hitbox angle at distance
 	// Player hitbox is ~0.6m wide. At distance D, the angle subtended is:

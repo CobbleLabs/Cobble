@@ -93,6 +93,9 @@ void AutoClicker::calculateNextDelay()
 {
 	float minCps = settings.minCPS;
 	float maxCps = settings.maxCPS;
+	
+	// Ensure minCps <= maxCps
+	if (minCps > maxCps) std::swap(minCps, maxCps);
 
 	// Spike check - random chance for faster clicks
 	if (settings.advancedMode && settings.spikeChance > 0.0f)
@@ -105,8 +108,13 @@ void AutoClicker::calculateNextDelay()
 	}
 
 	float cps;
-
-	if (settings.advancedMode && settings.kurtosis > 0.0f)
+	
+	// Handle edge case: minCps == maxCps (avoid division by zero in distributions)
+	if (std::abs(maxCps - minCps) < 0.001f)
+	{
+		cps = minCps;
+	}
+	else if (settings.advancedMode && settings.kurtosis > 0.0f)
 	{
 		// Use normal distribution with kurtosis for more realistic patterns
 		float meanCps = (minCps + maxCps) / 2.0f;

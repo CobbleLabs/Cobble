@@ -21,6 +21,7 @@ public:
 		bool targetLock = true;
 		bool verticalAim = false;
 		bool hurtTimeBoost = true;
+		bool blatantMode = false;      // Aggressive mode: no smoothing, instant lock
 
 		float horizontalSpeed = 5.0f;  // 1-10, controls correction strength
 		float maxFov = 90.0f;           // Max angle to consider targets
