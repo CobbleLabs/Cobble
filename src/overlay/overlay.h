@@ -2,6 +2,8 @@
 
 #include <Windows.h>
 
+struct ImFont;  // Forward declaration
+
 // Overlay system for rendering ImGui over the game
 // Uses wglSwapBuffers hook for OpenGL rendering
 namespace Overlay
@@ -18,4 +20,7 @@ namespace Overlay
 	inline HDC deviceContext = nullptr;
 	inline HGLRC originalContext = nullptr;
 	inline HGLRC overlayContext = nullptr;
+	
+	// Fonts
+	inline ImFont* notificationFont = nullptr;
 }

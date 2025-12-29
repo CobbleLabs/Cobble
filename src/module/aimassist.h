@@ -46,6 +46,14 @@ private:
 	double lockedTargetX = 0.0;
 	double lockedTargetZ = 0.0;
 	bool hasLockedTarget = false;
+	
+	// Velocity state for smooth movement
+	float currentYawVelocity = 0.0f;
+	float currentPitchVelocity = 0.0f;
+	
+	// Last rotation for detecting user mouse movement
+	float lastYaw = 0.0f;
+	float lastPitch = 0.0f;
 
 	float getYawTo(double deltaX, double deltaZ);
 	float getPitchTo(double deltaX, double deltaY, double deltaZ);
@@ -53,8 +61,8 @@ private:
 	double getHorizontalDistance(double x1, double z1, double x2, double z2);
 	float randomFloat(float min, float max);
 	
-	// Calculates smooth rotation amount using MC sensitivity formula
-	float calculateSmoothRotation(float angleDiff, float speed, float deltaMs, int hurtTime);
+	// Calculates smooth rotation using velocity-based spring-damper system
+	float calculateSmoothRotation(float angleDiff, float speed, float deltaTime, float& velocity);
 };
 
 extern AimAssist aimAssist;

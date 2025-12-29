@@ -1,4 +1,5 @@
 #include "notifications.h"
+#include "overlay.h"
 #include "../sdk/render_data.h"
 #include "../../ext/imgui/imgui.h"
 
@@ -41,8 +42,18 @@ void NotificationManager::render()
 	ImDrawList* draw = ImGui::GetWindowDrawList();
 	if (!draw) return;
 	
+	// Use Inter font for notifications
+	if (Overlay::notificationFont) {
+		ImGui::PushFont(Overlay::notificationFont);
+	}
+	
+	// Get current screen dimensions (responsive to resize/F11)
+	float screenWidth = static_cast<float>(RenderData::screenWidth);
 	float screenHeight = static_cast<float>(RenderData::screenHeight);
-	float startY = screenHeight / 2.0f - (notifications.size() * (NOTIFICATION_HEIGHT + NOTIFICATION_SPACING)) / 2.0f;
+	
+	// Calculate starting position (bottom-right corner)
+	// Stack notifications from bottom up
+	float startY = screenHeight - NOTIFICATION_MARGIN - NOTIFICATION_HEIGHT;
 	
 	int index = 0;
 	for (auto& notif : notifications)
@@ -50,77 +61,100 @@ void NotificationManager::render()
 		float progress = notif.getProgress();
 		if (progress >= 1.0f) continue;
 		
-		// Animation: slide in from left, slide out to left
+		// Smooth easing function for animation
+		auto easeOutCubic = [](float t) { return 1.0f - powf(1.0f - t, 3.0f); };
+		auto easeInCubic = [](float t) { return t * t * t; };
+		
+		// Animation: slide in from right, slide out to right
 		float slideProgress;
 		float alpha;
 		
-		if (progress < 0.1f) {
-			// Slide in (first 10% of duration)
-			slideProgress = progress / 0.1f;
+		if (progress < 0.15f) {
+			// Slide in (first 15% of duration)
+			slideProgress = easeOutCubic(progress / 0.15f);
 			alpha = slideProgress;
-		} else if (progress > 0.8f) {
-			// Slide out (last 20% of duration)
-			slideProgress = 1.0f - ((progress - 0.8f) / 0.2f);
+		} else if (progress > 0.75f) {
+			// Slide out (last 25% of duration)
+			float outProgress = (progress - 0.75f) / 0.25f;
+			slideProgress = 1.0f - easeInCubic(outProgress);
 			alpha = slideProgress;
 		} else {
 			slideProgress = 1.0f;
 			alpha = 1.0f;
 		}
 		
-		// Calculate positions
-		float xOffset = (1.0f - slideProgress) * -NOTIFICATION_WIDTH;
-		float x = NOTIFICATION_MARGIN + xOffset;
-		float y = startY + index * (NOTIFICATION_HEIGHT + NOTIFICATION_SPACING);
+		// Calculate notification width based on text
+		const char* statusText = notif.enabled ? " ON" : " OFF";
+		std::string displayText = notif.text + statusText;
+		ImVec2 textSize = ImGui::CalcTextSize(displayText.c_str());
+		float notifWidth = textSize.x + NOTIFICATION_PADDING * 2.0f;
 		
-		// Background color based on enabled/disabled
-		ImU32 bgColor = notif.enabled 
-			? IM_COL32(40, 120, 40, static_cast<int>(180 * alpha))   // Green for enabled
-			: IM_COL32(120, 40, 40, static_cast<int>(180 * alpha));  // Red for disabled
+		// Calculate positions (right side of screen)
+		float xOffset = (1.0f - slideProgress) * (notifWidth + NOTIFICATION_MARGIN);
+		float x = screenWidth - NOTIFICATION_MARGIN - notifWidth + xOffset;
+		float y = startY - index * (NOTIFICATION_HEIGHT + NOTIFICATION_SPACING);
 		
-		ImU32 borderColor = notif.enabled
-			? IM_COL32(60, 180, 60, static_cast<int>(255 * alpha))
-			: IM_COL32(180, 60, 60, static_cast<int>(255 * alpha));
+		// Clamp alpha
+		int alphaInt = static_cast<int>(255 * alpha);
+		int bgAlphaInt = static_cast<int>(200 * alpha);
 		
-		ImU32 textColor = IM_COL32(255, 255, 255, static_cast<int>(255 * alpha));
-		ImU32 progressBgColor = IM_COL32(0, 0, 0, static_cast<int>(100 * alpha));
-		ImU32 progressColor = IM_COL32(255, 255, 255, static_cast<int>(200 * alpha));
+		// Black background always
+		ImU32 bgColor = IM_COL32(15, 15, 15, bgAlphaInt);
+		ImU32 borderColor = IM_COL32(40, 40, 40, alphaInt);
+		
+		// Text color: green for enabled, red for disabled
+		ImU32 moduleTextColor = IM_COL32(255, 255, 255, alphaInt);
+		ImU32 statusColor = notif.enabled 
+			? IM_COL32(100, 255, 100, alphaInt)   // Green for ON
+			: IM_COL32(255, 100, 100, alphaInt);  // Red for OFF
 		
 		// Draw background with rounded corners
 		ImVec2 rectMin(x, y);
-		ImVec2 rectMax(x + NOTIFICATION_WIDTH, y + NOTIFICATION_HEIGHT);
-		draw->AddRectFilled(rectMin, rectMax, bgColor, 6.0f);
-		draw->AddRect(rectMin, rectMax, borderColor, 6.0f, 0, 1.5f);
+		ImVec2 rectMax(x + notifWidth, y + NOTIFICATION_HEIGHT);
+		draw->AddRectFilled(rectMin, rectMax, bgColor, 4.0f);
+		draw->AddRect(rectMin, rectMax, borderColor, 4.0f, 0, 1.0f);
 		
-		// Draw text
-		const char* statusText = notif.enabled ? "ON" : "OFF";
-		std::string displayText = notif.text + " " + statusText;
+		// Draw module name (white)
+		float textX = x + NOTIFICATION_PADDING;
+		float textY = y + (NOTIFICATION_HEIGHT - textSize.y) / 2.0f;
 		
-		ImVec2 textSize = ImGui::CalcTextSize(displayText.c_str());
-		float textX = x + (NOTIFICATION_WIDTH - textSize.x) / 2.0f;
-		float textY = y + (NOTIFICATION_HEIGHT - textSize.y - 4.0f) / 2.0f;
-		draw->AddText(ImVec2(textX, textY), textColor, displayText.c_str());
+		ImVec2 moduleTextSize = ImGui::CalcTextSize(notif.text.c_str());
+		draw->AddText(ImVec2(textX, textY), moduleTextColor, notif.text.c_str());
 		
-		// Draw progress bar at bottom
-		float progressBarHeight = 3.0f;
-		float progressBarY = y + NOTIFICATION_HEIGHT - progressBarHeight - 2.0f;
-		float progressBarWidth = NOTIFICATION_WIDTH - 8.0f;
-		float progressX = x + 4.0f;
+		// Draw status text (colored)
+		float statusX = textX + moduleTextSize.x;
+		draw->AddText(ImVec2(statusX, textY), statusColor, statusText);
+		
+		// Draw thin progress bar at bottom
+		float progressBarHeight = 2.0f;
+		float progressBarY = y + NOTIFICATION_HEIGHT - progressBarHeight - 3.0f;
+		float progressBarWidth = notifWidth - NOTIFICATION_PADDING * 2.0f;
+		float progressX = x + NOTIFICATION_PADDING;
 		
 		// Progress bar background
+		ImU32 progressBgColor = IM_COL32(30, 30, 30, static_cast<int>(150 * alpha));
 		draw->AddRectFilled(
 			ImVec2(progressX, progressBarY),
 			ImVec2(progressX + progressBarWidth, progressBarY + progressBarHeight),
-			progressBgColor, 2.0f
+			progressBgColor, 1.0f
 		);
 		
 		// Progress bar fill (decreasing as time passes)
 		float remainingProgress = 1.0f - progress;
+		ImU32 progressColor = notif.enabled
+			? IM_COL32(100, 255, 100, static_cast<int>(200 * alpha))
+			: IM_COL32(255, 100, 100, static_cast<int>(200 * alpha));
 		draw->AddRectFilled(
 			ImVec2(progressX, progressBarY),
 			ImVec2(progressX + progressBarWidth * remainingProgress, progressBarY + progressBarHeight),
-			progressColor, 2.0f
+			progressColor, 1.0f
 		);
 		
 		index++;
+	}
+	
+	// Restore font
+	if (Overlay::notificationFont) {
+		ImGui::PopFont();
 	}
 }

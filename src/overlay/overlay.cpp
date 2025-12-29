@@ -57,6 +57,15 @@ namespace {
 		io.MouseDrawCursor = false;
 		io.WantCaptureMouse = false;
 		io.WantCaptureKeyboard = false;
+		
+		// Load system font (Segoe UI - Windows default, clean and modern)
+		const char* systemFontPath = "C:\\Windows\\Fonts\\segoeui.ttf";
+		Overlay::notificationFont = io.Fonts->AddFontFromFileTTF(systemFontPath, 18.0f);
+		if (!Overlay::notificationFont) {
+			// Fallback to default font
+			Overlay::notificationFont = io.Fonts->AddFontDefault();
+		}
+		
 		defaultFont = io.Fonts->AddFontDefault();
 		
 		// Dark theme

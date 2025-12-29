@@ -44,8 +44,8 @@ private:
 	static std::mutex mutex;
 	
 	static constexpr float NOTIFICATION_DURATION = 2.0f;  // Seconds
-	static constexpr float NOTIFICATION_WIDTH = 160.0f;
-	static constexpr float NOTIFICATION_HEIGHT = 32.0f;
-	static constexpr float NOTIFICATION_MARGIN = 10.0f;
-	static constexpr float NOTIFICATION_SPACING = 5.0f;
+	static constexpr float NOTIFICATION_HEIGHT = 36.0f;
+	static constexpr float NOTIFICATION_MARGIN = 15.0f;
+	static constexpr float NOTIFICATION_SPACING = 6.0f;
+	static constexpr float NOTIFICATION_PADDING = 16.0f;
 };

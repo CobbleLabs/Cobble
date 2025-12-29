@@ -24,6 +24,10 @@ void AimAssist::onEnable()
 {
 	log_ok("AimAssist enabled");
 	hasLockedTarget = false;
+	currentYawVelocity = 0.0f;
+	currentPitchVelocity = 0.0f;
+	lastYaw = 0.0f;
+	lastPitch = 0.0f;
 	lastUpdate = std::chrono::steady_clock::now();
 }
 
@@ -31,6 +35,8 @@ void AimAssist::onDisable()
 {
 	log_ok("AimAssist disabled");
 	hasLockedTarget = false;
+	currentYawVelocity = 0.0f;
+	currentPitchVelocity = 0.0f;
 }
 
 void AimAssist::onUpdate()
@@ -45,18 +51,30 @@ void AimAssist::onUpdate()
 	bool isClicking = (GetAsyncKeyState(VK_LBUTTON) & 0x8000) != 0;
 	if (settings.onlyClicking && !isClicking) {
 		hasLockedTarget = false;
+		// Decay velocity when not aiming
+		currentYawVelocity *= 0.8f;
+		currentPitchVelocity *= 0.8f;
 		return;
 	}
 
-	// Calculate delta time since last update
+	// Calculate delta time since last update (in seconds)
 	auto now = std::chrono::steady_clock::now();
-	float deltaMs = std::chrono::duration<float, std::milli>(now - lastUpdate).count();
-	
-	// Limit update rate (1-10ms like Dream-Advanced)
-	if (deltaMs < 1.0f) return;
-	if (deltaMs > 10.0f) deltaMs = randomFloat(1.0f, 10.0f);
-	
+	float deltaTime = std::chrono::duration<float>(now - lastUpdate).count();
 	lastUpdate = now;
+	
+	// Clamp delta time to avoid huge jumps after lag spikes
+	deltaTime = (std::min)(deltaTime, 0.05f);  // Max 50ms
+	if (deltaTime < 0.0001f) return;  // Skip if deltaTime is basically zero
+
+	// Get current rotation
+	float localYaw = player.getYaw();
+	float localPitch = player.getPitch();
+	
+	// Detect user mouse movement (difference from last frame not caused by us)
+	float userYawDelta = wrapAngle(localYaw - lastYaw);
+	float userPitchDelta = localPitch - lastPitch;
+	lastYaw = localYaw;
+	lastPitch = localPitch;
 
 	// Get player list from world
 	auto players = mc.getPlayerList();
@@ -68,9 +86,6 @@ void AimAssist::onUpdate()
 	double localX = player.getPosX();
 	double localY = player.getPosY() + 1.62; // Eye height
 	double localZ = player.getPosZ();
-	float localYaw = player.getYaw();
-	float localPitch = player.getPitch();
-	int hurtTime = player.getHurtTime();
 
 	// Find best target
 	float bestYawDiff = 999.0f;
@@ -161,84 +176,141 @@ void AimAssist::onUpdate()
 
 	if (!bestTarget) {
 		hasLockedTarget = false;
+		// Decay velocity smoothly when no target
+		currentYawVelocity *= 0.85f;
+		currentPitchVelocity *= 0.85f;
 		return;
 	}
 
 	hasLockedTarget = true;
+	
+	// Calculate dynamic dead zone based on hitbox angular size at current distance
+	// At 4 blocks, hitbox width (0.6m) spans ~8.5 degrees
+	// Formula: deadZone = atan(hitboxHalfWidth / distance) in degrees
+	float hitboxAngularSize = static_cast<float>(std::atan(0.3 / bestDistance) * (180.0 / PI));
+	float deadZone = hitboxAngularSize * 0.8f;  // 80% of hitbox = inside target
+	deadZone = (std::max)(1.5f, (std::min)(deadZone, 8.0f));  // Clamp 1.5-8 degrees
+	
+	// Check if we're already on target (inside hitbox dead zone)
+	bool onTargetYaw = std::abs(bestYawDiff) < deadZone;
+	bool onTargetPitch = std::abs(bestPitchDiff) < deadZone;
 
-	// Dead zone
-	if (std::abs(bestYawDiff) < 0.3f && std::abs(bestPitchDiff) < 0.3f) return;
-
-	// Calculate smooth rotations using MC sensitivity formula
-	float yawRotation = calculateSmoothRotation(bestYawDiff, settings.horizontalSpeed, deltaMs, hurtTime);
-	float pitchRotation = settings.verticalAim ? 
-		calculateSmoothRotation(bestPitchDiff, settings.verticalSpeed, deltaMs, hurtTime) : 0.0f;
-
-	// Apply randomization for natural movement
-	if (settings.randomization > 0.0f) {
-		float randFactor = 1.0f + randomFloat(-settings.randomization, settings.randomization);
-		yawRotation *= randFactor;
-		pitchRotation *= randFactor;
+	// Detect if user is moving AWAY from target (opposing movement)
+	// If user moves in opposite direction to where target is, reduce assistance
+	float yawOpposition = 0.0f;
+	float pitchOpposition = 0.0f;
+	
+	if (std::abs(userYawDelta) > 0.1f) {
+		// Check if user movement direction opposes target direction
+		bool userMovingRight = userYawDelta > 0;
+		bool targetIsRight = bestYawDiff > 0;
+		if (userMovingRight != targetIsRight) {
+			// User is intentionally moving away from target
+			yawOpposition = (std::min)(std::abs(userYawDelta) / 2.0f, 1.0f);
+		}
+	}
+	
+	if (std::abs(userPitchDelta) > 0.1f) {
+		bool userMovingDown = userPitchDelta > 0;
+		bool targetIsDown = bestPitchDiff > 0;
+		if (userMovingDown != targetIsDown) {
+			pitchOpposition = (std::min)(std::abs(userPitchDelta) / 2.0f, 1.0f);
+		}
 	}
 
-	// Clamp rotations to avoid over-rotation
-	if (std::abs(yawRotation) > std::abs(bestYawDiff)) {
-		yawRotation = bestYawDiff;
+	// Calculate assistance strength based on opposition
+	float yawStrength = 1.0f - yawOpposition;
+	float pitchStrength = 1.0f - pitchOpposition;
+	
+	// If on target, don't assist (let user aim freely within hitbox)
+	if (onTargetYaw) {
+		yawStrength = 0.0f;
+		currentYawVelocity *= 0.5f;  // Quickly decay velocity when on target
 	}
-	if (std::abs(pitchRotation) > std::abs(bestPitchDiff)) {
-		pitchRotation = bestPitchDiff;
+	if (onTargetPitch) {
+		pitchStrength = 0.0f;
+		currentPitchVelocity *= 0.5f;
 	}
 
-	// Minimum rotation to prevent getting stuck
-	if (std::abs(yawRotation) < 0.05f && std::abs(bestYawDiff) > 0.3f) {
-		yawRotation = (bestYawDiff > 0) ? 0.05f : -0.05f;
+	// Calculate smooth rotation using velocity-based system
+	float yawRotation = 0.0f;
+	float pitchRotation = 0.0f;
+	
+	if (yawStrength > 0.01f) {
+		yawRotation = calculateSmoothRotation(bestYawDiff, settings.horizontalSpeed * yawStrength, deltaTime, currentYawVelocity);
+	}
+	if (settings.verticalAim && pitchStrength > 0.01f) {
+		pitchRotation = calculateSmoothRotation(bestPitchDiff, settings.verticalSpeed * pitchStrength, deltaTime, currentPitchVelocity);
 	}
 
-	// Apply rotations
-	if (std::abs(yawRotation) > 0.01f) {
-		player.setYaw(localYaw + yawRotation);
+	// Apply randomization (subtle noise to velocity, not rotation)
+	if (settings.randomization > 0.0f && (yawStrength > 0.1f || pitchStrength > 0.1f)) {
+		float noiseScale = settings.randomization * 0.3f;
+		currentYawVelocity += randomFloat(-noiseScale, noiseScale);
+		currentPitchVelocity += randomFloat(-noiseScale, noiseScale);
 	}
-	if (settings.verticalAim && std::abs(pitchRotation) > 0.01f) {
+
+	// Apply rotations if significant
+	if (std::abs(yawRotation) > 0.001f) {
+		float newYaw = localYaw + yawRotation;
+		player.setYaw(newYaw);
+		lastYaw = newYaw;  // Update lastYaw so we don't detect our own rotation as user input
+	}
+	if (settings.verticalAim && std::abs(pitchRotation) > 0.001f) {
 		float newPitch = localPitch + pitchRotation;
 		newPitch = (std::max)(-90.0f, (std::min)(90.0f, newPitch));
 		player.setPitch(newPitch);
+		lastPitch = newPitch;
 	}
 }
 
-float AimAssist::calculateSmoothRotation(float angleDiff, float speed, float deltaMs, int hurtTime)
+float AimAssist::calculateSmoothRotation(float angleDiff, float speed, float deltaTime, float& velocity)
 {
-	// Exponential interpolation: fast start, smooth finish
-	// The closer we are to target, the slower we move (but still responsive)
+	// Velocity-based smoothing with spring-damper physics
+	// This produces smooth acceleration and deceleration
 	
 	float absAngle = std::abs(angleDiff);
-	if (absAngle < 0.1f) return 0.0f;
 	
-	// Hurt time boost: rotate faster when being hit
-	float hurtBoost = 1.0f;
-	if (settings.hurtTimeBoost && hurtTime > 5) {
-		hurtBoost = 1.3f + (hurtTime / 30.0f);
-		hurtBoost = (std::min)(hurtBoost, 2.0f);
+	// Very small angle - stop
+	if (absAngle < 0.05f) {
+		velocity *= 0.3f;
+		return 0.0f;
 	}
 	
-	// Exponential easing: take a percentage of remaining distance
-	// Higher speed = larger percentage per frame
-	float speedFactor = speed * 0.001f;  // Normalize speed to 0-0.1 range
-	float smoothFactor = 1.0f - settings.smoothing;  // Invert: lower smoothing = faster
+	// Spring-damper constants
+	// Higher speed = stiffer spring (faster response)
+	// Damping ensures no oscillation
+	float stiffness = speed * 1.5f;  // Spring constant
+	float damping = std::sqrt(stiffness) * 2.2f;  // Slightly over-damped for smoothness
 	
-	// Time compensation: maintain consistent speed regardless of frame rate
-	float timeComp = deltaMs / 16.67f;  // Normalize to ~60fps
-	timeComp = (std::max)(0.5f, (std::min)(timeComp, 2.0f));
+	// Smoothing factor adjusts response curve
+	// Higher smoothing = slower acceleration
+	float smoothMult = 1.0f - (settings.smoothing * 0.8f);  // 0.2 to 1.0
+	stiffness *= smoothMult;
 	
-	// Calculate rotation: percentage of remaining angle
-	float rotationPercent = speedFactor * smoothFactor * hurtBoost * timeComp;
-	rotationPercent = (std::min)(rotationPercent, 0.5f);  // Cap at 50% per frame
+	// Spring force: pulls toward target
+	float springForce = angleDiff * stiffness;
 	
-	float rotation = angleDiff * rotationPercent;
+	// Damping force: resists velocity (prevents overshoot)
+	float dampingForce = -velocity * damping;
 	
-	// Minimum rotation to prevent getting stuck on small angles
-	float minRotation = 0.05f * (angleDiff > 0 ? 1.0f : -1.0f);
-	if (std::abs(rotation) < std::abs(minRotation) && absAngle > 0.5f) {
-		rotation = minRotation;
+	// Acceleration = net force (mass = 1)
+	float acceleration = springForce + dampingForce;
+	
+	// Update velocity (integrate acceleration)
+	velocity += acceleration * deltaTime;
+	
+	// Clamp max velocity based on speed setting
+	float maxVelocity = speed * 2.5f;  // Degrees per second
+	velocity = (std::max)(-maxVelocity, (std::min)(velocity, maxVelocity));
+	
+	// Calculate rotation for this frame
+	float rotation = velocity * deltaTime;
+	
+	// Prevent overshoot: don't rotate past target
+	if (std::abs(rotation) > absAngle) {
+		rotation = angleDiff;
+		velocity *= 0.3f;  // Reduce velocity when clamping
 	}
 	
 	return rotation;
