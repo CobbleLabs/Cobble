@@ -7,6 +7,7 @@
 #include "module/nametags.h"
 #include "web/config.h"
 #include "overlay/overlay.h"
+#include "overlay/notifications.h"
 
 void cobble::context::initialize(HMODULE hModule)
 {
@@ -35,8 +36,9 @@ void cobble::context::initialize(HMODULE hModule)
 
 	// Counter for delayed overlay init
 	int tickCount = 0;
-	const int OVERLAY_INIT_DELAY = 3000; // 3 seconds worth of ticks
+	const int OVERLAY_INIT_DELAY = 1000; // 1 second delay for OpenGL hooks to settle
 	bool overlayInitialized = false;
+	bool notificationShown = false;
 
 	is_running = true;
 
@@ -47,6 +49,13 @@ void cobble::context::initialize(HMODULE hModule)
 			Overlay::Init();
 			overlayInitialized = true;
 		}
+		
+		// Show loaded notification shortly after overlay is ready
+		if (overlayInitialized && !notificationShown && tickCount >= OVERLAY_INIT_DELAY + 100) {
+			NotificationManager::addSystem("Cobble loaded");
+			notificationShown = true;
+		}
+		
 		tickCount++;
 		
 		// Refresh player state each tick

@@ -48,13 +48,13 @@ static inline float calculateSoftStrength(float angleToCenter, float hitboxHalf)
 		return 1.0f;
 	} else if (absAngle <= hitboxHalf * 0.2f) {
 		// Very close to center - minimal strength (let spring die naturally)
-		return 0.05f;
+		return 0.03f;
 	} else {
 		// Soft transition zone - smooth fade
 		float normalizedPos = (absAngle - hitboxHalf * 0.2f) / (hitboxHalf * 1.3f);
 		// Smooth S-curve for natural feel
 		float t = normalizedPos * normalizedPos * (3.0f - 2.0f * normalizedPos);
-		return 0.05f + t * 0.95f;
+		return 0.03f + t * 0.97f;
 	}
 }
 
@@ -301,18 +301,6 @@ void AimAssist::onUpdate()
 	float yawSoftStrength = calculateSoftStrength(yawToCenter, bestYawHalf);
 	float pitchSoftStrength = calculateSoftStrength(pitchToCenter, bestPitchHalf);
 	
-	// DEBUG: Log key variables every ~100ms
-	static auto lastDebugLog = std::chrono::steady_clock::now();
-	auto debugNow = std::chrono::steady_clock::now();
-	if (std::chrono::duration<float>(debugNow - lastDebugLog).count() > 0.1f) {
-		lastDebugLog = debugNow;
-		char debugBuf[256];
-		snprintf(debugBuf, sizeof(debugBuf), 
-			"[AIM] dist=%.1f half=%.1f° toCenter=%.2f° softStr=%.2f vel=%.1f",
-			bestDistance, bestYawHalf, yawToCenter, yawSoftStrength, currentYawVelocity);
-		log_debug(debugBuf);
-	}
-	
 	// Add accumulated bias (to target, not noise)
 	float yawDiff = yawToCenter + yawBias;
 	float pitchDiff = pitchToCenter + pitchBias;
@@ -389,7 +377,7 @@ float AimAssist::calculateSmoothRotation(float angleDiff, float speed, float del
 	// - Far from target: spring active (correcting)
 	// - Near target: spring fades, damping dominates (settling)
 	// Threshold: ~3 degrees = transition zone
-	constexpr float settleThreshold = 3.0f;
+	constexpr float settleThreshold = 3.5f;
 	
 	float stiffnessFactor;
 	if (absAngle > settleThreshold) {

@@ -12,6 +12,7 @@ public:
 	void update();
 	void onRender();  // Called from overlay for visual modules
 	void checkKeybinds();
+	void broadcastModuleState(Module* mod);  // Send state to web UI
 
 	template<typename T>
 	T* get()

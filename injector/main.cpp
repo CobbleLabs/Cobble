@@ -144,6 +144,14 @@ int wmain(int argc, wchar_t* argv[]) {
 	WideCharToMultiByte(CP_UTF8, 0, lunar.windowTitle.c_str(), -1, narrowTitle, 128, nullptr, nullptr);
 	printSuccess(std::string("Found: ") + narrowTitle);
 	
+	// Check if already injected
+	if (isDllInjected(lunar.pid, L"Cobble.dll")) {
+		printWait("Cobble is already injected!");
+		std::cout << "\n    Press any key to exit...";
+		std::cin.get();
+		return 0;
+	}
+	
 	// Inject DLL
 	printWait("Injecting...");
 	
@@ -162,7 +170,6 @@ int wmain(int argc, wchar_t* argv[]) {
 	setColor(GREEN);
 	std::cout << "    Cobble is now active!\n";
 	setColor(DARK_GRAY);
-	std::cout << "    Open config/index.html to configure.\n";
 	std::cout << "    Use the Eject button in web UI to unload.\n";
 	setColor(GRAY);
 	std::cout << "\n";

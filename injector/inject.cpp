@@ -75,6 +75,10 @@ HMODULE getRemoteModuleHandle(DWORD pid, const std::wstring& moduleName) {
 	return result;
 }
 
+bool isDllInjected(DWORD pid, const std::wstring& dllName) {
+	return getRemoteModuleHandle(pid, dllName) != nullptr;
+}
+
 bool ejectDll(DWORD pid, const std::wstring& dllName) {
 	HMODULE remoteModule = getRemoteModuleHandle(pid, dllName);
 	if (!remoteModule) return false;

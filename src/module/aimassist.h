@@ -26,9 +26,9 @@ public:
 		bool hurtTimeBoost = false;  // Legacy setting for config compatibility
 		bool multipoint = false;  // Aim at closest point on hitbox
 		
-		float horizontalSpeed = 45.0f;
-		float verticalSpeed = 25.0f;
-		float maxFov = 180.0f;
+		float horizontalSpeed = 45.0f;  // Slider value, config.cpp applies 1.5x
+		float verticalSpeed = 25.0f;    // Slider value, config.cpp applies 1.5x
+		float maxFov = 360.0f;
 		float maxDistance = 4.5f;
 		float randomization = 0.15f;
 		float smoothing = 0.15f;  // Lower = faster snap, higher = smoother

@@ -61,3 +61,4 @@ extern ConfigServer configServer;
 // Initialize web server for config
 void Web_Init();
 void Web_Shutdown();
+void Web_BroadcastConfig();  // Send current config to all connected clients

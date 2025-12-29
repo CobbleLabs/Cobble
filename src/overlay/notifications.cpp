@@ -13,12 +13,20 @@ void NotificationManager::add(const std::string& moduleName, bool enabled)
 	// Remove any existing notification for the same module
 	notifications.erase(
 		std::remove_if(notifications.begin(), notifications.end(),
-			[&](const Notification& n) { return n.text == moduleName; }),
+			[&](const Notification& n) { return n.text == moduleName && !n.isSystem; }),
 		notifications.end()
 	);
 	
 	// Add new notification
-	notifications.emplace_back(moduleName, enabled, NOTIFICATION_DURATION);
+	notifications.emplace_back(moduleName, enabled, NOTIFICATION_DURATION, false);
+}
+
+void NotificationManager::addSystem(const std::string& message)
+{
+	std::lock_guard<std::mutex> lock(mutex);
+	
+	// Add system notification (no duplicate check - can show multiple)
+	notifications.emplace_back(message, true, NOTIFICATION_DURATION * 1.5f, true);
 }
 
 void NotificationManager::update()
@@ -84,8 +92,16 @@ void NotificationManager::render()
 		}
 		
 		// Calculate notification width based on text
-		const char* statusText = notif.enabled ? " ON" : " OFF";
-		std::string displayText = notif.text + statusText;
+		std::string displayText;
+		const char* statusText = "";
+		
+		if (notif.isSystem) {
+			displayText = notif.text;
+		} else {
+			statusText = notif.enabled ? " ON" : " OFF";
+			displayText = notif.text + statusText;
+		}
+		
 		ImVec2 textSize = ImGui::CalcTextSize(displayText.c_str());
 		float notifWidth = textSize.x + NOTIFICATION_PADDING * 2.0f;
 		
@@ -100,13 +116,25 @@ void NotificationManager::render()
 		
 		// Black background always
 		ImU32 bgColor = IM_COL32(15, 15, 15, bgAlphaInt);
-		ImU32 borderColor = IM_COL32(40, 40, 40, alphaInt);
+		ImU32 borderColor = notif.isSystem 
+			? IM_COL32(100, 80, 180, alphaInt)  // Purple border for system
+			: IM_COL32(40, 40, 40, alphaInt);
 		
-		// Text color: green for enabled, red for disabled
-		ImU32 moduleTextColor = IM_COL32(255, 255, 255, alphaInt);
-		ImU32 statusColor = notif.enabled 
-			? IM_COL32(100, 255, 100, alphaInt)   // Green for ON
-			: IM_COL32(255, 100, 100, alphaInt);  // Red for OFF
+		// Text color based on type
+		ImU32 moduleTextColor;
+		ImU32 statusColor;
+		
+		if (notif.isSystem) {
+			// System notifications: magenta/purple text
+			moduleTextColor = IM_COL32(200, 150, 255, alphaInt);
+			statusColor = moduleTextColor;
+		} else {
+			// Module notifications: white name + green/red status
+			moduleTextColor = IM_COL32(255, 255, 255, alphaInt);
+			statusColor = notif.enabled 
+				? IM_COL32(100, 255, 100, alphaInt)   // Green for ON
+				: IM_COL32(255, 100, 100, alphaInt);  // Red for OFF
+		}
 		
 		// Draw background with rounded corners
 		ImVec2 rectMin(x, y);
@@ -114,16 +142,18 @@ void NotificationManager::render()
 		draw->AddRectFilled(rectMin, rectMax, bgColor, 4.0f);
 		draw->AddRect(rectMin, rectMax, borderColor, 4.0f, 0, 1.0f);
 		
-		// Draw module name (white)
+		// Draw text
 		float textX = x + NOTIFICATION_PADDING;
 		float textY = y + (NOTIFICATION_HEIGHT - textSize.y) / 2.0f;
 		
 		ImVec2 moduleTextSize = ImGui::CalcTextSize(notif.text.c_str());
 		draw->AddText(ImVec2(textX, textY), moduleTextColor, notif.text.c_str());
 		
-		// Draw status text (colored)
-		float statusX = textX + moduleTextSize.x;
-		draw->AddText(ImVec2(statusX, textY), statusColor, statusText);
+		// Draw status text (only for module notifications)
+		if (!notif.isSystem) {
+			float statusX = textX + moduleTextSize.x;
+			draw->AddText(ImVec2(statusX, textY), statusColor, statusText);
+		}
 		
 		// Draw thin progress bar at bottom
 		float progressBarHeight = 2.0f;
@@ -141,9 +171,14 @@ void NotificationManager::render()
 		
 		// Progress bar fill (decreasing as time passes)
 		float remainingProgress = 1.0f - progress;
-		ImU32 progressColor = notif.enabled
-			? IM_COL32(100, 255, 100, static_cast<int>(200 * alpha))
-			: IM_COL32(255, 100, 100, static_cast<int>(200 * alpha));
+		ImU32 progressColor;
+		if (notif.isSystem) {
+			progressColor = IM_COL32(180, 130, 255, static_cast<int>(200 * alpha));
+		} else {
+			progressColor = notif.enabled
+				? IM_COL32(100, 255, 100, static_cast<int>(200 * alpha))
+				: IM_COL32(255, 100, 100, static_cast<int>(200 * alpha));
+		}
 		draw->AddRectFilled(
 			ImVec2(progressX, progressBarY),
 			ImVec2(progressX + progressBarWidth * remainingProgress, progressBarY + progressBarHeight),

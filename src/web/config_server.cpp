@@ -1,4 +1,5 @@
 #include "config_server.h"
+#include "config.h"
 #include "../util/logger.hpp"
 #include <sstream>
 #include <iomanip>
@@ -315,4 +316,9 @@ void Web_Init() {
 
 void Web_Shutdown() {
 	configServer.stop();
+}
+
+void Web_BroadcastConfig() {
+	// Get the serialized config and send it to connected clients
+	configServer.sendMessage(Config::serialize());
 }

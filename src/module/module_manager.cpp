@@ -55,6 +55,9 @@ void ModuleManager::onRender()
 
 void ModuleManager::checkKeybinds()
 {
+	// Don't process keybinds when in GUI (chat, inventory, menu, etc)
+	if (mc.isInGui()) return;
+	
 	for (auto* mod : modules)
 	{
 		if (mod->keybind == 0) continue;
@@ -65,8 +68,19 @@ void ModuleManager::checkKeybinds()
 		if (pressed && !keyStates[mod->keybind])
 		{
 			mod->toggle();
+			
+			// Broadcast to web UI for bidirectional sync
+			broadcastModuleState(mod);
 		}
 
 		keyStates[mod->keybind] = pressed;
 	}
+}
+
+void ModuleManager::broadcastModuleState(Module* mod)
+{
+	// This will be called by config server to send update to web
+	// We'll trigger a config refresh
+	extern void Web_BroadcastConfig();
+	Web_BroadcastConfig();
 }

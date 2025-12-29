@@ -6,8 +6,10 @@
 #include "config_server.h"
 #include "../cobble.hpp"
 #include "../util/logger.hpp"
+#include "../overlay/notifications.h"
 #include <sstream>
 #include <iomanip>
+#include <thread>
 
 namespace {
 	std::string getValue(const std::string& json, const std::string& key) {
@@ -71,9 +73,10 @@ void Config::apply(const std::string& json) {
 		std::string module = getValue(json, "module");
 		
 		if (module == "aimassist") {
-			aimAssist.settings.horizontalSpeed = getFloat(json, "horizontalSpeed", 25.0f);
-			aimAssist.settings.verticalSpeed = getFloat(json, "verticalSpeed", 12.0f);
-			aimAssist.settings.maxFov = getFloat(json, "maxFov", 180.0f);
+			// Speed slider 0-100 maps to 0-150 (1.5x multiplier)
+			aimAssist.settings.horizontalSpeed = getFloat(json, "horizontalSpeed", 45.0f) * 1.5f;
+			aimAssist.settings.verticalSpeed = getFloat(json, "verticalSpeed", 25.0f) * 1.5f;
+			aimAssist.settings.maxFov = getFloat(json, "maxFov", 360.0f);
 			aimAssist.settings.maxDistance = getFloat(json, "maxDistance", 4.5f);
 			aimAssist.settings.smoothing = getFloat(json, "smoothing", 0.15f);
 			aimAssist.settings.randomization = getFloat(json, "randomization", 0.15f);
@@ -137,6 +140,12 @@ void Config::apply(const std::string& json) {
 		configServer.sendMessage(serialize());
 	}
 	else if (type == "eject") {
+		// Show unload notification
+		NotificationManager::addSystem("Cobble unloading...");
+		
+		// Give notification time to show (runs async in overlay)
+		std::this_thread::sleep_for(std::chrono::milliseconds(800));
+		
 		// Signal main loop to stop - will trigger clean shutdown
 		cobble::context::is_running = false;
 	}
@@ -168,8 +177,9 @@ std::string Config::serialize() {
 	ss << "\"aimassist\":{";
 	ss << "\"enabled\":" << (aimAssist.enabled ? "true" : "false") << ",";
 	ss << "\"keybind\":\"" << vkToKeyString(aimAssist.keybind) << "\",";
-	ss << "\"horizontalSpeed\":" << aimAssist.settings.horizontalSpeed << ",";
-	ss << "\"verticalSpeed\":" << aimAssist.settings.verticalSpeed << ",";
+	// Divide by 1.5 to show slider value (100 on slider = 150 actual)
+	ss << "\"horizontalSpeed\":" << (aimAssist.settings.horizontalSpeed / 1.5f) << ",";
+	ss << "\"verticalSpeed\":" << (aimAssist.settings.verticalSpeed / 1.5f) << ",";
 	ss << "\"maxFov\":" << aimAssist.settings.maxFov << ",";
 	ss << "\"maxDistance\":" << aimAssist.settings.maxDistance << ",";
 	ss << "\"smoothing\":" << aimAssist.settings.smoothing << ",";

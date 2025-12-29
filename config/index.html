@@ -275,38 +275,13 @@
             <div class="div"></div>
             <div class="sec">RANGE</div>
             <div class="row">
-                <div class="label"><span>Max FOV</span><span class="val" id="aa-fov-v">180</span></div>
-                <input type="range" id="aa-fov" min="30" max="180" value="180" oninput="upd(this,'aa-fov-v');send()">
+                <div class="label"><span>Max FOV</span><span class="val" id="aa-fov-v">360</span></div>
+                <input type="range" id="aa-fov" min="30" max="360" value="360" oninput="upd(this,'aa-fov-v');send()">
             </div>
             <div class="row">
                 <div class="label"><span>Max Distance</span><span class="val" id="aa-dist-v">4.5</span></div>
                 <input type="range" id="aa-dist" min="10" max="80" value="45"
                     oninput="upd(this,'aa-dist-v',0.1);send()">
-            </div>
-
-            <div class="div"></div>
-            <div class="sec">HITBOX</div>
-            <div class="row">
-                <div class="label"><span>Hitbox Y (0=Feet, 1=Head)</span><span class="val" id="aa-hitboxy-v">0.50</span>
-                </div>
-                <input type="range" id="aa-hitboxy" min="0" max="100" value="50"
-                    oninput="upd(this,'aa-hitboxy-v',0.01);send()">
-            </div>
-            <div class="check-row" onclick="chk(this)">
-                <div class="check" id="aa-multipoint"></div><span>Multipoint (Aim Closest)</span>
-            </div>
-
-            <div class="div"></div>
-            <div class="sec">SMOOTHING</div>
-            <div class="row">
-                <div class="label"><span>Smoothness</span><span class="val" id="aa-smooth-v">0.15</span></div>
-                <input type="range" id="aa-smooth" min="5" max="50" value="15"
-                    oninput="upd(this,'aa-smooth-v',0.01);send()">
-            </div>
-            <div class="row">
-                <div class="label"><span>Randomization</span><span class="val" id="aa-rand-v">0.15</span></div>
-                <input type="range" id="aa-rand" min="0" max="50" value="15"
-                    oninput="upd(this,'aa-rand-v',0.01);send()">
             </div>
 
             <div class="div"></div>
@@ -328,9 +303,6 @@
             </div>
             <div class="check-row" onclick="chk(this)">
                 <div class="check on" id="aa-lock"></div><span>Target Lock</span>
-            </div>
-            <div class="check-row" onclick="chk(this)">
-                <div class="check on" id="aa-hurt"></div><span>Hurt Time Boost</span>
             </div>
         </div>
 
@@ -444,17 +416,12 @@
                 verticalSpeed: +document.getElementById('aa-vspeed').value,
                 maxFov: +document.getElementById('aa-fov').value,
                 maxDistance: +document.getElementById('aa-dist').value * 0.1,
-                hitboxY: +document.getElementById('aa-hitboxy').value * 0.01,
-                multipoint: document.getElementById('aa-multipoint').classList.contains('on'),
-                smoothing: +document.getElementById('aa-smooth').value * 0.01,
-                randomization: +document.getElementById('aa-rand').value * 0.01,
                 onlyClicking: document.getElementById('aa-clicking').classList.contains('on'),
                 onlySprinting: document.getElementById('aa-sprinting').classList.contains('on'),
                 verticalAim: document.getElementById('aa-vertical').classList.contains('on'),
                 visibilityCheck: document.getElementById('aa-visibility').classList.contains('on'),
                 ignoreInvisible: document.getElementById('aa-invisible').classList.contains('on'),
-                targetLock: document.getElementById('aa-lock').classList.contains('on'),
-                hurtTimeBoost: document.getElementById('aa-hurt').classList.contains('on')
+                targetLock: document.getElementById('aa-lock').classList.contains('on')
             }));
             ws.send(JSON.stringify({
                 type: 'config', module: 'nametags',
@@ -487,17 +454,12 @@
                 document.getElementById('aa-vspeed').value = c.verticalSpeed; document.getElementById('aa-vspeed-v').textContent = Math.round(c.verticalSpeed);
                 document.getElementById('aa-fov').value = c.maxFov; document.getElementById('aa-fov-v').textContent = Math.round(c.maxFov);
                 document.getElementById('aa-dist').value = c.maxDistance * 10; document.getElementById('aa-dist-v').textContent = c.maxDistance.toFixed(1);
-                document.getElementById('aa-hitboxy').value = (c.hitboxY || 0.5) * 100; document.getElementById('aa-hitboxy-v').textContent = (c.hitboxY || 0.5).toFixed(2);
-                document.getElementById('aa-multipoint').classList.toggle('on', c.multipoint === true);
-                document.getElementById('aa-smooth').value = (c.smoothing || 0.15) * 100; document.getElementById('aa-smooth-v').textContent = (c.smoothing || 0.15).toFixed(2);
-                document.getElementById('aa-rand').value = c.randomization * 100; document.getElementById('aa-rand-v').textContent = c.randomization.toFixed(2);
                 document.getElementById('aa-clicking').classList.toggle('on', c.onlyClicking !== false);
                 document.getElementById('aa-sprinting').classList.toggle('on', c.onlySprinting === true);
                 document.getElementById('aa-vertical').classList.toggle('on', c.verticalAim !== false);
                 document.getElementById('aa-visibility').classList.toggle('on', c.visibilityCheck !== false);
                 document.getElementById('aa-invisible').classList.toggle('on', c.ignoreInvisible !== false);
                 document.getElementById('aa-lock').classList.toggle('on', c.targetLock !== false);
-                document.getElementById('aa-hurt').classList.toggle('on', c.hurtTimeBoost !== false);
             }
             if (d.nametags) {
                 let c = d.nametags;
