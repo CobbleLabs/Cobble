@@ -65,8 +65,22 @@ void cobble::context::initialize(HMODULE hModule)
 	// Wait for hooks to fully unwind before unloading
 	std::this_thread::sleep_for(std::chrono::milliseconds(100));
 	
-	// Unload DLL from process - allows re-injection
-	FreeLibraryAndExitThread(moduleHandle, 0);
+	// Unload DLL from process
+	// If manually mapped, FreeLibrary will crash because module is not in LDR.
+	// Safe bet is to just exit the thread. The memory (DLL) stays allocated but inactive.
+	// To properly free, we'd need a separate thread that frees memory after this thread exits, which is complex.
+	// For now: Just ExitThread.
+	
+	// Check if moduleHandle is a valid HMODULE (in LDR)
+    // Simple heuristic: if we are here and valid, try FreeLibrary ONLY if we think it's safe.
+    // Actually, ExitThread is always safe enough for a cheat appearing to "unload".
+    // Re-injecting might duplicate memory, but that's acceptable for this stage.
+    
+    // Using FreeLibraryAndExitThread ONLY if we are fairly sure it's a standard load (moduleHandle has high bits set typically)
+    // But since we are manually mapping, let's just use ExitThread for safety across both.
+    
+	ExitThread(0);
+	// FreeLibraryAndExitThread(moduleHandle, 0);
 }
 
 void cobble::context::shutdown()

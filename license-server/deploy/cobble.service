@@ -1,0 +1,32 @@
+[Unit]
+Description=Cobble License Server
+After=network.target
+
+[Service]
+Type=simple
+User=cobble
+Group=cobble
+WorkingDirectory=/opt/cobble
+ExecStart=/opt/cobble/cobble-server
+Restart=always
+RestartSec=5
+
+# Environment
+Environment=PORT=8080
+Environment=ADMIN_KEY=CHANGE_THIS_TO_YOUR_SECRET_KEY
+Environment=DB_TYPE=sqlite
+Environment=DB_PATH=/opt/cobble/licenses.db
+
+# Security
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/cobble
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=cobble
+
+[Install]
+WantedBy=multi-user.target
