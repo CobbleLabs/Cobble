@@ -107,28 +107,40 @@ void Menu::Hotkey(const char* label, Module* module)
 
 void Menu::Render()
 {
-	if (!isOpen) return;
-	
 	ImGuiIO& io = ImGui::GetIO();
 	
-	// ------ MENU OPEN ANIMATION ------
-	// Scale: 0.97 -> 1.0, Alpha: 0 -> 1 (easeOutQuart)
-	static bool wasOpen = false;
-	static float openAnim = 0.f;
+	// ------ MENU ANIMATION (Open/Close) ------
+	static float localAlpha = 0.f;
 	
-	if (!wasOpen && isOpen) {
-		openAnim = 0.f; // Reset on open
+	// Smooth lerp towards target (same speed for open/close)
+	float target = isOpen ? 1.f : 0.f;
+	float speed = 8.f; // Matched speed for both directions
+	localAlpha += (target - localAlpha) * ImMin(io.DeltaTime * speed, 1.0f);
+	
+	// Skip rendering when fully closed
+	if (localAlpha < 0.01f && !isOpen) {
+		localAlpha = 0.f;
+		return;
 	}
-	wasOpen = isOpen;
 	
-	openAnim = ImTricks::Animations::FastFloatLerp("menu_open", isOpen, 0.f, 1.f, 0.06f);
+	// Linear alpha and scale (symmetrical feel)
+	float animScale = 0.90f + 0.10f * localAlpha; // 0.9 → 1.0
+	float alpha = localAlpha;
 	
-	// EaseOutQuart: 1 - (1 - x)^4
-	float eased = 1.0f - powf(1.0f - openAnim, 4.0f);
-	float scale = 0.97f + 0.03f * eased;
-	float alpha = eased;
+	// ------ ADAPTIVE SCREEN SCALING ------
+	// Base size 
+	const float BASE_WIDTH = 578.0f;   // 680 * 0.85
+	const float BASE_HEIGHT = 357.0f;  // 420 * 0.85
+	const float BASE_RESOLUTION = 1920.0f;
 	
-	ImVec2 windowSize(1050 * scale, 750 * scale); // Scaled size
+	// Calculate scale factor based on screen width
+	float screenScale = io.DisplaySize.x / BASE_RESOLUTION;
+	screenScale = ImClamp(screenScale, 0.7f, 1.5f); // Clamp between 70% and 150%
+	
+	// Final window size = base * screen scale * animation scale
+	ImVec2 windowSize(BASE_WIDTH * screenScale * animScale, 
+	                  BASE_HEIGHT * screenScale * animScale);
+	
 	ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x * 0.5f, io.DisplaySize.y * 0.5f), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
 	ImGui::SetNextWindowSize(windowSize, ImGuiCond_Always);
 	
@@ -186,9 +198,9 @@ void Menu::Render()
 			ImGui::PushStyleVar(ImGuiStyleVar_Alpha, eased);
 			
 			switch (currentTab) {
-				case 0: RenderCombatTab(); break;
-				case 1: RenderVisualTab(); break;
-				case 2: RenderSettingsTab(); break;
+				case 0: RenderCombatTab(alpha); break;
+				case 1: RenderVisualTab(alpha); break; // Pass alpha
+				case 2: RenderSettingsTab(alpha); break;
 			}
 			
 			ImGui::PopStyleVar();
@@ -235,7 +247,7 @@ void Menu::Render()
 	ImGui::PopStyleVar(); // Pop Alpha from open animation
 }
 
-void Menu::RenderCombatTab()
+void Menu::RenderCombatTab(float alpha)
 {
 	// Subtabs logic
 	// Removed SetCursorPosX(0) so child window inherits cursor position from parent animation
@@ -314,7 +326,7 @@ void Menu::RenderCombatTab()
 			case 0: // AutoClicker
 			{
 				// Left Column: Main Settings
-				custom::begin_child("General", { colWidth, 0 });
+				custom::begin_child("General", { colWidth, 0 }, alpha);
 				{
 					// Header Row
 					custom::checkbox("Enabled", &autoClicker.enabled);
@@ -336,7 +348,7 @@ void Menu::RenderCombatTab()
 				ImGui::NextColumn();
 				
 				// Right Column: Options
-				custom::begin_child("Conditions", { colWidth, 0 });
+				custom::begin_child("Conditions", { colWidth, 0 }, alpha);
 				{
 					custom::checkbox("Weapon Only", &autoClicker.settings.weaponOnly);
 					custom::checkbox("Break Blocks", &autoClicker.settings.breakBlocks);
@@ -348,7 +360,7 @@ void Menu::RenderCombatTab()
 			
 			case 1: // AimAssist
 			{
-				custom::begin_child("General", { colWidth, 0 });
+				custom::begin_child("General", { colWidth, 0 }, alpha);
 				{
 					custom::checkbox("Enabled", &aimAssist.enabled);
 					ImGui::SameLine();
@@ -368,7 +380,7 @@ void Menu::RenderCombatTab()
 				
 				ImGui::NextColumn();
 				
-				custom::begin_child("Filters", { colWidth, 0 });
+				custom::begin_child("Filters", { colWidth, 0 }, alpha);
 				{
 					custom::checkbox("Clicking Only", &aimAssist.settings.onlyClicking);
 					custom::checkbox("Vertical Aim", &aimAssist.settings.verticalAim);
@@ -381,7 +393,7 @@ void Menu::RenderCombatTab()
 			
 			case 2: // AutoRefill
 			{
-				custom::begin_child("General", { colWidth, 0 });
+				custom::begin_child("General", { colWidth, 0 }, alpha);
 				{
 					ImGui::Text("Press keybind to refill");
 					Hotkey("AR_Key", &autoRefill);
@@ -396,7 +408,7 @@ void Menu::RenderCombatTab()
 				
 				ImGui::NextColumn();
 				
-				custom::begin_child("Items", { colWidth, 0 });
+				custom::begin_child("Items", { colWidth, 0 }, alpha);
 				{
 					custom::checkbox("Refill Soup", &autoRefill.settings.refillSoup);
 					custom::checkbox("Refill Potions", &autoRefill.settings.refillPotions);
@@ -413,7 +425,7 @@ void Menu::RenderCombatTab()
 	ImGui::PopStyleVar(); // Pop Alpha from content transition
 }
 
-void Menu::RenderVisualTab()
+void Menu::RenderVisualTab(float alpha)
 {
 	static int visualSubtab = 0;
 
@@ -473,7 +485,7 @@ void Menu::RenderVisualTab()
 		switch (visualSubtab) {
 			case 0: // NameTags
 			{
-				custom::begin_child("Settings", { colWidth, 0 });
+				custom::begin_child("Settings", { colWidth, 0 }, alpha);
 				{
 					custom::checkbox("Enabled", &nameTags.enabled);
 					Hotkey("NT_Key", &nameTags);
@@ -487,7 +499,7 @@ void Menu::RenderVisualTab()
 				
 				ImGui::NextColumn();
 				
-				custom::begin_child("Display", { colWidth, 0 });
+				custom::begin_child("Display", { colWidth, 0 }, alpha);
 				{
 					custom::checkbox("Show Health", &nameTags.settings.showHealth);
 					custom::checkbox("Show Distance", &nameTags.settings.showDistance);
@@ -498,7 +510,7 @@ void Menu::RenderVisualTab()
 			}
 			case 1: // ESP
 			{
-				custom::begin_child("Player ESP", { colWidth, 0 });
+				custom::begin_child("Player ESP", { colWidth, 0 }, alpha);
 				{
 					static bool espEnabled = false;
 					custom::checkbox("Enabled", &espEnabled);
@@ -510,7 +522,7 @@ void Menu::RenderVisualTab()
 			}
 			case 2: // Ambience
 			{
-				custom::begin_child("World", { colWidth, 0 });
+				custom::begin_child("World", { colWidth, 0 }, alpha);
 				{
 					static bool timeChanger = false;
 					custom::checkbox("Time Changer", &timeChanger);
@@ -528,7 +540,7 @@ void Menu::RenderVisualTab()
 	ImGui::PopStyleVar();
 }
 
-void Menu::RenderSettingsTab()
+void Menu::RenderSettingsTab(float alpha)
 {
 	ImGui::BeginChild("settings_content", { ImGui::GetWindowWidth(), ImGui::GetWindowHeight() - 10 }, 0, ImGuiWindowFlags_NoBackground);
 	{
@@ -538,7 +550,7 @@ void Menu::RenderSettingsTab()
 		ImGui::SetColumnWidth(0, childWidth + 5);
 		
 		// Left Column: Client Info (Clean) TODO: CHANGE
-		custom::begin_child("Client Info", { childWidth, 0 });
+		custom::begin_child("Client Info", { childWidth, 0 }, alpha);
 		{
 			ImGui::TextDisabled("Version 1.0.0");
 			ImGui::TextDisabled("Built: Dec 2025");
@@ -552,7 +564,7 @@ void Menu::RenderSettingsTab()
 		// Right Column: Theme & Actions
 		
 		// Theme (Color Picker) - Top Right
-		custom::begin_child("Theme", { childWidth, 0 });
+		custom::begin_child("Theme", { childWidth, 0 }, alpha);
 		{
 			ImGui::Text("Accent Color");
 			ImGui::Spacing();
@@ -565,7 +577,7 @@ void Menu::RenderSettingsTab()
 		custom::end_child();
 		
 		// Actions - Bottom Right
-		custom::begin_child("Actions", { childWidth, 120 });
+		custom::begin_child("Actions", { childWidth, 120 }, alpha);
 		{
 			ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.6f, 0.1f, 0.2f, 1.0f));
 			ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.7f, 0.15f, 0.25f, 1.0f));

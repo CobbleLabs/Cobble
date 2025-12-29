@@ -7,7 +7,6 @@
 
 using namespace ImGui;
 
-// Pink Minecraft color (#FF55FF)
 // Pink Minecraft color (#FF55FF) -> Dynamic
 static ImU32 GetSchemeColor(float alpha = 1.0f) {
 	return ImGui::ColorConvertFloat4ToU32(ImVec4(
@@ -291,8 +290,22 @@ bool custom::slider_int(const char* label, int* v, int v_min, int v_max, const c
 	return res;
 }
 
-void custom::begin_child(const char* name, ImVec2 size) {
-	// 1. Outer Container: Draws border and background, adapts height to content
+void custom::begin_child(const char* name, ImVec2 size, float alpha) {
+	// Apply alpha to child background and border directly
+	ImVec4 childBg = ImGui::GetStyleColorVec4(ImGuiCol_ChildBg);
+	childBg.w *= alpha;
+	ImGui::PushStyleColor(ImGuiCol_ChildBg, childBg);
+	
+	ImVec4 borderCol = ImGui::GetStyleColorVec4(ImGuiCol_Border);
+	borderCol.w *= alpha;
+	ImGui::PushStyleColor(ImGuiCol_Border, borderCol);
+	
+	// Apply text alpha too for title
+	ImVec4 textCol = ImGui::GetStyleColorVec4(ImGuiCol_Text);
+	textCol.w *= alpha;
+	ImGui::PushStyleColor(ImGuiCol_Text, textCol);
+
+	// 1. Outer Container
 	ImGuiChildFlags childFlags = ImGuiChildFlags_Borders | ImGuiChildFlags_AutoResizeY;
 	BeginChild(std::string(name).append("main").c_str(), { size.x, 0 }, childFlags, ImGuiWindowFlags_NoScrollbar);
 	
@@ -300,23 +313,21 @@ void custom::begin_child(const char* name, ImVec2 size) {
 	float paddingX = 15.0f;
 	
 	// Title - SAME X as content for perfect alignment
-	ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetColorU32(ImGuiCol_Text));
 	ImGui::SetCursorPos({ paddingX, 12 });
 	ImGui::Text("%s", name);
-	ImGui::PopStyleColor();
+	ImGui::PopStyleColor(); // Pop Text color
 	
-	// 2. Inner Content Container: Handles Padding and Width Constraint
-	// This ensures text, checkboxes, and everything respect the right margin.
+	// 2. Inner Content Container
 	float contentWidth = size.x - (paddingX * 2);
 	
 	ImGui::SetCursorPosY(42); // Top Title Padding
-	ImGui::SetCursorPosX(paddingX); // Left Padding (same as title)
+	ImGui::SetCursorPosX(paddingX); // Left Padding
 	
-	// Inner child strictly limits the content width
+	// Inner child
 	ImGuiChildFlags innerFlags = ImGuiChildFlags_AutoResizeY;
 	ImGui::BeginChild("##inner_content", { contentWidth, 0 }, innerFlags, ImGuiWindowFlags_NoBackground | ImGuiWindowFlags_NoScrollbar);
 	
-	ImGui::PushItemWidth(contentWidth); // Help sliders fill the space
+	ImGui::PushItemWidth(contentWidth);
 	ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, { 10, 14 });
 }
 
@@ -404,7 +415,7 @@ bool custom::checkbox(const char* label, bool* v) {
 }
 
 void custom::end_child() {
-	ImGui::PopStyleVar();
+	ImGui::PopStyleVar(); // ItemSpacing
 	ImGui::PopItemWidth();
 	ImGui::EndChild(); // End Inner Content
 	
@@ -412,6 +423,7 @@ void custom::end_child() {
 	ImGui::Dummy({ 0, 18 });
 	
 	ImGui::EndChild(); // End Outer Container
+	ImGui::PopStyleColor(2); // ChildBg + Border (Text already popped)
 }
 
 bool custom::collapse_button(bool collapsed) {

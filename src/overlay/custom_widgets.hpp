@@ -40,7 +40,7 @@ namespace custom {
 	bool subtab(const char* label, bool selected);
 	
 	// Styled child window with title
-	void begin_child(const char* name, ImVec2 size);
+	void begin_child(const char* name, ImVec2 size, float alpha = 1.0f);
 	void end_child();
 	
 	// Collapse/expand button with rotation animation

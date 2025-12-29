@@ -21,9 +21,9 @@ public:
 	
 private:
 	// Render tabs
-	static void RenderCombatTab();
-	static void RenderVisualTab();
-	static void RenderSettingsTab();
+	static void RenderCombatTab(float alpha);
+	static void RenderVisualTab(float alpha);
+	static void RenderSettingsTab(float alpha);
 	
 	// Helpers
 	static void Hotkey(const char* label, Module* module);
