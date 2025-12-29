@@ -39,7 +39,12 @@ void NameTags::onDisable()
 // Called from MAIN thread - cache player positions and render info
 void NameTags::onUpdate()
 {
-	if (!player.isValid()) return;
+	// If player is not valid (in menu, left server, etc), clear cache
+	if (!player.isValid()) {
+		std::lock_guard<std::mutex> lock(cacheMutex);
+		cachedPlayers.clear();
+		return;
+	}
 	
 	// Update render matrices from Java
 	RenderData::Update();
@@ -126,7 +131,7 @@ void NameTags::onUpdate()
 	}
 }
 
-// Called from RENDER thread
+// Called from RENDER thread - project to screen using Knight's formula
 void NameTags::onRender()
 {
 	debugCounter++;
@@ -158,11 +163,13 @@ void NameTags::onRender()
 	{
 		if (!p.valid) continue;
 		
+		// Knight's ESP formula for smooth interpolation:
 		// origin = renderPos - entityLastPos + (entityLastPos - entityPos) * renderPartialTicks
 		// This interpolates the entity position between ticks for smooth movement
 		
 		float entityHeight = 2.0f;  // Above head
 		
+		// The formula from Knight (simplified for single point above head):
 		// Point = renderPos - (entityLastPos interpolated) + offset
 		float interpX = (float)(p.lastPosX + (p.posX - p.lastPosX) * partialTicks);
 		float interpY = (float)(p.lastPosY + (p.posY - p.lastPosY) * partialTicks) + entityHeight;
@@ -202,13 +209,7 @@ void NameTags::renderPlayerTag(ImDrawList* draw, float screenX, float screenY, c
 {
 	if (!draw) return;
 	
-	// Scale: if distanceScale is TRUE = constant size, FALSE = scale with distance
 	float displayScale = settings.scale;
-	if (!settings.distanceScale && distance > 1.0f) {
-		// Scale smaller as distance increases
-		displayScale = settings.scale * (10.0f / distance);
-		displayScale = std::fmax(0.4f, std::fmin(displayScale, settings.scale * 2.5f));
-	}
 	
 	// Build text
 	char displayText[128];

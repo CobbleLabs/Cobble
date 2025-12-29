@@ -5,6 +5,7 @@
 #include "../util/logger.hpp"
 #include <vector>
 #include <string>
+#include <chrono>
 
 // Render state data - updated each frame from the render hook
 struct RenderData
@@ -12,6 +13,8 @@ struct RenderData
 	static inline bool initialized = false;
 	static inline bool updated = false;
 	static inline bool initFailed = false;
+	static inline int initRetryCount = 0;
+	static inline std::chrono::steady_clock::time_point lastInitAttempt{};
 	
 	// Matrices for WorldToScreen projection
 	static inline Matrix modelView;
@@ -33,9 +36,22 @@ struct RenderData
 	static bool Init()
 	{
 		if (initialized) return true;
-		if (initFailed) return false;
+		
+		// Retry logic: if init failed, try again every 5 seconds (up to 10 times)
+		if (initFailed) {
+			if (initRetryCount >= 10) return false;
+			auto now = std::chrono::steady_clock::now();
+			auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(now - lastInitAttempt).count();
+			if (elapsed < 5) return false;
+			// Reset for retry
+			initFailed = false;
+			lastInitAttempt = now;
+			initRetryCount++;
+		}
+		
 		if (!Java::Env) {
 			initFailed = true;
+			lastInitAttempt = std::chrono::steady_clock::now();
 			return false;
 		}
 		
@@ -154,19 +170,4 @@ struct RenderData
 		projection = Matrix{};
 	}
 	
-	// Cleanup
-	static void Destroy()
-	{
-		if (activeRenderInfoClass) {
-			Java::Env->DeleteGlobalRef(activeRenderInfoClass);
-			activeRenderInfoClass = nullptr;
-		}
-		if (floatBufferClass) {
-			Java::Env->DeleteGlobalRef(floatBufferClass);
-			floatBufferClass = nullptr;
-		}
-		initialized = false;
-		updated = false;
-		initFailed = false;
-	}
 };

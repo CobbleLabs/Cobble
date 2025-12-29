@@ -31,7 +31,6 @@ public:
 	struct Settings {
 		float range = 64.0f;
 		float scale = 1.0f;
-		bool distanceScale = false;
 		bool background = true;
 		bool showHealth = true;
 		bool showDistance = true;

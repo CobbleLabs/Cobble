@@ -101,7 +101,6 @@ void Config::apply(const std::string& json) {
 		else if (module == "nametags") {
 			nameTags.settings.range = getFloat(json, "range", 64.0f);
 			nameTags.settings.scale = getFloat(json, "scale", 1.0f);
-			nameTags.settings.distanceScale = getBool(json, "distanceScale", false);
 			nameTags.settings.background = getBool(json, "background", true);
 			nameTags.settings.showHealth = getBool(json, "showHealth", true);
 			nameTags.settings.showDistance = getBool(json, "showDistance", true);
@@ -139,13 +138,8 @@ void Config::apply(const std::string& json) {
 		configServer.sendMessage(serialize());
 	}
 	else if (type == "eject") {
-		// Show unload notification
-		NotificationManager::addSystem("Cobble unloading...");
-		
-		// Give notification time to show (runs async in overlay)
-		std::this_thread::sleep_for(std::chrono::milliseconds(800));
-		
-		// Signal main loop to stop - will trigger clean shutdown
+		// Signal main loop to stop - main thread will handle clean shutdown
+		// Don't sleep here as it blocks websocket thread and causes race conditions
 		cobble::context::is_running = false;
 	}
 }
@@ -192,16 +186,25 @@ std::string Config::serialize() {
 	ss << "\"multipoint\":" << (aimAssist.settings.multipoint ? "true" : "false") << ",";
 	ss << "\"hitboxY\":" << aimAssist.settings.hitboxY << "},";
 	
-	// NameTags
 	ss << "\"nametags\":{";
 	ss << "\"enabled\":" << (nameTags.enabled ? "true" : "false") << ",";
 	ss << "\"keybind\":\"" << vkToKeyString(nameTags.keybind) << "\",";
 	ss << "\"range\":" << nameTags.settings.range << ",";
 	ss << "\"scale\":" << nameTags.settings.scale << ",";
-	ss << "\"distanceScale\":" << (nameTags.settings.distanceScale ? "true" : "false") << ",";
 	ss << "\"background\":" << (nameTags.settings.background ? "true" : "false") << ",";
 	ss << "\"showHealth\":" << (nameTags.settings.showHealth ? "true" : "false") << ",";
-	ss << "\"showDistance\":" << (nameTags.settings.showDistance ? "true" : "false") << "}}";
+	ss << "\"showDistance\":" << (nameTags.settings.showDistance ? "true" : "false") << "},";
+	
+	// Debug info for rendering
+	ss << "\"debug\":{";
+	ss << "\"renderDataInit\":" << (RenderData::initialized ? "true" : "false") << ",";
+	ss << "\"renderDataUpdated\":" << (RenderData::updated ? "true" : "false") << ",";
+	ss << "\"modelView00\":" << RenderData::modelView.m00 << ",";
+	ss << "\"modelView11\":" << RenderData::modelView.m11 << ",";
+	ss << "\"projection00\":" << RenderData::projection.m00 << ",";
+	ss << "\"projection11\":" << RenderData::projection.m11 << ",";
+	ss << "\"screenW\":" << RenderData::screenWidth << ",";
+	ss << "\"screenH\":" << RenderData::screenHeight << "}}";
 	
 	return ss.str();
 }

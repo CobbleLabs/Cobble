@@ -3,6 +3,7 @@
 #include "../module/combat/autoclicker.h"
 #include "../module/combat/aimassist.h"
 #include "../module/visual/nametags.h"
+#include "../sdk/render_data.h"
 #include <string>
 
 // Simple JSON-like config parsing and applying

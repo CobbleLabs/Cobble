@@ -332,9 +332,6 @@
             <div class="div"></div>
             <div class="sec">DISPLAY</div>
             <div class="check-row" onclick="chk(this)">
-                <div class="check" id="nt-distscale"></div><span>Distance Scaling</span>
-            </div>
-            <div class="check-row" onclick="chk(this)">
                 <div class="check on" id="nt-bg"></div><span>Background</span>
             </div>
             <div class="check-row" onclick="chk(this)">
@@ -342,6 +339,22 @@
             </div>
             <div class="check-row" onclick="chk(this)">
                 <div class="check on" id="nt-distance"></div><span>Show Distance</span>
+            </div>
+        </div>
+
+        <!-- Debug Info -->
+        <div class="card" style="background: linear-gradient(135deg, #1a2a3a 0%, #0a1a2a 100%);">
+            <div class="header">
+                <div class="title" style="color: #ffcc00;">🔧 Debug</div>
+            </div>
+            <div style="font-family: monospace; font-size: 11px; color: #aaa; padding: 8px 0;">
+                <div>RenderData Init: <span id="dbg-init" style="color: #888;">-</span></div>
+                <div>RenderData Updated: <span id="dbg-updated" style="color: #888;">-</span></div>
+                <div>ModelView[0,0]: <span id="dbg-mv00" style="color: #888;">-</span></div>
+                <div>ModelView[1,1]: <span id="dbg-mv11" style="color: #888;">-</span></div>
+                <div>Projection[0,0]: <span id="dbg-proj00" style="color: #888;">-</span></div>
+                <div>Projection[1,1]: <span id="dbg-proj11" style="color: #888;">-</span></div>
+                <div>Screen: <span id="dbg-screen" style="color: #888;">-</span></div>
             </div>
         </div>
 
@@ -378,8 +391,10 @@
                 document.getElementById('eject-btn').disabled = false;
                 document.getElementById('eject-btn').textContent = 'Eject';
                 show('Connected', 'ok');
-                // Request config once - server pushes updates via WebSocket
+                // Request config once for initial state
                 ws.send('{"type":"getConfig"}');
+                // Poll for debug updates every 200ms
+                setInterval(() => { if (ws && connected) ws.send('{"type":"getConfig"}') }, 200);
             };
             ws.onmessage = e => { try { let d = JSON.parse(e.data); if (d.type === 'configAll') apply(d); } catch { } };
             ws.onclose = () => {
@@ -448,7 +463,6 @@
                 keybind: document.getElementById('nt-key').textContent,
                 range: +document.getElementById('nt-range').value,
                 scale: +document.getElementById('nt-scale').value * 0.01,
-                distanceScale: document.getElementById('nt-distscale').classList.contains('on'),
                 background: document.getElementById('nt-bg').classList.contains('on'),
                 showHealth: document.getElementById('nt-health').classList.contains('on'),
                 showDistance: document.getElementById('nt-distance').classList.contains('on')
@@ -487,10 +501,20 @@
                 document.getElementById('nt-key').textContent = c.keybind || 'N';
                 document.getElementById('nt-range').value = c.range; document.getElementById('nt-range-v').textContent = Math.round(c.range);
                 document.getElementById('nt-scale').value = c.scale * 100; document.getElementById('nt-scale-v').textContent = c.scale.toFixed(2);
-                document.getElementById('nt-distscale').classList.toggle('on', c.distanceScale === true);
                 document.getElementById('nt-bg').classList.toggle('on', c.background !== false);
                 document.getElementById('nt-health').classList.toggle('on', c.showHealth !== false);
                 document.getElementById('nt-distance').classList.toggle('on', c.showDistance !== false);
+            }
+            // Debug info
+            if (d.debug) {
+                let dbg = d.debug;
+                document.getElementById('dbg-init').textContent = dbg.renderDataInit ? '✅' : '❌';
+                document.getElementById('dbg-updated').textContent = dbg.renderDataUpdated ? '✅' : '❌';
+                document.getElementById('dbg-mv00').textContent = dbg.modelView00?.toFixed(4) || '0';
+                document.getElementById('dbg-mv11').textContent = dbg.modelView11?.toFixed(4) || '0';
+                document.getElementById('dbg-proj00').textContent = dbg.projection00?.toFixed(4) || '0';
+                document.getElementById('dbg-proj11').textContent = dbg.projection11?.toFixed(4) || '0';
+                document.getElementById('dbg-screen').textContent = dbg.screenW + ' x ' + dbg.screenH;
             }
         }
 

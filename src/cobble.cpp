@@ -83,7 +83,13 @@ void cobble::context::shutdown()
 	aimAssist.setEnabled(false);
 	nameTags.setEnabled(false);
 	
-	Overlay::Shutdown();
+	// Stop websocket server
 	Web_Shutdown();
+	
+	// Signal overlay to stop rendering but don't cleanup GL resources
+	// (cleanup during shutdown causes race conditions with render thread)
+	Overlay::Shutdown();
+	
+	// Detach from JVM
 	Java::Kill();
 }

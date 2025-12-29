@@ -153,8 +153,14 @@ void ConfigServer::stop() {
 		serverSocket = INVALID_SOCKET;
 	}
 	
+	// Check if we're being called from within the server thread (e.g., from eject)
+	// In that case, detach instead of join to avoid deadlock
 	if (serverThread.joinable()) {
-		serverThread.join();
+		if (std::this_thread::get_id() == serverThread.get_id()) {
+			serverThread.detach();
+		} else {
+			serverThread.join();
+		}
 	}
 	
 	WSACleanup();

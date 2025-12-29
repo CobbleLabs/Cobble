@@ -223,32 +223,27 @@ void Overlay::Shutdown()
 	// Signal hook to stop rendering immediately
 	shutdownRequested = true;
 	
-	// Give the hook time to exit if it's mid-render
-	std::this_thread::sleep_for(std::chrono::milliseconds(50));
+	// Give the hook a moment to see the shutdown flag
+	std::this_thread::sleep_for(std::chrono::milliseconds(100));
 	
+	// Disable and remove hooks - this is safe
 	if (hookInstalled) {
 		MH_DisableHook(MH_ALL_HOOKS);
 		MH_RemoveHook(MH_ALL_HOOKS);
 		MH_Uninitialize();
+		hookInstalled = false;
 	}
 	
-	if (initialized) {
-		wglMakeCurrent(deviceContext, overlayContext);
-		ImGui_ImplOpenGL2_Shutdown();
-		ImGui_ImplWin32_Shutdown();
-		ImGui::DestroyContext();
-		wglMakeCurrent(deviceContext, originalContext);
-		wglDeleteContext(overlayContext);
-	}
-	
+	// Restore window procedure
 	if (originalWndProc && gameWindow) {
 		SetWindowLongPtrA(gameWindow, GWLP_WNDPROC, (LONG_PTR)originalWndProc);
+		originalWndProc = nullptr;
 	}
 	
-	RenderData::Destroy();
+	// Skip GL/ImGui cleanup - it causes crashes due to race conditions
+	// The DLL unload will handle cleanup, and Minecraft will recreate contexts anyway
 	
 	initialized = false;
-	hookInstalled = false;
 	initStarted = false;
 }
 
