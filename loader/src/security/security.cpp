@@ -431,15 +431,28 @@ bool HasSuspiciousComputerName() {
 }
 
 bool IsOnVM() {
-    return HasSuspiciousSpecs() || 
-           HasVMRegistry() || 
-           HasVMFiles() || 
-           HasVMWareACPI() ||
-           HasAnalysisTools() ||
-           HasLowUptime() ||
-           HasSmallDisk() ||
-           HasSuspiciousUsername() ||
-           HasSuspiciousComputerName();
+    // Core VM detection (reliable)
+    if (HasVMRegistry() || HasVMFiles() || HasVMWareACPI()) {
+        return true;
+    }
+    
+    // Analysis tools (highly suspicious)
+    if (HasAnalysisTools()) {
+        return true;
+    }
+    
+    // Suspicious identifiers (sandbox names)
+    if (HasSuspiciousComputerName()) {
+        return true;
+    }
+    
+    // NOTE: The following checks are DISABLED to reduce false positives:
+    // - HasSuspiciousSpecs() -> Low CPU/RAM can be normal laptops
+    // - HasLowUptime() -> User might have just rebooted
+    // - HasSmallDisk() -> Normal for SSDs
+    // - HasSuspiciousUsername() -> "admin" is common on real PCs
+    
+    return false;
 }
 
 #pragma endregion

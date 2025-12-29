@@ -24,14 +24,32 @@ Cobble/
 │   └── CobbleLoader.vcxproj
 │
 ├── license-server/               # Backend de licencias (Go)
-│   ├── cmd/
-│   │   └── main.go               # Server HTTP + SQLite
-│   ├── internal/                 # (Módulos futuros)
-│   ├── deploy/                   # Scripts de deploy
-│   │   ├── deploy.sh             # Deploy automático Ubuntu
-│   │   ├── cobble.service        # Systemd service
-│   │   └── Caddyfile             # HTTPS reverse proxy
-│   └── migrations/               # SQL schemas
+│   ├── main.go                   # Entry point
+│   ├── .env.example              # Template de configuración
+│   ├── go.mod                    # Dependencias
+│   ├── internal/
+│   │   ├── config/               # Variables de entorno + godotenv
+│   │   │   └── config.go
+│   │   ├── logger/               # Logging estructurado
+│   │   │   └── logger.go
+│   │   ├── database/             # SQLite + migraciones
+│   │   │   └── db.go
+│   │   ├── models/               # Structs
+│   │   │   └── license.go
+│   │   ├── handlers/             # Endpoints HTTP
+│   │   │   ├── verify.go         # POST /api/verify
+│   │   │   ├── register.go       # POST /api/register
+│   │   │   └── admin.go          # /api/admin/*
+│   │   ├── middleware/           # Auth
+│   │   │   └── auth.go
+│   │   ├── helpers/              # Utilidades
+│   │   │   └── helpers.go
+│   │   └── discord/              # Bot de Discord
+│   │       └── bot.go
+│   └── deploy/                   # Scripts de deploy
+│       ├── deploy.sh             # Deploy automático Ubuntu
+│       ├── cobble.service        # Systemd service
+│       └── Caddyfile             # HTTPS reverse proxy
 │
 ├── src/                          # Client DLL (ghost client)
 │   ├── main.cpp                  # DllMain

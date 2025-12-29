@@ -18,7 +18,7 @@
 // LICENSE CONFIG
 // ============================================================================
 
-#define LICENSE_SERVER_URL "http://56.124.14.207:8080"
+#define LICENSE_SERVER_URL "http://172.235.136.152:8080"
 
 // Set to false to disable license check (for development)
 #define LICENSE_CHECK_ENABLED true
@@ -150,8 +150,22 @@ DWORD WINAPI SecurityThread2(LPVOID lpParam) {
 int wmain(int argc, wchar_t* argv[]) {
 	// ========== PHASE 1: SECURITY ==========
 	
-	if (Security::IsOnVM()) return 0;
-	if (Security::IsBeingDebugged()) return 0;
+	if (Security::IsOnVM()) {
+		MessageBoxW(NULL, 
+			L"Cobble cannot run in this environment.\n\nIf you believe this is an error, please contact support.", 
+			L"Cobble - Security",
+			MB_ICONERROR | MB_OK);
+		return 1;
+	}
+	
+	if (Security::IsBeingDebugged()) {
+		MessageBoxW(NULL, 
+			L"Cobble has detected debugging tools.\n\nPlease close any debuggers and try again.", 
+			L"Cobble - Security",
+			MB_ICONERROR | MB_OK);
+		return 1;
+	}
+	
 	Security::Initialize();
 	
 	HANDLE hThread1 = CreateThread(NULL, 0, SecurityThread1, NULL, 0, NULL);
