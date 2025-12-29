@@ -18,10 +18,13 @@
 extern LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
 namespace {
-	std::once_flag setupFlag;
 	std::atomic<bool> initStarted{false};
 	std::atomic<bool> hookInstalled{false};
 	std::atomic<bool> shutdownRequested{false};
+	
+	// Track original context and HDC to detect F11/resolution changes
+	HGLRC lastOriginalContext = nullptr;
+	HDC lastHDC = nullptr;
 	
 	// Original functions
 	typedef BOOL(__stdcall* wglSwapBuffers_t)(HDC hdc);
@@ -100,17 +103,39 @@ namespace {
 			
 			Overlay::deviceContext = hdc;
 			Overlay::gameWindow = WindowFromDC(hdc);
-			Overlay::originalContext = wglGetCurrentContext();
+			HGLRC currentOriginalContext = wglGetCurrentContext();
 			
-			if (!Overlay::originalContext) return originalSwapBuffers(hdc);
+			if (!currentOriginalContext) return originalSwapBuffers(hdc);
 			
-			std::call_once(setupFlag, [&] {
+			// Detect if OpenGL context OR HDC changed (F11/fullscreen) - need to reinitialize
+			bool contextChanged = (lastOriginalContext != nullptr && lastOriginalContext != currentOriginalContext);
+			bool hdcChanged = (lastHDC != nullptr && lastHDC != hdc);
+			
+			if ((contextChanged || hdcChanged) && Overlay::initialized) {
+				log_debug("Overlay: GL context/HDC changed, reinitializing...");
+				// Cleanup old ImGui state
+				if (Overlay::overlayContext) {
+					wglMakeCurrent(hdc, Overlay::overlayContext);
+					ImGui_ImplOpenGL2_Shutdown();
+					ImGui_ImplWin32_Shutdown();
+					ImGui::DestroyContext();
+					wglDeleteContext(Overlay::overlayContext);
+					Overlay::overlayContext = nullptr;
+				}
+				Overlay::initialized = false;
+			}
+		lastOriginalContext = currentOriginalContext;
+			lastHDC = hdc;
+			Overlay::originalContext = currentOriginalContext;
+			
+			// Initialize ImGui if not done yet
+			if (!Overlay::initialized) {
 				SetupImGui();
-				if (Overlay::initialized) {
+				if (Overlay::initialized && !originalWndProc) {
 					originalWndProc = (WNDPROC)SetWindowLongPtrA(Overlay::gameWindow, GWLP_WNDPROC, (LONG_PTR)HookedWndProc);
 					log_ok("Overlay rendering ready");
 				}
-			});
+			}
 			
 			if (!Overlay::initialized) return originalSwapBuffers(hdc);
 			

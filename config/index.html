@@ -342,11 +342,11 @@
             </div>
         </div>
 
-        <!-- AutoRefill -->
+        <!-- AutoRefill (keybind-only, no toggle) -->
         <div class="card">
             <div class="header">
                 <div class="title">AutoRefill</div>
-                <div class="toggle" id="ar-toggle" onclick="tog(this)"></div>
+                <span style="font-size: 0.7rem; color: var(--dim);">Press keybind in-game</span>
             </div>
             <div class="row">
                 <div class="label"><span>Keybind</span><button class="keybind" id="ar-key"
@@ -518,7 +518,7 @@
             }));
             ws.send(JSON.stringify({
                 type: 'config', module: 'autorefill',
-                enabled: document.getElementById('ar-toggle').classList.contains('on'),
+                enabled: false, // Always sent as false, only activated by keybind
                 keybind: document.getElementById('ar-key').textContent,
                 refillSoup: document.getElementById('ar-soup').classList.contains('on'),
                 refillPotions: document.getElementById('ar-potions').classList.contains('on'),
@@ -569,7 +569,7 @@
             }
             if (d.autorefill) {
                 let c = d.autorefill;
-                document.getElementById('ar-toggle').classList.toggle('on', c.enabled);
+                // enabled is ignored
                 document.getElementById('ar-key').textContent = c.keybind || 'G';
                 document.getElementById('ar-soup').classList.toggle('on', c.refillSoup !== false);
                 document.getElementById('ar-potions').classList.toggle('on', c.refillPotions !== false);

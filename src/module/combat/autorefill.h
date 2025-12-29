@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../module.h"
+#include "../../sdk/minecraft.h"
 #include <chrono>
 #include <vector>
 
@@ -68,7 +69,7 @@ private:
 	bool isRefillableItem(int itemId, bool isHealthPotion);
 	
 	// Find replacement in main inventory (slots 9-35)
-	int findReplacementSlot(int itemId, bool requireHealthPotion);
+	int findReplacementSlot(const std::vector<SlotInfo>& slots, int itemId, bool requireHealthPotion, const std::vector<int>& usedSlots);
 	
 	// Calculate smart delay based on slot distance
 	int calculateSmartDelay(int fromSlot, int toSlot);

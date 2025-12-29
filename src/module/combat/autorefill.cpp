@@ -159,6 +159,9 @@ void AutoRefill::scanForRefills()
 	auto slots = mc.getInventorySlots();
 	if (slots.empty()) return;
 	
+	// Track which source slots we've already assigned
+	std::vector<int> usedSourceSlots;
+	
 	// Find empty hotbar slots
 	for (int hotbarSlot = 0; hotbarSlot <= 8; hotbarSlot++) {
 		int currentItemId = 0;
@@ -176,17 +179,19 @@ void AutoRefill::scanForRefills()
 			
 			// Try soup first
 			if (settings.refillSoup) {
-				sourceSlot = findReplacementSlot(RefillItems::MUSHROOM_SOUP, false);
+				sourceSlot = findReplacementSlot(slots, RefillItems::MUSHROOM_SOUP, false, usedSourceSlots);
 				if (sourceSlot != -1) itemId = RefillItems::MUSHROOM_SOUP;
 			}
 			
 			// Then potions
 			if (sourceSlot == -1 && settings.refillPotions) {
-				sourceSlot = findReplacementSlot(RefillItems::POTION, !settings.useNonHealthPotions);
+				sourceSlot = findReplacementSlot(slots, RefillItems::POTION, !settings.useNonHealthPotions, usedSourceSlots);
 				if (sourceSlot != -1) itemId = RefillItems::POTION;
 			}
 			
 			if (sourceSlot != -1) {
+				usedSourceSlots.push_back(sourceSlot);
+				
 				RefillTask task;
 				task.hotbarSlot = hotbarSlot;
 				task.sourceSlot = sourceSlot;
@@ -207,14 +212,23 @@ bool AutoRefill::isRefillableItem(int itemId, bool isHealthPotion)
 	return false;
 }
 
-int AutoRefill::findReplacementSlot(int itemId, bool requireHealthPotion)
+int AutoRefill::findReplacementSlot(const std::vector<SlotInfo>& slots, int itemId, bool requireHealthPotion, const std::vector<int>& usedSlots)
 {
-	auto slots = mc.getInventorySlots();
-	
 	for (const auto& slot : slots) {
 		if (slot.slotId < 9 || slot.slotId > 35) continue;
 		if (slot.itemId != itemId) continue;
 		if (requireHealthPotion && !slot.isHealthPotion) continue;
+		
+		// Check if already used
+		bool isUsed = false;
+		for (int used : usedSlots) {
+			if (used == slot.slotId) {
+				isUsed = true;
+				break;
+			}
+		}
+		if (isUsed) continue;
+		
 		return slot.slotId;
 	}
 	
