@@ -12,13 +12,13 @@
 #include "xor.h"
 #include "license.h"
 #include "hwid.h"
+#include "version.h"
 
 // ============================================================================
-// LICENSE CONFIG - CHANGE THESE FOR YOUR VPS
+// LICENSE CONFIG
 // ============================================================================
 
 #define LICENSE_SERVER_URL "http://56.124.14.207:8080"
-#define LICENSE_API_KEY    "barcelon12"
 
 // Set to false to disable license check (for development)
 #define LICENSE_CHECK_ENABLED true
@@ -75,7 +75,7 @@ void printBanner() {
 	std::cout << _xor_("      / /___/ /_/ / /_/ / /_/ / /  __/\n");
 	std::cout << _xor_("      \\____/\\____/_.___/_.___/_/\\___/ \n");
 	setColor(DARK_GRAY);
-	std::cout << _xor_("               Ghost Client v0.8\n");
+	std::cout << _xor_("               Ghost Client v") << COBBLE_VERSION << "\n";
 	setColor(GRAY);
 	std::cout << "\n";
 }
@@ -116,12 +116,11 @@ std::wstring getDllPath() {
 }
 
 // ============================================================================
-// SECURITY THREADS (Heartbeat Monitoring) - Using Windows API
+// SECURITY THREADS
 // ============================================================================
 
 DWORD WINAPI SecurityThread1(LPVOID lpParam) {
 	while (!g_SecurityViolation) {
-		// Anti-debug checks
 		if (Security::IsBeingDebugged()) {
 			g_SecurityViolation = true;
 			break;
@@ -134,7 +133,6 @@ DWORD WINAPI SecurityThread1(LPVOID lpParam) {
 
 DWORD WINAPI SecurityThread2(LPVOID lpParam) {
 	while (!g_SecurityViolation) {
-		// Anti-hook checks
 		if (Security::HasAPIHooks()) {
 			g_SecurityViolation = true;
 			break;
@@ -146,55 +144,45 @@ DWORD WINAPI SecurityThread2(LPVOID lpParam) {
 }
 
 // ============================================================================
-// MAIN ENTRY POINT
+// MAIN
 // ============================================================================
 
 int wmain(int argc, wchar_t* argv[]) {
-	// ========== PHASE 1: SECURITY INITIALIZATION ==========
+	// ========== PHASE 1: SECURITY ==========
 	
-	// 1. Block VMs (sandboxes like any.run, VMWare, etc.)
 	if (Security::IsOnVM()) return 0;
-	
-	// 2. Initial anti-debug check
 	if (Security::IsBeingDebugged()) return 0;
-	
-	// 2. Apply anti-attach patches
 	Security::Initialize();
 	
-	// 3. Start security monitoring threads (using Windows API)
 	HANDLE hThread1 = CreateThread(NULL, 0, SecurityThread1, NULL, 0, NULL);
 	HANDLE hThread2 = CreateThread(NULL, 0, SecurityThread2, NULL, 0, NULL);
 	if (hThread1) CloseHandle(hThread1);
 	if (hThread2) CloseHandle(hThread2);
 	
-	// Give threads time to start
 	Sleep(100);
 	
-	// ========== PHASE 2: UI SETUP ==========
+	// ========== PHASE 2: UI ==========
 	
 	setupConsole();
 	printBanner();
 	printLine();
 	
-	// ========== PHASE 3: LICENSE CHECK ==========
+	// ========== PHASE 3: LICENSE ==========
 	
 #if LICENSE_CHECK_ENABLED
 	printWait(_xor_("Verifying license..."));
 	
-	// Get HWID first
 	std::string hwid = HWID::Generate();
 	
-	if (!License::Verify(LICENSE_SERVER_URL, LICENSE_API_KEY)) {
+	if (!License::Verify(LICENSE_SERVER_URL)) {
 		printError(_xor_("License verification failed!"));
 		printInfo(License::GetLastError().c_str());
 		
-		// Show HWID to user
 		std::cout << "\n";
 		setColor(YELLOW);
 		std::cout << _xor_("    Your HWID: ") << hwid << "\n";
 		setColor(GRAY);
 		
-		// Copy HWID to clipboard
 		if (OpenClipboard(nullptr)) {
 			EmptyClipboard();
 			HGLOBAL hMem = GlobalAlloc(GMEM_MOVEABLE, hwid.size() + 1);
@@ -216,7 +204,7 @@ int wmain(int argc, wchar_t* argv[]) {
 	printSuccess(_xor_("License verified!"));
 #endif
 	
-	// ========== PHASE 4: DLL LOADING ==========
+	// ========== PHASE 4: DLL ==========
 	
 	HMODULE hModule = GetModuleHandle(nullptr);
 	HRSRC hRes = FindResource(hModule, MAKEINTRESOURCE(IDR_COBBLE_DLL), RT_RCDATA);
@@ -248,9 +236,8 @@ int wmain(int argc, wchar_t* argv[]) {
 		printSuccess(_xor_("Found Cobble.dll on disk"));
 	}
 	
-	// ========== PHASE 4: TARGET PROCESS ==========
+	// ========== PHASE 5: TARGET ==========
 	
-	// Security check before each major operation
 	if (g_SecurityViolation) return 0;
 	
 	printWait(_xor_("Searching for Minecraft..."));
@@ -276,15 +263,12 @@ int wmain(int argc, wchar_t* argv[]) {
 		return 0;
 	}
 	
-	// ========== PHASE 5: INJECTION ==========
+	// ========== PHASE 6: INJECT ==========
 	
-	// Security check before injection
 	if (g_SecurityViolation) return 0;
 	
-	// Check heartbeats are alive
 	ULONGLONG now = GetTickCount64();
 	if ((now - g_Heartbeat1 > 5000) || (now - g_Heartbeat2 > 5000)) {
-		// Security thread died or was stopped
 		return 0;
 	}
 	
@@ -316,7 +300,6 @@ int wmain(int argc, wchar_t* argv[]) {
 	setColor(GRAY);
 	std::cout << "\n";
 	
-	// Auto-close after 3 seconds
 	for (int i = 3; i > 0; i--) {
 		if (g_SecurityViolation) return 0;
 		std::cout << "\r    " << _xor_("Closing in ") << i << "...  ";

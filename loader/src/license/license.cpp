@@ -1,5 +1,6 @@
 #include "license.h"
 #include "hwid.h"
+#include "version.h"
 #include <Windows.h>
 #include <wininet.h>
 #include <string>
@@ -8,15 +9,28 @@
 #pragma comment(lib, "wininet.lib")
 #pragma comment(lib, "crypt32.lib")
 
+// Use centralized version
+#define CLIENT_VERSION COBBLE_VERSION
+
 namespace License {
 
 static std::string g_LastError;
+static bool g_NeedsUpdate = false;
+static std::string g_MinVersion;
 
 std::string GetLastError() {
     return g_LastError;
 }
 
-bool Verify(const std::string& serverUrl, const std::string& apiKey) {
+bool NeedsUpdate() {
+    return g_NeedsUpdate;
+}
+
+std::string GetMinVersion() {
+    return g_MinVersion;
+}
+
+bool Verify(const std::string& serverUrl) {
     // Generate HWID
     std::string hwid = HWID::Generate();
     if (hwid.empty()) {
@@ -27,8 +41,8 @@ bool Verify(const std::string& serverUrl, const std::string& apiKey) {
     // Build URL
     std::string url = serverUrl + "/api/verify";
     
-    // Build POST data
-    std::string postData = "hwid=" + hwid;
+    // Build POST data with VERSION for anti-crack!
+    std::string postData = "hwid=" + hwid + "&version=" + CLIENT_VERSION;
     
     // Initialize WinInet
     HINTERNET hInternet = InternetOpenA(
@@ -98,7 +112,6 @@ bool Verify(const std::string& serverUrl, const std::string& apiKey) {
     
     // Set headers
     std::string headers = "Content-Type: application/x-www-form-urlencoded\r\n";
-    headers += "X-API-Key: " + apiKey + "\r\n";
     
     // Send request
     BOOL result = HttpSendRequestA(
@@ -117,12 +130,6 @@ bool Verify(const std::string& serverUrl, const std::string& apiKey) {
         return false;
     }
     
-    // Check status code
-    DWORD statusCode = 0;
-    DWORD statusCodeSize = sizeof(statusCode);
-    HttpQueryInfoA(hRequest, HTTP_QUERY_STATUS_CODE | HTTP_QUERY_FLAG_NUMBER,
-                   &statusCode, &statusCodeSize, NULL);
-    
     // Read response
     char buffer[1024] = { 0 };
     DWORD bytesRead = 0;
@@ -138,19 +145,31 @@ bool Verify(const std::string& serverUrl, const std::string& apiKey) {
     InternetCloseHandle(hConnect);
     InternetCloseHandle(hInternet);
     
-    // Check response
-    if (statusCode != 200) {
-        g_LastError = "Server returned error: " + std::to_string(statusCode);
+    // Check for update response
+    if (response.find("\"update\":true") != std::string::npos) {
+        g_NeedsUpdate = true;
+        
+        // Extract min_version
+        size_t verStart = response.find("\"min_version\":\"");
+        if (verStart != std::string::npos) {
+            verStart += 15;
+            size_t verEnd = response.find("\"", verStart);
+            if (verEnd != std::string::npos) {
+                g_MinVersion = response.substr(verStart, verEnd - verStart);
+            }
+        }
+        
+        g_LastError = "Update required! You have v" + std::string(CLIENT_VERSION) + ", need v" + g_MinVersion;
         return false;
     }
     
-    // Simple JSON parsing (look for "valid":true)
+    // Check for valid license
     if (response.find("\"valid\":true") != std::string::npos ||
         response.find("\"valid\": true") != std::string::npos) {
         return true;
     }
     
-    // Try to extract error message
+    // Extract error message
     size_t msgStart = response.find("\"message\":\"");
     if (msgStart != std::string::npos) {
         msgStart += 11;
@@ -160,6 +179,81 @@ bool Verify(const std::string& serverUrl, const std::string& apiKey) {
         }
     } else {
         g_LastError = "License not valid";
+    }
+    
+    return false;
+}
+
+// Register new user (returns true if successful)
+bool Register(const std::string& serverUrl, const std::string& username) {
+    std::string hwid = HWID::Generate();
+    if (hwid.empty()) {
+        g_LastError = "Failed to generate HWID";
+        return false;
+    }
+    
+    std::string url = serverUrl + "/api/register";
+    std::string postData = "hwid=" + hwid + "&username=" + username;
+    
+    HINTERNET hInternet = InternetOpenA("CobbleLoader/1.0", INTERNET_OPEN_TYPE_PRECONFIG, NULL, NULL, 0);
+    if (!hInternet) return false;
+    
+    URL_COMPONENTSA urlComp = { 0 };
+    urlComp.dwStructSize = sizeof(urlComp);
+    char hostName[256] = { 0 };
+    char urlPath[1024] = { 0 };
+    urlComp.lpszHostName = hostName;
+    urlComp.dwHostNameLength = sizeof(hostName);
+    urlComp.lpszUrlPath = urlPath;
+    urlComp.dwUrlPathLength = sizeof(urlPath);
+    
+    if (!InternetCrackUrlA(url.c_str(), 0, 0, &urlComp)) {
+        InternetCloseHandle(hInternet);
+        return false;
+    }
+    
+    DWORD flags = (urlComp.nScheme == INTERNET_SCHEME_HTTPS) ? INTERNET_FLAG_SECURE : 0;
+    
+    HINTERNET hConnect = InternetConnectA(hInternet, hostName, urlComp.nPort, NULL, NULL, INTERNET_SERVICE_HTTP, 0, 0);
+    if (!hConnect) {
+        InternetCloseHandle(hInternet);
+        return false;
+    }
+    
+    HINTERNET hRequest = HttpOpenRequestA(hConnect, "POST", urlPath, NULL, NULL, NULL, flags | INTERNET_FLAG_NO_CACHE_WRITE, 0);
+    if (!hRequest) {
+        InternetCloseHandle(hConnect);
+        InternetCloseHandle(hInternet);
+        return false;
+    }
+    
+    std::string headers = "Content-Type: application/x-www-form-urlencoded\r\n";
+    HttpSendRequestA(hRequest, headers.c_str(), (DWORD)headers.length(), (LPVOID)postData.c_str(), (DWORD)postData.length());
+    
+    char buffer[1024] = { 0 };
+    DWORD bytesRead = 0;
+    std::string response;
+    while (InternetReadFile(hRequest, buffer, sizeof(buffer) - 1, &bytesRead) && bytesRead > 0) {
+        buffer[bytesRead] = '\0';
+        response += buffer;
+    }
+    
+    InternetCloseHandle(hRequest);
+    InternetCloseHandle(hConnect);
+    InternetCloseHandle(hInternet);
+    
+    if (response.find("\"success\":true") != std::string::npos) {
+        return true;
+    }
+    
+    // Extract error
+    size_t errStart = response.find("\"error\":\"");
+    if (errStart != std::string::npos) {
+        errStart += 9;
+        size_t errEnd = response.find("\"", errStart);
+        if (errEnd != std::string::npos) {
+            g_LastError = response.substr(errStart, errEnd - errStart);
+        }
     }
     
     return false;

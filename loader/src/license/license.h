@@ -2,10 +2,18 @@
 #include <string>
 
 namespace License {
-    // Check if current HWID is licensed
-    // Returns: true if licensed, false otherwise
-    bool Verify(const std::string& serverUrl, const std::string& apiKey);
+    // Verify license with server
+    bool Verify(const std::string& serverUrl);
+    
+    // Register new user (returns true if successful)
+    bool Register(const std::string& serverUrl, const std::string& username);
     
     // Get last error message
     std::string GetLastError();
+    
+    // Check if update is required
+    bool NeedsUpdate();
+    
+    // Get minimum required version
+    std::string GetMinVersion();
 }

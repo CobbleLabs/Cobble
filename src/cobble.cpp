@@ -7,8 +7,15 @@
 #include "overlay/overlay.h"
 #include "overlay/notifications.h"
 
+// Signature for loader to detect if we're already injected
+// This is placed in executable memory and never changes
+volatile const char COBBLE_SIGNATURE[] = "COBBLE_LOADED_V1";
+
 void cobble::context::initialize(HMODULE hModule)
 {
+	// Touch the signature so compiler doesn't optimize it away
+	(void)COBBLE_SIGNATURE[0];
+	
 	moduleHandle = hModule;
 	
 	Java::Init();

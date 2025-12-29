@@ -1,7 +1,6 @@
 #!/bin/bash
 # Cobble License Server - Ubuntu 24.04 Complete Deploy Script
-# Run: curl -sSL https://raw.githubusercontent.com/.../deploy.sh | sudo bash
-# Or: sudo bash deploy.sh
+# Run from the license-server directory: sudo bash deploy/deploy.sh
 
 set -e
 
@@ -12,39 +11,56 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m'
 
-# Check if running as root
 if [ "$EUID" -ne 0 ]; then
-    echo -e "${RED}Run as root: sudo bash deploy.sh${NC}"
+    echo -e "${RED}Run as root: sudo bash deploy/deploy.sh${NC}"
     exit 1
 fi
 
 INSTALL_DIR="/opt/cobble"
-SERVICE_FILE="/etc/systemd/system/cobble.service"
 USER="cobble"
-SRC_DIR=$(pwd)
 
-# Get admin key
-read -p "Enter your ADMIN_KEY (secret key for admin API): " ADMIN_KEY
+# Get script directory and project root
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
+
+cd "$PROJECT_DIR"
+
+# Check structure
+if [ ! -f "main.go" ]; then
+    echo -e "${RED}Error: Cannot find main.go${NC}"
+    exit 1
+fi
+
+# ============================================================================
+# CONFIGURATION
+# ============================================================================
+
+echo ""
+echo -e "${YELLOW}=== Configuration ===${NC}"
+
+read -p "ADMIN_KEY (for API): " ADMIN_KEY
 if [ -z "$ADMIN_KEY" ]; then
     echo -e "${RED}ADMIN_KEY cannot be empty!${NC}"
     exit 1
 fi
 
-# ============================================================================
-# STEP 1: Install dependencies
+echo ""
+echo -e "${YELLOW}Discord Bot (optional - press Enter to skip)${NC}"
+read -p "DISCORD_TOKEN: " DISCORD_TOKEN
+read -p "DISCORD_GUILD (server ID): " DISCORD_GUILD
+read -p "DISCORD_ADMIN_ROLE (role ID): " DISCORD_ADMIN_ROLE
+
 # ============================================================================
 echo -e "${YELLOW}[1/6] Installing dependencies...${NC}"
-
 apt update -qq
 apt install -y -qq build-essential wget > /dev/null
 
-# Install Go if not present
 if ! command -v go &> /dev/null; then
     echo -e "${YELLOW}Installing Go...${NC}"
-    wget -q https://go.dev/dl/go1.21.5.linux-amd64.tar.gz
+    wget -q https://go.dev/dl/go1.22.2.linux-amd64.tar.gz
     rm -rf /usr/local/go
-    tar -C /usr/local -xzf go1.21.5.linux-amd64.tar.gz
-    rm go1.21.5.linux-amd64.tar.gz
+    tar -C /usr/local -xzf go1.22.2.linux-amd64.tar.gz
+    rm go1.22.2.linux-amd64.tar.gz
     export PATH=$PATH:/usr/local/go/bin
     echo 'export PATH=$PATH:/usr/local/go/bin' >> /etc/profile
 fi
@@ -52,22 +68,13 @@ fi
 echo -e "${GREEN}Go version: $(go version)${NC}"
 
 # ============================================================================
-# STEP 2: Build binary
-# ============================================================================
 echo -e "${YELLOW}[2/6] Building binary...${NC}"
 
-# Check if we're in the server directory
-if [ ! -f "main.go" ]; then
-    if [ -f "server/main.go" ]; then
-        cd server
-    else
-        echo -e "${RED}Cannot find main.go!${NC}"
-        exit 1
-    fi
-fi
-
 go mod tidy
-CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build -o cobble-server .
+go get github.com/bwmarrin/discordgo
+go get github.com/mattn/go-sqlite3
+
+CGO_ENABLED=1 go build -o cobble-server .
 
 if [ ! -f "cobble-server" ]; then
     echo -e "${RED}Build failed!${NC}"
@@ -77,28 +84,28 @@ fi
 echo -e "${GREEN}Binary built successfully${NC}"
 
 # ============================================================================
-# STEP 3: Create user
-# ============================================================================
 echo -e "${YELLOW}[3/6] Creating user 'cobble'...${NC}"
 if ! id "$USER" &>/dev/null; then
     useradd --system --no-create-home --shell /bin/false $USER
 fi
 
 # ============================================================================
-# STEP 4: Install binary
-# ============================================================================
 echo -e "${YELLOW}[4/6] Installing to $INSTALL_DIR...${NC}"
 mkdir -p $INSTALL_DIR
+
+if [ -f "$INSTALL_DIR/licenses.db" ]; then
+    echo -e "${GREEN}Preserving existing database${NC}"
+fi
+
 cp cobble-server $INSTALL_DIR/
 chmod +x $INSTALL_DIR/cobble-server
 chown -R $USER:$USER $INSTALL_DIR
+rm cobble-server
 
-# ============================================================================
-# STEP 5: Create systemd service
 # ============================================================================
 echo -e "${YELLOW}[5/6] Creating systemd service...${NC}"
 
-cat > $SERVICE_FILE << EOF
+cat > /etc/systemd/system/cobble.service << EOF
 [Unit]
 Description=Cobble License Server
 After=network.target
@@ -116,6 +123,14 @@ Environment=PORT=8080
 Environment=ADMIN_KEY=$ADMIN_KEY
 Environment=DB_TYPE=sqlite
 Environment=DB_PATH=$INSTALL_DIR/licenses.db
+Environment=MIN_VERSION=1.0.0
+Environment=MAX_HWID_COUNT=2
+Environment=MAX_CONCURRENT=1
+
+# Discord Bot
+Environment=DISCORD_TOKEN=$DISCORD_TOKEN
+Environment=DISCORD_GUILD=$DISCORD_GUILD
+Environment=DISCORD_ADMIN_ROLE=$DISCORD_ADMIN_ROLE
 
 NoNewPrivileges=true
 ProtectSystem=strict
@@ -131,8 +146,6 @@ WantedBy=multi-user.target
 EOF
 
 # ============================================================================
-# STEP 6: Start service
-# ============================================================================
 echo -e "${YELLOW}[6/6] Starting service...${NC}"
 
 systemctl daemon-reload
@@ -147,18 +160,18 @@ if systemctl is-active --quiet cobble; then
     echo -e "${GREEN}║           DEPLOYMENT SUCCESSFUL!                          ║${NC}"
     echo -e "${GREEN}╚═══════════════════════════════════════════════════════════╝${NC}"
     echo ""
-    echo -e "Admin Key: ${YELLOW}$ADMIN_KEY${NC}"
+    echo -e "Database: ${YELLOW}$INSTALL_DIR/licenses.db${NC}"
+    
+    if [ -n "$DISCORD_TOKEN" ]; then
+        echo -e "Discord Bot: ${GREEN}Enabled${NC}"
+    else
+        echo -e "Discord Bot: ${YELLOW}Disabled${NC}"
+    fi
+    
     echo ""
     echo "Commands:"
     echo "  journalctl -u cobble -f     # View logs"
     echo "  systemctl restart cobble    # Restart"
-    echo ""
-    echo "Add license:"
-    echo "  curl -X POST http://localhost:8080/api/admin/add \\"
-    echo "    -H 'X-API-Key: $ADMIN_KEY' \\"
-    echo "    -d 'hwid=XXX&username=Player1&days=30'"
-    echo ""
-    echo -e "${YELLOW}⚠️  Set up HTTPS with Caddy or Nginx!${NC}"
 else
     echo -e "${RED}Deployment failed! Check: journalctl -u cobble -n 50${NC}"
     exit 1

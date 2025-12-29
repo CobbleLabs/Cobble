@@ -8,6 +8,7 @@ CMakeFiles/
 cmake_install.cmake
 InstallScripts.json
 CMakeConfigureLog.yaml
+imgui-menu/
 
 # =========================
 # Visual Studio / MSVC
