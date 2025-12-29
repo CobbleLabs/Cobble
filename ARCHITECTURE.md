@@ -6,239 +6,233 @@ Ghost client inyectable para Lunar Client (Minecraft) via JNI.
 
 ```
 Cobble/
-├── src/
-│   ├── main.cpp              # Entry point (DllMain)
-│   ├── cobble.cpp/.hpp       # Context principal y ciclo de vida
-│   ├── jni/
-│   │   └── java.cpp/.h       # Puente JNI y ClassLoader
-│   ├── sdk/
-│   │   ├── version.h         # Enum de versiones MC
-│   │   ├── jstring_util.h    # Conversión jstring ↔ std::string
-│   │   ├── minecraft.cpp/.h  # Wrapper Minecraft (thePlayer, theWorld, etc)
-│   │   └── player.cpp/.h     # Wrapper LocalPlayer (pos, motion, health, etc)
-│   ├── module/
-│   │   ├── module.h          # Base class para módulos
-│   │   ├── module_manager.h/.cpp  # Registro, keybinds, sync bidireccional
-│   │   ├── combat/           # Módulos de combate
-│   │   │   ├── autoclicker.h/.cpp   # AutoClicker con randomización
-│   │   │   └── aimassist.h/.cpp     # AimAssist con física spring-damper
-│   │   └── visual/           # Módulos visuales
-│   │       └── nametags.h/.cpp      # ESP de nombres de jugadores
-│   ├── overlay/
-│   │   ├── overlay.h/.cpp         # Sistema de overlay con ImGui/OpenGL
-│   │   └── notifications.h/.cpp   # Notificaciones in-game (módulos + sistema)
-│   ├── web/
-│   │   ├── config_server.h/.cpp   # WebSocket server (WinSock)
-│   │   └── config.h/.cpp          # Parser JSON y sync de config
-│   └── util/
-│       └── logger.hpp        # Sistema de logging
-├── injector/
-│   ├── main.cpp              # CLI del inyector
-│   ├── inject.cpp/.h         # Lógica de inyección DLL
-│   └── process.cpp/.h        # Búsqueda de proceso Minecraft
-├── config/
-│   └── index.html            # Web GUI para configuración
-├── ext/
-│   ├── jni/                  # Headers JNI y jvm.lib
-│   ├── imgui/                # ImGui para overlay UI
-│   └── minhook/              # Hook library para OpenGL
-└── bin/                      # Binarios compilados
+├── loader/                       # Inyector/Loader (producción)
+│   ├── src/
+│   │   ├── core/                 # Inyección y detección de procesos
+│   │   │   ├── inject.cpp/.h     # Manual Mapping injection
+│   │   │   └── process.cpp/.h    # Detección de Minecraft
+│   │   ├── security/             # Anti-cracking
+│   │   │   ├── security.cpp/.h   # Anti-debug, anti-VM, anti-hook
+│   │   │   └── xor.h             # Compiletime string encryption
+│   │   └── license/              # Sistema de licencias
+│   │       ├── hwid.cpp/.h       # Generación HWID (CPU+Disk+MAC)
+│   │       └── license.cpp/.h    # Verificación HTTP con servidor
+│   ├── res/                      # Recursos
+│   │   ├── resource.h            # IDs de recursos
+│   │   └── CobbleLoader.rc       # DLL embebido
+│   ├── main.cpp                  # Entry point
+│   └── CobbleLoader.vcxproj
+│
+├── license-server/               # Backend de licencias (Go)
+│   ├── cmd/
+│   │   └── main.go               # Server HTTP + SQLite
+│   ├── internal/                 # (Módulos futuros)
+│   ├── deploy/                   # Scripts de deploy
+│   │   ├── deploy.sh             # Deploy automático Ubuntu
+│   │   ├── cobble.service        # Systemd service
+│   │   └── Caddyfile             # HTTPS reverse proxy
+│   └── migrations/               # SQL schemas
+│
+├── src/                          # Client DLL (ghost client)
+│   ├── main.cpp                  # DllMain
+│   ├── cobble.cpp/.hpp           # Context y ciclo de vida
+│   ├── jni/                      # Puente JNI
+│   ├── sdk/                      # Wrappers Minecraft
+│   ├── module/                   # Módulos (combat, visual)
+│   ├── overlay/                  # ImGui + OpenGL hooks
+│   └── web/                      # WebSocket config server
+│
+├── config/                       # Web UI
+│   └── index.html                # Configuración en browser
+│
+└── bin/                          # Output
+    └── Release/
+        ├── CobbleLoader.exe      # Inyector
+        └── Cobble.dll            # DLL (embebido en .exe)
 ```
 
-## Ciclo de Vida
+---
+
+## Arquitectura de Alto Nivel
 
 ```
-CobbleInjector.exe
-    ├── Detecta Minecraft/Lunar Client
-    ├── Verifica si ya está inyectado (isDllInjected)
-    └── Inyecta Cobble.dll via CreateRemoteThread
+┌─────────────────────────────────────────────────────────────────────────┐
+│                           USUARIO                                       │
+└─────────────────────────────────────────────────────────────────────────┘
+         │                              │                        │
+         ▼                              ▼                        ▼
+┌─────────────────┐            ┌─────────────┐          ┌───────────────┐
+│ CobbleLoader.exe│            │  Minecraft  │          │   Web UI      │
+│                 │            │   (Java)    │          │  (Browser)    │
+│ ┌─────────────┐ │            │             │          │               │
+│ │ Security    │ │            │ ┌─────────┐ │          │ ┌───────────┐ │
+│ │ - Anti-Debug│ │            │ │Cobble.dll│◄──────────┤ │ WebSocket │ │
+│ │ - Anti-VM   │ │            │ │         │ │  :8765   │ │  Client   │ │
+│ │ - Anti-Hook │ │            │ │ ┌─────┐ │ │          │ └───────────┘ │
+│ └─────────────┘ │            │ │ │ JNI │ │ │          └───────────────┘
+│        │        │            │ │ └─────┘ │ │
+│        ▼        │            │ │ ImGui   │ │
+│ ┌─────────────┐ │◄──HTTPS───►│ │ Overlay │ │
+│ │ License     │ │            │ └─────────┘ │
+│ │ Check       │ │            └─────────────┘
+│ └─────────────┘ │
+│        │        │
+│        ▼        │                    ┌─────────────────────┐
+│ ┌─────────────┐ │                    │  License Server     │
+│ │ Manual Map  │ │      HTTPS         │  (Go + SQLite)      │
+│ │ Injection   │─┼────────────────────┤                     │
+│ └─────────────┘ │                    │  - /api/verify      │
+└─────────────────┘                    │  - /api/admin/*     │
+                                       │  - HWID tracking    │
+                                       │  - Auto-ban         │
+                                       └─────────────────────┘
+```
+
+---
+
+## Flujo de Ejecución
+
+```
+CobbleLoader.exe
+    │
+    ├─[1] Security Initialization
+    │     ├── IsOnVM() → exit si detecta VM/sandbox
+    │     ├── IsBeingDebugged() → exit si debugger
+    │     ├── Initialize() → patches anti-attach
+    │     └── Start heartbeat threads (monitoring)
+    │
+    ├─[2] License Verification
+    │     ├── HWID::Generate() → SHA256(CPU + Disk + MAC)
+    │     ├── License::Verify() → POST /api/verify
+    │     │     ├── Success → continue
+    │     │     └── Fail → show HWID, copy to clipboard, exit
+    │     └── Server tracks HWID history (auto-ban on abuse)
+    │
+    ├─[3] DLL Loading
+    │     ├── Load from embedded resource (RCDATA)
+    │     └── Fallback to bin/Release/Cobble.dll
+    │
+    ├─[4] Process Detection
+    │     ├── findLunarClient() → busca javaw.exe con "Lunar"
+    │     └── isDllInjected() → verifica si ya inyectado
+    │
+    └─[5] Manual Map Injection
+          ├── Allocate memory in target
+          ├── Copy PE headers + sections
+          ├── Process relocations
+          ├── Resolve imports (LoadLibrary, GetProcAddress)
+          ├── Execute TLS callbacks
+          └── Call DllMain(DLL_PROCESS_ATTACH)
 
 Cobble.dll (DllMain)
     └── CreateThread → cobble::context::initialize()
-                           ├── Java::Init()               # JNI + ClassLoader
-                           ├── SDK_Init()                 # Minecraft wrapper
-                           ├── moduleManager.register()   # Registrar módulos
-                           ├── Web_Init()                 # WebSocket server
-                           ├── Main loop (1ms tick)
-                           │     ├── Overlay::Init() (delayed 1s)
-                           │     ├── NotificationManager::addSystem("Cobble loaded")
-                           │     ├── player.refresh()
-                           │     ├── moduleManager.update()
-                           │     │     ├── isMinecraftFocused() check
-                           │     │     ├── isInGui() check (bloquea keybinds en menús)
-                           │     │     └── Web_BroadcastConfig() on toggle
-                           │     └── module.onUpdate()
-                           └── shutdown() → Web_Shutdown() → Java::Kill() → FreeLibrary
+                           ├── Java::Init()               # JNI attach
+                           ├── SDK_Init()                 # Minecraft wrappers
+                           ├── moduleManager.register()   # Combat, Visual
+                           ├── Web_Init()                 # WebSocket :8765
+                           ├── Overlay::Init()            # ImGui hooks
+                           └── Main loop (1ms tick)
+                                 ├── Security heartbeat check
+                                 ├── player.refresh()
+                                 ├── moduleManager.update()
+                                 └── module.onUpdate()
 ```
 
-## Sistema de Inyección
+---
 
-### Injector (`injector/`)
-- **Detección de duplicados**: `isDllInjected()` previene inyección múltiple
-- **Mensaje si ya inyectado**: "Cobble is already injected! Use the web UI to eject first."
-- **Inyección**: LoadLibraryW via CreateRemoteThread
-- **Eject**: FreeLibrary via CreateRemoteThread (desde web UI)
+## Sistema de Seguridad
 
-## Componentes Principales
+### Loader Security (`loader/src/security/`)
 
-### SDK (`src/sdk/`)
-- **Minecraft**: Wrapper para `net.minecraft.client.Minecraft`
-  - `getPlayer()`, `getWorld()`, `isInGui()`, `isTargetingBlock()`
-  - `clickMouse()`, `setLeftClickCounter()`, `setRightClickDelay()`
-  - `getPlayerList()`, `canEntityBeSeen()`
-- **LocalPlayer**: Wrapper para EntityPlayerSP + EntityLivingBase + Entity
-  - Posición, movimiento, rotación (`getYaw()`, `setYaw()`, etc)
-  - `getHealth()`, `getHurtTime()`, `isOnGround()`
-  - `isSprinting()`, `setSprinting()`, `jump()`
-  - `getHeldItemId()` - para detección de armas
+| Categoría | Checks |
+|-----------|--------|
+| **Anti-Debug** | PEB.BeingDebugged, CheckRemoteDebuggerPresent, NtQueryInformationProcess, Heap flags, Hardware breakpoints |
+| **Anti-Attach** | DbgBreakPoint patch, DbgUiRemoteBreakin patch |
+| **Anti-VM** | Registry keys, VM files, ACPI tables, Process names |
+| **Anti-Sandbox** | Uptime < 10min, Disk < 50GB, Suspicious usernames/hostnames, Analysis tools |
+| **Anti-Hook** | API prologue checks (0xCC, 0xE9) |
+| **Runtime** | Dual heartbeat threads, integrity monitoring |
 
-### Sistema de Módulos (`src/module/`)
-- **Module**: Base class con `onEnable()`, `onDisable()`, `onUpdate()`, keybind
-- **ModuleManager**: 
-  - Registro de módulos
-  - Edge detection en keybinds (no repeat)
-  - **Bloqueo en GUI**: `isInGui()` previene toggles en chat/inventario/menús
-  - **Sync bidireccional**: `Web_BroadcastConfig()` notifica a la web en cada toggle
+### String Encryption (`xor.h`)
+- Compiletime XOR encryption
+- Strings decrypted at runtime on stack
+- Zero runtime overhead
 
-#### Combat (`src/module/combat/`)
-- **AutoClicker**: 
-  - PostMessage clicking con patrón alternante DOWN/UP
-  - Humanización: fatigue, bursts, non-uniform jitter
-  - Randomización: drop chance, spike chance, kurtosis
-  - Weapon-only mode (swords, axes por ID)
-  - Break blocks: skip click cuando apunta a bloque
-- **AimAssist**: Sistema de asistencia de apuntado con física realista
-  - **Soft deadzone**: Transición suave cerca del hitbox (no on/off binario)
-  - **Spring-damper**: Física con dos regímenes (corrección lejos, asentamiento cerca)
-  - **Velocity-based**: Delta-time independiente para cualquier framerate
-  - **Intent detection**: Detecta mouse rápido y reduce asistencia
-  - **Opposition detection**: Si el usuario mueve en dirección contraria, para
-  - **Temporal noise**: Ruido periódico (no por frame) para humanización
-  - **Accumulated bias**: Micro-error persistente que simula mano humana
-
-#### Visual (`src/module/visual/`)
-- **NameTags**: ESP de nombres de jugadores con overlay
-
-### Overlay (`src/overlay/`)
-- **Overlay**: Hooks OpenGL (wglSwapBuffers) para renderizado sobre Minecraft
-  - ImGui para UI
-  - Init delay: 1 segundo después de inyección
-- **Notifications**: Sistema de notificaciones in-game
-  - **Módulos**: "ModuleName ON/OFF" - verde/rojo
-  - **Sistema**: "Cobble loaded", "Cobble unloading..." - púrpura
-  - Animación slide-in/out con easing cubic
-  - Posicionadas en esquina inferior derecha
-  - Progress bar que decrece
-  - Font: Segoe UI del sistema
-
-### Web Config (`src/web/`)
-- **ConfigServer**: WebSocket server puro WinSock (puerto 8765)
-  - Handshake WebSocket con SHA-1
-  - Frame encoding/decoding
-  - Single client connection
-- **Config**: Parser JSON simple
-  - `apply()`: Recibe config del browser
-  - `serialize()`: Envía config actual al browser (type: "configAll")
-  - `Web_BroadcastConfig()`: Push inmediato cuando hay cambios por keybind
-
-## Sync Bidireccional
-
+### HWID Generation (`hwid.cpp`)
 ```
-┌─────────────┐                    ┌─────────────┐
-│   Web UI    │◄──── configAll ────│   Client    │
-│ (browser)   │                    │   (DLL)     │
-│             │──── config ───────►│             │
-└─────────────┘                    └─────────────┘
-       │                                  │
-       │  Polling cada 500ms              │
-       │  (getConfig → configAll)         │
-       │                                  │
-       │  Push inmediato on:              │
-       │  - Keybind toggle                │
-       └──────────────────────────────────┘
+HWID = SHA256(CPU_ID + DISK_SERIAL + MAC_ADDRESS)
 ```
+- CPU: `__cpuid` instruction
+- Disk: `GetVolumeInformationW`
+- MAC: `GetAdaptersInfo`
 
-## Threading
+---
 
-| Contexto | Thread |
-|----------|--------|
-| DllMain | Thread del loader |
-| Main loop | Thread creado (attached a JVM) |
-| WebSocket accept | Thread separado (serverLoop) |
-| Overlay render | Thread de OpenGL (hooks) |
-| Llamadas JNI | Solo desde main loop thread |
+## License Server
 
-> **Importante**: `Java::Env` solo es válido en el thread attached. El WebSocket server no hace llamadas JNI directas.
+### Endpoints
+
+| Endpoint | Auth | Description |
+|----------|------|-------------|
+| `POST /api/verify` | - | Verify HWID |
+| `POST /api/admin/add` | Key | Add/update license |
+| `POST /api/admin/ban` | Key | Ban user |
+| `POST /api/admin/unban` | Key | Unban + clear history |
+| `GET /api/admin/list` | Key | List all licenses |
+| `GET /api/admin/stats` | Key | Statistics |
+
+### HWID Abuse Detection
+- Tracks all HWIDs per username
+- 3+ unique HWIDs → automatic ban
+- Prevents license sharing
+
+---
+
+## Módulos
+
+### Combat
+| Módulo | Key | Descripción |
+|--------|-----|-------------|
+| AutoClicker | R | Humanized clicking con fatigue/bursts |
+| AimAssist | V | Spring-damper physics, deadzone, opposition detection |
+
+### Visual
+| Módulo | Key | Descripción |
+|--------|-----|-------------|
+| NameTags | N | ESP con nombres de jugadores |
+
+---
 
 ## Build
 
-### Visual Studio
-```
-Abrir Cobble.sln → Build → Debug/Release x64
-Output: 
-  - bin/Debug/Cobble.dll
-  - bin/Debug/CobbleInjector.exe
-```
+```powershell
+# Build todo
+msbuild Cobble.sln /p:Configuration=Release
 
-## Uso
+# Solo loader
+msbuild Cobble.sln /p:Configuration=Release /t:CobbleLoader
 
-1. Abrir Minecraft via Lunar Client
-2. Ejecutar `CobbleInjector.exe`
-3. Abrir `config/index.html` en navegador
-4. Configurar módulos via web UI
-5. Usar keybinds in-game (V=AimAssist, R=AutoClicker, N=NameTags)
-6. Click "Eject" en web UI para descargar
-
-## Settings de AimAssist (simplificados)
-
-| Setting | Rango | Descripción |
-|---------|-------|-------------|
-| Horizontal Speed | 1-100 | Velocidad yaw (×1.5 internamente) |
-| Vertical Speed | 1-100 | Velocidad pitch (×1.5 internamente) |
-| Max FOV | 30-360 | Campo de visión para detectar targets |
-| Max Distance | 1-8 | Distancia máxima al target |
-| Only Clicking | on/off | Solo cuando click izquierdo |
-| Only Sprinting | on/off | Solo cuando corriendo |
-| Vertical Aim | on/off | Ajustar pitch también |
-| Visibility Check | on/off | Solo targets visibles |
-| Ignore Invisible | on/off | Ignorar jugadores invisibles |
-| Target Lock | on/off | Mantener target actual |
-
-## Notas de Estabilidad
-
-- Sin consola: toda interacción via Web UI (evita crashes al cerrar)
-- DeleteLocalRef para evitar memory leaks de JNI
-- WIN32_LEAN_AND_MEAN antes de WinSock2.h
-- Loop principal: 1ms delay para responsividad
-- Edge detection en keybinds (no repeat)
-- Keybinds bloqueados cuando isInGui() = true
-- WebSocket reconecta automáticamente
-- AimAssist usa deltaTime para framerate-independence
-- Overlay init delay: 1 segundo (permite que OpenGL se estabilice)
-
-## AimAssist - Física Detallada
-
-### Sistema de Control
-```
-Error (ángulo al target)
-    ↓
-Soft Strength (S-curve basada en distancia al hitbox)
-    - Lejos del hitbox: strength = 1.0
-    - En el borde: smooth fade
-    - Centro: strength = 0.05
-    ↓
-Spring-Damper con dos regímenes:
-    - Lejos (>3°): Spring activo (corrección)
-    - Cerca (<3°): Spring fade, solo damping (asentamiento)
-    ↓
-Opposition + Intent factors (reduce si usuario resiste)
-    ↓
-Velocity integration (deltaTime)
-    ↓
-Rotación final
+# Solo DLL
+msbuild Cobble.sln /p:Configuration=Release /t:Cobble
 ```
 
-### Funciones Clave
-- `angleToCenterCircular()`: Ángulo al centro del hitbox (wrap-safe)
-- `calculateSoftStrength()`: S-curve 0.05-1.0 basada en posición
-- `calculateSmoothRotation()`: Spring-damper con stiffness fade
+## Deploy Server
+
+```bash
+# Ubuntu 24.04
+cd license-server
+sudo bash deploy/deploy.sh
+```
+
+---
+
+## Threading Model
+
+| Context | Thread | Notes |
+|---------|--------|-------|
+| Loader main | Main thread | Security init, injection |
+| Heartbeat 1 | Background | Anti-debug monitoring |
+| Heartbeat 2 | Background | Anti-hook monitoring |
+| DLL main loop | JNI thread | Attached to JVM |
+| WebSocket | Background | Config sync |
+| Overlay | OpenGL thread | ImGui rendering |
