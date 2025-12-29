@@ -5,7 +5,7 @@
 #include <chrono>
 #include <random>
 
-// Premium AimAssist with advanced smoothing techniques
+// Premium AimAssist with human-like behavior
 // Based on professional ghost client implementations
 class AimAssist : public Module
 {
@@ -22,8 +22,8 @@ public:
 		bool onlySprinting = false;
 		bool onlyClicking = true;
 		bool targetLock = true;
-		bool verticalAim = true;
-		bool hurtTimeBoost = true;
+		bool verticalAim = false;
+		bool hurtTimeBoost = false;  // Legacy setting for config compatibility
 		bool multipoint = false;  // Aim at closest point on hitbox
 		
 		float horizontalSpeed = 45.0f;
@@ -37,7 +37,6 @@ public:
 
 private:
 	static constexpr float PI = 3.14159265358979323846f;
-	static constexpr float MC_SENSITIVITY = 0.5f;
 
 	std::mt19937 rng;
 	std::chrono::steady_clock::time_point lastUpdate;
@@ -54,12 +53,31 @@ private:
 	// Last rotation for detecting user mouse movement
 	float lastYaw = 0.0f;
 	float lastPitch = 0.0f;
+	
+	// Temporal noise system (not per-frame)
+	struct NoiseState {
+		float yawNoise = 0.0f;
+		float pitchNoise = 0.0f;
+		std::chrono::steady_clock::time_point nextRefresh;
+		std::chrono::steady_clock::time_point nextZero;
+		bool inZeroPeriod = false;
+	} noise;
+	
+	// Accumulated micro-error (human imperfection)
+	float yawBias = 0.0f;
+	float pitchBias = 0.0f;
 
 	float getYawTo(double deltaX, double deltaZ);
 	float getPitchTo(double deltaX, double deltaY, double deltaZ);
 	float wrapAngle(float angle);
 	double getHorizontalDistance(double x1, double z1, double x2, double z2);
 	float randomFloat(float min, float max);
+	
+	// Update temporal noise state
+	void updateNoiseState();
+	
+	// Non-linear speed curve (ease-in for natural acceleration)
+	float applyCurve(float normalizedDiff);
 	
 	// Calculates smooth rotation using velocity-based spring-damper system
 	float calculateSmoothRotation(float angleDiff, float speed, float deltaTime, float& velocity);
