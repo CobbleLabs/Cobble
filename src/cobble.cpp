@@ -4,6 +4,7 @@
 #include "module/module_manager.h"
 #include "module/combat/autoclicker.h"
 #include "module/combat/aimassist.h"
+#include "module/combat/autorefill.h"
 #include "module/visual/nametags.h"
 #include "web/config.h"
 #include "overlay/overlay.h"
@@ -26,6 +27,7 @@ void cobble::context::initialize(HMODULE hModule)
 	// Register modules
 	moduleManager.registerModule(&autoClicker);
 	moduleManager.registerModule(&aimAssist);
+	moduleManager.registerModule(&autoRefill);
 	moduleManager.registerModule(&nameTags);
 
 	// Start WebSocket server for web config
@@ -81,6 +83,7 @@ void cobble::context::shutdown()
 	// Disable all modules first
 	autoClicker.setEnabled(false);
 	aimAssist.setEnabled(false);
+	autoRefill.setEnabled(false);
 	nameTags.setEnabled(false);
 	
 	Overlay::Shutdown();

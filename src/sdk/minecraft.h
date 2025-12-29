@@ -29,6 +29,17 @@ struct RenderPos
 	double z = 0.0;
 };
 
+// Item slot info for inventory operations
+struct SlotInfo
+{
+	int slotId = -1;
+	int itemId = 0;         // 0 = empty, 282 = soup, 373 = potion, etc
+	int stackSize = 0;
+	int damage = 0;         // Potion metadata (used to identify potion type)
+	bool isSplashPotion = false;
+	bool isHealthPotion = false;  // Instant Health I or II
+};
+
 // Simplified wrapper for net.minecraft.client.Minecraft
 // Only exposes what's needed for basic ghost client
 struct Minecraft
@@ -64,6 +75,13 @@ struct Minecraft
 	// Render info for ESP/NameTags
 	RenderPos getRenderPos();
 	float getPartialTicks();
+
+	// Inventory operations for AutoRefill
+	std::vector<SlotInfo> getInventorySlots();  // Get all 36 inventory slots
+	void windowClick(int slotId, int button);   // Click inventory slot (shift-click)
+	void openInventory();   // Open player inventory GUI (like pressing E)
+	void closeInventory();  // Close current GUI
+	bool isInventoryOpen(); // Check if inventory GUI is open
 
 	jclass cls = nullptr;
 	jobject instance = nullptr;

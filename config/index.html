@@ -345,6 +345,71 @@
             </div>
         </div>
 
+        <!-- AutoRefill -->
+        <div class="card">
+            <div class="header">
+                <div class="title">AutoRefill</div>
+                <div class="toggle" id="ar-toggle" onclick="tog(this)"></div>
+            </div>
+            <div class="row">
+                <div class="label"><span>Keybind</span><button class="keybind" id="ar-key"
+                        onclick="listenKey(this)">G</button></div>
+            </div>
+
+            <div class="div"></div>
+            <div class="sec">ITEMS</div>
+            <div class="check-row" onclick="chk(this)">
+                <div class="check on" id="ar-soup"></div><span>Soup</span>
+            </div>
+            <div class="check-row" onclick="chk(this)">
+                <div class="check on" id="ar-potions"></div><span>Potions</span>
+            </div>
+            <div class="check-row" onclick="chk(this)">
+                <div class="check" id="ar-nonhealth"></div><span>Use Non-Health Potions</span>
+            </div>
+
+            <div class="div"></div>
+            <div class="sec">SIMULATE BUTTON</div>
+            <div class="row">
+                <select id="ar-simbutton" onchange="send()" style="
+                    width: 100%;
+                    padding: 8px;
+                    background: var(--accent);
+                    border: none;
+                    border-radius: 5px;
+                    color: var(--text);
+                    font-size: 0.9rem;
+                ">
+                    <option value="0">Left</option>
+                    <option value="1">Right</option>
+                    <option value="2">Left + Right</option>
+                </select>
+            </div>
+
+            <div class="div"></div>
+            <div class="sec">TIMING</div>
+            <div class="row">
+                <div class="label"><span>Delay After Open</span><span class="val" id="ar-delayopen-v">50</span>ms</div>
+                <input type="range" id="ar-delayopen" min="0" max="200" value="50"
+                    oninput="upd(this,'ar-delayopen-v');send()">
+            </div>
+            <div class="row">
+                <div class="label"><span>Delay Before Close</span><span class="val" id="ar-delayclose-v">50</span>ms
+                </div>
+                <input type="range" id="ar-delayclose" min="0" max="200" value="50"
+                    oninput="upd(this,'ar-delayclose-v');send()">
+            </div>
+            <div class="row">
+                <div class="label"><span>Speed</span><span class="val" id="ar-speed-v">50</span>ms</div>
+                <input type="range" id="ar-speed" min="10" max="200" value="50" oninput="upd(this,'ar-speed-v');send()">
+            </div>
+
+            <div class="div"></div>
+            <div class="check-row" onclick="chk(this)">
+                <div class="check on" id="ar-smartspeed"></div><span>Smart Speed</span>
+            </div>
+        </div>
+
         <!-- Eject Button -->
         <div class="card" style="background: linear-gradient(135deg, #2d1f3d 0%, #1a1a2e 100%);">
             <button id="eject-btn" onclick="eject()" style="
@@ -453,6 +518,19 @@
                 showHealth: document.getElementById('nt-health').classList.contains('on'),
                 showDistance: document.getElementById('nt-distance').classList.contains('on')
             }));
+            ws.send(JSON.stringify({
+                type: 'config', module: 'autorefill',
+                enabled: document.getElementById('ar-toggle').classList.contains('on'),
+                keybind: document.getElementById('ar-key').textContent,
+                refillSoup: document.getElementById('ar-soup').classList.contains('on'),
+                refillPotions: document.getElementById('ar-potions').classList.contains('on'),
+                useNonHealthPotions: document.getElementById('ar-nonhealth').classList.contains('on'),
+                simulateButton: +document.getElementById('ar-simbutton').value,
+                delayAfterOpen: +document.getElementById('ar-delayopen').value,
+                delayBeforeClose: +document.getElementById('ar-delayclose').value,
+                speed: +document.getElementById('ar-speed').value,
+                smartSpeed: document.getElementById('ar-smartspeed').classList.contains('on')
+            }));
         }
 
         function apply(d) {
@@ -491,6 +569,19 @@
                 document.getElementById('nt-bg').classList.toggle('on', c.background !== false);
                 document.getElementById('nt-health').classList.toggle('on', c.showHealth !== false);
                 document.getElementById('nt-distance').classList.toggle('on', c.showDistance !== false);
+            }
+            if (d.autorefill) {
+                let c = d.autorefill;
+                document.getElementById('ar-toggle').classList.toggle('on', c.enabled);
+                document.getElementById('ar-key').textContent = c.keybind || 'G';
+                document.getElementById('ar-soup').classList.toggle('on', c.refillSoup !== false);
+                document.getElementById('ar-potions').classList.toggle('on', c.refillPotions !== false);
+                document.getElementById('ar-nonhealth').classList.toggle('on', c.useNonHealthPotions === true);
+                document.getElementById('ar-simbutton').value = c.simulateButton || 0;
+                document.getElementById('ar-delayopen').value = c.delayAfterOpen; document.getElementById('ar-delayopen-v').textContent = c.delayAfterOpen;
+                document.getElementById('ar-delayclose').value = c.delayBeforeClose; document.getElementById('ar-delayclose-v').textContent = c.delayBeforeClose;
+                document.getElementById('ar-speed').value = c.speed; document.getElementById('ar-speed-v').textContent = c.speed;
+                document.getElementById('ar-smartspeed').classList.toggle('on', c.smartSpeed !== false);
             }
         }
 

@@ -114,6 +114,24 @@ void Config::apply(const std::string& json) {
 			nameTags.setEnabled(now);
 			if (now != was) log_ok(now ? "NameTags enabled" : "NameTags disabled");
 		}
+		else if (module == "autorefill") {
+			autoRefill.settings.refillSoup = getBool(json, "refillSoup", true);
+			autoRefill.settings.refillPotions = getBool(json, "refillPotions", true);
+			autoRefill.settings.useNonHealthPotions = getBool(json, "useNonHealthPotions", false);
+			autoRefill.settings.simulateButton = static_cast<int>(getFloat(json, "simulateButton", 0.0f));
+			autoRefill.settings.delayAfterOpen = static_cast<int>(getFloat(json, "delayAfterOpen", 50.0f));
+			autoRefill.settings.delayBeforeClose = static_cast<int>(getFloat(json, "delayBeforeClose", 50.0f));
+			autoRefill.settings.speed = static_cast<int>(getFloat(json, "speed", 50.0f));
+			autoRefill.settings.smartSpeed = getBool(json, "smartSpeed", true);
+			
+			std::string kb = getValue(json, "keybind");
+			if (!kb.empty()) autoRefill.keybind = keyStringToVK(kb);
+			
+			bool was = autoRefill.enabled;
+			bool now = getBool(json, "enabled");
+			autoRefill.setEnabled(now);
+			if (now != was) log_ok(now ? "AutoRefill enabled" : "AutoRefill disabled");
+		}
 		else {
 			autoClicker.settings.minCPS = getFloat(json, "minCPS", 10.0f);
 			autoClicker.settings.maxCPS = getFloat(json, "maxCPS", 14.0f);
@@ -201,7 +219,20 @@ std::string Config::serialize() {
 	ss << "\"distanceScale\":" << (nameTags.settings.distanceScale ? "true" : "false") << ",";
 	ss << "\"background\":" << (nameTags.settings.background ? "true" : "false") << ",";
 	ss << "\"showHealth\":" << (nameTags.settings.showHealth ? "true" : "false") << ",";
-	ss << "\"showDistance\":" << (nameTags.settings.showDistance ? "true" : "false") << "}}";
+	ss << "\"showDistance\":" << (nameTags.settings.showDistance ? "true" : "false") << "},";
+	
+	// AutoRefill
+	ss << "\"autorefill\":{";
+	ss << "\"enabled\":" << (autoRefill.enabled ? "true" : "false") << ",";
+	ss << "\"keybind\":\"" << vkToKeyString(autoRefill.keybind) << "\",";
+	ss << "\"refillSoup\":" << (autoRefill.settings.refillSoup ? "true" : "false") << ",";
+	ss << "\"refillPotions\":" << (autoRefill.settings.refillPotions ? "true" : "false") << ",";
+	ss << "\"useNonHealthPotions\":" << (autoRefill.settings.useNonHealthPotions ? "true" : "false") << ",";
+	ss << "\"simulateButton\":" << autoRefill.settings.simulateButton << ",";
+	ss << "\"delayAfterOpen\":" << autoRefill.settings.delayAfterOpen << ",";
+	ss << "\"delayBeforeClose\":" << autoRefill.settings.delayBeforeClose << ",";
+	ss << "\"speed\":" << autoRefill.settings.speed << ",";
+	ss << "\"smartSpeed\":" << (autoRefill.settings.smartSpeed ? "true" : "false") << "}}";
 	
 	return ss.str();
 }

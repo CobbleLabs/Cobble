@@ -6,6 +6,26 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/).
 
 ---
 
+## [0.9.0] - 2025-12-29
+
+### Added
+- **AutoRefill Module** - Mueve automáticamente items del inventario al hotbar
+  - Detecta cuándo soup/potion se consume en hotbar
+  - Busca reemplazo en inventario principal (slots 9-35)
+  - Distinción de tipos de pociones (solo Health o todas)
+  - Configurable: delays, velocidad, smart speed
+  - Keybind: G (default)
+- **SDK: Inventory Operations**
+  - `getInventorySlots()`: Lee los 36 slots con item ID, stack size, y potion metadata
+  - `windowClick()`: Simula shift-click para mover items
+- **Web GUI: AutoRefill Panel**
+  - Items: Soup, Potions, Use Non-Health Potions
+  - Simulate Button: Left/Right/Both
+  - Timing: Delay After Open, Delay Before Close, Speed
+  - Smart Speed: delay extra según distancia de slots
+
+---
+
 ## [0.8.0] - 2025-12-29
 
 ### Added

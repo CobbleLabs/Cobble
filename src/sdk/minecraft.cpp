@@ -370,3 +370,381 @@ float Minecraft::getPartialTicks()
 	
 	return result;
 }
+
+std::vector<SlotInfo> Minecraft::getInventorySlots()
+{
+	std::vector<SlotInfo> result;
+	if (!isValid()) return result;
+
+	jobject localPlayer = getPlayer();
+	if (!localPlayer) return result;
+
+	// Get EntityPlayer class for inventory field
+	jclass playerCls = nullptr;
+	if (!Java::AssignClass("net.minecraft.entity.player.EntityPlayer", playerCls)) {
+		Java::Env->DeleteLocalRef(localPlayer);
+		return result;
+	}
+
+	// Get InventoryPlayer class
+	jclass inventoryCls = nullptr;
+	if (!Java::AssignClass("net.minecraft.entity.player.InventoryPlayer", inventoryCls)) {
+		Java::Env->DeleteLocalRef(playerCls);
+		Java::Env->DeleteLocalRef(localPlayer);
+		return result;
+	}
+
+	// Get ItemStack class
+	jclass itemStackCls = nullptr;
+	if (!Java::AssignClass("net.minecraft.item.ItemStack", itemStackCls)) {
+		Java::Env->DeleteLocalRef(inventoryCls);
+		Java::Env->DeleteLocalRef(playerCls);
+		Java::Env->DeleteLocalRef(localPlayer);
+		return result;
+	}
+
+	// Get Item class
+	jclass itemCls = nullptr;
+	if (!Java::AssignClass("net.minecraft.item.Item", itemCls)) {
+		Java::Env->DeleteLocalRef(itemStackCls);
+		Java::Env->DeleteLocalRef(inventoryCls);
+		Java::Env->DeleteLocalRef(playerCls);
+		Java::Env->DeleteLocalRef(localPlayer);
+		return result;
+	}
+
+	// Get ItemPotion class for splash detection
+	jclass potionCls = nullptr;
+	Java::AssignClass("net.minecraft.item.ItemPotion", potionCls);
+
+	// player.inventory field
+	jfieldID fid_inventory = Java::Env->GetFieldID(playerCls, "inventory", "Lnet/minecraft/entity/player/InventoryPlayer;");
+	if (!fid_inventory) {
+		if (potionCls) Java::Env->DeleteLocalRef(potionCls);
+		Java::Env->DeleteLocalRef(itemCls);
+		Java::Env->DeleteLocalRef(itemStackCls);
+		Java::Env->DeleteLocalRef(inventoryCls);
+		Java::Env->DeleteLocalRef(playerCls);
+		Java::Env->DeleteLocalRef(localPlayer);
+		return result;
+	}
+
+	jobject inventory = Java::Env->GetObjectField(localPlayer, fid_inventory);
+	if (!inventory) {
+		if (potionCls) Java::Env->DeleteLocalRef(potionCls);
+		Java::Env->DeleteLocalRef(itemCls);
+		Java::Env->DeleteLocalRef(itemStackCls);
+		Java::Env->DeleteLocalRef(inventoryCls);
+		Java::Env->DeleteLocalRef(playerCls);
+		Java::Env->DeleteLocalRef(localPlayer);
+		return result;
+	}
+
+	// inventory.mainInventory field (ItemStack[36])
+	jfieldID fid_mainInventory = Java::Env->GetFieldID(inventoryCls, "mainInventory", "[Lnet/minecraft/item/ItemStack;");
+	if (!fid_mainInventory) {
+		Java::Env->DeleteLocalRef(inventory);
+		if (potionCls) Java::Env->DeleteLocalRef(potionCls);
+		Java::Env->DeleteLocalRef(itemCls);
+		Java::Env->DeleteLocalRef(itemStackCls);
+		Java::Env->DeleteLocalRef(inventoryCls);
+		Java::Env->DeleteLocalRef(playerCls);
+		Java::Env->DeleteLocalRef(localPlayer);
+		return result;
+	}
+
+	jobjectArray mainInventory = (jobjectArray)Java::Env->GetObjectField(inventory, fid_mainInventory);
+	if (!mainInventory) {
+		Java::Env->DeleteLocalRef(inventory);
+		if (potionCls) Java::Env->DeleteLocalRef(potionCls);
+		Java::Env->DeleteLocalRef(itemCls);
+		Java::Env->DeleteLocalRef(itemStackCls);
+		Java::Env->DeleteLocalRef(inventoryCls);
+		Java::Env->DeleteLocalRef(playerCls);
+		Java::Env->DeleteLocalRef(localPlayer);
+		return result;
+	}
+
+	// ItemStack methods
+	jmethodID mid_getItem = Java::Env->GetMethodID(itemStackCls, "getItem", "()Lnet/minecraft/item/Item;");
+	jfieldID fid_stackSize = Java::Env->GetFieldID(itemStackCls, "stackSize", "I");
+	jmethodID mid_getMetadata = Java::Env->GetMethodID(itemStackCls, "getMetadata", "()I");
+
+	// Item.getIdFromItem static method
+	jmethodID mid_getIdFromItem = Java::Env->GetStaticMethodID(itemCls, "getIdFromItem", "(Lnet/minecraft/item/Item;)I");
+
+	// ItemPotion.isSplash (if available)
+	jmethodID mid_isSplash = nullptr;
+	if (potionCls) {
+		mid_isSplash = Java::Env->GetMethodID(potionCls, "isSplash", "(I)Z");
+	}
+
+	int arrayLen = Java::Env->GetArrayLength(mainInventory);
+	
+	// Iterate all 36 slots (0-8 = hotbar, 9-35 = main inventory)
+	for (int i = 0; i < arrayLen && i < 36; i++) {
+		SlotInfo slot;
+		slot.slotId = i;
+
+		jobject itemStack = Java::Env->GetObjectArrayElement(mainInventory, i);
+		if (!itemStack) {
+			// Empty slot
+			result.push_back(slot);
+			continue;
+		}
+
+		// Get item
+		jobject item = Java::Env->CallObjectMethod(itemStack, mid_getItem);
+		if (!item) {
+			Java::Env->DeleteLocalRef(itemStack);
+			result.push_back(slot);
+			continue;
+		}
+
+		// Get item ID
+		slot.itemId = Java::Env->CallStaticIntMethod(itemCls, mid_getIdFromItem, item);
+		slot.stackSize = Java::Env->GetIntField(itemStack, fid_stackSize);
+		slot.damage = Java::Env->CallIntMethod(itemStack, mid_getMetadata);
+
+		// Check if it's a potion (ID 373)
+		if (slot.itemId == 373) {
+			// Check splash via ItemPotion.isSplash(damage)
+			if (mid_isSplash && potionCls) {
+				// Need to check if item is instance of ItemPotion
+				if (Java::Env->IsInstanceOf(item, potionCls)) {
+					slot.isSplashPotion = Java::Env->CallBooleanMethod(item, mid_isSplash, slot.damage);
+				}
+			}
+			
+			// Check if health potion by damage value
+			// 1.8.9 potion damage values:
+			// 8197 = Instant Health I, 8229 = Instant Health II
+			// 16389 = Splash Instant Health I, 16421 = Splash Instant Health II
+			int baseDamage = slot.damage & 0x3F;  // Lower 6 bits contain effect ID
+			// Effect ID 5 = Instant Health, ID 6 = Instant Health II
+			// Actually in 1.8.9: damage 8197 & 0x3F = 5, damage 8229 & 0x3F = 5
+			// Better approach: check if it contains Instant Health effect
+			// Instant Health potions: 8197, 8229, 16389, 16421
+			if (slot.damage == 8197 || slot.damage == 8229 || 
+				slot.damage == 16389 || slot.damage == 16421) {
+				slot.isHealthPotion = true;
+			}
+		}
+
+		Java::Env->DeleteLocalRef(item);
+		Java::Env->DeleteLocalRef(itemStack);
+		result.push_back(slot);
+	}
+
+	// Cleanup
+	Java::Env->DeleteLocalRef(mainInventory);
+	Java::Env->DeleteLocalRef(inventory);
+	if (potionCls) Java::Env->DeleteLocalRef(potionCls);
+	Java::Env->DeleteLocalRef(itemCls);
+	Java::Env->DeleteLocalRef(itemStackCls);
+	Java::Env->DeleteLocalRef(inventoryCls);
+	Java::Env->DeleteLocalRef(playerCls);
+	Java::Env->DeleteLocalRef(localPlayer);
+
+	return result;
+}
+
+void Minecraft::windowClick(int slotId, int button)
+{
+	if (!isValid()) return;
+
+	jobject localPlayer = getPlayer();
+	if (!localPlayer) return;
+
+	// Get player's openContainer to get the windowId
+	jclass playerCls = nullptr;
+	if (!Java::AssignClass("net.minecraft.entity.player.EntityPlayer", playerCls)) {
+		Java::Env->DeleteLocalRef(localPlayer);
+		return;
+	}
+
+	// player.openContainer field
+	jfieldID fid_openContainer = Java::Env->GetFieldID(playerCls, "openContainer", "Lnet/minecraft/inventory/Container;");
+	if (!fid_openContainer) {
+		Java::Env->DeleteLocalRef(playerCls);
+		Java::Env->DeleteLocalRef(localPlayer);
+		return;
+	}
+
+	jobject openContainer = Java::Env->GetObjectField(localPlayer, fid_openContainer);
+	if (!openContainer) {
+		Java::Env->DeleteLocalRef(playerCls);
+		Java::Env->DeleteLocalRef(localPlayer);
+		return;
+	}
+
+	// Get Container class for windowId field
+	jclass containerCls = nullptr;
+	if (!Java::AssignClass("net.minecraft.inventory.Container", containerCls)) {
+		Java::Env->DeleteLocalRef(openContainer);
+		Java::Env->DeleteLocalRef(playerCls);
+		Java::Env->DeleteLocalRef(localPlayer);
+		return;
+	}
+
+	// container.windowId field
+	jfieldID fid_windowId = Java::Env->GetFieldID(containerCls, "windowId", "I");
+	int windowId = 0;
+	if (fid_windowId) {
+		windowId = Java::Env->GetIntField(openContainer, fid_windowId);
+	}
+
+	Java::Env->DeleteLocalRef(containerCls);
+	Java::Env->DeleteLocalRef(openContainer);
+	Java::Env->DeleteLocalRef(playerCls);
+
+	// Get playerController from Minecraft
+	jfieldID fid_playerController = Java::Env->GetFieldID(cls, "playerController", "Lnet/minecraft/client/multiplayer/PlayerControllerMP;");
+	if (!fid_playerController) {
+		Java::Env->DeleteLocalRef(localPlayer);
+		return;
+	}
+
+	jobject playerController = Java::Env->GetObjectField(instance, fid_playerController);
+	if (!playerController) {
+		Java::Env->DeleteLocalRef(localPlayer);
+		return;
+	}
+
+	jclass controllerCls = Java::Env->GetObjectClass(playerController);
+
+	// windowClick(int windowId, int slotId, int mouseButton, int mode, EntityPlayer player)
+	// mode 1 = shift-click (quick move)
+	jmethodID mid_windowClick = Java::Env->GetMethodID(controllerCls, "windowClick", 
+		"(IIIILnet/minecraft/entity/player/EntityPlayer;)Lnet/minecraft/item/ItemStack;");
+
+	if (!mid_windowClick) {
+		Java::Env->DeleteLocalRef(controllerCls);
+		Java::Env->DeleteLocalRef(playerController);
+		Java::Env->DeleteLocalRef(localPlayer);
+		return;
+	}
+
+	// Container slot mapping:
+	// For player inventory GUI (windowId 0):
+	// - Crafting output: slot 0
+	// - Crafting grid: slots 1-4
+	// - Armor: slots 5-8
+	// - Main inventory: slots 9-35
+	// - Hotbar: slots 36-44
+	
+	int containerSlot = slotId;
+	if (slotId >= 0 && slotId <= 8) {
+		// Hotbar: mainInventory[0-8] -> container slots 36-44
+		containerSlot = slotId + 36;
+	}
+	// else slotId 9-35 maps directly to container slots 9-35
+
+	// Call windowClick with exception handling
+	jobject result = Java::Env->CallObjectMethod(playerController, mid_windowClick, 
+		windowId, containerSlot, button, 1, localPlayer);
+	
+	// Check for exception
+	if (Java::Env->ExceptionCheck()) {
+		Java::Env->ExceptionClear();
+	}
+
+	if (result) Java::Env->DeleteLocalRef(result);
+	Java::Env->DeleteLocalRef(controllerCls);
+	Java::Env->DeleteLocalRef(playerController);
+	Java::Env->DeleteLocalRef(localPlayer);
+}
+
+void Minecraft::openInventory()
+{
+	if (!isValid()) return;
+
+	jobject localPlayer = getPlayer();
+	if (!localPlayer) return;
+
+	// Create GuiInventory and display it
+	// new GuiInventory(player) then minecraft.displayGuiScreen(guiInventory)
+	
+	jclass guiInventoryCls = nullptr;
+	if (!Java::AssignClass("net.minecraft.client.gui.inventory.GuiInventory", guiInventoryCls)) {
+		Java::Env->DeleteLocalRef(localPlayer);
+		return;
+	}
+
+	// Constructor: GuiInventory(EntityPlayer player)
+	jmethodID mid_init = Java::Env->GetMethodID(guiInventoryCls, "<init>", "(Lnet/minecraft/entity/player/EntityPlayer;)V");
+	if (!mid_init) {
+		Java::Env->DeleteLocalRef(guiInventoryCls);
+		Java::Env->DeleteLocalRef(localPlayer);
+		return;
+	}
+
+	jobject guiInventory = Java::Env->NewObject(guiInventoryCls, mid_init, localPlayer);
+	if (!guiInventory) {
+		Java::Env->DeleteLocalRef(guiInventoryCls);
+		Java::Env->DeleteLocalRef(localPlayer);
+		return;
+	}
+
+	// Minecraft.displayGuiScreen(GuiScreen)
+	jmethodID mid_displayGuiScreen = Java::Env->GetMethodID(cls, "displayGuiScreen", "(Lnet/minecraft/client/gui/GuiScreen;)V");
+	if (!mid_displayGuiScreen) {
+		Java::Env->DeleteLocalRef(guiInventory);
+		Java::Env->DeleteLocalRef(guiInventoryCls);
+		Java::Env->DeleteLocalRef(localPlayer);
+		return;
+	}
+
+	Java::Env->CallVoidMethod(instance, mid_displayGuiScreen, guiInventory);
+
+	Java::Env->DeleteLocalRef(guiInventory);
+	Java::Env->DeleteLocalRef(guiInventoryCls);
+	Java::Env->DeleteLocalRef(localPlayer);
+}
+
+void Minecraft::closeInventory()
+{
+	if (!isValid()) return;
+
+	jobject localPlayer = getPlayer();
+	if (!localPlayer) return;
+
+	// Call player.closeScreen()
+	jclass playerCls = nullptr;
+	if (!Java::AssignClass("net.minecraft.entity.player.EntityPlayer", playerCls)) {
+		Java::Env->DeleteLocalRef(localPlayer);
+		return;
+	}
+
+	jmethodID mid_closeScreen = Java::Env->GetMethodID(playerCls, "closeScreen", "()V");
+	if (!mid_closeScreen) {
+		Java::Env->DeleteLocalRef(playerCls);
+		Java::Env->DeleteLocalRef(localPlayer);
+		return;
+	}
+
+	Java::Env->CallVoidMethod(localPlayer, mid_closeScreen);
+
+	Java::Env->DeleteLocalRef(playerCls);
+	Java::Env->DeleteLocalRef(localPlayer);
+}
+
+bool Minecraft::isInventoryOpen()
+{
+	if (!isValid() || !fid_currentScreen) return false;
+	
+	jobject screen = Java::Env->GetObjectField(instance, fid_currentScreen);
+	if (!screen) return false;
+
+	// Check if it's a GuiInventory or GuiContainer
+	jclass guiContainerCls = nullptr;
+	bool result = false;
+	
+	if (Java::AssignClass("net.minecraft.client.gui.inventory.GuiContainer", guiContainerCls)) {
+		result = Java::Env->IsInstanceOf(screen, guiContainerCls);
+		Java::Env->DeleteLocalRef(guiContainerCls);
+	}
+
+	Java::Env->DeleteLocalRef(screen);
+	return result;
+}

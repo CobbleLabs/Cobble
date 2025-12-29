@@ -92,6 +92,7 @@
     <ClCompile Include="src\module\module_manager.cpp" />
     <ClCompile Include="src\module\combat\autoclicker.cpp" />
     <ClCompile Include="src\module\combat\aimassist.cpp" />
+    <ClCompile Include="src\module\combat\autorefill.cpp" />
     <ClCompile Include="src\module\visual\nametags.cpp" />
     <ClCompile Include="src\web\config_server.cpp" />
     <ClCompile Include="src\web\config.cpp" />
@@ -122,6 +123,7 @@
     <ClInclude Include="src\module\module_manager.h" />
     <ClInclude Include="src\module\autoclicker.h" />
     <ClInclude Include="src\module\aimassist.h" />
+    <ClInclude Include="src\module\combat\autorefill.h" />
     <ClInclude Include="src\web\config_server.h" />
     <ClInclude Include="src\web\config.h" />
     <ClInclude Include="ext\jni\jni.h" />
