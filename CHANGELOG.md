@@ -6,6 +6,37 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/).
 
 ---
 
+## [0.8.0] - 2025-12-29
+
+### Added
+- **Botón Eject en Web UI**: Desinyecta el cliente limpiamente sin reiniciar Minecraft
+  - Nuevo botón en `config/index.html`
+  - Comando `eject` via WebSocket
+- **Re-inyección funcional**: Después de eject, se puede volver a inyectar el DLL
+  - El DLL ahora se descarga completamente con `FreeLibraryAndExitThread`
+
+### Changed
+- **Injector UI mejorada**: Diseño limpio y profesional
+  - Banner ASCII simple que se ve bien en cualquier consola
+  - Ventana compacta y auto-cierre después de 3 segundos
+  - Sin eject loop (ahora se usa el botón en web UI)
+
+### Fixed
+- **Console crash resuelto**: Cerrar la ventana o Ctrl+C ya NO crashea Minecraft
+  - Consola completamente removida del DLL
+  - Toda interacción ahora via Web UI (`config/index.html`)
+  - Logger ahora es no-op (no aloca consola)
+- **Eject crash resuelto**: El botón Eject ya no crashea Minecraft
+  - Removido thread detached del overlay
+  - Flag de shutdown para detener el hook antes de cleanup
+  - Delays para que los hooks terminen antes de descargar el DLL
+
+### Removed
+- Console allocation y handlers
+- `fastShutdown()` - ya no es necesario sin consola
+
+---
+
 ## [0.7.2] - 2025-12-26
 
 ### Added

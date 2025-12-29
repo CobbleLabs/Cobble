@@ -4,6 +4,7 @@
 
 #include "config.h"
 #include "config_server.h"
+#include "../cobble.hpp"
 #include "../util/logger.hpp"
 #include <sstream>
 #include <iomanip>
@@ -132,6 +133,10 @@ void Config::apply(const std::string& json) {
 	}
 	else if (type == "getConfig") {
 		configServer.sendMessage(serialize());
+	}
+	else if (type == "eject") {
+		// Signal main loop to stop - will trigger clean shutdown
+		cobble::context::is_running = false;
 	}
 }
 

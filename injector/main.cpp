@@ -7,37 +7,96 @@
 #include "inject.h"
 
 // Console colors
+enum Color {
+	BLACK = 0,
+	DARK_BLUE = 1,
+	DARK_GREEN = 2,
+	DARK_CYAN = 3,
+	DARK_RED = 4,
+	DARK_MAGENTA = 5,
+	DARK_YELLOW = 6,
+	GRAY = 7,
+	DARK_GRAY = 8,
+	BLUE = 9,
+	GREEN = 10,
+	CYAN = 11,
+	RED = 12,
+	MAGENTA = 13,
+	YELLOW = 14,
+	WHITE = 15
+};
+
+HANDLE hConsole;
+
 void setColor(int color) {
-	SetConsoleTextAttribute(GetStdHandle(STD_OUTPUT_HANDLE), color);
+	SetConsoleTextAttribute(hConsole, color);
+}
+
+void setupConsole() {
+	hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
+	
+	// Enable UTF-8 output
+	SetConsoleOutputCP(CP_UTF8);
+	SetConsoleCP(CP_UTF8);
+	
+	// Set window title
+	SetConsoleTitleW(L"Cobble");
+	
+	// Resize console window to be compact
+	SMALL_RECT windowSize = { 0, 0, 59, 18 };
+	SetConsoleWindowInfo(hConsole, TRUE, &windowSize);
+	
+	COORD bufferSize = { 60, 19 };
+	SetConsoleScreenBufferSize(hConsole, bufferSize);
+	
+	// Hide cursor
+	CONSOLE_CURSOR_INFO cursorInfo;
+	GetConsoleCursorInfo(hConsole, &cursorInfo);
+	cursorInfo.bVisible = FALSE;
+	SetConsoleCursorInfo(hConsole, &cursorInfo);
 }
 
 void printBanner() {
-	setColor(11); // Cyan
-	std::wcout << L"\n";
-	std::wcout << L"   ██████╗ ██████╗ ██████╗ ██████╗ ██╗     ███████╗\n";
-	std::wcout << L"  ██╔════╝██╔═══██╗██╔══██╗██╔══██╗██║     ██╔════╝\n";
-	std::wcout << L"  ██║     ██║   ██║██████╔╝██████╔╝██║     █████╗  \n";
-	std::wcout << L"  ██║     ██║   ██║██╔══██╗██╔══██╗██║     ██╔══╝  \n";
-	std::wcout << L"  ╚██████╗╚██████╔╝██████╔╝██████╔╝███████╗███████╗\n";
-	std::wcout << L"   ╚═════╝ ╚═════╝ ╚═════╝ ╚═════╝ ╚══════╝╚══════╝\n";
-	setColor(7); // White
-	std::wcout << L"                    Injector v1.0\n\n";
+	std::cout << "\n";
+	setColor(MAGENTA);
+	std::cout << "         ______      __    __    __   \n";
+	std::cout << "        / ____/___  / /_  / /_  / /__ \n";
+	std::cout << "       / /   / __ \\/ __ \\/ __ \\/ / _ \\\n";
+	std::cout << "      / /___/ /_/ / /_/ / /_/ / /  __/\n";
+	std::cout << "      \\____/\\____/_.___/_.___/_/\\___/ \n";
+	setColor(DARK_GRAY);
+	std::cout << "               Ghost Client v0.8\n";
+	setColor(GRAY);
+	std::cout << "\n";
 }
 
-void printStatus(const std::wstring& msg, int color = 7) {
-	setColor(8); // Gray
-	std::wcout << L"  [";
+void printLine() {
+	setColor(DARK_GRAY);
+	std::cout << "   ";
+	for (int i = 0; i < 44; i++) std::cout << "-";
+	std::cout << "\n";
+	setColor(GRAY);
+}
+
+void printStatus(const std::string& msg, int color = GRAY) {
+	setColor(DARK_GRAY);
+	std::cout << "    [";
 	setColor(color);
-	std::wcout << L"*";
-	setColor(8);
-	std::wcout << L"] ";
-	setColor(7);
-	std::wcout << msg << L"\n";
+	if (color == GREEN) std::cout << "+";
+	else if (color == RED) std::cout << "!";
+	else if (color == CYAN) std::cout << "*";
+	else if (color == YELLOW) std::cout << "~";
+	else std::cout << " ";
+	setColor(DARK_GRAY);
+	std::cout << "] ";
+	setColor(GRAY);
+	std::cout << msg << "\n";
 }
 
-void printSuccess(const std::wstring& msg) { printStatus(msg, 10); } // Green
-void printError(const std::wstring& msg) { printStatus(msg, 12); }   // Red
-void printInfo(const std::wstring& msg) { printStatus(msg, 11); }    // Cyan
+void printSuccess(const std::string& msg) { printStatus(msg, GREEN); }
+void printError(const std::string& msg) { printStatus(msg, RED); }
+void printInfo(const std::string& msg) { printStatus(msg, CYAN); }
+void printWait(const std::string& msg) { printStatus(msg, YELLOW); }
 
 std::wstring getDllPath() {
 	wchar_t path[MAX_PATH];
@@ -50,82 +109,69 @@ std::wstring getDllPath() {
 }
 
 int wmain(int argc, wchar_t* argv[]) {
-	SetConsoleTitleW(L"Cobble Injector");
+	setupConsole();
 	printBanner();
+	printLine();
 	
 	// Check if DLL exists
 	std::wstring dllPath = getDllPath();
 	
 	if (!std::filesystem::exists(dllPath)) {
-		printError(L"Cobble.dll not found!");
-		printInfo(L"Make sure Cobble.dll is in the same folder as this injector.");
-		std::wcout << L"\n  Press any key to exit...";
+		printError("Cobble.dll not found!");
+		printInfo("Place Cobble.dll next to this exe.");
+		std::cout << "\n    Press any key to exit...";
 		std::cin.get();
 		return 1;
 	}
 	
-	printSuccess(L"Found Cobble.dll");
+	printSuccess("Found Cobble.dll");
 	
 	// Find Lunar Client
-	printInfo(L"Searching for Lunar Client...");
+	printWait("Searching for Minecraft...");
 	
 	ProcessInfo lunar = findLunarClient();
 	
 	if (lunar.pid == 0) {
-		printError(L"Lunar Client not found!");
-		printInfo(L"Make sure Minecraft is running via Lunar Client.");
-		std::wcout << L"\n  Press any key to exit...";
+		printError("Minecraft not found!");
+		printInfo("Launch Minecraft via Lunar Client.");
+		std::cout << "\n    Press any key to exit...";
 		std::cin.get();
 		return 1;
 	}
 	
-	printSuccess(L"Found: " + lunar.windowTitle + L" (PID: " + std::to_wstring(lunar.pid) + L")");
+	// Convert window title to narrow string for display
+	char narrowTitle[128];
+	WideCharToMultiByte(CP_UTF8, 0, lunar.windowTitle.c_str(), -1, narrowTitle, 128, nullptr, nullptr);
+	printSuccess(std::string("Found: ") + narrowTitle);
 	
 	// Inject DLL
-	printInfo(L"Injecting Cobble.dll...");
+	printWait("Injecting...");
 	
 	if (!injectDll(lunar.pid, dllPath)) {
-		printError(L"Injection failed!");
-		printInfo(L"Try running as Administrator.");
-		std::wcout << L"\n  Press any key to exit...";
+		printError("Injection failed!");
+		printInfo("Try running as Administrator.");
+		std::cout << "\n    Press any key to exit...";
 		std::cin.get();
 		return 1;
 	}
 	
-	printSuccess(L"Injected successfully!");
+	printSuccess("Injection successful!");
 	
-	std::wcout << L"\n";
-	setColor(10); // Green
-	std::wcout << L"  Cobble is now running!\n";
-	setColor(7);
-	std::wcout << L"  Open config/index.html to configure.\n";
-	std::wcout << L"\n";
+	printLine();
+	std::cout << "\n";
+	setColor(GREEN);
+	std::cout << "    Cobble is now active!\n";
+	setColor(DARK_GRAY);
+	std::cout << "    Open config/index.html to configure.\n";
+	std::cout << "    Use the Eject button in web UI to unload.\n";
+	setColor(GRAY);
+	std::cout << "\n";
 	
-	printInfo(L"Press E to eject, or close this window to keep running.");
-	
-	// Wait for eject command
-	while (true) {
-		if (GetAsyncKeyState('E') & 0x8000) {
-			printInfo(L"Ejecting...");
-			
-			if (ejectDll(lunar.pid, L"Cobble.dll")) {
-				printSuccess(L"Ejected successfully!");
-			} else {
-				printError(L"Eject failed (might already be unloaded)");
-			}
-			break;
-		}
-		
-		// Check if Minecraft still running
-		if (!isProcessRunning(lunar.pid)) {
-			printInfo(L"Minecraft closed, exiting...");
-			break;
-		}
-		
-		Sleep(100);
+	// Auto-close after 3 seconds
+	for (int i = 3; i > 0; i--) {
+		std::cout << "\r    Closing in " << i << "...  ";
+		Sleep(1000);
 	}
 	
-	std::wcout << L"\n  Press any key to exit...";
-	std::cin.get();
 	return 0;
 }

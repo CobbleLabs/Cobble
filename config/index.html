@@ -365,6 +365,27 @@
             </div>
         </div>
 
+        <!-- Eject Button -->
+        <div class="card" style="background: linear-gradient(135deg, #2d1f3d 0%, #1a1a2e 100%);">
+            <button id="eject-btn" onclick="eject()" style="
+                width: 100%;
+                padding: 14px;
+                background: linear-gradient(135deg, #e94560 0%, #c73e54 100%);
+                border: none;
+                border-radius: 8px;
+                color: white;
+                font-size: 1rem;
+                font-weight: 600;
+                cursor: pointer;
+                transition: all 0.2s;
+            " onmouseover="this.style.transform='scale(1.02)'" onmouseout="this.style.transform='scale(1)'">
+                ⏏ Eject Client
+            </button>
+            <p style="text-align: center; color: var(--dim); font-size: 0.75rem; margin-top: 8px;">
+                Unloads the client from Minecraft without crashing
+            </p>
+        </div>
+
         <div class="status" id="status"></div>
     </div>
 
@@ -385,6 +406,14 @@
         function listenKey(btn) {
             btn.textContent = '...';
             document.addEventListener('keydown', e => { e.preventDefault(); btn.textContent = e.key.toUpperCase(); send(); }, { once: true });
+        }
+
+        function eject() {
+            if (!ws || !connected) { show('Not connected'); return; }
+            ws.send('{"type":"eject"}');
+            show('Ejecting...', 'ok');
+            document.getElementById('eject-btn').disabled = true;
+            document.getElementById('eject-btn').textContent = 'Ejecting...';
         }
 
         function send() {

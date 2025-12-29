@@ -7,6 +7,7 @@
 #include <gl/GL.h>
 #include <mutex>
 #include <atomic>
+#include <thread>
 
 #include "../../ext/minhook/minhook.h"
 #include "../../ext/imgui/imgui.h"
@@ -20,6 +21,7 @@ namespace {
 	std::once_flag setupFlag;
 	std::atomic<bool> initStarted{false};
 	std::atomic<bool> hookInstalled{false};
+	std::atomic<bool> shutdownRequested{false};
 	
 	// Original functions
 	typedef BOOL(__stdcall* wglSwapBuffers_t)(HDC hdc);
@@ -90,6 +92,9 @@ namespace {
 	
 	BOOL __stdcall HookedSwapBuffers(HDC hdc)
 	{
+		// Bail immediately if shutting down - avoid crash
+		if (shutdownRequested) return originalSwapBuffers(hdc);
+		
 		__try {
 			if (!hdc) return originalSwapBuffers(hdc);
 			
@@ -215,6 +220,12 @@ void Overlay::Init()
 
 void Overlay::Shutdown()
 {
+	// Signal hook to stop rendering immediately
+	shutdownRequested = true;
+	
+	// Give the hook time to exit if it's mid-render
+	std::this_thread::sleep_for(std::chrono::milliseconds(50));
+	
 	if (hookInstalled) {
 		MH_DisableHook(MH_ALL_HOOKS);
 		MH_RemoveHook(MH_ALL_HOOKS);
