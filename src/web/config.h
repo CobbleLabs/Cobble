@@ -2,6 +2,7 @@
 
 #include "../module/combat/autoclicker.h"
 #include "../module/combat/aimassist.h"
+#include "../module/combat/autorefill.h"
 #include "../module/visual/nametags.h"
 #include "../sdk/render_data.h"
 #include <string>
