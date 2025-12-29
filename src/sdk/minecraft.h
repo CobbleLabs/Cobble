@@ -76,6 +76,9 @@ struct Minecraft
 	RenderPos getRenderPos();
 	float getPartialTicks();
 
+	// Mouse sensitivity (for proper aim assist scaling)
+	float getMouseSensitivity();
+
 	// Inventory operations for AutoRefill
 	std::vector<SlotInfo> getInventorySlots();  // Get all 36 inventory slots
 	void windowClick(int slotId, int button);   // Click inventory slot (shift-click)

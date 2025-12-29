@@ -99,6 +99,39 @@ void Minecraft::setLeftClickCounter(int value)
 	Java::Env->SetIntField(instance, fid_leftClickCounter, value);
 }
 
+float Minecraft::getMouseSensitivity()
+{
+	if (!isValid()) return 0.5f; // Default
+
+	// Get gameSettings field
+	jfieldID fid_gameSettings = Java::Env->GetFieldID(cls, "gameSettings", "Lnet/minecraft/client/settings/GameSettings;");
+	if (!fid_gameSettings) return 0.5f;
+
+	jobject gameSettings = Java::Env->GetObjectField(instance, fid_gameSettings);
+	if (!gameSettings) return 0.5f;
+
+	// Get GameSettings class and mouseSensitivity field
+	jclass settingsClass = Java::Env->GetObjectClass(gameSettings);
+	if (!settingsClass) {
+		Java::Env->DeleteLocalRef(gameSettings);
+		return 0.5f;
+	}
+
+	jfieldID fid_sensitivity = Java::Env->GetFieldID(settingsClass, "mouseSensitivity", "F");
+	if (!fid_sensitivity) {
+		Java::Env->DeleteLocalRef(settingsClass);
+		Java::Env->DeleteLocalRef(gameSettings);
+		return 0.5f;
+	}
+
+	float sensitivity = Java::Env->GetFloatField(gameSettings, fid_sensitivity);
+
+	Java::Env->DeleteLocalRef(settingsClass);
+	Java::Env->DeleteLocalRef(gameSettings);
+
+	return sensitivity;
+}
+
 bool Minecraft::isTargetingBlock()
 {
 	if (!isValid()) return false;

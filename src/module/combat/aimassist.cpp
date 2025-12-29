@@ -1,3 +1,4 @@
+
 #include "aimassist.h"
 #include "../../sdk/minecraft.h"
 #include "../../util/logger.hpp"
@@ -12,7 +13,7 @@
 
 AimAssist aimAssist;
 
-// ========== Angle math utilities (circular domain safe) ==========
+// ========== Angle math utilities ==========
 
 static inline float wrap180(float a) {
 	a = std::fmod(a, 360.0f);
@@ -21,41 +22,16 @@ static inline float wrap180(float a) {
 	return a;
 }
 
-// Returns minimal angular delta from 'from' to 'to' in [-180, 180)
-// Returns minimal angular delta from 'from' to 'to' in [-180, 180)
 static inline float angDelta(float from, float to) {
 	return wrap180(to - from);
 }
 
-// SOFT DEADZONE: Returns angle to target CENTER (not edge)
-// The caller will apply soft strength based on how far inside/outside the hitbox
-static inline float angleToCenterCircular(float current, float center) {
-	return angDelta(current, center);
-}
-
-// Calculate soft strength: 1.0 when far outside hitbox, fades to ~0 at center
-// Uses smooth transition instead of binary cutoff
-static inline float calculateSoftStrength(float angleToCenter, float hitboxHalf) {
-	float absAngle = std::abs(angleToCenter);
-	
-	// Define transition zone: from hitbox edge inward
-	// Full strength: outside hitbox (absAngle > hitboxHalf)
-	// Fade zone: from edge to center
-	// Near-zero: at center
-	
-	if (absAngle >= hitboxHalf * 1.5f) {
-		// Well outside hitbox - full strength
-		return 1.0f;
-	} else if (absAngle <= hitboxHalf * 0.2f) {
-		// Very close to center - minimal strength (let spring die naturally)
-		return 0.03f;
-	} else {
-		// Soft transition zone - smooth fade
-		float normalizedPos = (absAngle - hitboxHalf * 0.2f) / (hitboxHalf * 1.3f);
-		// Smooth S-curve for natural feel
-		float t = normalizedPos * normalizedPos * (3.0f - 2.0f * normalizedPos);
-		return 0.03f + t * 0.97f;
-	}
+// Calculate MC's internal sensitivity multiplier for proper aim scaling
+static inline float getSensitivityMultiplier() {
+	float sens = mc.getMouseSensitivity();
+	float f = sens * 0.6f + 0.2f;
+	float f1 = f * f * f * 8.0f;
+	return f1 * 0.15f;
 }
 
 // =================================================================
@@ -78,14 +54,15 @@ void AimAssist::onEnable()
 	lastPitch = player.isValid() ? player.getPitch() : 0.0f;
 	yawBias = 0.0f;
 	pitchBias = 0.0f;
+	smoothedYawAccel = 0.0f;
+	smoothedPitchAccel = 0.0f;
 	
-	// Initialize noise state properly (start with active noise, not silence)
 	auto now = std::chrono::steady_clock::now();
 	noise.inZeroPeriod = false;
 	noise.yawNoise = randomFloat(-0.6f, 0.6f);
 	noise.pitchNoise = randomFloat(-0.4f, 0.4f);
 	noise.nextZero = now + std::chrono::milliseconds(static_cast<int>(randomFloat(100.0f, 180.0f)));
-	noise.nextRefresh = now;  // Not used until we enter zero period
+	noise.nextRefresh = now;
 	
 	lastUpdate = now;
 }
@@ -96,6 +73,8 @@ void AimAssist::onDisable()
 	hasLockedTarget = false;
 	currentYawVelocity = 0.0f;
 	currentPitchVelocity = 0.0f;
+	smoothedYawAccel = 0.0f;
+	smoothedPitchAccel = 0.0f;
 }
 
 void AimAssist::updateNoiseState()
@@ -103,7 +82,6 @@ void AimAssist::updateNoiseState()
 	auto now = std::chrono::steady_clock::now();
 	
 	if (noise.inZeroPeriod) {
-		// In zero period - check if it's time to generate new noise
 		if (now >= noise.nextRefresh) {
 			noise.inZeroPeriod = false;
 			noise.yawNoise = randomFloat(-0.8f, 0.8f) * randomFloat(0.5f, 1.1f);
@@ -111,7 +89,6 @@ void AimAssist::updateNoiseState()
 			noise.nextZero = now + std::chrono::milliseconds(static_cast<int>(randomFloat(80.0f, 150.0f)));
 		}
 	} else {
-		// Active noise period - check if it's time to go quiet
 		if (now >= noise.nextZero) {
 			noise.inZeroPeriod = true;
 			noise.yawNoise = 0.0f;
@@ -123,12 +100,8 @@ void AimAssist::updateNoiseState()
 
 float AimAssist::applyCurve(float normalizedDiff)
 {
-	// Non-linear ease-in curve: slow start, accelerates naturally
-	// But with a minimum floor to prevent stalling near target
 	float clamped = (std::min)(std::abs(normalizedDiff), 1.0f);
 	float curve = 1.0f - std::exp(-clamped * 3.0f);
-	
-	// Minimum floor: never go below 15% speed
 	return (std::max)(curve, 0.15f);
 }
 
@@ -137,10 +110,8 @@ void AimAssist::onUpdate()
 	if (!player.isValid()) return;
 	if (mc.isInGui()) return;
 
-	// Only when sprinting check
 	if (settings.onlySprinting && !player.isSprinting()) return;
 
-	// Only when clicking check
 	bool isClicking = (GetAsyncKeyState(VK_LBUTTON) & 0x8000) != 0;
 	if (settings.onlyClicking && !isClicking) {
 		hasLockedTarget = false;
@@ -149,37 +120,31 @@ void AimAssist::onUpdate()
 		return;
 	}
 
-	// Calculate delta time since last update (in seconds)
 	auto now = std::chrono::steady_clock::now();
 	float deltaTime = std::chrono::duration<float>(now - lastUpdate).count();
 	lastUpdate = now;
 	
-	// Clamp delta time to avoid huge jumps after lag spikes
 	deltaTime = (std::min)(deltaTime, 0.05f);
 	if (deltaTime < 0.0001f) return;
 
-	// Update temporal noise
 	updateNoiseState();
 	
-	// Update accumulated bias (micro-error drift)
 	yawBias += randomFloat(-0.015f, 0.015f);
 	pitchBias += randomFloat(-0.01f, 0.01f);
 	yawBias = (std::max)(-0.25f, (std::min)(yawBias, 0.25f));
 	pitchBias = (std::max)(-0.2f, (std::min)(pitchBias, 0.2f));
 
-	// Get current rotation
 	float localYaw = player.getYaw();
 	float localPitch = player.getPitch();
 	
-	// Detect user mouse movement
 	float userYawDelta = wrap180(localYaw - lastYaw);
 	float userPitchDelta = localPitch - lastPitch;
 	lastYaw = localYaw;
 	lastPitch = localPitch;
 	
-	// Intent detection: use angular velocity (deg/sec) not deg/frame
+	// Intent detection - back off when user is flicking
 	float intentFactor = 1.0f;
-	constexpr float fastThresholdDegPerSec = 200.0f;  // Fast mouse threshold
+	constexpr float fastThresholdDegPerSec = 200.0f;
 	
 	if (deltaTime > 0.0001f) {
 		float yawRate = std::abs(userYawDelta) / deltaTime;
@@ -193,7 +158,6 @@ void AimAssist::onUpdate()
 		}
 	}
 
-	// Get player list from world
 	auto players = mc.getPlayerList();
 	if (players.empty()) {
 		hasLockedTarget = false;
@@ -204,38 +168,60 @@ void AimAssist::onUpdate()
 	double localY = player.getPosY() + 1.62;
 	double localZ = player.getPosZ();
 
-	// Find best target
-	float bestYawCenter = 0.0f, bestYawHalf = 0.0f;
-	float bestPitchCenter = 0.0f, bestPitchHalf = 0.0f;
+	double maxDistSq = settings.maxDistance * settings.maxDistance;
+	constexpr double minDistSq = 0.25;
+
+	float bestYawCenter = 0.0f;
+	float bestPitchCenter = 0.0f;
 	float bestYawDiff = 999.0f;
-	double bestDistance = 999.0;
 	bool foundTarget = false;
 
 	for (auto& p : players) {
 		if (settings.ignoreInvisible && p.isInvisible) continue;
 
-		double dist = getHorizontalDistance(localX, localZ, p.posX, p.posZ);
-		if (dist > settings.maxDistance || dist < 0.5) continue;
+		double dx = p.posX - localX;
+		double dz = p.posZ - localZ;
+		double distSq = dx * dx + dz * dz;
+		
+		if (distSq > maxDistSq || distSq < minDistSq) continue;
+		
+		double dist = std::sqrt(distSq);
 
 		if (settings.visibilityCheck && !mc.canEntityBeSeen(p.instance)) continue;
 
 		if (settings.targetLock && hasLockedTarget) {
-			double lockDist = getHorizontalDistance(p.posX, p.posZ, lockedTargetX, lockedTargetZ);
-			if (lockDist > 0.5) continue;
+			double lockDx = p.posX - lockedTargetX;
+			double lockDz = p.posZ - lockedTargetZ;
+			double lockDistSq = lockDx * lockDx + lockDz * lockDz;
+			if (lockDistSq > 0.25) continue;
 		}
 
 		constexpr double HITBOX_WIDTH = 0.6;
 		constexpr double HITBOX_HEIGHT = 1.8;
 		constexpr double HALF_WIDTH = HITBOX_WIDTH / 2.0;
 		
-		double boxMinY = p.posY;
-		double boxMaxY = p.posY + HITBOX_HEIGHT;
+		// VELOCITY PREDICTION: Aim at where enemy WILL be
+		// (DISABLED FOR TESTING - set to 0)
+		constexpr double PREDICTION_TICKS = 0.0; // Set to 1.5 to enable
+		double velX = (p.posX - p.lastPosX) * PREDICTION_TICKS;
+		double velY = (p.posY - p.lastPosY) * PREDICTION_TICKS;
+		double velZ = (p.posZ - p.lastPosZ) * PREDICTION_TICKS;
 		
-		float hitboxAngularWidth = static_cast<float>(std::atan(HALF_WIDTH / dist) * (180.0 / PI));
-		float hitboxAngularHeight = static_cast<float>(std::atan((HITBOX_HEIGHT * 0.4) / dist) * (180.0 / PI));
+		// Filter out laggy/teleporting players (velocity too high = skip prediction)
+		double velMagSq = velX * velX + velZ * velZ;
+		if (velMagSq > 1.0) { // > 1 block/tick is suspicious
+			velX = velY = velZ = 0.0;
+		}
 		
-		double targetX = p.posX;
-		double targetZ = p.posZ;
+		double predictedX = p.posX + velX;
+		double predictedY = p.posY + velY;
+		double predictedZ = p.posZ + velZ;
+		
+		double boxMinY = predictedY;
+		double boxMaxY = predictedY + HITBOX_HEIGHT;
+		
+		double targetX = predictedX;
+		double targetZ = predictedZ;
 		double targetY;
 		
 		if (settings.multipoint) {
@@ -264,10 +250,7 @@ void AimAssist::onUpdate()
 		if (yawDiff < std::abs(bestYawDiff)) {
 			bestYawDiff = angDelta(localYaw, targetYaw);
 			bestYawCenter = targetYaw;
-			bestYawHalf = hitboxAngularWidth;
 			bestPitchCenter = targetPitch;
-			bestPitchHalf = hitboxAngularHeight;
-			bestDistance = dist;
 			foundTarget = true;
 			
 			lockedTargetX = p.posX;
@@ -275,7 +258,6 @@ void AimAssist::onUpdate()
 		}
 	}
 
-	// Clean up player instances (defensive: check before delete)
 	for (auto& p : players) {
 		if (p.instance) {
 			Java::Env->DeleteLocalRef(p.instance);
@@ -292,59 +274,80 @@ void AimAssist::onUpdate()
 
 	hasLockedTarget = true;
 	
-	// SOFT DEADZONE: Get angle to center (not to edge)
-	float yawToCenter = angleToCenterCircular(localYaw, bestYawCenter);
-	float pitchToCenter = angleToCenterCircular(localPitch, bestPitchCenter);
+	// ================================================
+	// NEW PARADIGM: AMPLIFY USER INPUT, DON'T CREATE IT
+	// The assist should feel like "my hand moved better"
+	// not "something moved my camera"
+	// ================================================
 	
-	// Calculate soft strength based on position relative to hitbox
-	// This creates smooth transition instead of binary on/off
-	float yawSoftStrength = calculateSoftStrength(yawToCenter, bestYawHalf);
-	float pitchSoftStrength = calculateSoftStrength(pitchToCenter, bestPitchHalf);
+	// 1. Raw angle to target (no bias/noise yet)
+	float rawYawDiff = angDelta(localYaw, bestYawCenter);
+	float rawPitchDiff = angDelta(localPitch, bestPitchCenter);
+	float absYaw = std::abs(rawYawDiff);
+	float absPitch = std::abs(rawPitchDiff);
 	
-	// Add accumulated bias (to target, not noise)
-	float yawDiff = yawToCenter + yawBias;
-	float pitchDiff = pitchToCenter + pitchBias;
+	// 2. ALIGNMENT CHECK: Continuous, not binary
+	// ratio = how much user is moving vs error angle
+	float yawAlignment = 0.0f;
+	float pitchAlignment = 0.0f;
 	
-	// Add temporal noise
-	yawDiff += noise.yawNoise * 0.3f;
-	pitchDiff += noise.pitchNoise * 0.3f;
-
-	// Detect opposing movement
-	float yawOpposition = 0.0f;
-	float pitchOpposition = 0.0f;
-	
-	if (std::abs(userYawDelta) > 0.1f && std::abs(yawDiff) > 0.1f) {
-		bool userMovingRight = userYawDelta > 0;
-		bool targetIsRight = yawDiff > 0;
-		if (userMovingRight != targetIsRight) {
-			yawOpposition = (std::min)(std::abs(userYawDelta) / 2.0f, 1.0f);
-		}
+	if (std::abs(userYawDelta) > 0.01f && absYaw > 0.1f) {
+		float ratio = std::abs(userYawDelta) / (absYaw + 0.001f);
+		ratio = (std::min)(ratio, 1.0f);
+		yawAlignment = ((userYawDelta > 0) == (rawYawDiff > 0)) ? ratio : -ratio;
+	}
+	if (std::abs(userPitchDelta) > 0.01f && absPitch > 0.1f) {
+		float ratio = std::abs(userPitchDelta) / (absPitch + 0.001f);
+		ratio = (std::min)(ratio, 1.0f);
+		pitchAlignment = ((userPitchDelta > 0) == (rawPitchDiff > 0)) ? ratio : -ratio;
 	}
 	
-	if (std::abs(userPitchDelta) > 0.1f && std::abs(pitchDiff) > 0.1f) {
-		bool userMovingDown = userPitchDelta > 0;
-		bool targetIsDown = pitchDiff > 0;
-		if (userMovingDown != targetIsDown) {
-			pitchOpposition = (std::min)(std::abs(userPitchDelta) / 2.0f, 1.0f);
-		}
-	}
+	// 3. INPUT ENERGY: How much is the user actually moving?
+	float inputEnergy = (std::abs(userYawDelta) + std::abs(userPitchDelta)) / (deltaTime > 0.001f ? deltaTime : 0.016f);
+	float energyFactor = (std::min)(inputEnergy / 150.0f, 1.0f);
+	
+	// 4. PROXIMITY STRENGTH: Smooth curve (calculate BEFORE noise)
+	float yawProximity = (std::min)(absYaw / 3.0f, 1.0f);
+	float pitchProximity = (std::min)(absPitch / 3.0f, 1.0f);
+	
+	// Soft magnet: smoothstep for natural feel
+	yawProximity = yawProximity * yawProximity * (3.0f - 2.0f * yawProximity);
+	pitchProximity = pitchProximity * pitchProximity * (3.0f - 2.0f * pitchProximity);
+	
+	// 5. DYNAMIC NOISE: Scales with input AND proximity
+	// Near target = clean, tracking = human imperfection
+	float noiseScale = energyFactor * yawProximity;
+	float dynamicNoise = noiseScale * randomFloat(-0.08f, 0.08f);
+	float yawDiff = rawYawDiff + dynamicNoise;
+	float pitchDiff = rawPitchDiff + dynamicNoise * 0.6f;
+	
+	// 6. GOLDEN RULE: Assist NEVER initiates movement
+	// If user isn't moving, strength drops to 10%
+	float yawInitiator = (std::abs(userYawDelta) > 0.02f) ? 1.0f : 0.1f;
+	float pitchInitiator = (std::abs(userPitchDelta) > 0.02f) ? 1.0f : 0.1f;
+	
+	// 7. ALIGNMENT BOOST: Continuous based on ratio
+	// yawAlignment is now -1 to +1 continuously
+	float yawAlignBoost = 1.0f + yawAlignment * 0.4f;
+	float pitchAlignBoost = 1.0f + pitchAlignment * 0.4f;
+	yawAlignBoost = (std::max)(0.0f, (std::min)(yawAlignBoost, 1.4f));
+	pitchAlignBoost = (std::max)(0.0f, (std::min)(pitchAlignBoost, 1.4f));
+	
+	// 8. FINAL STRENGTH: Combine all factors
+	float yawStrength = yawProximity * yawInitiator * yawAlignBoost * intentFactor;
+	float pitchStrength = pitchProximity * pitchInitiator * pitchAlignBoost * intentFactor;
+	
+	// Scale by MC sensitivity
+	float sensMultiplier = getSensitivityMultiplier();
+	float baseMultiplier = (sensMultiplier > 0.001f) ? (0.15f / sensMultiplier) : 1.0f;
 
-	// Final strength = soft strength * opposition * intent
-	// NO BINARY CUTS - everything is continuous
-	float yawStrength = yawSoftStrength * (1.0f - yawOpposition) * intentFactor;
-	float pitchStrength = pitchSoftStrength * (1.0f - pitchOpposition) * intentFactor;
-
-	float yawRotation = 0.0f;
+	float effectiveYawSpeed = settings.horizontalSpeed * yawStrength * baseMultiplier;
+	float effectivePitchSpeed = settings.verticalSpeed * pitchStrength * baseMultiplier;
+	
+	float yawRotation = calculateSmoothRotation(yawDiff, effectiveYawSpeed, deltaTime, currentYawVelocity, smoothedYawAccel);
 	float pitchRotation = 0.0f;
-	
-	// Always let spring work (no strength > 0.01 check that cuts force)
-	// The soft strength already handles the fade to near-zero
-	float effectiveYawSpeed = settings.horizontalSpeed * yawStrength;
-	float effectivePitchSpeed = settings.verticalSpeed * pitchStrength;
-	
-	yawRotation = calculateSmoothRotation(yawDiff, effectiveYawSpeed, deltaTime, currentYawVelocity);
 	if (settings.verticalAim) {
-		pitchRotation = calculateSmoothRotation(pitchDiff, effectivePitchSpeed, deltaTime, currentPitchVelocity);
+		pitchRotation = calculateSmoothRotation(pitchDiff, effectivePitchSpeed, deltaTime, currentPitchVelocity, smoothedPitchAccel);
 	}
 
 	if (std::abs(yawRotation) > 0.001f) {
@@ -360,60 +363,68 @@ void AimAssist::onUpdate()
 	}
 }
 
-float AimAssist::calculateSmoothRotation(float angleDiff, float speed, float deltaTime, float& velocity)
+float AimAssist::calculateSmoothRotation(float angleDiff, float speed, float deltaTime, float& velocity, float& smoothedAccel)
 {
-	float absAngle = std::abs(angleDiff);
-	
-	if (absAngle < 0.03f) {
-		velocity *= 0.3f;
+	if (speed < 0.01f) {
+		velocity *= 0.9f;
 		return 0.0f;
 	}
 	
-	// Base stiffness and damping
-	float baseStiffness = speed * 1.5f;
-	float baseDamping = std::sqrt(baseStiffness) * 2.3f;
-	
-	// TWO REGIMES: 
-	// - Far from target: spring active (correcting)
-	// - Near target: spring fades, damping dominates (settling)
-	// Threshold: ~3 degrees = transition zone
-	constexpr float settleThreshold = 3.5f;
-	
-	float stiffnessFactor;
-	if (absAngle > settleThreshold) {
-		// Correction regime: full spring
-		stiffnessFactor = 1.0f;
-	} else {
-		// Settling regime: spring fades as we approach center
-		// This lets the system coast on momentum + friction instead of "pushing slowly"
-		float t = absAngle / settleThreshold;  // 0 at center, 1 at threshold
-		stiffnessFactor = t * t;  // Quadratic fade for smooth transition
+	float absAngle = std::abs(angleDiff);
+	if (absAngle < 0.01f) {
+		velocity *= 0.7f;
+		smoothedAccel *= 0.7f;
+		return 0.0f;
 	}
 	
-	float stiffness = baseStiffness * stiffnessFactor;
-	float damping = baseDamping;  // Damping stays constant - this is the "friction"
+	// Continuous stiffness curve (SmoothStep)
+	constexpr float MAX_ANGLE = 5.0f;
+	float t = (std::min)(absAngle / MAX_ANGLE, 1.0f);
+	float smoothT = t * t * (3.0f - 2.0f * t);
+	float stiffnessFactor = 0.2f + 0.8f * smoothT;
 	
-	float smoothMult = 1.0f - (settings.smoothing * 0.8f);
-	stiffness *= smoothMult;
+	float baseStiffness = speed * stiffnessFactor;
 	
-	float springForce = angleDiff * stiffness;
-	float dampingForce = -velocity * damping;
-	float acceleration = springForce + dampingForce;
+	// User smoothing
+	float smoothMult = 1.0f - (settings.smoothing * 0.7f);
+	baseStiffness *= smoothMult;
 	
-	velocity += acceleration * deltaTime;
+	// Dynamic damping based on proximity AND velocity
+	// Less damping when close = less "sticky" feel
+	float velocityMagnitude = std::abs(velocity);
+	float velocityFactor = (std::min)(velocityMagnitude / (speed * 2.0f), 1.0f);
 	
-	float maxVelocity = speed * 2.5f;
-	velocity = (std::max)(-maxVelocity, (std::min)(velocity, maxVelocity));
+	// Proximity damping: 0.2 (close) -> 0.6 (far)
+	float proximityDamping = 0.2f + (std::min)(absAngle / 2.0f, 1.0f) * 0.4f;
 	
-	float rotation = velocity * deltaTime;
+	float dampingMultiplier = 1.0f + (velocityFactor * proximityDamping);
+	float baseDamping = std::sqrt(baseStiffness) * 1.8f * dampingMultiplier; // 1.8 instead of 2.0 for lighter feel
 	
-	// Prevent overshoot
-	if (std::abs(rotation) > absAngle) {
-		rotation = angleDiff;
-		velocity *= 0.3f;
+	// Sub-frame integration
+	constexpr int subSteps = 8;
+	float subDeltaTime = deltaTime / static_cast<float>(subSteps);
+	float totalRotation = 0.0f;
+	
+	for (int i = 0; i < subSteps; ++i) {
+		float springForce = angleDiff * baseStiffness;
+		float dampingForce = -velocity * baseDamping;
+		float targetAccel = springForce + dampingForce;
+		
+		constexpr float accelLerp = 0.4f;
+		smoothedAccel = smoothedAccel + (targetAccel - smoothedAccel) * accelLerp;
+		
+		velocity += smoothedAccel * subDeltaTime;
+		
+		float maxVel = speed * 2.5f;
+		velocity = (std::max)(-maxVel, (std::min)(velocity, maxVel));
+		
+		float subRotation = velocity * subDeltaTime;
+		totalRotation += subRotation;
+		
+		angleDiff -= subRotation;
 	}
 	
-	return rotation;
+	return totalRotation;
 }
 
 float AimAssist::getYawTo(double deltaX, double deltaZ)
@@ -424,6 +435,11 @@ float AimAssist::getYawTo(double deltaX, double deltaZ)
 float AimAssist::getPitchTo(double deltaX, double deltaY, double deltaZ)
 {
 	double horizontalDist = std::sqrt(deltaX * deltaX + deltaZ * deltaZ);
+	
+	if (horizontalDist < 0.001) {
+		return (deltaY > 0) ? -90.0f : 90.0f;
+	}
+	
 	return static_cast<float>(-std::atan2(deltaY, horizontalDist)) * (180.0f / PI);
 }
 

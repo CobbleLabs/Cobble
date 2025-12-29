@@ -26,8 +26,8 @@ public:
 		bool hurtTimeBoost = false;  // Legacy setting for config compatibility
 		bool multipoint = false;  // Aim at closest point on hitbox
 		
-		float horizontalSpeed = 45.0f;  // Slider value, config.cpp applies 1.5x
-		float verticalSpeed = 25.0f;    // Slider value, config.cpp applies 1.5x
+		float horizontalSpeed = 45.0f;
+		float verticalSpeed = 25.0f;
 		float maxFov = 360.0f;
 		float maxDistance = 4.5f;
 		float randomization = 0.15f;
@@ -80,7 +80,12 @@ private:
 	float applyCurve(float normalizedDiff);
 	
 	// Calculates smooth rotation using velocity-based spring-damper system
-	float calculateSmoothRotation(float angleDiff, float speed, float deltaTime, float& velocity);
+	// Acceleration state for velocity interpolation
+	float smoothedYawAccel = 0.0f;
+	float smoothedPitchAccel = 0.0f;
+
+	// Calculates smooth rotation using velocity-based spring-damper system
+	float calculateSmoothRotation(float angleDiff, float speed, float deltaTime, float& velocity, float& smoothedAccel);
 };
 
 extern AimAssist aimAssist;

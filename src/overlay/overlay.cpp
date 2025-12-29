@@ -153,6 +153,11 @@ namespace {
 			
 			if ((contextChanged || hdcChanged) && Overlay::initialized) {
 				log_debug("Overlay: GL context/HDC changed, reinitializing...");
+				
+				// Close menu on context change to avoid stale ImGui state
+				Menu::isOpen = false;
+				Menu::moduleToBind = nullptr;
+				
 				// Cleanup old ImGui state
 				if (Overlay::overlayContext) {
 					wglMakeCurrent(hdc, Overlay::overlayContext);
@@ -163,6 +168,9 @@ namespace {
 					Overlay::overlayContext = nullptr;
 				}
 				Overlay::initialized = false;
+				
+				// Reset WndProc so it gets reinstalled for the new window
+				originalWndProc = nullptr;
 			}
 			lastOriginalContext = currentOriginalContext;
 			lastHDC = hdc;
@@ -172,6 +180,7 @@ namespace {
 			if (!Overlay::initialized) {
 				SetupImGui();
 				if (Overlay::initialized && !originalWndProc) {
+					// Install our WndProc hook (only if not already installed)
 					originalWndProc = (WNDPROC)SetWindowLongPtrA(Overlay::gameWindow, GWLP_WNDPROC, (LONG_PTR)HookedWndProc);
 					log_ok("Overlay rendering ready");
 				}
