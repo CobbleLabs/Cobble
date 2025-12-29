@@ -75,7 +75,7 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/).
 ## [0.7.0] - 2025-12-26
 
 ### Changed
-- **AimAssist: Reescritura completa** basada en Dream-Advanced
+- **AimAssist: Reescritura completa**
   - Timer-based updates (1-10ms) para smoothness óptimo
   - Fórmula de sensibilidad de MC: `(sens * 0.6 + 0.2)^3 * 8`
   - Hurt Time Boost: rota más rápido cuando te golpean

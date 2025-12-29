@@ -1,6 +1,6 @@
 #pragma once
 
-#include "module.h"
+#include "../module.h"
 #include <cmath>
 #include <chrono>
 #include <random>

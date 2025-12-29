@@ -2,9 +2,9 @@
 
 #include "cobble.hpp"
 #include "module/module_manager.h"
-#include "module/autoclicker.h"
-#include "module/aimassist.h"
-#include "module/nametags.h"
+#include "module/combat/autoclicker.h"
+#include "module/combat/aimassist.h"
+#include "module/visual/nametags.h"
 #include "web/config.h"
 #include "overlay/overlay.h"
 #include "overlay/notifications.h"

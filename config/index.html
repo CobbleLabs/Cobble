@@ -236,15 +236,15 @@
                 <div class="check" id="ac-weapon"></div><span>Weapon Only</span>
             </div>
             <div class="check-row" onclick="chk(this)">
-                <div class="check on" id="ac-blocks"></div><span>Ignore Blocks</span>
+                <div class="check on" id="ac-break"></div><span>Break Blocks</span>
+            </div>
+            <div class="check-row" onclick="chk(this)">
+                <div class="check" id="ac-inventory"></div><span>Work In Inventory</span>
             </div>
             <div class="div"></div>
             <div class="sec">ANTI-DETECTION</div>
             <div class="check-row" onclick="chk(this)">
                 <div class="check" id="ac-attacking"></div><span>Attacking Only</span>
-            </div>
-            <div class="check-row" onclick="chk(this)">
-                <div class="check" id="ac-break"></div><span>Break Blocks</span>
             </div>
         </div>
 
@@ -361,9 +361,6 @@
             " onmouseover="this.style.transform='scale(1.02)'" onmouseout="this.style.transform='scale(1)'">
                 ⏏ Eject Client
             </button>
-            <p style="text-align: center; color: var(--dim); font-size: 0.75rem; margin-top: 8px;">
-                Unloads the client from Minecraft without crashing
-            </p>
         </div>
 
         <div class="status" id="status"></div>
@@ -374,11 +371,31 @@
 
         function connect() {
             ws = new WebSocket('ws://localhost:8765');
-            ws.onopen = () => { connected = true; show('Connected', 'ok'); ws.send('{"type":"getConfig"}'); setInterval(() => { if (ws && connected) ws.send('{"type":"getConfig"}') }, 500); };
+            ws.onopen = () => {
+                connected = true;
+                // Reset eject state on reconnect
+                ejecting = false;
+                document.getElementById('eject-btn').disabled = false;
+                document.getElementById('eject-btn').textContent = 'Eject';
+                show('Connected', 'ok');
+                // Request config once - server pushes updates via WebSocket
+                ws.send('{"type":"getConfig"}');
+            };
             ws.onmessage = e => { try { let d = JSON.parse(e.data); if (d.type === 'configAll') apply(d); } catch { } };
-            ws.onclose = () => { connected = false; show('Reconnecting...'); setTimeout(connect, 2000); };
+            ws.onclose = () => {
+                connected = false;
+                if (ejecting) {
+                    show('Ejected.');
+                    document.getElementById('eject-btn').textContent = 'Ejected';
+                } else {
+                    show('Reconnecting...');
+                }
+                // Always try to reconnect
+                setTimeout(connect, 2000);
+            };
         }
 
+        let ejecting = false;
         function show(t, c = '') { let s = document.getElementById('status'); s.textContent = t; s.className = 'status ' + c; }
         function upd(el, id, m = 1) { document.getElementById(id).textContent = m < 1 ? (el.value * m).toFixed(2) : el.value; }
         function tog(el) { el.classList.toggle('on'); send(); }
@@ -390,6 +407,7 @@
 
         function eject() {
             if (!ws || !connected) { show('Not connected'); return; }
+            ejecting = true;
             ws.send('{"type":"eject"}');
             show('Ejecting...', 'ok');
             document.getElementById('eject-btn').disabled = true;
@@ -405,7 +423,8 @@
                 minCPS: +document.getElementById('ac-min').value,
                 maxCPS: +document.getElementById('ac-max').value,
                 weaponOnly: document.getElementById('ac-weapon').classList.contains('on'),
-                ignoreBlocks: document.getElementById('ac-blocks').classList.contains('on'),
+                breakBlocks: document.getElementById('ac-break').classList.contains('on'),
+                workInInventory: document.getElementById('ac-inventory').classList.contains('on'),
                 advancedMode: true, dropChance: 5, spikeChance: 10, kurtosis: 2
             }));
             ws.send(JSON.stringify({
@@ -444,7 +463,8 @@
                 document.getElementById('ac-min').value = c.minCPS; document.getElementById('ac-min-v').textContent = Math.round(c.minCPS);
                 document.getElementById('ac-max').value = c.maxCPS; document.getElementById('ac-max-v').textContent = Math.round(c.maxCPS);
                 document.getElementById('ac-weapon').classList.toggle('on', c.weaponOnly);
-                document.getElementById('ac-blocks').classList.toggle('on', c.ignoreBlocks);
+                document.getElementById('ac-break').classList.toggle('on', c.breakBlocks);
+                document.getElementById('ac-inventory').classList.toggle('on', c.workInInventory);
             }
             if (d.aimassist) {
                 let c = d.aimassist;

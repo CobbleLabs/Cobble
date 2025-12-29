@@ -1,6 +1,6 @@
 #pragma once
 
-#include "module.h"
+#include "../module.h"
 #include <vector>
 #include <mutex>
 

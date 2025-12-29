@@ -42,23 +42,35 @@ AutoClicker::AutoClicker() : Module("AutoClicker")
 void AutoClicker::onEnable()
 {
 	lastClick = std::chrono::steady_clock::now();
-	holdingMouseDown = false;
+	lastClickWasDown = false;
 	clicksSinceRangeChange = 0;
+	sessionStart = std::chrono::steady_clock::now();
+	fatigueMultiplier = 1.0f;
+	clicksSinceLastFatigueUpdate = 0;
+	inBurst = false;
+	burstClicksRemaining = 0;
+	burstSpeedMultiplier = 1.0f;
+	currentJitterMode = 0;
+	jitterModeClicksRemaining = 0;
+	
 	regenerateDelayRange();
 	calculateNextDelay();
 }
 
 void AutoClicker::onDisable()
 {
-	// Release click if holding
-	if (holdingMouseDown) {
-		releaseClick();
+	// Release click if we ended on a DOWN
+	if (lastClickWasDown) {
+		HWND hwnd = GetForegroundWindow();
+		if (hwnd) {
+			PostMessage(hwnd, WM_LBUTTONUP, 0, 0);
+		}
+		lastClickWasDown = false;
 	}
 }
 
 void AutoClicker::regenerateDelayRange()
 {
-	// Dream-Advanced technique: randomize delay range periodically
 	// This makes timing patterns less predictable
 	std::uniform_real_distribution<float> minDist(15.0f, 40.0f);
 	std::uniform_real_distribution<float> maxDist(60.0f, 85.0f);
@@ -75,61 +87,37 @@ void AutoClicker::onUpdate()
 	HWND hwnd = GetForegroundWindow();
 	if (!hwnd) return;
 	
-	// Not holding left mouse button - release if we were holding
+	// Not holding left mouse button
 	if (!(GetAsyncKeyState(VK_LBUTTON) & 0x8000)) {
-		if (holdingMouseDown) {
-			releaseClick();
-		}
 		return;
 	}
 	
-	// Right click blocks autoclicker (Dream-Advanced behavior)
+	// Right click blocks autoclicker
 	if (GetAsyncKeyState(VK_RBUTTON) & 0x8000) {
-		if (holdingMouseDown) {
-			releaseClick();
-		}
 		return;
 	}
 	
 	// Check GUI state
 	bool inGui = mc.isInGui();
 	if (inGui && !settings.workInInventory) {
-		if (holdingMouseDown) releaseClick();
 		return;
 	}
 	
 	// Weapon-only check
 	if (settings.weaponOnly && !inGui && !isHoldingWeapon()) {
-		if (holdingMouseDown) releaseClick();
 		return;
 	}
 	
-	// Break blocks mode - hold click when targeting block
+	// Break blocks - skip clicking when targeting block
 	if (settings.breakBlocks && isTargetingBlock()) {
-		if (!holdingMouseDown) {
-			PostMessage(hwnd, WM_LBUTTONDOWN, MK_LBUTTON, 0);
-			holdingMouseDown = true;
-		}
-		return;
-	}
-	
-	// Ignore blocks (if not breaking)
-	if (settings.ignoreBlocks && isTargetingBlock()) {
-		if (holdingMouseDown) releaseClick();
 		return;
 	}
 	
 	// Attacking only - check if player is in crosshair
 	if (settings.attackingOnly && !inGui) {
 		if (!isTargetingPlayer()) {
-			if (holdingMouseDown) releaseClick();
 			return;
 		}
-	}
-	
-	// Release hold if we switched from break blocks mode
-	if (holdingMouseDown) {
-		releaseClick();
 	}
 	
 	// Check timing
@@ -164,6 +152,11 @@ void AutoClicker::onUpdate()
 
 void AutoClicker::calculateNextDelay()
 {
+	// Update humanization systems
+	updateFatigue();
+	updateBurstMode();
+	updateJitterMode();
+	
 	float minCps = settings.minCPS;
 	float maxCps = settings.maxCPS;
 	
@@ -179,7 +172,6 @@ void AutoClicker::calculateNextDelay()
 		}
 	}
 	
-	// Dream-Advanced delay calculation:
 	// Base delay from current randomized range, scaled by CPS
 	std::uniform_real_distribution<float> baseDist(currentDelayMin, currentDelayMax);
 	float baseDelay = baseDist(rng);
@@ -196,35 +188,64 @@ void AutoClicker::calculateNextDelay()
 		delay = meanDelay + (deviation * kurtosisEffect);
 	}
 	
-	// Add micro-jitter (±3ms)
-	std::uniform_int_distribution<int> jitterDist(-3, 3);
-	delay += jitterDist(rng);
+	// Apply fatigue (session-based speed variation)
+	delay *= fatigueMultiplier;
 	
-	// Clamp to sane values
+	// Apply burst mode (clusters of fast/slow clicking)
+	if (inBurst) {
+		delay *= burstSpeedMultiplier;
+	}
+	
+	// Add non-uniform jitter based on current mode
+	int jitterAmount = 0;
+	switch (currentJitterMode) {
+		case 0:  // No jitter
+			jitterAmount = 0;
+			break;
+		case 1:  // Small jitter ±2ms
+			{
+				std::uniform_int_distribution<int> jitterDist(-2, 2);
+				jitterAmount = jitterDist(rng);
+			}
+			break;
+		case 2:  // Medium jitter ±5ms
+			{
+				std::uniform_int_distribution<int> jitterDist(-5, 5);
+				jitterAmount = jitterDist(rng);
+			}
+			break;
+		case 3:  // Large jitter ±12ms
+			{
+				std::uniform_int_distribution<int> jitterDist(-12, 12);
+				jitterAmount = jitterDist(rng);
+			}
+			break;
+	}
+	delay += jitterAmount;
+	
+	// Halve the delay because alternating pattern needs 2 calls per click
+	delay *= 0.5f;
+	
+	// Clamp to sane values (these are per-event, not per-click)
 	nextDelayMs = static_cast<int>(delay);
-	nextDelayMs = (std::max)(nextDelayMs, 40);   // Min 25 CPS
-	nextDelayMs = (std::min)(nextDelayMs, 200);  // Max 5 CPS
+	nextDelayMs = (std::max)(nextDelayMs, 20);   // Min ~25 CPS
+	nextDelayMs = (std::min)(nextDelayMs, 100);  // Max ~5 CPS
 }
 
 void AutoClicker::doClick()
 {
 	HWND hwnd = GetForegroundWindow();
 	if (!hwnd) return;
-
-	// PostMessage is async and more natural than SendMessage
-	PostMessage(hwnd, WM_LBUTTONDOWN, MK_LBUTTON, 0);
-	PostMessage(hwnd, WM_LBUTTONUP, 0, 0);
-}
-
-void AutoClicker::releaseClick()
-{
-	if (!holdingMouseDown) return;
 	
-	HWND hwnd = GetForegroundWindow();
-	if (hwnd) {
+	// Alternating pattern using PostMessage (like reference code)
+	// This works correctly when user is holding physical click
+	if (lastClickWasDown) {
 		PostMessage(hwnd, WM_LBUTTONUP, 0, 0);
+		lastClickWasDown = false;
+	} else {
+		PostMessage(hwnd, WM_LBUTTONDOWN, MK_LBUTTON, 0);
+		lastClickWasDown = true;
 	}
-	holdingMouseDown = false;
 }
 
 bool AutoClicker::isHoldingWeapon()
@@ -283,4 +304,106 @@ bool AutoClicker::isTargetingPlayer()
 int AutoClicker::getHeldItemId()
 {
 	return player.getHeldItemId();
+}
+
+void AutoClicker::updateFatigue()
+{
+	// Humans get tired over time - clicking naturally slows down
+	// Then they "wake up" and speed up again
+	
+	clicksSinceLastFatigueUpdate++;
+	
+	// Update fatigue every 100-200 clicks
+	if (clicksSinceLastFatigueUpdate < 100) return;
+	
+	std::uniform_int_distribution<int> shouldUpdateDist(0, 100);
+	if (shouldUpdateDist(rng) > 50) return;
+	
+	clicksSinceLastFatigueUpdate = 0;
+	
+	// Session duration affects fatigue
+	auto sessionDuration = std::chrono::duration_cast<std::chrono::seconds>(
+		std::chrono::steady_clock::now() - sessionStart).count();
+	
+	// Base fatigue increases slowly over time (0.1% per minute)
+	float baseFatigue = 1.0f + (sessionDuration / 600.0f) * 0.1f;
+	
+	// Add random variation (±5%)
+	std::uniform_real_distribution<float> variationDist(-0.05f, 0.05f);
+	fatigueMultiplier = baseFatigue + variationDist(rng);
+	
+	// Clamp to reasonable range (90% to 115% of normal speed)
+	fatigueMultiplier = std::max(0.90f, std::min(1.15f, fatigueMultiplier));
+}
+
+void AutoClicker::updateBurstMode()
+{
+	// Humans click in bursts - periods of faster or slower clicking
+	// Not every click, just occasional clusters
+	
+	if (burstClicksRemaining > 0) {
+		burstClicksRemaining--;
+		if (burstClicksRemaining == 0) {
+			inBurst = false;
+			burstSpeedMultiplier = 1.0f;
+		}
+		return;
+	}
+	
+	// Small chance to enter burst mode each click
+	std::uniform_int_distribution<int> burstChanceDist(0, 100);
+	if (burstChanceDist(rng) > 8) return;  // 8% chance
+	
+	inBurst = true;
+	
+	// Burst length: 3-12 clicks
+	std::uniform_int_distribution<int> lengthDist(3, 12);
+	burstClicksRemaining = lengthDist(rng);
+	
+	// Burst speed: 70% chance faster, 30% chance slower
+	std::uniform_int_distribution<int> typeDist(0, 100);
+	if (typeDist(rng) < 70) {
+		// Fast burst (0.85-0.95x delay = faster)
+		std::uniform_real_distribution<float> fastDist(0.85f, 0.95f);
+		burstSpeedMultiplier = fastDist(rng);
+	} else {
+		// Slow burst (1.05-1.20x delay = slower)
+		std::uniform_real_distribution<float> slowDist(1.05f, 1.20f);
+		burstSpeedMultiplier = slowDist(rng);
+	}
+}
+
+void AutoClicker::updateJitterMode()
+{
+	// Non-uniform jitter: sometimes no jitter, sometimes more
+	// Humans don't have consistent timing variance
+	
+	if (jitterModeClicksRemaining > 0) {
+		jitterModeClicksRemaining--;
+		return;
+	}
+	
+	// Choose new jitter mode
+	std::uniform_int_distribution<int> modeDist(0, 100);
+	int roll = modeDist(rng);
+	
+	// Distribution:
+	// 25% - no jitter (mode 0)
+	// 40% - small jitter ±2ms (mode 1)
+	// 25% - medium jitter ±5ms (mode 2)
+	// 10% - large jitter ±10ms (mode 3)
+	
+	if (roll < 25) {
+		currentJitterMode = 0;
+	} else if (roll < 65) {
+		currentJitterMode = 1;
+	} else if (roll < 90) {
+		currentJitterMode = 2;
+	} else {
+		currentJitterMode = 3;
+	}
+	
+	// How long to stay in this mode: 5-25 clicks
+	std::uniform_int_distribution<int> lengthDist(5, 25);
+	jitterModeClicksRemaining = lengthDist(rng);
 }

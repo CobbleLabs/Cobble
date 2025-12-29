@@ -1,10 +1,10 @@
 #include "nametags.h"
-#include "../sdk/minecraft.h"
-#include "../sdk/render_data.h"
-#include "../util/logger.hpp"
-#include "../util/math/worldToScreen.h"
+#include "../../sdk/minecraft.h"
+#include "../../sdk/render_data.h"
+#include "../../util/logger.hpp"
+#include "../../util/math/worldToScreen.h"
 
-#include "../../ext/imgui/imgui.h"
+#include "../../../ext/imgui/imgui.h"
 #include <cmath>
 #include <cstdio>
 
@@ -126,7 +126,7 @@ void NameTags::onUpdate()
 	}
 }
 
-// Called from RENDER thread - project to screen using Knight's formula
+// Called from RENDER thread
 void NameTags::onRender()
 {
 	debugCounter++;
@@ -158,13 +158,11 @@ void NameTags::onRender()
 	{
 		if (!p.valid) continue;
 		
-		// Knight's ESP formula for smooth interpolation:
 		// origin = renderPos - entityLastPos + (entityLastPos - entityPos) * renderPartialTicks
 		// This interpolates the entity position between ticks for smooth movement
 		
 		float entityHeight = 2.0f;  // Above head
 		
-		// The formula from Knight (simplified for single point above head):
 		// Point = renderPos - (entityLastPos interpolated) + offset
 		float interpX = (float)(p.lastPosX + (p.posX - p.lastPosX) * partialTicks);
 		float interpY = (float)(p.lastPosY + (p.posY - p.lastPosY) * partialTicks) + entityHeight;

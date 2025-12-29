@@ -118,14 +118,13 @@ void Config::apply(const std::string& json) {
 			autoClicker.settings.minCPS = getFloat(json, "minCPS", 10.0f);
 			autoClicker.settings.maxCPS = getFloat(json, "maxCPS", 14.0f);
 			autoClicker.settings.weaponOnly = getBool(json, "weaponOnly");
-			autoClicker.settings.ignoreBlocks = getBool(json, "ignoreBlocks", true);
+			autoClicker.settings.breakBlocks = getBool(json, "breakBlocks", true);
 			autoClicker.settings.workInInventory = getBool(json, "workInInventory");
 			autoClicker.settings.advancedMode = getBool(json, "advancedMode", true);
 			autoClicker.settings.dropChance = getFloat(json, "dropChance", 5.0f);
 			autoClicker.settings.spikeChance = getFloat(json, "spikeChance", 10.0f);
 			autoClicker.settings.kurtosis = getFloat(json, "kurtosis", 2.0f);
 			autoClicker.settings.attackingOnly = getBool(json, "attackingOnly");
-			autoClicker.settings.breakBlocks = getBool(json, "breakBlocks");
 			
 			std::string kb = getValue(json, "keybind");
 			if (!kb.empty()) autoClicker.keybind = keyStringToVK(kb);
@@ -164,14 +163,13 @@ std::string Config::serialize() {
 	ss << "\"minCPS\":" << autoClicker.settings.minCPS << ",";
 	ss << "\"maxCPS\":" << autoClicker.settings.maxCPS << ",";
 	ss << "\"weaponOnly\":" << (autoClicker.settings.weaponOnly ? "true" : "false") << ",";
-	ss << "\"ignoreBlocks\":" << (autoClicker.settings.ignoreBlocks ? "true" : "false") << ",";
+	ss << "\"breakBlocks\":" << (autoClicker.settings.breakBlocks ? "true" : "false") << ",";
 	ss << "\"workInInventory\":" << (autoClicker.settings.workInInventory ? "true" : "false") << ",";
 	ss << "\"advancedMode\":" << (autoClicker.settings.advancedMode ? "true" : "false") << ",";
 	ss << "\"dropChance\":" << autoClicker.settings.dropChance << ",";
 	ss << "\"spikeChance\":" << autoClicker.settings.spikeChance << ",";
 	ss << "\"kurtosis\":" << autoClicker.settings.kurtosis << ",";
-	ss << "\"attackingOnly\":" << (autoClicker.settings.attackingOnly ? "true" : "false") << ",";
-	ss << "\"breakBlocks\":" << (autoClicker.settings.breakBlocks ? "true" : "false") << "},";
+	ss << "\"attackingOnly\":" << (autoClicker.settings.attackingOnly ? "true" : "false") << "},";
 	
 	// AimAssist
 	ss << "\"aimassist\":{";

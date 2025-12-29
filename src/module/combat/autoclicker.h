@@ -1,14 +1,9 @@
 #pragma once
 
-#include "module.h"
+#include "../module.h"
 #include <chrono>
 #include <random>
 
-// Anti-detection AutoClicker with Dream-Advanced techniques:
-// - PostMessage-based clicking (async, more natural)
-// - Dynamic delay ranges that change every 30-70 clicks
-// - Attacking only mode (only click when player in crosshair)
-// - Break blocks mode (hold click when targeting block)
 class AutoClicker : public Module
 {
 public:
@@ -22,7 +17,7 @@ public:
 		float minCPS = 10.0f;
 		float maxCPS = 16.0f;
 		bool weaponOnly = false;
-		bool ignoreBlocks = true;
+		bool breakBlocks = true;     // Skip clicking when targeting block
 		bool workInInventory = false;
 		
 		// Advanced randomization
@@ -32,9 +27,8 @@ public:
 		float spikeMultiplier = 1.3f;
 		float kurtosis = 2.0f;      // Higher = more consistent CPS
 		
-		// Anti-detection (new)
+		// Anti-detection
 		bool attackingOnly = false;  // Only click when player in crosshair
-		bool breakBlocks = false;    // Hold click when targeting block
 	} settings;
 
 private:
@@ -48,8 +42,25 @@ private:
 	float currentDelayMin = 25.0f;  // Base delay range (ms)
 	float currentDelayMax = 70.0f;
 	
-	// Break blocks state
-	bool holdingMouseDown = false;
+	// Alternating click pattern (more realistic - clicks have duration)
+	bool lastClickWasDown = false;  // false = last was UP, next is DOWN
+	
+	// Block breaking state (edge detection)
+	bool wasBreakingBlock = false;  // true = currently holding click on block
+	
+	// Session fatigue (speed varies over time)
+	std::chrono::steady_clock::time_point sessionStart;
+	float fatigueMultiplier = 1.0f;      // 1.0 = normal, >1.0 = slower (tired)
+	int clicksSinceLastFatigueUpdate = 0;
+	
+	// Burst mode (accelerate/decelerate in clusters)
+	bool inBurst = false;
+	int burstClicksRemaining = 0;
+	float burstSpeedMultiplier = 1.0f;   // <1.0 = faster, >1.0 = slower
+	
+	// Non-uniform jitter
+	int currentJitterMode = 0;  // 0=none, 1=small, 2=medium, 3=large
+	int jitterModeClicksRemaining = 0;
 
 public:
 	// For AimAssist integration
@@ -58,7 +69,11 @@ public:
 	void calculateNextDelay();
 	void regenerateDelayRange();
 	void doClick();
-	void releaseClick();
+	
+	// Humanization
+	void updateFatigue();
+	void updateBurstMode();
+	void updateJitterMode();
 	
 	// Checks
 	bool isHoldingWeapon();

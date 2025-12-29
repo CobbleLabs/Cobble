@@ -1,6 +1,6 @@
 #include "aimassist.h"
-#include "../sdk/minecraft.h"
-#include "../util/logger.hpp"
+#include "../../sdk/minecraft.h"
+#include "../../util/logger.hpp"
 
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN

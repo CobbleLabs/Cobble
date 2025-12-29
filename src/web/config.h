@@ -1,8 +1,8 @@
 #pragma once
 
-#include "../module/autoclicker.h"
-#include "../module/aimassist.h"
-#include "../module/nametags.h"
+#include "../module/combat/autoclicker.h"
+#include "../module/combat/aimassist.h"
+#include "../module/visual/nametags.h"
 #include <string>
 
 // Simple JSON-like config parsing and applying

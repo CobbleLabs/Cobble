@@ -90,9 +90,9 @@
     <ClCompile Include="src\sdk\minecraft.cpp" />
     <ClCompile Include="src\sdk\player.cpp" />
     <ClCompile Include="src\module\module_manager.cpp" />
-    <ClCompile Include="src\module\autoclicker.cpp" />
-    <ClCompile Include="src\module\aimassist.cpp" />
-    <ClCompile Include="src\module\nametags.cpp" />
+    <ClCompile Include="src\module\combat\autoclicker.cpp" />
+    <ClCompile Include="src\module\combat\aimassist.cpp" />
+    <ClCompile Include="src\module\visual\nametags.cpp" />
     <ClCompile Include="src\web\config_server.cpp" />
     <ClCompile Include="src\web\config.cpp" />
     <ClCompile Include="src\overlay\overlay.cpp" />

@@ -19,9 +19,11 @@ Cobble/
 │   ├── module/
 │   │   ├── module.h          # Base class para módulos
 │   │   ├── module_manager.h/.cpp  # Registro, keybinds, sync bidireccional
-│   │   ├── autoclicker.h/.cpp     # AutoClicker con randomización
-│   │   ├── aimassist.h/.cpp       # AimAssist con física spring-damper
-│   │   └── nametags.h/.cpp        # ESP de nombres de jugadores
+│   │   ├── combat/           # Módulos de combate
+│   │   │   ├── autoclicker.h/.cpp   # AutoClicker con randomización
+│   │   │   └── aimassist.h/.cpp     # AimAssist con física spring-damper
+│   │   └── visual/           # Módulos visuales
+│   │       └── nametags.h/.cpp      # ESP de nombres de jugadores
 │   ├── overlay/
 │   │   ├── overlay.h/.cpp         # Sistema de overlay con ImGui/OpenGL
 │   │   └── notifications.h/.cpp   # Notificaciones in-game (módulos + sistema)
@@ -97,11 +99,14 @@ Cobble.dll (DllMain)
   - Edge detection en keybinds (no repeat)
   - **Bloqueo en GUI**: `isInGui()` previene toggles en chat/inventario/menús
   - **Sync bidireccional**: `Web_BroadcastConfig()` notifica a la web en cada toggle
+
+#### Combat (`src/module/combat/`)
 - **AutoClicker**: 
-  - SendMessage clicking (registra en CPS counters)
+  - PostMessage clicking con patrón alternante DOWN/UP
+  - Humanización: fatigue, bursts, non-uniform jitter
   - Randomización: drop chance, spike chance, kurtosis
   - Weapon-only mode (swords, axes por ID)
-  - Ignore blocks (via MouseOver)
+  - Break blocks: skip click cuando apunta a bloque
 - **AimAssist**: Sistema de asistencia de apuntado con física realista
   - **Soft deadzone**: Transición suave cerca del hitbox (no on/off binario)
   - **Spring-damper**: Física con dos regímenes (corrección lejos, asentamiento cerca)
@@ -110,6 +115,8 @@ Cobble.dll (DllMain)
   - **Opposition detection**: Si el usuario mueve en dirección contraria, para
   - **Temporal noise**: Ruido periódico (no por frame) para humanización
   - **Accumulated bias**: Micro-error persistente que simula mano humana
+
+#### Visual (`src/module/visual/`)
 - **NameTags**: ESP de nombres de jugadores con overlay
 
 ### Overlay (`src/overlay/`)
