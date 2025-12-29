@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../../ext/imgui/imgui.h"
+#include "custom_widgets.hpp"
 
 struct Module;
 
@@ -12,7 +13,7 @@ public:
 	// Main render loop - call inside ImGui frame
 	static void Render();
 	
-	// Apply dark theme and rounded styles
+	// Apply pink Minecraft theme and rounded styles
 	static void ApplyStyle();
 
 	// Keybinding state
@@ -25,6 +26,5 @@ private:
 	static void RenderSettingsTab();
 	
 	// Helpers
-	static void ToggleButton(const char* label, bool* v);
 	static void Hotkey(const char* label, Module* module);
 };

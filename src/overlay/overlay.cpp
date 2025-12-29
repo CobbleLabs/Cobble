@@ -65,14 +65,28 @@ namespace {
 		io.WantCaptureKeyboard = false;
 		
 		// Load system font (Segoe UI - Windows default, clean and modern)
+		ImFontConfig fontConfig;
+		fontConfig.OversampleH = 3;
+		fontConfig.OversampleV = 3;
+		
 		const char* systemFontPath = "C:\\Windows\\Fonts\\segoeui.ttf";
-		Overlay::notificationFont = io.Fonts->AddFontFromFileTTF(systemFontPath, 18.0f);
-		if (!Overlay::notificationFont) {
-			// Fallback to default font
-			Overlay::notificationFont = io.Fonts->AddFontDefault();
+		const char* boldFontPath = "C:\\Windows\\Fonts\\segoeuib.ttf";
+		
+		// 0: Bold 24px (Main - Scaled +15%)
+		if (io.Fonts->AddFontFromFileTTF(boldFontPath, 24.0f, &fontConfig) == nullptr) {
+			io.Fonts->AddFontDefault();
 		}
 		
-		defaultFont = io.Fonts->AddFontDefault();
+		// 1: Bold 30px (Headers - Scaled +15%)
+		io.Fonts->AddFontFromFileTTF(boldFontPath, 30.0f, &fontConfig);
+		
+		// 2: Regular 21px (Notifications - Scaled +15%)
+		Overlay::notificationFont = io.Fonts->AddFontFromFileTTF(systemFontPath, 21.0f, &fontConfig);
+		
+		// 3: Bold 46px (BRAND - Cobble header exclusively)
+		io.Fonts->AddFontFromFileTTF(boldFontPath, 46.0f, &fontConfig);
+		
+		defaultFont = io.Fonts->Fonts[0];
 		
 		// Dark theme
 		ImVec4* colors = ImGui::GetStyle().Colors;
