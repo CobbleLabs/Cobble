@@ -1,5 +1,6 @@
 #include "module_manager.h"
 #include "../sdk/minecraft.h"
+#include "../overlay/menu.h"
 
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
@@ -58,6 +59,9 @@ void ModuleManager::checkKeybinds()
 	// Don't process keybinds when in GUI (chat, inventory, menu, etc)
 	if (mc.isInGui()) return;
 	
+	// Also block if our ClickGUI is open (redundant check but safe)
+	if (Menu::isOpen) return;
+	
 	for (auto* mod : modules)
 	{
 		if (mod->keybind == 0) continue;
@@ -79,8 +83,6 @@ void ModuleManager::checkKeybinds()
 
 void ModuleManager::broadcastModuleState(Module* mod)
 {
-	// This will be called by config server to send update to web
-	// We'll trigger a config refresh
-	extern void Web_BroadcastConfig();
-	Web_BroadcastConfig();
+	// This function is no longer needed as we removed the web interface
+	// Keeping it empty to satisfy potential callers or remove later
 }

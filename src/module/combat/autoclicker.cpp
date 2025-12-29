@@ -1,6 +1,7 @@
 #include "autoclicker.h"
 #include "../../sdk/minecraft.h"
 #include "../../util/logger.hpp"
+#include "../../overlay/menu.h"
 
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
@@ -90,6 +91,11 @@ void AutoClicker::regenerateDelayRange()
 
 void AutoClicker::onUpdate()
 {
+	if (!enabled) return;
+	
+	// Don't click while in menu
+	if (Menu::isOpen) return;
+
 	HWND hwnd = GetForegroundWindow();
 	if (!hwnd) return;
 	

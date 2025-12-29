@@ -1,5 +1,6 @@
 #include "overlay.h"
 #include "notifications.h"
+#include "menu.h" // Include the menu header
 #include "../util/logger.hpp"
 #include "../sdk/render_data.h"
 #include "../module/module_manager.h"
@@ -78,6 +79,8 @@ namespace {
 		colors[ImGuiCol_Text] = ImVec4(1.0f, 1.0f, 1.0f, 1.0f);
 		colors[ImGuiCol_WindowBg] = ImVec4(0.1f, 0.1f, 0.1f, 0.0f);
 		
+		Menu::ApplyStyle();
+		
 		ImGui_ImplWin32_Init(Overlay::gameWindow);
 		ImGui_ImplOpenGL2_Init();
 		
@@ -90,6 +93,43 @@ namespace {
 	
 	LRESULT CALLBACK HookedWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 	{
+		// Toggle Menu with INSERT
+		if (msg == WM_KEYDOWN && wParam == VK_INSERT) {
+			Menu::isOpen = !Menu::isOpen;
+			
+			// Reset bind state if closing
+			if (!Menu::isOpen) Menu::moduleToBind = nullptr;
+		}
+		
+		if (Menu::isOpen) {
+			// Handle Keybinding
+			if (Menu::moduleToBind != nullptr && msg == WM_KEYDOWN) {
+				if (wParam == VK_ESCAPE) {
+					// Cancel bind
+					Menu::moduleToBind = nullptr;
+				} else if (wParam != VK_INSERT) {
+					// Assign key
+					Menu::moduleToBind->keybind = (int)wParam;
+					Menu::moduleToBind = nullptr;
+				}
+				return 1; // Consume input
+			}
+			
+			// Close with ESCAPE if not binding
+			if (msg == WM_KEYDOWN && wParam == VK_ESCAPE) {
+				Menu::isOpen = false;
+				Menu::moduleToBind = nullptr;
+				ImGui::GetIO().MouseDrawCursor = false;
+				return 1;
+			}
+			
+			// Pass input to ImGui
+			ImGui_ImplWin32_WndProcHandler(hWnd, msg, wParam, lParam);
+			
+			// Block input to game
+			return 1; 
+		}
+
 		return CallWindowProcA(originalWndProc, hWnd, msg, wParam, lParam);
 	}
 	
@@ -124,7 +164,7 @@ namespace {
 				}
 				Overlay::initialized = false;
 			}
-		lastOriginalContext = currentOriginalContext;
+			lastOriginalContext = currentOriginalContext;
 			lastHDC = hdc;
 			Overlay::originalContext = currentOriginalContext;
 			
@@ -169,6 +209,10 @@ namespace {
 			ImGuiIO& io = ImGui::GetIO();
 			io.DisplaySize = ImVec2((float)RenderData::screenWidth, (float)RenderData::screenHeight);
 			
+			// SAFETY: Force cursor visibility to match menu state every frame
+			// This fixes the issue where closing via "X" button leaves cursor visible
+			io.MouseDrawCursor = Menu::isOpen;
+			
 			// Begin ImGui frame
 			ImGui_ImplOpenGL2_NewFrame();
 			ImGui_ImplWin32_NewFrame();
@@ -192,6 +236,9 @@ namespace {
 			Overlay::Render();
 			
 			ImGui::End();
+			
+			// Render ClickGUI Menu
+			Menu::Render();
 			
 			// Finish ImGui frame
 			ImGui::EndFrame();

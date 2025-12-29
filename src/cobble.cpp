@@ -1,12 +1,9 @@
-#include "web/config_server.h"
-
 #include "cobble.hpp"
 #include "module/module_manager.h"
 #include "module/combat/autoclicker.h"
 #include "module/combat/aimassist.h"
 #include "module/combat/autorefill.h"
 #include "module/visual/nametags.h"
-#include "web/config.h"
 #include "overlay/overlay.h"
 #include "overlay/notifications.h"
 
@@ -30,12 +27,6 @@ void cobble::context::initialize(HMODULE hModule)
 	moduleManager.registerModule(&autoRefill);
 	moduleManager.registerModule(&nameTags);
 
-	// Start WebSocket server for web config
-	configServer.onMessage([](const std::string& msg) {
-		Config::apply(msg);
-	});
-	Web_Init();
-
 	// Counter for delayed overlay init
 	int tickCount = 0;
 	const int OVERLAY_INIT_DELAY = 1000; // 1 second delay for OpenGL hooks to settle
@@ -54,7 +45,7 @@ void cobble::context::initialize(HMODULE hModule)
 		
 		// Show loaded notification shortly after overlay is ready
 		if (overlayInitialized && !notificationShown && tickCount >= OVERLAY_INIT_DELAY + 100) {
-			NotificationManager::addSystem("Cobble loaded");
+			NotificationManager::addSystem("Cobble loaded - Press INSERT for Menu");
 			notificationShown = true;
 		}
 		
@@ -85,9 +76,6 @@ void cobble::context::shutdown()
 	aimAssist.setEnabled(false);
 	autoRefill.setEnabled(false);
 	nameTags.setEnabled(false);
-	
-	// Stop websocket server
-	Web_Shutdown();
 	
 	// Signal overlay to stop rendering but don't cleanup GL resources
 	// (cleanup during shutdown causes race conditions with render thread)
