@@ -72,12 +72,13 @@ void Config::apply(const std::string& json) {
 		if (module == "aimassist") {
 			aimAssist.settings.horizontalSpeed = getFloat(json, "horizontalSpeed", 25.0f);
 			aimAssist.settings.verticalSpeed = getFloat(json, "verticalSpeed", 12.0f);
-			aimAssist.settings.maxFov = getFloat(json, "maxFov", 90.0f);
+			aimAssist.settings.maxFov = getFloat(json, "maxFov", 180.0f);
 			aimAssist.settings.maxDistance = getFloat(json, "maxDistance", 4.5f);
-			aimAssist.settings.randomization = getFloat(json, "randomization", 0.25f);
+			aimAssist.settings.smoothing = getFloat(json, "smoothing", 0.15f);
+			aimAssist.settings.randomization = getFloat(json, "randomization", 0.15f);
 			aimAssist.settings.onlyClicking = getBool(json, "onlyClicking", true);
 			aimAssist.settings.onlySprinting = getBool(json, "onlySprinting", false);
-			aimAssist.settings.verticalAim = getBool(json, "verticalAim", false);
+			aimAssist.settings.verticalAim = getBool(json, "verticalAim", true);
 			aimAssist.settings.visibilityCheck = getBool(json, "visibilityCheck", true);
 			aimAssist.settings.ignoreInvisible = getBool(json, "ignoreInvisible", true);
 			aimAssist.settings.targetLock = getBool(json, "targetLock", true);
@@ -160,6 +161,7 @@ std::string Config::serialize() {
 	ss << "\"verticalSpeed\":" << aimAssist.settings.verticalSpeed << ",";
 	ss << "\"maxFov\":" << aimAssist.settings.maxFov << ",";
 	ss << "\"maxDistance\":" << aimAssist.settings.maxDistance << ",";
+	ss << "\"smoothing\":" << aimAssist.settings.smoothing << ",";
 	ss << "\"randomization\":" << aimAssist.settings.randomization << ",";
 	ss << "\"onlyClicking\":" << (aimAssist.settings.onlyClicking ? "true" : "false") << ",";
 	ss << "\"onlySprinting\":" << (aimAssist.settings.onlySprinting ? "true" : "false") << ",";

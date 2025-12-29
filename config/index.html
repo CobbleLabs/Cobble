@@ -124,10 +124,12 @@
             border-radius: 3px;
             background: var(--accent);
             -webkit-appearance: none;
+            appearance: none;
         }
 
         input[type="range"]::-webkit-slider-thumb {
             -webkit-appearance: none;
+            appearance: none;
             width: 14px;
             height: 14px;
             border-radius: 50%;
@@ -207,7 +209,7 @@
     <div class="container">
         <header>
             <h1><span>Cobble</span></h1>
-            <p class="sub">Dream-Advanced Style AimAssist</p>
+            <p class="sub">Minecraft Ghost Client</p>
         </header>
 
         <!-- AutoClicker -->
@@ -252,21 +254,21 @@
             <div class="div"></div>
             <div class="sec">SPEED</div>
             <div class="row">
-                <div class="label"><span>Horizontal Speed</span><span class="val" id="aa-hspeed-v">25</span></div>
-                <input type="range" id="aa-hspeed" min="1" max="100" value="25"
+                <div class="label"><span>Horizontal Speed</span><span class="val" id="aa-hspeed-v">45</span></div>
+                <input type="range" id="aa-hspeed" min="1" max="100" value="45"
                     oninput="upd(this,'aa-hspeed-v');send()">
             </div>
             <div class="row">
-                <div class="label"><span>Vertical Speed</span><span class="val" id="aa-vspeed-v">12</span></div>
-                <input type="range" id="aa-vspeed" min="1" max="100" value="12"
+                <div class="label"><span>Vertical Speed</span><span class="val" id="aa-vspeed-v">25</span></div>
+                <input type="range" id="aa-vspeed" min="1" max="100" value="25"
                     oninput="upd(this,'aa-vspeed-v');send()">
             </div>
 
             <div class="div"></div>
             <div class="sec">RANGE</div>
             <div class="row">
-                <div class="label"><span>Max FOV</span><span class="val" id="aa-fov-v">90</span></div>
-                <input type="range" id="aa-fov" min="10" max="180" value="90" oninput="upd(this,'aa-fov-v');send()">
+                <div class="label"><span>Max FOV</span><span class="val" id="aa-fov-v">180</span></div>
+                <input type="range" id="aa-fov" min="30" max="180" value="180" oninput="upd(this,'aa-fov-v');send()">
             </div>
             <div class="row">
                 <div class="label"><span>Max Distance</span><span class="val" id="aa-dist-v">4.5</span></div>
@@ -275,10 +277,15 @@
             </div>
 
             <div class="div"></div>
-            <div class="sec">HUMANIZATION</div>
+            <div class="sec">SMOOTHING</div>
             <div class="row">
-                <div class="label"><span>Randomization</span><span class="val" id="aa-rand-v">0.25</span></div>
-                <input type="range" id="aa-rand" min="0" max="50" value="25"
+                <div class="label"><span>Smoothness</span><span class="val" id="aa-smooth-v">0.15</span></div>
+                <input type="range" id="aa-smooth" min="5" max="50" value="15"
+                    oninput="upd(this,'aa-smooth-v',0.01);send()">
+            </div>
+            <div class="row">
+                <div class="label"><span>Randomization</span><span class="val" id="aa-rand-v">0.15</span></div>
+                <input type="range" id="aa-rand" min="0" max="50" value="15"
                     oninput="upd(this,'aa-rand-v',0.01);send()">
             </div>
 
@@ -291,7 +298,7 @@
                 <div class="check" id="aa-sprinting"></div><span>Only Sprinting</span>
             </div>
             <div class="check-row" onclick="chk(this)">
-                <div class="check" id="aa-vertical"></div><span>Vertical Aim</span>
+                <div class="check on" id="aa-vertical"></div><span>Vertical Aim</span>
             </div>
             <div class="check-row" onclick="chk(this)">
                 <div class="check on" id="aa-visibility"></div><span>Visibility Check</span>
@@ -388,6 +395,7 @@
                 verticalSpeed: +document.getElementById('aa-vspeed').value,
                 maxFov: +document.getElementById('aa-fov').value,
                 maxDistance: +document.getElementById('aa-dist').value * 0.1,
+                smoothing: +document.getElementById('aa-smooth').value * 0.01,
                 randomization: +document.getElementById('aa-rand').value * 0.01,
                 onlyClicking: document.getElementById('aa-clicking').classList.contains('on'),
                 onlySprinting: document.getElementById('aa-sprinting').classList.contains('on'),
@@ -428,10 +436,11 @@
                 document.getElementById('aa-vspeed').value = c.verticalSpeed; document.getElementById('aa-vspeed-v').textContent = Math.round(c.verticalSpeed);
                 document.getElementById('aa-fov').value = c.maxFov; document.getElementById('aa-fov-v').textContent = Math.round(c.maxFov);
                 document.getElementById('aa-dist').value = c.maxDistance * 10; document.getElementById('aa-dist-v').textContent = c.maxDistance.toFixed(1);
+                document.getElementById('aa-smooth').value = (c.smoothing || 0.15) * 100; document.getElementById('aa-smooth-v').textContent = (c.smoothing || 0.15).toFixed(2);
                 document.getElementById('aa-rand').value = c.randomization * 100; document.getElementById('aa-rand-v').textContent = c.randomization.toFixed(2);
                 document.getElementById('aa-clicking').classList.toggle('on', c.onlyClicking !== false);
                 document.getElementById('aa-sprinting').classList.toggle('on', c.onlySprinting === true);
-                document.getElementById('aa-vertical').classList.toggle('on', c.verticalAim === true);
+                document.getElementById('aa-vertical').classList.toggle('on', c.verticalAim !== false);
                 document.getElementById('aa-visibility').classList.toggle('on', c.visibilityCheck !== false);
                 document.getElementById('aa-invisible').classList.toggle('on', c.ignoreInvisible !== false);
                 document.getElementById('aa-lock').classList.toggle('on', c.targetLock !== false);

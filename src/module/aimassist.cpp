@@ -95,19 +95,18 @@ void AimAssist::onUpdate()
 			if (lockDist > 0.5) continue;
 		}
 
-		// Aim at body center (posY + 0.9 for body, +1.62 for head)
-		double targetY = p.posY + 0.9;
+		// Player hitbox dimensions (Minecraft standard)
+		constexpr double HITBOX_HEIGHT = 1.8;  // Total height
+		constexpr double BODY_CENTER = 0.9;    // Center of hitbox
 		
-		// Height adjustment: if we're above, aim at their head
-		if (localY > p.posY + 1.8) {
-			targetY = p.posY + 1.8;
-		} else if (localY > p.posY) {
-			targetY = localY;
-		}
+		// Target point: center of the player's body (most reliable hit point)
+		double targetX = p.posX;
+		double targetY = p.posY + BODY_CENTER;
+		double targetZ = p.posZ;
 
-		// Calculate angle differences
-		float yawDiff = wrapAngle(getYawTo(p.posX - localX, p.posZ - localZ) - localYaw);
-		float pitchDiff = getPitchTo(p.posX - localX, targetY - localY, p.posZ - localZ) - localPitch;
+		// Calculate angle differences to body center
+		float yawDiff = wrapAngle(getYawTo(targetX - localX, targetZ - localZ) - localYaw);
+		float pitchDiff = getPitchTo(targetX - localX, targetY - localY, targetZ - localZ) - localPitch;
 
 		// FOV check (horizontal only)
 		if (std::abs(yawDiff) > settings.maxFov) continue;
@@ -181,35 +180,38 @@ void AimAssist::onUpdate()
 
 float AimAssist::calculateSmoothRotation(float angleDiff, float speed, float deltaMs, int hurtTime)
 {
-	// MC sensitivity formula: (sensitivity * 0.6 + 0.2)^3 * 8
-	float sens = MC_SENSITIVITY * 0.6f + 0.2f;
-	float mcFactor = sens * sens * sens * 8.0f;
+	// Exponential interpolation: fast start, smooth finish
+	// The closer we are to target, the slower we move (but still responsive)
 	
-	// Speed scaling based on angle (larger angles = faster rotation)
-	float angleScale = std::abs(angleDiff) / 45.0f;
-	angleScale = (std::max)(0.1f, (std::min)(angleScale, 2.0f));
+	float absAngle = std::abs(angleDiff);
+	if (absAngle < 0.1f) return 0.0f;
 	
-	// Hurt time boost: rotate faster when being hit (like Dream-Advanced)
+	// Hurt time boost: rotate faster when being hit
 	float hurtBoost = 1.0f;
 	if (settings.hurtTimeBoost && hurtTime > 5) {
-		hurtBoost = 1.5f + (hurtTime / 20.0f);
-		hurtBoost = (std::min)(hurtBoost, 2.5f);
+		hurtBoost = 1.3f + (hurtTime / 30.0f);
+		hurtBoost = (std::min)(hurtBoost, 2.0f);
 	}
 	
-	// Calculate rotation amount
-	float baseRotation = speed * 0.01f * mcFactor * angleScale * hurtBoost;
+	// Exponential easing: take a percentage of remaining distance
+	// Higher speed = larger percentage per frame
+	float speedFactor = speed * 0.001f;  // Normalize speed to 0-0.1 range
+	float smoothFactor = 1.0f - settings.smoothing;  // Invert: lower smoothing = faster
 	
-	// Time-based scaling (deltaMs factor)
-	float timeScale = deltaMs * 0.03f;
+	// Time compensation: maintain consistent speed regardless of frame rate
+	float timeComp = deltaMs / 16.67f;  // Normalize to ~60fps
+	timeComp = (std::max)(0.5f, (std::min)(timeComp, 2.0f));
 	
-	// Direction
-	float direction = (angleDiff > 0) ? 1.0f : -1.0f;
+	// Calculate rotation: percentage of remaining angle
+	float rotationPercent = speedFactor * smoothFactor * hurtBoost * timeComp;
+	rotationPercent = (std::min)(rotationPercent, 0.5f);  // Cap at 50% per frame
 	
-	float rotation = baseRotation * timeScale * direction;
+	float rotation = angleDiff * rotationPercent;
 	
-	// Ensure minimum rotation for responsiveness
-	if (std::abs(rotation) < 0.01f) {
-		rotation = 0.01f * direction;
+	// Minimum rotation to prevent getting stuck on small angles
+	float minRotation = 0.05f * (angleDiff > 0 ? 1.0f : -1.0f);
+	if (std::abs(rotation) < std::abs(minRotation) && absAngle > 0.5f) {
+		rotation = minRotation;
 	}
 	
 	return rotation;

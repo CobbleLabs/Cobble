@@ -22,14 +22,15 @@ public:
 		bool onlySprinting = false;
 		bool onlyClicking = true;
 		bool targetLock = true;
-		bool verticalAim = false;
+		bool verticalAim = true;
 		bool hurtTimeBoost = true;
 		
-		float horizontalSpeed = 25.0f;
-		float verticalSpeed = 12.0f;
-		float maxFov = 90.0f;
+		float horizontalSpeed = 45.0f;
+		float verticalSpeed = 25.0f;
+		float maxFov = 180.0f;
 		float maxDistance = 4.5f;
-		float randomization = 0.25f;
+		float randomization = 0.15f;
+		float smoothing = 0.15f;  // Lower = faster snap, higher = smoother
 	} settings;
 
 private:
