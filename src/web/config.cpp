@@ -83,6 +83,8 @@ void Config::apply(const std::string& json) {
 			aimAssist.settings.ignoreInvisible = getBool(json, "ignoreInvisible", true);
 			aimAssist.settings.targetLock = getBool(json, "targetLock", true);
 			aimAssist.settings.hurtTimeBoost = getBool(json, "hurtTimeBoost", true);
+			aimAssist.settings.multipoint = getBool(json, "multipoint", false);
+			aimAssist.settings.hitboxY = getFloat(json, "hitboxY", 0.5f);
 			
 			std::string kb = getValue(json, "keybind");
 			if (!kb.empty()) aimAssist.keybind = keyStringToVK(kb);
@@ -169,7 +171,9 @@ std::string Config::serialize() {
 	ss << "\"visibilityCheck\":" << (aimAssist.settings.visibilityCheck ? "true" : "false") << ",";
 	ss << "\"ignoreInvisible\":" << (aimAssist.settings.ignoreInvisible ? "true" : "false") << ",";
 	ss << "\"targetLock\":" << (aimAssist.settings.targetLock ? "true" : "false") << ",";
-	ss << "\"hurtTimeBoost\":" << (aimAssist.settings.hurtTimeBoost ? "true" : "false") << "},";
+	ss << "\"hurtTimeBoost\":" << (aimAssist.settings.hurtTimeBoost ? "true" : "false") << ",";
+	ss << "\"multipoint\":" << (aimAssist.settings.multipoint ? "true" : "false") << ",";
+	ss << "\"hitboxY\":" << aimAssist.settings.hitboxY << "},";
 	
 	// NameTags
 	ss << "\"nametags\":{";

@@ -1,4 +1,5 @@
 #include "overlay.h"
+#include "notifications.h"
 #include "../util/logger.hpp"
 #include "../sdk/render_data.h"
 #include "../module/module_manager.h"
@@ -235,4 +236,8 @@ void Overlay::Render()
 {
 	// Modules with onRender() will be called here
 	moduleManager.onRender();
+	
+	// Render notifications
+	NotificationManager::update();
+	NotificationManager::render();
 }

@@ -277,6 +277,18 @@
             </div>
 
             <div class="div"></div>
+            <div class="sec">HITBOX</div>
+            <div class="row">
+                <div class="label"><span>Hitbox Y (0=Feet, 1=Head)</span><span class="val" id="aa-hitboxy-v">0.50</span>
+                </div>
+                <input type="range" id="aa-hitboxy" min="0" max="100" value="50"
+                    oninput="upd(this,'aa-hitboxy-v',0.01);send()">
+            </div>
+            <div class="check-row" onclick="chk(this)">
+                <div class="check" id="aa-multipoint"></div><span>Multipoint (Aim Closest)</span>
+            </div>
+
+            <div class="div"></div>
             <div class="sec">SMOOTHING</div>
             <div class="row">
                 <div class="label"><span>Smoothness</span><span class="val" id="aa-smooth-v">0.15</span></div>
@@ -395,6 +407,8 @@
                 verticalSpeed: +document.getElementById('aa-vspeed').value,
                 maxFov: +document.getElementById('aa-fov').value,
                 maxDistance: +document.getElementById('aa-dist').value * 0.1,
+                hitboxY: +document.getElementById('aa-hitboxy').value * 0.01,
+                multipoint: document.getElementById('aa-multipoint').classList.contains('on'),
                 smoothing: +document.getElementById('aa-smooth').value * 0.01,
                 randomization: +document.getElementById('aa-rand').value * 0.01,
                 onlyClicking: document.getElementById('aa-clicking').classList.contains('on'),
@@ -436,6 +450,8 @@
                 document.getElementById('aa-vspeed').value = c.verticalSpeed; document.getElementById('aa-vspeed-v').textContent = Math.round(c.verticalSpeed);
                 document.getElementById('aa-fov').value = c.maxFov; document.getElementById('aa-fov-v').textContent = Math.round(c.maxFov);
                 document.getElementById('aa-dist').value = c.maxDistance * 10; document.getElementById('aa-dist-v').textContent = c.maxDistance.toFixed(1);
+                document.getElementById('aa-hitboxy').value = (c.hitboxY || 0.5) * 100; document.getElementById('aa-hitboxy-v').textContent = (c.hitboxY || 0.5).toFixed(2);
+                document.getElementById('aa-multipoint').classList.toggle('on', c.multipoint === true);
                 document.getElementById('aa-smooth').value = (c.smoothing || 0.15) * 100; document.getElementById('aa-smooth-v').textContent = (c.smoothing || 0.15).toFixed(2);
                 document.getElementById('aa-rand').value = c.randomization * 100; document.getElementById('aa-rand-v').textContent = c.randomization.toFixed(2);
                 document.getElementById('aa-clicking').classList.toggle('on', c.onlyClicking !== false);

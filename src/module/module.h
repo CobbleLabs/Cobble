@@ -1,6 +1,7 @@
 #pragma once
 
 #include <string>
+#include "../overlay/notifications.h"
 
 struct Module
 {
@@ -30,6 +31,9 @@ struct Module
 			onEnable();
 		else
 			onDisable();
+		
+		// Send notification
+		NotificationManager::add(name, enabled);
 	}
 
 	void setEnabled(bool value)

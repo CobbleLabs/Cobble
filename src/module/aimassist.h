@@ -24,6 +24,7 @@ public:
 		bool targetLock = true;
 		bool verticalAim = true;
 		bool hurtTimeBoost = true;
+		bool multipoint = false;  // Aim at closest point on hitbox
 		
 		float horizontalSpeed = 45.0f;
 		float verticalSpeed = 25.0f;
@@ -31,6 +32,7 @@ public:
 		float maxDistance = 4.5f;
 		float randomization = 0.15f;
 		float smoothing = 0.15f;  // Lower = faster snap, higher = smoother
+		float hitboxY = 0.5f;     // 0.0 = feet, 0.5 = body, 1.0 = head
 	} settings;
 
 private:

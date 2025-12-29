@@ -96,15 +96,42 @@ void AimAssist::onUpdate()
 		}
 
 		// Player hitbox dimensions (Minecraft standard)
+		constexpr double HITBOX_WIDTH = 0.6;   // Total width
 		constexpr double HITBOX_HEIGHT = 1.8;  // Total height
-		constexpr double BODY_CENTER = 0.9;    // Center of hitbox
+		constexpr double HALF_WIDTH = HITBOX_WIDTH / 2.0;
 		
-		// Target point: center of the player's body (most reliable hit point)
+		// Hitbox bounds
+		double boxMinY = p.posY;
+		double boxMaxY = p.posY + HITBOX_HEIGHT;
+		
 		double targetX = p.posX;
-		double targetY = p.posY + BODY_CENTER;
 		double targetZ = p.posZ;
+		double targetY;
+		
+		if (settings.multipoint) {
+			// Multipoint: calculate closest point on hitbox to current look direction
+			float yawRad = localYaw * (PI / 180.0f);
+			float pitchRad = localPitch * (PI / 180.0f);
+			double lookDirX = -std::sin(yawRad) * std::cos(pitchRad);
+			double lookDirY = -std::sin(pitchRad);
+			double lookDirZ = std::cos(yawRad) * std::cos(pitchRad);
+			
+			// Project look direction to target distance
+			double horizontalLookDist = std::sqrt(lookDirX * lookDirX + lookDirZ * lookDirZ);
+			if (horizontalLookDist > 0.001) {
+				double projectedY = localY + (lookDirY / horizontalLookDist) * dist;
+				// Clamp to hitbox Y bounds
+				targetY = (std::max)(boxMinY + 0.1, (std::min)(projectedY, boxMaxY - 0.1));
+			} else {
+				// Looking straight up/down, aim at configured hitbox Y
+				targetY = boxMinY + (HITBOX_HEIGHT * settings.hitboxY);
+			}
+		} else {
+			// Fixed point: use configured hitboxY (0=feet, 0.5=body, 1=head)
+			targetY = boxMinY + (HITBOX_HEIGHT * settings.hitboxY);
+		}
 
-		// Calculate angle differences to body center
+		// Calculate angle differences
 		float yawDiff = wrapAngle(getYawTo(targetX - localX, targetZ - localZ) - localYaw);
 		float pitchDiff = getPitchTo(targetX - localX, targetY - localY, targetZ - localZ) - localPitch;
 
