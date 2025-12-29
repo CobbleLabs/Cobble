@@ -4,11 +4,11 @@
 #include <chrono>
 #include <random>
 
-// Features:
-// - SendMessage-based clicking (registers on CPS counters)
-// - Weapon-only mode (swords, axes)
-// - Ignore blocks option
-// - Advanced randomization (drop, spike, kurtosis)
+// Anti-detection AutoClicker with Dream-Advanced techniques:
+// - PostMessage-based clicking (async, more natural)
+// - Dynamic delay ranges that change every 30-70 clicks
+// - Attacking only mode (only click when player in crosshair)
+// - Break blocks mode (hold click when targeting block)
 class AutoClicker : public Module
 {
 public:
@@ -18,7 +18,6 @@ public:
 	void onDisable() override;
 	void onUpdate() override;
 
-	// Configuration - public for future GUI/config integration
 	struct Settings {
 		float minCPS = 10.0f;
 		float maxCPS = 16.0f;
@@ -32,25 +31,39 @@ public:
 		float spikeChance = 10.0f;  // % chance for faster click
 		float spikeMultiplier = 1.3f;
 		float kurtosis = 2.0f;      // Higher = more consistent CPS
+		
+		// Anti-detection (new)
+		bool attackingOnly = false;  // Only click when player in crosshair
+		bool breakBlocks = false;    // Hold click when targeting block
 	} settings;
 
 private:
 	std::chrono::steady_clock::time_point lastClick;
 	int nextDelayMs = 100;
 	std::mt19937 rng;
-	float normalCps = 0.0f;
+	
+	// Dynamic delay anti-detection system
+	int clicksSinceRangeChange = 0;
+	int clicksUntilRangeChange = 50;
+	float currentDelayMin = 25.0f;  // Base delay range (ms)
+	float currentDelayMax = 70.0f;
+	
+	// Break blocks state
+	bool holdingMouseDown = false;
 
 public:
-	// For AimAssist integration - when was the last auto-click
+	// For AimAssist integration
 	std::chrono::steady_clock::time_point lastAutoClick;
 
 	void calculateNextDelay();
-	bool shouldClick();
+	void regenerateDelayRange();
 	void doClick();
+	void releaseClick();
 	
-	// Item checks
+	// Checks
 	bool isHoldingWeapon();
 	bool isTargetingBlock();
+	bool isTargetingPlayer();
 	int getHeldItemId();
 };
 
