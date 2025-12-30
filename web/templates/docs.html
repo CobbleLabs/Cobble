@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Documentation - Cobble</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <nav>
+        <div class="nav-container">
+            <a href="/" class="logo">Cobble</a>
+            <div class="nav-links">
+                <a href="/#features">Features</a>
+                <a href="/#pricing">Pricing</a>
+                <a href="/docs" class="active">Docs</a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="docs-container">
+        <aside class="docs-sidebar">
+            <h3>Modules</h3>
+            <ul>
+                <li><a href="#autoclicker">AutoClicker</a></li>
+                <li><a href="#aimassist">AimAssist</a></li>
+                <li><a href="#velocity">Velocity</a></li>
+                <li><a href="#nojumpdelay">NoJumpDelay</a></li>
+                <li><a href="#autorefill">AutoRefill</a></li>
+                <li><a href="#nametags">NameTags</a></li>
+                <li><a href="#reach">Reach</a></li>
+            </ul>
+            <h3>Settings</h3>
+            <ul>
+                <li><a href="#arraylist">ArrayList</a></li>
+                <li><a href="#notifications">Notifications</a></li>
+                <li><a href="#keybinds">Keybinds</a></li>
+            </ul>
+        </aside>
+
+        <main class="docs-content">
+            <h1>Documentation</h1>
+            <p class="intro">Complete guide to all Cobble modules and features.</p>
+
+            <section id="autoclicker" class="doc-section">
+                <h2>AutoClicker</h2>
+                <p>Automated clicking with advanced humanization features.</p>
+                
+                <h3>Settings</h3>
+                <table>
+                    <tr><th>Option</th><th>Description</th></tr>
+                    <tr><td>Min CPS</td><td>Minimum clicks per second (1-20)</td></tr>
+                    <tr><td>Max CPS</td><td>Maximum clicks per second (1-20)</td></tr>
+                    <tr><td>Stable CPS</td><td>Disable randomization for exact CPS</td></tr>
+                    <tr><td>Weapon Only</td><td>Only click when holding a weapon</td></tr>
+                    <tr><td>Break Blocks</td><td>Allow breaking blocks while active</td></tr>
+                    <tr><td>Inventory</td><td>Work inside inventory screens</td></tr>
+                </table>
+
+                <h3>Advanced</h3>
+                <table>
+                    <tr><th>Option</th><th>Description</th></tr>
+                    <tr><td>Drop Chance</td><td>Random CPS drops for humanization</td></tr>
+                    <tr><td>Spike Chance</td><td>Random CPS spikes for humanization</td></tr>
+                    <tr><td>Jitter</td><td>Add timing variation to clicks</td></tr>
+                    <tr><td>Fatigue</td><td>Simulate clicking fatigue over time</td></tr>
+                    <tr><td>Burst Mode</td><td>Periodic bursts of fast clicking</td></tr>
+                </table>
+            </section>
+
+            <section id="aimassist" class="doc-section">
+                <h2>AimAssist</h2>
+                <p>Smooth aim correction towards nearby players.</p>
+                
+                <h3>Settings</h3>
+                <table>
+                    <tr><th>Option</th><th>Description</th></tr>
+                    <tr><td>Horizontal Speed</td><td>Yaw rotation speed (0-100)</td></tr>
+                    <tr><td>Vertical Speed</td><td>Pitch rotation speed (0-100)</td></tr>
+                    <tr><td>FOV</td><td>Field of view for target detection</td></tr>
+                    <tr><td>Distance</td><td>Maximum targeting distance</td></tr>
+                    <tr><td>Target Lock</td><td>Lock onto a single target</td></tr>
+                </table>
+
+                <h3>Conditions</h3>
+                <table>
+                    <tr><th>Option</th><th>Description</th></tr>
+                    <tr><td>Visibility Check</td><td>Only aim at visible players</td></tr>
+                    <tr><td>Sprinting Only</td><td>Only assist while sprinting</td></tr>
+                    <tr><td>Clicking Only</td><td>Only assist while clicking</td></tr>
+                </table>
+            </section>
+
+            <section id="velocity" class="doc-section">
+                <h2>Velocity</h2>
+                <p>Reduce or cancel knockback when hit by other players.</p>
+                
+                <h3>Modes</h3>
+                <table>
+                    <tr><th>Mode</th><th>Description</th></tr>
+                    <tr><td>Regular</td><td>Reduce motion to specified percentage</td></tr>
+                    <tr><td>Jump</td><td>Auto-jump to negate knockback (vanilla abuse)</td></tr>
+                    <tr><td>Reduce</td><td>Use attack slowdown mechanic</td></tr>
+                    <tr><td>Ignore</td><td>Cancel velocity completely (0% without speed loss)</td></tr>
+                </table>
+
+                <h3>Settings</h3>
+                <table>
+                    <tr><th>Option</th><th>Description</th></tr>
+                    <tr><td>Horizontal</td><td>X/Z knockback reduction (0-100%)</td></tr>
+                    <tr><td>Vertical</td><td>Y knockback reduction (0-100%)</td></tr>
+                    <tr><td>Chance</td><td>Probability of applying reduction</td></tr>
+                    <tr><td>FOV</td><td>Only reduce from certain angles (180° = front only)</td></tr>
+                    <tr><td>Delay</td><td>Ticks before applying reduction</td></tr>
+                </table>
+
+                <h3>Conditions</h3>
+                <table>
+                    <tr><th>Option</th><th>Description</th></tr>
+                    <tr><td>Looking at Player</td><td>Only when targeting a player</td></tr>
+                    <tr><td>Mouse Pressed</td><td>Only while clicking</td></tr>
+                    <tr><td>Moving Forward</td><td>Only while holding W</td></tr>
+                    <tr><td>Holding Weapon</td><td>Only with sword/axe equipped</td></tr>
+                    <tr><td>Sprinting</td><td>Only while sprinting (Jump mode)</td></tr>
+                </table>
+            </section>
+
+            <section id="nojumpdelay" class="doc-section">
+                <h2>NoJumpDelay</h2>
+                <p>Remove the delay between jumps for bunny hopping.</p>
+                
+                <h3>Usage</h3>
+                <p>Simply enable the module and hold <code>SPACE</code> to continuously jump. The module forces the player into ground state to bypass vanilla jump delay.</p>
+            </section>
+
+            <section id="autorefill" class="doc-section">
+                <h2>AutoRefill</h2>
+                <p>Automatically refill your hotbar with soups/potions from inventory.</p>
+                
+                <h3>Settings</h3>
+                <table>
+                    <tr><th>Option</th><th>Description</th></tr>
+                    <tr><td>Delay</td><td>Milliseconds between refill actions</td></tr>
+                    <tr><td>Soups</td><td>Refill mushroom stew</td></tr>
+                    <tr><td>Potions</td><td>Refill healing potions</td></tr>
+                </table>
+            </section>
+
+            <section id="nametags" class="doc-section">
+                <h2>NameTags</h2>
+                <p>Enhanced player nametags with additional information.</p>
+                
+                <h3>Settings</h3>
+                <table>
+                    <tr><th>Option</th><th>Description</th></tr>
+                    <tr><td>Scale</td><td>Nametag size multiplier</td></tr>
+                    <tr><td>Background</td><td>Show dark background behind text</td></tr>
+                    <tr><td>Show Health</td><td>Display player health</td></tr>
+                    <tr><td>Show Distance</td><td>Display distance to player</td></tr>
+                </table>
+            </section>
+
+            <section id="reach" class="doc-section">
+                <h2>Reach <span class="badge-wip">WIP</span></h2>
+                <p>Extend your attack range beyond vanilla limits.</p>
+                
+                <h3>Settings</h3>
+                <table>
+                    <tr><th>Option</th><th>Description</th></tr>
+                    <tr><td>Distance</td><td>Attack reach (3.0-6.0 blocks)</td></tr>
+                    <tr><td>Randomize</td><td>Use random reach within min/max range</td></tr>
+                    <tr><td>Min Distance</td><td>Minimum reach when randomizing</td></tr>
+                    <tr><td>Max Distance</td><td>Maximum reach when randomizing</td></tr>
+                </table>
+
+                <h3>Conditions</h3>
+                <table>
+                    <tr><th>Option</th><th>Description</th></tr>
+                    <tr><td>Weapons Only</td><td>Only extend reach with weapons</td></tr>
+                    <tr><td>Sprinting Only</td><td>Only while sprinting</td></tr>
+                    <tr><td>Moving Only</td><td>Only while moving forward</td></tr>
+                </table>
+            </section>
+
+            <section id="arraylist" class="doc-section">
+                <h2>ArrayList</h2>
+                <p>HUD element showing all enabled modules.</p>
+                
+                <h3>Settings</h3>
+                <table>
+                    <tr><th>Option</th><th>Description</th></tr>
+                    <tr><td>Enabled</td><td>Show/hide the ArrayList</td></tr>
+                    <tr><td>Background</td><td>Dark background behind items</td></tr>
+                    <tr><td>Sort by Length</td><td>Order modules by name length</td></tr>
+                </table>
+            </section>
+
+            <section id="notifications" class="doc-section">
+                <h2>Notifications</h2>
+                <p>Toast notifications when modules are toggled.</p>
+                
+                <h3>Settings</h3>
+                <table>
+                    <tr><th>Option</th><th>Description</th></tr>
+                    <tr><td>Enabled</td><td>Show/hide notifications</td></tr>
+                </table>
+            </section>
+
+            <section id="keybinds" class="doc-section">
+                <h2>Keybinds</h2>
+                <p>Bind any key or mouse button to toggle modules.</p>
+                
+                <h3>Supported Inputs</h3>
+                <ul>
+                    <li>All keyboard keys</li>
+                    <li>Mouse buttons: Left, Right, Middle</li>
+                    <li>Side buttons: MB4 (Back), MB5 (Forward)</li>
+                </ul>
+                
+                <h3>Usage</h3>
+                <p>Click the keybind button next to any module and press the desired key. Press <code>ESC</code> to clear a keybind.</p>
+            </section>
+        </main>
+    </div>
+
+    <footer>
+        <p>&copy; 2025 Cobble. All rights reserved.</p>
+    </footer>
+</body>
+</html>
