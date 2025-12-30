@@ -1,52 +1,22 @@
 #pragma once
 
 #include <Windows.h>
-#include <wincrypt.h>
 #include <string>
 #include <sstream>
 #include <iomanip>
-
-#pragma comment(lib, "crypt32.lib")
-#pragma comment(lib, "advapi32.lib")
+#include <vector>
 
 namespace Integrity {
 
-// Calculate SHA256 of a memory region
-inline std::string HashMemory(const BYTE* data, DWORD size) {
-    HCRYPTPROV hProv = 0;
-    HCRYPTHASH hHash = 0;
-    std::string result;
-    
-    if (!CryptAcquireContextW(&hProv, NULL, NULL, PROV_RSA_AES, CRYPT_VERIFYCONTEXT)) {
-        return "";
+// FNV-1a 64-bit Hash (Custom implementation, no external dependencies like advapi32)
+// This is crucial for manual mapping where imports might not be fully verifiable
+inline uint64_t HashMemoryFNV64(const BYTE* data, DWORD size) {
+    uint64_t hash = 0xcbf29ce484222325ULL;
+    for (DWORD i = 0; i < size; i++) {
+        hash ^= data[i];
+        hash *= 0x100000001b3ULL;
     }
-    
-    if (!CryptCreateHash(hProv, CALG_SHA_256, 0, 0, &hHash)) {
-        CryptReleaseContext(hProv, 0);
-        return "";
-    }
-    
-    if (!CryptHashData(hHash, data, size, 0)) {
-        CryptDestroyHash(hHash);
-        CryptReleaseContext(hProv, 0);
-        return "";
-    }
-    
-    DWORD hashLen = 32;
-    BYTE hashBytes[32];
-    if (CryptGetHashParam(hHash, HP_HASHVAL, hashBytes, &hashLen, 0)) {
-        std::ostringstream oss;
-        oss << std::hex << std::setfill('0');
-        for (DWORD i = 0; i < hashLen; i++) {
-            oss << std::setw(2) << (int)hashBytes[i];
-        }
-        result = oss.str();
-    }
-    
-    CryptDestroyHash(hHash);
-    CryptReleaseContext(hProv, 0);
-    
-    return result;
+    return hash;
 }
 
 // Get .text section info for the current module
@@ -73,7 +43,7 @@ inline bool GetTextSection(HMODULE hModule, BYTE*& outAddr, DWORD& outSize) {
 }
 
 // Global storage for initial hash (set during init)
-inline std::string g_InitialTextHash;
+inline uint64_t g_InitialTextHash = 0;
 
 // Initialize integrity check - call once during startup
 inline bool Init(HMODULE hModule) {
@@ -84,14 +54,14 @@ inline bool Init(HMODULE hModule) {
         return false;
     }
     
-    g_InitialTextHash = HashMemory(textAddr, textSize);
-    return !g_InitialTextHash.empty();
+    g_InitialTextHash = HashMemoryFNV64(textAddr, textSize);
+    return g_InitialTextHash != 0;
 }
 
 // Verify code hasn't been patched - call periodically or at critical points
 // Returns true if OK, false if tampered
 inline bool Verify(HMODULE hModule) {
-    if (g_InitialTextHash.empty()) return true; // Not initialized
+    if (g_InitialTextHash == 0) return true; // Not initialized or disabled
     
     BYTE* textAddr = nullptr;
     DWORD textSize = 0;
@@ -100,7 +70,7 @@ inline bool Verify(HMODULE hModule) {
         return false;
     }
     
-    std::string currentHash = HashMemory(textAddr, textSize);
+    uint64_t currentHash = HashMemoryFNV64(textAddr, textSize);
     return currentHash == g_InitialTextHash;
 }
 

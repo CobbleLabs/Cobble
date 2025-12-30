@@ -138,26 +138,44 @@ CobbleLoader.exe
     │     ├── findLunarClient() → busca javaw.exe con "Lunar"
     │     └── isDllInjected() → verifica signature en memoria
     │
-    └─[5] Manual Map Injection
-          ├── Allocate memory in target
-          ├── Copy PE headers + sections
-          ├── **Secure Protections**: Apply correct RX/RW permissions (No RWX)
-          ├── Process relocations
-          ├── Resolve imports (LoadLibrary, GetProcAddress)
-          ├── Execute TLS callbacks
-          └── Call DllMain(DLL_PROCESS_ATTACH)
+    └─[5] LoadLibrary Injection
+          ├── Write DLL to temp file (%TEMP%\Cobble_temp.dll)
+          ├── VirtualAllocEx → allocate path in target
+          ├── WriteProcessMemory → write DLL path
+          ├── CreateRemoteThread(LoadLibraryW) → inject
+          └── Delete temp file after load
 
 Cobble.dll (DllMain)
     └── CreateThread → cobble::context::initialize()
-                           ├── Java::Init()               # JNI attach
-                           ├── SDK_Init()                 # Minecraft wrappers
-                           ├── moduleManager.register()   # Combat, Visual
-                           ├── Overlay::Init()            # ImGui hooks
+                           │
+                           ├── [DEBUG_CONSOLE] c_logger::initialize()  # Optional debug console
+                           ├── Java::Init()                             # JNI attach
+                           ├── SDK_Init()                               # Minecraft wrappers
+                           │
+                           ├── Dynamic Module Allocation (avoids static init order issues)
+                           │     ├── moduleManager = new ModuleManager()
+                           │     ├── autoClicker = new AutoClicker()
+                           │     ├── aimAssist = new AimAssist()
+                           │     ├── velocity = new Velocity()
+                           │     ├── reach = new Reach()
+                           │     ├── noJumpDelay = new NoJumpDelay()
+                           │     └── nameTags = new NameTags()
+                           │
+                           ├── moduleManager->registerModule(*)
+                           ├── Overlay::Init()                          # ImGui hooks
+                           │
                            └── Main loop (1ms tick)
-                                 ├── Security heartbeat check
+                                 ├── Integrity::Verify() (every 30s)
                                  ├── player.refresh()
-                                 ├── moduleManager.update()
-                                 └── module.onUpdate()
+                                 ├── moduleManager->update()
+                                 └── module->onUpdate()
+
+cobble::context::shutdown()
+    ├── Disable all modules
+    ├── Overlay::Shutdown()
+    ├── Java::Kill()
+    ├── delete all module pointers  # Clean memory
+    └── c_logger::shutdown()
 ```
 
 ---

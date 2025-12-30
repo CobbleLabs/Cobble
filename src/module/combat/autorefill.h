@@ -78,4 +78,4 @@ private:
 	void finishRefill();
 };
 
-extern AutoRefill autoRefill;
+extern AutoRefill* autoRefill;

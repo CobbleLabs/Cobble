@@ -27,12 +27,12 @@ static void InitializePages() {
         {
             ui::begin_child("General", { (ImGui::GetWindowWidth() - GImGui->Style.WindowPadding.x * 2) / 2 - GImGui->Style.ItemSpacing.x / 2, 0 });
             {
-                ui::CheckboxBind("Enabled", &autoClicker.enabled, &autoClicker.keybind);
+                ui::CheckboxBind("Enabled", &autoClicker->enabled, &autoClicker->keybind);
                 ImGui::Spacing();
-                ui::SliderFloat("Min CPS", &autoClicker.settings.minCPS, 1.0f, 20.0f, "%.1f");
-                ui::SliderFloat("Max CPS", &autoClicker.settings.maxCPS, 1.0f, 20.0f, "%.1f");
-                if (autoClicker.settings.minCPS > autoClicker.settings.maxCPS)
-                    autoClicker.settings.minCPS = autoClicker.settings.maxCPS;
+                ui::SliderFloat("Min CPS", &autoClicker->settings.minCPS, 1.0f, 20.0f, "%.1f");
+                ui::SliderFloat("Max CPS", &autoClicker->settings.maxCPS, 1.0f, 20.0f, "%.1f");
+                if (autoClicker->settings.minCPS > autoClicker->settings.maxCPS)
+                    autoClicker->settings.minCPS = autoClicker->settings.maxCPS;
             }
             ui::end_child();
         }
@@ -44,10 +44,10 @@ static void InitializePages() {
         {
             ui::begin_child("Conditions", { (ImGui::GetWindowWidth() - GImGui->Style.WindowPadding.x * 2) / 2 - GImGui->Style.ItemSpacing.x / 2, 0 });
             {
-                ui::Checkbox("Stable CPS", &autoClicker.settings.stableCPS);
-                ui::Checkbox("Weapon Only", &autoClicker.settings.weaponOnly);
-                ui::Checkbox("Break Blocks", &autoClicker.settings.breakBlocks);
-                ui::Checkbox("Inventory", &autoClicker.settings.workInInventory);
+                ui::Checkbox("Stable CPS", &autoClicker->settings.stableCPS);
+                ui::Checkbox("Weapon Only", &autoClicker->settings.weaponOnly);
+                ui::Checkbox("Break Blocks", &autoClicker->settings.breakBlocks);
+                ui::Checkbox("Inventory", &autoClicker->settings.workInInventory);
             }
             ui::end_child();
         }
@@ -60,12 +60,12 @@ static void InitializePages() {
         {
             ui::begin_child("General", { (ImGui::GetWindowWidth() - GImGui->Style.WindowPadding.x * 2) / 2 - GImGui->Style.ItemSpacing.x / 2, 0 });
             {
-                ui::CheckboxBind("Enabled", &aimAssist.enabled, &aimAssist.keybind);
+                ui::CheckboxBind("Enabled", &aimAssist->enabled, &aimAssist->keybind);
                 ImGui::Spacing();
-                ui::SliderFloat("Horizontal Speed", &aimAssist.settings.horizontalSpeed, 1.0f, 100.0f, "%.0f");
-                ui::SliderFloat("Vertical Speed", &aimAssist.settings.verticalSpeed, 1.0f, 100.0f, "%.0f");
-                ui::SliderFloat("FOV", &aimAssist.settings.maxFov, 10.0f, 360.0f, "%.0f");
-                ui::SliderFloat("Distance", &aimAssist.settings.maxDistance, 3.0f, 8.0f, "%.1f");
+                ui::SliderFloat("Horizontal Speed", &aimAssist->settings.horizontalSpeed, 1.0f, 100.0f, "%.0f");
+                ui::SliderFloat("Vertical Speed", &aimAssist->settings.verticalSpeed, 1.0f, 100.0f, "%.0f");
+                ui::SliderFloat("FOV", &aimAssist->settings.maxFov, 10.0f, 360.0f, "%.0f");
+                ui::SliderFloat("Distance", &aimAssist->settings.maxDistance, 3.0f, 8.0f, "%.1f");
             }
             ui::end_child();
         }
@@ -77,10 +77,10 @@ static void InitializePages() {
         {
             ui::begin_child("Filters", { (ImGui::GetWindowWidth() - GImGui->Style.WindowPadding.x * 2) / 2 - GImGui->Style.ItemSpacing.x / 2, 0 });
             {
-                ui::Checkbox("Clicking Only", &aimAssist.settings.onlyClicking);
-                ui::Checkbox("Vertical Aim", &aimAssist.settings.verticalAim);
-                ui::Checkbox("Target Lock", &aimAssist.settings.targetLock);
-                ui::Checkbox("Visibility", &aimAssist.settings.visibilityCheck);
+                ui::Checkbox("Clicking Only", &aimAssist->settings.onlyClicking);
+                ui::Checkbox("Vertical Aim", &aimAssist->settings.verticalAim);
+                ui::Checkbox("Target Lock", &aimAssist->settings.targetLock);
+                ui::Checkbox("Visibility", &aimAssist->settings.visibilityCheck);
             }
             ui::end_child();
         }
@@ -93,11 +93,11 @@ static void InitializePages() {
         {
             ui::begin_child("General", { (ImGui::GetWindowWidth() - GImGui->Style.WindowPadding.x * 2) / 2 - GImGui->Style.ItemSpacing.x / 2, 0 });
             {
-                ui::Binder("Keybind", &autoRefill.keybind);
+                ui::Binder("Keybind", &autoRefill->keybind);
                 ImGui::Spacing();
-                int speed = autoRefill.settings.speed;
+                int speed = autoRefill->settings.speed;
                 if (ui::SliderInt("Speed (ms)", &speed, 20, 200, "%d"))
-                    autoRefill.settings.speed = speed;
+                    autoRefill->settings.speed = speed;
             }
             ui::end_child();
         }
@@ -109,9 +109,9 @@ static void InitializePages() {
         {
             ui::begin_child("Items", { (ImGui::GetWindowWidth() - GImGui->Style.WindowPadding.x * 2) / 2 - GImGui->Style.ItemSpacing.x / 2, 0 });
             {
-                ui::Checkbox("Refill Soup", &autoRefill.settings.refillSoup);
-                ui::Checkbox("Refill Potions", &autoRefill.settings.refillPotions);
-                ui::Checkbox("Smart Speed", &autoRefill.settings.smartSpeed);
+                ui::Checkbox("Refill Soup", &autoRefill->settings.refillSoup);
+                ui::Checkbox("Refill Potions", &autoRefill->settings.refillPotions);
+                ui::Checkbox("Smart Speed", &autoRefill->settings.smartSpeed);
             }
             ui::end_child();
         }
@@ -124,19 +124,19 @@ static void InitializePages() {
         {
             ui::begin_child("General", { (ImGui::GetWindowWidth() - GImGui->Style.WindowPadding.x * 2) / 2 - GImGui->Style.ItemSpacing.x / 2, 0 });
             {
-                ui::CheckboxBind("Enabled", &velocity.enabled, &velocity.keybind);
+                ui::CheckboxBind("Enabled", &velocity->enabled, &velocity->keybind);
                 ImGui::Spacing();
                 
                 // Mode selector
                 const char* modes[] = { "Regular", "Jump", "Reduce", "Ignore" };
-                int modeIdx = static_cast<int>(velocity.settings.mode);
+                int modeIdx = static_cast<int>(velocity->settings.mode);
                 ImGui::Text("Mode");
                 ImGui::SameLine();
                 if (ImGui::BeginCombo("##velmode", modes[modeIdx], ImGuiComboFlags_NoArrowButton)) {
                     for (int i = 0; i < 4; i++) {
                         bool selected = (modeIdx == i);
                         if (ImGui::Selectable(modes[i], selected))
-                            velocity.settings.mode = static_cast<Velocity::Mode>(i);
+                            velocity->settings.mode = static_cast<Velocity::Mode>(i);
                         if (selected)
                             ImGui::SetItemDefaultFocus();
                     }
@@ -146,32 +146,32 @@ static void InitializePages() {
                 ImGui::Spacing();
                 
                 // Mode-specific settings
-                if (velocity.settings.mode == Velocity::Mode::Regular || 
-                    velocity.settings.mode == Velocity::Mode::Reduce) {
-                    ui::SliderFloat("Horizontal", &velocity.settings.horizontal, 0.0f, 100.0f, "%.0f%%");
-                    ui::SliderFloat("Vertical", &velocity.settings.vertical, 0.0f, 100.0f, "%.0f%%");
-                    ui::SliderFloat("Chance", &velocity.settings.chance, 0.0f, 100.0f, "%.0f%%");
+                if (velocity->settings.mode == Velocity::Mode::Regular || 
+                    velocity->settings.mode == Velocity::Mode::Reduce) {
+                    ui::SliderFloat("Horizontal", &velocity->settings.horizontal, 0.0f, 100.0f, "%.0f%%");
+                    ui::SliderFloat("Vertical", &velocity->settings.vertical, 0.0f, 100.0f, "%.0f%%");
+                    ui::SliderFloat("Chance", &velocity->settings.chance, 0.0f, 100.0f, "%.0f%%");
                     
-                    if (velocity.settings.mode == Velocity::Mode::Reduce) {
-                        ui::Checkbox("Double Clicks", &velocity.settings.allowDoubleClicks);
+                    if (velocity->settings.mode == Velocity::Mode::Reduce) {
+                        ui::Checkbox("Double Clicks", &velocity->settings.allowDoubleClicks);
                     }
                 }
-                else if (velocity.settings.mode == Velocity::Mode::Jump) {
-                    ui::SliderFloat("Jump Chance", &velocity.settings.jumpChance, 0.0f, 100.0f, "%.0f%%");
+                else if (velocity->settings.mode == Velocity::Mode::Jump) {
+                    ui::SliderFloat("Jump Chance", &velocity->settings.jumpChance, 0.0f, 100.0f, "%.0f%%");
                 }
-                else if (velocity.settings.mode == Velocity::Mode::Ignore) {
-                    ui::SliderFloat("Chance", &velocity.settings.chance, 0.0f, 100.0f, "%.0f%%");
+                else if (velocity->settings.mode == Velocity::Mode::Ignore) {
+                    ui::SliderFloat("Chance", &velocity->settings.chance, 0.0f, 100.0f, "%.0f%%");
                     
                     // Vertical mode
                     const char* vertModes[] = { "Never", "Only Air", "Always" };
-                    int vertIdx = static_cast<int>(velocity.settings.verticalMode);
+                    int vertIdx = static_cast<int>(velocity->settings.verticalMode);
                     ImGui::Text("Vertical");
                     ImGui::SameLine();
                     if (ImGui::BeginCombo("##vertmode", vertModes[vertIdx], ImGuiComboFlags_NoArrowButton)) {
                         for (int i = 0; i < 3; i++) {
                             bool selected = (vertIdx == i);
                             if (ImGui::Selectable(vertModes[i], selected))
-                                velocity.settings.verticalMode = static_cast<Velocity::VerticalMode>(i);
+                                velocity->settings.verticalMode = static_cast<Velocity::VerticalMode>(i);
                             if (selected)
                                 ImGui::SetItemDefaultFocus();
                         }
@@ -180,11 +180,11 @@ static void InitializePages() {
                 }
                 
                 ImGui::Spacing();
-                ui::SliderFloat("FOV", &velocity.settings.fov, 0.0f, 360.0f, "%.0f");
+                ui::SliderFloat("FOV", &velocity->settings.fov, 0.0f, 360.0f, "%.0f");
                 
-                int delay = velocity.settings.reduceDelay;
+                int delay = velocity->settings.reduceDelay;
                 if (ui::SliderInt("Delay", &delay, 0, 5, "%d ticks"))
-                    velocity.settings.reduceDelay = delay;
+                    velocity->settings.reduceDelay = delay;
             }
             ui::end_child();
         }
@@ -196,13 +196,13 @@ static void InitializePages() {
         {
             ui::begin_child("Conditions", { (ImGui::GetWindowWidth() - GImGui->Style.WindowPadding.x * 2) / 2 - GImGui->Style.ItemSpacing.x / 2, 0 });
             {
-                ui::Checkbox("Looking at Player", &velocity.settings.onlyLookingAtPlayer);
-                ui::Checkbox("Mouse Pressed", &velocity.settings.onlyMousePressed);
-                ui::Checkbox("Moving Forward", &velocity.settings.onlyMovingForward);
-                ui::Checkbox("Holding Weapon", &velocity.settings.onlyHoldingWeapon);
+                ui::Checkbox("Looking at Player", &velocity->settings.onlyLookingAtPlayer);
+                ui::Checkbox("Mouse Pressed", &velocity->settings.onlyMousePressed);
+                ui::Checkbox("Moving Forward", &velocity->settings.onlyMovingForward);
+                ui::Checkbox("Holding Weapon", &velocity->settings.onlyHoldingWeapon);
                 
-                if (velocity.settings.mode == Velocity::Mode::Jump) {
-                    ui::Checkbox("Only Sprinting", &velocity.settings.onlySprinting);
+                if (velocity->settings.mode == Velocity::Mode::Jump) {
+                    ui::Checkbox("Only Sprinting", &velocity->settings.onlySprinting);
                 }
             }
             ui::end_child();
@@ -216,16 +216,16 @@ static void InitializePages() {
         {
             ui::begin_child("General", { (ImGui::GetWindowWidth() - GImGui->Style.WindowPadding.x * 2) / 2 - GImGui->Style.ItemSpacing.x / 2, 0 });
             {
-                ui::CheckboxBind("Enabled", &reach.enabled, &reach.keybind);
+                ui::CheckboxBind("Enabled", &reach->enabled, &reach->keybind);
                 ImGui::Spacing();
                 
-                ui::Checkbox("Randomize", &reach.settings.randomize);
+                ui::Checkbox("Randomize", &reach->settings.randomize);
                 
-                if (reach.settings.randomize) {
-                    ui::SliderFloat("Min Distance", &reach.settings.minDistance, 3.0f, 6.0f, "%.1f");
-                    ui::SliderFloat("Max Distance", &reach.settings.maxDistance, 3.0f, 6.0f, "%.1f");
+                if (reach->settings.randomize) {
+                    ui::SliderFloat("Min Distance", &reach->settings.minDistance, 3.0f, 6.0f, "%.1f");
+                    ui::SliderFloat("Max Distance", &reach->settings.maxDistance, 3.0f, 6.0f, "%.1f");
                 } else {
-                    ui::SliderFloat("Distance", &reach.settings.distance, 3.0f, 6.0f, "%.1f");
+                    ui::SliderFloat("Distance", &reach->settings.distance, 3.0f, 6.0f, "%.1f");
                 }
             }
             ui::end_child();
@@ -238,9 +238,9 @@ static void InitializePages() {
         {
             ui::begin_child("Conditions", { (ImGui::GetWindowWidth() - GImGui->Style.WindowPadding.x * 2) / 2 - GImGui->Style.ItemSpacing.x / 2, 0 });
             {
-                ui::Checkbox("Weapons Only", &reach.settings.weaponsOnly);
-                ui::Checkbox("Sprinting Only", &reach.settings.sprintingOnly);
-                ui::Checkbox("Moving Only", &reach.settings.movingOnly);
+                ui::Checkbox("Weapons Only", &reach->settings.weaponsOnly);
+                ui::Checkbox("Sprinting Only", &reach->settings.sprintingOnly);
+                ui::Checkbox("Moving Only", &reach->settings.movingOnly);
             }
             ui::end_child();
         }
@@ -253,10 +253,10 @@ static void InitializePages() {
         {
             ui::begin_child("Settings", { (ImGui::GetWindowWidth() - GImGui->Style.WindowPadding.x * 2) / 2 - GImGui->Style.ItemSpacing.x / 2, 0 });
             {
-                ui::CheckboxBind("Enabled", &nameTags.enabled, &nameTags.keybind);
+                ui::CheckboxBind("Enabled", &nameTags->enabled, &nameTags->keybind);
                 ImGui::Spacing();
-                ui::SliderFloat("Scale", &nameTags.settings.scale, 0.5f, 2.0f, "%.1f");
-                ui::Checkbox("Background", &nameTags.settings.background);
+                ui::SliderFloat("Scale", &nameTags->settings.scale, 0.5f, 2.0f, "%.1f");
+                ui::Checkbox("Background", &nameTags->settings.background);
             }
             ui::end_child();
         }
@@ -268,8 +268,8 @@ static void InitializePages() {
         {
             ui::begin_child("Display", { (ImGui::GetWindowWidth() - GImGui->Style.WindowPadding.x * 2) / 2 - GImGui->Style.ItemSpacing.x / 2, 0 });
             {
-                ui::Checkbox("Show Health", &nameTags.settings.showHealth);
-                ui::Checkbox("Show Distance", &nameTags.settings.showDistance);
+                ui::Checkbox("Show Health", &nameTags->settings.showHealth);
+                ui::Checkbox("Show Distance", &nameTags->settings.showDistance);
             }
             ui::end_child();
         }
@@ -306,7 +306,7 @@ static void InitializePages() {
         {
             ui::begin_child("General", { (ImGui::GetWindowWidth() - GImGui->Style.WindowPadding.x * 2) / 2 - GImGui->Style.ItemSpacing.x / 2, 0 });
             {
-                ui::CheckboxBind("Enabled", &noJumpDelay.enabled, &noJumpDelay.keybind);
+                ui::CheckboxBind("Enabled", &noJumpDelay->enabled, &noJumpDelay->keybind);
             }
             ui::end_child();
         }

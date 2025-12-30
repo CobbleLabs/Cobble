@@ -159,7 +159,7 @@ void Java::GetMinecraftVersion()
         log_ok("detected minecraft 1.7.10");
     }
     else {
-        log_warn("unknown minecraft version: " + version);
+        log_warn("unknown minecraft version: %s", version.c_str());
     }
 
     Env->DeleteLocalRef(versionStr);

@@ -8,7 +8,7 @@
 #include <Windows.h>
 #include <random>
 
-Reach reach;
+Reach* reach = nullptr;
 
 static std::mt19937 rng(std::random_device{}());
 

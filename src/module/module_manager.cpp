@@ -8,7 +8,7 @@
 #include <Windows.h>
 #include <Psapi.h>
 
-ModuleManager moduleManager;
+ModuleManager* moduleManager = nullptr;
 
 // Check if Minecraft/Lunar window is the foreground window
 bool ModuleManager::isMinecraftFocused()

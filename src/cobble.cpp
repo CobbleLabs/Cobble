@@ -23,24 +23,49 @@ static void invalidateSignature()
 
 void cobble::context::initialize(HMODULE hModule)
 {
+	// Initialize logging console immediately
+	c_logger::initialize(); // Fixed: static call
+	log_raw("========================================");
+	log_ok("Cobble injected! Build: %s", __DATE__);
+	log_debug("Module Handle: 0x%p", hModule);
+	
 	(void)COBBLE_SIGNATURE[0];
 	moduleHandle = hModule;
 	
+	log_raw("Initializing Java...");
 	Java::Init();
 	if (!Java::Initialized) {
+		log_err("Java initialization failed!");
 		FreeLibraryAndExitThread(moduleHandle, 0);
 		return;
 	}
+	log_ok("Java initialized");
 
+	log_raw("Initializing SDK...");
 	SDK_Init();
+	log_ok("SDK initialized");
 
-	moduleManager.registerModule(&autoClicker);
-	moduleManager.registerModule(&aimAssist);
-	moduleManager.registerModule(&autoRefill);
-	moduleManager.registerModule(&velocity);
-	moduleManager.registerModule(&reach);
-	moduleManager.registerModule(&noJumpDelay);
-	moduleManager.registerModule(&nameTags);
+	log_raw("Allocating modules...");
+	// Dynamically allocate modules to avoid static initialization order issues
+	moduleManager = new ModuleManager();
+	autoClicker = new AutoClicker();
+	aimAssist = new AimAssist();
+	autoRefill = new AutoRefill();
+	velocity = new Velocity();
+	reach = new Reach();
+	noJumpDelay = new NoJumpDelay();
+	nameTags = new NameTags();
+	log_ok("Modules allocated");
+
+	log_raw("Registering modules...");
+	moduleManager->registerModule(autoClicker);
+	moduleManager->registerModule(aimAssist);
+	moduleManager->registerModule(autoRefill);
+	moduleManager->registerModule(velocity);
+	moduleManager->registerModule(reach);
+	moduleManager->registerModule(noJumpDelay);
+	moduleManager->registerModule(nameTags);
+	log_ok("Modules registered");
 
 	int tickCount = 0;
 	const int OVERLAY_INIT_DELAY = 1000;
@@ -49,9 +74,12 @@ void cobble::context::initialize(HMODULE hModule)
 	bool notificationShown = false;
 	
 	// Initialize self-integrity check (captures .text hash)
+	log_raw("Initializing Integrity Check...");
 	Integrity::Init(moduleHandle);
+	log_ok("Integrity Check initialized. Initial Hash: 0x%llX", Integrity::g_InitialTextHash);
 
 	is_running = true;
+	log_ok("Main loop starting...");
 
 	while (is_running)
 	{
@@ -67,7 +95,7 @@ void cobble::context::initialize(HMODULE hModule)
 		
 		tickCount++;
 		player.refresh();
-		moduleManager.update();
+		moduleManager->update();
 		
 		// Periodic integrity check (silent exit if tampered)
 		if (tickCount % INTEGRITY_CHECK_INTERVAL == 0) {
@@ -88,14 +116,27 @@ void cobble::context::shutdown()
 {
 	invalidateSignature();
 	
-	autoClicker.setEnabled(false);
-	aimAssist.setEnabled(false);
-	autoRefill.setEnabled(false);
-	velocity.setEnabled(false);
-	reach.setEnabled(false);
-	noJumpDelay.setEnabled(false);
-	nameTags.setEnabled(false);
+	if (autoClicker) autoClicker->setEnabled(false);
+	if (aimAssist) aimAssist->setEnabled(false);
+	if (autoRefill) autoRefill->setEnabled(false);
+	if (velocity) velocity->setEnabled(false);
+	if (reach) reach->setEnabled(false);
+	if (noJumpDelay) noJumpDelay->setEnabled(false);
+	if (nameTags) nameTags->setEnabled(false);
 	
 	Overlay::Shutdown();
 	Java::Kill();
+
+	// Clean up modules
+	if (autoClicker) { delete autoClicker; autoClicker = nullptr; }
+	if (aimAssist) { delete aimAssist; aimAssist = nullptr; }
+	if (autoRefill) { delete autoRefill; autoRefill = nullptr; }
+	if (velocity) { delete velocity; velocity = nullptr; }
+	if (reach) { delete reach; reach = nullptr; }
+	if (noJumpDelay) { delete noJumpDelay; noJumpDelay = nullptr; }
+	if (nameTags) { delete nameTags; nameTags = nullptr; }
+	
+	if (moduleManager) { delete moduleManager; moduleManager = nullptr; }
+	
+	c_logger::shutdown();
 }

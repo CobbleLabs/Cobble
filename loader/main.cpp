@@ -307,15 +307,55 @@ int wmain(int argc, wchar_t* argv[]) {
 		return 0;
 	}
 	
-	printWait(_xor_("Injecting (Manual Map)..."));
+	printWait(_xor_("Injecting (LoadLibrary)..."));
 	
-	if (!manualMap(lunar.pid, dllData, dllSize)) {
-		printError(_xor_("Manual Map failed!"));
+	// Write DLL to temp file for LoadLibrary (unique name to avoid conflicts)
+	wchar_t tempPath[MAX_PATH];
+	GetTempPathW(MAX_PATH, tempPath);
+	
+	// Generate unique filename using timestamp
+	DWORD tick = GetTickCount();
+	wchar_t uniqueName[64];
+	swprintf_s(uniqueName, L"Cobble_%08X.dll", tick);
+	std::wstring dllTempPath = std::wstring(tempPath) + uniqueName;
+	
+	// Try to delete old temp file if exists
+	DeleteFileW(dllTempPath.c_str());
+	
+	HANDLE hFile = CreateFileW(dllTempPath.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+	if (hFile == INVALID_HANDLE_VALUE) {
+		DWORD err = GetLastError();
+		char errBuf[128];
+		snprintf(errBuf, sizeof(errBuf), "Failed to write temp DLL (error %lu)", err);
+		printError(errBuf);
+		std::cout << _xor_("\n    Press any key to exit...");
+		std::cin.get();
+		return 1;
+	}
+	
+	DWORD written;
+	if (!WriteFile(hFile, dllData, dllSize, &written, nullptr) || written != dllSize) {
+		CloseHandle(hFile);
+		DeleteFileW(dllTempPath.c_str());
+		printError(_xor_("Failed to write DLL data!"));
+		std::cout << _xor_("\n    Press any key to exit...");
+		std::cin.get();
+		return 1;
+	}
+	CloseHandle(hFile);
+	
+	if (!injectDllLoadLibrary(lunar.pid, dllTempPath)) {
+		printError(_xor_("Injection failed!"));
+		DeleteFileW(dllTempPath.c_str());
 		printInfo(_xor_("Try running as Administrator."));
 		std::cout << _xor_("\n    Press any key to exit...");
 		std::cin.get();
 		return 1;
 	}
+	
+	// Delete temp file after a delay
+	Sleep(2000);
+	DeleteFileW(dllTempPath.c_str());
 	
 	printSuccess(_xor_("Injection successful!"));
 	

@@ -37,4 +37,4 @@ private:
 	bool isMinecraftFocused();
 };
 
-extern ModuleManager moduleManager;
+extern ModuleManager* moduleManager;

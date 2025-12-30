@@ -85,4 +85,4 @@ public:
 	int getHeldItemId();
 };
 
-extern AutoClicker autoClicker;
+extern AutoClicker* autoClicker;

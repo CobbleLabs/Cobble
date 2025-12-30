@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../module.h"
+#include "../../jni/java.h"
 #include <vector>
 #include <mutex>
 
@@ -46,7 +47,11 @@ private:
 	double cachedRenderX = 0, cachedRenderY = 0, cachedRenderZ = 0;
 	float cachedPartialTicks = 0.0f;
 	
+	// World change detection
+	jobject lastWorldRef = nullptr;
+	void checkWorldChange();
+	
 	void renderPlayerTag(ImDrawList* draw, float screenX, float screenY, const char* name, float distance, float health, float maxHealth);
 };
 
-extern NameTags nameTags;
+extern NameTags* nameTags;

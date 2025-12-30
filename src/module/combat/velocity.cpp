@@ -9,7 +9,7 @@
 #include <random>
 #include <cmath>
 
-Velocity velocity;
+Velocity* velocity = nullptr;
 
 static std::mt19937 rng(std::random_device{}());
 

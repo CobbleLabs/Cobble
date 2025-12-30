@@ -11,7 +11,7 @@
 #endif
 #include <Windows.h>
 
-AutoClicker autoClicker;
+AutoClicker* autoClicker = nullptr;
 
 // Weapon item IDs
 namespace ItemIds {

@@ -88,4 +88,4 @@ private:
 	float calculateSmoothRotation(float angleDiff, float speed, float deltaTime, float& velocity, float& smoothedAccel);
 };
 
-extern AimAssist aimAssist;
+extern AimAssist* aimAssist;

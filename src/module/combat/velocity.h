@@ -66,4 +66,4 @@ private:
 	float getAttackerAngle();
 };
 
-extern Velocity velocity;
+extern Velocity* velocity;

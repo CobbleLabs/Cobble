@@ -28,4 +28,4 @@ private:
 	void updateReach();
 };
 
-extern Reach reach;
+extern Reach* reach;

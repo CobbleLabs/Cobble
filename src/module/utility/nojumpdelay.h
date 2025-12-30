@@ -12,4 +12,4 @@ public:
 	void onUpdate() override;
 };
 
-extern NoJumpDelay noJumpDelay;
+extern NoJumpDelay* noJumpDelay;

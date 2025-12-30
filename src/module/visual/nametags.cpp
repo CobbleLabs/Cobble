@@ -8,7 +8,7 @@
 #include <cmath>
 #include <cstdio>
 
-NameTags nameTags;
+NameTags* nameTags = nullptr;
 
 NameTags::NameTags() : Module("NameTags")
 {
@@ -20,8 +20,12 @@ void NameTags::onEnable()
 	log_ok("NameTags enabled");
 	debugCounter = 0;
 	matrixDebugDone = false;
+	lastWorldRef = nullptr;  // Force world change detection on first update
 	
 	// Reset RenderData to force fresh matrices
+	RenderData::initialized = false;
+	RenderData::initFailed = false;
+	RenderData::initRetryCount = 0;
 	RenderData::Reset();
 	
 	// Clear any stale cached players
@@ -32,13 +36,80 @@ void NameTags::onEnable()
 void NameTags::onDisable()
 {
 	log_ok("NameTags disabled");
+	
+	// Clean up world ref
+	/*if (lastWorldRef && Java::Env) {
+		Java::Env->DeleteGlobalRef(lastWorldRef);
+	}*/
+	lastWorldRef = nullptr;
+	
 	std::lock_guard<std::mutex> lock(cacheMutex);
 	cachedPlayers.clear();
+}
+
+// Detect world change (server join/leave, dimension change)
+// Reinitializes RenderData when world reference changes
+void NameTags::checkWorldChange()
+{
+	if (!Java::Env || !Java::Initialized) return;
+	
+	jobject currentWorld = mc.getWorld();
+	
+	// First time or world changed
+	bool worldChanged = false;
+	
+	if (lastWorldRef == nullptr && currentWorld != nullptr) {
+		// First world load
+		worldChanged = true;
+	} else if (lastWorldRef != nullptr && currentWorld == nullptr) {
+		// Left server
+		worldChanged = true;
+	} else if (lastWorldRef != nullptr && currentWorld != nullptr) {
+		// Check if same object
+		if (!Java::Env->IsSameObject(lastWorldRef, currentWorld)) {
+			worldChanged = true;
+		}
+	}
+	
+	if (worldChanged) {
+		// Clear cache
+		{
+			std::lock_guard<std::mutex> lock(cacheMutex);
+			cachedPlayers.clear();
+		}
+		
+		// Force RenderData to reinitialize
+		RenderData::initialized = false;
+		RenderData::initFailed = false;
+		RenderData::initRetryCount = 0;
+		RenderData::Reset();
+		
+		matrixDebugDone = false;
+		
+		// Clean up old global ref
+		if (lastWorldRef) {
+			Java::Env->DeleteGlobalRef(lastWorldRef);
+			lastWorldRef = nullptr;
+		}
+		
+		// Store new global ref
+		if (currentWorld) {
+			lastWorldRef = Java::Env->NewGlobalRef(currentWorld);
+		}
+	}
+	
+	// Clean up local ref
+	if (currentWorld) {
+		Java::Env->DeleteLocalRef(currentWorld);
+	}
 }
 
 // Called from MAIN thread - cache player positions and render info
 void NameTags::onUpdate()
 {
+	// Check for world changes first
+	// checkWorldChange();
+	
 	// If player is not valid (in menu, left server, etc), clear cache
 	if (!player.isValid()) {
 		std::lock_guard<std::mutex> lock(cacheMutex);

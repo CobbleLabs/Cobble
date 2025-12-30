@@ -11,7 +11,7 @@
 #endif
 #include <Windows.h>
 
-AimAssist aimAssist;
+AimAssist* aimAssist = nullptr;
 
 // ========== Angle math utilities ==========
 
@@ -337,14 +337,14 @@ void AimAssist::onUpdate()
 	float yawStrength = yawProximity * yawInitiator * yawAlignBoost * intentFactor;
 	float pitchStrength = pitchProximity * pitchInitiator * pitchAlignBoost * intentFactor;
 	
-	// Speed scaling: 0-100 maps to actual rotation speed
-	// At 100 speed, we want fast but still smooth aim
-	// Multiply by 0.1 to convert 0-100 to reasonable degree/s values
-	float yawSpeedFactor = (settings.horizontalSpeed / 100.0f) * 10.0f;  // 0-10 range
-	float pitchSpeedFactor = (settings.verticalSpeed / 100.0f) * 10.0f;
-	
-	float effectiveYawSpeed = yawSpeedFactor * yawStrength;
-	float effectivePitchSpeed = pitchSpeedFactor * pitchStrength;
+	// Scale by MC sensitivity (inverse - higher sens = lower multiplier for consistency)
+	float sensMultiplier = getSensitivityMultiplier();
+	float baseMultiplier = (sensMultiplier > 0.001f) ? (0.15f / sensMultiplier) : 1.0f;
+
+	// Increased multiplier to be competitive: speed 100 = very fast (but still smooth)
+	// 2.0x multiplier makes it comparable to other clients at max speed
+	float effectiveYawSpeed = settings.horizontalSpeed * yawStrength * baseMultiplier * 2.0f;
+	float effectivePitchSpeed = settings.verticalSpeed * pitchStrength * baseMultiplier * 2.0f;
 	
 	float yawRotation = calculateSmoothRotation(yawDiff, effectiveYawSpeed, deltaTime, currentYawVelocity, smoothedYawAccel);
 	float pitchRotation = 0.0f;

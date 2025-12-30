@@ -6,6 +6,35 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/).
 
 ---
 
+## [0.15.0] - 2025-12-30
+
+### Fixed
+- **Critical: Injection crash resolved**:
+  - Switched from Manual Mapping to **LoadLibrary injection** (fixes crash on inject)
+  - Manual map had TLS/exception handler issues causing immediate crash
+  - Process Hacker validation confirmed DLL works perfectly with LoadLibrary
+- **Static Initialization Order Fiasco**:
+  - All modules (`AutoClicker`, `AimAssist`, `Velocity`, etc.) now use **dynamic allocation**
+  - `ModuleManager` and modules are `new`'d at runtime, not as global objects
+  - Prevents crashes during DLL load before CRT is fully initialized
+- **Proper module cleanup**: All modules properly `delete`d in `shutdown()`
+
+### Added
+- **Debug Console Toggle** (`logger.hpp`):
+  - `#define DEBUG_CONSOLE 1` to enable colored console for development
+  - `#define DEBUG_CONSOLE 0` (default) for production builds (no console, zero overhead)
+  - When disabled, all `log_*` macros compile to no-ops
+- **Loader improvements**:
+  - Disabled `/GS` and `/sdl` security checks for loader (incompatible with shellcode)
+  - Graceful handling of failed import loading in manual mapper
+  - Temp DLL auto-cleanup after injection
+
+### Changed
+- **Loader injection method**: Now uses `CreateRemoteThread(LoadLibraryW)` instead of manual mapping
+- **ARCHITECTURE.md**: Updated with new execution flow and module lifecycle
+
+---
+
 ## [0.14.0] - 2025-12-30
 
 ### Security

@@ -83,6 +83,13 @@ void __stdcall libraryLoader(MANUAL_MAPPING_DATA* pData) {
 			char* szMod = reinterpret_cast<char*>(pBase + pImportDescr->Name);
 			HINSTANCE hDll = pData->pLoadLibraryA(szMod);
 
+			if (!hDll) {
+				// Dependency failed to load. Skip this descriptor or abort?
+				// Skipping might cause crash later when calling functions, but better than immediate crash here.
+				++pImportDescr;
+				continue;
+			}
+
 			// Thunks point to the function names and where to store the addresses
 			ULONG_PTR* pThunkRef = reinterpret_cast<ULONG_PTR*>(pBase + pImportDescr->OriginalFirstThunk); // Name Array
 			ULONG_PTR* pFuncRef = reinterpret_cast<ULONG_PTR*>(pBase + pImportDescr->FirstThunk);         // IAT (Address Array)
@@ -298,9 +305,52 @@ bool manualMap(DWORD pid, BYTE* pSrcData, size_t dataSize) {
 // =========================================================================
 
 bool injectDllLoadLibrary(DWORD pid, const std::wstring& dllPath) {
-    // ... (Original implementation, kept for reference if needed, but omitted for brevity)
-    // To restore, copy paste original injectDll body here
-    return false; // Disabled by default
+	HANDLE hProcess = OpenProcess(PROCESS_ALL_ACCESS, FALSE, pid);
+	if (!hProcess) return false;
+
+	// Allocate memory in target for path
+	size_t pathSize = (dllPath.length() + 1) * sizeof(wchar_t);
+	void* pRemotePath = VirtualAllocEx(hProcess, nullptr, pathSize, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+	if (!pRemotePath) {
+		CloseHandle(hProcess);
+		return false;
+	}
+
+	// Write path to target
+	if (!WriteProcessMemory(hProcess, pRemotePath, dllPath.c_str(), pathSize, nullptr)) {
+		VirtualFreeEx(hProcess, pRemotePath, 0, MEM_RELEASE);
+		CloseHandle(hProcess);
+		return false;
+	}
+
+	// Get LoadLibraryW address
+	HMODULE hKernel32 = GetModuleHandleW(L"kernel32.dll");
+	FARPROC pLoadLibraryW = GetProcAddress(hKernel32, "LoadLibraryW");
+	if (!pLoadLibraryW) {
+		VirtualFreeEx(hProcess, pRemotePath, 0, MEM_RELEASE);
+		CloseHandle(hProcess);
+		return false;
+	}
+
+	// Create remote thread
+	HANDLE hThread = CreateRemoteThread(hProcess, nullptr, 0, 
+		(LPTHREAD_START_ROUTINE)pLoadLibraryW, pRemotePath, 0, nullptr);
+	
+	if (!hThread) {
+		VirtualFreeEx(hProcess, pRemotePath, 0, MEM_RELEASE);
+		CloseHandle(hProcess);
+		return false;
+	}
+
+	// Wait for completion
+	WaitForSingleObject(hThread, INFINITE);
+
+	// Cleanup
+	CloseHandle(hThread);
+	VirtualFreeEx(hProcess, pRemotePath, 0, MEM_RELEASE);
+	CloseHandle(hProcess);
+
+	return true;
 }
 
 HMODULE getRemoteModuleHandle(DWORD pid, const std::wstring& moduleName) {

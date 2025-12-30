@@ -15,7 +15,7 @@ void ArrayListRenderer::render()
 	
 	// Get enabled modules
 	std::vector<Module*> enabledModules;
-	for (auto* mod : moduleManager.getModules()) {
+	for (auto* mod : moduleManager->getModules()) {
 		if (mod && mod->enabled) {
 			enabledModules.push_back(mod);
 		}

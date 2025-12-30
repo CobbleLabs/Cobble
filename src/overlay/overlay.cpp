@@ -395,7 +395,7 @@ void Overlay::Shutdown()
 void Overlay::Render()
 {
 	// Modules with onRender() will be called here
-	moduleManager.onRender();
+	moduleManager->onRender();
 	
 	// Render ArrayList (active modules list)
 	ArrayListRenderer::render();

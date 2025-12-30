@@ -10,7 +10,7 @@
 #endif
 #include <Windows.h>
 
-AutoRefill autoRefill;
+AutoRefill* autoRefill = nullptr;
 
 // Simple keypress simulation
 static void sendKey(WORD vk) {

@@ -7,7 +7,7 @@
 #endif
 #include <Windows.h>
 
-NoJumpDelay noJumpDelay;
+NoJumpDelay* noJumpDelay = nullptr;
 
 NoJumpDelay::NoJumpDelay() : Module("NoJumpDelay")
 {
