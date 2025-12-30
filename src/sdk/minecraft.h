@@ -19,6 +19,7 @@ struct PlayerInfo
 	float health = 20.0f;
 	float maxHealth = 20.0f;
 	bool isInvisible = false;
+	int hurtTime = 0;  // 0-10: ticks since last hit (0 = can take damage)
 };
 
 // Render position for WorldToScreen calculations
@@ -85,6 +86,10 @@ struct Minecraft
 	void openInventory();   // Open player inventory GUI (like pressing E)
 	void closeInventory();  // Close current GUI
 	bool isInventoryOpen(); // Check if inventory GUI is open
+
+	// Hit detection for Hit Select module
+	bool isTargetingEntity();           // Check if looking at an entity
+	int getTargetedEntityHurtTime();    // Get hurtTime of targeted entity (0 = can take damage)
 
 	jclass cls = nullptr;
 	jobject instance = nullptr;

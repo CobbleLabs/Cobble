@@ -9,6 +9,7 @@
 #include "../module/combat/autoclicker.h"
 #include "../module/combat/aimassist.h"
 #include "../module/combat/autorefill.h"
+#include "../module/combat/hitselect.h"
 #include "../module/visual/nametags.h"
 #include "../cobble.hpp"
 
@@ -111,6 +112,77 @@ static void InitializePages() {
                 ui::Checkbox("Refill Soup", &autoRefill.settings.refillSoup);
                 ui::Checkbox("Refill Potions", &autoRefill.settings.refillPotions);
                 ui::Checkbox("Smart Speed", &autoRefill.settings.smartSpeed);
+            }
+            ui::end_child();
+        }
+        ImGui::EndGroup();
+    });
+    
+    // Combat Tab - HitSelect page
+    ui::add_page(0, []() {
+        ImGui::BeginGroup();
+        {
+            ui::begin_child("General", { (ImGui::GetWindowWidth() - GImGui->Style.WindowPadding.x * 2) / 2 - GImGui->Style.ItemSpacing.x / 2, 0 });
+            {
+                ui::CheckboxBind("Enabled", &hitSelect.enabled, &hitSelect.keybind);
+                ImGui::Spacing();
+                
+                // Mode selector
+                const char* modes[] = { "Burst", "Criticals" };
+                ImGui::Text("Mode");
+                ImGui::SameLine();
+                if (ImGui::BeginCombo("##mode", modes[hitSelect.settings.mode], ImGuiComboFlags_NoArrowButton)) {
+                    for (int i = 0; i < 2; i++) {
+                        bool selected = (hitSelect.settings.mode == i);
+                        if (ImGui::Selectable(modes[i], selected))
+                            hitSelect.settings.mode = i;
+                        if (selected)
+                            ImGui::SetItemDefaultFocus();
+                    }
+                    ImGui::EndCombo();
+                }
+                
+                ImGui::Spacing();
+                int cancelRate = hitSelect.settings.cancelRateInCombat;
+                if (ui::SliderInt("Cancel Rate", &cancelRate, 0, 100, "%d%%"))
+                    hitSelect.settings.cancelRateInCombat = cancelRate;
+                    
+                int missedRate = hitSelect.settings.cancelRateMissedSwings;
+                if (ui::SliderInt("Missed Swings", &missedRate, 0, 100, "%d%%"))
+                    hitSelect.settings.cancelRateMissedSwings = missedRate;
+            }
+            ui::end_child();
+        }
+        ImGui::EndGroup();
+        
+        ImGui::SameLine();
+        
+        ImGui::BeginGroup();
+        {
+            ui::begin_child("Options", { (ImGui::GetWindowWidth() - GImGui->Style.WindowPadding.x * 2) / 2 - GImGui->Style.ItemSpacing.x / 2, 0 });
+            {
+                ui::Checkbox("Fake Swing", &hitSelect.settings.fakeSwing);
+                
+                if (hitSelect.settings.mode == 0) {
+                    // Burst mode options
+                    int pauseDur = hitSelect.settings.pauseDuration;
+                    if (ui::SliderInt("Pause (ms)", &pauseDur, 100, 600, "%d"))
+                        hitSelect.settings.pauseDuration = pauseDur;
+                } else {
+                    // Criticals mode options
+                    ui::Checkbox("Disable During KB", &hitSelect.settings.disableDuringKnockback);
+                }
+                
+                ImGui::Spacing();
+                
+                // Humanization settings
+                int humanErr = hitSelect.settings.humanErrorRate;
+                if (ui::SliderInt("Human Error", &humanErr, 0, 20, "%d%%"))
+                    hitSelect.settings.humanErrorRate = humanErr;
+                    
+                int timingRand = hitSelect.settings.timingRandomization;
+                if (ui::SliderInt("Timing Rand", &timingRand, 0, 100, "%d ms"))
+                    hitSelect.settings.timingRandomization = timingRand;
             }
             ui::end_child();
         }

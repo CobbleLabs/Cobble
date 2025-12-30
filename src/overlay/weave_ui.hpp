@@ -113,7 +113,7 @@ namespace ui {
     inline int cur_tab = 0;
     inline int next_tab = 0;
     inline std::vector<tab_t> tabs = {
-        { ICON_FA_CROSSHAIRS, "Combat", { "AutoClicker", "AimAssist", "AutoRefill" } },
+        { ICON_FA_CROSSHAIRS, "Combat", { "AutoClicker", "AimAssist", "AutoRefill", "HitSelect" } },
         { ICON_FA_EYE, "Visuals", { "NameTags", "ESP", "World" } },
         { ICON_FA_GEAR, "Settings", { } }
     };

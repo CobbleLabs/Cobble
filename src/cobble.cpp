@@ -3,13 +3,24 @@
 #include "module/combat/autoclicker.h"
 #include "module/combat/aimassist.h"
 #include "module/combat/autorefill.h"
+#include "module/combat/hitselect.h"
 #include "module/visual/nametags.h"
 #include "overlay/overlay.h"
 #include "overlay/notifications.h"
 
 // Signature for loader to detect if we're already injected
-// This is placed in executable memory and never changes
-volatile const char COBBLE_SIGNATURE[] = "COBBLE_LOADED_V1";
+// This must be writable so we can clear it during shutdown to allow re-injection
+// (Manual-mapped memory isn't freed, so signature persists unless we overwrite it)
+volatile char COBBLE_SIGNATURE[] = "COBBLE_LOADED_V1";
+
+// Clear the signature so loader can re-inject after eject
+static void invalidateSignature()
+{
+	// Overwrite with zeros so memory scan won't find the signature
+	for (int i = 0; i < 16; i++) {
+		COBBLE_SIGNATURE[i] = '\0';
+	}
+}
 
 void cobble::context::initialize(HMODULE hModule)
 {
@@ -32,6 +43,7 @@ void cobble::context::initialize(HMODULE hModule)
 	moduleManager.registerModule(&autoClicker);
 	moduleManager.registerModule(&aimAssist);
 	moduleManager.registerModule(&autoRefill);
+	moduleManager.registerModule(&hitSelect);
 	moduleManager.registerModule(&nameTags);
 
 	// Counter for delayed overlay init
@@ -92,10 +104,15 @@ void cobble::context::initialize(HMODULE hModule)
 
 void cobble::context::shutdown()
 {
+	// Clear the signature FIRST so loader can re-inject after eject
+	// (Memory persists after manual-map, so we must invalidate it manually)
+	invalidateSignature();
+	
 	// Disable all modules first
 	autoClicker.setEnabled(false);
 	aimAssist.setEnabled(false);
 	autoRefill.setEnabled(false);
+	hitSelect.setEnabled(false);
 	nameTags.setEnabled(false);
 	
 	// Signal overlay to stop rendering but don't cleanup GL resources

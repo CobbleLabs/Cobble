@@ -93,6 +93,7 @@
     <ClCompile Include="src\module\combat\autoclicker.cpp" />
     <ClCompile Include="src\module\combat\aimassist.cpp" />
     <ClCompile Include="src\module\combat\autorefill.cpp" />
+    <ClCompile Include="src\module\combat\hitselect.cpp" />
     <ClCompile Include="src\module\visual\nametags.cpp" />
     <ClCompile Include="src\overlay\overlay.cpp" />
     <ClCompile Include="src\overlay\menu.cpp" />
@@ -127,6 +128,7 @@
     <ClInclude Include="src\module\aimassist.h" />
     <ClInclude Include="src\overlay\menu.h" />
     <ClInclude Include="src\module\combat\autorefill.h" />
+    <ClInclude Include="src\module\combat\hitselect.h" />
     <ClInclude Include="ext\jni\jni.h" />
     <ClInclude Include="ext\jni\jni_md.h" />
     <ClInclude Include="ext\jni\jvmti.h" />

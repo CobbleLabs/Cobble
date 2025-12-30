@@ -282,17 +282,21 @@ std::vector<PlayerInfo> Minecraft::getPlayerList()
 		}
 		if (info.name.empty()) info.name = "Player";
 		
-		// Get health (EntityLivingBase methods)
+		// Get health and hurtTime (EntityLivingBase)
 		jclass livingCls = nullptr;
 		if (Java::AssignClass("net.minecraft.entity.EntityLivingBase", livingCls)) {
 			jmethodID mid_getHealth = Java::Env->GetMethodID(livingCls, "getHealth", "()F");
 			jmethodID mid_getMaxHealth = Java::Env->GetMethodID(livingCls, "getMaxHealth", "()F");
+			jfieldID fid_hurtTime = Java::Env->GetFieldID(livingCls, "hurtTime", "I");
 			
 			if (mid_getHealth) {
 				info.health = Java::Env->CallFloatMethod(entity, mid_getHealth);
 			}
 			if (mid_getMaxHealth) {
 				info.maxHealth = Java::Env->CallFloatMethod(entity, mid_getMaxHealth);
+			}
+			if (fid_hurtTime) {
+				info.hurtTime = Java::Env->GetIntField(entity, fid_hurtTime);
 			}
 			Java::Env->DeleteLocalRef(livingCls);
 		}
@@ -780,4 +784,125 @@ bool Minecraft::isInventoryOpen()
 
 	Java::Env->DeleteLocalRef(screen);
 	return result;
+}
+
+bool Minecraft::isTargetingEntity()
+{
+	if (!isValid()) return false;
+
+	// Get objectMouseOver field
+	jfieldID fid_objectMouseOver = Java::Env->GetFieldID(cls, "objectMouseOver", "Lnet/minecraft/util/MovingObjectPosition;");
+	if (!fid_objectMouseOver) return false;
+
+	jobject mouseOver = Java::Env->GetObjectField(instance, fid_objectMouseOver);
+	if (!mouseOver) return false;
+
+	// Get MovingObjectPosition class and typeOfHit field
+	jclass mopClass = nullptr;
+	if (!Java::AssignClass("net.minecraft.util.MovingObjectPosition", mopClass)) {
+		Java::Env->DeleteLocalRef(mouseOver);
+		return false;
+	}
+
+	jfieldID fid_typeOfHit = Java::Env->GetFieldID(mopClass, "typeOfHit", "Lnet/minecraft/util/MovingObjectPosition$MovingObjectType;");
+	if (!fid_typeOfHit) {
+		Java::Env->DeleteLocalRef(mouseOver);
+		Java::Env->DeleteLocalRef(mopClass);
+		return false;
+	}
+
+	jobject typeOfHit = Java::Env->GetObjectField(mouseOver, fid_typeOfHit);
+	Java::Env->DeleteLocalRef(mouseOver);
+
+	if (!typeOfHit) {
+		Java::Env->DeleteLocalRef(mopClass);
+		return false;
+	}
+
+	// Get the ENTITY enum constant
+	jclass typeClass = Java::Env->GetObjectClass(typeOfHit);
+	if (!typeClass) {
+		Java::Env->DeleteLocalRef(typeOfHit);
+		Java::Env->DeleteLocalRef(mopClass);
+		return false;
+	}
+
+	jfieldID fid_entity = Java::Env->GetStaticFieldID(typeClass, "ENTITY", "Lnet/minecraft/util/MovingObjectPosition$MovingObjectType;");
+	if (!fid_entity) {
+		Java::Env->DeleteLocalRef(typeOfHit);
+		Java::Env->DeleteLocalRef(typeClass);
+		Java::Env->DeleteLocalRef(mopClass);
+		return false;
+	}
+
+	jobject entityEnum = Java::Env->GetStaticObjectField(typeClass, fid_entity);
+	bool result = Java::Env->IsSameObject(typeOfHit, entityEnum);
+
+	Java::Env->DeleteLocalRef(entityEnum);
+	Java::Env->DeleteLocalRef(typeOfHit);
+	Java::Env->DeleteLocalRef(typeClass);
+	Java::Env->DeleteLocalRef(mopClass);
+
+	return result;
+}
+
+int Minecraft::getTargetedEntityHurtTime()
+{
+	if (!isValid()) return 0;
+
+	// Get objectMouseOver field
+	jfieldID fid_objectMouseOver = Java::Env->GetFieldID(cls, "objectMouseOver", "Lnet/minecraft/util/MovingObjectPosition;");
+	if (!fid_objectMouseOver) return 0;
+
+	jobject mouseOver = Java::Env->GetObjectField(instance, fid_objectMouseOver);
+	if (!mouseOver) return 0;
+
+	// Get MovingObjectPosition class
+	jclass mopClass = nullptr;
+	if (!Java::AssignClass("net.minecraft.util.MovingObjectPosition", mopClass)) {
+		Java::Env->DeleteLocalRef(mouseOver);
+		return 0;
+	}
+
+	// Get entityHit field (the entity being looked at)
+	jfieldID fid_entityHit = Java::Env->GetFieldID(mopClass, "entityHit", "Lnet/minecraft/entity/Entity;");
+	if (!fid_entityHit) {
+		Java::Env->DeleteLocalRef(mouseOver);
+		Java::Env->DeleteLocalRef(mopClass);
+		return 0;
+	}
+
+	jobject entityHit = Java::Env->GetObjectField(mouseOver, fid_entityHit);
+	Java::Env->DeleteLocalRef(mouseOver);
+	Java::Env->DeleteLocalRef(mopClass);
+
+	if (!entityHit) return 0;
+
+	// Get EntityLivingBase class for hurtTime
+	jclass livingCls = nullptr;
+	if (!Java::AssignClass("net.minecraft.entity.EntityLivingBase", livingCls)) {
+		Java::Env->DeleteLocalRef(entityHit);
+		return 0;
+	}
+
+	// Check if entity is an EntityLivingBase
+	if (!Java::Env->IsInstanceOf(entityHit, livingCls)) {
+		Java::Env->DeleteLocalRef(entityHit);
+		Java::Env->DeleteLocalRef(livingCls);
+		return 0;
+	}
+
+	jfieldID fid_hurtTime = Java::Env->GetFieldID(livingCls, "hurtTime", "I");
+	if (!fid_hurtTime) {
+		Java::Env->DeleteLocalRef(entityHit);
+		Java::Env->DeleteLocalRef(livingCls);
+		return 0;
+	}
+
+	int hurtTime = Java::Env->GetIntField(entityHit, fid_hurtTime);
+
+	Java::Env->DeleteLocalRef(entityHit);
+	Java::Env->DeleteLocalRef(livingCls);
+
+	return hurtTime;
 }

@@ -6,6 +6,36 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/).
 
 ---
 
+## [0.12.0] - 2025-12-30
+
+### Added
+- **HitSelect Module**: Filtra clicks innecesarios para mejor knockback en PvP
+  - **Burst Mode**: Cancela clicks cuando el target tiene invulnerabilidad (i-frames)
+  - **Criticals Mode**: Solo permite hits mientras caes (crits automáticos)
+  - Fake Swing: muestra animación de swing aunque se cancele el click
+  - Cancel rates configurables para combate y swings al aire
+- **HitSelect UI**: Panel completo en Combat tab con selector de modo
+- **Humanización anti-detección**:
+  - Human Error Rate: chance de "fallar" y dejar pasar hits malos (más realista)
+  - Timing Randomization: variación aleatoria en timing de cancelación
+  - Defaults conservadores: 65% cancel rate, 8% error rate, 50ms timing variance
+  - Thresholds más lenientes (hurtTime > 1 en vez de > 0)
+
+### Changed
+- Combat tab ahora tiene 4 subtabs: AutoClicker, AimAssist, AutoRefill, HitSelect
+- Config por defecto segura para uso sin baneo
+
+---
+
+## [0.11.1] - 2025-12-30
+
+### Fixed
+- **Re-inyección funcional**: Después de eject, el loader ahora puede volver a inyectar
+  - La signature `COBBLE_LOADED_V1` se borra durante shutdown
+  - Antes persistía en memoria (manual-map no libera) y el loader la detectaba
+
+---
+
 ## [0.11.0] - 2025-12-30
 
 ### Added

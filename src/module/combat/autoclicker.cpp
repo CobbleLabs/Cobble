@@ -1,4 +1,5 @@
 #include "autoclicker.h"
+#include "hitselect.h"
 #include "../../sdk/minecraft.h"
 #include "../../util/logger.hpp"
 #include "../../overlay/menu.h"
@@ -171,6 +172,16 @@ void AutoClicker::onUpdate()
 			calculateNextDelay();
 			return;
 		}
+	}
+	
+	// Hit Select integration - cancel clicks when target is invulnerable
+	if (hitSelect.enabled && hitSelect.shouldCancelClick()) {
+		if (hitSelect.settings.fakeSwing) {
+			hitSelect.doFakeSwing();
+		}
+		lastClick = now;
+		calculateNextDelay();
+		return;  // Skip this click
 	}
 	
 	// Perform click
