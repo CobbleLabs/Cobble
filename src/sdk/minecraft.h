@@ -91,6 +91,11 @@ struct Minecraft
 	bool isTargetingEntity();           // Check if looking at an entity
 	int getTargetedEntityHurtTime();    // Get hurtTime of targeted entity (0 = can take damage)
 
+	// Movement control - release all movement keybinds
+	void releaseMovementKeys();
+	// Restore keys that are physically held down
+	void restoreMovementKeys();
+
 	jclass cls = nullptr;
 	jobject instance = nullptr;
 
@@ -103,6 +108,12 @@ private:
 	jmethodID mid_clickMouse = nullptr;
 	jfieldID fid_rightClickDelayTimer = nullptr;
 	jfieldID fid_leftClickCounter = nullptr;
+	
+	// Cached for release/restore keys (thread-safe)
+	jclass cls_keyBinding = nullptr;
+	jmethodID mid_unPressAllKeys = nullptr;
+	jmethodID mid_setKeyBindState = nullptr;
+	jmethodID mid_getKeyCode = nullptr;
 
 	friend void SDK_Init();
 };

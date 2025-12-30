@@ -18,5 +18,7 @@ struct Java
 	static inline jvmtiEnv* tiEnv;
 	static inline bool Initialized;
 	static inline MinecraftVersion Version;
+	
+	static JNIEnv* GetEnv();
 };
 

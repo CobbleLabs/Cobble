@@ -4,6 +4,7 @@
 #include <string>
 #include <filesystem>
 #include <atomic>
+#include <vector>
 
 #include "process.h"
 #include "inject.h"
@@ -13,6 +14,12 @@
 #include "license.h"
 #include "hwid.h"
 #include "version.h"
+
+// User info structure for shared memory
+struct UserInfoData {
+    char username[64];
+    int daysRemaining;
+};
 
 // ============================================================================
 // LICENSE CONFIG
@@ -150,13 +157,14 @@ DWORD WINAPI SecurityThread2(LPVOID lpParam) {
 int wmain(int argc, wchar_t* argv[]) {
 	// ========== PHASE 1: SECURITY ==========
 	
-	if (Security::IsOnVM()) {
-		MessageBoxW(NULL, 
-			L"Cobble cannot run in this environment.\n\nIf you believe this is an error, please contact support.", 
-			L"Cobble - Security",
-			MB_ICONERROR | MB_OK);
-		return 1;
-	}
+	// VM check disabled for development
+	// if (Security::IsOnVM()) {
+	// 	MessageBoxW(NULL, 
+	// 		L"Cobble cannot run in this environment.\n\nIf you believe this is an error, please contact support.", 
+	// 		L"Cobble - Security",
+	// 		MB_ICONERROR | MB_OK);
+	// 	return 1;
+	// }
 	
 	if (Security::IsBeingDebugged()) {
 		MessageBoxW(NULL, 
@@ -235,7 +243,12 @@ int wmain(int argc, wchar_t* argv[]) {
 	}
 	
 	std::wstring dllPath = getDllPath();
+	
+	// DEV MODE: Prefer disk file if exists
 	bool usingResource = (dllData != nullptr);
+	if (std::filesystem::exists(dllPath)) {
+	    usingResource = false;
+	}
 	
 	if (!usingResource && !std::filesystem::exists(dllPath)) {
 		printError(_xor_("Cobble.dll not found!"));

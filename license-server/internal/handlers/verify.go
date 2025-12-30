@@ -108,8 +108,19 @@ func Verify(w http.ResponseWriter, r *http.Request) {
 	// Update last seen
 	database.DB.Exec(`UPDATE licenses SET last_seen_at = CURRENT_TIMESTAMP, last_ip = ? WHERE hwid = ?`, clientIP, hwid)
 
+	// Calculate days remaining
+	daysRemaining := int(time.Until(license.ExpiresAt).Hours() / 24)
+	if daysRemaining < 0 {
+		daysRemaining = 0
+	}
+
 	logger.Info("VERIFY", "OK", logger.Fields{"user": license.Username, "ip": clientIP, "version": version})
-	helpers.JSONResponse(w, http.StatusOK, models.VerifyResponse{Valid: true, Message: "Welcome, " + license.Username})
+	helpers.JSONResponse(w, http.StatusOK, models.VerifyResponse{
+		Valid:         true, 
+		Message:       "Welcome, " + license.Username,
+		Username:      license.Username,
+		DaysRemaining: daysRemaining,
+	})
 }
 
 // BanUser bans a user with the given reason

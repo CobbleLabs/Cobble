@@ -165,3 +165,17 @@ void Java::GetMinecraftVersion()
     Env->DeleteLocalRef(minecraft);
     Env->DeleteLocalRef(minecraftClass);
 }
+
+JNIEnv* Java::GetEnv()
+{
+    if (!vm) return nullptr;
+
+    JNIEnv* env;
+    int status = vm->GetEnv((void**)&env, JNI_VERSION_1_6);
+
+    if (status == JNI_EDETACHED) {
+        vm->AttachCurrentThread((void**)&env, nullptr);
+    }
+
+    return env;
+}

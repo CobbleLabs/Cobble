@@ -16,4 +16,10 @@ namespace License {
     
     // Get minimum required version
     std::string GetMinVersion();
+    
+    // Get verified username (only valid after successful Verify)
+    std::string GetUsername();
+    
+    // Get days remaining (only valid after successful Verify)
+    int GetDaysRemaining();
 }

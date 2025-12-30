@@ -12,6 +12,7 @@
 #include "../module/combat/hitselect.h"
 #include "../module/visual/nametags.h"
 #include "../cobble.hpp"
+#include "../sdk/minecraft.h"
 
 #include <string>
 
@@ -62,8 +63,8 @@ static void InitializePages() {
             {
                 ui::CheckboxBind("Enabled", &aimAssist.enabled, &aimAssist.keybind);
                 ImGui::Spacing();
-                ui::SliderFloat("H Speed", &aimAssist.settings.horizontalSpeed, 1.0f, 100.0f, "%.0f");
-                ui::SliderFloat("V Speed", &aimAssist.settings.verticalSpeed, 1.0f, 100.0f, "%.0f");
+                ui::SliderFloat("Horizontal Speed", &aimAssist.settings.horizontalSpeed, 1.0f, 100.0f, "%.0f");
+                ui::SliderFloat("Vertical Speed", &aimAssist.settings.verticalSpeed, 1.0f, 100.0f, "%.0f");
                 ui::SliderFloat("FOV", &aimAssist.settings.maxFov, 10.0f, 360.0f, "%.0f");
                 ui::SliderFloat("Distance", &aimAssist.settings.maxDistance, 3.0f, 8.0f, "%.1f");
             }
@@ -292,6 +293,12 @@ void Menu::Render() {
         return;
     }
     
+    // Continuously release movement keys while menu is open
+    // This fights against Minecraft's native input handling which might re-enable them
+    if (isOpen) {
+        mc.releaseMovementKeys();
+    }
+    
     // Initialize pages once
     InitializePages();
     
@@ -302,6 +309,13 @@ void Menu::Render() {
     
     // Sync global alpha modifier for manual rendering
     ui::alpha_mod = openAnim;
+    
+    // Fake blur: dark overlay behind menu
+    ImGui::GetBackgroundDrawList()->AddRectFilled(
+        ImVec2(0, 0),
+        io.DisplaySize,
+        IM_COL32(0, 0, 0, (int)(115 * openAnim))  // Black with ~45% alpha
+    );
     
     ui::size = ui::s(ui::baseSize);
     
@@ -351,7 +365,7 @@ void Menu::Render() {
                 ImGui::GetWindowDrawList()->AddRectFilled(
                     ImGui::GetWindowPos(), 
                     ImGui::GetWindowPos() + ImGui::GetWindowSize(), 
-                    ui::GetColor(ImGuiCol_WindowBg, 0.9f), 
+                    ui::GetColor(ImGuiCol_WindowBg, 1.0f), 
                     GImGui->Style.WindowRounding, ImDrawFlags_RoundCornersBottom
                 );
                 

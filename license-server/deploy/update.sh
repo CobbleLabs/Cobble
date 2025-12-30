@@ -46,6 +46,13 @@ chmod +x $INSTALL_DIR/cobble-server
 chown cobble:cobble $INSTALL_DIR/cobble-server
 rm cobble-server
 
+# Copy .env if exists (preserves config changes)
+if [ -f ".env" ]; then
+    cp .env $INSTALL_DIR/.env
+    chown cobble:cobble $INSTALL_DIR/.env
+    echo -e "${GREEN}  .env copied to $INSTALL_DIR${NC}"
+fi
+
 echo -e "${YELLOW}[4/4] Starting service...${NC}"
 systemctl start cobble
 

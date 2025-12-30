@@ -17,6 +17,8 @@ namespace License {
 static std::string g_LastError;
 static bool g_NeedsUpdate = false;
 static std::string g_MinVersion;
+static std::string g_Username;
+static int g_DaysRemaining = -1;
 
 std::string GetLastError() {
     return g_LastError;
@@ -28,6 +30,14 @@ bool NeedsUpdate() {
 
 std::string GetMinVersion() {
     return g_MinVersion;
+}
+
+std::string GetUsername() {
+    return g_Username;
+}
+
+int GetDaysRemaining() {
+    return g_DaysRemaining;
 }
 
 bool Verify(const std::string& serverUrl) {
@@ -166,6 +176,32 @@ bool Verify(const std::string& serverUrl) {
     // Check for valid license
     if (response.find("\"valid\":true") != std::string::npos ||
         response.find("\"valid\": true") != std::string::npos) {
+        
+        // Extract username (handle both "username":"X" and "username": "X")
+        size_t userStart = response.find("\"username\":");
+        if (userStart != std::string::npos) {
+            userStart += 11; // skip "username":
+            // Skip whitespace and opening quote
+            while (userStart < response.length() && (response[userStart] == ' ' || response[userStart] == '"')) {
+                userStart++;
+            }
+            size_t userEnd = response.find("\"", userStart);
+            if (userEnd != std::string::npos) {
+                g_Username = response.substr(userStart, userEnd - userStart);
+            }
+        }
+        
+        // Extract days_remaining
+        size_t daysStart = response.find("\"days_remaining\":");
+        if (daysStart != std::string::npos) {
+            daysStart += 17;
+            size_t daysEnd = response.find_first_not_of("0123456789", daysStart);
+            if (daysEnd != std::string::npos) {
+                std::string daysStr = response.substr(daysStart, daysEnd - daysStart);
+                g_DaysRemaining = std::stoi(daysStr);
+            }
+        }
+        
         return true;
     }
     

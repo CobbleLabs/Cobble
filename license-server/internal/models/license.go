@@ -20,10 +20,12 @@ type License struct {
 
 // VerifyResponse is returned by /api/verify
 type VerifyResponse struct {
-	Valid      bool   `json:"valid"`
-	Message    string `json:"message,omitempty"`
-	MinVersion string `json:"min_version,omitempty"`
-	Update     bool   `json:"update,omitempty"`
+	Valid         bool   `json:"valid"`
+	Message       string `json:"message,omitempty"`
+	MinVersion    string `json:"min_version,omitempty"`
+	Update        bool   `json:"update,omitempty"`
+	Username      string `json:"username,omitempty"`
+	DaysRemaining int    `json:"days_remaining,omitempty"`
 }
 
 // ErrorResponse is returned on errors

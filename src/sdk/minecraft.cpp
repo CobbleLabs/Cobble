@@ -1,6 +1,10 @@
 #include "minecraft.h"
 #include "../util/logger.hpp"
 
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
+#include <Windows.h>
+
 Minecraft mc;
 
 void SDK_Init()
@@ -47,6 +51,22 @@ void SDK_Init()
 	// Click delay fields
 	mc.fid_rightClickDelayTimer = Java::Env->GetFieldID(mc.cls, "rightClickDelayTimer", "I");
 	mc.fid_leftClickCounter = Java::Env->GetFieldID(mc.cls, "leftClickCounter", "I");
+
+	// KeyBinding cache for releaseMovementKeys
+	jclass kbCls = nullptr;
+	if (Java::AssignClass("net.minecraft.client.settings.KeyBinding", kbCls)) {
+		// NewGlobalRef is ESSENTIAL for sharing jclass across threads
+		mc.cls_keyBinding = (jclass)Java::Env->NewGlobalRef(kbCls);
+		
+		mc.mid_unPressAllKeys = Java::Env->GetStaticMethodID(mc.cls_keyBinding, "unPressAllKeys", "()V");
+		if (!mc.mid_unPressAllKeys) {
+			Java::Env->ExceptionClear();
+			mc.mid_unPressAllKeys = Java::Env->GetStaticMethodID(mc.cls_keyBinding, "func_74505_d", "()V");
+		}
+		
+		mc.mid_setKeyBindState = Java::Env->GetStaticMethodID(mc.cls_keyBinding, "setKeyBindState", "(IZ)V");
+		mc.mid_getKeyCode = Java::Env->GetMethodID(mc.cls_keyBinding, "getKeyCode", "()I");
+	}
 
 	// Initialize player (will lazy-load fields on first refresh)
 	player.refresh();
@@ -906,3 +926,86 @@ int Minecraft::getTargetedEntityHurtTime()
 
 	return hurtTime;
 }
+
+void Minecraft::releaseMovementKeys()
+{
+	if (!isValid() || !cls_keyBinding || !mid_unPressAllKeys) return;
+    
+    // Thread-safe JNI Env retrieval
+    JNIEnv* env = Java::GetEnv();
+    if (!env) return;
+    
+    // Call KeyBinding.unPressAllKeys()
+    env->CallStaticVoidMethod(cls_keyBinding, mid_unPressAllKeys);
+}
+
+void Minecraft::restoreMovementKeys()
+{
+	if (!isValid() || !cls_keyBinding || !mid_setKeyBindState || !mid_getKeyCode) return;
+    
+    JNIEnv* env = Java::GetEnv();
+    if (!env) return;
+
+	// GameSettings to iterate keybinds
+	jfieldID fid_gameSettings = env->GetFieldID(cls, "gameSettings", "Lnet/minecraft/client/settings/GameSettings;");
+	if (!fid_gameSettings) return;
+
+	jobject gameSettings = env->GetObjectField(instance, fid_gameSettings);
+	if (!gameSettings) return;
+
+	jclass settingsClass = env->GetObjectClass(gameSettings);
+
+	// Keybinds to restore
+	const char* keyBindNames[] = {
+		"keyBindForward", "keyBindBack", "keyBindLeft", "keyBindRight",
+		"keyBindJump", "keyBindSneak"
+	};
+
+	for (const char* name : keyBindNames) {
+		jfieldID fid_kb = env->GetFieldID(settingsClass, name, "Lnet/minecraft/client/settings/KeyBinding;");
+		if (!fid_kb) continue;
+		
+		jobject keyBind = env->GetObjectField(gameSettings, fid_kb);
+		if (!keyBind) continue;
+
+		int keyCode = env->CallIntMethod(keyBind, mid_getKeyCode);
+		
+		bool shouldPress = false;
+        UINT vk = 0;
+
+		// Map LWJGL (scancode) to Virtual Key
+		// Mouse buttons are negative
+		if (keyCode < 0) {
+			int btn = keyCode + 100; // -100 = Left, -99 = Right, etc...
+			if (btn == 0) shouldPress = (GetAsyncKeyState(VK_LBUTTON) & 0x8000) != 0;
+			else if (btn == 1) shouldPress = (GetAsyncKeyState(VK_RBUTTON) & 0x8000) != 0;
+			else if (btn == 2) shouldPress = (GetAsyncKeyState(VK_MBUTTON) & 0x8000) != 0;
+		} else {
+			// Convert scancode to VK
+			vk = MapVirtualKeyA(keyCode, MAPVK_VSC_TO_VK);
+			if (vk != 0) {
+				shouldPress = (GetAsyncKeyState(vk) & 0x8000) != 0;
+			}
+		}
+
+		if (shouldPress) {
+            // Restore via JNI (internal state)
+			env->CallStaticVoidMethod(cls_keyBinding, mid_setKeyBindState, keyCode, JNI_TRUE);
+            
+            // Restore via OS Input (force LWJGL processing)
+            if (vk != 0) {
+                HWND hwnd = GetForegroundWindow();
+                if (hwnd) {
+                    PostMessage(hwnd, WM_KEYDOWN, vk, 0);
+                    // Also send character message if needed? No, game uses keys
+                }
+            }
+		}
+
+		env->DeleteLocalRef(keyBind);
+	}
+
+	env->DeleteLocalRef(settingsClass);
+	env->DeleteLocalRef(gameSettings);
+}
+

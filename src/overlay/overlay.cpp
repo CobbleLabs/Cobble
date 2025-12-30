@@ -5,6 +5,7 @@
 #include "bytes.hpp" // Embedded font data
 #include "../util/logger.hpp"
 #include "../sdk/render_data.h"
+#include "../sdk/minecraft.h"
 #include "../module/module_manager.h"
 
 #include <gl/GL.h>
@@ -127,22 +128,55 @@ namespace {
 		if (msg == WM_KEYDOWN && wParam == VK_INSERT) {
 			Menu::isOpen = !Menu::isOpen;
 			
-			// Reset bind state if closing
-			if (!Menu::isOpen) Menu::moduleToBind = nullptr;
+			if (Menu::isOpen) {
+				// Release movement keys via Minecraft SDK
+				// This is also handled in Menu::Render loop for persistence
+				mc.releaseMovementKeys();
+			} else {
+				// Reset bind state if closing
+				Menu::moduleToBind = nullptr;
+				
+				// Restore keys if physically held down (seamless movement resume)
+				mc.restoreMovementKeys();
+			}
 		}
 		
 		if (Menu::isOpen) {
 			// Handle Keybinding
-			if (Menu::moduleToBind != nullptr && msg == WM_KEYDOWN) {
-				if (wParam == VK_ESCAPE) {
-					// Cancel bind
-					Menu::moduleToBind = nullptr;
-				} else if (wParam != VK_INSERT) {
-					// Assign key
-					Menu::moduleToBind->keybind = (int)wParam;
-					Menu::moduleToBind = nullptr;
+			if (Menu::moduleToBind != nullptr) {
+				// Keyboard keys
+				if (msg == WM_KEYDOWN) {
+					if (wParam == VK_ESCAPE) {
+						// Set to NONE and stop binding (don't close menu)
+						Menu::moduleToBind->keybind = 0;
+						Menu::moduleToBind = nullptr;
+					} else if (wParam != VK_INSERT) {
+						Menu::moduleToBind->keybind = (int)wParam;
+						Menu::moduleToBind = nullptr;
+					}
+					return 1;
 				}
-				return 1; // Consume input
+				// Mouse buttons (check all mouse messages)
+				switch (msg) {
+					case WM_LBUTTONDOWN:
+						Menu::moduleToBind->keybind = VK_LBUTTON;
+						Menu::moduleToBind = nullptr;
+						return 1;
+					case WM_RBUTTONDOWN:
+						Menu::moduleToBind->keybind = VK_RBUTTON;
+						Menu::moduleToBind = nullptr;
+						return 1;
+					case WM_MBUTTONDOWN:
+						Menu::moduleToBind->keybind = VK_MBUTTON;
+						Menu::moduleToBind = nullptr;
+						return 1;
+					case WM_XBUTTONDOWN: {
+						int xbutton = GET_XBUTTON_WPARAM(wParam);
+						Menu::moduleToBind->keybind = (xbutton == XBUTTON1) ? VK_XBUTTON1 : VK_XBUTTON2;
+						Menu::moduleToBind = nullptr;
+						return 1;
+					}
+				}
 			}
 			
 			// Close with ESCAPE if not binding
