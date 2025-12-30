@@ -1,8 +1,3 @@
-/*
- * Weave-style UI System for Cobble
- * Custom themed widgets with animations
- */
-
 #include "weave_ui.hpp"
 #include <cmath>
 #include <Windows.h>
@@ -679,7 +674,6 @@ void ui::apply_style() {
     
     ImVec4* colors = style.Colors;
     
-    // Exact weave free colors (dark theme with orange accent)
     colors[ImGuiCol_Text] = ImVec4(1.00f, 1.00f, 1.00f, 1.00f);           // White text
     colors[ImGuiCol_TextDisabled] = ImVec4(0.39f, 0.39f, 0.39f, 1.00f);   // 100/255 gray
     colors[ImGuiCol_WindowBg] = ImVec4(0.063f, 0.063f, 0.063f, 1.00f);    // 16/255 almost black

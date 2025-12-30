@@ -59,7 +59,6 @@ void AutoClicker::onEnable()
 
 void AutoClicker::onDisable()
 {
-	// Release click if we ended on a DOWN
 	if (lastClickWasDown) {
 		HWND hwnd = GetForegroundWindow();
 		if (hwnd) {

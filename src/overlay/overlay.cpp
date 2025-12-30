@@ -83,7 +83,6 @@ namespace {
 		
 		const char* boldFontPath = "C:\\Windows\\Fonts\\segoeuib.ttf";
 		
-		// Weave font order - ALL BOLD for better visibility
 		// 0: Bold 18px + FontAwesome (main text + icons)
 		if (io.Fonts->AddFontFromFileTTF(boldFontPath, 18.0f, &fontConfig) == nullptr) {
 			io.Fonts->AddFontDefault();

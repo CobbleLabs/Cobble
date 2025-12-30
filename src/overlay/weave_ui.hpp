@@ -1,8 +1,4 @@
 #pragma once
-/*
- * Weave-style UI System for Cobble
- * Provides animation helpers and themed widgets
- */
 
 #ifndef IMGUI_DEFINE_MATH_OPERATORS
 #define IMGUI_DEFINE_MATH_OPERATORS
@@ -126,18 +122,18 @@ namespace ui {
     void end_child();
     bool color(const char* name, float col[4], bool alpha = true);
     
-    // Custom styled widgets (weave theme overrides)
+    // Custom styled widgets
     bool Checkbox(const char* label, bool* v);
     bool CheckboxBind(const char* label, bool* v, int* key); // Checkbox + Binder in same line
     bool SliderFloat(const char* label, float* v, float v_min, float v_max, const char* format = "%.1f");
     bool SliderInt(const char* label, int* v, int v_min, int v_max, const char* format = "%d");
     
-    // Binder widget - for keybinds (weave style)
+    // Binder widget - for keybinds
     bool Binder(const char* label, int* key);
     
     // Helper to get key name from virtual key code
     const char* GetKeyName(int vk);
     
-    // Apply weave style to ImGui
+    // Apply style to ImGui
     void apply_style();
 }

@@ -56,10 +56,7 @@ void ModuleManager::onRender()
 
 void ModuleManager::checkKeybinds()
 {
-	// Don't process keybinds when in GUI (chat, inventory, menu, etc)
 	if (mc.isInGui()) return;
-	
-	// Also block if our ClickGUI is open (redundant check but safe)
 	if (Menu::isOpen) return;
 	
 	for (auto* mod : modules)
@@ -68,21 +65,11 @@ void ModuleManager::checkKeybinds()
 
 		bool pressed = (GetAsyncKeyState(mod->keybind) & 0x8000) != 0;
 
-		// Detect key down edge (was not pressed, now pressed)
 		if (pressed && !keyStates[mod->keybind])
 		{
 			mod->toggle();
-			
-			// Broadcast to web UI for bidirectional sync
-			broadcastModuleState(mod);
 		}
 
 		keyStates[mod->keybind] = pressed;
 	}
-}
-
-void ModuleManager::broadcastModuleState(Module* mod)
-{
-	// This function is no longer needed as we removed the web interface
-	// Keeping it empty to satisfy potential callers or remove later
 }

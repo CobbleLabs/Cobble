@@ -2,6 +2,7 @@ package helpers
 
 import (
 	"encoding/json"
+	"net"
 	"net/http"
 	"strconv"
 	"strings"
@@ -16,6 +17,8 @@ func JSONResponse(w http.ResponseWriter, status int, data interface{}) {
 
 // GetClientIP extracts the real client IP from the request
 func GetClientIP(r *http.Request) string {
+	// TODO: Add trusted proxy check here if behind Cloudflare/Nginx
+	// For now, we trust X-Forwarded-For if present, but this should be gated in prod
 	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
 		parts := strings.Split(xff, ",")
 		return strings.TrimSpace(parts[0])
@@ -23,7 +26,14 @@ func GetClientIP(r *http.Request) string {
 	if xri := r.Header.Get("X-Real-IP"); xri != "" {
 		return xri
 	}
-	return strings.Split(r.RemoteAddr, ":")[0]
+	
+	// Handle IPv6 (brackets) and port
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err == nil {
+		return host
+	}
+	
+	return r.RemoteAddr
 }
 
 // MaskString masks a string for logging (shows first 8 chars)

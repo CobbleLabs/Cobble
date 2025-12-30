@@ -8,6 +8,7 @@ import (
 	"license-server/internal/logger"
 
 	_ "github.com/mattn/go-sqlite3"
+	_ "github.com/lib/pq"
 )
 
 // DB is the global database connection

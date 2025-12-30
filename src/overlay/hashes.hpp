@@ -1,7 +1,6 @@
 #pragma once
 /*
  * FontAwesome 6 Free - Icon Definitions
- * Ported from weave free UI
  */
 
 // Font range for ImGui

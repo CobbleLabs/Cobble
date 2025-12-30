@@ -1,8 +1,3 @@
-/*
- * Cobble Client Menu - Weave Style
- * Direct port of weave free layout
- */
-
 #include "menu.h"
 #include "weave_ui.hpp"
 #include "../module/module_manager.h"

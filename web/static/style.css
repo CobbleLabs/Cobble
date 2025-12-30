@@ -1,5 +1,3 @@
-/* Cobble - Minimal Blue Theme */
-
 :root {
     --primary: #3b82f6;
     --primary-dark: #2563eb;
@@ -439,19 +437,19 @@ footer {
     .hero h1 {
         font-size: 2.5rem;
     }
-    
+
     .hero-buttons {
         flex-direction: column;
     }
-    
+
     .pricing-card.featured {
         transform: none;
     }
-    
+
     .docs-container {
         flex-direction: column;
     }
-    
+
     .docs-sidebar {
         width: 100%;
         position: static;
@@ -459,7 +457,7 @@ footer {
         border-right: none;
         border-bottom: 1px solid var(--border);
     }
-    
+
     .docs-content {
         padding: 2rem 1rem;
     }

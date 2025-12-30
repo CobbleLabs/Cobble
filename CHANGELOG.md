@@ -6,6 +6,35 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/).
 
 ---
 
+## [0.14.0] - 2025-12-30
+
+### Security
+- **Hardened Loader**:
+  - Eliminado "DEV mode" insecure: ahora solo inyecta desde memoria embebida
+  - Manual Mapper aplica protecciones de memoria correctas (RX/RW) post-fase de mapeo (adiós RWX)
+  - Validación de status code HTTP y timeouts en checks de licencia
+  - URL encoding para parámetros de HWID y Version
+  - **[NEW] DLL integrity verification**: SHA256 hash + size check antes de inyectar
+  - **[NEW] Automated build pipeline**: `build.ps1` genera hashes automáticamente
+- **Hardened License Server**:
+  - Middleware de **Rate Limiting** (prevención de abuse/DDoS simple)
+  - Soporte real para **X-Forwarded-For** y parsing correcto de IPv6
+  - Importado driver `lib/pq` para soporte PostgreSQL nativo
+  - Timeouts estrictos en `http.Server` (Read/Write/Idle)
+
+### Changed
+- **Loader**: Reemplazado JSON parsing manual (`string.find()`) por parser robusto (`json::Object`)
+- **Build**: Nuevo script `build.ps1` que compila DLL → calcula hash → genera header → compila loader
+
+### Fixed
+- **Stability**:
+  - Corregido memory leak crítico en JNI `AssignClass` (referencias locales no liberadas)
+  - Corregido null pointer dereference en shellcode (`libraryLoader`)
+- **Anti-Debug**:
+  - Mejorada detección de Hardware Breakpoints usando `RtlCaptureContext`
+
+---
+
 ## [0.13.0] - 2025-12-30
 
 ### Added

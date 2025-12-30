@@ -14,6 +14,8 @@
 #include "license.h"
 #include "hwid.h"
 #include "version.h"
+#include "src/util/hash.h"
+#include "src/util/dll_hash.h"
 
 // User info structure for shared memory
 struct UserInfoData {
@@ -25,9 +27,8 @@ struct UserInfoData {
 // LICENSE CONFIG
 // ============================================================================
 
-#define LICENSE_SERVER_URL "http://172.235.136.152:8080"
-
-// Set to false to disable license check (for development)
+#define LICENSE_SERVER_PRIMARY "http://syra.club:8080"
+#define LICENSE_SERVER_FALLBACK "http://172.235.136.152:8080"
 #define LICENSE_CHECK_ENABLED true
 
 // ============================================================================
@@ -115,13 +116,6 @@ void printError(const std::string& msg) { printStatus(msg, RED); }
 void printInfo(const std::string& msg) { printStatus(msg, CYAN); }
 void printWait(const std::string& msg) { printStatus(msg, YELLOW); }
 
-std::wstring getDllPath() {
-	wchar_t path[MAX_PATH];
-	GetModuleFileNameW(nullptr, path, MAX_PATH);
-	std::filesystem::path exePath(path);
-	return (exePath.parent_path() / L"Cobble.dll").wstring();
-}
-
 // ============================================================================
 // SECURITY THREADS
 // ============================================================================
@@ -157,15 +151,6 @@ DWORD WINAPI SecurityThread2(LPVOID lpParam) {
 int wmain(int argc, wchar_t* argv[]) {
 	// ========== PHASE 1: SECURITY ==========
 	
-	// VM check disabled for development
-	// if (Security::IsOnVM()) {
-	// 	MessageBoxW(NULL, 
-	// 		L"Cobble cannot run in this environment.\n\nIf you believe this is an error, please contact support.", 
-	// 		L"Cobble - Security",
-	// 		MB_ICONERROR | MB_OK);
-	// 	return 1;
-	// }
-	
 	if (Security::IsBeingDebugged()) {
 		MessageBoxW(NULL, 
 			L"Cobble has detected debugging tools.\n\nPlease close any debuggers and try again.", 
@@ -195,8 +180,21 @@ int wmain(int argc, wchar_t* argv[]) {
 	printWait(_xor_("Verifying license..."));
 	
 	std::string hwid = HWID::Generate();
+	bool licenseValid = false;
 	
-	if (!License::Verify(LICENSE_SERVER_URL)) {
+	// Try primary
+	if (License::Verify(LICENSE_SERVER_PRIMARY)) {
+		licenseValid = true;
+	} 
+	// Try fallback
+	else {
+		printInfo(_xor_("Retrying connection..."));
+		if (License::Verify(LICENSE_SERVER_FALLBACK)) {
+			licenseValid = true;
+		}
+	}
+
+	if (!licenseValid) {
 		printError(_xor_("License verification failed!"));
 		printInfo(License::GetLastError().c_str());
 		
@@ -242,26 +240,36 @@ int wmain(int argc, wchar_t* argv[]) {
 		}
 	}
 	
-	std::wstring dllPath = getDllPath();
-	
-	// DEV MODE: Prefer disk file if exists
-	bool usingResource = (dllData != nullptr);
-	if (std::filesystem::exists(dllPath)) {
-	    usingResource = false;
-	}
-	
-	if (!usingResource && !std::filesystem::exists(dllPath)) {
-		printError(_xor_("Cobble.dll not found!"));
+	if (!dllData) {
+		printError(_xor_("Cobble.dll not found in resources!"));
 		std::cout << _xor_("\n    Press any key to exit...");
 		std::cin.get();
 		return 1;
 	}
 	
-	if (usingResource) {
-		printSuccess(_xor_("Loaded Cobble.dll from memory"));
-	} else {
-		printSuccess(_xor_("Found Cobble.dll on disk"));
+#if DLL_HASH_ENABLED
+	printWait(_xor_("Verifying DLL integrity..."));
+	
+	// Verify buffer from RCDATA (never from disk - prevents swap attacks)
+	// Size check first (fast fail)
+	if (dllSize != DLL_EXPECTED_SIZE) {
+		printError(_xor_("DLL size mismatch!"));
+		std::cout << _xor_("\n    Press any key to exit...");
+		std::cin.get();
+		return 1;
 	}
+	
+	// Hash verification using chunked comparison (non-linear order for obfuscation)
+	if (!Hash::VerifyChunked(dllData, dllSize, 
+		DLL_HASH_CHUNK1, DLL_HASH_CHUNK2, DLL_HASH_CHUNK3, DLL_HASH_CHUNK4)) {
+		printError(_xor_("DLL integrity check failed!"));
+		printInfo(_xor_("The DLL may be corrupted or tampered with."));
+		std::cout << _xor_("\n    Press any key to exit...");
+		std::cin.get();
+		return 1;
+	}
+	printSuccess(_xor_("DLL integrity verified!"));
+#endif
 	
 	// ========== PHASE 5: TARGET ==========
 	
@@ -301,14 +309,7 @@ int wmain(int argc, wchar_t* argv[]) {
 	
 	printWait(_xor_("Injecting (Manual Map)..."));
 	
-	bool result = false;
-	if (usingResource) {
-		result = manualMap(lunar.pid, dllData, dllSize);
-	} else {
-		result = manualMap(lunar.pid, dllPath);
-	}
-
-	if (!result) {
+	if (!manualMap(lunar.pid, dllData, dllSize)) {
 		printError(_xor_("Manual Map failed!"));
 		printInfo(_xor_("Try running as Administrator."));
 		std::cout << _xor_("\n    Press any key to exit...");

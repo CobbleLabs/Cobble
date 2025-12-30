@@ -3,9 +3,6 @@
 #include <string>
 #include <string_view>
 
-// Console disabled to prevent crash on close
-// All interaction now via Web UI (config/index.html)
-
 enum class message_type : std::uint32_t {
 	none = 0,
 	success = 10,

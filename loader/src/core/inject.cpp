@@ -11,7 +11,6 @@
 // =========================================================================
 void __stdcall libraryLoader(MANUAL_MAPPING_DATA* pData) {
 	if (!pData) {
-		pData->hMod = (HINSTANCE)0x404040; // Error flag
 		return;
 	}
 
@@ -119,7 +118,7 @@ void __stdcall libraryLoader(MANUAL_MAPPING_DATA* pData) {
 	}
 }
 
-// Dummy stub to calculate function size. Compiler will place this after libraryLoader.
+// Stub to calculate shellcode size - compiler places this after libraryLoader
 void __stdcall libraryLoaderEnd() {} 
 
 // =========================================================================
@@ -212,6 +211,35 @@ bool manualMap(DWORD pid, BYTE* pSrcData, size_t dataSize) {
 				return false;
 			}
 		}
+	}
+
+	// 6.1 Apply proper section protections
+	for (int i = 0; i < pNtHeaders->FileHeader.NumberOfSections; i++) {
+		DWORD protection = 0;
+		DWORD oldProtection = 0;
+		DWORD size = pSectionHeader[i].Misc.VirtualSize;
+		if (size == 0) size = pSectionHeader[i].SizeOfRawData;
+
+		if (pSectionHeader[i].Characteristics & IMAGE_SCN_MEM_DISCARDABLE) {
+			continue;
+		}
+
+		bool executable = (pSectionHeader[i].Characteristics & IMAGE_SCN_MEM_EXECUTE);
+		bool readable = (pSectionHeader[i].Characteristics & IMAGE_SCN_MEM_READ);
+		bool writeable = (pSectionHeader[i].Characteristics & IMAGE_SCN_MEM_WRITE);
+
+		if (!executable && !readable && !writeable) protection = PAGE_NOACCESS;
+		else if (!executable && !readable && writeable) protection = PAGE_WRITECOPY;
+		else if (!executable && readable && !writeable) protection = PAGE_READONLY;
+		else if (!executable && readable && writeable) protection = PAGE_READWRITE;
+		else if (executable && !readable && !writeable) protection = PAGE_EXECUTE;
+		else if (executable && !readable && writeable) protection = PAGE_EXECUTE_WRITECOPY;
+		else if (executable && readable && !writeable) protection = PAGE_EXECUTE_READ;
+		else if (executable && readable && writeable) protection = PAGE_EXECUTE_READWRITE;
+
+		if (pSectionHeader[i].Characteristics & IMAGE_SCN_MEM_NOT_CACHED) protection |= PAGE_NOCACHE;
+
+		VirtualProtectEx(hProc, pTargetBase + pSectionHeader[i].VirtualAddress, size, protection, &oldProtection);
 	}
 
 	// 7. Prepare Shellcode Data

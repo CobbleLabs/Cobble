@@ -39,13 +39,12 @@ void custom::ImRotateEnd(float rad, ImVec2 center) {
 		buf[i].pos = ImRotate(buf[i].pos, s, c) - center;
 }
 
-// Weave-style tab with FontAwesome icon string
 bool custom::tab(const char* icon, const char* label, bool selected) {
 	ImGuiWindow* window = GetCurrentWindow();
 	ImGuiID id = window->GetID(label);
 	
 	ImVec2 p = window->DC.CursorPos;
-	ImVec2 size({ window->Size.x, 38 }); // Weave height
+	ImVec2 size({ window->Size.x, 38 });
 	ImRect bb(p, p + size);
 	
 	ItemSize(bb);
@@ -58,7 +57,6 @@ bool custom::tab(const char* icon, const char* label, bool selected) {
 		contentAnim = 0.f;
 	}
 	
-	// Weave-style animation state using anim_obj
 	struct TabAnimState {
 		float cur;
 		float hover;
@@ -102,7 +100,7 @@ bool custom::tab(const char* icon, const char* label, bool selected) {
 		obj.col, label, FindRenderedTextEnd(label)
 	);
 	
-	// Bottom separator line (weave style)
+	// Bottom separator line
 	window->DrawList->AddLine(
 		{ bb.Min.x + 40, window->DC.CursorPos.y },
 		{ bb.Max.x, window->DC.CursorPos.y },
@@ -269,7 +267,6 @@ bool custom::slider_int(const char* label, int* v, int v_min, int v_max, const c
 	return res;
 }
 
-// Weave-style child window with decorated header
 void custom::begin_child(const char* name, ImVec2 size, float alpha) {
 	// Calculate size if auto
 	ImVec2 calcSize = CalcItemSize(size, 
@@ -288,7 +285,7 @@ void custom::begin_child(const char* name, ImVec2 size, float alpha) {
 		GImGui->Style.ChildRounding
 	);
 	
-	// Header with title (weave style)
+	// Header with title
 	if (CalcTextSize(name, 0, 1).x > 0) {
 		// Header background
 		GetWindowDrawList()->AddRectFilled(
@@ -404,14 +401,12 @@ bool custom::checkbox(const char* label, bool* v) {
 	return pressed;
 }
 
-// Weave-style end child
 void custom::end_child() {
 	EndChild(); // End inner content
 	PopStyleVar(2); // WindowPadding + ItemSpacing
 	EndChild(); // End outer decoration
 }
 
-// Weave-style color picker (label left, picker right)
 bool custom::color(const char* name, float col[4], bool alpha) {
 	ImGuiWindow* window = GetCurrentWindow();
 	ImGuiID id = window->GetID(name);

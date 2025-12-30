@@ -1,8 +1,4 @@
 #pragma once
-/*
- * ImGui Tricks - Animation utilities for Cobble Client
- * Adapted from imgui-tricks by pers0na2
- */
 
 #include <unordered_map>
 #include <string>
@@ -53,7 +49,7 @@ namespace ImTricks {
 static inline ImVec2 operator+(const ImVec2& lhs, const float rhs) { return ImVec2(lhs.x + rhs, lhs.y + rhs); }
 static inline ImVec2 operator-(const ImVec2& lhs, const float rhs) { return ImVec2(lhs.x - rhs, lhs.y - rhs); }
 
-// Weave-style animation helpers
+// animation helpers
 template <typename T>
 inline T& anim_obj(const char* id, int seed, T arg) {
 	ImGuiID im_id = ImHashStr(id, 0, seed);

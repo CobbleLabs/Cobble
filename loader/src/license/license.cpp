@@ -1,10 +1,13 @@
 #include "license.h"
 #include "hwid.h"
 #include "version.h"
+#include "../util/json.h"
 #include <Windows.h>
 #include <wininet.h>
 #include <string>
 #include <sstream>
+#include <iomanip>
+
 
 #pragma comment(lib, "wininet.lib")
 #pragma comment(lib, "crypt32.lib")
@@ -19,6 +22,25 @@ static bool g_NeedsUpdate = false;
 static std::string g_MinVersion;
 static std::string g_Username;
 static int g_DaysRemaining = -1;
+
+std::string UrlEncode(const std::string& value) {
+    std::ostringstream escaped;
+    escaped.fill('0');
+    escaped << std::hex;
+
+    for (char c : value) {
+        if (isalnum(c) || c == '-' || c == '_' || c == '.' || c == '~') {
+            escaped << c;
+        } else {
+            escaped << std::uppercase;
+            escaped << '%' << std::setw(2) << int((unsigned char)c);
+            escaped << std::nouppercase;
+        }
+    }
+
+    return escaped.str();
+}
+
 
 std::string GetLastError() {
     return g_LastError;
@@ -51,8 +73,8 @@ bool Verify(const std::string& serverUrl) {
     // Build URL
     std::string url = serverUrl + "/api/verify";
     
-    // Build POST data with VERSION for anti-crack!
-    std::string postData = "hwid=" + hwid + "&version=" + CLIENT_VERSION;
+    // Build POST data with VERSION
+    std::string postData = "hwid=" + UrlEncode(hwid) + "&version=" + UrlEncode(CLIENT_VERSION);
     
     // Initialize WinInet
     HINTERNET hInternet = InternetOpenA(
@@ -65,6 +87,12 @@ bool Verify(const std::string& serverUrl) {
         g_LastError = "Failed to initialize internet";
         return false;
     }
+
+    DWORD timeout = 4000;
+    InternetSetOptionA(hInternet, INTERNET_OPTION_CONNECT_TIMEOUT, &timeout, sizeof(timeout));
+    InternetSetOptionA(hInternet, INTERNET_OPTION_SEND_TIMEOUT, &timeout, sizeof(timeout));
+    InternetSetOptionA(hInternet, INTERNET_OPTION_RECEIVE_TIMEOUT, &timeout, sizeof(timeout));
+
     
     // Parse URL
     URL_COMPONENTSA urlComp = { 0 };
@@ -120,7 +148,6 @@ bool Verify(const std::string& serverUrl) {
         return false;
     }
     
-    // Set headers
     std::string headers = "Content-Type: application/x-www-form-urlencoded\r\n";
     
     // Send request
@@ -139,6 +166,19 @@ bool Verify(const std::string& serverUrl) {
         g_LastError = "Failed to send request";
         return false;
     }
+
+    DWORD statusCode = 0;
+    DWORD statusCodeSize = sizeof(statusCode);
+    HttpQueryInfoA(hRequest, HTTP_QUERY_STATUS_CODE | HTTP_QUERY_FLAG_NUMBER, &statusCode, &statusCodeSize, NULL);
+
+    if (statusCode != 200) {
+        InternetCloseHandle(hRequest);
+        InternetCloseHandle(hConnect);
+        InternetCloseHandle(hInternet);
+        g_LastError = "Server returned error (Status: " + std::to_string(statusCode) + ")";
+        return false;
+    }
+
     
     // Read response
     char buffer[1024] = { 0 };
@@ -155,68 +195,30 @@ bool Verify(const std::string& serverUrl) {
     InternetCloseHandle(hConnect);
     InternetCloseHandle(hInternet);
     
-    // Check for update response
-    if (response.find("\"update\":true") != std::string::npos) {
+    // Parse JSON response
+    json::Object json;
+    if (!json.parse(response)) {
+        g_LastError = "Invalid server response";
+        return false;
+    }
+    
+    // Check for update requirement
+    if (json.get_bool("update", false)) {
         g_NeedsUpdate = true;
-        
-        // Extract min_version
-        size_t verStart = response.find("\"min_version\":\"");
-        if (verStart != std::string::npos) {
-            verStart += 15;
-            size_t verEnd = response.find("\"", verStart);
-            if (verEnd != std::string::npos) {
-                g_MinVersion = response.substr(verStart, verEnd - verStart);
-            }
-        }
-        
+        g_MinVersion = json.get_string("min_version", "");
         g_LastError = "Update required! You have v" + std::string(CLIENT_VERSION) + ", need v" + g_MinVersion;
         return false;
     }
     
     // Check for valid license
-    if (response.find("\"valid\":true") != std::string::npos ||
-        response.find("\"valid\": true") != std::string::npos) {
-        
-        // Extract username (handle both "username":"X" and "username": "X")
-        size_t userStart = response.find("\"username\":");
-        if (userStart != std::string::npos) {
-            userStart += 11; // skip "username":
-            // Skip whitespace and opening quote
-            while (userStart < response.length() && (response[userStart] == ' ' || response[userStart] == '"')) {
-                userStart++;
-            }
-            size_t userEnd = response.find("\"", userStart);
-            if (userEnd != std::string::npos) {
-                g_Username = response.substr(userStart, userEnd - userStart);
-            }
-        }
-        
-        // Extract days_remaining
-        size_t daysStart = response.find("\"days_remaining\":");
-        if (daysStart != std::string::npos) {
-            daysStart += 17;
-            size_t daysEnd = response.find_first_not_of("0123456789", daysStart);
-            if (daysEnd != std::string::npos) {
-                std::string daysStr = response.substr(daysStart, daysEnd - daysStart);
-                g_DaysRemaining = std::stoi(daysStr);
-            }
-        }
-        
+    if (json.get_bool("valid", false)) {
+        g_Username = json.get_string("username", "");
+        g_DaysRemaining = json.get_int("days_remaining", -1);
         return true;
     }
     
     // Extract error message
-    size_t msgStart = response.find("\"message\":\"");
-    if (msgStart != std::string::npos) {
-        msgStart += 11;
-        size_t msgEnd = response.find("\"", msgStart);
-        if (msgEnd != std::string::npos) {
-            g_LastError = response.substr(msgStart, msgEnd - msgStart);
-        }
-    } else {
-        g_LastError = "License not valid";
-    }
-    
+    g_LastError = json.get_string("message", "License not valid");
     return false;
 }
 
@@ -295,4 +297,4 @@ bool Register(const std::string& serverUrl, const std::string& username) {
     return false;
 }
 
-} // namespace License
+}

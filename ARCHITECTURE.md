@@ -9,22 +9,22 @@ Cobble/
 ├── loader/                       # Inyector/Loader (producción)
 │   ├── src/
 │   │   ├── core/                 # Inyección y detección de procesos
-│   │   │   ├── inject.cpp/.h     # Manual Mapping injection
+│   │   │   ├── inject.cpp/.h     # Manual Mapping injection (Secure RX/RW)
 │   │   │   └── process.cpp/.h    # Detección de Minecraft
 │   │   ├── security/             # Anti-cracking
 │   │   │   ├── security.cpp/.h   # Anti-debug, anti-VM, anti-hook
 │   │   │   └── xor.h             # Compiletime string encryption
 │   │   └── license/              # Sistema de licencias
-│   │       ├── hwid.cpp/.h       # Generación HWID (CPU+Disk+MAC)
-│   │       └── license.cpp/.h    # Verificación HTTP con servidor
+│   │       ├── hwid.cpp/.h       # Generación HWID
+│   │       └── license.cpp/.h    # Verificación HTTP (Primary + Failover)
 │   ├── res/                      # Recursos
 │   │   ├── resource.h            # IDs de recursos
-│   │   └── CobbleLoader.rc       # DLL embebido
+│   │   └── CobbleLoader.rc       # DLL embebido (Única fuente de inyección)
 │   ├── main.cpp                  # Entry point
 │   └── CobbleLoader.vcxproj
 │
 ├── license-server/               # Backend de licencias (Go)
-│   ├── main.go                   # Entry point
+│   ├── main.go                   # Entry point (Rate Limited)
 │   ├── .env.example              # Template de configuración
 │   ├── go.mod                    # Dependencias
 │   ├── internal/
@@ -32,7 +32,7 @@ Cobble/
 │   │   │   └── config.go
 │   │   ├── logger/               # Logging estructurado
 │   │   │   └── logger.go
-│   │   ├── database/             # SQLite + migraciones
+│   │   ├── database/             # SQLite + Postgres support
 │   │   │   └── db.go
 │   │   ├── models/               # Structs
 │   │   │   └── license.go
@@ -40,10 +40,11 @@ Cobble/
 │   │   │   ├── verify.go         # POST /api/verify
 │   │   │   ├── register.go       # POST /api/register
 │   │   │   └── admin.go          # /api/admin/*
-│   │   ├── middleware/           # Auth
-│   │   │   └── auth.go
+│   │   ├── middleware/           # Auth & Security
+│   │   │   ├── auth.go           # Admin key middleware
+│   │   │   └── ratelimit.go      # IP-based rate limiting
 │   │   ├── helpers/              # Utilidades
-│   │   │   └── helpers.go
+│   │   │   └── helpers.go        # IP extraction (IPv6/XFF support)
 │   │   └── discord/              # Bot de Discord
 │   │       └── bot.go
 │   └── deploy/                   # Scripts de deploy
@@ -53,20 +54,18 @@ Cobble/
 │
 ├── src/                          # Client DLL (ghost client)
 │   ├── main.cpp                  # DllMain
-│   ├── cobble.cpp/.hpp           # Context y ciclo de vida
-│   ├── jni/                      # Puente JNI
+│   ├── cobble.cpp/.hpp           # Context y ciclo de vida (DLL_PROCESS_DETACH safe)
+│   ├── jni/                      # Puente JNI (Leak-free wrapper)
 │   ├── sdk/                      # Wrappers Minecraft
 │   ├── module/                   # Módulos (combat, visual)
 │   ├── overlay/                  # ImGui + OpenGL hooks
-│   └── web/                      # WebSocket config server
-│
-├── config/                       # Web UI
-│   └── index.html                # Configuración en browser
+│   ├── module/                   # Módulos (combat, visual)
+│   └── overlay/                  # ImGui + OpenGL hooks
 │
 └── bin/                          # Output
     └── Release/
-        ├── CobbleLoader.exe      # Inyector
-        └── Cobble.dll            # DLL (embebido en .exe)
+        ├── CobbleLoader.exe      # Inyector (Stand-alone)
+        └── Cobble.dll            # DLL (embebido, NO distribuido suelto)
 ```
 
 ---
@@ -77,36 +76,39 @@ Cobble/
 ┌─────────────────────────────────────────────────────────────────────────┐
 │                           USUARIO                                       │
 └─────────────────────────────────────────────────────────────────────────┘
-         │                              │                        │
-         ▼                              ▼                        ▼
-┌─────────────────┐            ┌─────────────┐          ┌───────────────┐
-│ CobbleLoader.exe│            │  Minecraft  │          │   Web UI      │
-│                 │            │   (Java)    │          │  (Browser)    │
-│ ┌─────────────┐ │            │             │          │               │
-│ │ Security    │ │            │ ┌─────────┐ │          │ ┌───────────┐ │
-│ │ - Anti-Debug│ │            │ │Cobble.dll│◄──────────┤ │ WebSocket │ │
-│ │ - Anti-VM   │ │            │ │         │ │  :8765   │ │  Client   │ │
-│ │ - Anti-Hook │ │            │ │ ┌─────┐ │ │          │ └───────────┘ │
-│ └─────────────┘ │            │ │ │ JNI │ │ │          └───────────────┘
-│        │        │            │ │ └─────┘ │ │
-│        ▼        │            │ │ ImGui   │ │
-│ ┌─────────────┐ │◄──HTTPS───►│ │ Overlay │ │
-│ │ License     │ │            │ └─────────┘ │
-│ │ Check       │ │            └─────────────┘
+         │                              │
+         ▼                              ▼
+┌─────────────────┐            ┌─────────────┐
+│                 │            │   (Java)    │
+│ ┌─────────────┐ │            │ ┌─────────┐ │
+│ │ Security    │ │            │ │Cobble.dll│
+│ │ - Anti-Debug│ │            │ │         │ │
+│ │ - Anti-VM   │ │            │ │ ┌─────┐ │ │
+│ │ - Anti-Dump │ │            │ │ │ JNI │ │ │
+│ └─────────────┘ │            │ │ └─────┘ │ │
+│        │        │            │ │ ImGui   │ │
+│        ▼        │            │ │ Overlay │ │
+│ ┌─────────────┐ │◄──HTTPS───►│ └─────────┘ │
+│ │ License     │ │            └─────────────┘
+│ │ Check       │ │
 │ └─────────────┘ │
 │        │        │
 │        ▼        │                    ┌─────────────────────┐
 │ ┌─────────────┐ │                    │  License Server     │
-│ │ Manual Map  │ │      HTTPS         │  (Go + SQLite)      │
+│ │ Manual Map  │ │      HTTPS         │  (Go + SQLite/PG)   │
 │ │ Injection   │─┼────────────────────┤                     │
 │ └─────────────┘ │                    │  - /api/verify      │
-└─────────────────┘                    │  - /api/admin/*     │
-                                       │  - HWID tracking    │
-                                       │  - Auto-ban         │
-                                       └─────────────────────┘
+│                 │                    │  - /api/admin/*     │
+│                 │                    │  - Rate Limiting    │
+│                 │                    │  - Anti-Abuse       │
+│                 │                    └─────────────────────┘
 ```
 
 ---
+
+> [!NOTE]
+> **License Failover**:
+> El loader intenta conectar primero al servidor primario (`syra.club`). Si falla tras 4s, realiza un fallback automático a la IP de respaldo (`172.235.136.152`). Esto garantiza disponibilidad incluso si hay problemas de DNS o dominio.
 
 ## Flujo de Ejecución
 
@@ -121,22 +123,25 @@ CobbleLoader.exe
     │
     ├─[2] License Verification
     │     ├── HWID::Generate() → SHA256(CPU + Disk + MAC)
-    │     ├── License::Verify() → POST /api/verify
+    │     ├── License::Verify(Primary) → POST http://syra.club/api/verify (4s timeout)
     │     │     ├── Success → continue
-    │     │     └── Fail → show HWID, copy to clipboard, exit
-    │     └── Server tracks HWID history (auto-ban on abuse)
+    │     │     └── Fail (Timeout/Error) → Show "Retrying..."
+    │     │           └── License::Verify(Fallback) → POST http://172.235.136.152/api/verify
+    │     │                 ├── Success → continue
+    │     │                 └── Fail → exit
+    │     └── Server tracks HWID history (IP + Rate Limit)
     │
     ├─[3] DLL Loading
-    │     ├── Load from embedded resource (RCDATA)
-    │     └── Fallback to bin/Release/Cobble.dll
+    │     └── **Secure Mode**: Only load from embedded resource (RCDATA)
     │
     ├─[4] Process Detection
     │     ├── findLunarClient() → busca javaw.exe con "Lunar"
-    │     └── isDllInjected() → verifica si ya inyectado
+    │     └── isDllInjected() → verifica signature en memoria
     │
     └─[5] Manual Map Injection
           ├── Allocate memory in target
           ├── Copy PE headers + sections
+          ├── **Secure Protections**: Apply correct RX/RW permissions (No RWX)
           ├── Process relocations
           ├── Resolve imports (LoadLibrary, GetProcAddress)
           ├── Execute TLS callbacks
@@ -147,7 +152,6 @@ Cobble.dll (DllMain)
                            ├── Java::Init()               # JNI attach
                            ├── SDK_Init()                 # Minecraft wrappers
                            ├── moduleManager.register()   # Combat, Visual
-                           ├── Web_Init()                 # WebSocket :8765
                            ├── Overlay::Init()            # ImGui hooks
                            └── Main loop (1ms tick)
                                  ├── Security heartbeat check
@@ -164,12 +168,12 @@ Cobble.dll (DllMain)
 
 | Categoría | Checks |
 |-----------|--------|
-| **Anti-Debug** | PEB.BeingDebugged, CheckRemoteDebuggerPresent, NtQueryInformationProcess, Heap flags, Hardware breakpoints |
+| **Manual Map** | **RX/RW Pages**: Protecciones correctas por sección (elimina RWX persistente). |
+| **Secure Load** | **No Disk IO**: Inyección directa desde recurso embebido. |
+| **Anti-Debug** | PEB.BeingDebugged, CheckRemoteDebuggerPresent, NtQueryInformationProcess, Hardware breakpoints (`RtlCaptureContext`) |
 | **Anti-Attach** | DbgBreakPoint patch, DbgUiRemoteBreakin patch |
 | **Anti-VM** | Registry keys, VM files, ACPI tables, Process names |
-| **Anti-Sandbox** | Uptime < 10min, Disk < 50GB, Suspicious usernames/hostnames, Analysis tools |
-| **Anti-Hook** | API prologue checks (0xCC, 0xE9) |
-| **Runtime** | Dual heartbeat threads, integrity monitoring |
+| **Networking** | URL Encoding, HTTP Status Validation, Failover, Timeouts (4s) |
 
 ### String Encryption (`xor.h`)
 - Compiletime XOR encryption
@@ -202,7 +206,9 @@ HWID = SHA256(CPU_ID + DISK_SERIAL + MAC_ADDRESS)
 ### HWID Abuse Detection
 - Tracks all HWIDs per username
 - 3+ unique HWIDs → automatic ban
-- Prevents license sharing
+- **Rate Limit**: Max 60 requests/minute per IP (Anti-DDoS layer)
+- **IP Protection**: X-Forwarded-For trust + IPv6 support
+
 
 ---
 
@@ -252,5 +258,4 @@ sudo bash deploy/deploy.sh
 | Heartbeat 1 | Background | Anti-debug monitoring |
 | Heartbeat 2 | Background | Anti-hook monitoring |
 | DLL main loop | JNI thread | Attached to JVM |
-| WebSocket | Background | Config sync |
 | Overlay | OpenGL thread | ImGui rendering |

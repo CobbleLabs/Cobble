@@ -117,6 +117,7 @@ bool Java::AssignClass(std::string name, jclass &out)
 {
     jstring className = Java::Env->NewStringUTF(name.c_str());
     jobject findClass = Java::Env->CallObjectMethod(classLoader, mid_findClass, className);
+    Java::Env->DeleteLocalRef(className);
 
     if (findClass)
     {
