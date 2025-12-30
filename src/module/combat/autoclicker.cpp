@@ -104,11 +104,6 @@ void AutoClicker::onUpdate()
 		return;
 	}
 	
-	// Right click blocks autoclicker
-	if (GetAsyncKeyState(VK_RBUTTON) & 0x8000) {
-		return;
-	}
-	
 	// Check GUI state
 	bool inGui = mc.isInGui();
 	if (inGui && !settings.workInInventory) {
