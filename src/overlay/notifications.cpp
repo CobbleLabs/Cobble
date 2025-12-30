@@ -43,6 +43,8 @@ void NotificationManager::update()
 
 void NotificationManager::render()
 {
+	if (!enabled) return;
+	
 	std::lock_guard<std::mutex> lock(mutex);
 	
 	if (notifications.empty()) return;

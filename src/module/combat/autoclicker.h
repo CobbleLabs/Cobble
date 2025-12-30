@@ -20,7 +20,10 @@ public:
 		bool breakBlocks = true;     // Skip clicking when targeting block
 		bool workInInventory = false;
 		
-		// Advanced randomization
+		// Stable CPS mode - no randomization, exact CPS
+		bool stableCPS = false;
+		
+		// Advanced randomization (only when stableCPS is false)
 		bool advancedMode = true;
 		float dropChance = 5.0f;    // % chance to skip a click
 		float spikeChance = 10.0f;  // % chance for faster click

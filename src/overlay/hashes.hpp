@@ -39,3 +39,4 @@
 #define ICON_FA_PALETTE "\xef\x94\xbf"         // U+f53f
 #define ICON_FA_CIRCLE "\xef\x84\x91"          // U+f111
 #define ICON_FA_CIRCLE_DOT "\xef\x86\x92"      // U+f192
+#define ICON_FA_ROCKET "\xef\x84\xb5"          // U+f135 - Movement tab

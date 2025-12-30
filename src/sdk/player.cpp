@@ -160,6 +160,12 @@ bool LocalPlayer::isOnGround()
 	return Java::Env->GetBooleanField(instance, fid_onGround);
 }
 
+void LocalPlayer::setOnGround(bool value)
+{
+	if (!isValid() || !fid_onGround) return;
+	Java::Env->SetBooleanField(instance, fid_onGround, value);
+}
+
 bool LocalPlayer::isSprinting()
 {
 	if (!isValid() || !mid_isSprinting) return false;

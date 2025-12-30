@@ -41,6 +41,9 @@ public:
 	static void render();
 	static void update();  // Remove expired notifications
 	
+	// Settings
+	static inline bool enabled = true;
+	
 private:
 	static std::vector<Notification> notifications;
 	static std::mutex mutex;

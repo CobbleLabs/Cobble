@@ -3,7 +3,9 @@
 #include "module/combat/autoclicker.h"
 #include "module/combat/aimassist.h"
 #include "module/combat/autorefill.h"
-#include "module/combat/hitselect.h"
+#include "module/combat/velocity.h"
+#include "module/combat/reach.h"
+#include "module/utility/nojumpdelay.h"
 #include "module/visual/nametags.h"
 #include "overlay/overlay.h"
 #include "overlay/notifications.h"
@@ -43,7 +45,9 @@ void cobble::context::initialize(HMODULE hModule)
 	moduleManager.registerModule(&autoClicker);
 	moduleManager.registerModule(&aimAssist);
 	moduleManager.registerModule(&autoRefill);
-	moduleManager.registerModule(&hitSelect);
+	moduleManager.registerModule(&velocity);
+	moduleManager.registerModule(&reach);
+	moduleManager.registerModule(&noJumpDelay);
 	moduleManager.registerModule(&nameTags);
 
 	// Counter for delayed overlay init
@@ -112,7 +116,9 @@ void cobble::context::shutdown()
 	autoClicker.setEnabled(false);
 	aimAssist.setEnabled(false);
 	autoRefill.setEnabled(false);
-	hitSelect.setEnabled(false);
+	velocity.setEnabled(false);
+	reach.setEnabled(false);
+	noJumpDelay.setEnabled(false);
 	nameTags.setEnabled(false);
 	
 	// Signal overlay to stop rendering but don't cleanup GL resources

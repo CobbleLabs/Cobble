@@ -9,8 +9,11 @@
 #include "../module/combat/autoclicker.h"
 #include "../module/combat/aimassist.h"
 #include "../module/combat/autorefill.h"
-#include "../module/combat/hitselect.h"
+#include "../module/combat/velocity.h"
+#include "../module/combat/reach.h"
+#include "../module/utility/nojumpdelay.h"
 #include "../module/visual/nametags.h"
+#include "arraylist.h"
 #include "../cobble.hpp"
 #include "../sdk/minecraft.h"
 
@@ -46,6 +49,7 @@ static void InitializePages() {
         {
             ui::begin_child("Conditions", { (ImGui::GetWindowWidth() - GImGui->Style.WindowPadding.x * 2) / 2 - GImGui->Style.ItemSpacing.x / 2, 0 });
             {
+                ui::Checkbox("Stable CPS", &autoClicker.settings.stableCPS);
                 ui::Checkbox("Weapon Only", &autoClicker.settings.weaponOnly);
                 ui::Checkbox("Break Blocks", &autoClicker.settings.breakBlocks);
                 ui::Checkbox("Inventory", &autoClicker.settings.workInInventory);
@@ -119,24 +123,25 @@ static void InitializePages() {
         ImGui::EndGroup();
     });
     
-    // Combat Tab - HitSelect page
+    // Combat Tab - Velocity page
     ui::add_page(0, []() {
         ImGui::BeginGroup();
         {
             ui::begin_child("General", { (ImGui::GetWindowWidth() - GImGui->Style.WindowPadding.x * 2) / 2 - GImGui->Style.ItemSpacing.x / 2, 0 });
             {
-                ui::CheckboxBind("Enabled", &hitSelect.enabled, &hitSelect.keybind);
+                ui::CheckboxBind("Enabled", &velocity.enabled, &velocity.keybind);
                 ImGui::Spacing();
                 
                 // Mode selector
-                const char* modes[] = { "Burst", "Criticals" };
+                const char* modes[] = { "Regular", "Jump", "Reduce", "Ignore" };
+                int modeIdx = static_cast<int>(velocity.settings.mode);
                 ImGui::Text("Mode");
                 ImGui::SameLine();
-                if (ImGui::BeginCombo("##mode", modes[hitSelect.settings.mode], ImGuiComboFlags_NoArrowButton)) {
-                    for (int i = 0; i < 2; i++) {
-                        bool selected = (hitSelect.settings.mode == i);
+                if (ImGui::BeginCombo("##velmode", modes[modeIdx], ImGuiComboFlags_NoArrowButton)) {
+                    for (int i = 0; i < 4; i++) {
+                        bool selected = (modeIdx == i);
                         if (ImGui::Selectable(modes[i], selected))
-                            hitSelect.settings.mode = i;
+                            velocity.settings.mode = static_cast<Velocity::Mode>(i);
                         if (selected)
                             ImGui::SetItemDefaultFocus();
                     }
@@ -144,13 +149,47 @@ static void InitializePages() {
                 }
                 
                 ImGui::Spacing();
-                int cancelRate = hitSelect.settings.cancelRateInCombat;
-                if (ui::SliderInt("Cancel Rate", &cancelRate, 0, 100, "%d%%"))
-                    hitSelect.settings.cancelRateInCombat = cancelRate;
+                
+                // Mode-specific settings
+                if (velocity.settings.mode == Velocity::Mode::Regular || 
+                    velocity.settings.mode == Velocity::Mode::Reduce) {
+                    ui::SliderFloat("Horizontal", &velocity.settings.horizontal, 0.0f, 100.0f, "%.0f%%");
+                    ui::SliderFloat("Vertical", &velocity.settings.vertical, 0.0f, 100.0f, "%.0f%%");
+                    ui::SliderFloat("Chance", &velocity.settings.chance, 0.0f, 100.0f, "%.0f%%");
                     
-                int missedRate = hitSelect.settings.cancelRateMissedSwings;
-                if (ui::SliderInt("Missed Swings", &missedRate, 0, 100, "%d%%"))
-                    hitSelect.settings.cancelRateMissedSwings = missedRate;
+                    if (velocity.settings.mode == Velocity::Mode::Reduce) {
+                        ui::Checkbox("Double Clicks", &velocity.settings.allowDoubleClicks);
+                    }
+                }
+                else if (velocity.settings.mode == Velocity::Mode::Jump) {
+                    ui::SliderFloat("Jump Chance", &velocity.settings.jumpChance, 0.0f, 100.0f, "%.0f%%");
+                }
+                else if (velocity.settings.mode == Velocity::Mode::Ignore) {
+                    ui::SliderFloat("Chance", &velocity.settings.chance, 0.0f, 100.0f, "%.0f%%");
+                    
+                    // Vertical mode
+                    const char* vertModes[] = { "Never", "Only Air", "Always" };
+                    int vertIdx = static_cast<int>(velocity.settings.verticalMode);
+                    ImGui::Text("Vertical");
+                    ImGui::SameLine();
+                    if (ImGui::BeginCombo("##vertmode", vertModes[vertIdx], ImGuiComboFlags_NoArrowButton)) {
+                        for (int i = 0; i < 3; i++) {
+                            bool selected = (vertIdx == i);
+                            if (ImGui::Selectable(vertModes[i], selected))
+                                velocity.settings.verticalMode = static_cast<Velocity::VerticalMode>(i);
+                            if (selected)
+                                ImGui::SetItemDefaultFocus();
+                        }
+                        ImGui::EndCombo();
+                    }
+                }
+                
+                ImGui::Spacing();
+                ui::SliderFloat("FOV", &velocity.settings.fov, 0.0f, 360.0f, "%.0f");
+                
+                int delay = velocity.settings.reduceDelay;
+                if (ui::SliderInt("Delay", &delay, 0, 5, "%d ticks"))
+                    velocity.settings.reduceDelay = delay;
             }
             ui::end_child();
         }
@@ -160,30 +199,53 @@ static void InitializePages() {
         
         ImGui::BeginGroup();
         {
-            ui::begin_child("Options", { (ImGui::GetWindowWidth() - GImGui->Style.WindowPadding.x * 2) / 2 - GImGui->Style.ItemSpacing.x / 2, 0 });
+            ui::begin_child("Conditions", { (ImGui::GetWindowWidth() - GImGui->Style.WindowPadding.x * 2) / 2 - GImGui->Style.ItemSpacing.x / 2, 0 });
             {
-                ui::Checkbox("Fake Swing", &hitSelect.settings.fakeSwing);
+                ui::Checkbox("Looking at Player", &velocity.settings.onlyLookingAtPlayer);
+                ui::Checkbox("Mouse Pressed", &velocity.settings.onlyMousePressed);
+                ui::Checkbox("Moving Forward", &velocity.settings.onlyMovingForward);
+                ui::Checkbox("Holding Weapon", &velocity.settings.onlyHoldingWeapon);
                 
-                if (hitSelect.settings.mode == 0) {
-                    // Burst mode options
-                    int pauseDur = hitSelect.settings.pauseDuration;
-                    if (ui::SliderInt("Pause (ms)", &pauseDur, 100, 600, "%d"))
-                        hitSelect.settings.pauseDuration = pauseDur;
-                } else {
-                    // Criticals mode options
-                    ui::Checkbox("Disable During KB", &hitSelect.settings.disableDuringKnockback);
+                if (velocity.settings.mode == Velocity::Mode::Jump) {
+                    ui::Checkbox("Only Sprinting", &velocity.settings.onlySprinting);
                 }
-                
+            }
+            ui::end_child();
+        }
+        ImGui::EndGroup();
+    });
+    
+    // Combat Tab - Reach page
+    ui::add_page(0, []() {
+        ImGui::BeginGroup();
+        {
+            ui::begin_child("General", { (ImGui::GetWindowWidth() - GImGui->Style.WindowPadding.x * 2) / 2 - GImGui->Style.ItemSpacing.x / 2, 0 });
+            {
+                ui::CheckboxBind("Enabled", &reach.enabled, &reach.keybind);
                 ImGui::Spacing();
                 
-                // Humanization settings
-                int humanErr = hitSelect.settings.humanErrorRate;
-                if (ui::SliderInt("Human Error", &humanErr, 0, 20, "%d%%"))
-                    hitSelect.settings.humanErrorRate = humanErr;
-                    
-                int timingRand = hitSelect.settings.timingRandomization;
-                if (ui::SliderInt("Timing Rand", &timingRand, 0, 100, "%d ms"))
-                    hitSelect.settings.timingRandomization = timingRand;
+                ui::Checkbox("Randomize", &reach.settings.randomize);
+                
+                if (reach.settings.randomize) {
+                    ui::SliderFloat("Min Distance", &reach.settings.minDistance, 3.0f, 6.0f, "%.1f");
+                    ui::SliderFloat("Max Distance", &reach.settings.maxDistance, 3.0f, 6.0f, "%.1f");
+                } else {
+                    ui::SliderFloat("Distance", &reach.settings.distance, 3.0f, 6.0f, "%.1f");
+                }
+            }
+            ui::end_child();
+        }
+        ImGui::EndGroup();
+        
+        ImGui::SameLine();
+        
+        ImGui::BeginGroup();
+        {
+            ui::begin_child("Conditions", { (ImGui::GetWindowWidth() - GImGui->Style.WindowPadding.x * 2) / 2 - GImGui->Style.ItemSpacing.x / 2, 0 });
+            {
+                ui::Checkbox("Weapons Only", &reach.settings.weaponsOnly);
+                ui::Checkbox("Sprinting Only", &reach.settings.sprintingOnly);
+                ui::Checkbox("Moving Only", &reach.settings.movingOnly);
             }
             ui::end_child();
         }
@@ -243,8 +305,35 @@ static void InitializePages() {
         ui::end_child();
     });
     
-    // Settings Tab
+    // Movement Tab - NoJumpDelay page
     ui::add_page(2, []() {
+        ImGui::BeginGroup();
+        {
+            ui::begin_child("General", { (ImGui::GetWindowWidth() - GImGui->Style.WindowPadding.x * 2) / 2 - GImGui->Style.ItemSpacing.x / 2, 0 });
+            {
+                ui::CheckboxBind("Enabled", &noJumpDelay.enabled, &noJumpDelay.keybind);
+            }
+            ui::end_child();
+        }
+        ImGui::EndGroup();
+        
+        ImGui::SameLine();
+        
+        ImGui::BeginGroup();
+        {
+            ui::begin_child("Info", { (ImGui::GetWindowWidth() - GImGui->Style.WindowPadding.x * 2) / 2 - GImGui->Style.ItemSpacing.x / 2, 0 });
+            {
+                ImGui::TextWrapped("Removes jump delay for bhop.");
+                ImGui::Spacing();
+                ImGui::TextWrapped("Hold SPACE to auto-jump.");
+            }
+            ui::end_child();
+        }
+        ImGui::EndGroup();
+    });
+    
+    // Settings Tab
+    ui::add_page(3, []() {
         ImGui::BeginGroup();
         {
             ui::begin_child("Theme", { (ImGui::GetWindowWidth() - GImGui->Style.WindowPadding.x * 2) / 2 - GImGui->Style.ItemSpacing.x / 2, 0 });
@@ -259,7 +348,25 @@ static void InitializePages() {
         
         ImGui::BeginGroup();
         {
-            ui::begin_child("Actions", { (ImGui::GetWindowWidth() - GImGui->Style.WindowPadding.x * 2) / 2 - GImGui->Style.ItemSpacing.x / 2, 0 });
+            ui::begin_child("HUD", { (ImGui::GetWindowWidth() - GImGui->Style.WindowPadding.x * 2) / 2 - GImGui->Style.ItemSpacing.x / 2, 0 });
+            {
+                ui::Checkbox("ArrayList", &ArrayListRenderer::enabled);
+                if (ArrayListRenderer::enabled) {
+                    ui::Checkbox("  Background", &ArrayListRenderer::showBackground);
+                    ui::Checkbox("  Sort by Length", &ArrayListRenderer::sortByLength);
+                }
+                ImGui::Spacing();
+                ui::Checkbox("Notifications", &NotificationManager::enabled);
+            }
+            ui::end_child();
+        }
+        ImGui::EndGroup();
+        
+        ImGui::Spacing();
+        
+        ImGui::BeginGroup();
+        {
+            ui::begin_child("Actions", { ImGui::GetWindowWidth() - GImGui->Style.WindowPadding.x * 2, 0 });
             {
                 ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.6f, 0.1f, 0.2f, 1.0f));
                 ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.7f, 0.15f, 0.25f, 1.0f));

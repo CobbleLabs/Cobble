@@ -6,6 +6,61 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/).
 
 ---
 
+## [0.13.0] - 2025-12-30
+
+### Added
+- **Velocity Module**: Sistema completo de reducción de knockback
+  - **4 Modos**:
+    - Regular: Reduce motion al porcentaje especificado
+    - Jump: Salta automáticamente para negar knockback (vanilla mechanic abuse)
+    - Reduce: Abusa de attack slowdown para reducir KB
+    - Ignore: Cancela velocity completamente sin perder velocidad
+  - **Configuración avanzada**:
+    - Horizontal/Vertical: 0-100% control de knockback
+    - Chance: Probabilidad de aplicar reducción
+    - FOV: Solo reducir KB de ciertos ángulos (180° = solo frente)
+    - Reduce Delay: Ticks antes de aplicar reducción
+  - **Modo Ignore - Vertical**:
+    - Never: Siempre aplica velocidad vertical
+    - Only in Air: Cancela solo si hit en el aire
+    - Always: Siempre cancela velocidad vertical
+  - **Condiciones**:
+    - Looking at Player
+    - Mouse Pressed
+    - Moving Forward
+    - Holding Weapon
+    - Sprinting (Jump mode only)
+- **NoJumpDelay Module**: Elimina delay de salto para bhop
+  - Mantener SPACE para auto-jump continuo
+  - Fuerza estado onGround + jump cuando no está en el suelo
+- **Movement Tab**: Nueva categoría en el menú para módulos de movimiento
+- **Stable CPS Mode**: AutoClicker ahora tiene modo sin randomización
+  - Checkbox "Stable CPS" en la UI
+  - CPS exactos sin variación cuando está activado
+- **Mouse Button Binds**: Soporte completo para MB4 y MB5 (botones laterales del mouse)
+  - Funciona en Binder y CheckboxBind widgets
+- **ArrayList HUD**: Lista de módulos activos en pantalla
+  - Muestra módulos habilitados en esquina superior derecha
+  - Toggleable desde Settings → HUD
+  - Opciones: Background, Sort by Length
+  - Usa color de acento del tema
+- **Notifications Toggle**: Las notificaciones ahora se pueden desactivar
+  - Checkbox en Settings → HUD
+- **Reach Module** (WIP): Módulo de alcance extendido
+  - UI completa con configuración de distancia (3.0-6.0)
+  - Modo randomización con min/max
+  - Condiciones: Weapons Only, Sprinting Only, Moving Only
+  - ⚠️ **Nota**: Falta implementar el hook de raycast para que funcione
+
+### Removed
+- **HitSelect Module**: Eliminado completamente (reemplazado por Velocity)
+
+### Changed
+- Combat tab ahora tiene 5 subtabs: AutoClicker, AimAssist, AutoRefill, Velocity, Reach
+- Settings tab movido al índice 3 (nuevo Movement tab en índice 2)
+
+---
+
 ## [0.12.0] - 2025-12-30
 
 ### Added

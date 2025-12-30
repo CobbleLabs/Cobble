@@ -1,5 +1,4 @@
 #include "autoclicker.h"
-#include "hitselect.h"
 #include "../../sdk/minecraft.h"
 #include "../../util/logger.hpp"
 #include "../../overlay/menu.h"
@@ -174,16 +173,6 @@ void AutoClicker::onUpdate()
 		}
 	}
 	
-	// Hit Select integration - cancel clicks when target is invulnerable
-	if (hitSelect.enabled && hitSelect.shouldCancelClick()) {
-		if (hitSelect.settings.fakeSwing) {
-			hitSelect.doFakeSwing();
-		}
-		lastClick = now;
-		calculateNextDelay();
-		return;  // Skip this click
-	}
-	
 	// Perform click
 	doClick();
 	lastClick = now;
@@ -200,15 +189,30 @@ void AutoClicker::onUpdate()
 
 void AutoClicker::calculateNextDelay()
 {
-	// Update humanization systems
-	updateFatigue();
-	updateBurstMode();
-	updateJitterMode();
-	
 	float minCps = settings.minCPS;
 	float maxCps = settings.maxCPS;
 	
 	if (minCps > maxCps) std::swap(minCps, maxCps);
+	
+	// Stable CPS mode - exact CPS, no randomization
+	if (settings.stableCPS) {
+		// Use average of min and max for stable CPS
+		float targetCps = (minCps + maxCps) / 2.0f;
+		float delay = 1000.0f / targetCps;
+		
+		// Halve the delay because alternating pattern needs 2 calls per click
+		delay *= 0.5f;
+		
+		nextDelayMs = static_cast<int>(delay);
+		nextDelayMs = (std::max)(nextDelayMs, 20);
+		nextDelayMs = (std::min)(nextDelayMs, 100);
+		return;
+	}
+	
+	// Update humanization systems (only in randomized mode)
+	updateFatigue();
+	updateBurstMode();
+	updateJitterMode();
 	
 	// Spike check
 	bool isSpike = false;

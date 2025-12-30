@@ -13,6 +13,8 @@ public:
 	void onRender();  // Called from overlay for visual modules
 	void checkKeybinds();
 	void broadcastModuleState(Module* mod);  // Send state to web UI
+	
+	const std::vector<Module*>& getModules() const { return modules; }
 
 	template<typename T>
 	T* get()

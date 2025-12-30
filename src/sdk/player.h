@@ -33,6 +33,7 @@ struct LocalPlayer
 
 	// State
 	bool isOnGround();
+	void setOnGround(bool value);
 	bool isSprinting();
 	void setSprinting(bool value);
 	bool isSneaking();

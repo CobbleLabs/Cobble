@@ -1,5 +1,6 @@
 #include "overlay.h"
 #include "notifications.h"
+#include "arraylist.h"
 #include "menu.h" // Include the menu header
 #include "hashes.hpp" // FontAwesome icon definitions
 #include "bytes.hpp" // Embedded font data
@@ -396,6 +397,9 @@ void Overlay::Render()
 {
 	// Modules with onRender() will be called here
 	moduleManager.onRender();
+	
+	// Render ArrayList (active modules list)
+	ArrayListRenderer::render();
 	
 	// Render notifications
 	NotificationManager::update();

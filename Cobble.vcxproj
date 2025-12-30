@@ -93,11 +93,14 @@
     <ClCompile Include="src\module\combat\autoclicker.cpp" />
     <ClCompile Include="src\module\combat\aimassist.cpp" />
     <ClCompile Include="src\module\combat\autorefill.cpp" />
-    <ClCompile Include="src\module\combat\hitselect.cpp" />
+    <ClCompile Include="src\module\combat\velocity.cpp" />
+    <ClCompile Include="src\module\combat\reach.cpp" />
+    <ClCompile Include="src\module\utility\nojumpdelay.cpp" />
     <ClCompile Include="src\module\visual\nametags.cpp" />
     <ClCompile Include="src\overlay\overlay.cpp" />
     <ClCompile Include="src\overlay\menu.cpp" />
     <ClCompile Include="src\overlay\notifications.cpp" />
+    <ClCompile Include="src\overlay\arraylist.cpp" />
     <ClCompile Include="src\overlay\imgui_tricks.cpp" />
     <ClCompile Include="src\overlay\custom_widgets.cpp" />
     <ClCompile Include="src\overlay\weave_ui.cpp" />
@@ -128,7 +131,10 @@
     <ClInclude Include="src\module\aimassist.h" />
     <ClInclude Include="src\overlay\menu.h" />
     <ClInclude Include="src\module\combat\autorefill.h" />
-    <ClInclude Include="src\module\combat\hitselect.h" />
+    <ClInclude Include="src\module\combat\velocity.h" />
+    <ClInclude Include="src\module\combat\reach.h" />
+    <ClInclude Include="src\module\utility\nojumpdelay.h" />
+    <ClInclude Include="src\overlay\arraylist.h" />
     <ClInclude Include="ext\jni\jni.h" />
     <ClInclude Include="ext\jni\jni_md.h" />
     <ClInclude Include="ext\jni\jvmti.h" />

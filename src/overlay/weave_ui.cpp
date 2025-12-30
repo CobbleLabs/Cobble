@@ -390,6 +390,16 @@ bool ui::CheckboxBind(const char* label, bool* v, int* key) {
                 ClearActiveID(); 
                 changed = true; 
             }
+            else if (GetAsyncKeyState(VK_XBUTTON1) & 0x8000) { 
+                *key = VK_XBUTTON1; 
+                ClearActiveID(); 
+                changed = true; 
+            }
+            else if (GetAsyncKeyState(VK_XBUTTON2) & 0x8000) { 
+                *key = VK_XBUTTON2; 
+                ClearActiveID(); 
+                changed = true; 
+            }
             // Check keyboard keys
             else {
                 for (int vk = 0x08; vk <= 0x7B; vk++) {
@@ -608,6 +618,16 @@ bool ui::Binder(const char* label, int* key) {
             } 
             else if (GetAsyncKeyState(VK_MBUTTON) & 0x8000) {
                 *key = VK_MBUTTON;
+                ClearActiveID();
+                changed = true;
+            }
+            else if (GetAsyncKeyState(VK_XBUTTON1) & 0x8000) {
+                *key = VK_XBUTTON1;
+                ClearActiveID();
+                changed = true;
+            }
+            else if (GetAsyncKeyState(VK_XBUTTON2) & 0x8000) {
+                *key = VK_XBUTTON2;
                 ClearActiveID();
                 changed = true;
             }
