@@ -6,6 +6,70 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/).
 
 ---
 
+## [0.11.0] - 2025-12-30
+
+### Added
+- **CheckboxBind Widget**: Checkbox + Binder combinados en la misma línea
+  - `[✓] Enabled        | R |`
+  - Click en checkbox para toggle, click en binder para asignar tecla
+  - ESC para unbindear
+- **Binders en todos los módulos**: AutoClicker, AimAssist, AutoRefill, NameTags
+
+### Changed
+- **Colores exactos de weave free**: Tema completamente negro
+  - WindowBg: RGB(16,16,16) - casi negro
+  - ChildBg: RGB(20,20,20)
+  - FrameBg: RGB(16,16,16)
+  - Buttons/Headers: RGB(26,26,26)
+  - Border sutil blanco al 6%
+- **Color de acento**: Naranja RGB(215,96,20) como en weave original
+- **Fuentes aumentadas y bold**: 
+  - Todas las fuentes ahora usan Segoe UI Bold
+  - Tamaños aumentados: 18px/22px (antes 16px/20px)
+- **Icono de Combat**: Cambiado de skull (?) a crosshairs
+- **Animación de menú**: Fade-in/out suave al abrir/cerrar
+- **Mejor espaciado en navegación**: 
+  - Más espacio entre el brand "Cobble" y los tabs
+  - Padding superior en el area de tabs
+- **Sistema de escalado de UI por resolución**:
+  - La UI se escala automáticamente según la resolución de pantalla
+  - Referencia: 1080p = 100%, 1440p = 133%, 720p = 67%
+  - Se ve igual en cualquier monitor (24", 27", etc.)
+  - Todos los widgets, tabs, padding y offsets usan escalado
+
+### Fixed
+- **Animación de cierre sincronizada**: Arreglado el bug donde los headers y bordes no desvanecían al cerrar el menú
+- **Binder input mejorado**: 
+  - Agregado delay para evitar capturar el click inicial
+  - Mejor detección de hitbox y clicks
+  - Comportamiento consistente entre CheckboxBind y Binder standalone
+- **Slider que seguía moviendose**: Arreglado el bug donde el slider continuaba animando después de soltar el mouse
+
+---
+
+## [0.10.0] - 2025-12-29
+
+### Added
+- **Weave Free UI**: Port completo del estilo visual "weave free" (DX9) a OpenGL2
+  - Nuevo sistema de tabs con iconos FontAwesome y animaciones fluidas
+  - Headers decorados en child windows con separador inferior
+  - Subtabs colapsables con flecha rotativa animada
+  - Header principal mostrando tab actual + subtab con flecha
+  - Animaciones de fade/slide en cambio de tabs
+  - Color picker widget estilo weave
+  - Esquema de colores pink/scheme dinámico
+  - **Custom Checkbox**: caja animada con checkmark y relleno scheme
+  - **Custom SliderFloat/Int**: barra thin con grabber circular, botones +/- animados, label arriba
+
+### Changed
+- **Estructura del menú completamente reescrita**
+  - `weave_ui.hpp/.cpp` - Nuevo sistema UI portado directamente de weave con widgets custom
+  - `menu.cpp` - Layout idéntico a weave: navbar izquierdo + content derecho
+  - Fuentes reorganizadas: 0=Medium14+FA, 1=Bold14, 2=Medium17, 3=Bold17
+  - Roundings reducidos: Window=8px, Child=6px (estilo weave)
+
+---
+
 ## [0.9.0] - 2025-12-29
 
 ### Added
@@ -21,7 +85,7 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/).
 - **Web GUI: AutoRefill Panel**
   - Items: Soup, Potions, Use Non-Health Potions
   - Simulate Button: Left/Right/Both
-  - Timing: Delay After Open, Delay Before Close, Speed
+  - Timing: Delay After Open, Delay Before Close, Speed![alt text](image.png)
   - Smart Speed: delay extra según distancia de slots
 
 ---

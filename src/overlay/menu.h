@@ -9,6 +9,7 @@ class Menu
 {
 public:
 	static inline bool isOpen = false;
+	static inline float openAnim = 0.f; // Animation for smooth open/close
 	
 	// Main render loop - call inside ImGui frame
 	static void Render();

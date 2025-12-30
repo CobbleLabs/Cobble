@@ -53,4 +53,29 @@ namespace ImTricks {
 static inline ImVec2 operator+(const ImVec2& lhs, const float rhs) { return ImVec2(lhs.x + rhs, lhs.y + rhs); }
 static inline ImVec2 operator-(const ImVec2& lhs, const float rhs) { return ImVec2(lhs.x - rhs, lhs.y - rhs); }
 
+// Weave-style animation helpers
+template <typename T>
+inline T& anim_obj(const char* id, int seed, T arg) {
+	ImGuiID im_id = ImHashStr(id, 0, seed);
+	
+	static std::unordered_map<ImGuiID, T> map;
+	auto result = map.find(im_id);
+	
+	if (result == map.end()) {
+		map.insert({ im_id, arg });
+		result = map.find(im_id);
+	}
+	
+	return result->second;
+}
+
+template <typename T>
+inline T animate(T v, T min, T max, bool state, float speed = 14.f) {
+	return ImLerp(v, state ? max : min, speed * ImGui::GetIO().DeltaTime);
+}
+
+inline ImColor col_anim(ImColor inactive, ImColor active, float anim) {
+	return ImGui::ColorConvertFloat4ToU32(ImLerp(inactive.Value, active.Value, anim));
+}
+
 #endif

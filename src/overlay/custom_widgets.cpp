@@ -39,45 +39,13 @@ void custom::ImRotateEnd(float rad, ImVec2 center) {
 		buf[i].pos = ImRotate(buf[i].pos, s, c) - center;
 }
 
-// Icon drawing helper
-static void DrawIcon(ImDrawList* dl, ImVec2 p, float s, custom::IconType type, ImU32 col) {
-	float half = s / 2;
-	ImVec2 center = p + ImVec2(half, half);
-	
-	switch(type) {
-		case custom::Icon_Combat: { // Sword style
-			ImVec2 start = center + ImVec2(-4, 4);
-			ImVec2 end = center + ImVec2(4, -4);
-			dl->AddLine(start, end, col, 2.0f);
-			dl->AddLine(start + ImVec2(-2, -2), start + ImVec2(2, 2), col, 2.0f); // guard
-			dl->AddLine(start + ImVec2(-1, 1), start + ImVec2(-3, 3), col, 2.0f); // handle
-			break;
-		}
-		case custom::Icon_Visual: { // Eye style
-			dl->AddCircle(center, 7.0f, col, 0, 1.5f);
-			dl->AddCircleFilled(center, 3.0f, col);
-			break;
-		}
-		case custom::Icon_Settings: { // Gear simplistic
-			dl->AddCircle(center, 6.0f, col, 0, 2.0f);
-			dl->AddCircleFilled(center, 2.5f, col);
-			// Add nice notches if possible or keep simple
-			for(int i = 0; i < 8; i++) {
-				float ang = i * (3.14159f * 2 / 8);
-				ImVec2 off(cos(ang) * 8, sin(ang) * 8);
-				dl->AddLine(center + off * 0.7f, center + off, col, 2.0f);
-			}
-			break;
-		}
-	}
-}
-
-bool custom::tab(IconType icon, const char* label, bool selected) {
+// Weave-style tab with FontAwesome icon string
+bool custom::tab(const char* icon, const char* label, bool selected) {
 	ImGuiWindow* window = GetCurrentWindow();
 	ImGuiID id = window->GetID(label);
 	
 	ImVec2 p = window->DC.CursorPos;
-	ImVec2 size({ window->Size.x, 45 }); // Even taller
+	ImVec2 size({ window->Size.x, 38 }); // Weave height
 	ImRect bb(p, p + size);
 	
 	ItemSize(bb);
@@ -86,49 +54,60 @@ bool custom::tab(IconType icon, const char* label, bool selected) {
 	bool hovered, held;
 	bool pressed = ButtonBehavior(bb, id, &hovered, &held);
 	
-	float anim = ImTricks::Animations::FastFloatLerp(std::string(label).append("tab.anim"), selected, 0.f, 1.f, 0.05f);
-	auto col = ImTricks::Animations::FastColorLerp(GetColorU32(ImGuiCol_TextDisabled), GetColorU32(ImGuiCol_Text), anim);
-	auto iconCol = ImTricks::Animations::FastColorLerp(GetColorU32(ImGuiCol_TextDisabled), GetSchemeColor(), anim);
-	
-	if (pressed)
+	if (pressed && !selected) {
 		contentAnim = 0.f;
+	}
 	
-	// Indicator (Right line)
-	static float line_pos = 0.f;
-	if (selected) line_pos = ImLerp(line_pos, bb.Min.y - window->Pos.y + 10, 0.1f);
+	// Weave-style animation state using anim_obj
+	struct TabAnimState {
+		float cur;
+		float hover;
+		ImColor col;
+	};
+	auto& obj = anim_obj(label, 0, TabAnimState{ 0.f, 0.f, ImColor(0, 0, 0, 0) });
 	
-	if (selected || anim > 0.01f) {
+	obj.cur = animate(obj.cur, 0.f, 1.f, selected);
+	obj.hover = animate(obj.hover, 0.f, 1.f, hovered);
+	obj.col = col_anim(
+		col_anim(GetColorU32(ImGuiCol_TextDisabled), GetColorU32(ImGuiCol_Text, 0.75f), obj.hover),
+		GetColorU32(ImGuiCol_Text),
+		obj.cur
+	);
+	
+	// Icon color animates to scheme when selected
+	ImColor iconCol = col_anim(GetColorU32(ImGuiCol_TextDisabled), GetSchemeColor(), obj.cur);
+	
+	// Right indicator (accent line)
+	if (selected || obj.cur > 0.01f) {
 		window->DrawList->AddRectFilled(
-			{ bb.Max.x - 4, window->Pos.y + line_pos },
-			{ bb.Max.x, window->Pos.y + line_pos + 25 },
-			GetSchemeColor(anim), 2, ImDrawFlags_RoundCornersLeft
+			{ bb.Max.x - 3, bb.Min.y + 8 },
+			{ bb.Max.x, bb.Max.y - 8 },
+			GetSchemeColor(obj.cur), 2, ImDrawFlags_RoundCornersLeft
 		);
 	}
 	
-	// Layout: FIXED GRID (not centered)
-	// All tabs share the same baseX for consistent vertical alignment
-	// Use bigger font for tab labels (Index 1: 30px Bold)
-	ImGui::PushFont(GetIO().Fonts->Fonts[1]);
+	// FontAwesome icon (rendered as text)
+	ImVec2 iconSize = CalcTextSize(icon, 0, 1);
+	window->DrawList->AddText(
+		{ bb.Min.x + 15, bb.GetCenter().y - iconSize.y / 2 },
+		iconCol, icon, FindRenderedTextEnd(icon)
+	);
 	
-	// SCALE EFFECT for selected tab (15%)
-	if (selected) ImGui::SetWindowFontScale(1.15f); 
+	// Label - use bold font for selected (font index 1 = 30px bold)
+	ImFont* labelFont = selected ? GetIO().Fonts->Fonts[1] : GetIO().Fonts->Fonts[0];
+	ImVec2 nameSize = labelFont->CalcTextSizeA(labelFont->FontSize, FLT_MAX, 0.f, label, FindRenderedTextEnd(label));
+	window->DrawList->AddText(
+		labelFont, labelFont->FontSize,
+		{ bb.Min.x + 40, bb.GetCenter().y - nameSize.y / 2 },
+		obj.col, label, FindRenderedTextEnd(label)
+	);
 	
-	float iconSize = 24.0f;
-	float spacing = 14.0f;
-	
-	// FIXED left margin - all tabs start here
-	float baseX = 25.0f;
-	
-	// Icon at fixed X
-	DrawIcon(window->DrawList, { bb.Min.x + baseX, bb.GetCenter().y - iconSize / 2 }, iconSize, icon, iconCol);
-	
-	// Text at fixed X + icon + spacing
-	PushStyleColor(ImGuiCol_Text, col.Value);
-	RenderText({ bb.Min.x + baseX + iconSize + spacing, bb.GetCenter().y - CalcTextSize(label).y / 2 }, label);
-	PopStyleColor();
-	
-	if (selected) ImGui::SetWindowFontScale(1.0f); // Reset scale
-	ImGui::PopFont();
+	// Bottom separator line (weave style)
+	window->DrawList->AddLine(
+		{ bb.Min.x + 40, window->DC.CursorPos.y },
+		{ bb.Max.x, window->DC.CursorPos.y },
+		GetColorU32(ImGuiCol_Border, 0.5f)
+	);
 	
 	return pressed;
 }
@@ -290,45 +269,56 @@ bool custom::slider_int(const char* label, int* v, int v_min, int v_max, const c
 	return res;
 }
 
+// Weave-style child window with decorated header
 void custom::begin_child(const char* name, ImVec2 size, float alpha) {
-	// Apply alpha to child background and border directly
-	ImVec4 childBg = ImGui::GetStyleColorVec4(ImGuiCol_ChildBg);
-	childBg.w *= alpha;
-	ImGui::PushStyleColor(ImGuiCol_ChildBg, childBg);
+	// Calculate size if auto
+	ImVec2 calcSize = CalcItemSize(size, 
+		(GetWindowWidth() - GImGui->Style.WindowPadding.x * 2) / 2 - GImGui->Style.ItemSpacing.x / 2, 
+		0);
 	
-	ImVec4 borderCol = ImGui::GetStyleColorVec4(ImGuiCol_Border);
-	borderCol.w *= alpha;
-	ImGui::PushStyleColor(ImGuiCol_Border, borderCol);
+	// Outer container (decoration)
+	BeginChild(std::string(name).append("decor").c_str(), calcSize, 0, 
+		ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoBackground);
 	
-	// Apply text alpha too for title
-	ImVec4 textCol = ImGui::GetStyleColorVec4(ImGuiCol_Text);
-	textCol.w *= alpha;
-	ImGui::PushStyleColor(ImGuiCol_Text, textCol);
-
-	// 1. Outer Container
-	ImGuiChildFlags childFlags = ImGuiChildFlags_Borders | ImGuiChildFlags_AutoResizeY;
-	BeginChild(std::string(name).append("main").c_str(), { size.x, 0 }, childFlags, ImGuiWindowFlags_NoScrollbar);
+	// Background fill with alpha
+	GetWindowDrawList()->AddRectFilled(
+		GetWindowPos(), 
+		GetWindowPos() + GetWindowSize(), 
+		GetColorU32(ImGuiCol_ChildBg, alpha), 
+		GImGui->Style.ChildRounding
+	);
 	
-	// Unified horizontal padding for ALL content (Title + Controls)
-	float paddingX = 15.0f;
+	// Header with title (weave style)
+	if (CalcTextSize(name, 0, 1).x > 0) {
+		// Header background
+		GetWindowDrawList()->AddRectFilled(
+			GetWindowPos(), 
+			{ GetWindowPos().x + GetWindowWidth(), GetWindowPos().y + 33 },
+			GetColorU32(ImGuiCol_Header, alpha),
+			GImGui->Style.ChildRounding, ImDrawFlags_RoundCornersTop
+		);
+		// Separator line below header
+		GetWindowDrawList()->AddLine(
+			{ GetWindowPos().x, GetWindowPos().y + 33 },
+			{ GetWindowPos().x + GetWindowWidth(), GetWindowPos().y + 33 },
+			GetColorU32(ImGuiCol_BorderShadow)
+		);
+		// Title text (font index 4 = medium 17px)
+		ImFont* titleFont = GetIO().Fonts->Fonts.Size > 4 ? GetIO().Fonts->Fonts[4] : GetIO().Fonts->Fonts[0];
+		ImVec2 titleSize = titleFont->CalcTextSizeA(titleFont->FontSize, FLT_MAX, 0.f, name, FindRenderedTextEnd(name));
+		GetWindowDrawList()->AddText(
+			titleFont, titleFont->FontSize,
+			{ GetWindowPos().x + 13, GetWindowPos().y + 33 / 2 - titleSize.y / 2 },
+			GetColorU32(ImGuiCol_Text, alpha), name, FindRenderedTextEnd(name)
+		);
+		SetCursorPosY(34);
+	}
 	
-	// Title - SAME X as content for perfect alignment
-	ImGui::SetCursorPos({ paddingX, 12 });
-	ImGui::Text("%s", name);
-	ImGui::PopStyleColor(); // Pop Text color
-	
-	// 2. Inner Content Container
-	float contentWidth = size.x - (paddingX * 2);
-	
-	ImGui::SetCursorPosY(42); // Top Title Padding
-	ImGui::SetCursorPosX(paddingX); // Left Padding
-	
-	// Inner child
-	ImGuiChildFlags innerFlags = ImGuiChildFlags_AutoResizeY;
-	ImGui::BeginChild("##inner_content", { contentWidth, 0 }, innerFlags, ImGuiWindowFlags_NoBackground | ImGuiWindowFlags_NoScrollbar);
-	
-	ImGui::PushItemWidth(contentWidth);
-	ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, { 10, 14 });
+	// Inner content padding
+	PushStyleVar(ImGuiStyleVar_WindowPadding, { 13, 15 });
+	PushStyleVar(ImGuiStyleVar_ItemSpacing, { 8, 14 });
+	BeginChild(name, { -1, size.y == 0 ? size.y : -1 }, 0, 
+		ImGuiWindowFlags_AlwaysUseWindowPadding | ImGuiWindowFlags_NoBackground);
 }
 
 bool custom::checkbox(const char* label, bool* v) {
@@ -414,16 +404,46 @@ bool custom::checkbox(const char* label, bool* v) {
 	return pressed;
 }
 
+// Weave-style end child
 void custom::end_child() {
-	ImGui::PopStyleVar(); // ItemSpacing
-	ImGui::PopItemWidth();
-	ImGui::EndChild(); // End Inner Content
+	EndChild(); // End inner content
+	PopStyleVar(2); // WindowPadding + ItemSpacing
+	EndChild(); // End outer decoration
+}
+
+// Weave-style color picker (label left, picker right)
+bool custom::color(const char* name, float col[4], bool alpha) {
+	ImGuiWindow* window = GetCurrentWindow();
+	ImGuiID id = window->GetID(name);
 	
-	// Bottom padding for the Outer Container
-	ImGui::Dummy({ 0, 18 });
+	ImDrawList* draw = window->DrawList;
+	ImVec2 pos = window->DC.CursorPos;
 	
-	ImGui::EndChild(); // End Outer Container
-	ImGui::PopStyleColor(2); // ChildBg + Border (Text already popped)
+	ImVec2 size{ 16, 16 };
+	ImVec2 labelSize = CalcTextSize(name, 0, 1);
+	
+	ImRect bb(pos, { pos.x + CalcItemWidth() - size.x, pos.y + size.y });
+	ItemAdd(bb, id);
+	ItemSize(bb);
+	
+	// Label on left
+	draw->AddText(
+		{ bb.Min.x, bb.GetCenter().y - labelSize.y / 2 },
+		GetColorU32(ImGuiCol_Text), name, FindRenderedTextEnd(name)
+	);
+	
+	bool valueChanged = false;
+	if (col) {
+		ImVec2 savedPos = window->DC.CursorPos;
+		window->DC.CursorPos = ImVec2{ bb.Max.x, bb.Min.y };
+		
+		ImGuiColorEditFlags flags = alpha ? COBBLE_COLOR_ALPHA : COBBLE_COLOR_NO_ALPHA;
+		valueChanged = ColorEdit4(std::string(name).append("##col").c_str(), col, flags);
+		
+		window->DC.CursorPos = savedPos;
+	}
+	
+	return valueChanged;
 }
 
 bool custom::collapse_button(bool collapsed) {

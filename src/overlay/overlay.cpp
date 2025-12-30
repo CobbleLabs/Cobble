@@ -1,6 +1,8 @@
 #include "overlay.h"
 #include "notifications.h"
 #include "menu.h" // Include the menu header
+#include "hashes.hpp" // FontAwesome icon definitions
+#include "bytes.hpp" // Embedded font data
 #include "../util/logger.hpp"
 #include "../sdk/render_data.h"
 #include "../module/module_manager.h"
@@ -64,27 +66,41 @@ namespace {
 		io.WantCaptureMouse = false;
 		io.WantCaptureKeyboard = false;
 		
-		// Load system font (Segoe UI - Windows default, clean and modern)
+		// Font configuration
 		ImFontConfig fontConfig;
 		fontConfig.OversampleH = 3;
 		fontConfig.OversampleV = 3;
 		
-		const char* systemFontPath = "C:\\Windows\\Fonts\\segoeui.ttf";
+		// FontAwesome icon merge config
+		static const ImWchar icon_ranges[] = { ICON_MIN_FA, ICON_MAX_FA, 0 };
+		ImFontConfig icons_config;
+		icons_config.MergeMode = true;
+		icons_config.PixelSnapH = true;
+		icons_config.FontDataOwnedByAtlas = false;
+		icons_config.GlyphMinAdvanceX = 16.0f; // Ensure icons have proper width
+		
 		const char* boldFontPath = "C:\\Windows\\Fonts\\segoeuib.ttf";
 		
-		// 0: Bold 24px (Main - Scaled +15%)
-		if (io.Fonts->AddFontFromFileTTF(boldFontPath, 24.0f, &fontConfig) == nullptr) {
+		// Weave font order - ALL BOLD for better visibility
+		// 0: Bold 18px + FontAwesome (main text + icons)
+		if (io.Fonts->AddFontFromFileTTF(boldFontPath, 18.0f, &fontConfig) == nullptr) {
 			io.Fonts->AddFontDefault();
 		}
+		icons_config.GlyphMinAdvanceX = 18.0f; // Match font size for proper icon width
+		io.Fonts->AddFontFromMemoryTTF((void*)font_awesome_bin, sizeof(font_awesome_bin), 18.0f, &icons_config, icon_ranges);
 		
-		// 1: Bold 30px (Headers - Scaled +15%)
-		io.Fonts->AddFontFromFileTTF(boldFontPath, 30.0f, &fontConfig);
+		// 1: Bold 18px (child headers)
+		io.Fonts->AddFontFromFileTTF(boldFontPath, 18.0f, &fontConfig);
 		
-		// 2: Regular 21px (Notifications - Scaled +15%)
-		Overlay::notificationFont = io.Fonts->AddFontFromFileTTF(systemFontPath, 21.0f, &fontConfig);
+		// 2: Bold 22px (tab names unselected)
+		io.Fonts->AddFontFromFileTTF(boldFontPath, 22.0f, &fontConfig);
 		
-		// 3: Bold 46px (BRAND - Cobble header exclusively)
-		io.Fonts->AddFontFromFileTTF(boldFontPath, 46.0f, &fontConfig);
+		// 3: Bold 22px (tab names selected, header text)
+		io.Fonts->AddFontFromFileTTF(boldFontPath, 22.0f, &fontConfig);
+		
+		// Extras for Cobble specific UI
+		// 4: Bold for notifications
+		Overlay::notificationFont = io.Fonts->AddFontFromFileTTF(boldFontPath, 18.0f, &fontConfig);
 		
 		defaultFont = io.Fonts->Fonts[0];
 		
