@@ -42,6 +42,7 @@ struct LocalPlayer
 	float getHealth();
 	int getHurtTime();
 	void jump();
+	void setJumpTicks(int value);
 
 	// Inventory (for weapon detection)
 	int getHeldItemId();
@@ -64,6 +65,7 @@ private:
 	jfieldID fid_rotationPitch = nullptr;
 	jfieldID fid_onGround = nullptr;
 	jfieldID fid_hurtTime = nullptr;
+	jfieldID fid_jumpTicks = nullptr;
 
 	// Methods
 	jmethodID mid_isSprinting = nullptr;

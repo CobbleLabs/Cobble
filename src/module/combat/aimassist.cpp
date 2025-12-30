@@ -337,12 +337,14 @@ void AimAssist::onUpdate()
 	float yawStrength = yawProximity * yawInitiator * yawAlignBoost * intentFactor;
 	float pitchStrength = pitchProximity * pitchInitiator * pitchAlignBoost * intentFactor;
 	
-	// Scale by MC sensitivity
-	float sensMultiplier = getSensitivityMultiplier();
-	float baseMultiplier = (sensMultiplier > 0.001f) ? (0.15f / sensMultiplier) : 1.0f;
-
-	float effectiveYawSpeed = settings.horizontalSpeed * yawStrength * baseMultiplier;
-	float effectivePitchSpeed = settings.verticalSpeed * pitchStrength * baseMultiplier;
+	// Speed scaling: 0-100 maps to actual rotation speed
+	// At 100 speed, we want fast but still smooth aim
+	// Multiply by 0.1 to convert 0-100 to reasonable degree/s values
+	float yawSpeedFactor = (settings.horizontalSpeed / 100.0f) * 10.0f;  // 0-10 range
+	float pitchSpeedFactor = (settings.verticalSpeed / 100.0f) * 10.0f;
+	
+	float effectiveYawSpeed = yawSpeedFactor * yawStrength;
+	float effectivePitchSpeed = pitchSpeedFactor * pitchStrength;
 	
 	float yawRotation = calculateSmoothRotation(yawDiff, effectiveYawSpeed, deltaTime, currentYawVelocity, smoothedYawAccel);
 	float pitchRotation = 0.0f;

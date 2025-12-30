@@ -49,6 +49,9 @@ void LocalPlayer::initFields()
 
 		// Jump (in EntityLivingBase)
 		mid_jump = Java::Env->GetMethodID(livingCls, "jump", "()V");
+		
+		// JumpTicks (in EntityLivingBase) - controls jump delay
+		fid_jumpTicks = Java::Env->GetFieldID(livingCls, "jumpTicks", "I");
 	}
 
 	fieldsInitialized = true;
@@ -201,6 +204,12 @@ void LocalPlayer::jump()
 {
 	if (!isValid() || !mid_jump) return;
 	Java::Env->CallVoidMethod(instance, mid_jump);
+}
+
+void LocalPlayer::setJumpTicks(int value)
+{
+	if (!isValid() || !fid_jumpTicks) return;
+	Java::Env->SetIntField(instance, fid_jumpTicks, value);
 }
 
 int LocalPlayer::getHeldItemId()

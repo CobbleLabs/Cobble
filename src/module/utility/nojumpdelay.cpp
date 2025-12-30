@@ -29,10 +29,9 @@ void NoJumpDelay::onUpdate()
 	if (mc.isInGui()) return;
 	if (!player.isValid()) return;
 
-	// When holding space and not on ground, force ground state and jump
-	// This produces bhop-like effect (same as spamming jump key)
-	if ((GetAsyncKeyState(VK_SPACE) & 0x8000) && !player.isOnGround()) {
-		player.setOnGround(true);
-		player.jump();
+	// Reset jump ticks when on ground to remove jump delay
+	// This allows instant re-jump when landing (bhop)
+	if (player.isOnGround() && (GetAsyncKeyState(VK_SPACE) & 0x8000)) {
+		player.setJumpTicks(0);
 	}
 }
