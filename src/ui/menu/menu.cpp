@@ -170,9 +170,12 @@ void Menu::Render() {
 	}
 	
 	// Release movement keys while menu is open
+	// Handled in WndProc on open, no need to call every frame
+	/*
 	if (isOpen) {
 		mc.releaseMovementKeys();
 	}
+	*/
 	
 	ImGuiIO& io = ImGui::GetIO();
 	
@@ -314,7 +317,13 @@ void Menu::Render() {
 			// Content
 			ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, { ui::s(10), ui::s(10) });
 			ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, { ui::s(15), ui::s(15) });
-			ImGui::PushStyleVar(ImGuiStyleVar_Alpha, ui::anim * ui::content_anim);
+			
+			// Sync alpha_mod for custom widgets BEFORE pushing style
+			// This ensures both ImGui native widgets AND custom ui:: widgets fade together
+			float contentAlpha = openAnim * ui::anim * ui::content_anim;
+			ui::alpha_mod = contentAlpha;
+			ImGui::PushStyleVar(ImGuiStyleVar_Alpha, contentAlpha);
+			
 			ImGui::SetCursorPosY(ui::s(42));
 			ImGui::BeginChild("content", ImGui::GetContentRegionAvail(), 0, ImGuiWindowFlags_NoBackground | ImGuiWindowFlags_AlwaysUseWindowPadding);
 			{
@@ -322,6 +331,9 @@ void Menu::Render() {
 			}
 			ImGui::EndChild();
 			ImGui::PopStyleVar(3);
+			
+			// Restore alpha_mod to menu-level value
+			ui::alpha_mod = openAnim;
 		}
 		ImGui::EndChild();
 	}

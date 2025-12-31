@@ -8,7 +8,7 @@ TestModule* testModule = nullptr;
 
 TestModule::TestModule() : Module("TestModule")
 {
-	keybind = 'T';  // Default keybind
+	keybind = 0;  // No default keybind
 }
 
 void TestModule::onEnable()
@@ -38,19 +38,9 @@ void TestModule::onRenderMenu()
 			ImGui::Spacing();
 			ui::SliderFloat("Test Value", &settings.testValue, 0.0f, 10.0f, "%.1f");
 			
-			// Mode selector example
+			// Mode selector using ui::Combo for proper animation sync
 			const char* modes[] = { "Mode A", "Mode B", "Mode C" };
-			ImGui::SetNextItemWidth(ImGui::CalcItemWidth());
-			if (ImGui::BeginCombo("Mode", modes[settings.testMode], ImGuiComboFlags_NoArrowButton)) {
-				for (int i = 0; i < 3; i++) {
-					bool selected = (settings.testMode == i);
-					if (ImGui::Selectable(modes[i], selected))
-						settings.testMode = i;
-					if (selected)
-						ImGui::SetItemDefaultFocus();
-				}
-				ImGui::EndCombo();
-			}
+			ui::Combo("Mode", &settings.testMode, modes, 3);
 		},
 		"Options", [this]() {
 			ui::Checkbox("Test Toggle", &settings.testToggle);

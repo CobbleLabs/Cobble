@@ -1,12 +1,12 @@
 # Cobble
 
-Ghost client for Lunar Client (Minecraft) via JNI injection.
+Ghost client for Lunar Client via JNI injection.
 
 ## Features
 
 - **Combat**: AutoClicker, AimAssist, Velocity, Reach, AutoRefill
-- **Visual**: NameTags ESP
-- **Utility**: NoJumpDelay (bhop)
+- **Visual**: NameTags
+- **Utility**: NoJumpDelay
 - **UI**: Custom ImGui overlay with modular settings
 
 ## Quick Start

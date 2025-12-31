@@ -27,7 +27,7 @@ static void sendKey(WORD vk) {
 
 AutoRefill::AutoRefill() : Module("AutoRefill")
 {
-	keybind = 'G';
+	keybind = 0;  // No default keybind
 }
 
 void AutoRefill::onEnable()

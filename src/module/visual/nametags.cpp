@@ -13,7 +13,7 @@ NameTags* nameTags = nullptr;
 
 NameTags::NameTags() : Module("NameTags")
 {
-	keybind = 'N';
+	keybind = 0;  // No default keybind
 }
 
 void NameTags::onEnable()

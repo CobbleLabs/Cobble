@@ -2,6 +2,7 @@
 #include "../../sdk/minecraft.h"
 #include "../../util/logger.hpp"
 #include "../../ui/menu/menu.h"
+#include "../../ui/core/overlay.h"
 #include "../../ui/widgets/widgets.hpp"
 
 #ifndef WIN32_LEAN_AND_MEAN
@@ -33,7 +34,7 @@ namespace ItemIds {
 
 AutoClicker::AutoClicker() : Module("AutoClicker")
 {
-	keybind = 'R';
+	keybind = 0;  // No default keybind
 	
 	std::random_device rd;
 	rng.seed(rd());
@@ -100,19 +101,28 @@ void AutoClicker::onUpdate()
 	HWND hwnd = GetForegroundWindow();
 	if (!hwnd) return;
 	
+	// Only click when Minecraft window is focused (prevents issues with window resizing)
+	if (hwnd != Overlay::gameWindow) return;
+	
 	// Not holding left mouse button
 	if (!(GetAsyncKeyState(VK_LBUTTON) & 0x8000)) {
 		return;
 	}
-	
 	// Check GUI state
-	bool inGui = mc.isInGui();
-	if (inGui && !settings.workInInventory) {
+	bool inInventory = mc.isInventoryOpen();  // True only for GuiContainer (chest, inventory, etc.)
+	bool inAnyGui = mc.isInGui();  // True for any GUI screen including pause menu
+	
+	// If in a GUI but not an inventory, always stop clicking
+	if (inAnyGui && !inInventory) {
+		return;
+	}
+	// If in inventory, check the workInInventory setting
+	if (inInventory && !settings.workInInventory) {
 		return;
 	}
 	
-	// Weapon-only check
-	if (settings.weaponOnly && !inGui && !isHoldingWeapon()) {
+	// Weapon-only check (skip in inventory)
+	if (settings.weaponOnly && !inInventory && !isHoldingWeapon()) {
 		return;
 	}
 	
@@ -146,8 +156,8 @@ void AutoClicker::onUpdate()
 		lastClick = std::chrono::steady_clock::now();
 	}
 	
-	// Attacking only - check if player is in crosshair
-	if (settings.attackingOnly && !inGui) {
+	// Attacking only - check if player is in crosshair (skip in inventory)
+	if (settings.attackingOnly && !inInventory) {
 		if (!isTargetingPlayer()) {
 			return;
 		}

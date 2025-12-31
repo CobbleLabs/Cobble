@@ -5,7 +5,7 @@
 // ============================================================================
 
 namespace ArrayListRenderer {
-    inline bool enabled = true;
+    inline bool enabled = false;
     inline bool showBackground = true;
     inline bool sortByLength = true;
     inline float yOffset = 5.0f;

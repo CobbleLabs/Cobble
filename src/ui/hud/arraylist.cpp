@@ -31,56 +31,81 @@ void ArrayListRenderer::render()
 	ImDrawList* draw = ImGui::GetWindowDrawList();
 	if (!draw) return;
 	
-	if (Overlay::notificationFont) {
-		ImGui::PushFont(static_cast<ImFont*>(Overlay::notificationFont));
-	}
+	// Use Bold 22px font (index 2) rendered at 20px
+	ImFont* arrayFont = font(2);
 	
+	// Calculate local scale with higher minimum for very low resolutions
+	float screenHeight = static_cast<float>(RenderData::screenHeight);
 	float screenWidth = static_cast<float>(RenderData::screenWidth);
-	float padding = 8.0f;
-	float itemHeight = 18.0f;
-	float margin = 5.0f;
+	float localScale = screenHeight / 1080.0f;
+	if (localScale < 0.75f) localScale = 0.75f;  // Higher minimum for small screens
+	if (localScale > 2.0f) localScale = 2.0f;
 	
-	float y = yOffset;
+	auto s = [localScale](float v) { return v * localScale; };
 	
-	ImVec4 accentColor(g_SchemeColor[0], g_SchemeColor[1], g_SchemeColor[2], g_SchemeColor[3]);
+	// Base values for ArrayList sizing (10% smaller)
+	float fontSize = 20.0f;  // Render at 20px instead of 22px
+	float padding = s(13.0f);
+	float itemHeight = s(25.0f);
+	float margin = s(9.0f);
+	float barWidth = s(3.5f);
+	float rounding = s(4.5f);
+	float gap = s(3.0f);
+	
+	float y = s(yOffset);
+	
+	// Accent color from theme
+	ImU32 accentColor = IM_COL32(
+		(int)(g_SchemeColor[0] * 255),
+		(int)(g_SchemeColor[1] * 255),
+		(int)(g_SchemeColor[2] * 255),
+		255
+	);
+	
+	// Background color matching GUI (dark with transparency)
+	ImU32 bgColor = IM_COL32(16, 16, 16, 220);
+	ImU32 textColor = IM_COL32(255, 255, 255, 255);
 	
 	for (size_t i = 0; i < enabledModules.size(); i++) {
 		Module* mod = enabledModules[i];
-		std::string name = mod->name;
+		const char* name = mod->name;
 		
-		ImVec2 textSize = ImGui::CalcTextSize(name.c_str());
-		float itemWidth = textSize.x + padding * 2;
+		// Calculate text size with the actual font
+		ImVec2 textSize = arrayFont 
+			? arrayFont->CalcTextSizeA(fontSize, FLT_MAX, 0.0f, name)
+			: ImGui::CalcTextSize(name);
 		
+		float itemWidth = textSize.x + padding * 2 + barWidth;
 		float x = screenWidth - itemWidth - margin;
 		
+		// Background with rounded corners (left side only)
 		if (showBackground) {
-			ImU32 bgColor = IM_COL32(0, 0, 0, 180);
 			draw->AddRectFilled(
 				ImVec2(x, y),
 				ImVec2(screenWidth - margin, y + itemHeight),
-				bgColor
+				bgColor,
+				rounding,
+				ImDrawFlags_RoundCornersLeft
 			);
 		}
 		
-		ImU32 barColor = IM_COL32(
-			(int)(accentColor.x * 255),
-			(int)(accentColor.y * 255),
-			(int)(accentColor.z * 255),
-			255
-		);
+		// Accent bar on right edge
 		draw->AddRectFilled(
-			ImVec2(screenWidth - margin - 2, y),
+			ImVec2(screenWidth - margin - barWidth, y),
 			ImVec2(screenWidth - margin, y + itemHeight),
-			barColor
+			accentColor
 		);
 		
+		// Text centered vertically - render with explicit font
 		float textY = y + (itemHeight - textSize.y) / 2.0f;
-		draw->AddText(ImVec2(x + padding, textY), IM_COL32(255, 255, 255, 255), name.c_str());
+		if (arrayFont) {
+			draw->AddText(arrayFont, fontSize, ImVec2(x + padding, textY), textColor, name);
+		} else {
+			draw->AddText(ImVec2(x + padding, textY), textColor, name);
+		}
 		
-		y += itemHeight;
-	}
-	
-	if (Overlay::notificationFont) {
-		ImGui::PopFont();
+		y += itemHeight + gap;
 	}
 }
+
+

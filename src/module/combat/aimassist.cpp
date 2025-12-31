@@ -1,6 +1,7 @@
 #include "aimassist.h"
 #include "../../sdk/minecraft.h"
 #include "../../util/logger.hpp"
+#include "../../ui/menu/menu.h"
 #include "../../ui/widgets/widgets.hpp"
 
 #ifndef WIN32_LEAN_AND_MEAN
@@ -38,7 +39,7 @@ static inline float getSensitivityMultiplier() {
 
 AimAssist::AimAssist() : Module("AimAssist")
 {
-	keybind = 'V';
+	keybind = 0;  // No default keybind
 	std::random_device rd;
 	rng.seed(rd());
 	lastUpdate = std::chrono::steady_clock::now();
@@ -108,6 +109,7 @@ float AimAssist::applyCurve(float normalizedDiff)
 void AimAssist::onUpdate()
 {
 	if (!player.isValid()) return;
+	if (Menu::isOpen) return;
 	if (mc.isInGui()) return;
 
 	if (settings.onlySprinting && !player.isSprinting()) return;

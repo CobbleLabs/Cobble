@@ -45,9 +45,12 @@ namespace NotificationManager {
 	void update();
 	void render();
 	
+	// Timing
 	inline constexpr float NOTIFICATION_DURATION = 2.0f;
-	inline constexpr float NOTIFICATION_HEIGHT = 36.0f;
-	inline constexpr float NOTIFICATION_MARGIN = 15.0f;
-	inline constexpr float NOTIFICATION_SPACING = 6.0f;
-	inline constexpr float NOTIFICATION_PADDING = 16.0f;
+	
+	// Base values (will be scaled by resolution)
+	inline constexpr float BASE_HEIGHT = 28.0f;
+	inline constexpr float BASE_MARGIN = 10.0f;
+	inline constexpr float BASE_SPACING = 4.0f;
+	inline constexpr float BASE_PADDING = 12.0f;
 }

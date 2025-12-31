@@ -179,6 +179,7 @@ ui::section("Title", []() { /* widgets */ });
 | `ui::SliderInt(label, &int, min, max, fmt)` | Int slider |
 | `ui::Binder(label, &key)` | Keybind only |
 | `ui::color(label, float[4], alpha)` | Color picker |
+| `ui::Combo(label, &int, items[], count)` | Dropdown selector |
 
 ### Standard onRenderMenu() Pattern
 
@@ -243,6 +244,17 @@ if (cur_tab == 0 && subtab == 0) {
 // Use module->onRenderMenu() instead  // CORRECT
 ```
 
+```cpp
+// Raw ImGui widgets in onRenderMenu() (animation desync)
+void onRenderMenu() {
+    ImGui::BeginCombo("Mode", ...);  // WRONG - won't fade with menu
+}
+
+// Use ui:: wrapped widgets instead:
+void onRenderMenu() {
+    ui::Combo("Mode", &mode, items, count);  // CORRECT
+```
+
 ### ❌ JNI Safety
 
 ```cpp
@@ -280,7 +292,7 @@ msbuild Cobble.vcxproj /p:Configuration=Release /p:Platform=x64
 
 In `src/util/logger.hpp`:
 ```cpp
-#define DEBUG_CONSOLE 1  // Enable colored console
+#define DEBUG_CONSOLE 1
 ```
 
 ### Useful Log Points

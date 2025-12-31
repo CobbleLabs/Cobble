@@ -6,6 +6,20 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/).
 
 ---
 
+## [0.17.0] - 2025-12-31
+
+### Fixed
+- **Input Handling**: Fixed persistent movement issues where WASD keys weren't restored after closing the menu.
+- **Log Spam**: Resolved issue with repeated `releaseMovementKeys` logging.
+- **Sprint Persistence**: Fixed sprint being cancelled when opening the menu.
+- **Alt+F4**: Fixed window closing handling when menu is open.
+- **AutoClicker**: Work in inventory setting now correctly limited to container GUIs (chests, etc), not pause menu.
+- **AimAssist**: Fixed aiming while menu is open.
+
+### Changed
+- **Keybinds**: Added support for mouse side buttons (XBUTTON1/XBUTTON2).
+- **Debug**: Disabled debug console in release builds.
+
 ## [0.16.0] - 2025-12-31
 
 ### Added
@@ -30,6 +44,20 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/).
 - **Module base class**: Agregado `virtual void onRenderMenu()` para self-registration
 - **Build configuration**: vcxproj actualizado con nuevos paths en `src/ui/`
 - **Directory structure**: UI refactorizada de `src/overlay/` a `src/ui/`
+
+### Fixed
+- **Menu animation desync**: Widgets nativos de ImGui no se desvanecían sincronizados con widgets custom al cerrar el menú
+  - Causa: `ui::alpha_mod` no incluía `ui::anim * ui::content_anim` para el contenido
+  - Fix: Sincronizado `ui::alpha_mod` con el alpha combinado antes de renderizar contenido en `menu.cpp`
+
+### Changed
+- **ArrayList HUD redesign**: Mejorada estética y escalado proporcional
+  - Usa `ui::s()` para escalado por resolución (se ve igual en todas las pantallas)
+  - Fuente Bold (font index 3) consistente con la GUI
+  - Tamaño más grande: padding 12px, altura 24px, barra 3px (escalados)
+  - Esquinas redondeadas en lado izquierdo
+  - Color de fondo oscuro RGB(16,16,16) matching GUI
+  - Gap de 2px entre items
 
 ---
 

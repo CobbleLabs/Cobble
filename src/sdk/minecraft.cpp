@@ -66,6 +66,7 @@ void SDK_Init()
 		
 		mc.mid_setKeyBindState = Java::Env->GetStaticMethodID(mc.cls_keyBinding, "setKeyBindState", "(IZ)V");
 		mc.mid_getKeyCode = Java::Env->GetMethodID(mc.cls_keyBinding, "getKeyCode", "()I");
+		mc.fid_pressed = Java::Env->GetFieldID(mc.cls_keyBinding, "pressed", "Z");
 	}
 
 	// Initialize player (will lazy-load fields on first refresh)
@@ -927,38 +928,85 @@ int Minecraft::getTargetedEntityHurtTime()
 	return hurtTime;
 }
 
+// Helper to get game settings (reduces duplication)
+jobject getGameSettings(JNIEnv* env, jobject mcInstance, jclass mcClass) {
+	jfieldID fid_gameSettings = env->GetFieldID(mcClass, "gameSettings", "Lnet/minecraft/client/settings/GameSettings;");
+	if (!fid_gameSettings) return nullptr;
+	return env->GetObjectField(mcInstance, fid_gameSettings);
+}
+
 void Minecraft::releaseMovementKeys()
 {
-	if (!isValid() || !cls_keyBinding || !mid_unPressAllKeys) return;
+	if (!isValid() || !cls_keyBinding) return;
     
-    // Thread-safe JNI Env retrieval
+    // Check if already released to prevent spam and double-save
+    if (keysReleased) return;
+
     JNIEnv* env = Java::GetEnv();
     if (!env) return;
     
-    // Call KeyBinding.unPressAllKeys()
-    env->CallStaticVoidMethod(cls_keyBinding, mid_unPressAllKeys);
+    jobject gameSettings = getGameSettings(env, instance, cls);
+    if (!gameSettings) return;
+
+    jclass settingsClass = env->GetObjectClass(gameSettings);
+
+    const char* keyBindNames[] = {
+		"keyBindForward", "keyBindBack", "keyBindLeft", "keyBindRight",
+		"keyBindJump", "keyBindSneak", "keyBindAttack", "keyBindUseItem"
+	};
+
+    savedKeyStates.clear();
+
+    for (const char* name : keyBindNames) {
+        jfieldID fid_kb = env->GetFieldID(settingsClass, name, "Lnet/minecraft/client/settings/KeyBinding;");
+		if (!fid_kb) continue;
+		
+		jobject keyBind = env->GetObjectField(gameSettings, fid_kb);
+		if (!keyBind) continue;
+
+        // Save current state
+        bool isPressed = false;
+        if (fid_pressed) {
+            isPressed = env->GetBooleanField(keyBind, fid_pressed);
+            savedKeyStates[name] = isPressed;
+        }
+
+        // Force release via setKeyBindState
+        int keyCode = env->CallIntMethod(keyBind, mid_getKeyCode);
+        env->CallStaticVoidMethod(cls_keyBinding, mid_setKeyBindState, keyCode, JNI_FALSE);
+
+        // Also set internal pressed field to false if possible
+        if (fid_pressed) {
+            env->SetBooleanField(keyBind, fid_pressed, JNI_FALSE);
+        }
+
+        env->DeleteLocalRef(keyBind);
+    }
+    
+    keysReleased = true;
+
+    env->DeleteLocalRef(settingsClass);
+    env->DeleteLocalRef(gameSettings);
 }
 
 void Minecraft::restoreMovementKeys()
 {
 	if (!isValid() || !cls_keyBinding || !mid_setKeyBindState || !mid_getKeyCode) return;
     
+    // Only restore if we actually released them
+    if (!keysReleased) return;
+
     JNIEnv* env = Java::GetEnv();
     if (!env) return;
 
-	// GameSettings to iterate keybinds
-	jfieldID fid_gameSettings = env->GetFieldID(cls, "gameSettings", "Lnet/minecraft/client/settings/GameSettings;");
-	if (!fid_gameSettings) return;
-
-	jobject gameSettings = env->GetObjectField(instance, fid_gameSettings);
+	jobject gameSettings = getGameSettings(env, instance, cls);
 	if (!gameSettings) return;
 
 	jclass settingsClass = env->GetObjectClass(gameSettings);
 
-	// Keybinds to restore
 	const char* keyBindNames[] = {
 		"keyBindForward", "keyBindBack", "keyBindLeft", "keyBindRight",
-		"keyBindJump", "keyBindSneak"
+		"keyBindJump", "keyBindSneak", "keyBindAttack", "keyBindUseItem"
 	};
 
 	for (const char* name : keyBindNames) {
@@ -969,41 +1017,42 @@ void Minecraft::restoreMovementKeys()
 		if (!keyBind) continue;
 
 		int keyCode = env->CallIntMethod(keyBind, mid_getKeyCode);
+        
+        // 1. Check Saved State
+        bool wasPressed = savedKeyStates[name];
 		
-		bool shouldPress = false;
+        // 2. Check Physical State
+		bool isPhysicallyHeld = false;
         UINT vk = 0;
 
-		// Map LWJGL (scancode) to Virtual Key
-		// Mouse buttons are negative
 		if (keyCode < 0) {
-			int btn = keyCode + 100; // -100 = Left, -99 = Right, etc...
-			if (btn == 0) shouldPress = (GetAsyncKeyState(VK_LBUTTON) & 0x8000) != 0;
-			else if (btn == 1) shouldPress = (GetAsyncKeyState(VK_RBUTTON) & 0x8000) != 0;
-			else if (btn == 2) shouldPress = (GetAsyncKeyState(VK_MBUTTON) & 0x8000) != 0;
+			int btn = keyCode + 100;
+			if (btn == 0) isPhysicallyHeld = (GetAsyncKeyState(VK_LBUTTON) & 0x8000) != 0;
+			else if (btn == 1) isPhysicallyHeld = (GetAsyncKeyState(VK_RBUTTON) & 0x8000) != 0;
+			else if (btn == 2) isPhysicallyHeld = (GetAsyncKeyState(VK_MBUTTON) & 0x8000) != 0;
 		} else {
-			// Convert scancode to VK
 			vk = MapVirtualKeyA(keyCode, MAPVK_VSC_TO_VK);
 			if (vk != 0) {
-				shouldPress = (GetAsyncKeyState(vk) & 0x8000) != 0;
+				isPhysicallyHeld = (GetAsyncKeyState(vk) & 0x8000) != 0;
 			}
 		}
 
-		if (shouldPress) {
-            // Restore via JNI (internal state)
+        // Restore if EITHER was pressed or IS pressed
+		if (wasPressed || isPhysicallyHeld) {
+            // Restore via JNI (sets .pressed = true and pressedTick state)
 			env->CallStaticVoidMethod(cls_keyBinding, mid_setKeyBindState, keyCode, JNI_TRUE);
             
-            // Restore via OS Input (force LWJGL processing)
-            if (vk != 0) {
-                HWND hwnd = GetForegroundWindow();
-                if (hwnd) {
-                    PostMessage(hwnd, WM_KEYDOWN, vk, 0);
-                    // Also send character message if needed? No, game uses keys
-                }
+            // Should explicit set .pressed field too? setKeyBindState usually handles it.
+            if (fid_pressed) {
+                env->SetBooleanField(keyBind, fid_pressed, JNI_TRUE);
             }
 		}
 
 		env->DeleteLocalRef(keyBind);
 	}
+    
+    keysReleased = false;
+    savedKeyStates.clear();
 
 	env->DeleteLocalRef(settingsClass);
 	env->DeleteLocalRef(gameSettings);

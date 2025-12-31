@@ -2,6 +2,7 @@
 #include "../core/overlay.h"
 #include "../../sdk/render_data.h"
 #include "../../../ext/imgui/imgui.h"
+#include "../widgets/widgets.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -48,14 +49,36 @@ void NotificationManager::render()
 	ImDrawList* draw = ImGui::GetWindowDrawList();
 	if (!draw) return;
 	
-	if (Overlay::notificationFont) {
-		ImGui::PushFont(static_cast<ImFont*>(Overlay::notificationFont));
-	}
+	// Use Bold 22px font (index 2) rendered at 20px
+	ImFont* notifFont = font(2);
 	
-	float screenWidth = static_cast<float>(RenderData::screenWidth);
+	// Calculate local scale with minimum for low resolutions
 	float screenHeight = static_cast<float>(RenderData::screenHeight);
+	float screenWidth = static_cast<float>(RenderData::screenWidth);
+	float localScale = screenHeight / 1080.0f;
+	if (localScale < 0.75f) localScale = 0.75f;
+	if (localScale > 2.0f) localScale = 2.0f;
 	
-	float startY = screenHeight - NOTIFICATION_MARGIN - NOTIFICATION_HEIGHT;
+	auto s = [localScale](float v) { return v * localScale; };
+	
+	float fontSize = 20.0f;
+	float height = s(25.0f);
+	float margin = s(9.0f);
+	float spacing = s(3.0f);
+	float padding = s(13.0f);
+	float rounding = s(4.5f);
+	float barWidth = s(3.5f);
+	float progressHeight = s(2.0f);
+	
+	// Accent color from theme
+	ImU32 accentColor = IM_COL32(
+		(int)(g_SchemeColor[0] * 255),
+		(int)(g_SchemeColor[1] * 255),
+		(int)(g_SchemeColor[2] * 255),
+		255
+	);
+	
+	float startY = screenHeight - margin - height;
 	
 	int index = 0;
 	for (auto& notif : notifications)
@@ -91,82 +114,96 @@ void NotificationManager::render()
 			displayText = notif.text + statusText;
 		}
 		
-		ImVec2 textSize = ImGui::CalcTextSize(displayText.c_str());
-		float notifWidth = textSize.x + NOTIFICATION_PADDING * 2.0f;
+		// Calculate text size with actual font
+		ImVec2 textSize = notifFont 
+			? notifFont->CalcTextSizeA(fontSize, FLT_MAX, 0.0f, displayText.c_str())
+			: ImGui::CalcTextSize(displayText.c_str());
 		
-		float xOffset = (1.0f - slideProgress) * (notifWidth + NOTIFICATION_MARGIN);
-		float x = screenWidth - NOTIFICATION_MARGIN - notifWidth + xOffset;
-		float y = startY - index * (NOTIFICATION_HEIGHT + NOTIFICATION_SPACING);
+		float notifWidth = textSize.x + padding * 2.0f + barWidth;
+		
+		float xOffset = (1.0f - slideProgress) * (notifWidth + margin);
+		float x = screenWidth - margin - notifWidth + xOffset;
+		float y = startY - index * (height + spacing);
 		
 		int alphaInt = static_cast<int>(255 * alpha);
-		int bgAlphaInt = static_cast<int>(200 * alpha);
+		int bgAlphaInt = static_cast<int>(220 * alpha);
 		
-		ImU32 bgColor = IM_COL32(15, 15, 15, bgAlphaInt);
-		ImU32 borderColor = notif.isSystem 
-			? IM_COL32(100, 80, 180, alphaInt)
-			: IM_COL32(40, 40, 40, alphaInt);
+		// Background
+		ImU32 bgColor = IM_COL32(16, 16, 16, bgAlphaInt);
 		
-		ImU32 moduleTextColor;
+		// Status colors
+		ImU32 moduleTextColor = IM_COL32(255, 255, 255, alphaInt);
 		ImU32 statusColor;
+		ImU32 barColor;
 		
 		if (notif.isSystem) {
-			moduleTextColor = IM_COL32(200, 150, 255, alphaInt);
-			statusColor = moduleTextColor;
+			// Use accent color (orange) for system notifications
+			statusColor = IM_COL32(
+				(int)(g_SchemeColor[0] * 255),
+				(int)(g_SchemeColor[1] * 255),
+				(int)(g_SchemeColor[2] * 255),
+				alphaInt
+			);
+			barColor = statusColor;
 		} else {
-			moduleTextColor = IM_COL32(255, 255, 255, alphaInt);
 			statusColor = notif.enabled 
 				? IM_COL32(100, 255, 100, alphaInt)
 				: IM_COL32(255, 100, 100, alphaInt);
+			barColor = statusColor;
 		}
 		
 		ImVec2 rectMin(x, y);
-		ImVec2 rectMax(x + notifWidth, y + NOTIFICATION_HEIGHT);
-		draw->AddRectFilled(rectMin, rectMax, bgColor, 4.0f);
-		draw->AddRect(rectMin, rectMax, borderColor, 4.0f, 0, 1.0f);
+		ImVec2 rectMax(x + notifWidth, y + height);
 		
-		float textX = x + NOTIFICATION_PADDING;
-		float textY = y + (NOTIFICATION_HEIGHT - textSize.y) / 2.0f;
+		// Background with rounded corners
+		draw->AddRectFilled(rectMin, rectMax, bgColor, rounding, ImDrawFlags_RoundCornersLeft);
 		
-		ImVec2 moduleTextSize = ImGui::CalcTextSize(notif.text.c_str());
-		draw->AddText(ImVec2(textX, textY), moduleTextColor, notif.text.c_str());
+		// Accent/status bar on right edge
+		draw->AddRectFilled(
+			ImVec2(rectMax.x - barWidth, rectMin.y),
+			rectMax,
+			barColor
+		);
 		
-		if (!notif.isSystem) {
-			float statusX = textX + moduleTextSize.x;
-			draw->AddText(ImVec2(statusX, textY), statusColor, statusText);
+		// Text
+		float textX = x + padding;
+		float textY = y + (height - textSize.y) / 2.0f;
+		
+		ImVec2 moduleTextSize = notifFont
+			? notifFont->CalcTextSizeA(fontSize, FLT_MAX, 0.0f, notif.text.c_str())
+			: ImGui::CalcTextSize(notif.text.c_str());
+		
+		if (notifFont) {
+			draw->AddText(notifFont, fontSize, ImVec2(textX, textY), moduleTextColor, notif.text.c_str());
+			if (!notif.isSystem) {
+				draw->AddText(notifFont, fontSize, ImVec2(textX + moduleTextSize.x, textY), statusColor, statusText);
+			}
+		} else {
+			draw->AddText(ImVec2(textX, textY), moduleTextColor, notif.text.c_str());
+			if (!notif.isSystem) {
+				draw->AddText(ImVec2(textX + moduleTextSize.x, textY), statusColor, statusText);
+			}
 		}
 		
-		// Progress bar
-		float progressBarHeight = 2.0f;
-		float progressBarY = y + NOTIFICATION_HEIGHT - progressBarHeight - 3.0f;
-		float progressBarWidth = notifWidth - NOTIFICATION_PADDING * 2.0f;
-		float progressX = x + NOTIFICATION_PADDING;
+		// Progress bar at bottom (smaller offset = closer to bottom edge)
+		float progressBarY = y + height - progressHeight - s(1.5f);
+		float progressBarWidth = notifWidth - padding * 2.0f - barWidth;
+		float progressX = x + padding;
 		
 		ImU32 progressBgColor = IM_COL32(30, 30, 30, static_cast<int>(150 * alpha));
 		draw->AddRectFilled(
 			ImVec2(progressX, progressBarY),
-			ImVec2(progressX + progressBarWidth, progressBarY + progressBarHeight),
-			progressBgColor, 1.0f
+			ImVec2(progressX + progressBarWidth, progressBarY + progressHeight),
+			progressBgColor, s(1.0f)
 		);
 		
 		float remainingProgress = 1.0f - progress;
-		ImU32 progressColor;
-		if (notif.isSystem) {
-			progressColor = IM_COL32(180, 130, 255, static_cast<int>(200 * alpha));
-		} else {
-			progressColor = notif.enabled
-				? IM_COL32(100, 255, 100, static_cast<int>(200 * alpha))
-				: IM_COL32(255, 100, 100, static_cast<int>(200 * alpha));
-		}
 		draw->AddRectFilled(
 			ImVec2(progressX, progressBarY),
-			ImVec2(progressX + progressBarWidth * remainingProgress, progressBarY + progressBarHeight),
-			progressColor, 1.0f
+			ImVec2(progressX + progressBarWidth * remainingProgress, progressBarY + progressHeight),
+			barColor, s(1.0f)
 		);
 		
 		index++;
-	}
-	
-	if (Overlay::notificationFont) {
-		ImGui::PopFont();
 	}
 }

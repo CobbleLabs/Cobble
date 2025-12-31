@@ -4,6 +4,8 @@
 #include "jstring_util.h"
 #include "player.h"
 #include <vector>
+#include <map>
+#include <string>
 
 // Data for a remote player in the world
 struct PlayerInfo
@@ -114,6 +116,12 @@ private:
 	jmethodID mid_unPressAllKeys = nullptr;
 	jmethodID mid_setKeyBindState = nullptr;
 	jmethodID mid_getKeyCode = nullptr;
+    jfieldID fid_pressed = nullptr; // KeyBinding.pressed (boolean)
+
+    // Store key states to restore properly
+    // Map of keyBindName -> wasPressed
+    std::map<std::string, bool> savedKeyStates;
+    bool keysReleased = false;
 
 	friend void SDK_Init();
 };

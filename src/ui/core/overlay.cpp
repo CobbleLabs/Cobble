@@ -157,18 +157,27 @@ namespace {
 						return 1;
 					case WM_XBUTTONDOWN: {
 						int xbutton = GET_XBUTTON_WPARAM(wParam);
-						Menu::moduleToBind->keybind = (xbutton == XBUTTON1) ? VK_XBUTTON1 : VK_XBUTTON2;
+						int vk = (xbutton == XBUTTON1) ? VK_XBUTTON1 : VK_XBUTTON2;
+						Menu::moduleToBind->keybind = vk;
 						Menu::moduleToBind = nullptr;
 						return 1;
 					}
 				}
 			}
 			
+			// ESC closes menu
 			if (msg == WM_KEYDOWN && wParam == VK_ESCAPE) {
 				Menu::isOpen = false;
 				Menu::moduleToBind = nullptr;
 				ImGui::GetIO().MouseDrawCursor = false;
 				return 1;
+			}
+			
+			// Let close/quit messages through (Alt+F4, close button, etc.)
+			if (msg == WM_CLOSE || msg == WM_DESTROY || msg == WM_QUIT ||
+				(msg == WM_SYSCOMMAND && (wParam & 0xFFF0) == SC_CLOSE) ||
+				(msg == WM_SYSKEYDOWN && wParam == VK_F4)) {
+				return CallWindowProcA(originalWndProc, hWnd, msg, wParam, lParam);
 			}
 			
 			ImGui_ImplWin32_WndProcHandler(hWnd, msg, wParam, lParam);
