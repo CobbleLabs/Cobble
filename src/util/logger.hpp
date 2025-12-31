@@ -14,7 +14,7 @@
 
 // Set to 1 to enable debug console, 0 to disable
 #ifndef DEBUG_CONSOLE
-#define DEBUG_CONSOLE 1
+#define DEBUG_CONSOLE 0
 #endif
 
 enum class message_type : unsigned int {

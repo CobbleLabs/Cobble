@@ -1,6 +1,5 @@
 #include "autorefill.h"
 #include "../../sdk/minecraft.h"
-#include "../../util/logger.hpp"
 
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
@@ -80,29 +79,24 @@ void AutoRefill::onUpdate()
 			
 		case State::Waiting: {
 			if (mc.isInventoryOpen()) {
-				log_debug("AutoRefill: Inventory opened, starting refill. Pending: %d", (int)pendingRefills.size());
 				stateStartTime = now;
 				state = State::Refilling;
 				lastMoveTime = now - std::chrono::milliseconds(settings.speed);
 			} else if (elapsed > 1000) {
-				log_warn("AutoRefill: Timeout waiting for inventory to open");
 				finishRefill();
 			}
 			break;
 		}
 		
 		case State::Refilling: {
-			// Wait a bit after inventory opened
 			if (elapsed < DELAY_AFTER_OPEN) return;
 			
 			if (!mc.isInventoryOpen()) {
-				log_warn("AutoRefill: Inventory closed unexpectedly! Remaining: %d", (int)pendingRefills.size());
 				finishRefill();
 				return;
 			}
 			
 			if (pendingRefills.empty()) {
-				log_debug("AutoRefill: All tasks completed, closing");
 				state = State::Closing;
 				stateStartTime = now;
 				return;
@@ -114,9 +108,6 @@ void AutoRefill::onUpdate()
 			RefillTask task = pendingRefills.front();
 			pendingRefills.erase(pendingRefills.begin());
 			
-			log_debug("AutoRefill: Moving slot %d -> hotbar (remaining: %d)", task.sourceSlot, (int)pendingRefills.size());
-			
-			// Shift-click the source slot (button 0 = left click)
 			mc.windowClick(task.sourceSlot, 0);
 			lastMoveTime = now;
 			break;
@@ -124,17 +115,15 @@ void AutoRefill::onUpdate()
 		
 		case State::Closing: {
 			if (elapsed >= DELAY_BEFORE_CLOSE) {
-				// Validation pass: Check if we actually finished
+				// Validation: retry if items are still missing
 				scanForRefills();
 				
 				if (!pendingRefills.empty()) {
-					log_warn("AutoRefill: Validation failed! %d items missing. Retrying...", (int)pendingRefills.size());
 					state = State::Refilling;
 					lastMoveTime = now;
 					return;
 				}
 				
-				log_debug("AutoRefill: Finished with verification, closing inventory");
 				finishRefill();
 			}
 			break;
@@ -147,14 +136,9 @@ void AutoRefill::scanForRefills()
 	pendingRefills.clear();
 	
 	auto slots = mc.getInventorySlots();
-	log_debug("AutoRefill: getInventorySlots returned %d slots", (int)slots.size());
+	if (slots.empty()) return;
 	
-	if (slots.empty()) {
-		log_warn("AutoRefill: No slots returned!");
-		return;
-	}
-	
-	// First, collect all refillable items from main inventory (slots 9-35)
+	// Collect all refillable items from main inventory (slots 9-35)
 	std::vector<int> availableSources;
 	for (const auto& slot : slots) {
 		if (slot.slotId < 9 || slot.slotId > 35) continue;
@@ -170,22 +154,14 @@ void AutoRefill::scanForRefills()
 		
 		if (isRefillable) {
 			availableSources.push_back(slot.slotId);
-			log_debug("AutoRefill: Found refillable at slot %d (itemId=%d)", slot.slotId, slot.itemId);
 		}
 	}
 	
-	log_debug("AutoRefill: Total refillable sources: %d", (int)availableSources.size());
-	
-	if (availableSources.empty()) {
-		log_warn("AutoRefill: No refillable items in inventory!");
-		return;
-	}
+	if (availableSources.empty()) return;
 	
 	// Find empty hotbar slots and assign sources
-	int emptyHotbarCount = 0;
 	size_t sourceIdx = 0;
 	for (int hotbarSlot = 0; hotbarSlot <= 8 && sourceIdx < availableSources.size(); hotbarSlot++) {
-		// Check if hotbar slot is empty
 		bool isEmpty = true;
 		for (const auto& slot : slots) {
 			if (slot.slotId == hotbarSlot && slot.itemId != 0) {
@@ -195,16 +171,11 @@ void AutoRefill::scanForRefills()
 		}
 		
 		if (isEmpty) {
-			emptyHotbarCount++;
 			RefillTask task;
 			task.hotbarSlot = hotbarSlot;
 			task.sourceSlot = availableSources[sourceIdx];
 			pendingRefills.push_back(task);
-			log_debug("AutoRefill: Queue refill: source=%d -> hotbar=%d", task.sourceSlot, task.hotbarSlot);
 			sourceIdx++;
 		}
 	}
-	
-	log_debug("AutoRefill: Empty hotbar slots: %d, Tasks queued: %d", emptyHotbarCount, (int)pendingRefills.size());
 }
-

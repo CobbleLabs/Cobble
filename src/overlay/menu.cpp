@@ -96,7 +96,7 @@ static void InitializePages() {
                 ImGui::Spacing();
                 
                 int speed = autoRefill->settings.speed;
-                if (ui::SliderInt("Speed (ms)", &speed, 20, 200, "%d"))
+                if (ui::SliderInt("Speed (ms)", &speed, 50, 200, "%d"))
                     autoRefill->settings.speed = speed;
             }
             ui::end_child();
@@ -513,35 +513,39 @@ void Menu::Render() {
                     GetSchemeColor()
                 );
                 
-                // Tab icon
-                ImGui::GetWindowDrawList()->AddText(
-                    { ImGui::GetWindowPos().x + ui::s(15), ImGui::GetWindowPos().y + ImGui::GetWindowHeight() / 2 - ImGui::CalcTextSize(ui::tabs[ui::cur_tab].m_icon, 0, 1).y / 2 }, 
-                    ImGui::GetColorU32(ImGuiCol_Text, ui::anim), 
-                    ui::tabs[ui::cur_tab].m_icon, 
-                    ImGui::FindRenderedTextEnd(ui::tabs[ui::cur_tab].m_icon)
-                );
+                // Visual Hierarchy:
+                ImFont* titleFont = font(3);
+                ImFont* subFont = font(2);
                 
-                // Tab name
+                // Use title font for baseline calculation to anchor the layout
+                float centerY = ImGui::GetWindowPos().y + ImGui::GetWindowHeight() * 0.5f;
+                float titleHeight = titleFont->FontSize; 
+                float baselineY = centerY - titleHeight * 0.5f;
+                
+                // Tab name (Title) - Uses Bold font(3)
+                // Always use TextDisabled (Gray) for title
                 ImGui::GetWindowDrawList()->AddText(
-                    font(2), font(2)->FontSize,
-                    { ImGui::GetWindowPos().x + ui::s(40), ImGui::GetWindowPos().y + ImGui::GetWindowHeight() / 2 - font(2)->CalcTextSizeA(font(2)->FontSize, FLT_MAX, 0.f, ui::tabs[ui::cur_tab].m_name).y / 2 }, 
-                    ImGui::GetColorU32(ui::tabs[ui::cur_tab].m_subtabs.size() > 0 ? ImGuiCol_TextDisabled : ImGuiCol_Text, ui::anim), 
+                    titleFont, titleFont->FontSize,
+                    { ImGui::GetWindowPos().x + ui::s(20), baselineY }, 
+                    ImGui::GetColorU32(ImGuiCol_TextDisabled, ui::anim), 
                     ui::tabs[ui::cur_tab].m_name
                 );
                 
                 // Subtab indicator
                 if (ui::tabs[ui::cur_tab].m_subtabs.size() > 0) {
-                    float nameWidth = font(2)->CalcTextSizeA(font(2)->FontSize, FLT_MAX, 0.f, ui::tabs[ui::cur_tab].m_name).x;
+                    float nameWidth = titleFont->CalcTextSizeA(titleFont->FontSize, FLT_MAX, 0.f, ui::tabs[ui::cur_tab].m_name).x;
                     ImGui::RenderArrow(ImGui::GetWindowDrawList(), 
-                        { ImGui::GetWindowPos().x + ui::s(47) + nameWidth, ImGui::GetWindowPos().y + ImGui::GetWindowHeight() / 2 - ui::s(10) }, 
+                        { ImGui::GetWindowPos().x + ui::s(27) + nameWidth, centerY - ui::s(5) }, 
                         ImGui::GetColorU32(ImGuiCol_Text, ui::anim * ui::content_anim), 
                         ImGuiDir_Right, ui::s(12)
                     );
                     
                     const char* subtabName = ui::tabs[ui::cur_tab].m_subtabs[ui::tabs[ui::cur_tab].cur_subtab];
+                    
+                    // Subtab name (Subtitle)
                     ImGui::GetWindowDrawList()->AddText(
-                        font(2), font(2)->FontSize,
-                        { ImGui::GetWindowPos().x + ui::s(60) + nameWidth, ImGui::GetWindowPos().y + ImGui::GetWindowHeight() / 2 - font(2)->CalcTextSizeA(font(2)->FontSize, FLT_MAX, 0.f, subtabName).y / 2 }, 
+                        subFont, subFont->FontSize,
+                        { ImGui::GetWindowPos().x + ui::s(40) + nameWidth, baselineY }, 
                         GetSchemeColor(ui::anim * ui::content_anim), 
                         subtabName
                     );
