@@ -5,6 +5,7 @@
 #include <filesystem>
 #include <atomic>
 #include <vector>
+#include <cmath>
 
 #include "process.h"
 #include "inject.h"
@@ -17,104 +18,244 @@
 #include "src/util/hash.h"
 #include "src/util/dll_hash.h"
 
-// User info structure for shared memory
-struct UserInfoData {
-    char username[64];
-    int daysRemaining;
-};
-
 // ============================================================================
-// LICENSE CONFIG
+// CONFIG & GLOBALS
 // ============================================================================
 
 #define LICENSE_SERVER_PRIMARY "http://syra.club:8080"
 #define LICENSE_SERVER_FALLBACK "http://172.235.136.152:8080"
 #define LICENSE_CHECK_ENABLED true
 
-// ============================================================================
-// GLOBALS
-// ============================================================================
-
 std::atomic<bool> g_SecurityViolation(false);
 std::atomic<ULONGLONG> g_Heartbeat1(0);
 std::atomic<ULONGLONG> g_Heartbeat2(0);
 
-// ============================================================================
-// CONSOLE HELPERS
-// ============================================================================
-
-enum Color {
-	BLACK = 0, DARK_BLUE = 1, DARK_GREEN = 2, DARK_CYAN = 3,
-	DARK_RED = 4, DARK_MAGENTA = 5, DARK_YELLOW = 6, GRAY = 7,
-	DARK_GRAY = 8, BLUE = 9, GREEN = 10, CYAN = 11,
-	RED = 12, MAGENTA = 13, YELLOW = 14, WHITE = 15
-};
-
 HANDLE hConsole;
+bool vtEnabled = false;
 
-void setColor(int color) {
-	SetConsoleTextAttribute(hConsole, color);
-}
+// ============================================================================
+// CONSOLE UX HELPERS
+// ============================================================================
+
+#define VT_RESET "\x1b[0m"
+#define VT_HIDE_CURSOR "\x1b[?25l"
+#define VT_SHOW_CURSOR "\x1b[?25h"
+
+// Colors
+struct RGB { int r, g, b; };
+// Syra Orange Gradients
+const RGB COL_START = { 255, 165, 0 };   // Orange
+const RGB COL_END   = { 255, 69, 0 };    // Red-Orange
 
 void setupConsole() {
 	hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
 	SetConsoleOutputCP(CP_UTF8);
 	SetConsoleCP(CP_UTF8);
-	SetConsoleTitleW(L"Cobble");
+	SetConsoleTitleW(L"Cobble Client");
 	
-	SMALL_RECT windowSize = { 0, 0, 59, 18 };
+	// Enable VT
+	DWORD mode = 0;
+	GetConsoleMode(hConsole, &mode);
+	mode |= ENABLE_VIRTUAL_TERMINAL_PROCESSING;
+	SetConsoleMode(hConsole, mode);
+	vtEnabled = true; // Assume true for this customized UX
+	
+	// Hide Cursor
+	std::cout << VT_HIDE_CURSOR;
+	
+	// Fix Window Size (No Resize)
+	HWND hWnd = GetConsoleWindow();
+	LONG style = GetWindowLong(hWnd, GWL_STYLE);
+	style &= ~(WS_MAXIMIZEBOX | WS_SIZEBOX); // Disable maximize and resize
+	SetWindowLong(hWnd, GWL_STYLE, style);
+	
+	// Set Size
+	SMALL_RECT windowSize = { 0, 0, 89, 24 }; // 90x25
 	SetConsoleWindowInfo(hConsole, TRUE, &windowSize);
-	
-	COORD bufferSize = { 60, 19 };
+	COORD bufferSize = { 90, 25 };
 	SetConsoleScreenBufferSize(hConsole, bufferSize);
-	
-	CONSOLE_CURSOR_INFO cursorInfo;
-	GetConsoleCursorInfo(hConsole, &cursorInfo);
-	cursorInfo.bVisible = FALSE;
-	SetConsoleCursorInfo(hConsole, &cursorInfo);
+    
+    // Center Window on Screen
+    RECT rect;
+    GetWindowRect(hWnd, &rect);
+    int width = rect.right - rect.left;
+    int height = rect.bottom - rect.top;
+    int screenWidth = GetSystemMetrics(SM_CXSCREEN);
+    int screenHeight = GetSystemMetrics(SM_CYSCREEN);
+    MoveWindow(hWnd, (screenWidth - width) / 2, (screenHeight - height) / 2, width, height, TRUE);
+}
+
+int getConsoleWidth() { return 90; }
+
+// Utils
+std::string rgbToVt(RGB c) {
+    return "\x1b[38;2;" + std::to_string(c.r) + ";" + std::to_string(c.g) + ";" + std::to_string(c.b) + "m";
+}
+
+RGB lerpColor(RGB s, RGB e, float t) {
+    return {
+        (int)(s.r + (e.r - s.r) * t),
+        (int)(s.g + (e.g - s.g) * t),
+        (int)(s.b + (e.b - s.b) * t)
+    };
+}
+
+void printCentered(const std::string& msg, std::string colorVt = "") {
+	int padding = (getConsoleWidth() - (int)msg.length()) / 2;
+	if (padding < 0) padding = 0;
+	std::cout << "\r" << std::string(padding, ' ') << colorVt << msg << VT_RESET << "\n";
+}
+
+void printGradientText(const std::string& text) {
+    // 1. Count visual characters (simplified UTF-8 check)
+    size_t charCount = 0;
+    for (size_t i = 0; i < text.length(); ) {
+        unsigned char c = (unsigned char)text[i];
+        int len = 1;
+        if ((c & 0x80) == 0) len = 1;
+        else if ((c & 0xE0) == 0xC0) len = 2;
+        else if ((c & 0xF0) == 0xE0) len = 3;
+        else if ((c & 0xF8) == 0xF0) len = 4;
+        i += len;
+        charCount++;
+    }
+
+    int width = getConsoleWidth();
+    int padding = (width - (int)charCount) / 2;
+    if (padding < 0) padding = 0;
+
+    std::cout << std::string(padding, ' ');
+    
+    // 2. Print loop
+    size_t current = 0;
+    for (size_t i = 0; i < text.length(); ) {
+        unsigned char c = (unsigned char)text[i];
+        int len = 1; // Default to 1 byte
+        
+        // Determine byte length of UTF-8 char
+        if (c >= 0xF0) len = 4;
+        else if (c >= 0xE0) len = 3;
+        else if (c >= 0xC0) len = 2;
+        
+        // Safety check to prevent reading past end
+        if (i + len > text.length()) len = 1;
+
+        // Calculate color for this character index
+        float t = (float)current / (float)charCount;
+        RGB color = lerpColor(COL_START, COL_END, t);
+        
+        // Print Color Codes + Full Multi-byte Character
+        std::cout << rgbToVt(color);
+        for (int k = 0; k < len; k++) std::cout << text[i + k];
+        
+        i += len;
+        current++;
+    }
+    std::cout << VT_RESET << "\n";
 }
 
 void printBanner() {
-	std::cout << "\n";
-	setColor(MAGENTA);
-	std::cout << _xor_("         ______      __    __    __   \n");
-	std::cout << _xor_("        / ____/___  / /_  / /_  / /__ \n");
-	std::cout << _xor_("       / /   / __ \\/ __ \\/ __ \\/ / _ \\\n");
-	std::cout << _xor_("      / /___/ /_/ / /_/ / /_/ / /  __/\n");
-	std::cout << _xor_("      \\____/\\____/_.___/_.___/_/\\___/ \n");
-	setColor(DARK_GRAY);
-	std::cout << _xor_("               Ghost Client v") << COBBLE_VERSION << "\n";
-	setColor(GRAY);
-	std::cout << "\n";
+    std::cout << "\n\n";
+    // Using explicit UTF-8 Hex sequences to prevent encoding issues
+    // ░ = \xE2\x96\x91
+    // █ = \xE2\x96\x88
+    
+    const char* art[] = {
+        "  \xE2\x96\x91\xE2\x96\x88\xE2\x96\x88\xE2\x96\x88\xE2\x96\x88\xE2\x96\x88\xE2\x96\x88             \xE2\x96\x91\xE2\x96\x88\xE2\x96\x88        \xE2\x96\x91\xE2\x96\x88\xE2\x96\x88        \xE2\x96\x91\xE2\x96\x88\xE2\x96\x88            ",
+        " \xE2\x96\x91\xE2\x96\x88\xE2\x96\x88   \xE2\x96\x91\xE2\x96\x88\xE2\x96\x88            \xE2\x96\x91\xE2\x96\x88\xE2\x96\x88        \xE2\x96\x91\xE2\x96\x88\xE2\x96\x88        \xE2\x96\x91\xE2\x96\x88\xE2\x96\x88            ",
+        "\xE2\x96\x91\xE2\x96\x88\xE2\x96\x88         \xE2\x96\x91\xE2\x96\x88\xE2\x96\x88\xE2\x96\x88\xE2\x96\x88\xE2\x96\x88\xE2\x96\x88\xE2\x96\x88  \xE2\x96\x91\xE2\x96\x88\xE2\x96\x88\xE2\x96\x88\xE2\x96\x88\xE2\x96\x88\xE2\x96\x88\xE2\x96\x88\xE2\x96\x88  \xE2\x96\x91\xE2\x96\x88\xE2\x96\x88\xE2\x96\x88\xE2\x96\x88\xE2\x96\x88\xE2\x96\x88\xE2\x96\x88\xE2\x96\x88  \xE2\x96\x91\xE2\x96\x88\xE2\x96\x88  \xE2\x96\x91\xE2\x96\x88\xE2\x96\x88\xE2\x96\x88\xE2\x96\x88\xE2\x96\x88\xE2\x96\x88\xE2\x96\x88  ",
+        "\xE2\x96\x91\xE2\x96\x88\xE2\x96\x88        \xE2\x96\x91\xE2\x96\x88\xE2\x96\x88    \xE2\x96\x91\xE2\x96\x88\xE2\x96\x88 \xE2\x96\x91\xE2\x96\x88\xE2\x96\x88    \xE2\x96\x91\xE2\x96\x88\xE2\x96\x88 \xE2\x96\x91\xE2\x96\x88\xE2\x96\x88    \xE2\x96\x91\xE2\x96\x88\xE2\x96\x88 \xE2\x96\x91\xE2\x96\x88\xE2\x96\x88 \xE2\x96\x91\xE2\x96\x88\xE2\x96\x88    \xE2\x96\x91\xE2\x96\x88\xE2\x96\x88 ",
+        "\xE2\x96\x91\xE2\x96\x88\xE2\x96\x88        \xE2\x96\x91\xE2\x96\x88\xE2\x96\x88    \xE2\x96\x91\xE2\x96\x88\xE2\x96\x88 \xE2\x96\x91\xE2\x96\x88\xE2\x96\x88    \xE2\x96\x91\xE2\x96\x88\xE2\x96\x88 \xE2\x96\x91\xE2\x96\x88\xE2\x96\x88    \xE2\x96\x91\xE2\x96\x88\xE2\x96\x88 \xE2\x96\x91\xE2\x96\x88\xE2\x96\x88 \xE2\x96\x91\xE2\x96\x88\xE2\x96\x88\xE2\x96\x88\xE2\x96\x88\xE2\x96\x88\xE2\x96\x88\xE2\x96\x88\xE2\x96\x88\xE2\x96\x88 ",
+        " \xE2\x96\x91\xE2\x96\x88\xE2\x96\x88   \xE2\x96\x91\xE2\x96\x88\xE2\x96\x88 \xE2\x96\x91\xE2\x96\x88\xE2\x96\x88    \xE2\x96\x91\xE2\x96\x88\xE2\x96\x88 \xE2\x96\x91\xE2\x96\x88\xE2\x96\x88\xE2\x96\x88   \xE2\x96\x91\xE2\x96\x88\xE2\x96\x88 \xE2\x96\x91\xE2\x96\x88\xE2\x96\x88\xE2\x96\x88   \xE2\x96\x91\xE2\x96\x88\xE2\x96\x88 \xE2\x96\x91\xE2\x96\x88\xE2\x96\x88 \xE2\x96\x91\xE2\x96\x88\xE2\x96\x88        ",
+        "  \xE2\x96\x91\xE2\x96\x88\xE2\x96\x88\xE2\x96\x88\xE2\x96\x88\xE2\x96\x88\xE2\x96\x88   \xE2\x96\x91\xE2\x96\x88\xE2\x96\x88\xE2\x96\x88\xE2\x96\x88\xE2\x96\x88\xE2\x96\x88\xE2\x96\x88  \xE2\x96\x91\xE2\x96\x88\xE2\x96\x88\xE2\x96\x91\xE2\x96\x88\xE2\x96\x88\xE2\x96\x88\xE2\x96\x88\xE2\x96\x88  \xE2\x96\x91\xE2\x96\x88\xE2\x96\x88\xE2\x96\x91\xE2\x96\x88\xE2\x96\x88\xE2\x96\x88\xE2\x96\x88\xE2\x96\x88  \xE2\x96\x91\xE2\x96\x88\xE2\x96\x88  \xE2\x96\x91\xE2\x96\x88\xE2\x96\x88\xE2\x96\x88\xE2\x96\x88\xE2\x96\x88\xE2\x96\x88\xE2\x96\x88  "
+    };
+    
+    for (const char* line : art) {
+        printGradientText(line);
+    }
+
+    std::cout << "\n";
+    printCentered("v" + std::string(COBBLE_VERSION), "\x1b[90m"); // Dark Gray
+    std::cout << "\n";
 }
 
-void printLine() {
-	setColor(DARK_GRAY);
-	std::cout << "   ";
-	for (int i = 0; i < 44; i++) std::cout << "-";
-	std::cout << "\n";
-	setColor(GRAY);
+// 4. Loading Bar with Personality
+void showSmartLoading(int durationMs) {
+    int width = getConsoleWidth();
+    int barLen = 30;
+    int totalSteps = 50; // Resolution
+    int sleepPerStep = durationMs / totalSteps;
+    
+    const char* stages[] = {
+        "Initializing security...",
+        "Verifying integrity...",
+        "Loading components...",
+        "Preparing environment..."
+    };
+    
+    // Bar Gradient Colors
+    RGB barStart = { 80, 80, 80 }; // Gray
+    RGB barEnd = COL_START;
+    
+    for (int i = 0; i <= totalSteps; i++) {
+        float pct = (float)i / totalSteps;
+        
+        // Pick Stage text
+        int stageIdx = (int)(pct * 3.99f); 
+        std::string currentStage = stages[stageIdx];
+        
+        // Print Stage Text Centered
+        std::cout << "\r" << "\x1b[K"; // Clear line
+        printCentered(currentStage, "\x1b[37m"); // White
+        
+        // Draw Bar
+        int filled = (int)(pct * barLen);
+        int padding = (width - barLen) / 2; // Simple bar (no percentages/brackets)
+        
+        std::cout << std::string(padding, ' ');
+        
+        // Draw filled part with gradient
+        for(int b=0; b<filled; b++) {
+            float t = (float)b / barLen;
+            std::cout << rgbToVt(lerpColor(barStart, COL_END, t)) << "━";
+        }
+        // Draw empty part
+        std::cout << "\x1b[90m"; // Dark Gray
+        for(int b=filled; b<barLen; b++) std::cout << "━";
+        std::cout << VT_RESET;
+        
+        // Move cursor back up 1 line to stage text for next update
+        // We print text line, then bar line. To update text, go up 1 line
+        std::cout << "\x1b[A"; 
+        
+        Sleep(sleepPerStep);
+    }
+    std::cout << "\n\n\n"; // Push down past the animation area
 }
 
-void printStatus(const std::string& msg, int color = GRAY) {
-	setColor(DARK_GRAY);
-	std::cout << "    [";
-	setColor(color);
-	if (color == GREEN) std::cout << "+";
-	else if (color == RED) std::cout << "!";
-	else if (color == CYAN) std::cout << "*";
-	else if (color == YELLOW) std::cout << "~";
-	else std::cout << " ";
-	setColor(DARK_GRAY);
-	std::cout << "] ";
-	setColor(GRAY);
-	std::cout << msg << "\n";
+// 6. Elegant Error
+void printElegantError(const std::string& msg, const std::string& detail = "") {
+    printCentered(msg, "\x1b[31m"); // Red
+    if (!detail.empty()) {
+        printCentered(detail, "\x1b[90m"); // Gray detail
+    }
+    // Subtle beep for error
+    Beep(200, 300); 
 }
 
-void printSuccess(const std::string& msg) { printStatus(msg, GREEN); }
-void printError(const std::string& msg) { printStatus(msg, RED); }
-void printInfo(const std::string& msg) { printStatus(msg, CYAN); }
-void printWait(const std::string& msg) { printStatus(msg, YELLOW); }
+void printSearchSpinner(const std::string& msg) {
+    const char spinners[] = { '|', '/', '-', '\\' };
+    static int spinIdx = 0;
+    
+    std::string fullMsg = msg + " " + spinners[spinIdx];
+    spinIdx = (spinIdx + 1) % 4;
+    
+    // Clear line and print centered
+    std::cout << "\r" << "\x1b[K";
+    printCentered(fullMsg, "\x1b[90m"); // Gray
+    // Move up because printCentered adds newline
+    std::cout << "\x1b[A"; 
+}
 
 // ============================================================================
 // SECURITY THREADS
@@ -122,10 +263,7 @@ void printWait(const std::string& msg) { printStatus(msg, YELLOW); }
 
 DWORD WINAPI SecurityThread1(LPVOID lpParam) {
 	while (!g_SecurityViolation) {
-		if (Security::IsBeingDebugged()) {
-			g_SecurityViolation = true;
-			break;
-		}
+		if (Security::IsBeingDebugged()) { g_SecurityViolation = true; break; }
 		g_Heartbeat1 = GetTickCount64();
 		Sleep(500);
 	}
@@ -134,10 +272,7 @@ DWORD WINAPI SecurityThread1(LPVOID lpParam) {
 
 DWORD WINAPI SecurityThread2(LPVOID lpParam) {
 	while (!g_SecurityViolation) {
-		if (Security::HasAPIHooks()) {
-			g_SecurityViolation = true;
-			break;
-		}
+		if (Security::HasAPIHooks()) { g_SecurityViolation = true; break; }
 		g_Heartbeat2 = GetTickCount64();
 		Sleep(500);
 	}
@@ -150,58 +285,35 @@ DWORD WINAPI SecurityThread2(LPVOID lpParam) {
 
 int wmain(int argc, wchar_t* argv[]) {
 	// ========== PHASE 1: SECURITY ==========
-	
-	if (Security::IsBeingDebugged()) {
-		MessageBoxW(NULL, 
-			L"Cobble has detected debugging tools.\n\nPlease close any debuggers and try again.", 
-			L"Cobble - Security",
-			MB_ICONERROR | MB_OK);
-		return 1;
-	}
-	
+	if (Security::IsBeingDebugged()) return 1;
 	Security::Initialize();
 	
 	HANDLE hThread1 = CreateThread(NULL, 0, SecurityThread1, NULL, 0, NULL);
 	HANDLE hThread2 = CreateThread(NULL, 0, SecurityThread2, NULL, 0, NULL);
 	if (hThread1) CloseHandle(hThread1);
 	if (hThread2) CloseHandle(hThread2);
-	
 	Sleep(100);
 	
-	// ========== PHASE 2: UI ==========
-	
+	// ========== PHASE 2: UI INIT ==========
 	setupConsole();
 	printBanner();
-	printLine();
-	
+	showSmartLoading(1500);
+
 	// ========== PHASE 3: LICENSE ==========
-	
 #if LICENSE_CHECK_ENABLED
-	printWait(_xor_("Verifying license..."));
-	
+	// Silent verify
 	std::string hwid = HWID::Generate();
 	bool licenseValid = false;
 	
-	// Try primary
-	if (License::Verify(LICENSE_SERVER_PRIMARY)) {
-		licenseValid = true;
-	} 
-	// Try fallback
-	else {
-		printInfo(_xor_("Retrying connection..."));
-		if (License::Verify(LICENSE_SERVER_FALLBACK)) {
-			licenseValid = true;
-		}
-	}
+	if (License::Verify(LICENSE_SERVER_PRIMARY)) licenseValid = true;
+	else if (License::Verify(LICENSE_SERVER_FALLBACK)) licenseValid = true;
 
 	if (!licenseValid) {
-		printError(_xor_("License verification failed!"));
-		printInfo(License::GetLastError().c_str());
-		
-		std::cout << "\n";
-		setColor(YELLOW);
-		std::cout << _xor_("    Your HWID: ") << hwid << "\n";
-		setColor(GRAY);
+        std::cout << "\n";
+        printElegantError("License verification failed", License::GetLastError());
+        std::cout << "\n";
+        
+        printCentered("HWID copied to clipboard", "\x1b[90m");
 		
 		if (OpenClipboard(nullptr)) {
 			EmptyClipboard();
@@ -212,167 +324,94 @@ int wmain(int argc, wchar_t* argv[]) {
 				SetClipboardData(CF_TEXT, hMem);
 			}
 			CloseClipboard();
-			printSuccess(_xor_("HWID copied to clipboard!"));
 		}
-		
-		printInfo(_xor_("Send your HWID to an admin to get access."));
-		std::cout << _xor_("\n    Press any key to exit...");
-		std::cin.get();
+		Sleep(4000);
 		return 1;
 	}
-	
-	printSuccess(_xor_("License verified!"));
 #endif
 	
-	// ========== PHASE 4: DLL ==========
-	
+	// ========== PHASE 4: CHECK RESOURCES ==========
 	HMODULE hModule = GetModuleHandle(nullptr);
 	HRSRC hRes = FindResource(hModule, MAKEINTRESOURCE(IDR_COBBLE_DLL), RT_RCDATA);
-	
-	BYTE* dllData = nullptr;
-	DWORD dllSize = 0;
-	
-	if (hRes) {
-		HGLOBAL hData = LoadResource(hModule, hRes);
-		if (hData) {
-			dllData = (BYTE*)LockResource(hData);
-			dllSize = SizeofResource(hModule, hRes);
-		}
-	}
-	
-	if (!dllData) {
-		printError(_xor_("Cobble.dll not found in resources!"));
-		std::cout << _xor_("\n    Press any key to exit...");
-		std::cin.get();
-		return 1;
-	}
+	if (!hRes) { 
+        printElegantError("Corruption detected", "Missing internal resources");
+        Sleep(3000); return 1; 
+    }
+    
+	HGLOBAL hData = LoadResource(hModule, hRes);
+	BYTE* dllData = (BYTE*)LockResource(hData);
+	DWORD dllSize = SizeofResource(hModule, hRes);
 	
 #if DLL_HASH_ENABLED
-	printWait(_xor_("Verifying DLL integrity..."));
-	
-	// Verify buffer from RCDATA (never from disk - prevents swap attacks)
-	// Size check first (fast fail)
-	if (dllSize != DLL_EXPECTED_SIZE) {
-		printError(_xor_("DLL size mismatch!"));
-		std::cout << _xor_("\n    Press any key to exit...");
-		std::cin.get();
-		return 1;
+	if (dllSize != DLL_EXPECTED_SIZE || 
+        !Hash::VerifyChunked(dllData, dllSize, DLL_HASH_CHUNK1, DLL_HASH_CHUNK2, DLL_HASH_CHUNK3, DLL_HASH_CHUNK4)) {
+		printElegantError("Integrity check failed", "Possible tampering detected");
+		Sleep(3000); return 1;
 	}
-	
-	// Hash verification using chunked comparison (non-linear order for obfuscation)
-	if (!Hash::VerifyChunked(dllData, dllSize, 
-		DLL_HASH_CHUNK1, DLL_HASH_CHUNK2, DLL_HASH_CHUNK3, DLL_HASH_CHUNK4)) {
-		printError(_xor_("DLL integrity check failed!"));
-		printInfo(_xor_("The DLL may be corrupted or tampered with."));
-		std::cout << _xor_("\n    Press any key to exit...");
-		std::cin.get();
-		return 1;
-	}
-	printSuccess(_xor_("DLL integrity verified!"));
 #endif
 	
-	// ========== PHASE 5: TARGET ==========
-	
+	// ========== PHASE 5: WAIT FOR TARGET ==========
 	if (g_SecurityViolation) return 0;
 	
-	printWait(_xor_("Searching for Minecraft..."));
-	
-	ProcessInfo lunar = findLunarClient();
-	
-	if (lunar.pid == 0) {
-		printError(_xor_("Minecraft not found!"));
-		printInfo(_xor_("Launch Minecraft via Lunar Client."));
-		std::cout << _xor_("\n    Press any key to exit...");
-		std::cin.get();
-		return 1;
-	}
-	
-	char narrowTitle[128];
-	WideCharToMultiByte(CP_UTF8, 0, lunar.windowTitle.c_str(), -1, narrowTitle, 128, nullptr, nullptr);
-	printSuccess(std::string(_xor_("Found: ")) + narrowTitle);
-	
+	ProcessInfo lunar;
+    while(true) {
+        lunar = findLunarClient();
+        if (lunar.pid != 0) break;
+        printSearchSpinner("Waiting for Minecraft");
+        Sleep(100);
+    }
+    
+    // Clear spinner line: move down to new line
+    std::cout << "\n\n";
+    
 	if (isDllInjected(lunar.pid, L"Cobble.dll")) {
-		printWait(_xor_("Cobble is already injected!"));
-		std::cout << _xor_("\n    Press any key to exit...");
-		std::cin.get();
-		return 0;
+        printElegantError("Already injected");
+		Sleep(2000); return 0;
 	}
 	
-	// ========== PHASE 6: INJECT ==========
-	
+	// ========== PHASE 6: INJECTION ==========
 	if (g_SecurityViolation) return 0;
+    
+    printCentered("Injecting...", "\x1b[90m");
 	
-	ULONGLONG now = GetTickCount64();
-	if ((now - g_Heartbeat1 > 5000) || (now - g_Heartbeat2 > 5000)) {
-		return 0;
-	}
-	
-	printWait(_xor_("Injecting (LoadLibrary)..."));
-	
-	// Write DLL to temp file for LoadLibrary (unique name to avoid conflicts)
 	wchar_t tempPath[MAX_PATH];
 	GetTempPathW(MAX_PATH, tempPath);
-	
-	// Generate unique filename using timestamp
 	DWORD tick = GetTickCount();
 	wchar_t uniqueName[64];
-	swprintf_s(uniqueName, L"Cobble_%08X.dll", tick);
+	swprintf_s(uniqueName, L"u%08X.tmp", tick); // Even shorter/subtler name
 	std::wstring dllTempPath = std::wstring(tempPath) + uniqueName;
 	
-	// Try to delete old temp file if exists
+    // Write
 	DeleteFileW(dllTempPath.c_str());
-	
 	HANDLE hFile = CreateFileW(dllTempPath.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
-	if (hFile == INVALID_HANDLE_VALUE) {
-		DWORD err = GetLastError();
-		char errBuf[128];
-		snprintf(errBuf, sizeof(errBuf), "Failed to write temp DLL (error %lu)", err);
-		printError(errBuf);
-		std::cout << _xor_("\n    Press any key to exit...");
-		std::cin.get();
-		return 1;
-	}
+	if (hFile == INVALID_HANDLE_VALUE) { printElegantError("Write Error"); Sleep(2000); return 1; }
 	
 	DWORD written;
-	if (!WriteFile(hFile, dllData, dllSize, &written, nullptr) || written != dllSize) {
-		CloseHandle(hFile);
-		DeleteFileW(dllTempPath.c_str());
-		printError(_xor_("Failed to write DLL data!"));
-		std::cout << _xor_("\n    Press any key to exit...");
-		std::cin.get();
-		return 1;
-	}
+	WriteFile(hFile, dllData, dllSize, &written, nullptr);
 	CloseHandle(hFile);
 	
+    // Inject
 	if (!injectDllLoadLibrary(lunar.pid, dllTempPath)) {
-		printError(_xor_("Injection failed!"));
+        printElegantError("Injection failed", "Try running as Administrator");
 		DeleteFileW(dllTempPath.c_str());
-		printInfo(_xor_("Try running as Administrator."));
-		std::cout << _xor_("\n    Press any key to exit...");
-		std::cin.get();
-		return 1;
+		Sleep(4000); return 1;
 	}
 	
-	// Delete temp file after a delay
-	Sleep(2000);
+	Sleep(500); // Wait for thread
 	DeleteFileW(dllTempPath.c_str());
-	
-	printSuccess(_xor_("Injection successful!"));
-	
-	printLine();
-	std::cout << "\n";
-	setColor(GREEN);
-	std::cout << _xor_("    Cobble is now active!\n");
-	setColor(DARK_GRAY);
-	std::cout << _xor_("    Use the Eject button in web UI to unload.\n");
-	setColor(GRAY);
-	std::cout << "\n";
-	
-	for (int i = 3; i > 0; i--) {
-		if (g_SecurityViolation) return 0;
-		std::cout << "\r    " << _xor_("Closing in ") << i << "...  ";
-		Sleep(1000);
-	}
-	
+
+    // ========== SUCCESS ==========
+    // Clear injection text
+    std::cout << "\r" << "\x1b[K" << "\x1b[A" << "\x1b[K"; 
+    
+    std::cout << "\n";
+	printCentered("Active", "\x1b[32m"); // Green
+    
+    // Subtle Success Beep
+    Beep(523, 100); // C5 - Short and crisp
+    
+	Sleep(1500);
+    
+    // Fade out / Close
 	return 0;
 }

@@ -23,6 +23,16 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/).
 ## [0.16.0] - 2025-12-31
 
 ### Added
+- **ESP Module**: Visuals overlay drawing boxes around players.
+  - Options: Box, Filled Box, Outline, Health Bar.
+  - Fully configurable colors (Box, Fill, Outline).
+  - Configurable range/distance.
+  - **[NEW] Smooth/Rounded Design**: Enhanced rounding (8px) for box/fill and health bar (4px) for a soft, pill-like aesthetic.
+  - **[NEW] 2D Box Projection**: Switched to Head/Feet projection to eliminate distortion when close to players or looking up/down.
+  - **[NEW] Smart Rendering**: ESP automatically pauses when in menus/loading screens to prevent ghosting or overlay issues.
+  - Default colors set to Red/Transparent Red.
+- **Injection Detection**: Switched to Named Mutex (`Global\Cobble_Instance_{PID}`) for 100% reliable double-injection prevention.
+- **Loader Redesign V4 (Premium)**: "Cinematic" UX with Horizontal Gradient banner (UTF-8 fixed), Smart Loading stages (init -> verify -> prep), Fixed window size (no resize), Spinner animations, Elegant error handling, and subtle Audio feedback.
 - **Modular UI Architecture**: Nueva estructura de directorios `src/ui/` con componentes separados
   - `src/ui/core/` - Sistema base de overlay y hooks
   - `src/ui/widgets/` - Widgets reutilizables consolidados

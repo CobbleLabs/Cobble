@@ -16,6 +16,11 @@ struct LocalPlayer
 	double getPosX();
 	double getPosY();
 	double getPosZ();
+	
+	// Last tick position (for interpolation)
+	double getLastPosX();
+	double getLastPosY();
+	double getLastPosZ();
 
 	// Motion (for velocity module)
 	double getMotionX();
@@ -58,6 +63,9 @@ private:
 	jfieldID fid_posX = nullptr;
 	jfieldID fid_posY = nullptr;
 	jfieldID fid_posZ = nullptr;
+	jfieldID fid_lastPosX = nullptr;
+	jfieldID fid_lastPosY = nullptr;
+	jfieldID fid_lastPosZ = nullptr;
 	jfieldID fid_motionX = nullptr;
 	jfieldID fid_motionY = nullptr;
 	jfieldID fid_motionZ = nullptr;

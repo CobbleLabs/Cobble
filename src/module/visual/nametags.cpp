@@ -125,25 +125,6 @@ void NameTags::onUpdate()
 	RenderPos renderPos = mc.getRenderPos();
 	float partialTicks = mc.getPartialTicks();
 	
-	// Debug once
-	if (!matrixDebugDone) {
-		matrixDebugDone = true;
-		
-		char buf[256];
-		snprintf(buf, sizeof(buf), "RenderData initialized: %s, updated: %s", 
-			RenderData::initialized ? "yes" : "no",
-			RenderData::updated ? "yes" : "no");
-		log_debug(buf);
-		
-		snprintf(buf, sizeof(buf), "RenderPos: %.2f, %.2f, %.2f, partialTicks: %.3f", 
-			renderPos.x, renderPos.y, renderPos.z, partialTicks);
-		log_debug(buf);
-		
-		snprintf(buf, sizeof(buf), "Screen: %dx%d", 
-			RenderData::screenWidth, RenderData::screenHeight);
-		log_debug(buf);
-	}
-	
 	// Get local player position for distance calculation
 	double localX = player.getPosX();
 	double localY = player.getPosY();
@@ -200,6 +181,14 @@ void NameTags::onUpdate()
 		cachedRenderY = renderPos.y;
 		cachedRenderZ = renderPos.z;
 		cachedPartialTicks = partialTicks;
+		
+		// Cache local player position for fallback (when renderPos is unavailable)
+		cachedLocalX = localX;
+		cachedLocalY = localY;
+		cachedLocalZ = localZ;
+		cachedLocalLastX = player.getLastPosX();
+		cachedLocalLastY = player.getLastPosY();
+		cachedLocalLastZ = player.getLastPosZ();
 	}
 }
 
@@ -218,6 +207,8 @@ void NameTags::onRender()
 	std::vector<CachedPlayer> localCache;
 	double renderX, renderY, renderZ;
 	float partialTicks;
+	double localX, localY, localZ;
+	double localLastX, localLastY, localLastZ;
 	{
 		std::lock_guard<std::mutex> lock(cacheMutex);
 		localCache = cachedPlayers;
@@ -225,6 +216,23 @@ void NameTags::onRender()
 		renderY = cachedRenderY;
 		renderZ = cachedRenderZ;
 		partialTicks = cachedPartialTicks;
+		localX = cachedLocalX;
+		localY = cachedLocalY;
+		localZ = cachedLocalZ;
+		localLastX = cachedLocalLastX;
+		localLastY = cachedLocalLastY;
+		localLastZ = cachedLocalLastZ;
+	}
+	
+	// FALLBACK: If renderPos is (0,0,0) (failed init), use interpolated local player position
+	// The camera position is essentially the player's eye position
+	bool useFallback = (renderX == 0.0 && renderY == 0.0 && renderZ == 0.0);
+	
+	if (useFallback) {
+		// Interpolate local player position + eye height for camera
+		renderX = localLastX + (localX - localLastX) * partialTicks;
+		renderY = localLastY + (localY - localLastY) * partialTicks + 1.62; // Eye height
+		renderZ = localLastZ + (localZ - localLastZ) * partialTicks;
 	}
 	
 	if (localCache.empty()) return;
@@ -238,6 +246,10 @@ void NameTags::onRender()
 		// origin = renderPos - entityLastPos + (entityLastPos - entityPos) * renderPartialTicks
 		// This interpolates the entity position between ticks for smooth movement
 		
+		// Entity height offset above player feet
+		// 1.7.10: posY is at feet, need +2.0 for above head
+		// 1.8.9: posY is at feet, need +2.0 for above head
+		// But in 1.7.10 with fallback camera, we need to account for eye height difference
 		float entityHeight = 2.0f;  // Above head
 		
 		// Point = renderPos - (entityLastPos interpolated) + offset
@@ -268,11 +280,35 @@ void NameTags::onRender()
 		}
 	}
 	
-	if (shouldLog) {
-		char buf[64];
-		snprintf(buf, sizeof(buf), "NameTags: %zu cached, %d rendered", localCache.size(), renderedCount);
-		log_debug(buf);
+	// if (shouldLog) {
+	// 	char buf[64];
+	// 	snprintf(buf, sizeof(buf), "NameTags: %zu cached, %d rendered", localCache.size(), renderedCount);
+	// 	log_debug(buf);
+	// }
+}
+
+static ImU32 GetHealthColor(float health, float maxHealth)
+{
+	if (maxHealth <= 0.0f) maxHealth = 1.0f;
+	float percent = health / maxHealth;
+	if (percent < 0.0f) percent = 0.0f;
+	if (percent > 1.0f) percent = 1.0f;
+
+	// Red-Yellow-Green Gradient
+	int r, g;
+	if (percent > 0.5f) {
+		// 50-100%: Yellow to Green (255,255,0 -> 0,255,0)
+		// R goes 255 -> 0
+		r = (int)((1.0f - percent) * 2.0f * 255.0f);
+		g = 255;
+	} else {
+		// 0-50%: Red to Yellow (255,0,0 -> 255,255,0)
+		// G goes 0 -> 255
+		r = 255;
+		g = (int)(percent * 2.0f * 255.0f);
 	}
+
+	return IM_COL32(r, g, 0, 255);
 }
 
 void NameTags::renderPlayerTag(ImDrawList* draw, float screenX, float screenY, const char* name, float distance, float health, float maxHealth)
@@ -280,60 +316,68 @@ void NameTags::renderPlayerTag(ImDrawList* draw, float screenX, float screenY, c
 	if (!draw) return;
 	
 	float displayScale = settings.scale;
+	ImGui::SetWindowFontScale(displayScale);
 	
-	// Build text
-	char displayText[128];
-	if (settings.showHealth && settings.showDistance) {
-		snprintf(displayText, sizeof(displayText), "%s [%.0f HP] [%.1fm]", name, health, distance);
-	} else if (settings.showHealth) {
-		snprintf(displayText, sizeof(displayText), "%s [%.0f HP]", name, health);
-	} else if (settings.showDistance) {
-		snprintf(displayText, sizeof(displayText), "%s [%.1fm]", name, distance);
+	char nameText[256];
+	char healthText[64];
+	char distText[64];
+	
+	// Format strings
+	snprintf(nameText, sizeof(nameText), "%s", name);
+	
+	if (settings.showHealth) {
+		snprintf(healthText, sizeof(healthText), " [%.0f]", health);
 	} else {
-		snprintf(displayText, sizeof(displayText), "%s", name);
+		healthText[0] = '\0';
 	}
 	
-	ImVec2 textSize = ImGui::CalcTextSize(displayText);
-	float posX = screenX - textSize.x / 2.0f;
-	float posY = screenY - textSize.y;  // Above the point
+	if (settings.showDistance) {
+		snprintf(distText, sizeof(distText), " [%.0fm]", distance);
+	} else {
+		distText[0] = '\0';
+	}
+	
+	// Calculate sizes
+	ImVec2 nameSize = ImGui::CalcTextSize(nameText);
+	ImVec2 healthSize = ImGui::CalcTextSize(healthText);
+	ImVec2 distSize = ImGui::CalcTextSize(distText);
+	
+	float totalWidth = nameSize.x + healthSize.x + distSize.x;
+	float totalHeight = nameSize.y; // Assumes all same font size
+	
+	float posX = screenX - totalWidth / 2.0f;
+	float posY = screenY - totalHeight;
 	
 	// Background
 	if (settings.background) {
-		float padding = 4.0f * displayScale;
-		float bgHeight = textSize.y + padding * 2;
-		if (settings.showHealth) bgHeight += 6.0f * displayScale; // Space for health bar
+		float paddingX = 6.0f * displayScale;
+		float paddingY = 4.0f * displayScale;
 		
 		draw->AddRectFilled(
-			ImVec2(posX - padding, posY - padding),
-			ImVec2(posX + textSize.x + padding, posY + bgHeight),
+			ImVec2(posX - paddingX, posY - paddingY),
+			ImVec2(posX + totalWidth + paddingX, posY + totalHeight + paddingY),
 			IM_COL32(0, 0, 0, 160),
-			3.0f);
+			5.0f); // Soft rounding
 	}
 	
-	// Text with shadow
-	draw->AddText(ImVec2(posX + 1, posY + 1), IM_COL32(0, 0, 0, 255), displayText);
-	draw->AddText(ImVec2(posX, posY), IM_COL32(255, 255, 255, 255), displayText);
+	// Draw Name (White)
+	draw->AddText(ImVec2(posX + 1, posY + 1), IM_COL32(0, 0, 0, 255), nameText); // Shadow
+	draw->AddText(ImVec2(posX, posY), IM_COL32(255, 255, 255, 255), nameText);
 	
-	// Health bar
-	if (settings.showHealth && maxHealth > 0) {
-		float barWidth = textSize.x;
-		float barHeight = 4.0f * displayScale;
-		float barY = posY + textSize.y + 3.0f;
-		float healthPercent = std::fmax(0.0f, std::fmin(1.0f, health / maxHealth));
-		
-		// Background bar
-		draw->AddRectFilled(
-			ImVec2(posX, barY),
-			ImVec2(posX + barWidth, barY + barHeight),
-			IM_COL32(50, 50, 50, 200), 2.0f);
-		
-		// Health fill (green to red gradient based on health)
-		int r = (int)(255 * (1.0f - healthPercent));
-		int g = (int)(255 * healthPercent);
-		draw->AddRectFilled(
-			ImVec2(posX, barY),
-			ImVec2(posX + barWidth * healthPercent, barY + barHeight),
-			IM_COL32(r, g, 0, 255), 2.0f);
+	float currentX = posX + nameSize.x;
+	
+	// Draw Health (Dynamic Color)
+	if (settings.showHealth) {
+		ImU32 hpColor = GetHealthColor(health, maxHealth);
+		draw->AddText(ImVec2(currentX + 1, posY + 1), IM_COL32(0, 0, 0, 255), healthText); // Shadow
+		draw->AddText(ImVec2(currentX, posY), hpColor, healthText);
+		currentX += healthSize.x;
+	}
+	
+	// Draw Distance (Gray)
+	if (settings.showDistance) {
+		draw->AddText(ImVec2(currentX + 1, posY + 1), IM_COL32(0, 0, 0, 255), distText); // Shadow
+		draw->AddText(ImVec2(currentX, posY), IM_COL32(200, 200, 200, 255), distText);
 	}
 }
 

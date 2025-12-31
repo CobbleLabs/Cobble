@@ -12,7 +12,7 @@
 
 #include <Windows.h>
 
-// Set to 1 to enable debug console, 0 to disable
+// Set to 1 to enable debug console allocation and stdout logging
 #ifndef DEBUG_CONSOLE
 #define DEBUG_CONSOLE 0
 #endif

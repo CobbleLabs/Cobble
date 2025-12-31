@@ -18,7 +18,7 @@ inline ImU32 GetSchemeColor(float alpha) {
 // ==================== TAB DEFINITIONS ====================
 std::vector<ui::tab_t> ui::tabs = {
     { ICON_FA_CROSSHAIRS, "Combat", { "AutoClicker", "AimAssist", "AutoRefill", "Velocity", "Reach" } },
-    { ICON_FA_EYE, "Visuals", { "NameTags", "TestModule" } },
+    { ICON_FA_EYE, "Visuals", { "NameTags", "ESP", "TestModule" } },
     { ICON_FA_ROCKET, "Movement", { "NoJumpDelay" } },
     { ICON_FA_GEAR, "Settings", { } }
 };

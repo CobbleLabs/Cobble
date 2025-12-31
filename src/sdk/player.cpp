@@ -22,6 +22,11 @@ void LocalPlayer::initFields()
 	fid_posX = Java::Env->GetFieldID(entityCls, "posX", "D");
 	fid_posY = Java::Env->GetFieldID(entityCls, "posY", "D");
 	fid_posZ = Java::Env->GetFieldID(entityCls, "posZ", "D");
+	
+	// Last tick position fields (for interpolation)
+	fid_lastPosX = Java::Env->GetFieldID(entityCls, "lastTickPosX", "D");
+	fid_lastPosY = Java::Env->GetFieldID(entityCls, "lastTickPosY", "D");
+	fid_lastPosZ = Java::Env->GetFieldID(entityCls, "lastTickPosZ", "D");
 
 	// Motion fields (in Entity)
 	fid_motionX = Java::Env->GetFieldID(entityCls, "motionX", "D");
@@ -92,6 +97,25 @@ double LocalPlayer::getPosZ()
 {
 	if (!isValid() || !fid_posZ) return 0.0;
 	return Java::Env->GetDoubleField(instance, fid_posZ);
+}
+
+// Last tick position getters (for interpolation)
+double LocalPlayer::getLastPosX()
+{
+	if (!isValid() || !fid_lastPosX) return getPosX();
+	return Java::Env->GetDoubleField(instance, fid_lastPosX);
+}
+
+double LocalPlayer::getLastPosY()
+{
+	if (!isValid() || !fid_lastPosY) return getPosY();
+	return Java::Env->GetDoubleField(instance, fid_lastPosY);
+}
+
+double LocalPlayer::getLastPosZ()
+{
+	if (!isValid() || !fid_lastPosZ) return getPosZ();
+	return Java::Env->GetDoubleField(instance, fid_lastPosZ);
 }
 
 // Motion getters/setters

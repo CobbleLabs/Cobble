@@ -11,6 +11,7 @@
 #include "../../module/combat/reach.h"
 #include "../../module/utility/nojumpdelay.h"
 #include "../../module/visual/nametags.h"
+#include "../../module/visual/esp.h"
 #include "../../module/visual/testmodule.h"
 #include "../../cobble.hpp"
 #include "../../sdk/minecraft.h"
@@ -35,7 +36,8 @@ static Module* getModuleForSubtab(int tabIdx, int subtabIdx)
 	else if (tabIdx == 1) {
 		switch (subtabIdx) {
 			case 0: return nameTags;
-			case 1: return testModule;
+			case 1: return esp;
+			case 2: return testModule;
 		}
 	}
 	// Movement Tab (2)

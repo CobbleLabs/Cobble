@@ -97,6 +97,7 @@
     <ClCompile Include="src\module\combat\reach.cpp" />
     <ClCompile Include="src\module\utility\nojumpdelay.cpp" />
     <ClCompile Include="src\module\visual\nametags.cpp" />
+    <ClCompile Include="src\module\visual\esp.cpp" />
     <ClCompile Include="src\module\visual\testmodule.cpp" />
     <!-- UI structure -->
     <ClCompile Include="src\ui\core\overlay.cpp" />
@@ -137,6 +138,7 @@
     <ClInclude Include="src\module\combat\reach.h" />
     <ClInclude Include="src\module\utility\nojumpdelay.h" />
     <ClInclude Include="src\module\visual\nametags.h" />
+    <ClInclude Include="src\module\visual\esp.h" />
     <!-- New UI includes -->
     <ClInclude Include="src\ui\core\overlay.h" />
     <ClInclude Include="src\ui\menu\menu.h" />

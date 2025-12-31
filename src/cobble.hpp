@@ -17,5 +17,6 @@ namespace cobble {
 
 		static inline bool is_running;
 		static inline HMODULE moduleHandle;
+		static inline HANDLE hInstanceMutex;
 	};
 }

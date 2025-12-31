@@ -48,6 +48,10 @@ private:
 	double cachedRenderX = 0, cachedRenderY = 0, cachedRenderZ = 0;
 	float cachedPartialTicks = 0.0f;
 	
+	// Local player position for fallback (when renderPos unavailable in 1.7.10)
+	double cachedLocalX = 0, cachedLocalY = 0, cachedLocalZ = 0;
+	double cachedLocalLastX = 0, cachedLocalLastY = 0, cachedLocalLastZ = 0;
+	
 	// World change detection
 	jobject lastWorldRef = nullptr;
 	void checkWorldChange();

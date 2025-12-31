@@ -376,54 +376,17 @@ HMODULE getRemoteModuleHandle(DWORD pid, const std::wstring& moduleName) {
 }
 
 bool isDllInjected(DWORD pid, const std::wstring& dllName) {
-	// For manual mapping, we can't use module enumeration
-	// Instead, we search for our unique signature in RWX memory regions
+	// Robust detection via Named Mutex
+	// The client creates "Global\Cobble_Instance_{PID}" on startup
+	std::wstring mutexName = L"Global\\Cobble_Instance_" + std::to_wstring(pid);
 	
-	// First, try the old method (works if DLL was loaded normally)
-	if (getRemoteModuleHandle(pid, dllName) != nullptr) {
+	HANDLE hMutex = OpenMutexW(SYNCHRONIZE, FALSE, mutexName.c_str());
+	if (hMutex) {
+		CloseHandle(hMutex);
 		return true;
 	}
 	
-	// For manual mapping: scan for our signature "COBBLE_LOADED" in process memory
-	HANDLE hProc = OpenProcess(PROCESS_VM_READ | PROCESS_QUERY_INFORMATION, FALSE, pid);
-	if (!hProc) return false;
-	
-	// Signature to search for (our DLL writes this to memory on load)
-	const char* signature = "COBBLE_LOADED_V1";
-	const size_t sigLen = 16;
-	
-	MEMORY_BASIC_INFORMATION mbi;
-	BYTE* addr = nullptr;
-	bool found = false;
-	
-	while (VirtualQueryEx(hProc, addr, &mbi, sizeof(mbi))) {
-		// Only check committed, executable memory
-		if (mbi.State == MEM_COMMIT && 
-			(mbi.Protect & (PAGE_EXECUTE_READ | PAGE_EXECUTE_READWRITE | PAGE_EXECUTE_WRITECOPY))) {
-			
-			// Don't scan huge regions
-			if (mbi.RegionSize <= 0x1000000) { // 16MB max
-				std::vector<BYTE> buffer(mbi.RegionSize);
-				SIZE_T bytesRead;
-				
-				if (ReadProcessMemory(hProc, mbi.BaseAddress, buffer.data(), mbi.RegionSize, &bytesRead)) {
-					// Search for signature
-					for (size_t i = 0; i + sigLen <= bytesRead; i++) {
-						if (memcmp(buffer.data() + i, signature, sigLen) == 0) {
-							found = true;
-							break;
-						}
-					}
-				}
-			}
-		}
-		
-		if (found) break;
-		addr = (BYTE*)mbi.BaseAddress + mbi.RegionSize;
-	}
-	
-	CloseHandle(hProc);
-	return found;
+	return false;
 }
 
 bool ejectDll(DWORD pid, const std::wstring& dllName) {

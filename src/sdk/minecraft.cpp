@@ -293,14 +293,30 @@ std::vector<PlayerInfo> Minecraft::getPlayerList()
 		info.isInvisible = mid_isInvisible ? Java::Env->CallBooleanMethod(entity, mid_isInvisible) : false;
 		
 		// Get player name
-		jmethodID mid_getName = Java::Env->GetMethodID(entityCls, "getName", "()Ljava/lang/String;");
-		if (mid_getName) {
-			jstring jname = (jstring)Java::Env->CallObjectMethod(entity, mid_getName);
-			if (jname) {
-				info.name = jstringToString(jname);
-				Java::Env->DeleteLocalRef(jname);
-			}
+		jmethodID mid_getName = nullptr;
+		if (Java::Version == MinecraftVersion::MC_1_7_10) {
+			mid_getName = Java::Env->GetMethodID(entityCls, "getCommandSenderName", "()Ljava/lang/String;");
+		} else {
+			mid_getName = Java::Env->GetMethodID(entityCls, "getName", "()Ljava/lang/String;");
 		}
+
+		if (mid_getName) {
+			jstring nameStr = (jstring)Java::Env->CallObjectMethod(entity, mid_getName);
+			if (nameStr) {
+				info.name = jstringToString(nameStr);
+				Java::Env->DeleteLocalRef(nameStr);
+			} else {
+				info.name = "Unknown";
+			}
+		} else {
+			Java::Env->ExceptionClear();
+			info.name = "Unknown";
+		}
+		
+
+		
+		// Fallback for name if empty
+		if (info.name.empty()) info.name = "Player";
 		if (info.name.empty()) info.name = "Player";
 		
 		// Get health and hurtTime (EntityLivingBase)
@@ -367,30 +383,71 @@ RenderPos Minecraft::getRenderPos()
 	RenderPos result;
 	if (!isValid()) return result;
 	
-	// Get RenderManager from Minecraft
-	jfieldID fid_renderManager = Java::Env->GetFieldID(cls, "renderManager", "Lnet/minecraft/client/renderer/entity/RenderManager;");
-	if (!fid_renderManager) {
-		Java::Env->ExceptionClear();
-		return result;
+	static bool debugLogged = false;
+	
+	if (Java::Version == MinecraftVersion::MC_1_7_10) {
+		// 1.7.10: RenderManager uses STATIC fields
+		jclass rmCls = nullptr;
+		if (!Java::AssignClass("net.minecraft.client.renderer.entity.RenderManager", rmCls)) {
+			if (!debugLogged) log_err("getRenderPos (1.7.10): RenderManager class not found");
+			debugLogged = true;
+			return result;
+		}
+
+		jfieldID fid_renderPosX = Java::Env->GetStaticFieldID(rmCls, "renderPosX", "D");
+		jfieldID fid_renderPosY = Java::Env->GetStaticFieldID(rmCls, "renderPosY", "D");
+		jfieldID fid_renderPosZ = Java::Env->GetStaticFieldID(rmCls, "renderPosZ", "D");
+
+		if (fid_renderPosX && fid_renderPosY && fid_renderPosZ) {
+			result.x = Java::Env->GetStaticDoubleField(rmCls, fid_renderPosX);
+			result.y = Java::Env->GetStaticDoubleField(rmCls, fid_renderPosY);
+			result.z = Java::Env->GetStaticDoubleField(rmCls, fid_renderPosZ);
+			debugLogged = true;
+		} else {
+			Java::Env->ExceptionClear();
+			if (!debugLogged) {
+				log_err("getRenderPos (1.7.10): Static fields renderPosX/Y/Z not found");
+				debugLogged = true;
+			}
+		}
+		
+		Java::Env->DeleteLocalRef(rmCls);
 	}
-	
-	jobject renderManager = Java::Env->GetObjectField(instance, fid_renderManager);
-	if (!renderManager) return result;
-	
-	jclass rmCls = Java::Env->GetObjectClass(renderManager);
-	
-	jfieldID fid_renderPosX = Java::Env->GetFieldID(rmCls, "renderPosX", "D");
-	jfieldID fid_renderPosY = Java::Env->GetFieldID(rmCls, "renderPosY", "D");
-	jfieldID fid_renderPosZ = Java::Env->GetFieldID(rmCls, "renderPosZ", "D");
-	
-	if (fid_renderPosX && fid_renderPosY && fid_renderPosZ) {
-		result.x = Java::Env->GetDoubleField(renderManager, fid_renderPosX);
-		result.y = Java::Env->GetDoubleField(renderManager, fid_renderPosY);
-		result.z = Java::Env->GetDoubleField(renderManager, fid_renderPosZ);
+	else {
+		// 1.8.9+: RenderManager uses INSTANCE fields
+		jfieldID fid_renderManager = Java::Env->GetFieldID(cls, "renderManager", "Lnet/minecraft/client/renderer/entity/RenderManager;");
+		if (!fid_renderManager) {
+			Java::Env->ExceptionClear();
+			return result;
+		}
+		
+		jobject renderManager = Java::Env->GetObjectField(instance, fid_renderManager);
+		if (!renderManager) return result;
+		
+		jclass rmCls = Java::Env->GetObjectClass(renderManager);
+		
+		jfieldID fid_renderPosX = Java::Env->GetFieldID(rmCls, "renderPosX", "D");
+		jfieldID fid_renderPosY = Java::Env->GetFieldID(rmCls, "renderPosY", "D");
+		jfieldID fid_renderPosZ = Java::Env->GetFieldID(rmCls, "renderPosZ", "D");
+		
+		// Fallback for some 1.8 versions or custom clients (viewerPosX)
+		if (!fid_renderPosX) {
+			Java::Env->ExceptionClear();
+			fid_renderPosX = Java::Env->GetFieldID(rmCls, "viewerPosX", "D");
+			fid_renderPosY = Java::Env->GetFieldID(rmCls, "viewerPosY", "D");
+			fid_renderPosZ = Java::Env->GetFieldID(rmCls, "viewerPosZ", "D");
+		}
+		
+		if (fid_renderPosX && fid_renderPosY && fid_renderPosZ) {
+			result.x = Java::Env->GetDoubleField(renderManager, fid_renderPosX);
+			result.y = Java::Env->GetDoubleField(renderManager, fid_renderPosY);
+			result.z = Java::Env->GetDoubleField(renderManager, fid_renderPosZ);
+			debugLogged = true;
+		}
+		
+		Java::Env->DeleteLocalRef(rmCls);
+		Java::Env->DeleteLocalRef(renderManager);
 	}
-	
-	Java::Env->DeleteLocalRef(rmCls);
-	Java::Env->DeleteLocalRef(renderManager);
 	
 	return result;
 }

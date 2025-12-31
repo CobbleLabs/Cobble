@@ -1,0 +1,68 @@
+#pragma once
+
+#include "../module.h"
+#include "../../jni/java.h"
+#include <vector>
+#include <mutex>
+#include <string>
+
+// Forward declare
+struct ImDrawList;
+
+// Cached player data for rendering
+struct EspPlayer {
+	std::string name;
+	double posX = 0, posY = 0, posZ = 0;           // Current position
+	double lastPosX = 0, lastPosY = 0, lastPosZ = 0; // Last tick position
+	float distance = 0;
+	float health = 20.0f;
+	float maxHealth = 20.0f;
+	bool valid = false;
+};
+
+class ESP : public Module
+{
+public:
+	ESP();
+
+	void onEnable() override;
+	void onDisable() override;
+	void onUpdate() override;
+	void onRender() override;
+	void onRenderMenu() override;
+
+	struct Settings {
+		bool box = true;
+		bool filled = true;
+		bool outline = true;
+		bool healthBar = true;
+		
+		float boxColor[4] = { 1.0f, 0.0f, 0.0f, 1.0f }; // Red default
+		float filledColor[4] = { 1.0f, 0.0f, 0.0f, 0.15f }; // Transparent red
+		float outlineColor[4] = { 0.0f, 0.0f, 0.0f, 0.4f }; // Black outline
+		
+		float range = 128.0f;
+	} settings;
+
+private:
+	// Thread-safe player cache
+	std::mutex cacheMutex;
+	std::vector<EspPlayer> cachedPlayers;
+	
+	// Render thread data
+	double cachedRenderX = 0, cachedRenderY = 0, cachedRenderZ = 0;
+	float cachedPartialTicks = 0.0f;
+	
+	// Local player position for fallback
+	double cachedLocalX = 0, cachedLocalY = 0, cachedLocalZ = 0;
+	double cachedLocalLastX = 0, cachedLocalLastY = 0, cachedLocalLastZ = 0;
+	
+	// World change detection
+	jobject lastWorldRef = nullptr;
+	void checkWorldChange();
+	
+	// Rendering safety
+	long long lastUpdateTick = 0;
+};
+
+extern ESP* esp;

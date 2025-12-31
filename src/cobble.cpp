@@ -7,6 +7,7 @@
 #include "module/combat/reach.h"
 #include "module/utility/nojumpdelay.h"
 #include "module/visual/nametags.h"
+#include "module/visual/esp.h"
 #include "module/visual/testmodule.h"
 #include "ui/core/overlay.h"
 #include "ui/hud/notifications.h"
@@ -56,6 +57,7 @@ void cobble::context::initialize(HMODULE hModule)
 	reach = new Reach();
 	noJumpDelay = new NoJumpDelay();
 	nameTags = new NameTags();
+	esp = new ESP();
 	testModule = new TestModule();
 	log_ok("Modules allocated");
 
@@ -67,9 +69,20 @@ void cobble::context::initialize(HMODULE hModule)
 	moduleManager->registerModule(reach);
 	moduleManager->registerModule(noJumpDelay);
 	moduleManager->registerModule(nameTags);
+	moduleManager->registerModule(esp);
 	moduleManager->registerModule(testModule);
 	log_ok("Modules registered");
 
+	// Create Named Mutex for Injection Detection
+	DWORD pid = GetCurrentProcessId();
+	std::wstring mutexName = L"Global\\Cobble_Instance_" + std::to_wstring(pid);
+	hInstanceMutex = CreateMutexW(nullptr, TRUE, mutexName.c_str());
+	if (GetLastError() == ERROR_ALREADY_EXISTS) {
+		log_warn("Cobble instance mutex already exists! (Double Injection?)");
+	} else {
+		log_ok("Created instance mutex: %ls", mutexName.c_str());
+	}
+	
 	int tickCount = 0;
 	const int OVERLAY_INIT_DELAY = 1000;
 	const int INTEGRITY_CHECK_INTERVAL = 30000;
@@ -119,6 +132,13 @@ void cobble::context::shutdown()
 {
 	invalidateSignature();
 	
+	if (hInstanceMutex) {
+		ReleaseMutex(hInstanceMutex);
+		CloseHandle(hInstanceMutex);
+		hInstanceMutex = nullptr;
+		log_raw("Released instance mutex");
+	}
+	
 	if (autoClicker) autoClicker->setEnabled(false);
 	if (aimAssist) aimAssist->setEnabled(false);
 	if (autoRefill) autoRefill->setEnabled(false);
@@ -126,6 +146,7 @@ void cobble::context::shutdown()
 	if (reach) reach->setEnabled(false);
 	if (noJumpDelay) noJumpDelay->setEnabled(false);
 	if (nameTags) nameTags->setEnabled(false);
+	if (esp) esp->setEnabled(false);
 	if (testModule) testModule->setEnabled(false);
 	
 	Overlay::Shutdown();
@@ -139,6 +160,7 @@ void cobble::context::shutdown()
 	if (reach) { delete reach; reach = nullptr; }
 	if (noJumpDelay) { delete noJumpDelay; noJumpDelay = nullptr; }
 	if (nameTags) { delete nameTags; nameTags = nullptr; }
+	if (esp) { delete esp; esp = nullptr; }
 	if (testModule) { delete testModule; testModule = nullptr; }
 	
 	if (moduleManager) { delete moduleManager; moduleManager = nullptr; }

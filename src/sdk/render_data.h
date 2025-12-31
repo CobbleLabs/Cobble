@@ -61,22 +61,40 @@ struct RenderData
 			initFailed = true;
 			return false;
 		}
+		log_debug("RenderData: ActiveRenderInfo class found");
 		
 		// Try uppercase first (1.8.9), then lowercase (1.7.10)
+		bool foundUpperCase = false;
 		projectionField = Java::Env->GetStaticFieldID(activeRenderInfoClass, "PROJECTION", "Ljava/nio/FloatBuffer;");
-		if (!projectionField) {
+		if (projectionField) {
+			log_debug("RenderData: Found PROJECTION (1.8.x style)");
+			foundUpperCase = true;
+		} else {
 			Java::Env->ExceptionClear();
 			projectionField = Java::Env->GetStaticFieldID(activeRenderInfoClass, "projection", "Ljava/nio/FloatBuffer;");
+			if (projectionField) {
+				log_debug("RenderData: Found projection (1.7.x style)");
+			} else {
+				log_err("RenderData: projection field not found!");
+			}
 		}
 		
 		modelViewField = Java::Env->GetStaticFieldID(activeRenderInfoClass, "MODELVIEW", "Ljava/nio/FloatBuffer;");
-		if (!modelViewField) {
+		if (modelViewField) {
+			log_debug("RenderData: Found MODELVIEW (1.8.x style)");
+		} else {
 			Java::Env->ExceptionClear();
 			modelViewField = Java::Env->GetStaticFieldID(activeRenderInfoClass, "modelview", "Ljava/nio/FloatBuffer;");
+			if (modelViewField) {
+				log_debug("RenderData: Found modelview (1.7.x style)");
+			} else {
+				log_err("RenderData: modelview field not found!");
+			}
 		}
 		
 		if (!projectionField || !modelViewField) {
 			Java::Env->ExceptionClear();
+			log_err("RenderData: Missing matrix fields, init failed");
 			initFailed = true;
 			return false;
 		}
@@ -133,9 +151,14 @@ struct RenderData
 		return m.m00 != 0.0f || m.m11 != 0.0f || m.m22 != 0.0f || m.m33 != 0.0f;
 	}
 	
+	// Debug logging counter
+	static inline int debugLogCounter = 0;
+	
 	// Update render data
 	static void Update()
 	{
+		if (!initialized && !Init()) return;
+		
 		if (!initialized && !Init()) return;
 		
 		// Read projection matrix
@@ -158,6 +181,10 @@ struct RenderData
 			Java::Env->DeleteLocalRef(mvBuffer);
 		}
 		
+		// Only mark as updated if we have valid matrices
+		updated = IsMatrixValid(projection) && IsMatrixValid(modelView);
+		
+		// Detailed matrix logging for debugging
 		// Only mark as updated if we have valid matrices
 		updated = IsMatrixValid(projection) && IsMatrixValid(modelView);
 	}

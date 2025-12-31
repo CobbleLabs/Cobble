@@ -33,11 +33,7 @@ bool CWorldToScreen::WorldToScreen(Vector3 point, Matrix modelView, Matrix proje
 			((ndc.x + 1.0f) / 2.0f) * screenWidth,
 			((1.0f - ndc.y) / 2.0f) * screenHeight,
 		};
-		
-		if (screenPos.x >= 0 && screenPos.x <= screenWidth &&
-			screenPos.y >= 0 && screenPos.y <= screenHeight) {
-			return true;
-		}
+		return true;
 	}
 
 	return false;
