@@ -14,11 +14,11 @@ public:
 	void onUpdate() override;
 
 	struct Settings {
-		float minCPS = 10.0f;
+		float minCPS = 14.0f;
 		float maxCPS = 16.0f;
 		bool weaponOnly = false;
-		bool breakBlocks = true;     // Skip clicking when targeting block
-		bool workInInventory = false;
+		bool breakBlocks = false;     // Skip clicking when targeting block
+		bool workInInventory = true;
 		
 		// Stable CPS mode - no randomization, exact CPS
 		bool stableCPS = false;

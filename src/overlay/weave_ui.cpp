@@ -506,7 +506,10 @@ bool ui::SliderFloat(const char* label, float* v, float v_min, float v_max, cons
 
 bool ui::SliderInt(const char* label, int* v, int v_min, int v_max, const char* format) {
     float val = (float)*v;
-    bool changed = ui::SliderFloat(label, &val, (float)v_min, (float)v_max, format);
+    // Fix: Underlying SliderFloat uses snprintf with float value. 
+    // Passing %d (int format) causes undefined behavior/garbage output.
+    // Use %.0f to display integer value correctly from float.
+    bool changed = ui::SliderFloat(label, &val, (float)v_min, (float)v_max, "%.0f");
     *v = (int)val;
     return changed;
 }

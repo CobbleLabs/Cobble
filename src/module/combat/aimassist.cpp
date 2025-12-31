@@ -1,4 +1,3 @@
-
 #include "aimassist.h"
 #include "../../sdk/minecraft.h"
 #include "../../util/logger.hpp"

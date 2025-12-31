@@ -58,13 +58,12 @@ static void InitializePages() {
     ui::add_page(0, []() {
         ImGui::BeginGroup();
         {
-            ui::begin_child("General", { (ImGui::GetWindowWidth() - GImGui->Style.WindowPadding.x * 2) / 2 - GImGui->Style.ItemSpacing.x / 2, 0 });
+            ui::begin_child("Settings", { (ImGui::GetWindowWidth() - GImGui->Style.WindowPadding.x * 2) / 2 - GImGui->Style.ItemSpacing.x / 2, 0 });
             {
                 ui::CheckboxBind("Enabled", &aimAssist->enabled, &aimAssist->keybind);
                 ImGui::Spacing();
-                ui::SliderFloat("Horizontal Speed", &aimAssist->settings.horizontalSpeed, 1.0f, 100.0f, "%.0f");
-                ui::SliderFloat("Vertical Speed", &aimAssist->settings.verticalSpeed, 1.0f, 100.0f, "%.0f");
-                ui::SliderFloat("FOV", &aimAssist->settings.maxFov, 10.0f, 360.0f, "%.0f");
+                ui::SliderFloat("Speed", &aimAssist->settings.horizontalSpeed, 1.0f, 100.0f, "%.0f");
+                ui::SliderFloat("FOV", &aimAssist->settings.maxFov, 10.0f, 180.0f, "%.0f");
                 ui::SliderFloat("Distance", &aimAssist->settings.maxDistance, 3.0f, 8.0f, "%.1f");
             }
             ui::end_child();
@@ -78,9 +77,9 @@ static void InitializePages() {
             ui::begin_child("Filters", { (ImGui::GetWindowWidth() - GImGui->Style.WindowPadding.x * 2) / 2 - GImGui->Style.ItemSpacing.x / 2, 0 });
             {
                 ui::Checkbox("Clicking Only", &aimAssist->settings.onlyClicking);
-                ui::Checkbox("Vertical Aim", &aimAssist->settings.verticalAim);
                 ui::Checkbox("Target Lock", &aimAssist->settings.targetLock);
                 ui::Checkbox("Visibility", &aimAssist->settings.visibilityCheck);
+                ui::Checkbox("Ignore Invis", &aimAssist->settings.ignoreInvisible);
             }
             ui::end_child();
         }
@@ -95,6 +94,7 @@ static void InitializePages() {
             {
                 ui::Binder("Keybind", &autoRefill->keybind);
                 ImGui::Spacing();
+                
                 int speed = autoRefill->settings.speed;
                 if (ui::SliderInt("Speed (ms)", &speed, 20, 200, "%d"))
                     autoRefill->settings.speed = speed;
@@ -107,11 +107,10 @@ static void InitializePages() {
         
         ImGui::BeginGroup();
         {
-            ui::begin_child("Items", { (ImGui::GetWindowWidth() - GImGui->Style.WindowPadding.x * 2) / 2 - GImGui->Style.ItemSpacing.x / 2, 0 });
+            ui::begin_child("Filters", { (ImGui::GetWindowWidth() - GImGui->Style.WindowPadding.x * 2) / 2 - GImGui->Style.ItemSpacing.x / 2, 0 });
             {
                 ui::Checkbox("Refill Soup", &autoRefill->settings.refillSoup);
                 ui::Checkbox("Refill Potions", &autoRefill->settings.refillPotions);
-                ui::Checkbox("Smart Speed", &autoRefill->settings.smartSpeed);
             }
             ui::end_child();
         }
@@ -130,9 +129,8 @@ static void InitializePages() {
                 // Mode selector
                 const char* modes[] = { "Regular", "Jump", "Reduce", "Ignore" };
                 int modeIdx = static_cast<int>(velocity->settings.mode);
-                ImGui::Text("Mode");
-                ImGui::SameLine();
-                if (ImGui::BeginCombo("##velmode", modes[modeIdx], ImGuiComboFlags_NoArrowButton)) {
+                ImGui::SetNextItemWidth(ImGui::CalcItemWidth());
+                if (ImGui::BeginCombo("Mode", modes[modeIdx], ImGuiComboFlags_NoArrowButton)) {
                     for (int i = 0; i < 4; i++) {
                         bool selected = (modeIdx == i);
                         if (ImGui::Selectable(modes[i], selected))
@@ -162,12 +160,11 @@ static void InitializePages() {
                 else if (velocity->settings.mode == Velocity::Mode::Ignore) {
                     ui::SliderFloat("Chance", &velocity->settings.chance, 0.0f, 100.0f, "%.0f%%");
                     
-                    // Vertical mode
+                    // Vertical mode - aligned properly
                     const char* vertModes[] = { "Never", "Only Air", "Always" };
                     int vertIdx = static_cast<int>(velocity->settings.verticalMode);
-                    ImGui::Text("Vertical");
-                    ImGui::SameLine();
-                    if (ImGui::BeginCombo("##vertmode", vertModes[vertIdx], ImGuiComboFlags_NoArrowButton)) {
+                    ImGui::SetNextItemWidth(ImGui::CalcItemWidth());
+                    if (ImGui::BeginCombo("Vertical", vertModes[vertIdx], ImGuiComboFlags_NoArrowButton)) {
                         for (int i = 0; i < 3; i++) {
                             bool selected = (vertIdx == i);
                             if (ImGui::Selectable(vertModes[i], selected))
@@ -179,7 +176,6 @@ static void InitializePages() {
                     }
                 }
                 
-                ImGui::Spacing();
                 ui::SliderFloat("FOV", &velocity->settings.fov, 0.0f, 360.0f, "%.0f");
                 
                 int delay = velocity->settings.reduceDelay;
@@ -276,30 +272,7 @@ static void InitializePages() {
         ImGui::EndGroup();
     });
     
-    // Visuals Tab - ESP page (placeholder)
-    ui::add_page(1, []() {
-        ui::begin_child("Player ESP", { (ImGui::GetWindowWidth() - GImGui->Style.WindowPadding.x * 2) / 2 - GImGui->Style.ItemSpacing.x / 2, 0 });
-        {
-            static bool espEnabled = false;
-            ui::Checkbox("Enabled", &espEnabled);
-            static bool box2d = false;
-            ui::Checkbox("Box 2D", &box2d);
-        }
-        ui::end_child();
-    });
-    
-    // Visuals Tab - World page (placeholder)
-    ui::add_page(1, []() {
-        ui::begin_child("World", { (ImGui::GetWindowWidth() - GImGui->Style.WindowPadding.x * 2) / 2 - GImGui->Style.ItemSpacing.x / 2, 0 });
-        {
-            static bool timeChanger = false;
-            ui::Checkbox("Time Changer", &timeChanger);
-            static int time = 12000;
-            if (timeChanger) ui::SliderInt("Time", &time, 0, 24000, "%d");
-        }
-        ui::end_child();
-    });
-    
+
     // Movement Tab - NoJumpDelay page
     ui::add_page(2, []() {
         ImGui::BeginGroup();
@@ -319,8 +292,6 @@ static void InitializePages() {
             ui::begin_child("Info", { (ImGui::GetWindowWidth() - GImGui->Style.WindowPadding.x * 2) / 2 - GImGui->Style.ItemSpacing.x / 2, 0 });
             {
                 ImGui::TextWrapped("Removes jump delay for bhop.");
-                ImGui::Spacing();
-                ImGui::TextWrapped("Hold SPACE to auto-jump.");
             }
             ui::end_child();
         }
@@ -329,9 +300,14 @@ static void InitializePages() {
     
     // Settings Tab
     ui::add_page(3, []() {
+        float halfWidth = (ImGui::GetWindowWidth() - GImGui->Style.WindowPadding.x * 2) / 2 - GImGui->Style.ItemSpacing.x / 2;
+        float bottomRowHeight = ui::s(100);
+        // Fill available space minus bottom card and some spacing
+        float topRowHeight = ImGui::GetContentRegionAvail().y - bottomRowHeight - ui::s(10);
+        
         ImGui::BeginGroup();
         {
-            ui::begin_child("Theme", { (ImGui::GetWindowWidth() - GImGui->Style.WindowPadding.x * 2) / 2 - GImGui->Style.ItemSpacing.x / 2, 0 });
+            ui::begin_child("Theme", { halfWidth, topRowHeight });
             {
                 ui::color("Accent Color", g_SchemeColor);
             }
@@ -343,31 +319,61 @@ static void InitializePages() {
         
         ImGui::BeginGroup();
         {
-            ui::begin_child("HUD", { (ImGui::GetWindowWidth() - GImGui->Style.WindowPadding.x * 2) / 2 - GImGui->Style.ItemSpacing.x / 2, 0 });
+            ui::begin_child("HUD", { halfWidth, topRowHeight });
             {
                 ui::Checkbox("ArrayList", &ArrayListRenderer::enabled);
                 if (ArrayListRenderer::enabled) {
-                    ui::Checkbox("  Background", &ArrayListRenderer::showBackground);
-                    ui::Checkbox("  Sort by Length", &ArrayListRenderer::sortByLength);
+                    // Generate preview string
+                    std::string preview = "None";
+                    std::vector<std::string> parts;
+                    if (ArrayListRenderer::showBackground) parts.push_back("BG");
+                    if (ArrayListRenderer::sortByLength) parts.push_back("Sort");
+                    
+                    if (!parts.empty()) {
+                        preview = "";
+                        for (size_t i = 0; i < parts.size(); ++i) {
+                            if (i > 0) preview += ", ";
+                            preview += parts[i];
+                        }
+                    }
+                    
+                    ImGui::SetNextItemWidth(ImGui::CalcItemWidth());
+                    if (ImGui::BeginCombo("Options", preview.c_str())) {
+                        // Custom selectable styling could happen here, keeping it simple for now
+                        bool bg = ArrayListRenderer::showBackground;
+                        if (ImGui::Selectable("Background", &bg, ImGuiSelectableFlags_DontClosePopups)) {
+                            ArrayListRenderer::showBackground = bg;
+                        }
+                        
+                        bool sort = ArrayListRenderer::sortByLength;
+                        if (ImGui::Selectable("Sort by Length", &sort, ImGuiSelectableFlags_DontClosePopups)) {
+                            ArrayListRenderer::sortByLength = sort;
+                        }
+                        
+                        ImGui::EndCombo();
+                    }
                 }
-                ImGui::Spacing();
                 ui::Checkbox("Notifications", &NotificationManager::enabled);
             }
             ui::end_child();
         }
         ImGui::EndGroup();
         
-        ImGui::Spacing();
+        // Pin to bottom - use GetContentRegionAvail to be safe with padding
+        ImGui::SetCursorPosY(ImGui::GetCursorPosY() + ImGui::GetContentRegionAvail().y - bottomRowHeight);
         
         ImGui::BeginGroup();
         {
-            ui::begin_child("Actions", { ImGui::GetWindowWidth() - GImGui->Style.WindowPadding.x * 2, 0 });
+            ui::begin_child("Actions", { ImGui::GetWindowWidth() - GImGui->Style.WindowPadding.x * 2, bottomRowHeight });
             {
                 ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.6f, 0.1f, 0.2f, 1.0f));
                 ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.7f, 0.15f, 0.25f, 1.0f));
                 ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.5f, 0.08f, 0.15f, 1.0f));
                 
-                if (ImGui::Button("EJECT CLIENT", ImVec2(ImGui::CalcItemWidth(), 32))) {
+                // Center vertically
+                ImGui::SetCursorPosY((ImGui::GetWindowHeight() - 32) * 0.5f);
+                
+                if (ImGui::Button("EJECT CLIENT", ImVec2(ImGui::GetContentRegionAvail().x, 32))) {
                     cobble::context::is_running = false;
                     Menu::isOpen = false;
                 }

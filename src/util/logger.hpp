@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdio>
+#include <mutex>
 
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
@@ -13,7 +14,7 @@
 
 // Set to 1 to enable debug console, 0 to disable
 #ifndef DEBUG_CONSOLE
-#define DEBUG_CONSOLE 0
+#define DEBUG_CONSOLE 1
 #endif
 
 enum class message_type : unsigned int {
@@ -85,4 +86,3 @@ public:
 #define log_raw(fmt, ...)   ((void)0)
 
 #endif
-

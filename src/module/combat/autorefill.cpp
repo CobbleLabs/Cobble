@@ -12,21 +12,16 @@
 
 AutoRefill* autoRefill = nullptr;
 
-// Simple keypress simulation
 static void sendKey(WORD vk) {
 	HWND hwnd = GetForegroundWindow();
 	if (!hwnd) return;
 	
-	// Use SendInput for more reliable key simulation
 	INPUT inputs[2] = {};
-	
 	inputs[0].type = INPUT_KEYBOARD;
 	inputs[0].ki.wVk = vk;
-	
 	inputs[1].type = INPUT_KEYBOARD;
 	inputs[1].ki.wVk = vk;
 	inputs[1].ki.dwFlags = KEYEVENTF_KEYUP;
-	
 	SendInput(2, inputs, sizeof(INPUT));
 }
 
@@ -37,13 +32,11 @@ AutoRefill::AutoRefill() : Module("AutoRefill")
 
 void AutoRefill::onEnable()
 {
-	// Don't start if already in GUI
 	if (mc.isInGui()) {
 		enabled = false;
 		return;
 	}
 	
-	// Scan what needs refilling
 	scanForRefills();
 	
 	if (pendingRefills.empty()) {
@@ -51,9 +44,7 @@ void AutoRefill::onEnable()
 		return;
 	}
 	
-	// Open inventory with E key
 	sendKey('E');
-	
 	state = State::Waiting;
 	stateStartTime = std::chrono::steady_clock::now();
 }
@@ -66,9 +57,8 @@ void AutoRefill::onDisable()
 
 void AutoRefill::finishRefill()
 {
-	// Close inventory if still open
 	if (mc.isInventoryOpen()) {
-		sendKey(VK_ESCAPE);  // ESC is more reliable than E to close
+		sendKey(VK_ESCAPE);
 	}
 	
 	state = State::Idle;
@@ -89,62 +79,62 @@ void AutoRefill::onUpdate()
 			break;
 			
 		case State::Waiting: {
-			// Wait for inventory to open (max 1 second)
 			if (mc.isInventoryOpen()) {
-				state = State::Opening;
+				log_debug("AutoRefill: Inventory opened, starting refill. Pending: %d", (int)pendingRefills.size());
 				stateStartTime = now;
-			} else if (elapsed > 1000) {
-				// Timeout
-				finishRefill();
-			}
-			break;
-		}
-		
-		case State::Opening: {
-			// Wait delay after inventory opened
-			if (elapsed >= settings.delayAfterOpen) {
 				state = State::Refilling;
-				lastMoveTime = std::chrono::steady_clock::now() - std::chrono::milliseconds(settings.speed);
+				lastMoveTime = now - std::chrono::milliseconds(settings.speed);
+			} else if (elapsed > 1000) {
+				log_warn("AutoRefill: Timeout waiting for inventory to open");
+				finishRefill();
 			}
 			break;
 		}
 		
 		case State::Refilling: {
-			// Check inventory still open
+			// Wait a bit after inventory opened
+			if (elapsed < DELAY_AFTER_OPEN) return;
+			
 			if (!mc.isInventoryOpen()) {
+				log_warn("AutoRefill: Inventory closed unexpectedly! Remaining: %d", (int)pendingRefills.size());
 				finishRefill();
 				return;
 			}
 			
 			if (pendingRefills.empty()) {
+				log_debug("AutoRefill: All tasks completed, closing");
 				state = State::Closing;
 				stateStartTime = now;
 				return;
 			}
 			
-			// Check timing between moves
 			auto moveElapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - lastMoveTime).count();
+			if (moveElapsed < settings.speed) return;
 			
-			int delay = settings.speed;
-			if (settings.smartSpeed && pendingRefills.size() > 0) {
-				delay = calculateSmartDelay(pendingRefills.front().sourceSlot, pendingRefills.front().hotbarSlot);
-			}
-			
-			if (moveElapsed < delay) return;
-			
-			// Do one move
 			RefillTask task = pendingRefills.front();
 			pendingRefills.erase(pendingRefills.begin());
 			
-			// Shift-click the source slot
-			mc.windowClick(task.sourceSlot, settings.simulateButton);
+			log_debug("AutoRefill: Moving slot %d -> hotbar (remaining: %d)", task.sourceSlot, (int)pendingRefills.size());
 			
+			// Shift-click the source slot (button 0 = left click)
+			mc.windowClick(task.sourceSlot, 0);
 			lastMoveTime = now;
 			break;
 		}
 		
 		case State::Closing: {
-			if (elapsed >= settings.delayBeforeClose) {
+			if (elapsed >= DELAY_BEFORE_CLOSE) {
+				// Validation pass: Check if we actually finished
+				scanForRefills();
+				
+				if (!pendingRefills.empty()) {
+					log_warn("AutoRefill: Validation failed! %d items missing. Retrying...", (int)pendingRefills.size());
+					state = State::Refilling;
+					lastMoveTime = now;
+					return;
+				}
+				
+				log_debug("AutoRefill: Finished with verification, closing inventory");
 				finishRefill();
 			}
 			break;
@@ -157,91 +147,64 @@ void AutoRefill::scanForRefills()
 	pendingRefills.clear();
 	
 	auto slots = mc.getInventorySlots();
-	if (slots.empty()) return;
+	log_debug("AutoRefill: getInventorySlots returned %d slots", (int)slots.size());
 	
-	// Track which source slots we've already assigned
-	std::vector<int> usedSourceSlots;
+	if (slots.empty()) {
+		log_warn("AutoRefill: No slots returned!");
+		return;
+	}
 	
-	// Find empty hotbar slots
-	for (int hotbarSlot = 0; hotbarSlot <= 8; hotbarSlot++) {
-		int currentItemId = 0;
-		for (const auto& slot : slots) {
-			if (slot.slotId == hotbarSlot) {
-				currentItemId = slot.itemId;
-				break;
-			}
-		}
-		
-		// If empty, look for replacement
-		if (currentItemId == 0) {
-			int sourceSlot = -1;
-			int itemId = 0;
-			
-			// Try soup first
-			if (settings.refillSoup) {
-				sourceSlot = findReplacementSlot(slots, RefillItems::MUSHROOM_SOUP, false, usedSourceSlots);
-				if (sourceSlot != -1) itemId = RefillItems::MUSHROOM_SOUP;
-			}
-			
-			// Then potions
-			if (sourceSlot == -1 && settings.refillPotions) {
-				sourceSlot = findReplacementSlot(slots, RefillItems::POTION, !settings.useNonHealthPotions, usedSourceSlots);
-				if (sourceSlot != -1) itemId = RefillItems::POTION;
-			}
-			
-			if (sourceSlot != -1) {
-				usedSourceSlots.push_back(sourceSlot);
-				
-				RefillTask task;
-				task.hotbarSlot = hotbarSlot;
-				task.sourceSlot = sourceSlot;
-				task.itemId = itemId;
-				pendingRefills.push_back(task);
-			}
-		}
-	}
-}
-
-bool AutoRefill::isRefillableItem(int itemId, bool isHealthPotion)
-{
-	if (itemId == RefillItems::MUSHROOM_SOUP && settings.refillSoup) return true;
-	if (itemId == RefillItems::POTION && settings.refillPotions) {
-		if (!settings.useNonHealthPotions && !isHealthPotion) return false;
-		return true;
-	}
-	return false;
-}
-
-int AutoRefill::findReplacementSlot(const std::vector<SlotInfo>& slots, int itemId, bool requireHealthPotion, const std::vector<int>& usedSlots)
-{
+	// First, collect all refillable items from main inventory (slots 9-35)
+	std::vector<int> availableSources;
 	for (const auto& slot : slots) {
 		if (slot.slotId < 9 || slot.slotId > 35) continue;
-		if (slot.itemId != itemId) continue;
-		if (requireHealthPotion && !slot.isHealthPotion) continue;
+		if (slot.itemId == 0) continue;
 		
-		// Check if already used
-		bool isUsed = false;
-		for (int used : usedSlots) {
-			if (used == slot.slotId) {
-				isUsed = true;
+		bool isRefillable = false;
+		if (settings.refillSoup && slot.itemId == RefillItems::MUSHROOM_SOUP) {
+			isRefillable = true;
+		}
+		if (settings.refillPotions && slot.itemId == RefillItems::POTION) {
+			isRefillable = true;
+		}
+		
+		if (isRefillable) {
+			availableSources.push_back(slot.slotId);
+			log_debug("AutoRefill: Found refillable at slot %d (itemId=%d)", slot.slotId, slot.itemId);
+		}
+	}
+	
+	log_debug("AutoRefill: Total refillable sources: %d", (int)availableSources.size());
+	
+	if (availableSources.empty()) {
+		log_warn("AutoRefill: No refillable items in inventory!");
+		return;
+	}
+	
+	// Find empty hotbar slots and assign sources
+	int emptyHotbarCount = 0;
+	size_t sourceIdx = 0;
+	for (int hotbarSlot = 0; hotbarSlot <= 8 && sourceIdx < availableSources.size(); hotbarSlot++) {
+		// Check if hotbar slot is empty
+		bool isEmpty = true;
+		for (const auto& slot : slots) {
+			if (slot.slotId == hotbarSlot && slot.itemId != 0) {
+				isEmpty = false;
 				break;
 			}
 		}
-		if (isUsed) continue;
 		
-		return slot.slotId;
+		if (isEmpty) {
+			emptyHotbarCount++;
+			RefillTask task;
+			task.hotbarSlot = hotbarSlot;
+			task.sourceSlot = availableSources[sourceIdx];
+			pendingRefills.push_back(task);
+			log_debug("AutoRefill: Queue refill: source=%d -> hotbar=%d", task.sourceSlot, task.hotbarSlot);
+			sourceIdx++;
+		}
 	}
 	
-	return -1;
+	log_debug("AutoRefill: Empty hotbar slots: %d, Tasks queued: %d", emptyHotbarCount, (int)pendingRefills.size());
 }
 
-int AutoRefill::calculateSmartDelay(int fromSlot, int toSlot)
-{
-	int fromRow = (fromSlot < 9) ? 0 : ((fromSlot - 9) / 9 + 1);
-	int toRow = (toSlot < 9) ? 0 : ((toSlot - 9) / 9 + 1);
-	int fromCol = (fromSlot < 9) ? fromSlot : ((fromSlot - 9) % 9);
-	int toCol = (toSlot < 9) ? toSlot : ((toSlot - 9) % 9);
-	
-	int dist = abs(fromRow - toRow) + abs(fromCol - toCol);
-	return settings.speed + dist * 15;
-}
