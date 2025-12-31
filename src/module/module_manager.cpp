@@ -1,6 +1,6 @@
 #include "module_manager.h"
 #include "../sdk/minecraft.h"
-#include "../overlay/menu.h"
+#include "../ui/menu/menu.h"
 
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN

@@ -1,6 +1,7 @@
 #include "nojumpdelay.h"
 #include "../../sdk/minecraft.h"
-#include "../../overlay/menu.h"
+#include "../../ui/menu/menu.h"
+#include "../../ui/widgets/widgets.hpp"
 
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
@@ -34,4 +35,16 @@ void NoJumpDelay::onUpdate()
 	if (player.isOnGround() && (GetAsyncKeyState(VK_SPACE) & 0x8000)) {
 		player.setJumpTicks(0);
 	}
+}
+
+void NoJumpDelay::onRenderMenu()
+{
+	ui::two_column(
+		"General", [this]() {
+			ui::CheckboxBind("Enabled", &enabled, &keybind);
+		},
+		"Info", [this]() {
+			ImGui::TextWrapped("Removes jump delay for bhop.");
+		}
+	);
 }

@@ -7,8 +7,9 @@
 #include "module/combat/reach.h"
 #include "module/utility/nojumpdelay.h"
 #include "module/visual/nametags.h"
-#include "overlay/overlay.h"
-#include "overlay/notifications.h"
+#include "module/visual/testmodule.h"
+#include "ui/core/overlay.h"
+#include "ui/hud/notifications.h"
 #include "util/integrity.h"
 
 // Signature for loader detection (cleared on shutdown for re-injection support)
@@ -55,6 +56,7 @@ void cobble::context::initialize(HMODULE hModule)
 	reach = new Reach();
 	noJumpDelay = new NoJumpDelay();
 	nameTags = new NameTags();
+	testModule = new TestModule();
 	log_ok("Modules allocated");
 
 	log_raw("Registering modules...");
@@ -65,6 +67,7 @@ void cobble::context::initialize(HMODULE hModule)
 	moduleManager->registerModule(reach);
 	moduleManager->registerModule(noJumpDelay);
 	moduleManager->registerModule(nameTags);
+	moduleManager->registerModule(testModule);
 	log_ok("Modules registered");
 
 	int tickCount = 0;
@@ -123,6 +126,7 @@ void cobble::context::shutdown()
 	if (reach) reach->setEnabled(false);
 	if (noJumpDelay) noJumpDelay->setEnabled(false);
 	if (nameTags) nameTags->setEnabled(false);
+	if (testModule) testModule->setEnabled(false);
 	
 	Overlay::Shutdown();
 	Java::Kill();
@@ -135,6 +139,7 @@ void cobble::context::shutdown()
 	if (reach) { delete reach; reach = nullptr; }
 	if (noJumpDelay) { delete noJumpDelay; noJumpDelay = nullptr; }
 	if (nameTags) { delete nameTags; nameTags = nullptr; }
+	if (testModule) { delete testModule; testModule = nullptr; }
 	
 	if (moduleManager) { delete moduleManager; moduleManager = nullptr; }
 	

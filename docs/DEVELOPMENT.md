@@ -1,0 +1,316 @@
+# Cobble – Development Guide
+
+This guide explains how to work within the Cobble codebase: creating modules, using the UI system, and following project conventions.
+
+---
+
+## Project Structure
+
+```
+src/
+├── cobble.cpp/.hpp     # Entry point, module lifecycle
+├── jni/                # JVM bridge
+├── sdk/                # Minecraft wrappers
+├── module/
+│   ├── module.h        # Base class
+│   ├── module_manager.h/.cpp
+│   ├── combat/         # AutoClicker, AimAssist, Velocity, Reach
+│   ├── visual/         # NameTags, TestModule
+│   └── utility/        # NoJumpDelay
+└── ui/
+    ├── core/           # Overlay, ImGui hooks
+    ├── widgets/        # Consolidated widgets
+    ├── menu/           # Tab navigation
+    └── hud/            # ArrayList, Notifications
+```
+
+---
+
+## How to Create a Module
+
+### Step 1: Create Files
+
+```
+src/module/<category>/
+├── mymodule.h
+└── mymodule.cpp
+```
+
+### Step 2: Header
+
+```cpp
+// src/module/combat/mymodule.h
+#pragma once
+#include "../module.h"
+
+class MyModule : public Module
+{
+public:
+    MyModule();
+    
+    void onEnable() override;
+    void onDisable() override;
+    void onUpdate() override;
+    void onRenderMenu() override;
+    
+    struct Settings {
+        float myValue = 5.0f;
+        bool myToggle = true;
+    } settings;
+};
+
+extern MyModule* myModule;
+```
+
+### Step 3: Implementation
+
+```cpp
+// src/module/combat/mymodule.cpp
+#include "mymodule.h"
+#include "../../sdk/minecraft.h"
+#include "../../ui/menu/menu.h"
+#include "../../ui/widgets/widgets.hpp"
+
+MyModule* myModule = nullptr;
+
+MyModule::MyModule() : Module("MyModule")
+{
+    keybind = 'M';  // Default keybind (0 = none)
+}
+
+void MyModule::onEnable() { }
+void MyModule::onDisable() { }
+
+void MyModule::onUpdate()
+{
+    if (!enabled) return;
+    if (Menu::isOpen) return;
+    if (!player.isValid()) return;
+    
+    // Your logic here
+}
+
+void MyModule::onRenderMenu()
+{
+    ui::two_column(
+        "Settings", [this]() {
+            ui::CheckboxBind("Enabled", &enabled, &keybind);
+            ImGui::Spacing();
+            ui::SliderFloat("Value", &settings.myValue, 0.0f, 10.0f, "%.1f");
+        },
+        "Options", [this]() {
+            ui::Checkbox("Toggle", &settings.myToggle);
+        }
+    );
+}
+```
+
+### Step 4: Register in cobble.cpp
+
+```cpp
+// Add include
+#include "module/combat/mymodule.h"
+
+// In initialize()
+myModule = new MyModule();
+moduleManager->registerModule(myModule);
+
+// In shutdown()
+if (myModule) myModule->setEnabled(false);
+// ... after Overlay::Shutdown()
+if (myModule) { delete myModule; myModule = nullptr; }
+```
+
+### Step 5: Add to Menu
+
+**widgets.cpp** – Add to tab subtabs:
+```cpp
+std::vector<ui::tab_t> ui::tabs = {
+    { ICON_FA_CROSSHAIRS, "Combat", { "AutoClicker", ..., "MyModule" } },
+    // ...
+};
+```
+
+**menu.cpp** – Add to module lookup:
+```cpp
+#include "../../module/combat/mymodule.h"
+
+static Module* getModuleForSubtab(int tabIdx, int subtabIdx)
+{
+    if (tabIdx == 0) {  // Combat
+        switch (subtabIdx) {
+            // ...
+            case 5: return myModule;
+        }
+    }
+}
+```
+
+### Step 6: Add to vcxproj
+
+```xml
+<ClCompile Include="src\module\combat\mymodule.cpp" />
+```
+
+---
+
+## UI Guidelines
+
+### Layout Helpers
+
+```cpp
+// Two columns (standard layout)
+ui::two_column(
+    "Left Title", []() { /* widgets */ },
+    "Right Title", []() { /* widgets */ }
+);
+
+// Single section
+ui::section("Title", []() { /* widgets */ });
+```
+
+### Available Widgets
+
+| Widget | Usage |
+|--------|-------|
+| `ui::Checkbox(label, &bool)` | Toggle on/off |
+| `ui::CheckboxBind(label, &bool, &key)` | Checkbox + keybind |
+| `ui::SliderFloat(label, &float, min, max, fmt)` | Float slider |
+| `ui::SliderInt(label, &int, min, max, fmt)` | Int slider |
+| `ui::Binder(label, &key)` | Keybind only |
+| `ui::color(label, float[4], alpha)` | Color picker |
+
+### Standard onRenderMenu() Pattern
+
+```cpp
+void MyModule::onRenderMenu()
+{
+    ui::two_column(
+        "General", [this]() {
+            ui::CheckboxBind("Enabled", &enabled, &keybind);
+            ImGui::Spacing();
+            // Core settings here
+        },
+        "Conditions", [this]() {
+            // Toggles/options here
+        }
+    );
+}
+```
+
+### Visual Order Convention
+
+1. **Enabled checkbox** (always first)
+2. **Core value sliders**
+3. **Mode selector** (if applicable)
+4. **Condition checkboxes**
+
+---
+
+## Anti-Patterns
+
+### ❌ Never Do This
+
+```cpp
+// Static module (causes crash on inject)
+AutoClicker autoClicker;  // WRONG
+
+// Use heap allocation instead:
+autoClicker = new AutoClicker();  // CORRECT
+```
+
+```cpp
+// Hard-coded magic numbers
+float delay = 0.0167f;  // WRONG
+
+// Use named constants:
+static constexpr float TICK_RATE = 1.0f / 60.0f;  // CORRECT
+```
+
+```cpp
+// Duplicate widget implementations
+// Each file has its own SliderFloat...  // WRONG
+
+// All widgets live in widgets.cpp  // CORRECT
+```
+
+```cpp
+// Module-specific code in menu.cpp
+if (cur_tab == 0 && subtab == 0) {
+    ImGui::Checkbox("AutoClicker", &autoClicker->enabled);  // WRONG
+}
+
+// Use module->onRenderMenu() instead  // CORRECT
+```
+
+### ❌ JNI Safety
+
+```cpp
+// Never call JNI from render thread
+void onRenderMenu() {
+    player.getHealth();  // WRONG - may crash
+}
+
+// Cache values in onUpdate(), display in onRenderMenu()
+void onUpdate() {
+    cachedHealth = player.getHealth();  // CORRECT
+}
+```
+
+---
+
+## Build Commands
+
+```powershell
+# Full build (recommended)
+.\build.ps1 -Release
+
+# Quick DLL rebuild
+msbuild Cobble.vcxproj /p:Configuration=Release /p:Platform=x64 /t:Rebuild
+
+# Only compile changed files
+msbuild Cobble.vcxproj /p:Configuration=Release /p:Platform=x64
+```
+
+---
+
+## Debugging Tips
+
+### Enable Debug Console
+
+In `src/util/logger.hpp`:
+```cpp
+#define DEBUG_CONSOLE 1  // Enable colored console
+```
+
+### Useful Log Points
+
+```cpp
+log_ok("Module enabled: %s", name);
+log_err("JNI call failed!");
+log_debug("Value: %.2f", someFloat);
+```
+
+### Testing Modules Safely
+
+1. Start with module disabled by default
+2. Use defensive checks in `onUpdate()`:
+   ```cpp
+   if (!enabled) return;
+   if (Menu::isOpen) return;
+   if (!player.isValid()) return;
+   ```
+3. Test keybind toggle before testing logic
+
+---
+
+## Checklist for New Modules
+
+- [ ] Header with `onRenderMenu()` override
+- [ ] Implementation with UI using `ui::two_column()`
+- [ ] Registered in `cobble.cpp` (alloc, register, cleanup)
+- [ ] Added to `widgets.cpp` tab definition
+- [ ] Added to `menu.cpp` subtab lookup
+- [ ] Added to `Cobble.vcxproj`
+- [ ] Tested build
+- [ ] Tested in-game

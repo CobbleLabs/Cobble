@@ -1,7 +1,8 @@
 #include "autoclicker.h"
 #include "../../sdk/minecraft.h"
 #include "../../util/logger.hpp"
-#include "../../overlay/menu.h"
+#include "../../ui/menu/menu.h"
+#include "../../ui/widgets/widgets.hpp"
 
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
@@ -448,4 +449,24 @@ void AutoClicker::updateJitterMode()
 	// How long to stay in this mode: 5-25 clicks
 	std::uniform_int_distribution<int> lengthDist(5, 25);
 	jitterModeClicksRemaining = lengthDist(rng);
+}
+
+void AutoClicker::onRenderMenu()
+{
+	ui::two_column(
+		"General", [this]() {
+			ui::CheckboxBind("Enabled", &enabled, &keybind);
+			ImGui::Spacing();
+			ui::SliderFloat("Min CPS", &settings.minCPS, 1.0f, 20.0f, "%.1f");
+			ui::SliderFloat("Max CPS", &settings.maxCPS, 1.0f, 20.0f, "%.1f");
+			if (settings.minCPS > settings.maxCPS)
+				settings.minCPS = settings.maxCPS;
+		},
+		"Conditions", [this]() {
+			ui::Checkbox("Stable CPS", &settings.stableCPS);
+			ui::Checkbox("Weapon Only", &settings.weaponOnly);
+			ui::Checkbox("Break Blocks", &settings.breakBlocks);
+			ui::Checkbox("Inventory", &settings.workInInventory);
+		}
+	);
 }

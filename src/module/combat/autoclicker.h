@@ -12,6 +12,7 @@ public:
 	void onEnable() override;
 	void onDisable() override;
 	void onUpdate() override;
+	void onRenderMenu() override;
 
 	struct Settings {
 		float minCPS = 14.0f;

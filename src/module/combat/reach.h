@@ -10,6 +10,7 @@ public:
 	void onEnable() override;
 	void onDisable() override;
 	void onUpdate() override;
+	void onRenderMenu() override;
 
 	struct Settings {
 		float distance = 3.0f;        // Reach distance (vanilla is 3.0)

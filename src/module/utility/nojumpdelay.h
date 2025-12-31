@@ -10,6 +10,7 @@ public:
 	void onEnable() override;
 	void onDisable() override;
 	void onUpdate() override;
+	void onRenderMenu() override;
 };
 
 extern NoJumpDelay* noJumpDelay;

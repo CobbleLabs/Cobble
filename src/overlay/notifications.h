@@ -37,9 +37,9 @@ class NotificationManager
 {
 public:
 	static void add(const std::string& moduleName, bool enabled);
-	static void addSystem(const std::string& message);  // System notifications (green text, no ON/OFF)
+	static void addSystem(const std::string& message);
 	static void render();
-	static void update();  // Remove expired notifications
+	static void update();
 	
 	// Settings
 	static inline bool enabled = true;

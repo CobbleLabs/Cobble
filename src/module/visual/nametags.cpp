@@ -3,6 +3,7 @@
 #include "../../sdk/render_data.h"
 #include "../../util/logger.hpp"
 #include "../../util/math/worldToScreen.h"
+#include "../../ui/widgets/widgets.hpp"
 
 #include "../../../ext/imgui/imgui.h"
 #include <cmath>
@@ -334,4 +335,20 @@ void NameTags::renderPlayerTag(ImDrawList* draw, float screenX, float screenY, c
 			ImVec2(posX + barWidth * healthPercent, barY + barHeight),
 			IM_COL32(r, g, 0, 255), 2.0f);
 	}
+}
+
+void NameTags::onRenderMenu()
+{
+	ui::two_column(
+		"Settings", [this]() {
+			ui::CheckboxBind("Enabled", &enabled, &keybind);
+			ImGui::Spacing();
+			ui::SliderFloat("Scale", &settings.scale, 0.5f, 2.0f, "%.1f");
+			ui::Checkbox("Background", &settings.background);
+		},
+		"Display", [this]() {
+			ui::Checkbox("Show Health", &settings.showHealth);
+			ui::Checkbox("Show Distance", &settings.showDistance);
+		}
+	);
 }

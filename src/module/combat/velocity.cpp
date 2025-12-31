@@ -1,6 +1,7 @@
 #include "velocity.h"
 #include "../../sdk/minecraft.h"
-#include "../../overlay/menu.h"
+#include "../../ui/menu/menu.h"
+#include "../../ui/widgets/widgets.hpp"
 
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
@@ -232,4 +233,75 @@ float Velocity::getAttackerAngle()
 	// This would require tracking the last attacker position
 	// For now, return 0 (approximated in checkFOV using motion)
 	return 0.0f;
+}
+
+void Velocity::onRenderMenu()
+{
+	ui::two_column(
+		"General", [this]() {
+			ui::CheckboxBind("Enabled", &enabled, &keybind);
+			ImGui::Spacing();
+			
+			// Mode selector
+			const char* modes[] = { "Regular", "Jump", "Reduce", "Ignore" };
+			int modeIdx = static_cast<int>(settings.mode);
+			ImGui::SetNextItemWidth(ImGui::CalcItemWidth());
+			if (ImGui::BeginCombo("Mode", modes[modeIdx], ImGuiComboFlags_NoArrowButton)) {
+				for (int i = 0; i < 4; i++) {
+					bool selected = (modeIdx == i);
+					if (ImGui::Selectable(modes[i], selected))
+						settings.mode = static_cast<Mode>(i);
+					if (selected)
+						ImGui::SetItemDefaultFocus();
+				}
+				ImGui::EndCombo();
+			}
+			
+			ImGui::Spacing();
+			
+			// Mode-specific settings
+			if (settings.mode == Mode::Regular || settings.mode == Mode::Reduce) {
+				ui::SliderFloat("Horizontal", &settings.horizontal, 0.0f, 100.0f, "%.0f%%");
+				ui::SliderFloat("Vertical", &settings.vertical, 0.0f, 100.0f, "%.0f%%");
+				ui::SliderFloat("Chance", &settings.chance, 0.0f, 100.0f, "%.0f%%");
+				if (settings.mode == Mode::Reduce) {
+					ui::Checkbox("Double Clicks", &settings.allowDoubleClicks);
+				}
+			}
+			else if (settings.mode == Mode::Jump) {
+				ui::SliderFloat("Jump Chance", &settings.jumpChance, 0.0f, 100.0f, "%.0f%%");
+			}
+			else if (settings.mode == Mode::Ignore) {
+				ui::SliderFloat("Chance", &settings.chance, 0.0f, 100.0f, "%.0f%%");
+				const char* vertModes[] = { "Never", "Only Air", "Always" };
+				int vertIdx = static_cast<int>(settings.verticalMode);
+				ImGui::SetNextItemWidth(ImGui::CalcItemWidth());
+				if (ImGui::BeginCombo("Vertical", vertModes[vertIdx], ImGuiComboFlags_NoArrowButton)) {
+					for (int i = 0; i < 3; i++) {
+						bool selected = (vertIdx == i);
+						if (ImGui::Selectable(vertModes[i], selected))
+							settings.verticalMode = static_cast<VerticalMode>(i);
+						if (selected)
+							ImGui::SetItemDefaultFocus();
+					}
+					ImGui::EndCombo();
+				}
+			}
+			
+			ui::SliderFloat("FOV", &settings.fov, 0.0f, 360.0f, "%.0f");
+			
+			int delay = settings.reduceDelay;
+			if (ui::SliderInt("Delay", &delay, 0, 5, "%d ticks"))
+				settings.reduceDelay = delay;
+		},
+		"Conditions", [this]() {
+			ui::Checkbox("Looking at Player", &settings.onlyLookingAtPlayer);
+			ui::Checkbox("Mouse Pressed", &settings.onlyMousePressed);
+			ui::Checkbox("Moving Forward", &settings.onlyMovingForward);
+			ui::Checkbox("Holding Weapon", &settings.onlyHoldingWeapon);
+			if (settings.mode == Mode::Jump) {
+				ui::Checkbox("Only Sprinting", &settings.onlySprinting);
+			}
+		}
+	);
 }

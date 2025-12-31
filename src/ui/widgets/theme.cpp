@@ -1,0 +1,60 @@
+#include "theme.hpp"
+
+namespace ui {
+namespace theme {
+
+    ImU32 getAccent(float alpha) {
+        ImVec4 col = ImVec4(accentColor[0], accentColor[1], accentColor[2], accentColor[3]);
+        col.w *= alpha * ImGui::GetStyle().Alpha;
+        return ImGui::ColorConvertFloat4ToU32(col);
+    }
+
+    void apply() {
+        auto& style = ImGui::GetStyle();
+        
+        style.WindowRounding = 8.0f;
+        style.ChildRounding = 6.0f;
+        style.FrameRounding = 4.0f;
+        style.GrabRounding = 4.0f;
+        style.PopupRounding = 6.0f;
+        style.ScrollbarRounding = 4.0f;
+        
+        style.WindowPadding = { 0, 0 };
+        style.FramePadding = { 8, 6 };
+        style.ItemSpacing = { 8, 8 };
+        style.ItemInnerSpacing = { 8, 4 };
+        
+        ImVec4* colors = style.Colors;
+        
+        colors[ImGuiCol_Text] = ImVec4(1.00f, 1.00f, 1.00f, 1.00f);
+        colors[ImGuiCol_TextDisabled] = ImVec4(0.39f, 0.39f, 0.39f, 1.00f);
+        colors[ImGuiCol_WindowBg] = ImVec4(0.063f, 0.063f, 0.063f, 1.00f);
+        colors[ImGuiCol_ChildBg] = ImVec4(0.078f, 0.078f, 0.078f, 1.00f);
+        colors[ImGuiCol_PopupBg] = ImVec4(0.122f, 0.122f, 0.122f, 1.00f);
+        colors[ImGuiCol_Border] = ImVec4(1.00f, 1.00f, 1.00f, 0.06f);
+        colors[ImGuiCol_BorderShadow] = ImVec4(1.00f, 1.00f, 1.00f, 0.10f);
+        
+        colors[ImGuiCol_FrameBg] = ImVec4(0.063f, 0.063f, 0.063f, 1.00f);
+        colors[ImGuiCol_FrameBgHovered] = ImVec4(0.082f, 0.082f, 0.082f, 1.00f);
+        colors[ImGuiCol_FrameBgActive] = ImVec4(0.102f, 0.102f, 0.102f, 1.00f);
+        
+        colors[ImGuiCol_Header] = ImVec4(0.102f, 0.102f, 0.102f, 1.00f);
+        colors[ImGuiCol_HeaderHovered] = ImVec4(0.122f, 0.122f, 0.122f, 1.00f);
+        colors[ImGuiCol_HeaderActive] = ImVec4(0.141f, 0.141f, 0.141f, 1.00f);
+        
+        colors[ImGuiCol_Button] = ImVec4(0.102f, 0.102f, 0.102f, 1.00f);
+        colors[ImGuiCol_ButtonHovered] = ImVec4(0.122f, 0.122f, 0.122f, 1.00f);
+        colors[ImGuiCol_ButtonActive] = ImVec4(0.141f, 0.141f, 0.141f, 1.00f);
+        
+        colors[ImGuiCol_ScrollbarBg] = ImVec4(0.0f, 0.0f, 0.0f, 0.0f);
+        colors[ImGuiCol_ScrollbarGrab] = ImVec4(0.110f, 0.110f, 0.110f, 1.00f);
+        colors[ImGuiCol_ScrollbarGrabHovered] = ImVec4(0.129f, 0.129f, 0.129f, 1.00f);
+        colors[ImGuiCol_ScrollbarGrabActive] = ImVec4(0.149f, 0.149f, 0.149f, 1.00f);
+        
+        colors[ImGuiCol_CheckMark] = ImVec4(accentColor[0], accentColor[1], accentColor[2], 1.0f);
+        colors[ImGuiCol_SliderGrab] = ImVec4(accentColor[0], accentColor[1], accentColor[2], 1.0f);
+        colors[ImGuiCol_SliderGrabActive] = ImVec4(accentColor[0], accentColor[1], accentColor[2], 1.0f);
+    }
+
+} // namespace theme
+} // namespace ui

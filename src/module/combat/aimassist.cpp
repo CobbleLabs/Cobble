@@ -1,6 +1,7 @@
 #include "aimassist.h"
 #include "../../sdk/minecraft.h"
 #include "../../util/logger.hpp"
+#include "../../ui/widgets/widgets.hpp"
 
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
@@ -460,4 +461,23 @@ float AimAssist::randomFloat(float min, float max)
 {
 	std::uniform_real_distribution<float> dist(min, max);
 	return dist(rng);
+}
+
+void AimAssist::onRenderMenu()
+{
+	ui::two_column(
+		"Settings", [this]() {
+			ui::CheckboxBind("Enabled", &enabled, &keybind);
+			ImGui::Spacing();
+			ui::SliderFloat("Speed", &settings.horizontalSpeed, 1.0f, 100.0f, "%.0f");
+			ui::SliderFloat("FOV", &settings.maxFov, 10.0f, 180.0f, "%.0f");
+			ui::SliderFloat("Distance", &settings.maxDistance, 3.0f, 8.0f, "%.1f");
+		},
+		"Filters", [this]() {
+			ui::Checkbox("Clicking Only", &settings.onlyClicking);
+			ui::Checkbox("Target Lock", &settings.targetLock);
+			ui::Checkbox("Visibility", &settings.visibilityCheck);
+			ui::Checkbox("Ignore Invis", &settings.ignoreInvisible);
+		}
+	);
 }

@@ -6,6 +6,33 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/).
 
 ---
 
+## [0.16.0] - 2025-12-31
+
+### Added
+- **Modular UI Architecture**: Nueva estructura de directorios `src/ui/` con componentes separados
+  - `src/ui/core/` - Sistema base de overlay y hooks
+  - `src/ui/widgets/` - Widgets reutilizables consolidados
+  - `src/ui/menu/` - Framework del menú principal
+  - `src/ui/hud/` - Elementos HUD (ArrayList, Notifications)
+- **Module Self-Rendering**: Cada módulo ahora define su propia UI via `onRenderMenu()`
+  - Eliminada la necesidad de centralizar UI en `menu.cpp`
+  - Módulos son completamente auto-contenidos
+- **Layout Helpers**: Nuevas funciones para crear UIs consistentes
+  - `ui::two_column()` - Layout de dos columnas estándar
+  - `ui::section()` - Sección con header
+  - `ui::full_width()` - Sección de ancho completo
+- **Consolidated Widgets**: Widgets duplicados ahora centralizados en `widgets.cpp`
+  - Checkbox, SliderFloat/Int, Binder, CheckboxBind, ColorPicker
+  - Sistema de animación unificado
+  - Scaling automático por resolución
+
+### Changed
+- **Module base class**: Agregado `virtual void onRenderMenu()` para self-registration
+- **Build configuration**: vcxproj actualizado con nuevos paths en `src/ui/`
+- **Directory structure**: UI refactorizada de `src/overlay/` a `src/ui/`
+
+---
+
 ## [0.15.0] - 2025-12-30
 
 ### Fixed

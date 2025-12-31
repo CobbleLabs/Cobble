@@ -1,5 +1,6 @@
 #include "autorefill.h"
 #include "../../sdk/minecraft.h"
+#include "../../ui/widgets/widgets.hpp"
 
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
@@ -178,4 +179,21 @@ void AutoRefill::scanForRefills()
 			sourceIdx++;
 		}
 	}
+}
+
+void AutoRefill::onRenderMenu()
+{
+	ui::two_column(
+		"General", [this]() {
+			ui::Binder("Keybind", &keybind);
+			ImGui::Spacing();
+			int speed = settings.speed;
+			if (ui::SliderInt("Speed (ms)", &speed, 50, 200, "%d"))
+				settings.speed = speed;
+		},
+		"Filters", [this]() {
+			ui::Checkbox("Refill Soup", &settings.refillSoup);
+			ui::Checkbox("Refill Potions", &settings.refillPotions);
+		}
+	);
 }

@@ -1,6 +1,7 @@
 #include "reach.h"
 #include "../../sdk/minecraft.h"
-#include "../../overlay/menu.h"
+#include "../../ui/menu/menu.h"
+#include "../../ui/widgets/widgets.hpp"
 
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
@@ -74,4 +75,26 @@ void Reach::onUpdate()
 	// - Entity ray tracing
 	// - Or modifying objectMouseOver distance check
 	// This basic version stores the reach value for use by other systems
+}
+
+void Reach::onRenderMenu()
+{
+	ui::two_column(
+		"General", [this]() {
+			ui::CheckboxBind("Enabled", &enabled, &keybind);
+			ImGui::Spacing();
+			ui::Checkbox("Randomize", &settings.randomize);
+			if (settings.randomize) {
+				ui::SliderFloat("Min Distance", &settings.minDistance, 3.0f, 6.0f, "%.1f");
+				ui::SliderFloat("Max Distance", &settings.maxDistance, 3.0f, 6.0f, "%.1f");
+			} else {
+				ui::SliderFloat("Distance", &settings.distance, 3.0f, 6.0f, "%.1f");
+			}
+		},
+		"Conditions", [this]() {
+			ui::Checkbox("Weapons Only", &settings.weaponsOnly);
+			ui::Checkbox("Sprinting Only", &settings.sprintingOnly);
+			ui::Checkbox("Moving Only", &settings.movingOnly);
+		}
+	);
 }

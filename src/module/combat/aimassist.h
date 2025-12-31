@@ -15,6 +15,7 @@ public:
 	void onEnable() override;
 	void onDisable() override;
 	void onUpdate() override;
+	void onRenderMenu() override;
 
 	struct Settings {
 		bool visibilityCheck = true;

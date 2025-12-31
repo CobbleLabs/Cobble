@@ -1,7 +1,7 @@
 #pragma once
 
 #include <string>
-#include "../overlay/notifications.h"
+#include "../ui/hud/notifications.h"
 
 struct Module
 {
@@ -23,6 +23,10 @@ struct Module
 	
 	// Called every frame for rendering (visual modules)
 	virtual void onRender() {}
+	
+	// Called to render this module's settings in the menu
+	// Each module implements its own UI using ui:: widgets
+	virtual void onRenderMenu() {}
 
 	void toggle()
 	{

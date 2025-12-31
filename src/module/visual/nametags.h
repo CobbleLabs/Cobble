@@ -26,8 +26,9 @@ public:
 
 	void onEnable() override;
 	void onDisable() override;
-	void onUpdate() override;  // Cache player positions (main thread)
-	void onRender() override;  // Project positions to screen (render thread)
+	void onUpdate() override;
+	void onRender() override;
+	void onRenderMenu() override;
 
 	struct Settings {
 		float range = 64.0f;
