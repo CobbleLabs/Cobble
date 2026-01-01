@@ -6,6 +6,7 @@
 #include <vector>
 #include <map>
 #include <string>
+#include <atomic>
 
 // Data for a remote player in the world
 struct PlayerInfo
@@ -97,6 +98,37 @@ struct Minecraft
 	void releaseMovementKeys();
 	// Restore keys that are physically held down
 	void restoreMovementKeys();
+
+	// World block query for Bridge Assist
+	// Returns block ID at given coordinates (0 = air)
+	int getBlockId(int x, int y, int z);
+
+	struct Vec3 {
+		float x = 0, y = 0, z = 0;
+		Vec3() = default;
+		Vec3(float x, float y, float z) : x(x), y(y), z(z) {}
+	};
+	
+	// ToadClient-style result enum
+	enum class RAYTRACE_BLOCKS_RESULT {
+		HIT,                  // hit a block
+		HIT_FROM_AIRBLOCK,    // hit a block but ray origin was airblock
+		NO_HIT,               // the void
+		NO_HIT_FROM_AIRBLOCK, // the void but ray origin was airblock
+		RAYTRACE_ERROR        // debugging purposes (renamed from ERROR to avoid Windows macro)
+	};
+	
+	// Raytrace blocks
+	// @param from beginning of ray
+	// @param direction direction of ray (should be large value like 0,-1e6,0)
+	// @param result if return value was HIT, the block position, else {-1.5..}
+	// @param stopOnLiquid whether the ray should stop on liquid blocks
+
+	RAYTRACE_BLOCKS_RESULT rayTraceBlocks(Vec3 from, Vec3 direction, Vec3& result, bool stopOnLiquid = false);
+
+	// Input control (JNI)
+	void setKeyBindState(int keyCode, bool pressed);
+	int getSneakKey(); // Returns key code for sneak keybind
 
 	jclass cls = nullptr;
 	jobject instance = nullptr;

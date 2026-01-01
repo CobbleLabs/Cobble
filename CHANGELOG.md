@@ -6,9 +6,112 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/).
 
 ---
 
+## [0.19.0] - 2026-01-01
+
+### Added
+- **Locked Modules System**: Sistema de módulos experimentales bloqueados
+  - Velocity, Reach, y Blink marcados como `locked = true`
+  - UI in-page de desbloqueo con input de código (no popup)
+  - `Module::experimentalUnlocked` flag global para desbloquear todos
+  - Módulos bloqueados aparecen en gris en el sidebar
+
+### Changed
+- **Menu Size**: Aumentado de 670x478 a 750x530 para mejor visibilidad en 1080p
+- **Menu Scaling**: Escala mínima aumentada de 0.6 a 0.85
+- **Blink Module**: Reescrito para usar WinsockHooks (NtDeviceIoControlFile) en vez de JNI
+  - El approach JNI (lastReportedPos manipulation) NO funcionó en Lunar Client
+  - El approach actual usa hooks de red a nivel bajo para bloquear paquetes
+
+### Removed
+- **TestModule**: Módulo de pruebas eliminado de Visuals
+- **Dead Blink JNI Code**: ~300 líneas removidas de minecraft.cpp (setLastReportedPos, captureBlinkPosition, etc.)
+- **Lock Icons**: Removidos íconos de candado de módulos experimentales
+
+### Fixed
+- **Blink Keybind**: Cambiado de '0' (tecla 0) a 0 (NONE)
+
+---
+
+### 📋 Problemas con Blink y Soluciones Futuras
+
+**Intentos fallidos para Blink:**
+
+1. **JNI lastReportedPos** (NO FUNCIONÓ en Lunar)
+   - Manipulación de campos `lastReportedPosX/Y/Z` en EntityPlayerSP
+   - Lunar Client tiene estos campos ofuscados o protegidos
+   - El cliente seguía enviando paquetes de movimiento
+
+2. **WSASend/send hooks** (PARCIAL)
+   - Minecraft Java usa Java NIO, no Winsock directamente
+   - Los hooks de WSASend capturaban 0 paquetes
+
+3. **NtDeviceIoControlFile hook** (ACTUAL - FUNCIONA)
+   - Hook a nivel de kernel/driver intercepta IOCTL de red
+   - Bloquea TODO el tráfico saliente (no solo movimiento)
+   - Problema: El servidor detecta falta de keepalives después de ~5s
+
+**Soluciones futuras recomendadas:**
+
+1. **JVMTI/Bytecode Injection** (MEJOR)
+   - Instrumentar `EntityPlayerSP.onUpdateWalkingPlayer()` via JVMTI
+   - Interceptar antes de que se envíe el paquete
+   - Requiere más investigación de bytecode Java
+
+2. **JNI con mapping correcto**
+   - Obtener mappings actuales de Lunar Client
+   - Los campos tienen nombres como `field_175172_bI` (SRG) u otros
+
+3. **Packet-level filtering**
+   - Hookear `NetworkManager.sendPacket()` via JNI
+   - Filtrar solo C03PacketPlayer y subclases
+   - Mantener keepalives funcionando
+
+---
+
+## [0.18.1] - 2026-01-01
+
+### Added
+- **ESP 3D Box**: Nueva opción de wireframe 3D que proyecta las 8 esquinas del hitbox del jugador
+  - Dibuja las 12 aristas del cubo 3D real (0.6x1.8 bloques)
+  - **Face-based filling**: Relleno por caras individuales con front-face culling
+  - Círculos en las esquinas para look suavizado
+  - Outline opcional con líneas más gruesas
+  - Funciona correctamente desde cualquier ángulo (arriba, abajo, lados)
+  - Mutuamente exclusivo con Box 2D (solo uno puede estar activo)
+
+- **Blink Module**: Módulo de combat con position freeze via JNI
+  - **lastReportedPos manipulation**: Manipula campos privados de EntityPlayerSP para congelar posición
+  - **Sin packet interception**: No requiere hookear WSASend ni NetworkManager (funciona en Lunar)
+  - **Debug visual**: Box roja (server pos) vs box verde (local pos)
+  - **Max Duration**: Timer de seguridad auto-desactiva después de N segundos
+  - **Disable on Attack**: Se desactiva automáticamente al atacar
+  - Métodos SDK: `captureBlinkPosition()`, `setLastReportedPos()`, `restoreLastReportedPos()`
+
+---
+
+## [0.18.0] - 2025-12-31
+
+### Changed
+- **AimAssist**: Reescritura completa usando lógica exacta de ToadClient
+  - Sistema `AimBoost` para randomización de velocidad con interpolación suave
+  - Modos de target: Health, Distance, FOV (closest to crosshair)
+  - `ApplyAimRand` con pitch randomization cuando tracking horizontal
+  - `GetAimPoint` con detección de hitbox para evitar sobre-corrección
+  - Movimiento via `SetCursorPos` (método ToadClient)
+  - Opciones: Always Aim, Horizontal Only, Lock Aim, Break Blocks, Aim Closest Point, Target Invisibles
+  - Reaction Time configurable
+  - Timer class incluida para timing preciso
+
+---
+
 ## [0.17.0] - 2025-12-31
 
 ### Fixed
+### Added
+- **Bridge Assist**: Nuevo módulo en la pestaña Movement.
+  - Auto-sneak al detectar borde de bloque (bridging seguro).
+  - Opciones `Pitch Check` (solo mirando abajo) y `Blocks Only` (solo con bloques en mano).
+  - Implementado extendiendo el SDK para leer IDs de bloques (`getBlockId`).
 - **Input Handling**: Fixed persistent movement issues where WASD keys weren't restored after closing the menu.
 - **Log Spam**: Resolved issue with repeated `releaseMovementKeys` logging.
 - **Sprint Persistence**: Fixed sprint being cancelled when opening the menu.
@@ -32,7 +135,7 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/).
   - **[NEW] Smart Rendering**: ESP automatically pauses when in menus/loading screens to prevent ghosting or overlay issues.
   - Default colors set to Red/Transparent Red.
 - **Injection Detection**: Switched to Named Mutex (`Global\Cobble_Instance_{PID}`) for 100% reliable double-injection prevention.
-- **Loader Redesign V4 (Premium)**: "Cinematic" UX with Horizontal Gradient banner (UTF-8 fixed), Smart Loading stages (init -> verify -> prep), Fixed window size (no resize), Spinner animations, Elegant error handling, and subtle Audio feedback.
+- **Loader Redesign V5 (Premium)**: "Cinematic" UX with Horizontal Gradient banner (UTF-8 fixed), Ultra Smooth Loading Bar (Solid Track + sub-pixel 8x), Fixed 80x30 Window (Centered), Spinner animations, Elegant error handling, and subtle Audio feedback.
 - **Modular UI Architecture**: Nueva estructura de directorios `src/ui/` con componentes separados
   - `src/ui/core/` - Sistema base de overlay y hooks
   - `src/ui/widgets/` - Widgets reutilizables consolidados

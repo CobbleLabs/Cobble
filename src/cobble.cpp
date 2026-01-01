@@ -5,10 +5,12 @@
 #include "module/combat/autorefill.h"
 #include "module/combat/velocity.h"
 #include "module/combat/reach.h"
+#include "module/combat/blink.h"
 #include "module/utility/nojumpdelay.h"
+#include "module/utility/bridgeassist.h"
 #include "module/visual/nametags.h"
 #include "module/visual/esp.h"
-#include "module/visual/testmodule.h"
+#include "hooks/winsock_hooks.h"
 #include "ui/core/overlay.h"
 #include "ui/hud/notifications.h"
 #include "util/integrity.h"
@@ -55,10 +57,11 @@ void cobble::context::initialize(HMODULE hModule)
 	autoRefill = new AutoRefill();
 	velocity = new Velocity();
 	reach = new Reach();
+	blink = new Blink();
 	noJumpDelay = new NoJumpDelay();
+	bridgeAssist = new BridgeAssist();
 	nameTags = new NameTags();
 	esp = new ESP();
-	testModule = new TestModule();
 	log_ok("Modules allocated");
 
 	log_raw("Registering modules...");
@@ -67,11 +70,20 @@ void cobble::context::initialize(HMODULE hModule)
 	moduleManager->registerModule(autoRefill);
 	moduleManager->registerModule(velocity);
 	moduleManager->registerModule(reach);
+	moduleManager->registerModule(blink);
 	moduleManager->registerModule(noJumpDelay);
+	moduleManager->registerModule(bridgeAssist);
 	moduleManager->registerModule(nameTags);
 	moduleManager->registerModule(esp);
-	moduleManager->registerModule(testModule);
 	log_ok("Modules registered");
+	
+	// Initialize WSA hooks for Blink packet blocking
+	log_raw("Initializing WSA hooks...");
+	if (WinsockHooks::Init()) {
+		log_ok("WSA hooks initialized");
+	} else {
+		log_warn("WSA hooks failed - Blink may not work properly");
+	}
 
 	// Create Named Mutex for Injection Detection
 	DWORD pid = GetCurrentProcessId();
@@ -144,10 +156,13 @@ void cobble::context::shutdown()
 	if (autoRefill) autoRefill->setEnabled(false);
 	if (velocity) velocity->setEnabled(false);
 	if (reach) reach->setEnabled(false);
+	if (blink) blink->setEnabled(false);
 	if (noJumpDelay) noJumpDelay->setEnabled(false);
+	if (bridgeAssist) bridgeAssist->setEnabled(false);
 	if (nameTags) nameTags->setEnabled(false);
 	if (esp) esp->setEnabled(false);
-	if (testModule) testModule->setEnabled(false);
+	
+	WinsockHooks::Shutdown();
 	
 	Overlay::Shutdown();
 	Java::Kill();
@@ -158,10 +173,11 @@ void cobble::context::shutdown()
 	if (autoRefill) { delete autoRefill; autoRefill = nullptr; }
 	if (velocity) { delete velocity; velocity = nullptr; }
 	if (reach) { delete reach; reach = nullptr; }
+	if (blink) { delete blink; blink = nullptr; }
 	if (noJumpDelay) { delete noJumpDelay; noJumpDelay = nullptr; }
+	if (bridgeAssist) { delete bridgeAssist; bridgeAssist = nullptr; }
 	if (nameTags) { delete nameTags; nameTags = nullptr; }
 	if (esp) { delete esp; esp = nullptr; }
-	if (testModule) { delete testModule; testModule = nullptr; }
 	
 	if (moduleManager) { delete moduleManager; moduleManager = nullptr; }
 	

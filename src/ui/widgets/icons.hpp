@@ -20,3 +20,4 @@
 #define ICON_FA_KEYBOARD        "\xef\x84\x9c"  // f11c - Keyboard
 #define ICON_FA_MOUSE           "\xef\xa1\xbc"  // f87c - Mouse (if available)
 #define ICON_FA_POWER_OFF       "\xef\x80\x91"  // f011 - Power/Eject
+#define ICON_FA_LOCK            "\xef\x80\xa3"  // f023 - Lock (experimental modules)

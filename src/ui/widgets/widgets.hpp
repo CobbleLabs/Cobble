@@ -132,7 +132,7 @@ namespace ui {
     // ==================== STYLE ====================
     void apply_style();
 
-    // Base window size (at 1080p)
-    inline ImVec2 baseSize{ 670, 478 };
-    inline ImVec2 size{ 670, 478 };
+    // Base window size (larger for better 1080p visibility)
+    inline ImVec2 baseSize{ 750, 530 };
+    inline ImVec2 size{ 750, 530 };
 }

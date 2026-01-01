@@ -1,6 +1,8 @@
 #include "widgets.hpp"
 #include "theme.hpp"
 #include "icons.hpp"
+#include "../menu/menu.h"
+#include "../../module/module.h"
 #include <cmath>
 #include <Windows.h>
 
@@ -17,9 +19,9 @@ inline ImU32 GetSchemeColor(float alpha) {
 
 // ==================== TAB DEFINITIONS ====================
 std::vector<ui::tab_t> ui::tabs = {
-    { ICON_FA_CROSSHAIRS, "Combat", { "AutoClicker", "AimAssist", "AutoRefill", "Velocity", "Reach" } },
-    { ICON_FA_EYE, "Visuals", { "NameTags", "ESP", "TestModule" } },
-    { ICON_FA_ROCKET, "Movement", { "NoJumpDelay" } },
+    { ICON_FA_CROSSHAIRS, "Combat", { "AutoClicker", "AimAssist", "AutoRefill", "Velocity", "Reach", "Blink" } },
+    { ICON_FA_EYE, "Visuals", { "NameTags", "ESP" } },
+    { ICON_FA_ROCKET, "Movement", { "NoJumpDelay", "BridgeAssist" } },
     { ICON_FA_GEAR, "Settings", { } }
 };
 
@@ -28,7 +30,7 @@ std::vector<ui::tab_t> ui::tabs = {
 void ui::updateScale() {
     float screenHeight = ImGui::GetIO().DisplaySize.y;
     scale = screenHeight / baseHeight;
-    if (scale < 0.6f) scale = 0.6f;
+    if (scale < 0.85f) scale = 0.85f;
     if (scale > 2.0f) scale = 2.0f;
 }
 
@@ -569,8 +571,14 @@ void ui::tab(int num) {
     obj.rad = animate(obj.rad, 0.f, IM_PI, selected);
     obj.col = col_anim(col_anim(GetColor(ImGuiCol_TextDisabled), GetColor(ImGuiCol_Text, 0.75f), obj.hover), GetColor(ImGuiCol_Text), obj.cur);
     
-    window->DrawList->AddText({ bb.Min.x + s(15), bb.GetCenter().y - icon_size.y / 2 }, obj.col, icon, FindRenderedTextEnd(icon));
-    window->DrawList->AddText(font(2 + (selected ? 1 : 0)), font(2 + (selected ? 1 : 0))->FontSize, { bb.Min.x + s(40), bb.GetCenter().y - name_size.y / 2 }, obj.col, name, FindRenderedTextEnd(name));
+    // Hide icons on small resolutions
+    bool showIcons = ImGui::GetIO().DisplaySize.y >= 600.0f;
+    float textOffsetX = showIcons ? s(40) : s(15);
+    
+    if (showIcons) {
+        window->DrawList->AddText({ bb.Min.x + s(15), bb.GetCenter().y - icon_size.y / 2 }, obj.col, icon, FindRenderedTextEnd(icon));
+    }
+    window->DrawList->AddText(font(2 + (selected ? 1 : 0)), font(2 + (selected ? 1 : 0))->FontSize, { bb.Min.x + textOffsetX, bb.GetCenter().y - name_size.y / 2 }, obj.col, name, FindRenderedTextEnd(name));
     
     if (tabs[num].m_subtabs.size() > 0) {
         rotate_start();
@@ -598,6 +606,10 @@ void ui::subtab(int num, int tab_num) {
     auto name = tabs[tab_num].m_subtabs[num];
     auto name_size = ImGui::CalcTextSize(name, 0, 1);
     
+    // Check if module is locked (experimental feature)
+    Module* mod = getModuleForSubtab(tab_num, num);
+    bool isLocked = mod && !mod->isAccessible();
+    
     bool selected = tabs[tab_num].next_subtab == num;
     
     auto window = ImGui::GetCurrentWindow();
@@ -610,6 +622,7 @@ void ui::subtab(int num, int tab_num) {
     bool hovered, held;
     bool pressed = ButtonBehavior(bb, id, &hovered, &held);
     
+    // Allow selection even for locked modules - renderPage shows unlock UI
     if (pressed && !selected) {
         tabs[tab_num].next_subtab = num;
         content_anim_dst = 0.f;
@@ -620,10 +633,17 @@ void ui::subtab(int num, int tab_num) {
     
     obj.anim = animate(obj.anim, 0.f, 1.f, selected);
     obj.hover = animate(obj.hover, 0.f, 1.f, hovered);
-    obj.col = col_anim(col_anim(GetColor(ImGuiCol_TextDisabled), GetColor(ImGuiCol_Text), obj.hover), GetSchemeColor(), obj.anim);
     
-    window->DrawList->AddText(bb.Min, obj.col, name, FindRenderedTextEnd(name));
+    if (isLocked) {
+        // Grayed out look for locked modules
+        ImU32 grayColor = IM_COL32(100, 100, 100, 150);
+        window->DrawList->AddText(bb.Min, grayColor, name, FindRenderedTextEnd(name));
+    } else {
+        obj.col = col_anim(col_anim(GetColor(ImGuiCol_TextDisabled), GetColor(ImGuiCol_Text), obj.hover), GetSchemeColor(), obj.anim);
+        window->DrawList->AddText(bb.Min, obj.col, name, FindRenderedTextEnd(name));
+    }
 }
+
 
 // ==================== APPLY STYLE ====================
 

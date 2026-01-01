@@ -17,6 +17,7 @@ static std::mt19937 rng(std::random_device{}());
 Velocity::Velocity() : Module("Velocity")
 {
 	keybind = 0;
+	locked = true;
 }
 
 void Velocity::onEnable()

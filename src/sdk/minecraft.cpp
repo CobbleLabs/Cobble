@@ -801,20 +801,77 @@ void Minecraft::openInventory()
 		return;
 	}
 
-	// Minecraft.displayGuiScreen(GuiScreen)
+	// Minecraft.displayGuiScreen(guiScreen)
 	jmethodID mid_displayGuiScreen = Java::Env->GetMethodID(cls, "displayGuiScreen", "(Lnet/minecraft/client/gui/GuiScreen;)V");
 	if (!mid_displayGuiScreen) {
-		Java::Env->DeleteLocalRef(guiInventory);
-		Java::Env->DeleteLocalRef(guiInventoryCls);
-		Java::Env->DeleteLocalRef(localPlayer);
-		return;
+		Java::Env->ExceptionClear();
+		// SRG name? func_147108_a
+		mid_displayGuiScreen = Java::Env->GetMethodID(cls, "func_147108_a", "(Lnet/minecraft/client/gui/GuiScreen;)V");
 	}
 
-	Java::Env->CallVoidMethod(instance, mid_displayGuiScreen, guiInventory);
+	if (mid_displayGuiScreen) {
+		Java::Env->CallVoidMethod(instance, mid_displayGuiScreen, guiInventory);
+	}
 
 	Java::Env->DeleteLocalRef(guiInventory);
 	Java::Env->DeleteLocalRef(guiInventoryCls);
 	Java::Env->DeleteLocalRef(localPlayer);
+}
+
+
+
+void Minecraft::setKeyBindState(int keyCode, bool pressed)
+{
+	if (!isValid() || !cls_keyBinding || !mid_setKeyBindState) return;
+	
+	// static void setKeyBindState(int keyCode, bool pressed)
+	Java::Env->CallStaticVoidMethod(cls_keyBinding, mid_setKeyBindState, keyCode, pressed);
+}
+
+int Minecraft::getSneakKey()
+{
+	if (!isValid()) return 42; // LSHIFT default
+	
+	// Get gameSettings
+	jfieldID fid_gameSettings = Java::Env->GetFieldID(cls, "gameSettings", "Lnet/minecraft/client/settings/GameSettings;");
+	if (!fid_gameSettings) return 42;
+	
+	jobject gameSettings = Java::Env->GetObjectField(instance, fid_gameSettings);
+	if (!gameSettings) return 42;
+	
+	jclass settingsCls = Java::Env->GetObjectClass(gameSettings);
+	if (!settingsCls) {
+		Java::Env->DeleteLocalRef(gameSettings);
+		return 42;
+	}
+	
+	// Get keyBindSneak field
+	jfieldID fid_keyBindSneak = Java::Env->GetFieldID(settingsCls, "keyBindSneak", "Lnet/minecraft/client/settings/KeyBinding;");
+	if (!fid_keyBindSneak) {
+		Java::Env->DeleteLocalRef(settingsCls);
+		Java::Env->DeleteLocalRef(gameSettings);
+		return 42;
+	}
+	
+	jobject keyBindSneak = Java::Env->GetObjectField(gameSettings, fid_keyBindSneak);
+	if (!keyBindSneak) {
+		Java::Env->DeleteLocalRef(settingsCls);
+		Java::Env->DeleteLocalRef(gameSettings);
+		return 42;
+	}
+	
+	// Get keyCode
+	// Assuming KeyBinding.getKeyCode() is available (we cache mid_getKeyCode in init)
+	int code = 42; 
+	if (mid_getKeyCode) {
+		code = Java::Env->CallIntMethod(keyBindSneak, mid_getKeyCode);
+	}
+	
+	Java::Env->DeleteLocalRef(keyBindSneak);
+	Java::Env->DeleteLocalRef(settingsCls);
+	Java::Env->DeleteLocalRef(gameSettings);
+	
+	return code;
 }
 
 void Minecraft::closeInventory()
@@ -1115,3 +1172,300 @@ void Minecraft::restoreMovementKeys()
 	env->DeleteLocalRef(gameSettings);
 }
 
+int Minecraft::getBlockId(int x, int y, int z)
+{
+	if (!isValid()) return 0;
+
+	jobject world = getWorld();
+	if (!world) return 0;
+
+	int blockId = 0;
+
+	// 1.8.x: BlockPos(x,y,z) -> world.getBlockState(pos) -> blockState.getBlock() -> Block.getIdFromBlock(block)
+	// Note: This implementation is for 1.8.9. 1.7.10 uses different method signatures.
+
+	jclass blockPosCls = nullptr;
+	if (!Java::AssignClass("net.minecraft.util.BlockPos", blockPosCls)) {
+		Java::Env->DeleteLocalRef(world);
+		return 0;
+	}
+
+	// BlockPos constructor: (int x, int y, int z)
+	jmethodID mid_blockPosInit = Java::Env->GetMethodID(blockPosCls, "<init>", "(III)V");
+	if (!mid_blockPosInit) {
+		Java::Env->DeleteLocalRef(blockPosCls);
+		Java::Env->DeleteLocalRef(world);
+		return 0;
+	}
+
+	jobject blockPos = Java::Env->NewObject(blockPosCls, mid_blockPosInit, x, y, z);
+	if (!blockPos) {
+		Java::Env->DeleteLocalRef(blockPosCls);
+		Java::Env->DeleteLocalRef(world);
+		return 0;
+	}
+
+	// Get World class for getBlockState method
+	jclass worldCls = nullptr;
+	if (!Java::AssignClass("net.minecraft.world.World", worldCls)) {
+		Java::Env->DeleteLocalRef(blockPos);
+		Java::Env->DeleteLocalRef(blockPosCls);
+		Java::Env->DeleteLocalRef(world);
+		return 0;
+	}
+
+	// world.getBlockState(BlockPos) -> IBlockState
+	jmethodID mid_getBlockState = Java::Env->GetMethodID(worldCls, "getBlockState", "(Lnet/minecraft/util/BlockPos;)Lnet/minecraft/block/state/IBlockState;");
+	if (!mid_getBlockState) {
+		Java::Env->ExceptionClear();
+		Java::Env->DeleteLocalRef(worldCls);
+		Java::Env->DeleteLocalRef(blockPos);
+		Java::Env->DeleteLocalRef(blockPosCls);
+		Java::Env->DeleteLocalRef(world);
+		return 0;
+	}
+
+	jobject blockState = Java::Env->CallObjectMethod(world, mid_getBlockState, blockPos);
+	if (!blockState) {
+		Java::Env->DeleteLocalRef(worldCls);
+		Java::Env->DeleteLocalRef(blockPos);
+		Java::Env->DeleteLocalRef(blockPosCls);
+		Java::Env->DeleteLocalRef(world);
+		return 0;
+	}
+
+	// IBlockState.getBlock() -> Block
+	jclass blockStateCls = nullptr;
+	if (!Java::AssignClass("net.minecraft.block.state.IBlockState", blockStateCls)) {
+		Java::Env->DeleteLocalRef(blockState);
+		Java::Env->DeleteLocalRef(worldCls);
+		Java::Env->DeleteLocalRef(blockPos);
+		Java::Env->DeleteLocalRef(blockPosCls);
+		Java::Env->DeleteLocalRef(world);
+		return 0;
+	}
+
+	jmethodID mid_getBlock = Java::Env->GetMethodID(blockStateCls, "getBlock", "()Lnet/minecraft/block/Block;");
+	if (!mid_getBlock) {
+		Java::Env->ExceptionClear();
+		Java::Env->DeleteLocalRef(blockStateCls);
+		Java::Env->DeleteLocalRef(blockState);
+		Java::Env->DeleteLocalRef(worldCls);
+		Java::Env->DeleteLocalRef(blockPos);
+		Java::Env->DeleteLocalRef(blockPosCls);
+		Java::Env->DeleteLocalRef(world);
+		return 0;
+	}
+
+	jobject block = Java::Env->CallObjectMethod(blockState, mid_getBlock);
+	if (!block) {
+		Java::Env->DeleteLocalRef(blockStateCls);
+		Java::Env->DeleteLocalRef(blockState);
+		Java::Env->DeleteLocalRef(worldCls);
+		Java::Env->DeleteLocalRef(blockPos);
+		Java::Env->DeleteLocalRef(blockPosCls);
+		Java::Env->DeleteLocalRef(world);
+		return 0;
+	}
+
+	// Block.getIdFromBlock(Block) -> int (static method)
+	jclass blockCls = nullptr;
+	if (!Java::AssignClass("net.minecraft.block.Block", blockCls)) {
+		Java::Env->DeleteLocalRef(block);
+		Java::Env->DeleteLocalRef(blockStateCls);
+		Java::Env->DeleteLocalRef(blockState);
+		Java::Env->DeleteLocalRef(worldCls);
+		Java::Env->DeleteLocalRef(blockPos);
+		Java::Env->DeleteLocalRef(blockPosCls);
+		Java::Env->DeleteLocalRef(world);
+		return 0;
+	}
+
+	jmethodID mid_getIdFromBlock = Java::Env->GetStaticMethodID(blockCls, "getIdFromBlock", "(Lnet/minecraft/block/Block;)I");
+	if (!mid_getIdFromBlock) {
+		Java::Env->ExceptionClear();
+		Java::Env->DeleteLocalRef(blockCls);
+		Java::Env->DeleteLocalRef(block);
+		Java::Env->DeleteLocalRef(blockStateCls);
+		Java::Env->DeleteLocalRef(blockState);
+		Java::Env->DeleteLocalRef(worldCls);
+		Java::Env->DeleteLocalRef(blockPos);
+		Java::Env->DeleteLocalRef(blockPosCls);
+		Java::Env->DeleteLocalRef(world);
+		return 0;
+	}
+
+	blockId = Java::Env->CallStaticIntMethod(blockCls, mid_getIdFromBlock, block);
+
+	// Cleanup
+	Java::Env->DeleteLocalRef(blockCls);
+	Java::Env->DeleteLocalRef(block);
+	Java::Env->DeleteLocalRef(blockStateCls);
+	Java::Env->DeleteLocalRef(blockState);
+	Java::Env->DeleteLocalRef(worldCls);
+	Java::Env->DeleteLocalRef(blockPos);
+	Java::Env->DeleteLocalRef(blockPosCls);
+	Java::Env->DeleteLocalRef(world);
+
+	return blockId;
+}
+
+Minecraft::RAYTRACE_BLOCKS_RESULT Minecraft::rayTraceBlocks(Vec3 from, Vec3 direction, Vec3& result, bool stopOnLiquid)
+{
+	// ToadClient-style rayTraceBlocks implementation
+	result = { -1.5f, -1.5f, -1.5f }; // Default error value
+	
+	if (!isValid()) return RAYTRACE_BLOCKS_RESULT::RAYTRACE_ERROR;
+
+	jobject world = getWorld();
+	if (!world) return RAYTRACE_BLOCKS_RESULT::RAYTRACE_ERROR;
+
+	jclass worldCls = nullptr;
+	if (!Java::AssignClass("net.minecraft.world.World", worldCls)) {
+		Java::Env->DeleteLocalRef(world);
+		return RAYTRACE_BLOCKS_RESULT::RAYTRACE_ERROR;
+	}
+
+	// We need Vec3 class
+	jclass vec3Cls = nullptr;
+	if (!Java::AssignClass("net.minecraft.util.Vec3", vec3Cls)) {
+		Java::Env->DeleteLocalRef(worldCls);
+		Java::Env->DeleteLocalRef(world);
+		return RAYTRACE_BLOCKS_RESULT::RAYTRACE_ERROR;
+	}
+
+	// Vec3 constructor (x, y, z) - uses double
+	jmethodID mid_vec3Init = Java::Env->GetMethodID(vec3Cls, "<init>", "(DDD)V");
+	if (!mid_vec3Init) {
+		Java::Env->DeleteLocalRef(vec3Cls);
+		Java::Env->DeleteLocalRef(worldCls);
+		Java::Env->DeleteLocalRef(world);
+		return RAYTRACE_BLOCKS_RESULT::RAYTRACE_ERROR;
+	}
+
+	// Create from and direction Vec3 objects 
+	jobject fromObj = Java::Env->NewObject(vec3Cls, mid_vec3Init, (double)from.x, (double)from.y, (double)from.z);
+	if (!fromObj) {
+		Java::Env->DeleteLocalRef(vec3Cls);
+		Java::Env->DeleteLocalRef(worldCls);
+		Java::Env->DeleteLocalRef(world);
+		return RAYTRACE_BLOCKS_RESULT::RAYTRACE_ERROR;
+	}
+
+	jobject directionObj = Java::Env->NewObject(vec3Cls, mid_vec3Init, (double)direction.x, (double)direction.y, (double)direction.z);
+	if (!directionObj) {
+		Java::Env->DeleteLocalRef(fromObj);
+		Java::Env->DeleteLocalRef(vec3Cls);
+		Java::Env->DeleteLocalRef(worldCls);
+		Java::Env->DeleteLocalRef(world);
+		return RAYTRACE_BLOCKS_RESULT::RAYTRACE_ERROR;
+	}
+
+	// ToadClient uses: rayTraceBlocks(Vec3 from, Vec3 direction, boolean stopOnLiquid)
+	// Signature: (Lnet/minecraft/util/Vec3;Lnet/minecraft/util/Vec3;Z)Lnet/minecraft/util/MovingObjectPosition;
+	jmethodID mid_rayTrace = Java::Env->GetMethodID(worldCls, "rayTraceBlocks", "(Lnet/minecraft/util/Vec3;Lnet/minecraft/util/Vec3;Z)Lnet/minecraft/util/MovingObjectPosition;");
+	if (!mid_rayTrace) {
+		Java::Env->ExceptionClear();
+		// Try obfuscated name (func_72933_a is 2-arg, func_147447_a is 5-arg)
+		// For 3-arg: maybe a different obfuscated name or it doesn't exist
+		mid_rayTrace = Java::Env->GetMethodID(worldCls, "func_72933_a", "(Lnet/minecraft/util/Vec3;Lnet/minecraft/util/Vec3;Z)Lnet/minecraft/util/MovingObjectPosition;");
+	}
+	
+	if (!mid_rayTrace) {
+		Java::Env->ExceptionClear();
+		// Try simple 2-arg version
+		mid_rayTrace = Java::Env->GetMethodID(worldCls, "rayTraceBlocks", "(Lnet/minecraft/util/Vec3;Lnet/minecraft/util/Vec3;)Lnet/minecraft/util/MovingObjectPosition;");
+	}
+	
+	if (!mid_rayTrace) {
+		Java::Env->ExceptionClear();
+		mid_rayTrace = Java::Env->GetMethodID(worldCls, "func_72933_a", "(Lnet/minecraft/util/Vec3;Lnet/minecraft/util/Vec3;)Lnet/minecraft/util/MovingObjectPosition;");
+	}
+
+	jobject mop = nullptr;
+	if (mid_rayTrace) {
+		// Check if 3-arg or 2-arg by trying both
+		mop = Java::Env->CallObjectMethod(world, mid_rayTrace, fromObj, directionObj, stopOnLiquid);
+		if (Java::Env->ExceptionCheck()) {
+			Java::Env->ExceptionClear();
+			// Try 2-arg
+			jmethodID mid_rayTrace2 = Java::Env->GetMethodID(worldCls, "rayTraceBlocks", "(Lnet/minecraft/util/Vec3;Lnet/minecraft/util/Vec3;)Lnet/minecraft/util/MovingObjectPosition;");
+			if (mid_rayTrace2) {
+				mop = Java::Env->CallObjectMethod(world, mid_rayTrace2, fromObj, directionObj);
+			}
+		}
+	}
+
+	Java::Env->DeleteLocalRef(directionObj);
+	Java::Env->DeleteLocalRef(fromObj);
+	Java::Env->DeleteLocalRef(vec3Cls);
+	Java::Env->DeleteLocalRef(worldCls);
+	Java::Env->DeleteLocalRef(world);
+	
+	// Check if we didn't hit anything
+	if (!mop) {
+		return RAYTRACE_BLOCKS_RESULT::NO_HIT;
+	}
+
+	// ToadClient: Get block position from MovingObjectPosition
+	// They call getBlockPositionFromMovingBlock or getBlockPos
+	jclass mopCls = Java::Env->GetObjectClass(mop);
+	
+	// Try: getBlockPos() -> BlockPos
+	jmethodID mid_getBlockPos = Java::Env->GetMethodID(mopCls, "getBlockPos", "()Lnet/minecraft/util/BlockPos;");
+	if (!mid_getBlockPos) {
+		Java::Env->ExceptionClear();
+		mid_getBlockPos = Java::Env->GetMethodID(mopCls, "func_178782_a", "()Lnet/minecraft/util/BlockPos;");
+	}
+	
+	if (mid_getBlockPos) {
+		jobject blockPosObj = Java::Env->CallObjectMethod(mop, mid_getBlockPos);
+		if (blockPosObj) {
+			jclass blockPosCls = Java::Env->GetObjectClass(blockPosObj);
+			
+			// BlockPos extends Vec3i, get X/Y/Z
+			jmethodID mid_getX = Java::Env->GetMethodID(blockPosCls, "getX", "()I");
+			jmethodID mid_getY = Java::Env->GetMethodID(blockPosCls, "getY", "()I");
+			jmethodID mid_getZ = Java::Env->GetMethodID(blockPosCls, "getZ", "()I");
+			
+			if (!mid_getX) { Java::Env->ExceptionClear(); mid_getX = Java::Env->GetMethodID(blockPosCls, "func_177958_n", "()I"); }
+			if (!mid_getY) { Java::Env->ExceptionClear(); mid_getY = Java::Env->GetMethodID(blockPosCls, "func_177956_o", "()I"); }
+			if (!mid_getZ) { Java::Env->ExceptionClear(); mid_getZ = Java::Env->GetMethodID(blockPosCls, "func_177952_p", "()I"); }
+			
+			if (mid_getX && mid_getY && mid_getZ) {
+				result.x = (float)Java::Env->CallIntMethod(blockPosObj, mid_getX);
+				result.y = (float)Java::Env->CallIntMethod(blockPosObj, mid_getY);
+				result.z = (float)Java::Env->CallIntMethod(blockPosObj, mid_getZ);
+				
+				Java::Env->DeleteLocalRef(blockPosCls);
+				Java::Env->DeleteLocalRef(blockPosObj);
+				Java::Env->DeleteLocalRef(mopCls);
+				Java::Env->DeleteLocalRef(mop);
+				return RAYTRACE_BLOCKS_RESULT::HIT;
+			}
+			
+			Java::Env->DeleteLocalRef(blockPosCls);
+			Java::Env->DeleteLocalRef(blockPosObj);
+		}
+	}
+	
+	// Fallback: Try direct blockX/blockY/blockZ fields (1.7.10 style)
+	Java::Env->ExceptionClear();
+	jfieldID fid_blockX = Java::Env->GetFieldID(mopCls, "blockX", "I");
+	jfieldID fid_blockY = Java::Env->GetFieldID(mopCls, "blockY", "I");
+	jfieldID fid_blockZ = Java::Env->GetFieldID(mopCls, "blockZ", "I");
+	
+	if (fid_blockX && fid_blockY && fid_blockZ) {
+		result.x = (float)Java::Env->GetIntField(mop, fid_blockX);
+		result.y = (float)Java::Env->GetIntField(mop, fid_blockY);
+		result.z = (float)Java::Env->GetIntField(mop, fid_blockZ);
+		
+		Java::Env->DeleteLocalRef(mopCls);
+		Java::Env->DeleteLocalRef(mop);
+		return RAYTRACE_BLOCKS_RESULT::HIT;
+	}
+
+	Java::Env->DeleteLocalRef(mopCls);
+	Java::Env->DeleteLocalRef(mop);
+	return RAYTRACE_BLOCKS_RESULT::RAYTRACE_ERROR;
+}

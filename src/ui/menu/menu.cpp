@@ -1,6 +1,7 @@
 #include "menu.h"
 #include "../widgets/widgets.hpp"
 #include "../widgets/theme.hpp"
+#include "../widgets/icons.hpp"
 #include "../hud/arraylist.h"
 #include "../hud/notifications.h"
 #include "../../module/module_manager.h"
@@ -9,10 +10,11 @@
 #include "../../module/combat/autorefill.h"
 #include "../../module/combat/velocity.h"
 #include "../../module/combat/reach.h"
+#include "../../module/combat/blink.h"
 #include "../../module/utility/nojumpdelay.h"
+#include "../../module/utility/bridgeassist.h"
 #include "../../module/visual/nametags.h"
 #include "../../module/visual/esp.h"
-#include "../../module/visual/testmodule.h"
 #include "../../cobble.hpp"
 #include "../../sdk/minecraft.h"
 
@@ -20,7 +22,7 @@
 
 // Module lookup by tab and subtab index
 // Returns the module that corresponds to the current subtab
-static Module* getModuleForSubtab(int tabIdx, int subtabIdx)
+Module* getModuleForSubtab(int tabIdx, int subtabIdx)
 {
 	// Combat Tab (0)
 	if (tabIdx == 0) {
@@ -30,6 +32,7 @@ static Module* getModuleForSubtab(int tabIdx, int subtabIdx)
 			case 2: return autoRefill;
 			case 3: return velocity;
 			case 4: return reach;
+			case 5: return blink;
 		}
 	}
 	// Visuals Tab (1)
@@ -37,13 +40,13 @@ static Module* getModuleForSubtab(int tabIdx, int subtabIdx)
 		switch (subtabIdx) {
 			case 0: return nameTags;
 			case 1: return esp;
-			case 2: return testModule;
 		}
 	}
 	// Movement Tab (2)
 	else if (tabIdx == 2) {
 		switch (subtabIdx) {
 			case 0: return noJumpDelay;
+			case 1: return bridgeAssist;
 		}
 	}
 	// Settings Tab (3) - no module, handled specially
@@ -152,7 +155,70 @@ static void renderPage()
 	
 	Module* mod = getModuleForSubtab(ui::cur_tab, tab.cur_subtab);
 	if (mod) {
-		mod->onRenderMenu();
+        // Locked Module UI
+        if (!mod->isAccessible()) {
+            ImGui::Spacing();
+            ImGui::Spacing();
+            
+            // Center content
+            float width = ImGui::GetContentRegionAvail().x;
+            
+            // Lock Icon
+            ImVec2 iconSize = ImGui::CalcTextSize(ICON_FA_LOCK);
+            ImGui::SetCursorPosX((width - iconSize.x) / 2);
+            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.5f, 0.5f, 0.5f, 1.0f));
+            ImGui::Text(ICON_FA_LOCK);
+            ImGui::PopStyleColor();
+            
+            // Text
+            const char* text = "This feature is locked.";
+            ImVec2 textSize = ImGui::CalcTextSize(text);
+            ImGui::SetCursorPosX((width - textSize.x) / 2);
+            ImGui::Text(text);
+            
+            ImGui::Spacing();
+            
+            const char* subText = "Enter unlock code:";
+            ImVec2 subSize = ImGui::CalcTextSize(subText);
+            ImGui::SetCursorPosX((width - subSize.x) / 2);
+            ImGui::Text(subText);
+            
+            // Input
+            static char buf[64] = "";
+            static bool incorrect = false;
+            
+            ImGui::SetCursorPosX((width - 200) / 2);
+            ImGui::SetNextItemWidth(200);
+            
+            // Auto focus if just selected? Maybe too intrusive.
+            
+            bool enterPressed = ImGui::InputText("##pass", buf, sizeof(buf), ImGuiInputTextFlags_Password | ImGuiInputTextFlags_EnterReturnsTrue);
+            
+            if (incorrect) {
+                const char* err = "Incorrect code!";
+                ImVec2 errSize = ImGui::CalcTextSize(err);
+                ImGui::SetCursorPosX((width - errSize.x) / 2);
+                ImGui::TextColored({1.0f, 0.3f, 0.3f, 1.0f}, err);
+            }
+            
+            ImGui::Spacing();
+            
+            ImGui::SetCursorPosX((width - 100) / 2);
+            if (ImGui::Button("Unlock", {100, 30}) || enterPressed) {
+                if (strcmp(buf, Module::unlockCode) == 0) {
+                    Module::experimentalUnlocked = true;
+                    incorrect = false;
+                    memset(buf, 0, sizeof(buf));
+                } else {
+                    incorrect = true;
+                    memset(buf, 0, sizeof(buf));
+                }
+            }
+            
+        } else {
+            // Normal Module UI
+            mod->onRenderMenu();
+        }
 	}
 }
 
@@ -165,25 +231,14 @@ void Menu::Render() {
 	float targetAnim = isOpen ? 1.f : 0.f;
 	openAnim = ImLerp(openAnim, targetAnim, 15.f * ImGui::GetIO().DeltaTime);
 	
-	// Don't render if fully closed
-	if (openAnim < 0.01f && !isOpen) {
-		openAnim = 0.f;
-		return;
-	}
+	if (openAnim < 0.01f && !isOpen) return;
 	
-	// Release movement keys while menu is open
-	// Handled in WndProc on open, no need to call every frame
-	/*
-	if (isOpen) {
-		mc.releaseMovementKeys();
-	}
-	*/
+	// Apply style properly (set alpha etc)
+	ApplyStyle();
 	
-	ImGuiIO& io = ImGui::GetIO();
-	
-	ui::updateScale();
-	ui::alpha_mod = openAnim;
-	
+    ImGuiIO& io = ImGui::GetIO();
+    ui::updateScale();
+    
 	// Dark overlay behind menu
 	ImGui::GetBackgroundDrawList()->AddRectFilled(
 		ImVec2(0, 0),
@@ -191,8 +246,10 @@ void Menu::Render() {
 		IM_COL32(0, 0, 0, (int)(115 * openAnim))
 	);
 	
-	ui::size = ui::s(ui::baseSize);
+	// Menu size with resolution scaling + open animation
+    ui::size = ui::s(ui::baseSize) * openAnim;
 	
+    // Center window
 	ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x * 0.5f, io.DisplaySize.y * 0.5f), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
 	ImGui::SetNextWindowSize(ui::size);
 	
@@ -274,25 +331,30 @@ void Menu::Render() {
 					GetSchemeColor()
 				);
 				
+				// Header Title (Tab Name)
+				const char* name = ui::tabs[ui::cur_tab].m_name;
 				ImFont* titleFont = font(3);
 				ImFont* subFont = font(2);
 				
 				float centerY = ImGui::GetWindowPos().y + ImGui::GetWindowHeight() * 0.5f;
-				float titleHeight = titleFont->FontSize; 
+				float titleHeight = titleFont->FontSize;
 				float baselineY = centerY - titleHeight * 0.5f;
 				
 				ImGui::GetWindowDrawList()->AddText(
 					titleFont, titleFont->FontSize,
 					{ ImGui::GetWindowPos().x + ui::s(20), baselineY }, 
 					ImGui::GetColorU32(ImGuiCol_TextDisabled, ui::anim), 
-					ui::tabs[ui::cur_tab].m_name
+					name
 				);
 				
+				// Breadcrumb / Subtab Name
 				if (ui::tabs[ui::cur_tab].m_subtabs.size() > 0) {
-					float nameWidth = titleFont->CalcTextSizeA(titleFont->FontSize, FLT_MAX, 0.f, ui::tabs[ui::cur_tab].m_name).x;
-					ImGui::RenderArrow(ImGui::GetWindowDrawList(), 
-						{ ImGui::GetWindowPos().x + ui::s(27) + nameWidth, centerY - ui::s(5) }, 
-						ImGui::GetColorU32(ImGuiCol_Text, ui::anim * ui::content_anim), 
+					float nameWidth = titleFont->CalcTextSizeA(titleFont->FontSize, FLT_MAX, 0.f, name).x;
+					
+					ImGui::RenderArrow(
+						ImGui::GetWindowDrawList(),
+						{ ImGui::GetWindowPos().x + ui::s(27) + nameWidth, centerY - ui::s(5) },
+						ImGui::GetColorU32(ImGuiCol_Text, ui::anim * ui::content_anim),
 						ImGuiDir_Right, ui::s(12)
 					);
 					

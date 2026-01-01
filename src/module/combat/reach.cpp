@@ -16,6 +16,7 @@ static std::mt19937 rng(std::random_device{}());
 Reach::Reach() : Module("Reach")
 {
 	keybind = 0;
+	locked = true;
 }
 
 void Reach::onEnable()

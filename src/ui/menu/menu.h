@@ -10,8 +10,12 @@ namespace Menu {
     inline bool isOpen = false;
     inline float openAnim = 0.f;
     inline Module* moduleToBind = nullptr;
+    inline Module* moduleToUnlock = nullptr; // Track module for unlock popup
     
     void ApplyStyle();
     void Render();
     void Hotkey(const char* label, Module* module);
 }
+
+// Module lookup by tab and subtab index (used by widgets for locked check)
+Module* getModuleForSubtab(int tabIdx, int subtabIdx);

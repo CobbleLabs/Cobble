@@ -1,8 +1,11 @@
 #include "aimassist.h"
 #include "../../sdk/minecraft.h"
+#include "../../jni/java.h"
 #include "../../util/logger.hpp"
 #include "../../ui/menu/menu.h"
 #include "../../ui/widgets/widgets.hpp"
+#include <array>
+#include <algorithm>
 
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
@@ -14,96 +17,123 @@
 
 AimAssist* aimAssist = nullptr;
 
-// ========== Angle math utilities ==========
+// ============================================================
+// AimBoost Implementation (from ToadClient)
+// ============================================================
 
-static inline float wrap180(float a) {
-	a = std::fmod(a, 360.0f);
-	if (a >= 180.0f) a -= 360.0f;
-	if (a < -180.0f) a += 360.0f;
-	return a;
+AimBoost::AimBoost(float speed_mult_min, float speed_mult_max, float freq_min_ms, float freq_max_ms, bool continuous)
+	: speed_mult_min(speed_mult_min), speed_mult_max(speed_mult_max),
+	frequency_min_ms((uint32_t)freq_min_ms), frequency_max_ms((uint32_t)freq_max_ms),
+	continuous(continuous)
+{
+	speed_mult = (speed_mult_min + speed_mult_max) / 2;
+	prev_speed_mult = speed_mult;
 }
 
-static inline float angDelta(float from, float to) {
-	return wrap180(to - from);
+float AimBoost::Delay()
+{
+	static std::random_device rd;
+	static std::mt19937 gen(rd());
+	
+	auto randFloat = [&](float min, float max) -> float {
+		std::uniform_real_distribution<float> dis(min, max);
+		return dis(gen);
+	};
+	
+	auto randInt = [&](int min, int max) -> int {
+		std::uniform_int_distribution<int> dis(min, max);
+		return dis(gen);
+	};
+	
+	auto slerp = [](float start, float end, float t) -> float {
+		t = std::clamp(t, 0.0f, 1.0f);
+		t = t * t * (3.0f - 2.0f * t);
+		return start + (end - start) * t;
+	};
+
+	if (timer.Elapsed<>() >= frequency_ms)
+	{
+		if (continuous)
+		{
+			prev_speed_mult = randFloat(speed_mult_min, speed_mult_max);
+		}
+		else
+		{
+			prev_speed_mult = speed_mult;
+			speed_mult = randFloat(speed_mult_min, speed_mult_max);
+		}
+
+		frequency_ms = randInt(frequency_min_ms, frequency_max_ms);
+		timer.Start();
+	}
+
+	return slerp(prev_speed_mult, continuous ? speed_mult : 1.f, timer.Elapsed<>() / frequency_ms);
 }
 
-// Calculate MC's internal sensitivity multiplier for proper aim scaling
-static inline float getSensitivityMultiplier() {
-	float sens = mc.getMouseSensitivity();
-	float f = sens * 0.6f + 0.2f;
-	float f1 = f * f * f * 8.0f;
-	return f1 * 0.15f;
-}
-
-// =================================================================
+// ============================================================
+// AimAssist Implementation (exact ToadClient logic)
+// ============================================================
 
 AimAssist::AimAssist() : Module("AimAssist")
 {
-	keybind = 0;  // No default keybind
+	keybind = 0;
 	std::random_device rd;
 	rng.seed(rd());
-	lastUpdate = std::chrono::steady_clock::now();
 }
 
 void AimAssist::onEnable()
 {
 	log_ok("AimAssist enabled");
 	hasLockedTarget = false;
-	currentYawVelocity = 0.0f;
-	currentPitchVelocity = 0.0f;
-	lastYaw = player.isValid() ? player.getYaw() : 0.0f;
-	lastPitch = player.isValid() ? player.getPitch() : 0.0f;
-	yawBias = 0.0f;
-	pitchBias = 0.0f;
-	smoothedYawAccel = 0.0f;
-	smoothedPitchAccel = 0.0f;
-	
-	auto now = std::chrono::steady_clock::now();
-	noise.inZeroPeriod = false;
-	noise.yawNoise = randomFloat(-0.6f, 0.6f);
-	noise.pitchNoise = randomFloat(-0.4f, 0.4f);
-	noise.nextZero = now + std::chrono::milliseconds(static_cast<int>(randomFloat(100.0f, 180.0f)));
-	noise.nextRefresh = now;
-	
-	lastUpdate = now;
+	pitchdiffSpeed = 0.f;
+	yawdiffSpeed = 0.f;
 }
 
 void AimAssist::onDisable()
 {
 	log_ok("AimAssist disabled");
 	hasLockedTarget = false;
-	currentYawVelocity = 0.0f;
-	currentPitchVelocity = 0.0f;
-	smoothedYawAccel = 0.0f;
-	smoothedPitchAccel = 0.0f;
 }
 
-void AimAssist::updateNoiseState()
+float AimAssist::wrapTo180(float value)
 {
-	auto now = std::chrono::steady_clock::now();
-	
-	if (noise.inZeroPeriod) {
-		if (now >= noise.nextRefresh) {
-			noise.inZeroPeriod = false;
-			noise.yawNoise = randomFloat(-0.8f, 0.8f) * randomFloat(0.5f, 1.1f);
-			noise.pitchNoise = randomFloat(-0.6f, 0.6f) * randomFloat(0.4f, 0.95f);
-			noise.nextZero = now + std::chrono::milliseconds(static_cast<int>(randomFloat(80.0f, 150.0f)));
-		}
-	} else {
-		if (now >= noise.nextZero) {
-			noise.inZeroPeriod = true;
-			noise.yawNoise = 0.0f;
-			noise.pitchNoise = 0.0f;
-			noise.nextRefresh = now + std::chrono::milliseconds(static_cast<int>(randomFloat(100.0f, 200.0f)));
-		}
-	}
+	float res = std::fmod(value + 180.f, 360.f);
+	if (res < 0)
+		res += 360.f;
+	return res - 180.f;
 }
 
-float AimAssist::applyCurve(float normalizedDiff)
+std::pair<float, float> AimAssist::getAngles(double x1, double y1, double z1, double x2, double y2, double z2)
 {
-	float clamped = (std::min)(std::abs(normalizedDiff), 1.0f);
-	float curve = 1.0f - std::exp(-clamped * 3.0f);
-	return (std::max)(curve, 0.15f);
+	float d_x = (float)(x2 - x1);
+	float d_y = (float)(y2 - y1);
+	float d_z = (float)(z2 - z1);
+
+	constexpr float PI = 3.14159265358979323846f;
+	float hypothenuse = std::sqrt(d_x * d_x + d_z * d_z);
+	float yaw = std::atan2(d_z, d_x) * 180.f / PI - 90.f;
+	float pitch = -std::atan2(d_y, hypothenuse) * 180.f / PI;
+
+	return std::make_pair(yaw, pitch);
+}
+
+float AimAssist::randFloat(float min, float max)
+{
+	std::uniform_real_distribution<float> dis(min, max);
+	return dis(rng);
+}
+
+int AimAssist::randInt(int min, int max)
+{
+	std::uniform_int_distribution<int> dis(min, max);
+	return dis(rng);
+}
+
+float AimAssist::slerp(float start, float end, float t)
+{
+	t = std::clamp(t, 0.0f, 1.0f);
+	t = t * t * (3.0f - 2.0f * t);
+	return start + (end - start) * t;
 }
 
 void AimAssist::onUpdate()
@@ -112,374 +142,365 @@ void AimAssist::onUpdate()
 	if (Menu::isOpen) return;
 	if (mc.isInGui()) return;
 
-	if (settings.onlySprinting && !player.isSprinting()) return;
-
-	bool isClicking = (GetAsyncKeyState(VK_LBUTTON) & 0x8000) != 0;
-	if (settings.onlyClicking && !isClicking) {
-		hasLockedTarget = false;
-		currentYawVelocity *= 0.8f;
-		currentPitchVelocity *= 0.8f;
+	// ToadClient: !aa::always_aim && !GetAsyncKeyState(VK_LBUTTON)
+	if (!settings.alwaysAim && !(GetAsyncKeyState(VK_LBUTTON) & 0x8000))
+	{
 		return;
 	}
 
-	auto now = std::chrono::steady_clock::now();
-	float deltaTime = std::chrono::duration<float>(now - lastUpdate).count();
-	lastUpdate = now;
-	
-	deltaTime = (std::min)(deltaTime, 0.05f);
-	if (deltaTime < 0.0001f) return;
-
-	updateNoiseState();
-	
-	yawBias += randomFloat(-0.015f, 0.015f);
-	pitchBias += randomFloat(-0.01f, 0.01f);
-	yawBias = (std::max)(-0.25f, (std::min)(yawBias, 0.25f));
-	pitchBias = (std::max)(-0.2f, (std::min)(pitchBias, 0.2f));
+	// ToadClient: aa::break_blocks
+	if (settings.breakBlocks && (GetAsyncKeyState(VK_LBUTTON) & 0x8000))
+	{
+		if (mc.isTargetingBlock())
+		{
+			return;
+		}
+	}
 
 	float localYaw = player.getYaw();
 	float localPitch = player.getPitch();
-	
-	float userYawDelta = wrap180(localYaw - lastYaw);
-	float userPitchDelta = localPitch - lastPitch;
-	lastYaw = localYaw;
-	lastPitch = localPitch;
-	
-	// Intent detection - back off when user is flicking
-	float intentFactor = 1.0f;
-	constexpr float fastThresholdDegPerSec = 200.0f;
-	
-	if (deltaTime > 0.0001f) {
-		float yawRate = std::abs(userYawDelta) / deltaTime;
-		float pitchRate = std::abs(userPitchDelta) / deltaTime;
-		
-		if (yawRate > fastThresholdDegPerSec) {
-			intentFactor *= (std::max)(0.0f, 1.0f - (yawRate - fastThresholdDegPerSec) / 300.0f);
-		}
-		if (pitchRate > fastThresholdDegPerSec) {
-			intentFactor *= (std::max)(0.0f, 1.0f - (pitchRate - fastThresholdDegPerSec) / 300.0f);
-		}
-	}
-
-	auto players = mc.getPlayerList();
-	if (players.empty()) {
-		hasLockedTarget = false;
-		return;
-	}
-
 	double localX = player.getPosX();
-	double localY = player.getPosY() + 1.62;
+	double localY = player.getPosY();
 	double localZ = player.getPosZ();
 
-	double maxDistSq = settings.maxDistance * settings.maxDistance;
-	constexpr double minDistSq = 0.25;
+	bool getNewTarget = true;
 
-	float bestYawCenter = 0.0f;
-	float bestPitchCenter = 0.0f;
-	float bestYawDiff = 999.0f;
-	bool foundTarget = false;
+	// Check if locked target is still valid
+	if (settings.lockAim && hasLockedTarget)
+	{
+		float yawToTarget = getAngles(localX, localY, localZ, lockedTargetX, lockedTargetY, lockedTargetZ).first;
+		float yawDiff = std::abs(wrapTo180(-(localYaw - yawToTarget)));
+		double dist = std::sqrt(
+			(lockedTargetX - localX) * (lockedTargetX - localX) +
+			(lockedTargetY - localY) * (lockedTargetY - localY) +
+			(lockedTargetZ - localZ) * (lockedTargetZ - localZ)
+		);
 
-	for (auto& p : players) {
-		if (settings.ignoreInvisible && p.isInvisible) continue;
-
-		double dx = p.posX - localX;
-		double dz = p.posZ - localZ;
-		double distSq = dx * dx + dz * dz;
-		
-		if (distSq > maxDistSq || distSq < minDistSq) continue;
-		
-		double dist = std::sqrt(distSq);
-
-		if (settings.visibilityCheck && !mc.canEntityBeSeen(p.instance)) continue;
-
-		if (settings.targetLock && hasLockedTarget) {
-			double lockDx = p.posX - lockedTargetX;
-			double lockDz = p.posZ - lockedTargetZ;
-			double lockDistSq = lockDx * lockDx + lockDz * lockDz;
-			if (lockDistSq > 0.25) continue;
-		}
-
-		constexpr double HITBOX_WIDTH = 0.6;
-		constexpr double HITBOX_HEIGHT = 1.8;
-		constexpr double HALF_WIDTH = HITBOX_WIDTH / 2.0;
-		
-		// VELOCITY PREDICTION: Aim at where enemy WILL be
-		// (DISABLED FOR TESTING - set to 0)
-		constexpr double PREDICTION_TICKS = 0.0; // Set to 1.5 to enable
-		double velX = (p.posX - p.lastPosX) * PREDICTION_TICKS;
-		double velY = (p.posY - p.lastPosY) * PREDICTION_TICKS;
-		double velZ = (p.posZ - p.lastPosZ) * PREDICTION_TICKS;
-		
-		// Filter out laggy/teleporting players (velocity too high = skip prediction)
-		double velMagSq = velX * velX + velZ * velZ;
-		if (velMagSq > 1.0) { // > 1 block/tick is suspicious
-			velX = velY = velZ = 0.0;
-		}
-		
-		double predictedX = p.posX + velX;
-		double predictedY = p.posY + velY;
-		double predictedZ = p.posZ + velZ;
-		
-		double boxMinY = predictedY;
-		double boxMaxY = predictedY + HITBOX_HEIGHT;
-		
-		double targetX = predictedX;
-		double targetZ = predictedZ;
-		double targetY;
-		
-		if (settings.multipoint) {
-			float yawRad = localYaw * (PI / 180.0f);
-			float pitchRad = localPitch * (PI / 180.0f);
-			double lookDirY = -std::sin(pitchRad);
-			double horizontalLookDist = std::cos(pitchRad);
-			
-			if (horizontalLookDist > 0.001) {
-				double projectedY = localY + (lookDirY / horizontalLookDist) * dist;
-				targetY = (std::max)(boxMinY + 0.1, (std::min)(projectedY, boxMaxY - 0.1));
-			} else {
-				targetY = boxMinY + (HITBOX_HEIGHT * settings.hitboxY);
-			}
-		} else {
-			targetY = boxMinY + (HITBOX_HEIGHT * settings.hitboxY);
-		}
-
-		float targetYaw = getYawTo(targetX - localX, targetZ - localZ);
-		float targetPitch = getPitchTo(targetX - localX, targetY - localY, targetZ - localZ);
-		
-		float yawDiff = std::abs(angDelta(localYaw, targetYaw));
-
-		if (yawDiff > settings.maxFov) continue;
-
-		if (yawDiff < std::abs(bestYawDiff)) {
-			bestYawDiff = angDelta(localYaw, targetYaw);
-			bestYawCenter = targetYaw;
-			bestPitchCenter = targetPitch;
-			foundTarget = true;
-			
-			lockedTargetX = p.posX;
-			lockedTargetZ = p.posZ;
+		if (yawDiff <= settings.fov && dist <= settings.distance)
+		{
+			getNewTarget = false;
 		}
 	}
 
-	for (auto& p : players) {
-		if (p.instance) {
-			Java::Env->DeleteLocalRef(p.instance);
-			p.instance = nullptr;
-		}
-	}
+	double targetX = lockedTargetX;
+	double targetY = lockedTargetY;
+	double targetZ = lockedTargetZ;
 
-	if (!foundTarget) {
-		hasLockedTarget = false;
-		currentYawVelocity *= 0.85f;
-		currentPitchVelocity *= 0.85f;
-		return;
+	if (getNewTarget)
+	{
+		if (!findTarget(targetX, targetY, targetZ))
+		{
+			hasLockedTarget = false;
+			return;
+		}
 	}
 
 	hasLockedTarget = true;
-	
-	// ================================================
-	// NEW PARADIGM: AMPLIFY USER INPUT, DON'T CREATE IT
-	// The assist should feel like "my hand moved better"
-	// not "something moved my camera"
-	// ================================================
-	
-	// 1. Raw angle to target (no bias/noise yet)
-	float rawYawDiff = angDelta(localYaw, bestYawCenter);
-	float rawPitchDiff = angDelta(localPitch, bestPitchCenter);
-	float absYaw = std::abs(rawYawDiff);
-	float absPitch = std::abs(rawPitchDiff);
-	
-	// 2. ALIGNMENT CHECK: Continuous, not binary
-	// ratio = how much user is moving vs error angle
-	float yawAlignment = 0.0f;
-	float pitchAlignment = 0.0f;
-	
-	if (std::abs(userYawDelta) > 0.01f && absYaw > 0.1f) {
-		float ratio = std::abs(userYawDelta) / (absYaw + 0.001f);
-		ratio = (std::min)(ratio, 1.0f);
-		yawAlignment = ((userYawDelta > 0) == (rawYawDiff > 0)) ? ratio : -ratio;
-	}
-	if (std::abs(userPitchDelta) > 0.01f && absPitch > 0.1f) {
-		float ratio = std::abs(userPitchDelta) / (absPitch + 0.001f);
-		ratio = (std::min)(ratio, 1.0f);
-		pitchAlignment = ((userPitchDelta > 0) == (rawPitchDiff > 0)) ? ratio : -ratio;
-	}
-	
-	// 3. INPUT ENERGY: How much is the user actually moving?
-	float inputEnergy = (std::abs(userYawDelta) + std::abs(userPitchDelta)) / (deltaTime > 0.001f ? deltaTime : 0.016f);
-	float energyFactor = (std::min)(inputEnergy / 150.0f, 1.0f);
-	
-	// 4. PROXIMITY STRENGTH: Smooth curve (calculate BEFORE noise)
-	float yawProximity = (std::min)(absYaw / 3.0f, 1.0f);
-	float pitchProximity = (std::min)(absPitch / 3.0f, 1.0f);
-	
-	// Soft magnet: smoothstep for natural feel
-	yawProximity = yawProximity * yawProximity * (3.0f - 2.0f * yawProximity);
-	pitchProximity = pitchProximity * pitchProximity * (3.0f - 2.0f * pitchProximity);
-	
-	// 5. DYNAMIC NOISE: Scales with input AND proximity
-	// Near target = clean, tracking = human imperfection
-	float noiseScale = energyFactor * yawProximity;
-	float dynamicNoise = noiseScale * randomFloat(-0.08f, 0.08f);
-	float yawDiff = rawYawDiff + dynamicNoise;
-	float pitchDiff = rawPitchDiff + dynamicNoise * 0.6f;
-	
-	// 6. GOLDEN RULE: Assist NEVER initiates movement
-	// If user isn't moving, strength drops to 10%
-	float yawInitiator = (std::abs(userYawDelta) > 0.02f) ? 1.0f : 0.1f;
-	float pitchInitiator = (std::abs(userPitchDelta) > 0.02f) ? 1.0f : 0.1f;
-	
-	// 7. ALIGNMENT BOOST: Continuous based on ratio
-	// yawAlignment is now -1 to +1 continuously
-	float yawAlignBoost = 1.0f + yawAlignment * 0.4f;
-	float pitchAlignBoost = 1.0f + pitchAlignment * 0.4f;
-	yawAlignBoost = (std::max)(0.0f, (std::min)(yawAlignBoost, 1.4f));
-	pitchAlignBoost = (std::max)(0.0f, (std::min)(pitchAlignBoost, 1.4f));
-	
-	// 8. FINAL STRENGTH: Combine all factors
-	float yawStrength = yawProximity * yawInitiator * yawAlignBoost * intentFactor;
-	float pitchStrength = pitchProximity * pitchInitiator * pitchAlignBoost * intentFactor;
-	
-	// Scale by MC sensitivity (inverse - higher sens = lower multiplier for consistency)
-	float sensMultiplier = getSensitivityMultiplier();
-	float baseMultiplier = (sensMultiplier > 0.001f) ? (0.15f / sensMultiplier) : 1.0f;
+	lockedTargetX = targetX;
+	lockedTargetY = targetY;
+	lockedTargetZ = targetZ;
 
-	// Increased multiplier to be competitive: speed 100 = very fast (but still smooth)
-	// 2.0x multiplier makes it comparable to other clients at max speed
-	float effectiveYawSpeed = settings.horizontalSpeed * yawStrength * baseMultiplier * 2.0f;
-	float effectivePitchSpeed = settings.verticalSpeed * pitchStrength * baseMultiplier * 2.0f;
-	
-	float yawRotation = calculateSmoothRotation(yawDiff, effectiveYawSpeed, deltaTime, currentYawVelocity, smoothedYawAccel);
-	float pitchRotation = 0.0f;
-	if (settings.verticalAim) {
-		pitchRotation = calculateSmoothRotation(pitchDiff, effectivePitchSpeed, deltaTime, currentPitchVelocity, smoothedPitchAccel);
+	// ToadClient 1.7.10 fix: adds 1.6 to Y
+	if (Java::Version == MinecraftVersion::MC_1_7_10)
+	{
+		targetY += 1.6;
 	}
 
-	if (std::abs(yawRotation) > 0.001f) {
-		float newYaw = localYaw + yawRotation;
-		player.setYaw(newYaw);
-		lastYaw = newYaw;
+	double aimX, aimY, aimZ;
+	if (!getAimPoint(targetX, targetY, targetZ, aimX, aimY, aimZ))
+	{
+		return;
 	}
-	if (settings.verticalAim && std::abs(pitchRotation) > 0.001f) {
-		float newPitch = localPitch + pitchRotation;
-		newPitch = (std::max)(-90.0f, (std::min)(90.0f, newPitch));
-		player.setPitch(newPitch);
-		lastPitch = newPitch;
-	}
+
+	// ToadClient: get_angles(lPlayer->Pos, aim_point)
+	auto [yawTarget, pitchTarget] = getAngles(localX, localY, localZ, aimX, aimY, aimZ);
+
+	float yawDiff = wrapTo180(-(localYaw - yawTarget));
+	float pitchDiff = wrapTo180(-(localPitch - pitchTarget));
+
+	// ToadClient: aa::speed * 3
+	float speed = settings.speed * 3;
+
+	applyAimRand(yawDiff, pitchDiff, speed);
 }
 
-float AimAssist::calculateSmoothRotation(float angleDiff, float speed, float deltaTime, float& velocity, float& smoothedAccel)
+bool AimAssist::findTarget(double& targetX, double& targetY, double& targetZ)
 {
-	if (speed < 0.01f) {
-		velocity *= 0.9f;
-		return 0.0f;
+	auto players = mc.getPlayerList();
+	if (players.empty()) return false;
+
+	float localYaw = player.getYaw();
+	double localX = player.getPosX();
+	double localY = player.getPosY();
+	double localZ = player.getPosZ();
+
+	float lowestHealth = FLT_MAX;
+	float minimalAngleDiff = (float)settings.fov / 2.f;
+	float closestDistance = FLT_MAX;
+	bool found = false;
+
+	for (auto& p : players)
+	{
+		double dx = p.posX - localX;
+		double dy = p.posY - localY;
+		double dz = p.posZ - localZ;
+		float dist = (float)std::sqrt(dx * dx + dy * dy + dz * dz);
+
+		if (dist > settings.distance || dist < 0.2f) continue;
+		if (p.isInvisible && !settings.invisibles) continue;
+
+		float yawToTarget = getAngles(localX, localY, localZ, p.posX, p.posY, p.posZ).first;
+		float yawDiff = std::abs(wrapTo180(-(localYaw - yawToTarget)));
+
+		if ((int)yawDiff > settings.fov / 2) continue;
+
+		if (settings.targetMode == TargetMode::FOV)
+		{
+			if (yawDiff < minimalAngleDiff)
+			{
+				minimalAngleDiff = yawDiff;
+				targetX = p.posX;
+				targetY = p.posY;
+				targetZ = p.posZ;
+				found = true;
+			}
+		}
+		else if (settings.targetMode == TargetMode::HEALTH)
+		{
+			if (p.health < lowestHealth)
+			{
+				lowestHealth = p.health;
+				targetX = p.posX;
+				targetY = p.posY;
+				targetZ = p.posZ;
+				found = true;
+			}
+		}
+		else if (settings.targetMode == TargetMode::DISTANCE)
+		{
+			if (dist < closestDistance)
+			{
+				closestDistance = dist;
+				targetX = p.posX;
+				targetY = p.posY;
+				targetZ = p.posZ;
+				found = true;
+			}
+		}
+
+		if (p.instance)
+		{
+			Java::Env->DeleteLocalRef(p.instance);
+		}
 	}
-	
-	float absAngle = std::abs(angleDiff);
-	if (absAngle < 0.01f) {
-		velocity *= 0.7f;
-		smoothedAccel *= 0.7f;
-		return 0.0f;
+
+	return found;
+}
+
+void AimAssist::applyAimRand(float yawDiff, float pitchDiff, float speed)
+{
+	float absYawDiff = std::abs(yawDiff);
+	float absPitchDiff = std::abs(pitchDiff);
+
+	// ToadClient dead zone
+	if (absYawDiff < 1.f && absPitchDiff < 1.f)
+	{
+		return;
 	}
-	
-	// Continuous stiffness curve (SmoothStep)
-	constexpr float MAX_ANGLE = 5.0f;
-	float t = (std::min)(absAngle / MAX_ANGLE, 1.0f);
-	float smoothT = t * t * (3.0f - 2.0f * t);
-	float stiffnessFactor = 0.2f + 0.8f * smoothT;
-	
-	float baseStiffness = speed * stiffnessFactor;
-	
-	// User smoothing
-	float smoothMult = 1.0f - (settings.smoothing * 0.7f);
-	baseStiffness *= smoothMult;
-	
-	// Dynamic damping based on proximity AND velocity
-	// Less damping when close = less "sticky" feel
-	float velocityMagnitude = std::abs(velocity);
-	float velocityFactor = (std::min)(velocityMagnitude / (speed * 2.0f), 1.0f);
-	
-	// Proximity damping: 0.2 (close) -> 0.6 (far)
-	float proximityDamping = 0.2f + (std::min)(absAngle / 2.0f, 1.0f) * 0.4f;
-	
-	float dampingMultiplier = 1.0f + (velocityFactor * proximityDamping);
-	float baseDamping = std::sqrt(baseStiffness) * 1.8f * dampingMultiplier; // 1.8 instead of 2.0 for lighter feel
-	
-	// Sub-frame integration
-	constexpr int subSteps = 8;
-	float subDeltaTime = deltaTime / static_cast<float>(subSteps);
-	float totalRotation = 0.0f;
-	
-	for (int i = 0; i < subSteps; ++i) {
-		float springForce = angleDiff * baseStiffness;
-		float dampingForce = -velocity * baseDamping;
-		float targetAccel = springForce + dampingForce;
-		
-		constexpr float accelLerp = 0.4f;
-		smoothedAccel = smoothedAccel + (targetAccel - smoothedAccel) * accelLerp;
-		
-		velocity += smoothedAccel * subDeltaTime;
-		
-		float maxVel = speed * 2.5f;
-		velocity = (std::max)(-maxVel, (std::min)(velocity, maxVel));
-		
-		float subRotation = velocity * subDeltaTime;
-		totalRotation += subRotation;
-		
-		angleDiff -= subRotation;
+
+	// ToadClient: rand_float(-0.2f, 0.2f)
+	yawDiff += randFloat(-0.2f, 0.2f);
+	pitchDiff += randFloat(-0.2f, 0.2f);
+
+	static bool once = false;
+	if (!once || reactionTimeTimer.Elapsed<>() > settings.reactionTime)
+	{
+		float pitchBoosts = pitchBoost.Delay() * pitchBoost2.Delay();
+		float yawBoosts = yawBoost.Delay() * yawBoost2.Delay();
+
+		if (!settings.horizontalOnly)
+		{
+			pitchdiffSpeed = pitchDiff / (1000.f / (speed * pitchBoosts));
+
+			if (std::abs(pitchdiffSpeed) < 0.03f)
+				pitchdiffSpeed = pitchdiffSpeed < 0 ? -0.03f : 0.03f;
+		}
+		else
+		{
+			pitchdiffSpeed = 0.f;
+		}
+
+		yawdiffSpeed = yawDiff / (1000.f / (speed * yawBoosts));
+
+		if (std::abs(yawdiffSpeed) < 0.03f)
+			yawdiffSpeed = yawdiffSpeed < 0 ? -0.03f : 0.03f;
+
+		once = true;
+		reactionTimeTimer.Start();
 	}
-	
-	return totalRotation;
-}
 
-float AimAssist::getYawTo(double deltaX, double deltaZ)
-{
-	return static_cast<float>(std::atan2(deltaZ, deltaX)) * (180.0f / PI) - 90.0f;
-}
+	// ToadClient pitch randomization
+	static Timer pitchRandTimer;
+	static int pitchrand = randInt(-1, 1);
 
-float AimAssist::getPitchTo(double deltaX, double deltaY, double deltaZ)
-{
-	double horizontalDist = std::sqrt(deltaX * deltaX + deltaZ * deltaZ);
-	
-	if (horizontalDist < 0.001) {
-		return (deltaY > 0) ? -90.0f : 90.0f;
+	const int pitchUpdateMsMinLow = 100;
+	const int pitchUpdateMsMaxLow = 300;
+	const int pitchUpdateMsMinHigh = 400;
+	const int pitchUpdateMsMaxHigh = 600;
+	static int pitchUpdateMsMin = 100;
+	static int pitchUpdateMsMax = 600;
+
+	static int pitchupdatems = randInt(pitchUpdateMsMin, pitchUpdateMsMax);
+	static float pitchrandsmooth = 0;
+	static int pitchrandbegin = 0;
+
+	if (absYawDiff > absPitchDiff && absYawDiff > 5.f)
+	{
+		if ((int)pitchRandTimer.Elapsed<>() > pitchupdatems)
+		{
+			pitchrandbegin = pitchrand;
+
+			float t = (std::clamp(absYawDiff, 10.f, 50.f) - 9.99f) / 40.f;
+			pitchUpdateMsMin = (int)std::lerp((float)pitchUpdateMsMinLow, (float)pitchUpdateMsMinHigh, t);
+			pitchUpdateMsMax = (int)std::lerp((float)pitchUpdateMsMaxLow, (float)pitchUpdateMsMaxHigh, t);
+			int travelDistance = 2;
+			pitchupdatems = randInt(pitchUpdateMsMin, pitchUpdateMsMax);
+
+			if (absYawDiff > 30.f)
+				travelDistance = 2;
+			else
+				travelDistance = 1;
+
+			if (pitchDiff > 0)
+				pitchrand = randInt(1, travelDistance);
+			else
+				pitchrand = randInt(-travelDistance, -1);
+
+			pitchRandTimer.Start();
+		}
+
+		pitchrandsmooth = slerp((float)pitchrandbegin, (float)pitchrand, pitchRandTimer.Elapsed<>() / pitchupdatems);
 	}
-	
-	return static_cast<float>(-std::atan2(deltaY, horizontalDist)) * (180.0f / PI);
+	else
+	{
+		constexpr float partialTick = 1.0f;
+		pitchrandsmooth = std::lerp(pitchrandsmooth, 0.f, std::clamp(partialTick * 0.1f, 0.f, 1.f));
+	}
+
+	// ToadClient: SetCursorPos
+	POINT pt;
+	GetCursorPos(&pt);
+
+	int moveX = (int)std::round(yawdiffSpeed);
+	int moveY = (int)std::round(pitchdiffSpeed + pitchrandsmooth);
+
+	if (settings.horizontalOnly)
+	{
+		moveY = 0;
+	}
+
+	SetCursorPos(pt.x + moveX, pt.y + moveY);
 }
 
-float AimAssist::wrapAngle(float angle)
+bool AimAssist::getAimPoint(double targetX, double targetY, double targetZ, double& aimX, double& aimY, double& aimZ)
 {
-	return wrap180(angle);
-}
+	double localX = player.getPosX();
+	double localY = player.getPosY();
+	double localZ = player.getPosZ();
+	float localYaw = player.getYaw();
 
-double AimAssist::getHorizontalDistance(double x1, double z1, double x2, double z2)
-{
-	double dx = x2 - x1;
-	double dz = z2 - z1;
-	return std::sqrt(dx * dx + dz * dz);
-}
+	constexpr double HALF_WIDTH = 0.3;
 
-float AimAssist::randomFloat(float min, float max)
-{
-	std::uniform_real_distribution<float> dist(min, max);
-	return dist(rng);
+	if (settings.aimAtClosestPoint)
+	{
+		// ToadClient: BBox({ target_pos.x - 0.3f, target_pos.y - 1.6f, target_pos.z - 0.3f }, 
+		//                  { target_pos.x + 0.3f, target_pos.y + 0.2f, target_pos.z + 0.3f })
+		double minX = targetX - HALF_WIDTH;
+		double maxX = targetX + HALF_WIDTH;
+		double minY = targetY - 1.6;
+		double maxY = targetY + 0.2;
+		double minZ = targetZ - HALF_WIDTH;
+		double maxZ = targetZ + HALF_WIDTH;
+
+		aimX = std::clamp(localX, minX, maxX);
+		aimY = std::clamp(localY, minY, maxY);
+		aimZ = std::clamp(localZ, minZ, maxZ);
+		return true;
+	}
+	else
+	{
+		// ToadClient: bbox_corners with y - 1.6f and y + 0.2f
+		double corners[4][3] = {
+			{ targetX - HALF_WIDTH, targetY - 1.6, targetZ + HALF_WIDTH },
+			{ targetX - HALF_WIDTH, targetY - 1.6, targetZ - HALF_WIDTH },
+			{ targetX + HALF_WIDTH, targetY + 0.2, targetZ - HALF_WIDTH },
+			{ targetX + HALF_WIDTH, targetY + 0.2, targetZ + HALF_WIDTH },
+		};
+
+		std::array<float, 4> yawDiffs;
+		for (int i = 0; i < 4; i++)
+		{
+			float yawToCorner = getAngles(localX, localY, localZ, 
+				corners[i][0], corners[i][1], corners[i][2]).first;
+			yawDiffs[i] = wrapTo180(-(localYaw - yawToCorner));
+		}
+
+		float yawDiffToPos = wrapTo180(-(localYaw - getAngles(localX, localY, localZ, targetX, targetY, targetZ).first));
+
+		if (yawDiffToPos < 0)
+		{
+			float maxVal = yawDiffs[0];
+			for (int i = 1; i < 4; i++) if (yawDiffs[i] > maxVal) maxVal = yawDiffs[i];
+			if (maxVal > 0)
+			{
+				return false;
+			}
+		}
+		else
+		{
+			float minVal = yawDiffs[0];
+			for (int i = 1; i < 4; i++) if (yawDiffs[i] < minVal) minVal = yawDiffs[i];
+			if (minVal < 0)
+			{
+				return false;
+			}
+		}
+
+		// ToadClient: return target_pos
+		aimX = targetX;
+		aimY = targetY;
+		aimZ = targetZ;
+		return true;
+	}
 }
 
 void AimAssist::onRenderMenu()
 {
+	static const char* targetModes[] = { "Lowest Health", "Closest to Player", "Closest to Crosshair" };
+	int currentMode = static_cast<int>(settings.targetMode);
+
 	ui::two_column(
-		"Settings", [this]() {
+		"Settings", [this, &currentMode]() {
 			ui::CheckboxBind("Enabled", &enabled, &keybind);
 			ImGui::Spacing();
-			ui::SliderFloat("Speed", &settings.horizontalSpeed, 1.0f, 100.0f, "%.0f");
-			ui::SliderFloat("FOV", &settings.maxFov, 10.0f, 180.0f, "%.0f");
-			ui::SliderFloat("Distance", &settings.maxDistance, 3.0f, 8.0f, "%.1f");
+			ui::SliderFloat("Speed", &settings.speed, 1.0f, 150.0f, "%.0f");
+			ui::SliderInt("FOV", &settings.fov, 10, 360, "%d");
+			ui::SliderFloat("Distance", &settings.distance, 3.0f, 8.0f, "%.1f");
+			ui::SliderInt("Reaction Time", &settings.reactionTime, 0, 200, "%d ms");
 		},
-		"Filters", [this]() {
-			ui::Checkbox("Clicking Only", &settings.onlyClicking);
-			ui::Checkbox("Target Lock", &settings.targetLock);
-			ui::Checkbox("Visibility", &settings.visibilityCheck);
-			ui::Checkbox("Ignore Invis", &settings.ignoreInvisible);
+		"Options", [this, &currentMode]() {
+			ui::Checkbox("Always Aim", &settings.alwaysAim);
+			ui::Checkbox("Horizontal Only", &settings.horizontalOnly);
+			ui::Checkbox("Lock Aim", &settings.lockAim);
+			ui::Checkbox("Break Blocks", &settings.breakBlocks);
+			ui::Checkbox("Aim Closest Point", &settings.aimAtClosestPoint);
+			ui::Checkbox("Target Invisibles", &settings.invisibles);
+			
+			ImGui::Spacing();
+			if (ImGui::Combo("Target Mode", &currentMode, targetModes, IM_ARRAYSIZE(targetModes)))
+			{
+				settings.targetMode = static_cast<TargetMode>(currentMode);
+			}
 		}
 	);
 }

@@ -33,6 +33,7 @@ public:
 
 	struct Settings {
 		bool box = true;
+		bool box3D = false;
 		bool filled = true;
 		bool outline = true;
 		bool healthBar = true;

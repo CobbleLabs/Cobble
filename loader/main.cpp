@@ -47,6 +47,9 @@ struct RGB { int r, g, b; };
 const RGB COL_START = { 255, 165, 0 };   // Orange
 const RGB COL_END   = { 255, 69, 0 };    // Red-Orange
 
+const int CONSOLE_WIDTH = 84;
+const int CONSOLE_HEIGHT = 28;
+
 void setupConsole() {
 	hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
 	SetConsoleOutputCP(CP_UTF8);
@@ -58,24 +61,38 @@ void setupConsole() {
 	GetConsoleMode(hConsole, &mode);
 	mode |= ENABLE_VIRTUAL_TERMINAL_PROCESSING;
 	SetConsoleMode(hConsole, mode);
-	vtEnabled = true; // Assume true for this customized UX
+	vtEnabled = true; 
 	
-	// Hide Cursor
+	// Force Resize via ANSI (Best for Windows Terminal / Win11)
+	// \x1b[8;{rows};{cols}t
+	std::cout << "\x1b[8;" << CONSOLE_HEIGHT << ";" << CONSOLE_WIDTH << "t";
+	
 	std::cout << VT_HIDE_CURSOR;
 	
-	// Fix Window Size (No Resize)
 	HWND hWnd = GetConsoleWindow();
 	LONG style = GetWindowLong(hWnd, GWL_STYLE);
-	style &= ~(WS_MAXIMIZEBOX | WS_SIZEBOX); // Disable maximize and resize
+	style &= ~(WS_MAXIMIZEBOX | WS_SIZEBOX);
 	SetWindowLong(hWnd, GWL_STYLE, style);
 	
-	// Set Size
-	SMALL_RECT windowSize = { 0, 0, 89, 24 }; // 90x25
+	// Resize Strategy: MINIMIZE WINDOW -> SET BUFFER -> EXPAND WINDOW
+	// This prevents "The parameter is incorrect" if the new buffer is smaller than the current window.
+	
+	// 1. Shrink window to avoid buffer constraint errors
+	SMALL_RECT minWin = { 0, 0, 1, 1 };
+	SetConsoleWindowInfo(hConsole, TRUE, &minWin);
+
+	// 2. Set Buffer Size
+	COORD bufferSize = { (SHORT)CONSOLE_WIDTH, (SHORT)CONSOLE_HEIGHT };
+	SetConsoleScreenBufferSize(hConsole, bufferSize);
+
+	// 3. Set Window Size
+	SMALL_RECT windowSize = { 0, 0, (SHORT)(CONSOLE_WIDTH - 1), (SHORT)(CONSOLE_HEIGHT - 1) };
 	SetConsoleWindowInfo(hConsole, TRUE, &windowSize);
-	COORD bufferSize = { 90, 25 };
+	
+	// 4. Fix buffer again just in case window resize forced a change
 	SetConsoleScreenBufferSize(hConsole, bufferSize);
     
-    // Center Window on Screen
+    // Center logic
     RECT rect;
     GetWindowRect(hWnd, &rect);
     int width = rect.right - rect.left;
@@ -85,11 +102,15 @@ void setupConsole() {
     MoveWindow(hWnd, (screenWidth - width) / 2, (screenHeight - height) / 2, width, height, TRUE);
 }
 
-int getConsoleWidth() { return 90; }
+int getConsoleWidth() { return CONSOLE_WIDTH; }
 
 // Utils
 std::string rgbToVt(RGB c) {
     return "\x1b[38;2;" + std::to_string(c.r) + ";" + std::to_string(c.g) + ";" + std::to_string(c.b) + "m";
+}
+
+std::string bgToVt(RGB c) {
+    return "\x1b[48;2;" + std::to_string(c.r) + ";" + std::to_string(c.g) + ";" + std::to_string(c.b) + "m";
 }
 
 RGB lerpColor(RGB s, RGB e, float t) {
@@ -155,7 +176,10 @@ void printGradientText(const std::string& text) {
 }
 
 void printBanner() {
+    // Clear Screen (keep this as it ensures clean slate)
+    std::cout << "\x1b[2J\x1b[H";
     std::cout << "\n\n";
+    
     // Using explicit UTF-8 Hex sequences to prevent encoding issues
     // ░ = \xE2\x96\x91
     // █ = \xE2\x96\x88
@@ -179,12 +203,26 @@ void printBanner() {
     std::cout << "\n";
 }
 
-// 4. Loading Bar with Personality
+// 4. Loading Bar with Personality (Ultra Smooth + Solid Background)
 void showSmartLoading(int durationMs) {
     int width = getConsoleWidth();
     int barLen = 30;
-    int totalSteps = 50; // Resolution
-    int sleepPerStep = durationMs / totalSteps;
+    
+    // 8 Sub-steps per character for smooth filling
+    const char* partials[] = {
+        " ",
+        "\xE2\x96\x8F", // 1/8
+        "\xE2\x96\x8E", // 2/8
+        "\xE2\x96\x8D", // 3/8
+        "\xE2\x96\x8C", // 4/8
+        "\xE2\x96\x8B", // 5/8
+        "\xE2\x96\x8A", // 6/8
+        "\xE2\x96\x89", // 7/8
+        "\xE2\x96\x88"  // 8/8 (Full)
+    };
+    
+    int totalSubSteps = barLen * 8;
+    int sleepPerStep = durationMs / totalSubSteps;
     
     const char* stages[] = {
         "Initializing security...",
@@ -193,44 +231,66 @@ void showSmartLoading(int durationMs) {
         "Preparing environment..."
     };
     
-    // Bar Gradient Colors
-    RGB barStart = { 80, 80, 80 }; // Gray
-    RGB barEnd = COL_START;
+    RGB barStart = { 255, 165, 0 }; // Orange (Start immediately with color)
+    RGB barEnd = COL_START;        // Orange
+    RGB barBg = { 25, 25, 25 };    // Dark Gray Background (Solid Track)
     
-    for (int i = 0; i <= totalSteps; i++) {
-        float pct = (float)i / totalSteps;
+    // Initial print logic
+    
+    // PUSH DOWN: Add vertical space before the bar
+    std::cout << "\n\n\n\n"; 
+    
+    std::cout << "\n"; // Space for text
+    std::cout << "\n"; // Space for bar
+    std::cout << "\x1b[2A"; // Move back up 2 lines
+    
+    for (int i = 0; i <= totalSubSteps; i++) {
+        float pct = (float)i / totalSubSteps;
         
-        // Pick Stage text
+        // --- 1. Draw Text (Top Line) ---
         int stageIdx = (int)(pct * 3.99f); 
         std::string currentStage = stages[stageIdx];
         
-        // Print Stage Text Centered
         std::cout << "\r" << "\x1b[K"; // Clear line
-        printCentered(currentStage, "\x1b[37m"); // White
+        printCentered(currentStage, "\x1b[37m");
         
-        // Draw Bar
-        int filled = (int)(pct * barLen);
-        int padding = (width - barLen) / 2; // Simple bar (no percentages/brackets)
-        
+        // --- 2. Draw Bar (Bottom Line) ---
+        int padding = (width - barLen) / 2;
         std::cout << std::string(padding, ' ');
         
-        // Draw filled part with gradient
-        for(int b=0; b<filled; b++) {
+        // Set solid background for the whole bar
+        std::cout << bgToVt(barBg);
+        
+        int fullChars = i / 8;
+        int remainder = i % 8;
+        
+        // Print Full Parts
+        for(int b=0; b<fullChars; b++) {
             float t = (float)b / barLen;
-            std::cout << rgbToVt(lerpColor(barStart, COL_END, t)) << "━";
+            std::cout << rgbToVt(lerpColor(barStart, COL_END, t)) << "\xE2\x96\x88"; // Full Block
         }
-        // Draw empty part
-        std::cout << "\x1b[90m"; // Dark Gray
-        for(int b=filled; b<barLen; b++) std::cout << "━";
+        
+        // Print Partial Part
+        if (fullChars < barLen) {
+            float t = (float)fullChars / barLen;
+            // FG: Gradient, BG: barBg (inherited from start of line)
+            std::cout << rgbToVt(lerpColor(barStart, COL_END, t)) << partials[remainder];
+        }
+        
+        // Print Empty Parts (Solid Background)
+        // Just print spaces - the background color handles the "Fill" look
+        int occupied = fullChars + (fullChars < barLen ? 1 : 0);
+        for(int b=occupied; b<barLen; b++) std::cout << " "; 
+        
         std::cout << VT_RESET;
         
-        // Move cursor back up 1 line to stage text for next update
-        // We print text line, then bar line. To update text, go up 1 line
+        // Move Cursor Up for next frame
         std::cout << "\x1b[A"; 
         
+        if (sleepPerStep < 1) sleepPerStep = 1;
         Sleep(sleepPerStep);
     }
-    std::cout << "\n\n\n"; // Push down past the animation area
+    std::cout << "\n\n\n";
 }
 
 // 6. Elegant Error

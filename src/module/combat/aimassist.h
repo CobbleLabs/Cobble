@@ -5,8 +5,59 @@
 #include <chrono>
 #include <random>
 
-// Premium AimAssist with human-like behavior
-// Based on professional ghost client implementations
+// ============================================================
+// Timer - Simple timer class (from ToadClient)
+// ============================================================
+class Timer
+{
+private:
+	std::chrono::time_point<std::chrono::high_resolution_clock> m_start;
+
+public:
+	Timer()
+	{
+		Start();
+	}
+
+	void Start()
+	{
+		m_start = std::chrono::high_resolution_clock::now();
+	}
+
+	template<typename DurationT = std::chrono::milliseconds>
+	float Elapsed() const
+	{
+		return (float)std::chrono::duration_cast<DurationT>(std::chrono::high_resolution_clock::now() - m_start).count();
+	}
+};
+
+// ============================================================
+// AimBoost - Speed multiplier randomization (from ToadClient)
+// ============================================================
+class AimBoost
+{
+public:
+	AimBoost(float speed_mult_min, float speed_mult_max, float freq_min_ms, float freq_max_ms, bool continuous);
+	AimBoost() = default;
+
+	float speed_mult_min = 0.5f;
+	float speed_mult_max = 1.8f;
+	uint32_t frequency_min_ms = 400;
+	uint32_t frequency_max_ms = 700;
+	uint32_t frequency_ms = 500;
+	bool continuous = true;
+
+	float Delay();
+
+private:
+	float prev_speed_mult = 1.f;
+	float speed_mult = 1.f;
+	Timer timer;
+};
+
+// ============================================================
+// AimAssist - Exact copy of ToadClient logic
+// ============================================================
 class AimAssist : public Module
 {
 public:
@@ -17,76 +68,63 @@ public:
 	void onUpdate() override;
 	void onRenderMenu() override;
 
+	enum class TargetMode
+	{
+		HEALTH,
+		DISTANCE,
+		FOV
+	};
+
 	struct Settings {
-		bool visibilityCheck = true;
-		bool ignoreInvisible = true;
-		bool onlySprinting = false;
-		bool onlyClicking = true;
-		bool targetLock = true;
-		bool verticalAim = false;
-		bool hurtTimeBoost = false;  // Legacy setting for config compatibility
-		bool multipoint = false;  // Aim at closest point on hitbox
+		bool horizontalOnly = false;
+		bool invisibles = false;
+		bool alwaysAim = false;
+		bool breakBlocks = false;
+		bool aimAtClosestPoint = false;
+		bool lockAim = false;
 		
-		float horizontalSpeed = 45.0f;
-		float verticalSpeed = 25.0f;
-		float maxFov = 360.0f;
-		float maxDistance = 4.5f;
-		float randomization = 0.15f;
-		float smoothing = 0.15f;  // Lower = faster snap, higher = smoother
-		float hitboxY = 0.5f;     // 0.0 = feet, 0.5 = body, 1.0 = head
+		TargetMode targetMode = TargetMode::DISTANCE;
+		int fov = 180;
+		float distance = 5.0f;
+		float speed = 50.0f;
+		int reactionTime = 50; // ms
 	} settings;
 
 private:
-	static constexpr float PI = 3.14159265358979323846f;
+	// Math utilities
+	float wrapTo180(float value);
+	std::pair<float, float> getAngles(double x1, double y1, double z1, double x2, double y2, double z2);
+	float randFloat(float min, float max);
+	int randInt(int min, int max);
+	float slerp(float start, float end, float t);
+
+	// Target finding - returns true if target found, fills position
+	bool findTarget(double& targetX, double& targetY, double& targetZ);
+
+	// Apply randomized aim
+	void applyAimRand(float yawDiff, float pitchDiff, float speed);
+
+	// Get aim point (handles closest point vs center)
+	bool getAimPoint(double targetX, double targetY, double targetZ, double& aimX, double& aimY, double& aimZ);
+
+	// Boost systems
+	AimBoost yawBoost{ 0.9f, 1.1f, 450, 600, true };
+	AimBoost yawBoost2{ 1.0f, 1.3f, 800, 1000, false };
+	AimBoost pitchBoost{ 0.8f, 1.2f, 450, 600, true };
+	AimBoost pitchBoost2{ 0.7f, 1.3f, 600, 900, false };
+
+	float pitchdiffSpeed = 0.f;
+	float yawdiffSpeed = 0.f;
+
+	Timer reactionTimeTimer;
+	
+	// Locked target position
+	bool hasLockedTarget = false;
+	double lockedTargetX = 0.0;
+	double lockedTargetY = 0.0;
+	double lockedTargetZ = 0.0;
 
 	std::mt19937 rng;
-	std::chrono::steady_clock::time_point lastUpdate;
-	
-	// Target lock state
-	double lockedTargetX = 0.0;
-	double lockedTargetZ = 0.0;
-	bool hasLockedTarget = false;
-	
-	// Velocity state for smooth movement
-	float currentYawVelocity = 0.0f;
-	float currentPitchVelocity = 0.0f;
-	
-	// Last rotation for detecting user mouse movement
-	float lastYaw = 0.0f;
-	float lastPitch = 0.0f;
-	
-	// Temporal noise system (not per-frame)
-	struct NoiseState {
-		float yawNoise = 0.0f;
-		float pitchNoise = 0.0f;
-		std::chrono::steady_clock::time_point nextRefresh;
-		std::chrono::steady_clock::time_point nextZero;
-		bool inZeroPeriod = false;
-	} noise;
-	
-	// Accumulated micro-error (human imperfection)
-	float yawBias = 0.0f;
-	float pitchBias = 0.0f;
-
-	float getYawTo(double deltaX, double deltaZ);
-	float getPitchTo(double deltaX, double deltaY, double deltaZ);
-	float wrapAngle(float angle);
-	double getHorizontalDistance(double x1, double z1, double x2, double z2);
-	float randomFloat(float min, float max);
-	
-	// Update temporal noise state
-	void updateNoiseState();
-	
-	// Non-linear speed curve (ease-in for natural acceleration)
-	float applyCurve(float normalizedDiff);
-	
-	// Calculates smooth rotation using velocity-based spring-damper system
-	// Acceleration state for velocity interpolation
-	float smoothedYawAccel = 0.0f;
-	float smoothedPitchAccel = 0.0f;
-
-	// Calculates smooth rotation using velocity-based spring-damper system
-	float calculateSmoothRotation(float angleDiff, float speed, float deltaTime, float& velocity, float& smoothedAccel);
 };
 
 extern AimAssist* aimAssist;

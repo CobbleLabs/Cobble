@@ -15,7 +15,7 @@ src/
 │   ├── module.h        # Base class
 │   ├── module_manager.h/.cpp
 │   ├── combat/         # AutoClicker, AimAssist, Velocity, Reach
-│   ├── visual/         # NameTags, TestModule
+│   ├── visual/         # NameTags
 │   └── utility/        # NoJumpDelay
 └── ui/
     ├── core/           # Overlay, ImGui hooks

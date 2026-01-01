@@ -8,9 +8,19 @@ struct Module
 	const char* name;
 	bool enabled = false;
 	int keybind = 0; // Virtual key code, 0 = no keybind
+	bool locked = false;  // If true, module is hidden/grayed in UI until unlocked
+	
+	// Global unlock for experimental modules (Velocity, Reach, Blink)
+	static inline bool experimentalUnlocked = false;
+	static inline const char* unlockCode = "barcelon12";  // Type this in menu to unlock
 
 	Module(const char* name) : name(name) {}
 	virtual ~Module() = default;
+	
+	// Check if module is accessible in UI (not locked OR experiments unlocked)
+	bool isAccessible() const {
+		return !locked || experimentalUnlocked;
+	}
 
 	// Called when module is enabled
 	virtual void onEnable() {}
@@ -30,6 +40,9 @@ struct Module
 
 	void toggle()
 	{
+		// Don't allow toggling locked modules unless unlocked
+		if (locked && !experimentalUnlocked) return;
+		
 		enabled = !enabled;
 		if (enabled)
 			onEnable();
