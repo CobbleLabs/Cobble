@@ -324,7 +324,7 @@ msbuild Cobble.vcxproj /p:Configuration=Release /p:Platform=x64
    # Set version.h to "1.0.0"
    .\build.ps1 -Release
    ```
-4. **Run**: Launch `bin/Release/CobbleLoader.exe`. It should detect the update ("1.0.10"), download it, and restart itself using the integrated update mode.
+4. **Run**: Launch `out/bin/Release/CobbleLoader.exe`. It should detect the update ("1.0.10"), download it, and restart itself using the integrated update mode.
 
 ### Debugging Update Mode
 

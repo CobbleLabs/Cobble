@@ -2,8 +2,8 @@
 
 #include <string>
 
-#include "../../ext/jni/jni.h"
-#include "../../ext/jni/jvmti.h"
+#include "../../infra/ext/jni/jni.h"
+#include "../../infra/ext/jni/jvmti.h"
 #include "../sdk/version.h"
 
 struct Java

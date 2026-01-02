@@ -40,12 +40,12 @@
     <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
   </ImportGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
-    <OutDir>$(SolutionDir)bin\$(Configuration)\</OutDir>
-    <IntDir>$(SolutionDir)obj\$(Configuration)\</IntDir>
+    <OutDir>$(SolutionDir)out\bin\$(Configuration)\</OutDir>
+    <IntDir>$(SolutionDir)out\obj\$(Configuration)\</IntDir>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
-    <OutDir>$(SolutionDir)bin\$(Configuration)\</OutDir>
-    <IntDir>$(SolutionDir)obj\$(Configuration)\</IntDir>
+    <OutDir>$(SolutionDir)out\bin\$(Configuration)\</OutDir>
+    <IntDir>$(SolutionDir)out\obj\$(Configuration)\</IntDir>
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <ClCompile>
@@ -54,12 +54,12 @@
       <PreprocessorDefinitions>_DEBUG;_WINDOWS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp20</LanguageStandard>
-      <AdditionalIncludeDirectories>$(ProjectDir)ext\jni;$(ProjectDir)src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(ProjectDir)infra\ext\jni;$(ProjectDir)src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalDependencies>$(ProjectDir)ext\jni\jvm.lib;opengl32.lib;winhttp.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>$(ProjectDir)infra\ext\jni\jvm.lib;opengl32.lib;winhttp.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
@@ -71,7 +71,7 @@
       <PreprocessorDefinitions>NDEBUG;_WINDOWS;IMGUI_DEFINE_MATH_OPERATORS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp20</LanguageStandard>
-      <AdditionalIncludeDirectories>$(ProjectDir)ext\jni;$(ProjectDir)ext\imgui;$(ProjectDir)src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(ProjectDir)infra\ext\jni;$(ProjectDir)infra\ext\imgui;$(ProjectDir)src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <Optimization>Disabled</Optimization>
       <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
     </ClCompile>
@@ -80,7 +80,7 @@
       <EnableCOMDATFolding>false</EnableCOMDATFolding>
       <OptimizeReferences>false</OptimizeReferences>
       <GenerateDebugInformation>false</GenerateDebugInformation>
-      <AdditionalDependencies>$(ProjectDir)ext\jni\jvm.lib;opengl32.lib;winhttp.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>$(ProjectDir)infra\ext\jni\jvm.lib;opengl32.lib;winhttp.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
@@ -114,16 +114,16 @@
     <ClCompile Include="src\util\math\math.cpp" />
     <ClCompile Include="src\util\math\worldToScreen.cpp" />
     <!-- External libraries -->
-    <ClCompile Include="ext\imgui\imgui.cpp" />
-    <ClCompile Include="ext\imgui\imgui_draw.cpp" />
-    <ClCompile Include="ext\imgui\imgui_tables.cpp" />
-    <ClCompile Include="ext\imgui\imgui_widgets.cpp" />
-    <ClCompile Include="ext\imgui\imgui_impl_opengl2.cpp" />
-    <ClCompile Include="ext\imgui\imgui_impl_win32.cpp" />
-    <ClCompile Include="ext\minhook\buffer.c" />
-    <ClCompile Include="ext\minhook\hook.c" />
-    <ClCompile Include="ext\minhook\trampoline.c" />
-    <ClCompile Include="ext\minhook\hde\hde64.c" />
+    <ClCompile Include="infra\ext\imgui\imgui.cpp" />
+    <ClCompile Include="infra\ext\imgui\imgui_draw.cpp" />
+    <ClCompile Include="infra\ext\imgui\imgui_tables.cpp" />
+    <ClCompile Include="infra\ext\imgui\imgui_widgets.cpp" />
+    <ClCompile Include="infra\ext\imgui\imgui_impl_opengl2.cpp" />
+    <ClCompile Include="infra\ext\imgui\imgui_impl_win32.cpp" />
+    <ClCompile Include="infra\ext\minhook\buffer.c" />
+    <ClCompile Include="infra\ext\minhook\hook.c" />
+    <ClCompile Include="infra\ext\minhook\trampoline.c" />
+    <ClCompile Include="infra\ext\minhook\hde\hde64.c" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="src\cobble.hpp" />
@@ -160,9 +160,9 @@
     <ClInclude Include="src\util\http.hpp" />
     <ClInclude Include="src\util\hwid.hpp" />
     <!-- External -->
-    <ClInclude Include="ext\jni\jni.h" />
-    <ClInclude Include="ext\jni\jni_md.h" />
-    <ClInclude Include="ext\jni\jvmti.h" />
+    <ClInclude Include="infra\ext\jni\jni.h" />
+    <ClInclude Include="infra\ext\jni\jni_md.h" />
+    <ClInclude Include="infra\ext\jni\jvmti.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
 </Project>

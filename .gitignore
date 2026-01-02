@@ -26,8 +26,7 @@ CMakeConfigureLog.yaml
 # =========================
 # Output binaries
 # =========================
-bin/
-obj/
+out/
 *.dll
 *.exe
 *.lib
@@ -55,7 +54,6 @@ Thumbs.db
 # =========================
 # Update System (sensitive)
 # =========================
-keys/
-releases/
+infra/keys/
 *.key
 .env

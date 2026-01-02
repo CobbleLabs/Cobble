@@ -22,9 +22,9 @@ $Platform = "x64"
 # Output paths
 $DLLProject = "$RepoRoot\Cobble.vcxproj"
 $LoaderProject = "$RepoRoot\loader\CobbleLoader.vcxproj"
-$DLLOutput = "$RepoRoot\bin\$Configuration\Cobble.dll"
+$DLLOutput = "$RepoRoot\out\bin\$Configuration\Cobble.dll"
 $HashHeader = "$RepoRoot\loader\src\util\dll_hash.h"
-$LoaderOutput = "$RepoRoot\bin\$Configuration\CobbleLoader.exe"
+$LoaderOutput = "$RepoRoot\out\bin\$Configuration\CobbleLoader.exe"
 $VersionHeader = "$RepoRoot\loader\src\version.h"
 
 function Write-Step($msg) {
@@ -68,10 +68,9 @@ function Get-Version() {
 # Clean if requested
 if ($Clean) {
     Write-Step "Cleaning build artifacts..."
-    if (Test-Path "$RepoRoot\bin") { Remove-Item -Recurse -Force "$RepoRoot\bin" }
-    if (Test-Path "$RepoRoot\obj") { Remove-Item -Recurse -Force "$RepoRoot\obj" }
-    if (Test-Path "$RepoRoot\loader\bin") { Remove-Item -Recurse -Force "$RepoRoot\loader\bin" }
-    if (Test-Path "$RepoRoot\loader\obj") { Remove-Item -Recurse -Force "$RepoRoot\loader\obj" }
+    if (Test-Path "$RepoRoot\out\bin") { Remove-Item -Recurse -Force "$RepoRoot\out\bin" }
+    if (Test-Path "$RepoRoot\out\obj") { Remove-Item -Recurse -Force "$RepoRoot\out\obj" }
+    if (Test-Path "$RepoRoot\loader\out") { Remove-Item -Recurse -Force "$RepoRoot\loader\out" }
     if (Test-Path $HashHeader) { Remove-Item -Force $HashHeader }
     Write-Success "Clean complete"
 }
@@ -172,8 +171,8 @@ if ($PrepareRelease) {
     Write-Step "Preparing signed release..."
     
     $version = Get-Version
-    $releaseDir = "$RepoRoot\releases\latest"
-    $privateKeyPath = "$RepoRoot\keys\private.key"
+    $releaseDir = "$RepoRoot\out\releases\latest"
+    $privateKeyPath = "$RepoRoot\infra\keys\private.key"
     
     # Check for private key
     if (-not (Test-Path $privateKeyPath)) {
@@ -252,6 +251,6 @@ Write-Host "  DLL:    $DLLOutput"
 Write-Host "  Loader: $LoaderOutput"
 Write-Host "  Hash:   $($dllHash.Substring(0,16))..."
 if ($PrepareRelease) {
-    Write-Host "  Release: releases\latest\ (SIGNED)" -ForegroundColor Green
+    Write-Host "  Release: out\releases\latest\ (SIGNED)" -ForegroundColor Green
 }
 Write-Host ""

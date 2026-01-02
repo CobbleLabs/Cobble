@@ -90,7 +90,7 @@ Cobble uses an **integrated autoupdater** that allows the loader to update itsel
 ```
 
 This automatically:
-- Generates Ed25519 keypair in `keys/`
+- Generates Ed25519 keypair in `infra/keys/`
 - Updates `updater.h` with the public key
 - Creates private key for signing releases
 
@@ -121,12 +121,12 @@ This:
 - Builds Cobble.dll and CobbleLoader.exe
 - Generates `manifest.json` (with `mandatory: true/false`)
 - Signs the manifest with Ed25519 (creates `manifest.sig`)
-- Places everything in `releases/latest/`
+- Places everything in `out/releases/latest/`
 
 ### 3. Upload to server
 
 ```bash
-scp -r releases/latest/* user@server:/opt/cobble/releases/latest/
+scp -r out/releases/latest/* user@server:/opt/cobble/releases/latest/
 ```
 
 Or via your preferred deployment method.

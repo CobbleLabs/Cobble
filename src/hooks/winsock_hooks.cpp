@@ -5,7 +5,7 @@
 #include <WinSock2.h>
 #include <Windows.h>
 #include <winternl.h>  // For NTSTATUS
-#include "../../ext/minhook/minhook.h"
+#include "../../infra/ext/minhook/minhook.h"
 
 #pragma comment(lib, "ws2_32.lib")
 

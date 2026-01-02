@@ -16,8 +16,8 @@ Ghost client for Lunar Client via JNI injection.
 .\build.ps1 -Release
 
 # Output
-bin/Release/CobbleLoader.exe  # Injector
-bin/Release/Cobble.dll        # Client (embedded in loader)
+out/bin/Release/CobbleLoader.exe  # Injector
+out/bin/Release/Cobble.dll        # Client (embedded in loader)
 ```
 
 ## Documentation
@@ -38,7 +38,7 @@ Cobble/
 │   ├── sdk/          # Minecraft wrappers
 │   └── jni/          # JVM bridge
 ├── docs/             # Documentation
-└── bin/Release/      # Build output
+└── out/bin/Release/  # Build output
 ```
 
 ## Requirements

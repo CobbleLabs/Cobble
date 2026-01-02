@@ -5,7 +5,7 @@
 $ErrorActionPreference = "Stop"
 
 $RepoRoot = Split-Path -Parent $PSScriptRoot
-$keysDir = "$RepoRoot\keys"
+$keysDir = "$RepoRoot\infra\keys"
 $updaterHeader = "$RepoRoot\loader\src\update\updater.h"
 
 New-Item -ItemType Directory -Force -Path $keysDir | Out-Null

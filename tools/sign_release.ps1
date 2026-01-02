@@ -12,10 +12,10 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-$releaseDir = "releases\latest"
-$loaderPath = "bin\Release\CobbleLoader.exe"
-$dllPath = "bin\Release\Cobble.dll"
-$privateKeyPath = "keys\private.key"
+$releaseDir = "out\releases\latest"
+$loaderPath = "out\bin\Release\CobbleLoader.exe"
+$dllPath = "out\bin\Release\Cobble.dll"
+$privateKeyPath = "infra\keys\private.key"
 
 # Check files exist
 if (!(Test-Path $loaderPath)) { throw "Loader not found: $loaderPath" }

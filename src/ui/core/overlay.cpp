@@ -18,10 +18,10 @@
 #include <atomic>
 #include <thread>
 
-#include "../../../ext/minhook/minhook.h"
-#include "../../../ext/imgui/imgui.h"
-#include "../../../ext/imgui/imgui_impl_win32.h"
-#include "../../../ext/imgui/imgui_impl_opengl2.h"
+#include "../../../infra/ext/minhook/minhook.h"
+#include "../../../infra/ext/imgui/imgui.h"
+#include "../../../infra/ext/imgui/imgui_impl_win32.h"
+#include "../../../infra/ext/imgui/imgui_impl_opengl2.h"
 #include "../../util/math/worldToScreen.h"
 
 extern LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
