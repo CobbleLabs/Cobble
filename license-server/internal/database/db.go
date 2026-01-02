@@ -134,6 +134,45 @@ func runMigrations() error {
 		DB.Exec("INSERT INTO schema_migrations (version) VALUES (3)")
 	}
 
+	// Migration 4: User configs table (stores full config per user for sync)
+	if currentVersion < 4 {
+		logger.Info("MIGRATE", "004: User configs table", nil)
+		_, err := DB.Exec(`
+			CREATE TABLE IF NOT EXISTS user_configs (
+				username TEXT PRIMARY KEY,
+				config TEXT NOT NULL DEFAULT '{}',
+				version INTEGER NOT NULL DEFAULT 1,
+				updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+			)
+		`)
+		if err != nil {
+			return err
+		}
+		DB.Exec("INSERT INTO schema_migrations (version) VALUES (4)")
+	}
+
+	// Migration 5: Fix active_sessions to be unique by username only (not username+ip)
+	if currentVersion < 5 {
+		DB.Exec(`
+			CREATE TABLE IF NOT EXISTS active_sessions_new (
+				id INTEGER PRIMARY KEY AUTOINCREMENT,
+				username TEXT NOT NULL UNIQUE,
+				ip_address TEXT NOT NULL,
+				hwid TEXT NOT NULL,
+				last_seen_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+			)
+		`)
+		DB.Exec(`
+			INSERT OR REPLACE INTO active_sessions_new (username, ip_address, hwid, last_seen_at)
+			SELECT username, ip_address, hwid, MAX(last_seen_at)
+			FROM active_sessions
+			GROUP BY username
+		`)
+		DB.Exec(`DROP TABLE IF EXISTS active_sessions`)
+		DB.Exec(`ALTER TABLE active_sessions_new RENAME TO active_sessions`)
+		DB.Exec("INSERT INTO schema_migrations (version) VALUES (5)")
+	}
+
 	// Load MIN_VERSION from database
 	var savedVersion string
 	if DB.QueryRow("SELECT value FROM settings WHERE key = 'min_version'").Scan(&savedVersion) == nil && savedVersion != "" {
@@ -183,14 +222,15 @@ func CountConcurrentSessions(username string) int {
 	return count
 }
 
-// RecordSession records an active session
+// RecordSession records an active session (unique per username)
 func RecordSession(username, hwid, ip string) {
 	DB.Exec(`
 		INSERT INTO active_sessions (username, hwid, ip_address, last_seen_at)
 		VALUES (?, ?, ?, CURRENT_TIMESTAMP)
-		ON CONFLICT(username, ip_address) DO UPDATE SET 
+		ON CONFLICT(username) DO UPDATE SET 
 			last_seen_at = CURRENT_TIMESTAMP,
-			hwid = excluded.hwid
+			hwid = excluded.hwid,
+			ip_address = excluded.ip_address
 	`, username, hwid, ip)
 }
 

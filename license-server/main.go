@@ -43,6 +43,8 @@ func main() {
 
 	http.HandleFunc("/api/verify", middleware.RateLimit(handlers.Verify))
 	http.HandleFunc("/api/register", middleware.RateLimit(handlers.Register))
+	http.HandleFunc("/api/config", middleware.RateLimit(handlers.GetConfig))
+	http.HandleFunc("/api/config/save", middleware.RateLimit(handlers.SaveConfig))
 	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("OK"))
 	})

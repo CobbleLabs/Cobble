@@ -38,3 +38,19 @@ type SuccessResponse struct {
 	Success bool        `json:"success"`
 	Data    interface{} `json:"data,omitempty"`
 }
+
+// UserConfig represents stored user configuration (full config, not just overrides)
+type UserConfig struct {
+	Username  string `json:"username"`
+	Config    string `json:"config"`     // Full JSON config blob
+	Version   int    `json:"version"`    // Schema version for migrations
+	UpdatedAt string `json:"updated_at"`
+}
+
+// ConfigResponse is returned by GET /api/config
+type ConfigResponse struct {
+	Success bool   `json:"success"`
+	Config  string `json:"config,omitempty"`  // Full JSON config
+	Version int    `json:"version,omitempty"`
+	Message string `json:"message,omitempty"`
+}

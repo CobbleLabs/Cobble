@@ -34,10 +34,8 @@ func Start() {
 	// DELETE old commands first!
 	existingCmds, _ := session.ApplicationCommands(session.State.User.ID, cfg.DiscordGuild)
 	for _, cmd := range existingCmds {
-		logger.Debug("DISCORD", "Deleting old command", logger.Fields{"name": cmd.Name})
 		session.ApplicationCommandDelete(session.State.User.ID, cfg.DiscordGuild, cmd.ID)
 	}
-	logger.Info("DISCORD", "Cleared old commands", logger.Fields{"count": len(existingCmds)})
 
 	// Register commands
 	commands := []*discordgo.ApplicationCommand{

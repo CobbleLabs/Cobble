@@ -5,9 +5,6 @@
 #include <chrono>
 #include <random>
 
-// ============================================================
-// Timer - Simple timer class (from ToadClient)
-// ============================================================
 class Timer
 {
 private:
@@ -32,7 +29,7 @@ public:
 };
 
 // ============================================================
-// AimBoost - Speed multiplier randomization (from ToadClient)
+// AimBoost - Speed multiplier randomization
 // ============================================================
 class AimBoost
 {
@@ -55,9 +52,6 @@ private:
 	Timer timer;
 };
 
-// ============================================================
-// AimAssist - Exact copy of ToadClient logic
-// ============================================================
 class AimAssist : public Module
 {
 public:

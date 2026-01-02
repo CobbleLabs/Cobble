@@ -1312,7 +1312,6 @@ int Minecraft::getBlockId(int x, int y, int z)
 
 Minecraft::RAYTRACE_BLOCKS_RESULT Minecraft::rayTraceBlocks(Vec3 from, Vec3 direction, Vec3& result, bool stopOnLiquid)
 {
-	// ToadClient-style rayTraceBlocks implementation
 	result = { -1.5f, -1.5f, -1.5f }; // Default error value
 	
 	if (!isValid()) return RAYTRACE_BLOCKS_RESULT::RAYTRACE_ERROR;
@@ -1361,7 +1360,6 @@ Minecraft::RAYTRACE_BLOCKS_RESULT Minecraft::rayTraceBlocks(Vec3 from, Vec3 dire
 		return RAYTRACE_BLOCKS_RESULT::RAYTRACE_ERROR;
 	}
 
-	// ToadClient uses: rayTraceBlocks(Vec3 from, Vec3 direction, boolean stopOnLiquid)
 	// Signature: (Lnet/minecraft/util/Vec3;Lnet/minecraft/util/Vec3;Z)Lnet/minecraft/util/MovingObjectPosition;
 	jmethodID mid_rayTrace = Java::Env->GetMethodID(worldCls, "rayTraceBlocks", "(Lnet/minecraft/util/Vec3;Lnet/minecraft/util/Vec3;Z)Lnet/minecraft/util/MovingObjectPosition;");
 	if (!mid_rayTrace) {
@@ -1407,8 +1405,6 @@ Minecraft::RAYTRACE_BLOCKS_RESULT Minecraft::rayTraceBlocks(Vec3 from, Vec3 dire
 		return RAYTRACE_BLOCKS_RESULT::NO_HIT;
 	}
 
-	// ToadClient: Get block position from MovingObjectPosition
-	// They call getBlockPositionFromMovingBlock or getBlockPos
 	jclass mopCls = Java::Env->GetObjectClass(mop);
 	
 	// Try: getBlockPos() -> BlockPos

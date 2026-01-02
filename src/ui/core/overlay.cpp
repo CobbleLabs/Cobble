@@ -8,6 +8,7 @@
 #include "../../sdk/render_data.h"
 #include "../../sdk/minecraft.h"
 #include "../../module/module_manager.h"
+#include "../../config/config.hpp"
 
 // Embedded font data
 #include "bytes.hpp"
@@ -127,6 +128,8 @@ namespace {
 			} else {
 				Menu::moduleToBind = nullptr;
 				mc.restoreMovementKeys();
+				// Save config when menu closes (debounced sync to server)
+				ConfigManager::get().onSettingChanged();
 			}
 		}
 		
@@ -170,6 +173,7 @@ namespace {
 				Menu::isOpen = false;
 				Menu::moduleToBind = nullptr;
 				ImGui::GetIO().MouseDrawCursor = false;
+				ConfigManager::get().onSettingChanged();
 				return 1;
 			}
 			

@@ -6,6 +6,40 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/).
 
 ---
 
+## [0.20.0] - 2026-01-02
+
+### Added
+- **Config Persistence**: Sistema híbrido de persistencia de configuración
+  - Cache local (`%APPDATA%/Cobble/config.json`) para startup instantáneo
+  - Sync server-side opcional para cargar config en cualquier PC
+  - Debounce 400ms para evitar spam de requests al cambiar settings
+  - Guarda automáticamente al cerrar menú (INSERT o ESC)
+  
+- **Config Server** (license-server):
+  - Nueva tabla `user_configs` para almacenar config por usuario
+  - `GET /api/config` - obtener config guardada (auth por HWID)
+  - `POST /api/config/save` - guardar config (auth por HWID)
+  - Migration 5: `active_sessions` ahora UNIQUE por username (no más duplicados)
+  
+- **Nuevos Utilities**:
+  - `src/util/json.hpp` - JSON parser/serializer extendido
+  - `src/util/http.hpp` - Cliente HTTP simple (WinHTTP)
+  - `src/util/hwid.hpp` - Generador de HWID (copiado de loader)
+  - `src/config/config.hpp` - ConfigManager singleton
+
+- **Settings UI**:
+  - Toggle "Cloud Sync" para habilitar/deshabilitar sync (deshabilitado por default)
+  - Fallback de IP para conexiones al server (172.235.136.152)
+
+### Changed
+- **Startup Flow**: ConfigManager se inicializa después de registrar módulos
+- **Shutdown Flow**: Config se guarda antes de deshabilitar módulos
+
+### Security
+- `experimentalUnlocked` ya NO se guarda en config - siempre requiere código
+
+---
+
 ## [0.19.0] - 2026-01-01
 
 ### Added
@@ -21,14 +55,6 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/).
 - **Blink Module**: Reescrito para usar WinsockHooks (NtDeviceIoControlFile) en vez de JNI
   - El approach JNI (lastReportedPos manipulation) NO funcionó en Lunar Client
   - El approach actual usa hooks de red a nivel bajo para bloquear paquetes
-
-### Removed
-- **TestModule**: Módulo de pruebas eliminado de Visuals
-- **Dead Blink JNI Code**: ~300 líneas removidas de minecraft.cpp (setLastReportedPos, captureBlinkPosition, etc.)
-- **Lock Icons**: Removidos íconos de candado de módulos experimentales
-
-### Fixed
-- **Blink Keybind**: Cambiado de '0' (tecla 0) a 0 (NONE)
 
 ---
 
@@ -92,12 +118,12 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/).
 ## [0.18.0] - 2025-12-31
 
 ### Changed
-- **AimAssist**: Reescritura completa usando lógica exacta de ToadClient
+- **AimAssist**: Reescritura complet
   - Sistema `AimBoost` para randomización de velocidad con interpolación suave
   - Modos de target: Health, Distance, FOV (closest to crosshair)
   - `ApplyAimRand` con pitch randomization cuando tracking horizontal
   - `GetAimPoint` con detección de hitbox para evitar sobre-corrección
-  - Movimiento via `SetCursorPos` (método ToadClient)
+  - Movimiento via `SetCursorPos`
   - Opciones: Always Aim, Horizontal Only, Lock Aim, Break Blocks, Aim Closest Point, Target Invisibles
   - Reaction Time configurable
   - Timer class incluida para timing preciso
@@ -604,6 +630,8 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/).
 
 ## Próximos Pasos
 
-- [ ] Guardar config en JSON file
-- [ ] Más módulos: Sprint, Velocity, Reach
+- [x] ~~Guardar config en JSON file~~ (v0.20.0)
+- [x] ~~Más módulos: Velocity~~ (v0.13.0)
+- [ ] Implementar hook de raycast para Reach
+- [ ] Blink: migrar a JVMTI o packet-level filtering
 - [ ] Mejorar UI web (themes, más módulos)

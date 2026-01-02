@@ -4,6 +4,7 @@
 #include "../widgets/icons.hpp"
 #include "../hud/arraylist.h"
 #include "../hud/notifications.h"
+#include "../../config/config.hpp"
 #include "../../module/module_manager.h"
 #include "../../module/combat/autoclicker.h"
 #include "../../module/combat/aimassist.h"
@@ -108,6 +109,19 @@ static void renderSettingsPage()
 				}
 			}
 			ui::Checkbox("Notifications", &NotificationManager::enabled);
+			
+			ImGui::Spacing();
+			ImGui::Separator();
+			ImGui::Spacing();
+			
+			// Cloud Sync toggle
+			bool syncEnabled = ConfigManager::get().isSyncEnabled();
+			if (ui::Checkbox("Cloud Sync", &syncEnabled)) {
+				ConfigManager::get().setSyncEnabled(syncEnabled);
+			}
+			ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetColorU32(ImGuiCol_TextDisabled));
+			ImGui::TextWrapped("Sync config across devices");
+			ImGui::PopStyleColor();
 		}
 		ui::end_child();
 	}

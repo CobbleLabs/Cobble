@@ -152,6 +152,28 @@ static Module* getModuleForSubtab(int tabIdx, int subtabIdx)
 <ClCompile Include="src\module\combat\mymodule.cpp" />
 ```
 
+### Step 7: Add to ConfigManager
+
+**config.cpp** – Add serialization in `applyConfig()` and `buildConfigFromModules()`:
+
+```cpp
+// In applyConfig() - load settings from JSON:
+else if (name == "MyModule" && myModule) {
+    auto& s = myModule->settings;
+    s.myValue = data["myValue"].as_float(s.myValue);
+    s.myToggle = data["myToggle"].as_bool(s.myToggle);
+}
+
+// In buildConfigFromModules() - save settings to JSON:
+else if (name == "MyModule" && myModule) {
+    const auto& s = myModule->settings;
+    config_["modules"][name]["myValue"] = s.myValue;
+    config_["modules"][name]["myToggle"] = s.myToggle;
+}
+```
+
+**Note:** The config is automatically saved when the menu closes. No extra code needed.
+
 ---
 
 ## UI Guidelines
@@ -323,6 +345,7 @@ log_debug("Value: %.2f", someFloat);
 - [ ] Registered in `cobble.cpp` (alloc, register, cleanup)
 - [ ] Added to `widgets.cpp` tab definition
 - [ ] Added to `menu.cpp` subtab lookup
+- [ ] Added to `config.cpp` (applyConfig + buildConfigFromModules)
 - [ ] Added to `Cobble.vcxproj`
 - [ ] Tested build
 - [ ] Tested in-game

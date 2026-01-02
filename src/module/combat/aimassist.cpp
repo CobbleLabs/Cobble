@@ -18,7 +18,7 @@
 AimAssist* aimAssist = nullptr;
 
 // ============================================================
-// AimBoost Implementation (from ToadClient)
+// AimBoost Implementation
 // ============================================================
 
 AimBoost::AimBoost(float speed_mult_min, float speed_mult_max, float freq_min_ms, float freq_max_ms, bool continuous)
@@ -71,7 +71,7 @@ float AimBoost::Delay()
 }
 
 // ============================================================
-// AimAssist Implementation (exact ToadClient logic)
+// AimAssist Implementation
 // ============================================================
 
 AimAssist::AimAssist() : Module("AimAssist")
@@ -142,13 +142,11 @@ void AimAssist::onUpdate()
 	if (Menu::isOpen) return;
 	if (mc.isInGui()) return;
 
-	// ToadClient: !aa::always_aim && !GetAsyncKeyState(VK_LBUTTON)
 	if (!settings.alwaysAim && !(GetAsyncKeyState(VK_LBUTTON) & 0x8000))
 	{
 		return;
 	}
 
-	// ToadClient: aa::break_blocks
 	if (settings.breakBlocks && (GetAsyncKeyState(VK_LBUTTON) & 0x8000))
 	{
 		if (mc.isTargetingBlock())
@@ -200,7 +198,6 @@ void AimAssist::onUpdate()
 	lockedTargetY = targetY;
 	lockedTargetZ = targetZ;
 
-	// ToadClient 1.7.10 fix: adds 1.6 to Y
 	if (Java::Version == MinecraftVersion::MC_1_7_10)
 	{
 		targetY += 1.6;
@@ -212,13 +209,11 @@ void AimAssist::onUpdate()
 		return;
 	}
 
-	// ToadClient: get_angles(lPlayer->Pos, aim_point)
 	auto [yawTarget, pitchTarget] = getAngles(localX, localY, localZ, aimX, aimY, aimZ);
 
 	float yawDiff = wrapTo180(-(localYaw - yawTarget));
 	float pitchDiff = wrapTo180(-(localPitch - pitchTarget));
 
-	// ToadClient: aa::speed * 3
 	float speed = settings.speed * 3;
 
 	applyAimRand(yawDiff, pitchDiff, speed);
@@ -302,13 +297,11 @@ void AimAssist::applyAimRand(float yawDiff, float pitchDiff, float speed)
 	float absYawDiff = std::abs(yawDiff);
 	float absPitchDiff = std::abs(pitchDiff);
 
-	// ToadClient dead zone
 	if (absYawDiff < 1.f && absPitchDiff < 1.f)
 	{
 		return;
 	}
 
-	// ToadClient: rand_float(-0.2f, 0.2f)
 	yawDiff += randFloat(-0.2f, 0.2f);
 	pitchDiff += randFloat(-0.2f, 0.2f);
 
@@ -339,7 +332,6 @@ void AimAssist::applyAimRand(float yawDiff, float pitchDiff, float speed)
 		reactionTimeTimer.Start();
 	}
 
-	// ToadClient pitch randomization
 	static Timer pitchRandTimer;
 	static int pitchrand = randInt(-1, 1);
 
@@ -387,7 +379,6 @@ void AimAssist::applyAimRand(float yawDiff, float pitchDiff, float speed)
 		pitchrandsmooth = std::lerp(pitchrandsmooth, 0.f, std::clamp(partialTick * 0.1f, 0.f, 1.f));
 	}
 
-	// ToadClient: SetCursorPos
 	POINT pt;
 	GetCursorPos(&pt);
 
@@ -413,8 +404,6 @@ bool AimAssist::getAimPoint(double targetX, double targetY, double targetZ, doub
 
 	if (settings.aimAtClosestPoint)
 	{
-		// ToadClient: BBox({ target_pos.x - 0.3f, target_pos.y - 1.6f, target_pos.z - 0.3f }, 
-		//                  { target_pos.x + 0.3f, target_pos.y + 0.2f, target_pos.z + 0.3f })
 		double minX = targetX - HALF_WIDTH;
 		double maxX = targetX + HALF_WIDTH;
 		double minY = targetY - 1.6;
@@ -429,7 +418,6 @@ bool AimAssist::getAimPoint(double targetX, double targetY, double targetZ, doub
 	}
 	else
 	{
-		// ToadClient: bbox_corners with y - 1.6f and y + 0.2f
 		double corners[4][3] = {
 			{ targetX - HALF_WIDTH, targetY - 1.6, targetZ + HALF_WIDTH },
 			{ targetX - HALF_WIDTH, targetY - 1.6, targetZ - HALF_WIDTH },
@@ -466,7 +454,6 @@ bool AimAssist::getAimPoint(double targetX, double targetY, double targetZ, doub
 			}
 		}
 
-		// ToadClient: return target_pos
 		aimX = targetX;
 		aimY = targetY;
 		aimZ = targetZ;

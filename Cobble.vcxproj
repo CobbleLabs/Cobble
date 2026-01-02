@@ -59,7 +59,7 @@
     <Link>
       <SubSystem>Windows</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalDependencies>$(ProjectDir)ext\jni\jvm.lib;opengl32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>$(ProjectDir)ext\jni\jvm.lib;opengl32.lib;winhttp.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
@@ -80,7 +80,7 @@
       <EnableCOMDATFolding>false</EnableCOMDATFolding>
       <OptimizeReferences>false</OptimizeReferences>
       <GenerateDebugInformation>false</GenerateDebugInformation>
-      <AdditionalDependencies>$(ProjectDir)ext\jni\jvm.lib;opengl32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>$(ProjectDir)ext\jni\jvm.lib;opengl32.lib;winhttp.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
@@ -108,6 +108,8 @@
     <ClCompile Include="src\ui\hud\arraylist.cpp" />
     <ClCompile Include="src\ui\widgets\widgets.cpp" />
     <ClCompile Include="src\ui\widgets\theme.cpp" />
+    <!-- Config system -->
+    <ClCompile Include="src\config\config.cpp" />
     <!-- Utilities -->
     <ClCompile Include="src\util\math\math.cpp" />
     <ClCompile Include="src\util\math\worldToScreen.cpp" />
@@ -152,6 +154,11 @@
     <ClInclude Include="src\ui\widgets\widgets.hpp" />
     <ClInclude Include="src\ui\widgets\theme.hpp" />
     <ClInclude Include="src\ui\widgets\icons.hpp" />
+    <!-- Config -->
+    <ClInclude Include="src\config\config.hpp" />
+    <ClInclude Include="src\util\json.hpp" />
+    <ClInclude Include="src\util\http.hpp" />
+    <ClInclude Include="src\util\hwid.hpp" />
     <!-- External -->
     <ClInclude Include="ext\jni\jni.h" />
     <ClInclude Include="ext\jni\jni_md.h" />

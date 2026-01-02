@@ -1,4 +1,5 @@
 #include "cobble.hpp"
+#include "config/config.hpp"
 #include "module/module_manager.h"
 #include "module/combat/autoclicker.h"
 #include "module/combat/aimassist.h"
@@ -77,6 +78,10 @@ void cobble::context::initialize(HMODULE hModule)
 	moduleManager->registerModule(esp);
 	log_ok("Modules registered");
 	
+	// Initialize config (loads local, applies to modules, async fetch from server)
+	log_raw("Initializing Config...");
+	ConfigManager::get().init();
+	
 	// Initialize WSA hooks for Blink packet blocking
 	log_raw("Initializing WSA hooks...");
 	if (WinsockHooks::Init()) {
@@ -150,6 +155,9 @@ void cobble::context::shutdown()
 		hInstanceMutex = nullptr;
 		log_raw("Released instance mutex");
 	}
+	
+	// Save config before shutdown
+	ConfigManager::get().shutdown();
 	
 	if (autoClicker) autoClicker->setEnabled(false);
 	if (aimAssist) aimAssist->setEnabled(false);

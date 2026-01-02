@@ -66,9 +66,78 @@ Cobble is an injectable ghost client for Lunar Client (Minecraft), composed of t
 
 | Component | Responsibility |
 |-----------|----------------|
-| `handlers/` | API endpoints (verify, admin) |
+| `handlers/` | API endpoints (verify, admin, config) |
 | `middleware/` | Rate limiting, auth |
 | `database/` | SQLite/PostgreSQL persistence |
+
+### Config System (`src/config/`)
+
+| Component | Responsibility |
+|-----------|----------------|
+| `config.hpp` | ConfigManager singleton, lifecycle |
+| `config.cpp` | Module serialization/deserialization |
+| `util/json.hpp` | JSON parser and serializer |
+| `util/http.hpp` | WinHTTP client for server sync |
+| `util/hwid.hpp` | Hardware ID generation |
+
+---
+
+## Config Persistence Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                         STARTUP FLOW                                 │
+├─────────────────────────────────────────────────────────────────────┤
+│  1. Load %APPDATA%/Cobble/config.json (instant)                     │
+│  2. Apply to modules immediately                                     │
+│  3. Async fetch from server (non-blocking)                          │
+│  4. Merge server config → apply → save local cache                  │
+└─────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────┐
+│                        SETTINGS CHANGE FLOW                          │
+├─────────────────────────────────────────────────────────────────────┤
+│  1. User changes setting in menu                                     │
+│  2. Menu close → saveLocal() (immediate)                            │
+│  3. Debounce 400ms → pushServerConfig() (async)                     │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+### Config JSON Structure
+
+```json
+{
+  "version": 1,
+  "flags": {
+    "experimentalUnlocked": false
+  },
+  "hud": {
+    "arrayList": true,
+    "notifications": true
+  },
+  "modules": {
+    "AutoClicker": {
+      "enabled": false,
+      "keybind": 0,
+      "minCps": 10.0,
+      "maxCps": 12.0
+    },
+    "AimAssist": {
+      "enabled": false,
+      "keybind": 0,
+      "speed": 50.0,
+      "fov": 180
+    }
+  }
+}
+```
+
+### Server Endpoints
+
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/api/config` | GET | Fetch stored config by HWID |
+| `/api/config/save` | POST | Save config (HWID + JSON) |
 
 ---
 
@@ -108,6 +177,12 @@ Cobble.dll (DllMain)
                            │     └── ... (all modules)
                            │
                            ├── moduleManager->registerModule(*)
+                           │
+                           ├── ConfigManager::get().init()
+                           │     ├── Load local config.json
+                           │     ├── Apply to modules
+                           │     └── Async fetch server config
+                           │
                            ├── Overlay::Init()
                            │
                            └── Main loop (1ms tick)
@@ -116,6 +191,7 @@ Cobble.dll (DllMain)
                                  └── moduleManager->update()
 
 cobble::context::shutdown()
+    ├── ConfigManager::get().shutdown()  // Save config
     ├── Disable all modules
     ├── Overlay::Shutdown()
     ├── Java::Kill()

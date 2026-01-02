@@ -109,7 +109,6 @@ struct Minecraft
 		Vec3(float x, float y, float z) : x(x), y(y), z(z) {}
 	};
 	
-	// ToadClient-style result enum
 	enum class RAYTRACE_BLOCKS_RESULT {
 		HIT,                  // hit a block
 		HIT_FROM_AIRBLOCK,    // hit a block but ray origin was airblock

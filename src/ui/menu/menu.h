@@ -10,7 +10,6 @@ namespace Menu {
     inline bool isOpen = false;
     inline float openAnim = 0.f;
     inline Module* moduleToBind = nullptr;
-    inline Module* moduleToUnlock = nullptr; // Track module for unlock popup
     
     void ApplyStyle();
     void Render();

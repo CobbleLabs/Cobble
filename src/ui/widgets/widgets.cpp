@@ -644,7 +644,6 @@ void ui::subtab(int num, int tab_num) {
     }
 }
 
-
 // ==================== APPLY STYLE ====================
 
 void ui::apply_style() {
