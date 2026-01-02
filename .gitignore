@@ -51,3 +51,11 @@ Thumbs.db
 !ARCHITECTURE.md
 !config/
 !config/**
+
+# =========================
+# Update System (sensitive)
+# =========================
+keys/
+releases/
+*.key
+.env

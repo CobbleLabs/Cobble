@@ -3,6 +3,9 @@ package discord
 import (
 	"fmt"
 	"time"
+	"encoding/json"
+	"os"
+	"path/filepath"
 
 	"license-server/internal/config"
 	"license-server/internal/database"
@@ -12,6 +15,30 @@ import (
 )
 
 var session *discordgo.Session
+
+type Manifest struct {
+	Version     string `json:"version"`
+	MinAllowed  string `json:"min_allowed"`
+	Mandatory   bool   `json:"mandatory"`
+	LoaderHash  string `json:"loader_sha256"`
+	LoaderSize  int64  `json:"loader_size"`
+	DllHash     string `json:"dll_sha256"`
+	DllSize     int64  `json:"dll_size"`
+	Notes       string `json:"notes"`
+}
+
+func getManifest() (*Manifest, error) {
+	cfg := config.Get()
+	path := filepath.Join(cfg.ReleasesDir, "latest", "manifest.json")
+	
+	bytes, err := os.ReadFile(path)
+	if err != nil { return nil, err }
+	
+	var m Manifest
+	if err := json.Unmarshal(bytes, &m); err != nil { return nil, err }
+	
+	return &m, nil
+}
 
 // Start initializes and starts the Discord bot
 func Start() {
@@ -53,9 +80,8 @@ func Start() {
 		}},
 		{Name: "list", Description: "List licenses"},
 		{Name: "stats", Description: "Show stats"},
-		{Name: "setversion", Description: "Set min version", Options: []*discordgo.ApplicationCommandOption{
-			{Type: discordgo.ApplicationCommandOptionString, Name: "version", Description: "Version", Required: true},
-		}},
+
+		{Name: "release", Description: "Show current release info"},
 		{Name: "lookup", Description: "Lookup user", Options: []*discordgo.ApplicationCommandOption{
 			{Type: discordgo.ApplicationCommandOptionString, Name: "username", Description: "Username", Required: true},
 		}},
@@ -225,19 +251,6 @@ func handleCommand(s *discordgo.Session, i *discordgo.InteractionCreate) {
 			},
 		})
 
-	case "setversion":
-		version := opts[0].StringValue()
-		config.SetMinVersion(version)
-		database.SaveMinVersion(version)
-		
-		logger.Info("ADMIN", "Version updated", logger.Fields{"min_version": version})
-		
-		respondEmbed(s, i, &discordgo.MessageEmbed{
-			Title: "🔄 Version Updated",
-			Color: 0xff9900,
-			Description: fmt.Sprintf("Minimum version set to **%s**\n\nAll clients below this version will be forced to update!", version),
-		})
-
 	case "lookup":
 		username := opts[0].StringValue()
 		var hwid *string
@@ -290,6 +303,25 @@ func handleCommand(s *discordgo.Session, i *discordgo.InteractionCreate) {
 				{Name: "HWIDs Used", Value: fmt.Sprintf("%d", hwidCount), Inline: true},
 				{Name: "Last IP", Value: ipStr, Inline: true},
 				{Name: "Last Seen", Value: lastSeenStr, Inline: false},
+			},
+		})
+
+	case "release":
+		m, err := getManifest()
+		if err != nil {
+			respond(s, i, "❌ Failed to read manifest: "+err.Error())
+			return
+		}
+
+		respondEmbed(s, i, &discordgo.MessageEmbed{
+			Title: "📦 Current Release (Manifest)",
+			Color: 0x5865F2,
+			Fields: []*discordgo.MessageEmbedField{
+				{Name: "Version", Value: m.Version, Inline: true},
+				{Name: "Min Allowed", Value: m.MinAllowed, Inline: true},
+				{Name: "Mandatory", Value: fmt.Sprintf("%t", m.Mandatory), Inline: true},
+				{Name: "Loader Hash", Value: "`" + m.LoaderHash[:16] + "...`", Inline: false},
+				{Name: "DLL Hash", Value: "`" + m.DllHash[:16] + "...`", Inline: false},
 			},
 		})
 	}

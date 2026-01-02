@@ -30,6 +30,9 @@ type Config struct {
 	DiscordToken     string
 	DiscordGuild     string
 	DiscordAdminRole string
+
+	// Updates
+	ReleasesDir string
 }
 
 // Global config instance
@@ -63,6 +66,9 @@ func Load() *Config {
 		DiscordToken:     getEnv("DISCORD_TOKEN", ""),
 		DiscordGuild:     getEnv("DISCORD_GUILD", ""),
 		DiscordAdminRole: getEnv("DISCORD_ADMIN_ROLE", ""),
+
+		// Updates
+		ReleasesDir: getEnv("RELEASES_DIR", "./releases"),
 	}
 
 	return cfg

@@ -6,6 +6,7 @@
 #include <atomic>
 #include <vector>
 #include <cmath>
+#include <conio.h>
 
 #include "process.h"
 #include "inject.h"
@@ -17,13 +18,20 @@
 #include "version.h"
 #include "src/util/hash.h"
 #include "src/util/dll_hash.h"
+#include "src/update/updater.h"
+#include "src/update/download.h"
 
 // ============================================================================
 // CONFIG & GLOBALS
 // ============================================================================
 
-#define LICENSE_SERVER_PRIMARY "http://syra.club:8080"
-#define LICENSE_SERVER_FALLBACK "http://172.235.136.152:8080"
+// Server configuration
+#define SERVER_HOST_PRIMARY "syra.club"
+#define SERVER_HOST_FALLBACK "172.235.136.152"
+#define SERVER_PORT 8080
+
+#define LICENSE_SERVER_PRIMARY "http://" SERVER_HOST_PRIMARY ":8080"
+#define LICENSE_SERVER_FALLBACK "http://" SERVER_HOST_FALLBACK ":8080"
 #define LICENSE_CHECK_ENABLED true
 
 std::atomic<bool> g_SecurityViolation(false);
@@ -343,7 +351,89 @@ DWORD WINAPI SecurityThread2(LPVOID lpParam) {
 // MAIN
 // ============================================================================
 
+// Helper for update mode - supports cross-drive moves
+bool moveWithRetry(const std::string& src, const std::string& dst, int maxRetries = 10) {
+    for (int i = 0; i < maxRetries; i++) {
+        // Try MoveFileEx first (same drive, faster)
+        if (MoveFileExA(src.c_str(), dst.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
+            return true;
+        }
+        // If ERROR_NOT_SAME_DEVICE, use CopyFile + DeleteFile
+        if (GetLastError() == ERROR_NOT_SAME_DEVICE) {
+            if (CopyFileA(src.c_str(), dst.c_str(), FALSE)) {
+                DeleteFileA(src.c_str());
+                return true;
+            }
+        }
+        Sleep(500);
+    }
+    return false;
+}
+
 int wmain(int argc, wchar_t* argv[]) {
+	// ========== UPDATE MODE ==========
+	// If called with --update-pid, we act as the updater (silent, no UI)
+	for (int i = 1; i < argc; i++) {
+		if (wcscmp(argv[i], L"--update-pid") == 0 && i + 5 < argc) {
+			DWORD oldPid = (DWORD)_wtoi(argv[i + 1]);
+			std::wstring oldPathW = argv[i + 3];
+			std::wstring newPathW = argv[i + 5];
+			
+			char oldPathBuf[MAX_PATH], newPathBuf[MAX_PATH];
+			WideCharToMultiByte(CP_UTF8, 0, oldPathW.c_str(), -1, oldPathBuf, MAX_PATH, nullptr, nullptr);
+			WideCharToMultiByte(CP_UTF8, 0, newPathW.c_str(), -1, newPathBuf, MAX_PATH, nullptr, nullptr);
+			std::string oldPath = oldPathBuf;
+			std::string newPath = newPathBuf;
+			std::string backupPath = oldPath + ".old";
+			
+			// Wait for old loader to exit
+			HANDLE hProcess = OpenProcess(SYNCHRONIZE, FALSE, oldPid);
+			if (hProcess) {
+				WaitForSingleObject(hProcess, 30000);
+				CloseHandle(hProcess);
+			}
+			Sleep(500);
+			
+			// Delete old backup if exists
+			DeleteFileA(backupPath.c_str());
+			
+			// Backup old -> old.old
+			if (!moveWithRetry(oldPath, backupPath)) {
+				return 1;
+			}
+			
+			// Move new -> old location
+			if (!moveWithRetry(newPath, oldPath)) {
+				moveWithRetry(backupPath, oldPath);
+				return 2;
+			}
+			
+			// Launch the updated loader
+			STARTUPINFOA si = { sizeof(si) };
+			PROCESS_INFORMATION pi;
+			char cmdLine[MAX_PATH * 2];
+			sprintf_s(cmdLine, "\"%s\"", oldPath.c_str());
+			
+			if (CreateProcessA(nullptr, cmdLine, nullptr, nullptr, FALSE, CREATE_NEW_CONSOLE, nullptr, nullptr, &si, &pi)) {
+				CloseHandle(pi.hThread);
+				CloseHandle(pi.hProcess);
+				Sleep(500);
+				DeleteFileA(backupPath.c_str());
+			} else {
+				DeleteFileA(oldPath.c_str());
+				moveWithRetry(backupPath, oldPath);
+				return 3;
+			}
+			
+			return 0;
+		}
+	}
+	
+	// ========== NORMAL LOADER MODE ==========
+	
+	// Update highest_seen for anti-downgrade (we successfully launched this version)
+	Updater::setHighestSeen(COBBLE_VERSION);
+	
 	// ========== PHASE 1: SECURITY ==========
 	if (Security::IsBeingDebugged()) return 1;
 	Security::Initialize();
@@ -357,6 +447,67 @@ int wmain(int argc, wchar_t* argv[]) {
 	// ========== PHASE 2: UI INIT ==========
 	setupConsole();
 	printBanner();
+	
+	// ========== PHASE 2.5: UPDATE CHECK (BEFORE LOADING!) ==========
+	{
+		auto result = Updater::Check(COBBLE_VERSION, SERVER_HOST_PRIMARY, SERVER_HOST_FALLBACK, SERVER_PORT);
+		if (result.success) {
+			if (result.blocked || result.updateAvailable) {
+				bool mustUpdate = result.blocked;
+				
+				std::cout << "\n";
+				if (mustUpdate) {
+					printCentered("Update required!", "\x1b[33m");
+					printCentered("Downloading...", "\x1b[90m");
+				} else {
+					printCentered("Update v" + result.manifest.version + " available!", "\x1b[33m");
+					printCentered("Press Y to update, any other key to skip", "\x1b[90m");
+					std::cout << VT_SHOW_CURSOR;
+					
+					char key = 0;
+					while (!_kbhit()) Sleep(50);
+					key = _getch();
+					std::cout << VT_HIDE_CURSOR;
+					
+					if (key != 'y' && key != 'Y') {
+						printBanner();
+						goto skip_update;
+					}
+					printCentered("Downloading update...", "\x1b[90m");
+				}
+				
+				std::string hwid = HWID::Generate();
+				std::string tempDir = Updater::getTempDownloadDir();
+				std::string newLoaderPath = tempDir + "\\CobbleLoader.exe";
+				std::string downloadUrl = std::string("http://") + SERVER_HOST_PRIMARY + ":" + std::to_string(SERVER_PORT) + "/api/update/loader";
+				
+				if (Updater::downloadAndVerify(downloadUrl, newLoaderPath, 
+				                                result.manifest.loader.sha256, 
+				                                result.manifest.loader.size, hwid)) {
+					if (Updater::spawnStub(Updater::getSelfPath(), newLoaderPath)) {
+						std::cout << "\n";
+						printCentered("Update downloaded!", "\x1b[32m");
+						printCentered("Restarting...", "\x1b[90m");
+						Sleep(800);
+						return 0;
+					}
+				}
+				
+				Updater::cleanupTempDir(tempDir);
+				if (mustUpdate) {
+					printCentered("Update failed, please download manually", "\x1b[31m");
+					Sleep(4000);
+					return 1;
+				} else {
+					printCentered("Update failed, continuing...", "\x1b[31m");
+					Sleep(1500);
+				}
+				printBanner();
+			}
+		}
+	}
+	skip_update:
+	
 	showSmartLoading(1500);
 
 	// ========== PHASE 3: LICENSE ==========
@@ -369,24 +520,31 @@ int wmain(int argc, wchar_t* argv[]) {
 	else if (License::Verify(LICENSE_SERVER_FALLBACK)) licenseValid = true;
 
 	if (!licenseValid) {
-        std::cout << "\n";
-        printElegantError("License verification failed", License::GetLastError());
-        std::cout << "\n";
-        
-        printCentered("HWID copied to clipboard", "\x1b[90m");
-		
-		if (OpenClipboard(nullptr)) {
-			EmptyClipboard();
-			HGLOBAL hMem = GlobalAlloc(GMEM_MOVEABLE, hwid.size() + 1);
-			if (hMem) {
-				memcpy(GlobalLock(hMem), hwid.c_str(), hwid.size() + 1);
-				GlobalUnlock(hMem);
-				SetClipboardData(CF_TEXT, hMem);
+		if (License::NeedsUpdate()) {
+			// Special case: License valid but version outdated
+			// Proceed to Update Check phase immediately
+			printCentered("Version outdated", "\x1b[33m");
+			Sleep(1000);
+		} else {
+			std::cout << "\n";
+			printCentered("License verification failed", License::GetLastError());
+			std::cout << "\n";
+			
+			printCentered("HWID copied to clipboard", "\x1b[90m");
+			
+			if (OpenClipboard(nullptr)) {
+				EmptyClipboard();
+				HGLOBAL hMem = GlobalAlloc(GMEM_MOVEABLE, hwid.size() + 1);
+				if (hMem) {
+					memcpy(GlobalLock(hMem), hwid.c_str(), hwid.size() + 1);
+					GlobalUnlock(hMem);
+					SetClipboardData(CF_TEXT, hMem);
+				}
+				CloseClipboard();
 			}
-			CloseClipboard();
+			Sleep(4000);
+			return 1;
 		}
-		Sleep(4000);
-		return 1;
 	}
 #endif
 	

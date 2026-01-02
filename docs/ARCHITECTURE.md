@@ -146,20 +146,42 @@ Cobble is an injectable ghost client for Lunar Client (Minecraft), composed of t
 ```
 CobbleLoader.exe
     │
+    ├─[0] UPDATE MODE CHECK
+    │     └── If --update-pid args present → Act as updater
+    │           ├── Wait for old process to exit
+    │           ├── Backup old.exe → old.exe.old
+    │           ├── Move new.exe → old.exe location
+    │           ├── Launch updated loader (CREATE_NEW_CONSOLE)
+    │           └── Exit (return 0)
+    │
     ├─[1] Security Initialization
     │     ├── IsOnVM() → exit if VM detected
     │     ├── IsBeingDebugged() → exit if debugger
     │     └── Start heartbeat threads (monitoring)
     │
-    ├─[2] License Verification
+    ├─[2] UI Init + UPDATE CHECK
+    │     ├── setupConsole() + printBanner()
+    │     ├── Updater::Check() → fetch manifest from server
+    │     │     ├── Verify Ed25519 signature
+    │     │     └── Compare current vs remote version
+    │     ├── If update available (optional):
+    │     │     └── Prompt "Press Y to update..."
+    │     ├── If update required (blocked/mandatory):
+    │     │     └── Auto-download + apply
+    │     ├── Download to %TEMP%\cb_xxx\
+    │     ├── Verify SHA256 + size
+    │     ├── Spawn new loader with --update-pid args
+    │     └── Exit (new loader takes over)
+    │
+    ├─[3] License Verification
     │     ├── HWID::Generate()
     │     ├── License::Verify(Primary) → 4s timeout
     │     └── Fallback to secondary server if needed
     │
-    ├─[3] Process Detection
+    ├─[4] Process Detection
     │     └── findLunarClient() → javaw.exe with "Lunar"
     │
-    └─[4] LoadLibrary Injection
+    └─[5] LoadLibrary Injection
           ├── Write DLL to temp file
           ├── CreateRemoteThread(LoadLibraryW)
           └── Delete temp file

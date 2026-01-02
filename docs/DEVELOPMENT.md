@@ -295,16 +295,44 @@ void onUpdate() {
 
 ## Build Commands
 
+## Build Commands
+
 ```powershell
-# Full build (recommended)
+# Full build (recommended) - Builds DLL + Loader + Signs Manifest
 .\build.ps1 -Release
 
-# Quick DLL rebuild
-msbuild Cobble.vcxproj /p:Configuration=Release /p:Platform=x64 /t:Rebuild
+# Prepare for Release (Signing + ZIP)
+.\build.ps1 -PrepareRelease
 
-# Only compile changed files
+# Quick DLL rebuild (for module development)
 msbuild Cobble.vcxproj /p:Configuration=Release /p:Platform=x64
 ```
+
+---
+
+## Testing Autoupdater
+
+1. **Setup Server**: Ensure `license-server` is running locally or remotely.
+2. **Build Latest**:
+   ```powershell
+   # Set version.h to e.g. "1.0.10"
+   .\build.ps1 -PrepareRelease
+   # Upload releases/latest/* to your server
+   ```
+3. **Build Old**:
+   ```powershell
+   # Set version.h to "1.0.0"
+   .\build.ps1 -Release
+   ```
+4. **Run**: Launch `bin/Release/CobbleLoader.exe`. It should detect the update ("1.0.10"), download it, and restart itself using the integrated update mode.
+
+### Debugging Update Mode
+
+The loader has an integrated "Update Mode" triggered by CLI args. You generally don't run this manually, but it's good to know:
+- **Flag**: `--update-pid <PID>`
+- **Behavior**: Waits for PID to exit, then moves `--update-new` file to `--update-old` path.
+- **Logs**: If build fails or loops, check `loader/main.cpp` Phase 2.5 logic.
+
 
 ---
 

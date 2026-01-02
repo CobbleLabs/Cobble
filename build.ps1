@@ -6,7 +6,9 @@ param(
     [switch]$Release,
     [switch]$Clean,
     [switch]$SkipDLL,
-    [switch]$Verbose
+    [switch]$Verbose,
+    [switch]$PrepareRelease,  # Also generate signed release in releases/latest/
+    [string]$ReleaseNotes = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -14,7 +16,7 @@ $ErrorActionPreference = "Stop"
 # Paths
 $RepoRoot = $PSScriptRoot
 $MSBuild = "C:\Program Files\Microsoft Visual Studio\2022\Community\MSBuild\Current\Bin\MSBuild.exe"
-$Configuration = if ($Release) { "Release" } else { "Debug" }
+$Configuration = if ($Release -or $PrepareRelease) { "Release" } else { "Debug" }
 $Platform = "x64"
 
 # Output paths
@@ -23,6 +25,7 @@ $LoaderProject = "$RepoRoot\loader\CobbleLoader.vcxproj"
 $DLLOutput = "$RepoRoot\bin\$Configuration\Cobble.dll"
 $HashHeader = "$RepoRoot\loader\src\util\dll_hash.h"
 $LoaderOutput = "$RepoRoot\bin\$Configuration\CobbleLoader.exe"
+$VersionHeader = "$RepoRoot\loader\src\version.h"
 
 function Write-Step($msg) {
     Write-Host "`n[ BUILD ] " -ForegroundColor Cyan -NoNewline
@@ -50,6 +53,16 @@ function Get-FileSize($filePath) {
 
 function Get-BuildTimestamp() {
     return [int][double]::Parse((Get-Date -UFormat %s))
+}
+
+function Get-Version() {
+    if (Test-Path $VersionHeader) {
+        $content = Get-Content $VersionHeader -Raw
+        if ($content -match '#define\s+COBBLE_VERSION\s+"([^"]+)"') {
+            return $matches[1]
+        }
+    }
+    return "0.0.0"
 }
 
 # Clean if requested
@@ -154,6 +167,83 @@ if (-not (Test-Path $LoaderOutput)) {
 
 Write-Success "CobbleLoader.exe built successfully"
 
+# Step 5: Prepare Release (if requested)
+if ($PrepareRelease) {
+    Write-Step "Preparing signed release..."
+    
+    $version = Get-Version
+    $releaseDir = "$RepoRoot\releases\latest"
+    $privateKeyPath = "$RepoRoot\keys\private.key"
+    
+    # Check for private key
+    if (-not (Test-Path $privateKeyPath)) {
+        Write-Fail "Private key not found at $privateKeyPath"
+        Write-Host "  Run: .\tools\generate_keys.ps1" -ForegroundColor Yellow
+        exit 1
+    }
+    
+    # Create release directory
+    New-Item -ItemType Directory -Force -Path $releaseDir | Out-Null
+    
+    # Copy binaries
+    Copy-Item $LoaderOutput "$releaseDir\CobbleLoader.exe" -Force
+    Copy-Item $DLLOutput "$releaseDir\Cobble.dll" -Force
+    
+    # Calculate hashes
+    $loaderHash = Get-SHA256 "$releaseDir\CobbleLoader.exe"
+    $loaderSize = Get-FileSize "$releaseDir\CobbleLoader.exe"
+    
+    # Ask if mandatory
+    $isMandatory = $false
+    $resp = Read-Host "Is this release MANDATORY? (y/N)"
+    if ($resp -eq 'y') { $isMandatory = $true }
+
+    # Build manifest
+    $manifest = @{
+        version = $version
+        min_allowed = "1.0.0"
+        mandatory = $isMandatory
+        loader_sha256 = $loaderHash
+        loader_size = $loaderSize
+        dll_sha256 = $dllHash
+        dll_size = $dllSize
+        notes = $ReleaseNotes
+    }
+    
+    $manifestJson = $manifest | ConvertTo-Json -Compress
+    $manifestBytes = [System.Text.Encoding]::UTF8.GetBytes($manifestJson)
+    [System.IO.File]::WriteAllBytes("$releaseDir\manifest.json", $manifestBytes)
+    
+    # Sign manifest with Go (simple and reliable)
+    $goSign = @"
+package main
+import (
+    "crypto/ed25519"
+    "os"
+)
+func main() {
+    key, _ := os.ReadFile("$($privateKeyPath -replace '\\', '/')")
+    manifest, _ := os.ReadFile("$($releaseDir -replace '\\', '/')/manifest.json")
+    sig := ed25519.Sign(ed25519.PrivateKey(key), manifest)
+    os.WriteFile("$($releaseDir -replace '\\', '/')/manifest.sig", sig, 0644)
+}
+"@
+    $goSign | Set-Content "$RepoRoot\temp_sign.go"
+    Push-Location $RepoRoot
+    go run temp_sign.go 2>$null
+    $signResult = $LASTEXITCODE
+    Pop-Location
+    Remove-Item "$RepoRoot\temp_sign.go" -ErrorAction SilentlyContinue
+    
+    if ($signResult -ne 0 -or -not (Test-Path "$releaseDir\manifest.sig")) {
+        Write-Fail "Manifest signing failed! Make sure Go is installed."
+        exit 1
+    }
+    
+    Write-Success "Release v$version signed"
+    Write-Host "  Files: $releaseDir" -ForegroundColor Gray
+}
+
 # Summary
 Write-Host "`n" + "="*50 -ForegroundColor DarkGray
 Write-Host "BUILD COMPLETE" -ForegroundColor Green
@@ -161,4 +251,7 @@ Write-Host "="*50 -ForegroundColor DarkGray
 Write-Host "  DLL:    $DLLOutput"
 Write-Host "  Loader: $LoaderOutput"
 Write-Host "  Hash:   $($dllHash.Substring(0,16))..."
+if ($PrepareRelease) {
+    Write-Host "  Release: releases\latest\ (SIGNED)" -ForegroundColor Green
+}
 Write-Host ""

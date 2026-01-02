@@ -31,12 +31,26 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/).
   - Toggle "Cloud Sync" para habilitar/deshabilitar sync (deshabilitado por default)
   - Fallback de IP para conexiones al server (172.235.136.152)
 
+- **Autoupdater System (Integrated)**:
+  - **Zero-dependency**: No requiere `updater_stub.exe` separado. El loader se actualiza a sí mismo.
+  - **Seamless**: Detecta update → descarga → reinicia solo (sin interacción si es mandatory).
+  - **Robust**: Verificación SHA256 + Tamaño + Ed25519 signature.
+  - **Cross-Drive Support**: Soporta mover updates entre discos (C: temp → D: bin) automáticamente.
+  - **UX**: Update check antes del loading bar para feedback inmediato.
+  - **Fail-safe**: Rollback automático si la nueva versión falla al iniciar.
+  - Server endpoints: `/api/update/manifest`, `/loader`, `/dll`.
+  - Discord commands: `/release`.
+  - Documentación completa: `docs/UPDATE_WORKFLOW.md`.
+
 ### Changed
 - **Startup Flow**: ConfigManager se inicializa después de registrar módulos
 - **Shutdown Flow**: Config se guarda antes de deshabilitar módulos
+- **Loader**: Update check después de license verification
 
 ### Security
 - `experimentalUnlocked` ya NO se guarda en config - siempre requiere código
+- Manifest firmado Ed25519 protege contra MITM
+- Anti-downgrade via `highest_seen` (solo en updates mandatory)
 
 ---
 

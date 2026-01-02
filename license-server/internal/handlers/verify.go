@@ -31,19 +31,6 @@ func Verify(w http.ResponseWriter, r *http.Request) {
 
 	clientIP := helpers.GetClientIP(r)
 
-	// VERSION CHECK - Breaks all old cracks when you release an update!
-	if version != "" && helpers.CompareVersions(version, cfg.MinVersion) < 0 {
-		database.LogAudit("verify_failed_outdated", hwid, "", clientIP, fmt.Sprintf(`{"version":"%s"}`, version))
-		logger.Warn("VERIFY", "Outdated client", logger.Fields{"version": version, "hwid": hwid})
-		helpers.JSONResponse(w, http.StatusOK, models.VerifyResponse{
-			Valid:      false, 
-			Message:    "Update required! Download the latest version.",
-			MinVersion: cfg.MinVersion,
-			Update:     true,
-		})
-		return
-	}
-
 	// Query license by HWID
 	var license models.License
 	var isBanned int

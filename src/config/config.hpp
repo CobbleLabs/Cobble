@@ -14,7 +14,7 @@
 #include "../util/hwid.hpp"
 #include "../util/logger.hpp"
 
-// Server configuration (same as loader)
+// Server configuration
 #define CONFIG_SERVER_PRIMARY L"syra.club"
 #define CONFIG_SERVER_FALLBACK L"172.235.136.152"
 #define CONFIG_SERVER_PORT 8080
