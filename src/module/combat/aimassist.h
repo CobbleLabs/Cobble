@@ -100,6 +100,11 @@ private:
 	AimBoost pitchBoost{ 0.8f, 1.2f, 450, 600, true };
 	AimBoost pitchBoost2{ 0.7f, 1.3f, 600, 900, false };
 
+	// Mouse + smoothing state
+	double cursorAccumX = 0.0;
+	double cursorAccumY = 0.0;
+	float cachedMouseSensitivity = 0.5f;
+
 	float pitchdiffSpeed = 0.f;
 	float yawdiffSpeed = 0.f;
 

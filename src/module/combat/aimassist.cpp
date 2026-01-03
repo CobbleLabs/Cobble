@@ -4,6 +4,7 @@
 #include "../../util/logger.hpp"
 #include "../../ui/menu/menu.h"
 #include "../../ui/widgets/widgets.hpp"
+#include "../../sdk/player.h"
 #include <array>
 #include <algorithm>
 #include <cmath>
@@ -17,6 +18,34 @@
 #include <Windows.h>
 
 AimAssist* aimAssist = nullptr;
+
+// Cached JNI lookups for fast-path position reads
+static jclass g_entityCls = nullptr;
+static jfieldID g_fid_posX = nullptr;
+static jfieldID g_fid_posY = nullptr;
+static jfieldID g_fid_posZ = nullptr;
+
+static void ensure_entity_fields(jobject sample)
+{
+	if (g_entityCls || !sample) return;
+	jclass cls = Java::Env->GetObjectClass(sample);
+	if (!cls) return;
+	g_entityCls = (jclass)Java::Env->NewGlobalRef(cls);
+	Java::Env->DeleteLocalRef(cls);
+	if (!g_entityCls) return;
+	g_fid_posX = Java::Env->GetFieldID(g_entityCls, "posX", "D");
+	g_fid_posY = Java::Env->GetFieldID(g_entityCls, "posY", "D");
+	g_fid_posZ = Java::Env->GetFieldID(g_entityCls, "posZ", "D");
+}
+
+static void cleanup_entity_fields()
+{
+	if (g_entityCls) {
+		Java::Env->DeleteGlobalRef(g_entityCls);
+		g_entityCls = nullptr;
+	}
+	g_fid_posX = g_fid_posY = g_fid_posZ = nullptr;
+}
 
 // ============================================================
 // AimBoost Implementation
@@ -88,6 +117,8 @@ void AimAssist::onEnable()
 	hasLockedTarget = false;
 	pitchdiffSpeed = 0.f;
 	yawdiffSpeed = 0.f;
+	cursorAccumX = 0.0;
+	cursorAccumY = 0.0;
 }
 
 void AimAssist::onDisable()
@@ -99,6 +130,10 @@ void AimAssist::onDisable()
 		Java::Env->DeleteGlobalRef(cachedTarget);
 		cachedTarget = nullptr;
 	}
+	cleanup_entity_fields();
+	cursorAccumX = cursorAccumY = 0.0;
+	pitchdiffSpeed = yawdiffSpeed = 0.f;
+	reactionTimeTimer.Start();
 }
 
 float AimAssist::wrapTo180(float value)
@@ -206,23 +241,22 @@ void AimAssist::onUpdate()
 			Java::Env->DeleteGlobalRef(cachedTarget);
 			cachedTarget = nullptr;
 		} else {
+			ensure_entity_fields(cachedTarget);
+
 			// Update position from cached target (Fast JNI)
-			// Ideally we cache methodIDs once, but GetFieldID is reasonably fast usually.
-			static jclass entityCls = nullptr;
-			static jfieldID fid_posX = nullptr, fid_posY = nullptr, fid_posZ = nullptr;
-			
-			if (!entityCls) {
-				jclass cls = Java::Env->GetObjectClass(cachedTarget);
-				entityCls = (jclass)Java::Env->NewGlobalRef(cls);
-				Java::Env->DeleteLocalRef(cls);
-				fid_posX = Java::Env->GetFieldID(entityCls, "posX", "D");
-				fid_posY = Java::Env->GetFieldID(entityCls, "posY", "D");
-				fid_posZ = Java::Env->GetFieldID(entityCls, "posZ", "D");
+			if (!g_fid_posX || !g_fid_posY || !g_fid_posZ) {
+				Java::Env->ExceptionClear();
+				return;
 			}
 
-			double tX = Java::Env->GetDoubleField(cachedTarget, fid_posX);
-			double tY = Java::Env->GetDoubleField(cachedTarget, fid_posY);
-			double tZ = Java::Env->GetDoubleField(cachedTarget, fid_posZ);
+			double tX = Java::Env->GetDoubleField(cachedTarget, g_fid_posX);
+			double tY = Java::Env->GetDoubleField(cachedTarget, g_fid_posY);
+			double tZ = Java::Env->GetDoubleField(cachedTarget, g_fid_posZ);
+
+			if (Java::Env->ExceptionCheck()) {
+				Java::Env->ExceptionClear();
+				return;
+			}
 			
 			// Validate distance/etc slightly? (Optional fast check)
 			// For now trust it until slow scan overrides it.
@@ -273,6 +307,7 @@ void AimAssist::onUpdate()
 	float pitchDiff = wrapTo180(-(localPitch - pitchTarget));
 
 	float speed = settings.speed * 3;
+	cachedMouseSensitivity = mc.getMouseSensitivity();
 
 	applyAimRand(yawDiff, pitchDiff, speed);
 }
@@ -296,23 +331,22 @@ bool AimAssist::findTarget(double& targetX, double& targetY, double& targetZ)
 			cachedTarget = nullptr; // Invalid
 		}
 		else {
-			// Get class/fields for position update (One-time cache this ideally, but GetFieldID is fast)
-			static jclass entityCls = nullptr;
-			static jfieldID fid_posX = nullptr, fid_posY = nullptr, fid_posZ = nullptr;
-			
-			if (!entityCls) {
-				jclass cls = Java::Env->GetObjectClass(cachedTarget); // Or "net/minecraft/entity/Entity"
-				entityCls = (jclass)Java::Env->NewGlobalRef(cls);
-				Java::Env->DeleteLocalRef(cls);
-				fid_posX = Java::Env->GetFieldID(entityCls, "posX", "D");
-				fid_posY = Java::Env->GetFieldID(entityCls, "posY", "D");
-				fid_posZ = Java::Env->GetFieldID(entityCls, "posZ", "D");
+			ensure_entity_fields(cachedTarget);
+
+			if (!g_fid_posX || !g_fid_posY || !g_fid_posZ) {
+				Java::Env->ExceptionClear();
+				return false;
 			}
 			
 			// Update position
-			double cX = Java::Env->GetDoubleField(cachedTarget, fid_posX);
-			double cY = Java::Env->GetDoubleField(cachedTarget, fid_posY);
-			double cZ = Java::Env->GetDoubleField(cachedTarget, fid_posZ);
+			double cX = Java::Env->GetDoubleField(cachedTarget, g_fid_posX);
+			double cY = Java::Env->GetDoubleField(cachedTarget, g_fid_posY);
+			double cZ = Java::Env->GetDoubleField(cachedTarget, g_fid_posZ);
+
+			if (Java::Env->ExceptionCheck()) {
+				Java::Env->ExceptionClear();
+				return false;
+			}
 
 			// Basic distance check to see if we should drop it immediately?
 			// For now, assume stickiness for 50ms is fine.
@@ -497,7 +531,7 @@ void AimAssist::applyAimRand(float yawDiff, float pitchDiff, float speed)
 		reactionTimeTimer.Start();
 	}
 
-	float smoothingStrength = std::clamp(0.08f + (settings.speed / 400.0f), 0.08f, 0.3f);
+	float smoothingStrength = std::clamp(0.08f + alignment * 0.18f + (settings.speed / 400.0f) * 0.1f, 0.08f, 0.3f);
 	yawdiffSpeed = std::lerp(yawdiffSpeed, targetYawSpeed, smoothingStrength);
 	pitchdiffSpeed = std::lerp(pitchdiffSpeed, targetPitchSpeed, smoothingStrength);
 
@@ -585,13 +619,18 @@ void AimAssist::applyAimRand(float yawDiff, float pitchDiff, float speed)
 	LARGE_INTEGER t0, t1;
 	QueryPerformanceCounter(&t0);
 
-	float mouseSensitivity = mc.getMouseSensitivity();
-	float sensBase = mouseSensitivity * 0.6f + 0.2f;
+	float sensBase = cachedMouseSensitivity * 0.6f + 0.2f;
 	float sensMultiplier = sensBase * sensBase * sensBase * 8.0f;
 
 	constexpr float kMouseGain = 0.15f;
 	float yawDelta = (float)moveX * sensMultiplier * kMouseGain;
 	float pitchDelta = (float)moveY * sensMultiplier * kMouseGain;
+
+	// Clamp per-frame rotation to keep motion buttery even on spikes
+	const float maxYawStep = 4.0f;
+	const float maxPitchStep = 3.0f;
+	yawDelta = std::clamp(yawDelta, -maxYawStep, maxYawStep);
+	pitchDelta = std::clamp(pitchDelta, -maxPitchStep, maxPitchStep);
 
 	if (moveX != 0) {
 		float currentYaw = player.getYaw();
