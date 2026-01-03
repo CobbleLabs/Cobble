@@ -464,8 +464,13 @@ void AimAssist::applyAimRand(float yawDiff, float pitchDiff, float speed)
 
 	yawDiff += randFloat(-0.2f, 0.2f);
 	pitchDiff += randFloat(-0.2f, 0.2f);
+	float baseSpeed = speed;
+	float alignment = std::clamp(std::max(absYawDiff, absPitchDiff) / 90.0f, 0.0f, 1.0f);
+	float dynamicSpeed = std::lerp(baseSpeed * 0.35f, baseSpeed, alignment);
 
 	static bool once = false;
+	static float targetYawSpeed = 0.0f;
+	static float targetPitchSpeed = 0.0f;
 	if (!once || reactionTimeTimer.Elapsed<>() > settings.reactionTime)
 	{
 		float pitchBoosts = pitchBoost.Delay() * pitchBoost2.Delay();
@@ -473,24 +478,28 @@ void AimAssist::applyAimRand(float yawDiff, float pitchDiff, float speed)
 
 		if (!settings.horizontalOnly)
 		{
-			pitchdiffSpeed = pitchDiff / (1000.f / (speed * pitchBoosts));
-
-			if (std::abs(pitchdiffSpeed) < 0.03f)
-				pitchdiffSpeed = pitchdiffSpeed < 0 ? -0.03f : 0.03f;
+			float desiredPitchSpeed = pitchDiff / (1000.f / (dynamicSpeed * pitchBoosts));
+			if (std::abs(desiredPitchSpeed) < 0.03f)
+				desiredPitchSpeed = desiredPitchSpeed < 0 ? -0.03f : 0.03f;
+			targetPitchSpeed = desiredPitchSpeed;
 		}
 		else
 		{
-			pitchdiffSpeed = 0.f;
+			targetPitchSpeed = 0.f;
 		}
 
-		yawdiffSpeed = yawDiff / (1000.f / (speed * yawBoosts));
-
-		if (std::abs(yawdiffSpeed) < 0.03f)
-			yawdiffSpeed = yawdiffSpeed < 0 ? -0.03f : 0.03f;
+		float desiredYawSpeed = yawDiff / (1000.f / (dynamicSpeed * yawBoosts));
+		if (std::abs(desiredYawSpeed) < 0.03f)
+			desiredYawSpeed = desiredYawSpeed < 0 ? -0.03f : 0.03f;
+		targetYawSpeed = desiredYawSpeed;
 
 		once = true;
 		reactionTimeTimer.Start();
 	}
+
+	float smoothingStrength = std::clamp(0.08f + (settings.speed / 400.0f), 0.08f, 0.3f);
+	yawdiffSpeed = std::lerp(yawdiffSpeed, targetYawSpeed, smoothingStrength);
+	pitchdiffSpeed = std::lerp(pitchdiffSpeed, targetPitchSpeed, smoothingStrength);
 
 	static Timer pitchRandTimer;
 	static int pitchrand = randInt(-1, 1);
@@ -538,6 +547,9 @@ void AimAssist::applyAimRand(float yawDiff, float pitchDiff, float speed)
 		constexpr float partialTick = 1.0f;
 		pitchrandsmooth = std::lerp(pitchrandsmooth, 0.f, std::clamp(partialTick * 0.1f, 0.f, 1.f));
 	}
+
+	float jitterFade = std::clamp(std::max(absYawDiff, absPitchDiff) / 45.0f, 0.0f, 1.0f);
+	pitchrandsmooth *= jitterFade;
 
 	static double cursorAccumX = 0.0;
 	static double cursorAccumY = 0.0;
