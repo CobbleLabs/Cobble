@@ -1,11 +1,11 @@
 #include "blink.h"
 #include "../../sdk/minecraft.h"
 #include "../../sdk/render_data.h"
-#include "../../hooks/winsock_hooks.h"
 #include "../../ui/menu/menu.h"
 #include "../../ui/widgets/widgets.hpp"
 #include "../../util/logger.hpp"
 #include "../../util/math/worldToScreen.h"
+#include "../../jni/packet_interceptor.hpp"
 
 #include <imgui.h>
 #include <cmath>
@@ -26,52 +26,38 @@ void Blink::onEnable()
         return;
     }
     
-    if (!WinsockHooks::IsInitialized()) {
-        log_err("Blink: Network hooks not initialized!");
-        enabled = false;
-        return;
-    }
-    
+    PacketInterceptor::setBlinkActive(true);
+
     startTime = std::chrono::steady_clock::now();
     wasAttacking = false;
     tickCounter = 0;
     
-    // Capture current position as frozen position (where server thinks we are)
+    // Capture current position for visuals/tracking
     serverX = player.getPosX();
     serverY = player.getPosY();
     serverZ = player.getPosZ();
     
-    // Reset packet counters
-    WinsockHooks::ResetBlockedCount();
-    
-    // Enable network blocking via NtDeviceIoControlFile hook (catches Java NIO)
-    WinsockHooks::StopOutbound = true;
-    
-    log_ok("Blink ON - Blocking at (%.1f, %.1f, %.1f)", serverX, serverY, serverZ);
+    log_ok("Blink ON at (%.1f, %.1f, %.1f) - PacketInterceptor active", serverX, serverY, serverZ);
 }
 
 void Blink::onDisable()
 {
-    // Get packet stats before releasing
-    int wsaBlocked = WinsockHooks::GetBlockedCount();
-    int sendCalls = WinsockHooks::GetSendCount();
-    int afdBlocked = WinsockHooks::GetAfdSendBlockedCount();
-    
+    PacketInterceptor::setBlinkActive(false);
+
     // Calculate how long we were blinking
     auto now = std::chrono::steady_clock::now();
     float elapsed = std::chrono::duration<float>(now - startTime).count();
     
     // Calculate distance moved
-    double dx = player.getPosX() - serverX;
-    double dy = player.getPosY() - serverY;
-    double dz = player.getPosZ() - serverZ;
+    double currentX = player.getPosX();
+    double currentY = player.getPosY();
+    double currentZ = player.getPosZ();
+    double dx = currentX - serverX;
+    double dy = currentY - serverY;
+    double dz = currentZ - serverZ;
     double dist = sqrt(dx*dx + dy*dy + dz*dz);
     
-    // Disable network blocking - all blocked packets will now flow
-    WinsockHooks::StopOutbound = false;
-    
-    log_ok("Blink OFF - %.2fs, %.1fm | WSA:%d send:%d AFD:%d", 
-           elapsed, dist, wsaBlocked, sendCalls, afdBlocked);
+    log_ok("Blink OFF - %.2fs, %.1fm | Flushed queued packets", elapsed, dist);
 }
 
 void Blink::onUpdate()
@@ -87,16 +73,20 @@ void Blink::onUpdate()
         return;
     }
     
-    // Log periodic updates with all packet counts
+    // Visual/tracking only while PacketInterceptor handles packet gating.
+    double currentX = player.getPosX();
+    double currentY = player.getPosY();
+    double currentZ = player.getPosZ();
+    
+    // Log periodic updates
     if (tickCounter % 40 == 0) {
-        double dx = player.getPosX() - serverX;
-        double dy = player.getPosY() - serverY;
-        double dz = player.getPosZ() - serverZ;
+        double dx = currentX - serverX;
+        double dy = currentY - serverY;
+        double dz = currentZ - serverZ;
         double dist = sqrt(dx*dx + dy*dy + dz*dz);
         
-        int afdBlocked = WinsockHooks::GetAfdSendBlockedCount();
-        log_debug("Blink: Tick %d, moved %.1fm, AFD blocked: %d", 
-            tickCounter, dist, afdBlocked);
+        log_debug("Blink: Tick %d, moved %.1fm (interceptor active)", 
+            tickCounter, dist);
     }
     
     // Check max duration
@@ -183,11 +173,9 @@ void Blink::onRender()
     auto now = std::chrono::steady_clock::now();
     float elapsed = std::chrono::duration<float>(now - startTime).count();
     
-    int afdBlocked = WinsockHooks::GetAfdSendBlockedCount();
-    
     char buf[128];
-    snprintf(buf, sizeof(buf), "Blink: %.1fm | %.1fs | AFD blocked: %d", 
-        dist, elapsed, afdBlocked);
+    snprintf(buf, sizeof(buf), "Blink: %.1fm | %.1fs (frozen)", 
+        dist, elapsed);
     
     ImVec2 textSize = ImGui::CalcTextSize(buf);
     ImVec2 screenSize = ImGui::GetIO().DisplaySize;

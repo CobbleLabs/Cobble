@@ -17,6 +17,7 @@
 #include <mutex>
 #include <atomic>
 #include <thread>
+#include <chrono>
 
 #include "../../../infra/ext/minhook/minhook.h"
 #include "../../../infra/ext/imgui/imgui.h"
@@ -33,6 +34,13 @@ namespace {
 	
 	HGLRC lastOriginalContext = nullptr;
 	HDC lastHDC = nullptr;
+	HWND lastWindow = nullptr;
+	HWND targetWindow = nullptr;
+	HGLRC targetContext = nullptr;
+	int reinitCooldown = 0;
+	std::chrono::steady_clock::time_point overlaySuspendUntil{};
+	std::chrono::steady_clock::time_point contextChangeWindowStart{};
+	int contextChangeCount = 0;
 	
 	typedef BOOL(__stdcall* wglSwapBuffers_t)(HDC hdc);
 	wglSwapBuffers_t originalSwapBuffers = nullptr;
@@ -49,7 +57,12 @@ namespace {
 			return;
 		}
 		
-		wglMakeCurrent(Overlay::deviceContext, Overlay::overlayContext);
+		if (!wglMakeCurrent(Overlay::deviceContext, Overlay::overlayContext)) {
+			log_err("Failed to activate overlay GL context");
+			wglDeleteContext(Overlay::overlayContext);
+			Overlay::overlayContext = nullptr;
+			return;
+		}
 		
 		glMatrixMode(GL_PROJECTION);
 		glLoadIdentity();
@@ -203,26 +216,73 @@ namespace {
 			HGLRC currentOriginalContext = wglGetCurrentContext();
 			
 			if (!currentOriginalContext) return originalSwapBuffers(hdc);
+
+			auto now = std::chrono::steady_clock::now();
+			if (overlaySuspendUntil.time_since_epoch().count() != 0 && now < overlaySuspendUntil) {
+				return originalSwapBuffers(hdc);
+			}
+
+			if (targetWindow && Overlay::gameWindow != targetWindow) {
+				if (!IsWindow(targetWindow)) {
+					HWND oldWindow = targetWindow;
+					targetWindow = nullptr;
+					targetContext = nullptr;
+					lastOriginalContext = nullptr;
+					lastHDC = nullptr;
+					lastWindow = nullptr;
+
+					if (originalWndProc && oldWindow) {
+						SetWindowLongPtrA(oldWindow, GWLP_WNDPROC, (LONG_PTR)originalWndProc);
+						originalWndProc = nullptr;
+					}
+
+					if (Overlay::overlayContext) {
+						if (wglMakeCurrent(hdc, Overlay::overlayContext)) {
+							ImGui_ImplOpenGL2_Shutdown();
+							ImGui_ImplWin32_Shutdown();
+							ImGui::DestroyContext();
+						}
+						wglDeleteContext(Overlay::overlayContext);
+						Overlay::overlayContext = nullptr;
+					}
+					Overlay::initialized = false;
+				} else {
+					return originalSwapBuffers(hdc);
+				}
+			}
 			
-			bool contextChanged = (lastOriginalContext != nullptr && lastOriginalContext != currentOriginalContext);
-			bool hdcChanged = (lastHDC != nullptr && lastHDC != hdc);
+			bool contextChanged = (targetContext != nullptr && targetContext != currentOriginalContext);
 			
-			if ((contextChanged || hdcChanged) && Overlay::initialized) {
-				log_debug("Overlay: GL context/HDC changed, reinitializing...");
+			if (contextChanged && Overlay::initialized) {
+				log_debug("Overlay: GL context changed, reinitializing...");
 				
 				Menu::isOpen = false;
 				Menu::moduleToBind = nullptr;
 				
 				if (Overlay::overlayContext) {
-					wglMakeCurrent(hdc, Overlay::overlayContext);
-					ImGui_ImplOpenGL2_Shutdown();
-					ImGui_ImplWin32_Shutdown();
-					ImGui::DestroyContext();
+					if (wglMakeCurrent(hdc, Overlay::overlayContext)) {
+						ImGui_ImplOpenGL2_Shutdown();
+						ImGui_ImplWin32_Shutdown();
+						ImGui::DestroyContext();
+					}
 					wglDeleteContext(Overlay::overlayContext);
 					Overlay::overlayContext = nullptr;
 				}
 				Overlay::initialized = false;
-				originalWndProc = nullptr;
+				reinitCooldown = 5;
+				targetContext = nullptr;
+
+				if (contextChangeWindowStart.time_since_epoch().count() == 0 ||
+					std::chrono::duration_cast<std::chrono::milliseconds>(now - contextChangeWindowStart).count() > 1000) {
+					contextChangeWindowStart = now;
+					contextChangeCount = 0;
+				}
+				if (++contextChangeCount >= 3) {
+					overlaySuspendUntil = now + std::chrono::milliseconds(1500);
+					contextChangeCount = 0;
+					log_warn("Overlay: frequent context switches, suspending overlay briefly");
+					return originalSwapBuffers(hdc);
+				}
 			}
 			lastOriginalContext = currentOriginalContext;
 			lastHDC = hdc;
@@ -230,13 +290,22 @@ namespace {
 			
 			if (!Overlay::initialized) {
 				SetupImGui();
-				if (Overlay::initialized && !originalWndProc) {
+				if (Overlay::initialized && (!originalWndProc || lastWindow != Overlay::gameWindow)) {
 					originalWndProc = (WNDPROC)SetWindowLongPtrA(Overlay::gameWindow, GWLP_WNDPROC, (LONG_PTR)HookedWndProc);
+					lastWindow = Overlay::gameWindow;
+					targetWindow = Overlay::gameWindow;
 					log_ok("Overlay rendering ready");
+				}
+				if (Overlay::initialized && !targetContext) {
+					targetContext = currentOriginalContext;
 				}
 			}
 			
 			if (!Overlay::initialized) return originalSwapBuffers(hdc);
+			if (reinitCooldown > 0) {
+				--reinitCooldown;
+				return originalSwapBuffers(hdc);
+			}
 			
 			RECT clientRect;
 			GetClientRect(Overlay::gameWindow, &clientRect);
@@ -249,7 +318,9 @@ namespace {
 				RenderData::screenHeight = newHeight;
 			}
 			
-			wglMakeCurrent(Overlay::deviceContext, Overlay::overlayContext);
+			if (!wglMakeCurrent(Overlay::deviceContext, Overlay::overlayContext)) {
+				return originalSwapBuffers(hdc);
+			}
 			
 			glMatrixMode(GL_PROJECTION);
 			glLoadIdentity();
@@ -288,7 +359,9 @@ namespace {
 			ImGui::Render();
 			ImGui_ImplOpenGL2_RenderDrawData(ImGui::GetDrawData());
 			
-			wglMakeCurrent(Overlay::deviceContext, Overlay::originalContext);
+			if (!wglMakeCurrent(Overlay::deviceContext, Overlay::originalContext)) {
+				return originalSwapBuffers(hdc);
+			}
 		}
 		__except(EXCEPTION_EXECUTE_HANDLER) {
 		}
@@ -344,9 +417,10 @@ void Overlay::Shutdown()
 		hookInstalled = false;
 	}
 	
-	if (originalWndProc && gameWindow) {
-		SetWindowLongPtrA(gameWindow, GWLP_WNDPROC, (LONG_PTR)originalWndProc);
+	if (originalWndProc && (lastWindow || gameWindow)) {
+		SetWindowLongPtrA(lastWindow ? lastWindow : gameWindow, GWLP_WNDPROC, (LONG_PTR)originalWndProc);
 		originalWndProc = nullptr;
+		lastWindow = nullptr;
 	}
 	
 	initialized = false;

@@ -3,8 +3,6 @@
 #include "../sdk/jstring_util.h"
 
 JavaVM* vm;
-jobject classLoader;
-jmethodID mid_findClass;
 
 void setupClassLoader()
 {
@@ -17,7 +15,7 @@ void setupClassLoader()
     jmethodID mid_keySet = Java::Env->GetMethodID(c_Map, "keySet", "()Ljava/util/Set;");
     jmethodID mid_toArray = Java::Env->GetMethodID(c_Set, "toArray", "()[Ljava/lang/Object;");
     jmethodID mid_getContextClassLoader = Java::Env->GetMethodID(c_Thread, "getContextClassLoader", "()Ljava/lang/ClassLoader;");
-    mid_findClass = Java::Env->GetMethodID(c_ClassLoader, "findClass", "(Ljava/lang/String;)Ljava/lang/Class;");
+    Java::MidFindClass = Java::Env->GetMethodID(c_ClassLoader, "findClass", "(Ljava/lang/String;)Ljava/lang/Class;");
     jmethodID mid_currentThread = Java::Env->GetStaticMethodID(c_Thread, "currentThread", "()Ljava/lang/Thread;");
 
     jobject obj_stackTracesMap = Java::Env->CallStaticObjectMethod(c_Thread, mid_getAllStackTraces);
@@ -34,16 +32,19 @@ void setupClassLoader()
         if (classLoaderObj) {
             
             jstring className = Java::Env->NewStringUTF("net.minecraft.client.Minecraft");
-            jobject minecraftClass = Java::Env->CallObjectMethod(classLoaderObj, mid_findClass, className);
+            jobject minecraftClass = Java::Env->CallObjectMethod(classLoaderObj, Java::MidFindClass, className);
 
             if (minecraftClass)
             {
-                classLoader = classLoaderObj;
+                Java::ClassLoader = Java::Env->NewGlobalRef(classLoaderObj);
 
                 Java::Env->DeleteLocalRef(minecraftClass);
+                Java::Env->DeleteLocalRef(classLoaderObj);
+                Java::Env->DeleteLocalRef(thread);
 
                 break;
             }
+            Java::Env->DeleteLocalRef(classLoaderObj);
         }
 
         Java::Env->DeleteLocalRef(thread);
@@ -94,6 +95,42 @@ void Java::Init()
     jint tiRes = vm->GetEnv((void**)&Java::tiEnv, JVMTI_VERSION_1_2);
     if (tiRes != JNI_OK || Java::tiEnv == nullptr) {
         log_warn("jvmti not available (not critical)");
+    } else {
+        // Request JVMTI capabilities - try each individually since all-at-once may fail
+        auto tryAddCap = [](jvmtiEnv* ti, const char* name, auto setter) {
+            jvmtiCapabilities caps;
+            memset(&caps, 0, sizeof(caps));
+            setter(caps);
+            jvmtiError err = ti->AddCapabilities(&caps);
+            if (err == JVMTI_ERROR_NONE) {
+                log_debug("JVMTI cap '%s': granted", name);
+                return true;
+            } else {
+                log_debug("JVMTI cap '%s': denied (err=%d)", name, err);
+                return false;
+            }
+        };
+        
+        // Try to add each capability
+        tryAddCap(Java::tiEnv, "retransform_classes", [](jvmtiCapabilities& c){ c.can_retransform_classes = 1; });
+        tryAddCap(Java::tiEnv, "redefine_classes", [](jvmtiCapabilities& c){ c.can_redefine_classes = 1; });
+        tryAddCap(Java::tiEnv, "class_hook_events", [](jvmtiCapabilities& c){ c.can_generate_all_class_hook_events = 1; });
+        tryAddCap(Java::tiEnv, "method_entry_events", [](jvmtiCapabilities& c){ c.can_generate_method_entry_events = 1; });
+        tryAddCap(Java::tiEnv, "method_exit_events", [](jvmtiCapabilities& c){ c.can_generate_method_exit_events = 1; });
+        tryAddCap(Java::tiEnv, "force_early_return", [](jvmtiCapabilities& c){ c.can_force_early_return = 1; });
+        tryAddCap(Java::tiEnv, "access_local_vars", [](jvmtiCapabilities& c){ c.can_access_local_variables = 1; });
+        
+        // Check what we actually got
+        jvmtiCapabilities gotCaps;
+        memset(&gotCaps, 0, sizeof(gotCaps));
+        Java::tiEnv->GetCapabilities(&gotCaps);
+        log_ok("JVMTI final caps: retransform=%d redefine=%d hooks=%d entry=%d force=%d locals=%d", 
+            gotCaps.can_retransform_classes,
+            gotCaps.can_redefine_classes,
+            gotCaps.can_generate_all_class_hook_events,
+            gotCaps.can_generate_method_entry_events,
+            gotCaps.can_force_early_return,
+            gotCaps.can_access_local_variables);
     }
 
     log_debug("setting up classloader...");
@@ -116,7 +153,7 @@ void Java::Kill()
 bool Java::AssignClass(std::string name, jclass &out)
 {
     jstring className = Java::Env->NewStringUTF(name.c_str());
-    jobject findClass = Java::Env->CallObjectMethod(classLoader, mid_findClass, className);
+    jobject findClass = Java::Env->CallObjectMethod(Java::ClassLoader, Java::MidFindClass, className);
     Java::Env->DeleteLocalRef(className);
 
     if (findClass)

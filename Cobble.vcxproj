@@ -87,8 +87,10 @@
     <ClCompile Include="src\main.cpp" />
     <ClCompile Include="src\cobble.cpp" />
     <ClCompile Include="src\jni\java.cpp" />
+    <ClCompile Include="src\jni\packet_interceptor.cpp" />
     <ClCompile Include="src\sdk\minecraft.cpp" />
     <ClCompile Include="src\sdk\player.cpp" />
+    <ClCompile Include="src\sdk\network_probe.cpp" />
     <ClCompile Include="src\module\module_manager.cpp" />
     <ClCompile Include="src\module\combat\autoclicker.cpp" />
     <ClCompile Include="src\module\combat\aimassist.cpp" />
@@ -128,11 +130,13 @@
   <ItemGroup>
     <ClInclude Include="src\cobble.hpp" />
     <ClInclude Include="src\jni\java.h" />
+    <ClInclude Include="src\jni\packet_interceptor.hpp" />
     <ClInclude Include="src\util\logger.hpp" />
     <ClInclude Include="src\sdk\version.h" />
     <ClInclude Include="src\sdk\jstring_util.h" />
     <ClInclude Include="src\sdk\minecraft.h" />
     <ClInclude Include="src\sdk\player.h" />
+    <ClInclude Include="src\sdk\network_probe.hpp" />
     <ClInclude Include="src\module\module.h" />
     <ClInclude Include="src\module\module_manager.h" />
     <ClInclude Include="src\module\combat\autoclicker.h" />

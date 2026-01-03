@@ -52,6 +52,18 @@ struct LocalPlayer
 	// Inventory (for weapon detection)
 	int getHeldItemId();
 
+	// Blink - lastReportedPos (prevents sending movement packets)
+	double getLastReportedPosX();
+	double getLastReportedPosY();
+	double getLastReportedPosZ();
+	void setLastReportedPosX(double value);
+	void setLastReportedPosY(double value);
+	void setLastReportedPosZ(double value);
+	float getLastReportedYaw();
+	float getLastReportedPitch();
+	void setLastReportedYaw(float value);
+	void setLastReportedPitch(float value);
+
 	jobject instance = nullptr;
 
 private:
@@ -81,6 +93,13 @@ private:
 	jmethodID mid_isSneaking = nullptr;
 	jmethodID mid_getHealth = nullptr;
 	jmethodID mid_jump = nullptr;
+
+	// Blink - lastReportedPos fields (EntityPlayerSP specific)
+	jfieldID fid_lastReportedPosX = nullptr;
+	jfieldID fid_lastReportedPosY = nullptr;
+	jfieldID fid_lastReportedPosZ = nullptr;
+	jfieldID fid_lastReportedYaw = nullptr;
+	jfieldID fid_lastReportedPitch = nullptr;
 
 	bool fieldsInitialized = false;
 	void initFields();

@@ -6,6 +6,22 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/).
 
 ---
 
+## [Unreleased]
+
+### Added
+- PacketInterceptor JVMTI bytecode hook for `NetworkManager.sendPacket` with native PacketHook bridge.
+- GlobalRef caching for packet classes and ClassLoader to keep JNI references stable.
+- Drain scheduler and `PacketInterceptor::Tick()` for batched flush of queued packets.
+- Overlay context guard with reinit cooldown and target window/context pinning.
+
+### Changed
+- Blink now uses PacketInterceptor API (no `lastReportedPos` mutation).
+- ModuleManager calls `PacketInterceptor::Tick()` every update tick.
+- Overlay reinit path skips rendering when `wglMakeCurrent` fails.
+
+### Fixed
+- Reduced overlay context churn and GL error spam during frequent context changes.
+
 ## [0.20.1] - 2026-01-02
 
 ### Fixed

@@ -15,6 +15,9 @@
 #include "ui/core/overlay.h"
 #include "ui/hud/notifications.h"
 #include "util/integrity.h"
+#include "sdk/network_probe.hpp"
+#include "jni/packet_interceptor.hpp"
+
 
 // Signature for loader detection (cleared on shutdown for re-injection support)
 volatile char COBBLE_SIGNATURE[] = "COBBLE_LOADED_V1";
@@ -50,6 +53,11 @@ void cobble::context::initialize(HMODULE hModule)
 	SDK_Init();
 	log_ok("SDK initialized");
 
+	// Run NetworkManager discovery probe (debug only)
+	log_raw("Running NetworkManager probe...");
+	NetworkProbe::run();
+
+
 	log_raw("Allocating modules...");
 	// Dynamically allocate modules to avoid static initialization order issues
 	moduleManager = new ModuleManager();
@@ -82,12 +90,20 @@ void cobble::context::initialize(HMODULE hModule)
 	log_raw("Initializing Config...");
 	ConfigManager::get().init();
 	
-	// Initialize WSA hooks for Blink packet blocking
+	// Initialize WSA hooks for Blink packet blocking (fallback)
 	log_raw("Initializing WSA hooks...");
 	if (WinsockHooks::Init()) {
 		log_ok("WSA hooks initialized");
 	} else {
-		log_warn("WSA hooks failed - Blink may not work properly");
+		log_warn("WSA hooks failed - using PacketInterceptor only");
+	}
+
+	// Initialize PacketInterceptor for Java-level packet filtering (primary)
+	log_raw("Initializing PacketInterceptor...");
+	if (PacketInterceptor::Init()) {
+		log_ok("PacketInterceptor initialized - Blink will use Java-level interception");
+	} else {
+		log_warn("PacketInterceptor failed - Blink will use network-level blocking (may timeout)");
 	}
 
 	// Create Named Mutex for Injection Detection
@@ -170,6 +186,7 @@ void cobble::context::shutdown()
 	if (nameTags) nameTags->setEnabled(false);
 	if (esp) esp->setEnabled(false);
 	
+	PacketInterceptor::Shutdown();
 	WinsockHooks::Shutdown();
 	
 	Overlay::Shutdown();

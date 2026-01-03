@@ -62,6 +62,33 @@ Cobble is an injectable ghost client for Lunar Client (Minecraft), composed of t
 | `module/` | Feature modules (combat, visual, utility) |
 | `ui/` | ImGui overlay, menu, widgets, HUD |
 
+### Packet Interceptor (JVMTI Bytecode Path)
+
+The PacketInterceptor hooks Java bytecode at class-load time to intercept outbound packets without JVMTI method entry events.
+
+- JVMTI ClassFileLoadHook patches `NetworkManager.sendPacket(...)` to call a native bridge before the original body.
+- The native bridge (PacketHook) can queue or pass through movement packets.
+- Cached `jclass` references are stored as GlobalRefs to stay valid across GC.
+- `Java::ClassLoader` is cached as a GlobalRef to resolve classes consistently.
+
+### Blink Flow (PacketInterceptor)
+
+Blink now relies on PacketInterceptor rather than `lastReportedPos` mutation.
+
+1. `Blink::onEnable()` -> `PacketInterceptor::setBlinkActive(true)`
+2. Movement packets are queued while Blink is active.
+3. `Blink::onDisable()` -> `PacketInterceptor::setBlinkActive(false)`
+4. A drain flush sends queued packets in small batches during `PacketInterceptor::Tick()`.
+
+### Overlay Context Stability
+
+Overlay reinit is guarded to avoid rapid context churn.
+
+- Reinit only triggers when the OpenGL context changes.
+- The overlay binds to the first valid window/context and ignores other windows.
+- A cooldown/suspend window prevents continuous reinit loops.
+- `wglMakeCurrent` failure skips rendering for that frame.
+
 ### License Server (`license-server/`)
 
 | Component | Responsibility |

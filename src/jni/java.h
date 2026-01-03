@@ -17,6 +17,8 @@ struct Java
 	static inline JNIEnv* Env;
 	static inline jvmtiEnv* tiEnv;
 	static inline bool Initialized;
+	static inline jobject ClassLoader;
+	static inline jmethodID MidFindClass;
 	static inline MinecraftVersion Version;
 	
 	static JNIEnv* GetEnv();

@@ -293,6 +293,48 @@ void onUpdate() {
 
 ---
 
+## Blink and PacketInterceptor
+
+Blink uses PacketInterceptor (JVMTI bytecode hook) instead of `lastReportedPos` fields.
+
+### Blink Module Pattern
+
+```cpp
+void Blink::onEnable()
+{
+    PacketInterceptor::setBlinkActive(true);
+}
+
+void Blink::onDisable()
+{
+    PacketInterceptor::setBlinkActive(false);  // schedules drain
+}
+```
+
+### Packet Interceptor Drain
+
+- `setBlinkActive(false)` does not flush immediately.
+- `PacketInterceptor::Tick()` drains queued packets in small batches.
+- `ModuleManager::update()` calls `PacketInterceptor::Tick()` once per tick.
+
+### Debugging
+
+- Expect logs like: `Blink ACTIVATED`, `Queued C03PacketPlayer...`, `Drain complete`.
+- If Blink desyncs, verify the bytecode hook patched both `sendPacket` overloads.
+
+---
+
+## Overlay Context Stability
+
+The overlay is sensitive to context switches (Alt+Tab, resize, fullscreen).
+
+- Reinit only on OpenGL context change, not on every HDC change.
+- The overlay binds to the first valid window/context and ignores others.
+- A cooldown/suspend window prevents reinit loops and white flashes.
+- If you see `GL ERROR 1282` spam, confirm the target window/context is stable.
+
+---
+
 ## Build Commands
 
 ## Build Commands

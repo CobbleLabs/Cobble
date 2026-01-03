@@ -1,5 +1,6 @@
 #include "module_manager.h"
 #include "../sdk/minecraft.h"
+#include "../jni/packet_interceptor.hpp"
 #include "../ui/menu/menu.h"
 
 #ifndef WIN32_LEAN_AND_MEAN
@@ -33,6 +34,8 @@ void ModuleManager::registerModule(Module* mod)
 
 void ModuleManager::update()
 {
+	PacketInterceptor::Tick();
+	
 	// Only process keybinds and modules when Minecraft is focused
 	if (!isMinecraftFocused()) return;
 	
