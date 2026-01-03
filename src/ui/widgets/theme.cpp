@@ -1,4 +1,5 @@
 #include "theme.hpp"
+#include "widgets.hpp"
 
 namespace ui {
 namespace theme {
@@ -12,17 +13,17 @@ namespace theme {
     void apply() {
         auto& style = ImGui::GetStyle();
         
-        style.WindowRounding = 8.0f;
-        style.ChildRounding = 6.0f;
-        style.FrameRounding = 4.0f;
-        style.GrabRounding = 4.0f;
-        style.PopupRounding = 6.0f;
-        style.ScrollbarRounding = 4.0f;
+        style.WindowRounding = s(8.0f);
+        style.ChildRounding = s(6.0f);
+        style.FrameRounding = s(4.0f);
+        style.GrabRounding = s(4.0f);
+        style.PopupRounding = s(6.0f);
+        style.ScrollbarRounding = s(4.0f);
         
         style.WindowPadding = { 0, 0 };
-        style.FramePadding = { 8, 6 };
-        style.ItemSpacing = { 8, 8 };
-        style.ItemInnerSpacing = { 8, 4 };
+        style.FramePadding = { s(8), s(6) };
+        style.ItemSpacing = { s(8), s(8) };
+        style.ItemInnerSpacing = { s(8), s(4) };
         
         ImVec4* colors = style.Colors;
         

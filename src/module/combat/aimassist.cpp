@@ -6,6 +6,7 @@
 #include "../../ui/widgets/widgets.hpp"
 #include <array>
 #include <algorithm>
+#include <cmath>
 
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
@@ -93,6 +94,11 @@ void AimAssist::onDisable()
 {
 	log_ok("AimAssist disabled");
 	hasLockedTarget = false;
+
+	if (cachedTarget) {
+		Java::Env->DeleteGlobalRef(cachedTarget);
+		cachedTarget = nullptr;
+	}
 }
 
 float AimAssist::wrapTo180(float value)
@@ -184,16 +190,68 @@ void AimAssist::onUpdate()
 	double targetY = lockedTargetY;
 	double targetZ = lockedTargetZ;
 
-	if (getNewTarget)
-	{
-		if (!findTarget(targetX, targetY, targetZ))
-		{
-			hasLockedTarget = false;
-			return;
+	hasLockedTarget = false;
+
+	// ============================================================
+	// HYBRID LOOP LOGIC
+	// 1. If we have a cached GlobalRef target (cachedTarget), update its position FAST (every frame).
+	// 2. If it is valid and in range: use it.
+	// 3. If invalid or timer expired: run findTarget (slow scan).
+	// ============================================================
+
+	bool validCache = false;
+
+	if (cachedTarget) {
+		if (Java::Env->IsSameObject(cachedTarget, NULL)) {
+			Java::Env->DeleteGlobalRef(cachedTarget);
+			cachedTarget = nullptr;
+		} else {
+			// Update position from cached target (Fast JNI)
+			// Ideally we cache methodIDs once, but GetFieldID is reasonably fast usually.
+			static jclass entityCls = nullptr;
+			static jfieldID fid_posX = nullptr, fid_posY = nullptr, fid_posZ = nullptr;
+			
+			if (!entityCls) {
+				jclass cls = Java::Env->GetObjectClass(cachedTarget);
+				entityCls = (jclass)Java::Env->NewGlobalRef(cls);
+				Java::Env->DeleteLocalRef(cls);
+				fid_posX = Java::Env->GetFieldID(entityCls, "posX", "D");
+				fid_posY = Java::Env->GetFieldID(entityCls, "posY", "D");
+				fid_posZ = Java::Env->GetFieldID(entityCls, "posZ", "D");
+			}
+
+			double tX = Java::Env->GetDoubleField(cachedTarget, fid_posX);
+			double tY = Java::Env->GetDoubleField(cachedTarget, fid_posY);
+			double tZ = Java::Env->GetDoubleField(cachedTarget, fid_posZ);
+			
+			// Validate distance/etc slightly? (Optional fast check)
+			// For now trust it until slow scan overrides it.
+			
+			targetX = tX;
+			targetY = tY;
+			targetZ = tZ;
+			validCache = true;
+			hasLockedTarget = true;
 		}
 	}
 
-	hasLockedTarget = true;
+	// Run slow scan if needed (or if we have no target)
+	// getNewTarget variable from above logic helps decide if we WANT a new target.
+	// findTarget now handles the 25ms rate limiting internally.
+	
+	if (!validCache || getNewTarget) 
+	{
+		// findTarget will return true ONLY if it updated the target (slow scan or cache hit inside it).
+		// But since we moved cache logic here, findTarget should mostly be for SCANNING.
+		// Let's rely on findTarget for the heavy lifting still, but use the persistence we added here.
+		
+		if (findTarget(targetX, targetY, targetZ)) {
+			hasLockedTarget = true;
+		}
+	}
+	
+	if (!hasLockedTarget) return;
+
 	lockedTargetX = targetX;
 	lockedTargetY = targetY;
 	lockedTargetZ = targetZ;
@@ -221,8 +279,89 @@ void AimAssist::onUpdate()
 
 bool AimAssist::findTarget(double& targetX, double& targetY, double& targetZ)
 {
+	// ============================================================
+	// HYBRID TRACKING SYSTEM
+	// 1. Fast Path (Every Frame): Update position of locked target directly (JNI)
+	// 2. Slow Path (Scan Interval): Scan full player list for new/better targets
+	// ============================================================
+
+	static Timer scanTimer;
+
+	// FAST PATH: If we have a cached target, update its position & validate
+	if (cachedTarget && scanTimer.Elapsed<>() < 50) // Rescan every 50ms
+	{
+		// Check validity (basic)
+		if (Java::Env->IsSameObject(cachedTarget, NULL)) {
+			Java::Env->DeleteGlobalRef(cachedTarget); // Clean up invalid ref
+			cachedTarget = nullptr; // Invalid
+		}
+		else {
+			// Get class/fields for position update (One-time cache this ideally, but GetFieldID is fast)
+			static jclass entityCls = nullptr;
+			static jfieldID fid_posX = nullptr, fid_posY = nullptr, fid_posZ = nullptr;
+			
+			if (!entityCls) {
+				jclass cls = Java::Env->GetObjectClass(cachedTarget); // Or "net/minecraft/entity/Entity"
+				entityCls = (jclass)Java::Env->NewGlobalRef(cls);
+				Java::Env->DeleteLocalRef(cls);
+				fid_posX = Java::Env->GetFieldID(entityCls, "posX", "D");
+				fid_posY = Java::Env->GetFieldID(entityCls, "posY", "D");
+				fid_posZ = Java::Env->GetFieldID(entityCls, "posZ", "D");
+			}
+			
+			// Update position
+			double cX = Java::Env->GetDoubleField(cachedTarget, fid_posX);
+			double cY = Java::Env->GetDoubleField(cachedTarget, fid_posY);
+			double cZ = Java::Env->GetDoubleField(cachedTarget, fid_posZ);
+
+			// Basic distance check to see if we should drop it immediately?
+			// For now, assume stickiness for 50ms is fine.
+			
+			targetX = cX;
+			targetY = cY;
+			targetZ = cZ;
+			return true;
+		}
+	}
+	
+	// SLOW PATH GUARD: If we didn't take the fast path, checks if we are allowed to scan
+	if (scanTimer.Elapsed<>() < 50) {
+		return false; // Skip scan (rate limited)
+	}
+
+	// SLOW PATH: Full Scan
+	scanTimer.Start();
+
+	// Profiling getPlayerList (JNI heavy)
+	static int   pl_calls = 0;
+	static float pl_maxMs = 0.0f;
+	static DWORD pl_lastPrint = GetTickCount();
+	static LARGE_INTEGER qpf = []{ LARGE_INTEGER f; QueryPerformanceFrequency(&f); return f; }();
+
+	LARGE_INTEGER t0, t1;
+	QueryPerformanceCounter(&t0);
+
 	auto players = mc.getPlayerList();
-	if (players.empty()) return false;
+
+	QueryPerformanceCounter(&t1);
+	float ms = float((t1.QuadPart - t0.QuadPart) * 1000.0 / double(qpf.QuadPart));
+	
+	pl_calls++;
+	if (ms > pl_maxMs) pl_maxMs = ms;
+
+	DWORD now = GetTickCount();
+	if (now - pl_lastPrint >= 1000) {
+		log_debug("getPlayerList: calls=%d max=%.3fms count=%d cache=%d", 
+			pl_calls, pl_maxMs, (int)players.size(), (cachedTarget != nullptr));
+		pl_calls = 0;
+		pl_maxMs = 0.0f;
+		pl_lastPrint = now;
+	}
+
+	if (players.empty()) {
+		if (cachedTarget) { Java::Env->DeleteGlobalRef(cachedTarget); cachedTarget = nullptr; }
+		return false; 
+	}
 
 	float localYaw = player.getYaw();
 	double localX = player.getPosX();
@@ -233,6 +372,10 @@ bool AimAssist::findTarget(double& targetX, double& targetY, double& targetZ)
 	float minimalAngleDiff = (float)settings.fov / 2.f;
 	float closestDistance = FLT_MAX;
 	bool found = false;
+	
+	// Helper to keep track of best player instance
+	jobject bestPlayerObj = nullptr;
+	PlayerInfo closestPlayer;
 
 	for (auto& p : players)
 	{
@@ -249,15 +392,14 @@ bool AimAssist::findTarget(double& targetX, double& targetY, double& targetZ)
 
 		if ((int)yawDiff > settings.fov / 2) continue;
 
-		if (settings.targetMode == TargetMode::FOV)
+		if (settings.targetMode == TargetMode::DISTANCE)
 		{
-			if (yawDiff < minimalAngleDiff)
+			if (dist < closestDistance)
 			{
-				minimalAngleDiff = yawDiff;
-				targetX = p.posX;
-				targetY = p.posY;
-				targetZ = p.posZ;
+				closestDistance = dist;
+				closestPlayer = p;
 				found = true;
+				bestPlayerObj = p.instance;
 			}
 		}
 		else if (settings.targetMode == TargetMode::HEALTH)
@@ -265,30 +407,48 @@ bool AimAssist::findTarget(double& targetX, double& targetY, double& targetZ)
 			if (p.health < lowestHealth)
 			{
 				lowestHealth = p.health;
-				targetX = p.posX;
-				targetY = p.posY;
-				targetZ = p.posZ;
+				closestPlayer = p;
 				found = true;
+				bestPlayerObj = p.instance;
 			}
 		}
-		else if (settings.targetMode == TargetMode::DISTANCE)
+		else // TargetMode::FOV
 		{
-			if (dist < closestDistance)
+			if (yawDiff < minimalAngleDiff)
 			{
-				closestDistance = dist;
-				targetX = p.posX;
-				targetY = p.posY;
-				targetZ = p.posZ;
+				minimalAngleDiff = yawDiff;
+				closestPlayer = p;
 				found = true;
+				bestPlayerObj = p.instance;
 			}
-		}
-
-		if (p.instance)
-		{
-			Java::Env->DeleteLocalRef(p.instance);
 		}
 	}
 
+	if (found) {
+		targetX = closestPlayer.posX;
+		targetY = closestPlayer.posY;
+		targetZ = closestPlayer.posZ;
+	}
+
+	// Update Cached Target
+	if (found) {
+		if (cachedTarget) {
+			// Check if it's the SAME object to avoid delete/new overhead?
+			// IsSameObject is cheap.
+			if (!Java::Env->IsSameObject(cachedTarget, bestPlayerObj)) {
+				Java::Env->DeleteGlobalRef(cachedTarget);
+				cachedTarget = Java::Env->NewGlobalRef(bestPlayerObj);
+			}
+		} else {
+			cachedTarget = Java::Env->NewGlobalRef(bestPlayerObj);
+		}
+	} else {
+		if (cachedTarget) {
+			Java::Env->DeleteGlobalRef(cachedTarget);
+			cachedTarget = nullptr;
+		}
+	}
+	
 	return found;
 }
 
@@ -379,18 +539,75 @@ void AimAssist::applyAimRand(float yawDiff, float pitchDiff, float speed)
 		pitchrandsmooth = std::lerp(pitchrandsmooth, 0.f, std::clamp(partialTick * 0.1f, 0.f, 1.f));
 	}
 
-	POINT pt;
-	GetCursorPos(&pt);
+	static double cursorAccumX = 0.0;
+	static double cursorAccumY = 0.0;
 
-	int moveX = (int)std::round(yawdiffSpeed);
-	int moveY = (int)std::round(pitchdiffSpeed + pitchrandsmooth);
+	cursorAccumX += yawdiffSpeed;
+	cursorAccumY += pitchdiffSpeed + pitchrandsmooth;
+
+	int moveX = (int)std::round(cursorAccumX);
+	int moveY = (int)std::round(cursorAccumY);
+
+	cursorAccumX -= moveX;
+	cursorAccumY -= moveY;
 
 	if (settings.horizontalOnly)
 	{
 		moveY = 0;
+		cursorAccumY = 0.0;
 	}
 
-	SetCursorPos(pt.x + moveX, pt.y + moveY);
+	if (moveX == 0 && moveY == 0) return;
+
+	// --- debug counters (no spam) ---
+	static int   rot_calls = 0;
+	static float rot_maxMs = 0.0f;
+	static DWORD rot_lastPrint = GetTickCount();
+	static int   rot_lastMoveX = 0;
+	static int   rot_lastMoveY = 0;
+
+	static LARGE_INTEGER qpf = []{
+		LARGE_INTEGER f; QueryPerformanceFrequency(&f); return f;
+	}();
+
+	LARGE_INTEGER t0, t1;
+	QueryPerformanceCounter(&t0);
+
+	float mouseSensitivity = mc.getMouseSensitivity();
+	float sensBase = mouseSensitivity * 0.6f + 0.2f;
+	float sensMultiplier = sensBase * sensBase * sensBase * 8.0f;
+
+	constexpr float kMouseGain = 0.15f;
+	float yawDelta = (float)moveX * sensMultiplier * kMouseGain;
+	float pitchDelta = (float)moveY * sensMultiplier * kMouseGain;
+
+	if (moveX != 0) {
+		float currentYaw = player.getYaw();
+		player.setYaw(currentYaw + yawDelta);
+	}
+
+	if (moveY != 0) {
+		float currentPitch = player.getPitch();
+		float targetPitch = std::clamp(currentPitch + pitchDelta, -90.0f, 90.0f);
+		player.setPitch(targetPitch);
+	}
+
+	QueryPerformanceCounter(&t1);
+
+	float ms = float((t1.QuadPart - t0.QuadPart) * 1000.0 / double(qpf.QuadPart));
+	rot_calls++;
+	if (ms > rot_maxMs) rot_maxMs = ms;
+	rot_lastMoveX = moveX;
+	rot_lastMoveY = moveY;
+
+	// Print 1 vez por segundo, no por llamada
+	DWORD now = GetTickCount();
+	if (now - rot_lastPrint >= 1000) {
+		log_debug("AimRotate: calls=%d max=%.3fms lastMove=(%d,%d)", rot_calls, rot_maxMs, rot_lastMoveX, rot_lastMoveY);
+		rot_calls = 0;
+		rot_maxMs = 0.0f;
+		rot_lastPrint = now;
+	}
 }
 
 bool AimAssist::getAimPoint(double targetX, double targetY, double targetZ, double& aimX, double& aimY, double& aimZ)

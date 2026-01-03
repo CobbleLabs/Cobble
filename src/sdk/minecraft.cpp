@@ -213,141 +213,192 @@ bool Minecraft::isTargetingBlock()
 	return result;
 }
 
+// ============================================================
+// Cheap debug helpers (rate-limited)
+// ============================================================
+static bool every_ms(int ms)
+{
+    static DWORD last = 0;
+    DWORD now = GetTickCount();
+    if (now - last >= (DWORD)ms) { last = now; return true; }
+    return false;
+}
+
+static void jni_log_if_exception(const char* where)
+{
+    if (!Java::Env) return;
+
+    if (Java::Env->ExceptionCheck()) {
+        // WARNING: ExceptionDescribe is slow. Keep it rate-limited.
+        if (every_ms(500)) {
+            Java::Env->ExceptionDescribe();
+        }
+        Java::Env->ExceptionClear();
+        if (every_ms(500)) {
+            log_debug("JNI exception at: %s", where);
+        }
+    }
+}
+
+
 std::vector<PlayerInfo> Minecraft::getPlayerList()
 {
-	std::vector<PlayerInfo> result;
-	if (!isValid()) return result;
+    std::vector<PlayerInfo> result;
+    if (!isValid()) return result;
 
-	jobject world = getWorld();
-	if (!world) return result;
+    jobject world = getWorld();
+    if (!world) return result;
 
-	jclass worldCls = nullptr;
-	if (!Java::AssignClass("net.minecraft.client.multiplayer.WorldClient", worldCls)) {
-		Java::Env->DeleteLocalRef(world);
-		return result;
-	}
+    jclass worldCls = nullptr;
+    if (!Java::AssignClass("net.minecraft.client.multiplayer.WorldClient", worldCls)) {
+        Java::Env->DeleteLocalRef(world);
+        return result;
+    }
 
-	// Get playerEntities field (List<EntityPlayer>)
-	jfieldID fid_playerEntities = Java::Env->GetFieldID(worldCls, "playerEntities", "Ljava/util/List;");
-	if (!fid_playerEntities) {
-		Java::Env->DeleteLocalRef(world);
-		Java::Env->DeleteLocalRef(worldCls);
-		return result;
-	}
+    jfieldID fid_playerEntities = Java::Env->GetFieldID(worldCls, "playerEntities", "Ljava/util/List;");
+    if (!fid_playerEntities) {
+        jni_log_if_exception("GetFieldID WorldClient.playerEntities");
+        Java::Env->DeleteLocalRef(world);
+        Java::Env->DeleteLocalRef(worldCls);
+        return result;
+    }
 
-	jobject playerList = Java::Env->GetObjectField(world, fid_playerEntities);
-	Java::Env->DeleteLocalRef(world);
-	Java::Env->DeleteLocalRef(worldCls);
+    jobject playerList = Java::Env->GetObjectField(world, fid_playerEntities);
+    Java::Env->DeleteLocalRef(world);
+    Java::Env->DeleteLocalRef(worldCls);
 
-	if (!playerList) return result;
+    if (!playerList) return result;
 
-	// Get List methods
-	jclass listCls = Java::Env->GetObjectClass(playerList);
-	jmethodID mid_size = Java::Env->GetMethodID(listCls, "size", "()I");
-	jmethodID mid_get = Java::Env->GetMethodID(listCls, "get", "(I)Ljava/lang/Object;");
+    jclass listCls = Java::Env->GetObjectClass(playerList);
+    jmethodID mid_size = Java::Env->GetMethodID(listCls, "size", "()I");
+    jmethodID mid_get  = Java::Env->GetMethodID(listCls, "get", "(I)Ljava/lang/Object;");
+    if (!mid_size || !mid_get) {
+        jni_log_if_exception("GetMethodID List.size/get");
+        Java::Env->DeleteLocalRef(playerList);
+        Java::Env->DeleteLocalRef(listCls);
+        return result;
+    }
 
-	if (!mid_size || !mid_get) {
-		Java::Env->DeleteLocalRef(playerList);
-		Java::Env->DeleteLocalRef(listCls);
-		return result;
-	}
+    int size = Java::Env->CallIntMethod(playerList, mid_size);
+    jni_log_if_exception("CallIntMethod List.size");
+    if (size <= 0) {
+        Java::Env->DeleteLocalRef(playerList);
+        Java::Env->DeleteLocalRef(listCls);
+        return result;
+    }
 
-	int size = Java::Env->CallIntMethod(playerList, mid_size);
+    result.reserve(size);
 
-	// Get Entity class for position fields
-	jclass entityCls = nullptr;
-	if (!Java::AssignClass("net.minecraft.entity.Entity", entityCls)) {
-		Java::Env->DeleteLocalRef(playerList);
-		Java::Env->DeleteLocalRef(listCls);
-		return result;
-	}
+    // Cache classes + ids ONCE
+    jclass entityCls = nullptr;
+    if (!Java::AssignClass("net.minecraft.entity.Entity", entityCls)) {
+        Java::Env->DeleteLocalRef(playerList);
+        Java::Env->DeleteLocalRef(listCls);
+        return result;
+    }
 
-	jfieldID fid_posX = Java::Env->GetFieldID(entityCls, "posX", "D");
-	jfieldID fid_posY = Java::Env->GetFieldID(entityCls, "posY", "D");
-	jfieldID fid_posZ = Java::Env->GetFieldID(entityCls, "posZ", "D");
-	jfieldID fid_lastPosX = Java::Env->GetFieldID(entityCls, "lastTickPosX", "D");
-	jfieldID fid_lastPosY = Java::Env->GetFieldID(entityCls, "lastTickPosY", "D");
-	jfieldID fid_lastPosZ = Java::Env->GetFieldID(entityCls, "lastTickPosZ", "D");
-	jmethodID mid_isInvisible = Java::Env->GetMethodID(entityCls, "isInvisible", "()Z");
+    jfieldID fid_posX      = Java::Env->GetFieldID(entityCls, "posX", "D");
+    jfieldID fid_posY      = Java::Env->GetFieldID(entityCls, "posY", "D");
+    jfieldID fid_posZ      = Java::Env->GetFieldID(entityCls, "posZ", "D");
+    jfieldID fid_lastPosX  = Java::Env->GetFieldID(entityCls, "lastTickPosX", "D");
+    jfieldID fid_lastPosY  = Java::Env->GetFieldID(entityCls, "lastTickPosY", "D");
+    jfieldID fid_lastPosZ  = Java::Env->GetFieldID(entityCls, "lastTickPosZ", "D");
+    jmethodID mid_isInvisible = Java::Env->GetMethodID(entityCls, "isInvisible", "()Z");
+    jni_log_if_exception("Cache Entity fields/methods");
 
-	jobject localPlayer = getPlayer();
+    // IMPORTANT: name should be on EntityPlayer, not Entity
+    jclass playerCls = nullptr;
+    Java::AssignClass("net.minecraft.entity.player.EntityPlayer", playerCls);
 
-	for (int i = 0; i < size; i++) {
-		jobject entity = Java::Env->CallObjectMethod(playerList, mid_get, i);
-		if (!entity) continue;
+    jmethodID mid_getName = nullptr;
+    if (playerCls) {
+        if (Java::Version == MinecraftVersion::MC_1_7_10)
+            mid_getName = Java::Env->GetMethodID(playerCls, "getCommandSenderName", "()Ljava/lang/String;");
+        else
+            mid_getName = Java::Env->GetMethodID(playerCls, "getName", "()Ljava/lang/String;");
+        jni_log_if_exception("Cache EntityPlayer.getName");
+    }
 
-		// Skip local player
-		if (localPlayer && Java::Env->IsSameObject(entity, localPlayer)) {
-			Java::Env->DeleteLocalRef(entity);
-			continue;
-		}
+    // LivingBase cached once
+    jclass livingCls = nullptr;
+    jmethodID mid_getHealth = nullptr;
+    jmethodID mid_getMaxHealth = nullptr;
+    jfieldID fid_hurtTime = nullptr;
 
-		PlayerInfo info;
-		info.instance = entity;
-		info.posX = Java::Env->GetDoubleField(entity, fid_posX);
-		info.posY = Java::Env->GetDoubleField(entity, fid_posY);
-		info.posZ = Java::Env->GetDoubleField(entity, fid_posZ);
-		info.lastPosX = fid_lastPosX ? Java::Env->GetDoubleField(entity, fid_lastPosX) : info.posX;
-		info.lastPosY = fid_lastPosY ? Java::Env->GetDoubleField(entity, fid_lastPosY) : info.posY;
-		info.lastPosZ = fid_lastPosZ ? Java::Env->GetDoubleField(entity, fid_lastPosZ) : info.posZ;
-		info.isInvisible = mid_isInvisible ? Java::Env->CallBooleanMethod(entity, mid_isInvisible) : false;
-		
-		// Get player name
-		jmethodID mid_getName = nullptr;
-		if (Java::Version == MinecraftVersion::MC_1_7_10) {
-			mid_getName = Java::Env->GetMethodID(entityCls, "getCommandSenderName", "()Ljava/lang/String;");
-		} else {
-			mid_getName = Java::Env->GetMethodID(entityCls, "getName", "()Ljava/lang/String;");
-		}
+    if (Java::AssignClass("net.minecraft.entity.EntityLivingBase", livingCls)) {
+        mid_getHealth    = Java::Env->GetMethodID(livingCls, "getHealth", "()F");
+        mid_getMaxHealth = Java::Env->GetMethodID(livingCls, "getMaxHealth", "()F");
+        fid_hurtTime     = Java::Env->GetFieldID(livingCls, "hurtTime", "I");
+        jni_log_if_exception("Cache LivingBase ids");
+    }
 
-		if (mid_getName) {
-			jstring nameStr = (jstring)Java::Env->CallObjectMethod(entity, mid_getName);
-			if (nameStr) {
-				info.name = jstringToString(nameStr);
-				Java::Env->DeleteLocalRef(nameStr);
-			} else {
-				info.name = "Unknown";
-			}
-		} else {
-			Java::Env->ExceptionClear();
-			info.name = "Unknown";
-		}
-		
+    jobject localPlayer = getPlayer();
 
-		
-		// Fallback for name if empty
-		if (info.name.empty()) info.name = "Player";
-		if (info.name.empty()) info.name = "Player";
-		
-		// Get health and hurtTime (EntityLivingBase)
-		jclass livingCls = nullptr;
-		if (Java::AssignClass("net.minecraft.entity.EntityLivingBase", livingCls)) {
-			jmethodID mid_getHealth = Java::Env->GetMethodID(livingCls, "getHealth", "()F");
-			jmethodID mid_getMaxHealth = Java::Env->GetMethodID(livingCls, "getMaxHealth", "()F");
-			jfieldID fid_hurtTime = Java::Env->GetFieldID(livingCls, "hurtTime", "I");
-			
-			if (mid_getHealth) {
-				info.health = Java::Env->CallFloatMethod(entity, mid_getHealth);
-			}
-			if (mid_getMaxHealth) {
-				info.maxHealth = Java::Env->CallFloatMethod(entity, mid_getMaxHealth);
-			}
-			if (fid_hurtTime) {
-				info.hurtTime = Java::Env->GetIntField(entity, fid_hurtTime);
-			}
-			Java::Env->DeleteLocalRef(livingCls);
-		}
+    for (int i = 0; i < size; i++) {
+        jobject entity = Java::Env->CallObjectMethod(playerList, mid_get, i);
+        if (!entity) {
+            jni_log_if_exception("List.get(i)");
+            continue;
+        }
 
-		result.push_back(info);
-	}
+        if (localPlayer && Java::Env->IsSameObject(entity, localPlayer)) {
+            Java::Env->DeleteLocalRef(entity);
+            continue;
+        }
 
-	if (localPlayer) Java::Env->DeleteLocalRef(localPlayer);
-	Java::Env->DeleteLocalRef(entityCls);
-	Java::Env->DeleteLocalRef(playerList);
-	Java::Env->DeleteLocalRef(listCls);
+        PlayerInfo info;
+        info.instance = entity; // caller later deletes (como ya hacés en findTarget)
 
-	return result;
+        info.posX = fid_posX ? Java::Env->GetDoubleField(entity, fid_posX) : 0.0;
+        info.posY = fid_posY ? Java::Env->GetDoubleField(entity, fid_posY) : 0.0;
+        info.posZ = fid_posZ ? Java::Env->GetDoubleField(entity, fid_posZ) : 0.0;
+
+        info.lastPosX = fid_lastPosX ? Java::Env->GetDoubleField(entity, fid_lastPosX) : info.posX;
+        info.lastPosY = fid_lastPosY ? Java::Env->GetDoubleField(entity, fid_lastPosY) : info.posY;
+        info.lastPosZ = fid_lastPosZ ? Java::Env->GetDoubleField(entity, fid_lastPosZ) : info.posZ;
+
+        info.isInvisible = mid_isInvisible ? Java::Env->CallBooleanMethod(entity, mid_isInvisible) : false;
+
+        // Name (no exceptions per loop)
+        if (mid_getName) {
+            jstring nameStr = (jstring)Java::Env->CallObjectMethod(entity, mid_getName);
+            if (nameStr) {
+                info.name = jstringToString(nameStr);
+                Java::Env->DeleteLocalRef(nameStr);
+            } else {
+                jni_log_if_exception("CallObjectMethod getName");
+                info.name = "Unknown";
+            }
+        } else {
+            info.name = "Unknown";
+        }
+
+        if (info.name.empty()) info.name = "Player";
+
+        // Health/hurtTime cached
+        if (livingCls) {
+            if (mid_getHealth)    info.health    = Java::Env->CallFloatMethod(entity, mid_getHealth);
+            if (mid_getMaxHealth) info.maxHealth = Java::Env->CallFloatMethod(entity, mid_getMaxHealth);
+            if (fid_hurtTime)     info.hurtTime  = Java::Env->GetIntField(entity, fid_hurtTime);
+            // si hay excepción, logueá rate-limited
+            if (every_ms(500)) jni_log_if_exception("LivingBase read");
+        }
+
+        result.push_back(std::move(info));
+    }
+
+    if (localPlayer) Java::Env->DeleteLocalRef(localPlayer);
+
+    if (livingCls) Java::Env->DeleteLocalRef(livingCls);
+    if (playerCls) Java::Env->DeleteLocalRef(playerCls);
+
+    Java::Env->DeleteLocalRef(entityCls);
+    Java::Env->DeleteLocalRef(playerList);
+    Java::Env->DeleteLocalRef(listCls);
+
+    return result;
 }
+
 
 bool Minecraft::canEntityBeSeen(jobject target)
 {

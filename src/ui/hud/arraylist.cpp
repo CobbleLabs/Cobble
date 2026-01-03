@@ -34,25 +34,19 @@ void ArrayListRenderer::render()
 	// Use Bold 22px font (index 2) rendered at 20px
 	ImFont* arrayFont = font(2);
 	
-	// Calculate local scale with higher minimum for very low resolutions
 	float screenHeight = static_cast<float>(RenderData::screenHeight);
 	float screenWidth = static_cast<float>(RenderData::screenWidth);
-	float localScale = screenHeight / 1080.0f;
-	if (localScale < 0.75f) localScale = 0.75f;  // Higher minimum for small screens
-	if (localScale > 2.0f) localScale = 2.0f;
 	
-	auto s = [localScale](float v) { return v * localScale; };
+	// Use global ui::s() for consistent scaling
+	float fontSize = 20.0f;
+	float padding = ui::s(13.0f);
+	float itemHeight = ui::s(25.0f);
+	float margin = ui::s(9.0f);
+	float barWidth = ui::s(3.5f);
+	float rounding = ui::s(4.5f);
+	float gap = ui::s(3.0f);
 	
-	// Base values for ArrayList sizing (10% smaller)
-	float fontSize = 20.0f;  // Render at 20px instead of 22px
-	float padding = s(13.0f);
-	float itemHeight = s(25.0f);
-	float margin = s(9.0f);
-	float barWidth = s(3.5f);
-	float rounding = s(4.5f);
-	float gap = s(3.0f);
-	
-	float y = s(yOffset);
+	float y = ui::s(yOffset);
 	
 	// Accent color from theme
 	ImU32 accentColor = IM_COL32(

@@ -483,7 +483,7 @@ bool ui::color(const char* name, float col[4], bool alpha) {
     auto draw = window->DrawList;
     auto pos = window->DC.CursorPos;
     
-    ImVec2 size{ 16, 16 };
+    ImVec2 size{ s(16), s(16) };
     auto label_size = CalcTextSize(name, 0, 1);
     
     ImRect bb(pos, { pos.x + CalcItemWidth() - size.x, pos.y + size.y });
@@ -573,10 +573,14 @@ void ui::tab(int num) {
     
     // Hide icons on small resolutions
     bool showIcons = ImGui::GetIO().DisplaySize.y >= 600.0f;
-    float textOffsetX = showIcons ? s(40) : s(15);
+    
+    // Icon position and text spacing
+    float iconX = bb.Min.x + s(15);
+    float iconTextGap = s(10); // consistent gap between icon and text
+    float textOffsetX = showIcons ? (iconX - bb.Min.x + icon_size.x + iconTextGap) : s(15);
     
     if (showIcons) {
-        window->DrawList->AddText({ bb.Min.x + s(15), bb.GetCenter().y - icon_size.y / 2 }, obj.col, icon, FindRenderedTextEnd(icon));
+        window->DrawList->AddText({ iconX, bb.GetCenter().y - icon_size.y / 2 }, obj.col, icon, FindRenderedTextEnd(icon));
     }
     window->DrawList->AddText(font(2 + (selected ? 1 : 0)), font(2 + (selected ? 1 : 0))->FontSize, { bb.Min.x + textOffsetX, bb.GetCenter().y - name_size.y / 2 }, obj.col, name, FindRenderedTextEnd(name));
     

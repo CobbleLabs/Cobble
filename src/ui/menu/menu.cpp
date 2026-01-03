@@ -138,9 +138,9 @@ static void renderSettingsPage()
 			ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.7f, 0.15f, 0.25f, 1.0f));
 			ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.5f, 0.08f, 0.15f, 1.0f));
 			
-			ImGui::SetCursorPosY((ImGui::GetWindowHeight() - 32) * 0.5f);
+			ImGui::SetCursorPosY((ImGui::GetWindowHeight() - ui::s(32)) * 0.5f);
 			
-			if (ImGui::Button("EJECT CLIENT", ImVec2(ImGui::GetContentRegionAvail().x, 32))) {
+			if (ImGui::Button("EJECT CLIENT", ImVec2(ImGui::GetContentRegionAvail().x, ui::s(32)))) {
 				cobble::context::is_running = false;
 				Menu::isOpen = false;
 			}
@@ -201,8 +201,8 @@ static void renderPage()
             static char buf[64] = "";
             static bool incorrect = false;
             
-            ImGui::SetCursorPosX((width - 200) / 2);
-            ImGui::SetNextItemWidth(200);
+            ImGui::SetCursorPosX((width - ui::s(200)) / 2);
+            ImGui::SetNextItemWidth(ui::s(200));
             
             // Auto focus if just selected? Maybe too intrusive.
             
@@ -217,8 +217,8 @@ static void renderPage()
             
             ImGui::Spacing();
             
-            ImGui::SetCursorPosX((width - 100) / 2);
-            if (ImGui::Button("Unlock", {100, 30}) || enterPressed) {
+            ImGui::SetCursorPosX((width - ui::s(100)) / 2);
+            if (ImGui::Button("Unlock", {ui::s(100), ui::s(30)}) || enterPressed) {
                 if (strcmp(buf, Module::unlockCode) == 0) {
                     Module::experimentalUnlocked = true;
                     incorrect = false;

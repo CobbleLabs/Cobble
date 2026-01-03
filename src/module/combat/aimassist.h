@@ -1,29 +1,22 @@
 #pragma once
 
 #include "../module.h"
-#include <cmath>
-#include <chrono>
+#include <jni.h>
 #include <random>
+#include <chrono>
 
+// Simple Timer class since util/timer.h is missing
 class Timer
 {
 private:
 	std::chrono::time_point<std::chrono::high_resolution_clock> m_start;
 
 public:
-	Timer()
-	{
-		Start();
-	}
-
-	void Start()
-	{
-		m_start = std::chrono::high_resolution_clock::now();
-	}
-
+	Timer() { Start(); }
+	void Start() { m_start = std::chrono::high_resolution_clock::now(); }
+	
 	template<typename DurationT = std::chrono::milliseconds>
-	float Elapsed() const
-	{
+	float Elapsed() const {
 		return (float)std::chrono::duration_cast<DurationT>(std::chrono::high_resolution_clock::now() - m_start).count();
 	}
 };
@@ -111,6 +104,9 @@ private:
 	float yawdiffSpeed = 0.f;
 
 	Timer reactionTimeTimer;
+	
+	// Cached Target for hybrid tracking
+	jobject cachedTarget = nullptr;
 	
 	// Locked target position
 	bool hasLockedTarget = false;

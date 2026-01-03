@@ -52,23 +52,18 @@ void NotificationManager::render()
 	// Use Bold 22px font (index 2) rendered at 20px
 	ImFont* notifFont = font(2);
 	
-	// Calculate local scale with minimum for low resolutions
 	float screenHeight = static_cast<float>(RenderData::screenHeight);
 	float screenWidth = static_cast<float>(RenderData::screenWidth);
-	float localScale = screenHeight / 1080.0f;
-	if (localScale < 0.75f) localScale = 0.75f;
-	if (localScale > 2.0f) localScale = 2.0f;
 	
-	auto s = [localScale](float v) { return v * localScale; };
-	
+	// Use global ui::s() for consistent scaling
 	float fontSize = 20.0f;
-	float height = s(25.0f);
-	float margin = s(9.0f);
-	float spacing = s(3.0f);
-	float padding = s(13.0f);
-	float rounding = s(4.5f);
-	float barWidth = s(3.5f);
-	float progressHeight = s(2.0f);
+	float height = ui::s(25.0f);
+	float margin = ui::s(9.0f);
+	float spacing = ui::s(3.0f);
+	float padding = ui::s(13.0f);
+	float rounding = ui::s(4.5f);
+	float barWidth = ui::s(3.5f);
+	float progressHeight = ui::s(2.0f);
 	
 	// Accent color from theme
 	ImU32 accentColor = IM_COL32(
@@ -186,7 +181,7 @@ void NotificationManager::render()
 		}
 		
 		// Progress bar at bottom (smaller offset = closer to bottom edge)
-		float progressBarY = y + height - progressHeight - s(1.5f);
+		float progressBarY = y + height - progressHeight - ui::s(1.5f);
 		float progressBarWidth = notifWidth - padding * 2.0f - barWidth;
 		float progressX = x + padding;
 		
@@ -194,14 +189,14 @@ void NotificationManager::render()
 		draw->AddRectFilled(
 			ImVec2(progressX, progressBarY),
 			ImVec2(progressX + progressBarWidth, progressBarY + progressHeight),
-			progressBgColor, s(1.0f)
+			progressBgColor, ui::s(1.0f)
 		);
 		
 		float remainingProgress = 1.0f - progress;
 		draw->AddRectFilled(
 			ImVec2(progressX, progressBarY),
 			ImVec2(progressX + progressBarWidth * remainingProgress, progressBarY + progressHeight),
-			barColor, s(1.0f)
+			barColor, ui::s(1.0f)
 		);
 		
 		index++;

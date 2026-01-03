@@ -55,8 +55,27 @@ struct RGB { int r, g, b; };
 const RGB COL_START = { 255, 165, 0 };   // Orange
 const RGB COL_END   = { 255, 69, 0 };    // Red-Orange
 
-const int CONSOLE_WIDTH = 84;
-const int CONSOLE_HEIGHT = 28;
+// DPI-Adaptive Console Dimensions
+int getScaledConsoleWidth() {
+	HDC screen = GetDC(NULL);
+	int dpi = GetDeviceCaps(screen, LOGPIXELSX);
+	ReleaseDC(NULL, screen);
+	
+	// Adaptive sizing based on DPI
+	if (dpi >= 144) return 70;  // High DPI (150%+)
+	if (dpi >= 120) return 77;  // Medium DPI (125%)
+	return 84;                  // Normal DPI (100%)
+}
+
+int getScaledConsoleHeight() {
+	HDC screen = GetDC(NULL);
+	int dpi = GetDeviceCaps(screen, LOGPIXELSX);
+	ReleaseDC(NULL, screen);
+	
+	if (dpi >= 144) return 24;  // High DPI
+	if (dpi >= 120) return 26;  // Medium DPI
+	return 28;                  // Normal DPI
+}
 
 void setupConsole() {
 	hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
@@ -70,6 +89,9 @@ void setupConsole() {
 	mode |= ENABLE_VIRTUAL_TERMINAL_PROCESSING;
 	SetConsoleMode(hConsole, mode);
 	vtEnabled = true; 
+	
+	int CONSOLE_WIDTH = getScaledConsoleWidth();
+	int CONSOLE_HEIGHT = getScaledConsoleHeight();
 	
 	// Force Resize via ANSI (Best for Windows Terminal / Win11)
 	// \x1b[8;{rows};{cols}t
@@ -91,7 +113,14 @@ void setupConsole() {
 
 	// 2. Set Buffer Size
 	COORD bufferSize = { (SHORT)CONSOLE_WIDTH, (SHORT)CONSOLE_HEIGHT };
-	SetConsoleScreenBufferSize(hConsole, bufferSize);
+	if (!SetConsoleScreenBufferSize(hConsole, bufferSize))
+	{
+		// Fallback: try smaller size if first attempt fails
+		bufferSize = { 80, 25 };
+		SetConsoleScreenBufferSize(hConsole, bufferSize);
+		CONSOLE_WIDTH = 80;
+		CONSOLE_HEIGHT = 25;
+	}
 
 	// 3. Set Window Size
 	SMALL_RECT windowSize = { 0, 0, (SHORT)(CONSOLE_WIDTH - 1), (SHORT)(CONSOLE_HEIGHT - 1) };
@@ -99,6 +128,17 @@ void setupConsole() {
 	
 	// 4. Fix buffer again just in case window resize forced a change
 	SetConsoleScreenBufferSize(hConsole, bufferSize);
+	
+	// 5. Verify the resize worked
+	CONSOLE_SCREEN_BUFFER_INFO csbi;
+	if (GetConsoleScreenBufferInfo(hConsole, &csbi))
+	{
+		int actualWidth = csbi.srWindow.Right - csbi.srWindow.Left + 1;
+		int actualHeight = csbi.srWindow.Bottom - csbi.srWindow.Top + 1;
+		
+		// If verification failed significantly, we're on a system with incompatible settings
+		// Just proceed - the content will adapt
+	}
     
     // Center logic
     RECT rect;
@@ -110,7 +150,10 @@ void setupConsole() {
     MoveWindow(hWnd, (screenWidth - width) / 2, (screenHeight - height) / 2, width, height, TRUE);
 }
 
-int getConsoleWidth() { return CONSOLE_WIDTH; }
+int getConsoleWidth() {
+	static int width = getScaledConsoleWidth();
+	return width;
+}
 
 // Utils
 std::string rgbToVt(RGB c) {

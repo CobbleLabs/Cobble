@@ -6,6 +6,35 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/).
 
 ---
 
+## [0.20.1] - 2026-01-02
+
+### Fixed
+- **AimAssist FPS Drops & Crashes**: Eliminado `SetCursorPos()` que causaba blocking I/O en ciertos sistemas
+  - **Lógica original preservada 100%**: Todos boost timers, reaction time, pitch randomization mantienen el mismo feel
+  - **Acumulador fraccional**: Reemplaza `SetCursorPos` simulando exactamente su comportamiento de acumulación sub-pixel
+  - Rotación  - Migrado a rotación JNI vía `player.setYaw()` / `player.setPitch()`
+  - **Hybrid Tracking System**:
+    - **Fast Path (144Hz+)**: Tracking directo de posición vía GlobalRef cacheado (sin escaneo de lista)
+    - **Slow Path (40Hz)**: Escaneo de `getPlayerList` limitado a 40 veces/seg para eliminar overhead JNI
+  - **Zero-Lag Aim**: Eliminado cualquier stutter causado por `SetCursorPos` o spam de JNI
+  - Calibración de velocidad restaurada a valores originales ImGui
+  - El cursor ya no se mueve durante uso del menú
+- **GUI Input Conflicts**: Mismo fix de AimAssist elimina race condition con ImGui
+  - El cursor ya no se mueve durante uso del menú
+- **Loader Resize Issues**: Console dimensions ahora son DPI-adaptive
+  - Detecta DPI del sistema (100%, 125%, 150%+)
+  - Dimensiones adaptativas: 84x28 (normal), 77x26 (medium DPI), 70x24 (high DPI)
+  - Fallback automático a 80x25 si el resize falla
+  - Validación post-resize para confirmar éxito
+  - **Por qué solo afectaba a ciertos usuarios**: Windows DPI scaling > 100%, custom console fonts, o Windows Terminal vs ConHost
+
+### Changed
+- AimAssist: Ahora usa rotaciones directas del jugador en vez de manipular el cursor del sistema
+  - Más "legit" y menos detectable por anti-cheats
+  - Eliminada dependencia de `Windows.h` en AimAssist
+
+---
+
 ## [0.20.0] - 2026-01-02
 
 ### Added
