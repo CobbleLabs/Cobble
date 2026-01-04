@@ -37,7 +37,7 @@ void Blink::onEnable()
     serverY = player.getPosY();
     serverZ = player.getPosZ();
     
-    log_ok("Blink ON at (%.1f, %.1f, %.1f) - PacketInterceptor active", serverX, serverY, serverZ);
+    log_ok("Hybrid Blink ON at (%.1f, %.1f, %.1f)", serverX, serverY, serverZ);
 }
 
 void Blink::onDisable()
@@ -57,7 +57,7 @@ void Blink::onDisable()
     double dz = currentZ - serverZ;
     double dist = sqrt(dx*dx + dy*dy + dz*dz);
     
-    log_ok("Blink OFF - %.2fs, %.1fm | Flushed queued packets", elapsed, dist);
+    log_ok("Hybrid Blink OFF - %.2fs, %.1fm | Release pending", elapsed, dist);
 }
 
 void Blink::onUpdate()
@@ -74,6 +74,13 @@ void Blink::onUpdate()
     }
     
     // Visual/tracking only while PacketInterceptor handles packet gating.
+    double sx = 0.0, sy = 0.0, sz = 0.0;
+    if (PacketInterceptor::getLastSentPosition(sx, sy, sz)) {
+        serverX = sx;
+        serverY = sy;
+        serverZ = sz;
+    }
+
     double currentX = player.getPosX();
     double currentY = player.getPosY();
     double currentZ = player.getPosZ();
@@ -85,7 +92,7 @@ void Blink::onUpdate()
         double dz = currentZ - serverZ;
         double dist = sqrt(dx*dx + dy*dy + dz*dz);
         
-        log_debug("Blink: Tick %d, moved %.1fm (interceptor active)", 
+        log_debug("Hybrid Blink: Tick %d, moved %.1fm (interceptor active)", 
             tickCounter, dist);
     }
     
@@ -174,7 +181,7 @@ void Blink::onRender()
     float elapsed = std::chrono::duration<float>(now - startTime).count();
     
     char buf[128];
-    snprintf(buf, sizeof(buf), "Blink: %.1fm | %.1fs (frozen)", 
+    snprintf(buf, sizeof(buf), "Blink: %.1fm | %.1fs (delayed)", 
         dist, elapsed);
     
     ImVec2 textSize = ImGui::CalcTextSize(buf);

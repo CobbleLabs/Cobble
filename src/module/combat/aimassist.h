@@ -69,6 +69,7 @@ public:
 		bool breakBlocks = false;
 		bool aimAtClosestPoint = false;
 		bool lockAim = false;
+		bool weaponOnly = false;
 		
 		TargetMode targetMode = TargetMode::DISTANCE;
 		int fov = 180;
@@ -78,6 +79,9 @@ public:
 	} settings;
 
 private:
+	// Weapon check
+	bool isHoldingWeapon();
+
 	// Math utilities
 	float wrapTo180(float value);
 	std::pair<float, float> getAngles(double x1, double y1, double z1, double x2, double y2, double z2);

@@ -375,6 +375,144 @@ std::vector<PlayerInfo> Minecraft::getPlayerList()
 
         if (info.name.empty()) info.name = "Player";
 
+        // DisplayName with color codes for team detection
+        // Try getDisplayName() -> getUnformattedTextForChat() for the REAL name
+        // This bypasses anti-cheat name obfuscation
+        static jmethodID mid_getDisplayName = nullptr;
+        static jmethodID mid_getUnformattedText = nullptr;
+        static jclass iChatComponentCls = nullptr;
+        static bool displayNameInit = false;
+        
+        if (!displayNameInit && playerCls) {
+            // 1.8.9+: getDisplayName returns IChatComponent
+            mid_getDisplayName = Java::Env->GetMethodID(playerCls, "getDisplayName", 
+                "()Lnet/minecraft/util/IChatComponent;");
+            if (!mid_getDisplayName) {
+                Java::Env->ExceptionClear();
+                // Try 1.7.10: getDisplayNameString returns String directly
+                mid_getDisplayName = Java::Env->GetMethodID(playerCls, "getDisplayNameString", "()Ljava/lang/String;");
+            }
+            
+            // Cache IChatComponent class for getUnformattedText
+            if (!Java::AssignClass("net.minecraft.util.IChatComponent", iChatComponentCls)) {
+                Java::Env->ExceptionClear();
+                // Try alternative class name
+                Java::AssignClass("net.minecraft.util.ChatComponentText", iChatComponentCls);
+            }
+            
+            if (iChatComponentCls) {
+                // getUnformattedTextForChat gives the clean name without color codes
+                mid_getUnformattedText = Java::Env->GetMethodID(iChatComponentCls, 
+                    "getUnformattedTextForChat", "()Ljava/lang/String;");
+                if (!mid_getUnformattedText) {
+                    Java::Env->ExceptionClear();
+                    // Fallback to getUnformattedText
+                    mid_getUnformattedText = Java::Env->GetMethodID(iChatComponentCls, 
+                        "getUnformattedText", "()Ljava/lang/String;");
+                }
+                Java::Env->ExceptionClear();
+            }
+            
+            displayNameInit = true;
+        }
+        
+        std::string realName;
+        if (mid_getDisplayName) {
+            jobject displayResult = Java::Env->CallObjectMethod(entity, mid_getDisplayName);
+            if (displayResult) {
+                // Check if it's a String or IChatComponent
+                jclass strCls = Java::Env->FindClass("java/lang/String");
+                if (strCls && Java::Env->IsInstanceOf(displayResult, strCls)) {
+                    // Direct string (1.7.10 style)
+                    realName = jstringToString((jstring)displayResult);
+                    info.displayName = realName;
+                } else if (iChatComponentCls && Java::Env->IsInstanceOf(displayResult, iChatComponentCls)) {
+                    // IChatComponent - use getUnformattedTextForChat for clean name
+                    if (mid_getUnformattedText) {
+                        jstring unformatted = (jstring)Java::Env->CallObjectMethod(displayResult, mid_getUnformattedText);
+                        if (unformatted) {
+                            realName = jstringToString(unformatted);
+                            Java::Env->DeleteLocalRef(unformatted);
+                        }
+                    }
+                    
+                    // Also get formatted text for team color detection
+                    jclass chatCls = Java::Env->GetObjectClass(displayResult);
+                    if (chatCls) {
+                        jmethodID mid_getFormattedText = Java::Env->GetMethodID(chatCls, "getFormattedText", "()Ljava/lang/String;");
+                        if (mid_getFormattedText) {
+                            jstring formatted = (jstring)Java::Env->CallObjectMethod(displayResult, mid_getFormattedText);
+                            if (formatted) {
+                                info.displayName = jstringToString(formatted);
+                                Java::Env->DeleteLocalRef(formatted);
+                            }
+                        }
+                        Java::Env->DeleteLocalRef(chatCls);
+                    }
+                }
+                if (strCls) Java::Env->DeleteLocalRef(strCls);
+                Java::Env->DeleteLocalRef(displayResult);
+            }
+            Java::Env->ExceptionClear();
+        }
+        
+        // Use the real unformatted name if available, otherwise keep getName result
+        if (!realName.empty()) {
+            info.name = realName;
+        }
+        
+        // Parse teamColor from displayName
+        // Look for color codes: §X where X is 0-9 or a-f
+        // Also handles corrupted encoding like ┬ºX
+        if (!info.displayName.empty()) {
+            // Debug: log first 10 bytes in hex to identify encoding pattern
+            static int hexDebugCounter = 0;
+            if (++hexDebugCounter % 200 == 1 && info.displayName.size() > 2) {
+                char hexBuf[64] = {0};
+                int pos = 0;
+                for (size_t b = 0; b < std::min((size_t)8, info.displayName.size()) && pos < 60; b++) {
+                    pos += snprintf(hexBuf + pos, 64 - pos, "%02X ", (unsigned char)info.displayName[b]);
+                }
+                log_debug("[DisplayName] '%s' bytes: %s", info.displayName.c_str(), hexBuf);
+            }
+            
+            for (size_t j = 0; j < info.displayName.size(); j++) {
+                unsigned char c = info.displayName[j];
+                
+                // Check for UTF-8 § (0xC2 0xA7)
+                if (c == 0xC2 && j + 2 < info.displayName.size() && 
+                    (unsigned char)info.displayName[j + 1] == 0xA7) {
+                    char code = std::tolower(info.displayName[j + 2]);
+                    // Only color codes 0-9 and a-f, NOT format codes k-o, r
+                    if (code >= '0' && code <= '9') {
+                        info.teamColor = code - '0';
+                        break; // Found a color, stop searching
+                    } else if (code >= 'a' && code <= 'f') {
+                        info.teamColor = 10 + (code - 'a');
+                        break; // Found a color, stop searching
+                    }
+                    // If it's a format code (k-o, r), skip it and continue searching
+                    j += 2; // Skip the §X sequence and continue
+                    continue;
+                }
+                
+                // Check for raw § byte (0xA7) - Latin-1 encoding
+                if (c == 0xA7 && j + 1 < info.displayName.size()) {
+                    char code = std::tolower(info.displayName[j + 1]);
+                    if (code >= '0' && code <= '9') {
+                        info.teamColor = code - '0';
+                        break;
+                    } else if (code >= 'a' && code <= 'f') {
+                        info.teamColor = 10 + (code - 'a');
+                        break;
+                    }
+                    // Format code, skip and continue
+                    j += 1;
+                    continue;
+                }
+            }
+        }
+
         // Health/hurtTime cached
         if (livingCls) {
             if (mid_getHealth)    info.health    = Java::Env->CallFloatMethod(entity, mid_getHealth);
@@ -427,6 +565,108 @@ bool Minecraft::canEntityBeSeen(jobject target)
 	Java::Env->DeleteLocalRef(livingCls);
 
 	return result;
+}
+
+int Minecraft::getLocalPlayerTeamColor()
+{
+	if (!isValid()) return -1;
+	
+	jobject localPlayer = getPlayer();
+	if (!localPlayer) return -1;
+	
+	int teamColor = -1;
+	
+	// Get EntityPlayer class
+	jclass playerCls = nullptr;
+	if (!Java::AssignClass("net.minecraft.entity.player.EntityPlayer", playerCls)) {
+		Java::Env->DeleteLocalRef(localPlayer);
+		return -1;
+	}
+	
+	// Get IChatComponent class
+	jclass iChatComponentCls = nullptr;
+	Java::AssignClass("net.minecraft.util.IChatComponent", iChatComponentCls);
+	
+	// Try getDisplayName
+	jmethodID mid_getDisplayName = Java::Env->GetMethodID(playerCls, "getDisplayName", 
+		"()Lnet/minecraft/util/IChatComponent;");
+	if (!mid_getDisplayName) {
+		Java::Env->ExceptionClear();
+		// Try 1.7.10 variant
+		mid_getDisplayName = Java::Env->GetMethodID(playerCls, "getDisplayNameString", "()Ljava/lang/String;");
+	}
+	
+	if (mid_getDisplayName) {
+		jobject displayResult = Java::Env->CallObjectMethod(localPlayer, mid_getDisplayName);
+		if (displayResult) {
+			std::string displayName;
+			
+			// Check if it's a String or IChatComponent
+			jclass strCls = Java::Env->FindClass("java/lang/String");
+			if (strCls && Java::Env->IsInstanceOf(displayResult, strCls)) {
+				// Direct string
+				displayName = jstringToString((jstring)displayResult);
+			} else if (iChatComponentCls && Java::Env->IsInstanceOf(displayResult, iChatComponentCls)) {
+				// IChatComponent - get formatted text with color codes
+				jclass chatCls = Java::Env->GetObjectClass(displayResult);
+				if (chatCls) {
+					jmethodID mid_getFormattedText = Java::Env->GetMethodID(chatCls, "getFormattedText", "()Ljava/lang/String;");
+					if (mid_getFormattedText) {
+						jstring formatted = (jstring)Java::Env->CallObjectMethod(displayResult, mid_getFormattedText);
+						if (formatted) {
+							displayName = jstringToString(formatted);
+							Java::Env->DeleteLocalRef(formatted);
+						}
+					}
+					Java::Env->DeleteLocalRef(chatCls);
+				}
+			}
+			if (strCls) Java::Env->DeleteLocalRef(strCls);
+			Java::Env->DeleteLocalRef(displayResult);
+			
+			// Parse color code from displayName
+			// Look for § - skip format codes (k-o, r), only use color codes (0-9, a-f)
+			for (size_t j = 0; j < displayName.size(); j++) {
+				unsigned char c = displayName[j];
+				
+				// Check for UTF-8 § (0xC2 0xA7)
+				if (c == 0xC2 && j + 2 < displayName.size() && (unsigned char)displayName[j + 1] == 0xA7) {
+					char code = std::tolower(displayName[j + 2]);
+					if (code >= '0' && code <= '9') {
+						teamColor = code - '0';
+						break; // Found color
+					} else if (code >= 'a' && code <= 'f') {
+						teamColor = 10 + (code - 'a');
+						break; // Found color
+					}
+					// Format code (k-o, r), skip and continue searching
+					j += 2;
+					continue;
+				}
+				
+				// Check for raw § byte (0xA7)
+				if (c == 0xA7 && j + 1 < displayName.size()) {
+					char code = std::tolower(displayName[j + 1]);
+					if (code >= '0' && code <= '9') {
+						teamColor = code - '0';
+						break;
+					} else if (code >= 'a' && code <= 'f') {
+						teamColor = 10 + (code - 'a');
+						break;
+					}
+					j += 1;
+					continue;
+				}
+			}
+		}
+		Java::Env->ExceptionClear();
+	}
+	
+	if (iChatComponentCls) Java::Env->DeleteLocalRef(iChatComponentCls);
+	Java::Env->DeleteLocalRef(playerCls);
+	Java::Env->DeleteLocalRef(localPlayer);
+	
+	return teamColor;
 }
 
 RenderPos Minecraft::getRenderPos()
@@ -1515,4 +1755,99 @@ Minecraft::RAYTRACE_BLOCKS_RESULT Minecraft::rayTraceBlocks(Vec3 from, Vec3 dire
 	Java::Env->DeleteLocalRef(mopCls);
 	Java::Env->DeleteLocalRef(mop);
 	return RAYTRACE_BLOCKS_RESULT::RAYTRACE_ERROR;
+}
+
+void Minecraft::ungrabMouse()
+{
+	if (!isValid()) return;
+	
+	// Method 1: Call Mouse.setGrabbed(false) directly via LWJGL
+	// This is the most reliable method but requires finding LWJGL classes
+	
+	// Method 2: Set inGameHasFocus to false and call mouseHelper.ungrabMouseCursor()
+	// minecraft.inGameHasFocus = false
+	// minecraft.mouseHelper.ungrabMouseCursor()
+	
+	JNIEnv* env = Java::GetEnv();
+	if (!env) return;
+	
+	// Try mouseHelper approach (1.8.x)
+	jfieldID fid_mouseHelper = env->GetFieldID(cls, "mouseHelper", "Lnet/minecraft/util/MouseHelper;");
+	if (fid_mouseHelper) {
+		jobject mouseHelper = env->GetObjectField(instance, fid_mouseHelper);
+		if (mouseHelper) {
+			jclass mouseHelperCls = env->GetObjectClass(mouseHelper);
+			if (mouseHelperCls) {
+				jmethodID mid_ungrab = env->GetMethodID(mouseHelperCls, "ungrabMouseCursor", "()V");
+				if (mid_ungrab) {
+					env->CallVoidMethod(mouseHelper, mid_ungrab);
+				}
+				env->DeleteLocalRef(mouseHelperCls);
+			}
+			env->DeleteLocalRef(mouseHelper);
+		}
+	}
+	env->ExceptionClear();
+	
+	// Also set inGameHasFocus = false for extra safety
+	jfieldID fid_inGameHasFocus = env->GetFieldID(cls, "inGameHasFocus", "Z");
+	if (fid_inGameHasFocus) {
+		env->SetBooleanField(instance, fid_inGameHasFocus, JNI_FALSE);
+	}
+	env->ExceptionClear();
+	
+	// Direct LWJGL approach as fallback (org.lwjgl.input.Mouse)
+	jclass mouseCls = env->FindClass("org/lwjgl/input/Mouse");
+	if (mouseCls) {
+		jmethodID mid_setGrabbed = env->GetStaticMethodID(mouseCls, "setGrabbed", "(Z)V");
+		if (mid_setGrabbed) {
+			env->CallStaticVoidMethod(mouseCls, mid_setGrabbed, JNI_FALSE);
+		}
+		env->DeleteLocalRef(mouseCls);
+	}
+	env->ExceptionClear();
+}
+
+void Minecraft::grabMouse()
+{
+	if (!isValid()) return;
+	
+	JNIEnv* env = Java::GetEnv();
+	if (!env) return;
+	
+	// Set inGameHasFocus = true first
+	jfieldID fid_inGameHasFocus = env->GetFieldID(cls, "inGameHasFocus", "Z");
+	if (fid_inGameHasFocus) {
+		env->SetBooleanField(instance, fid_inGameHasFocus, JNI_TRUE);
+	}
+	env->ExceptionClear();
+	
+	// Call mouseHelper.grabMouseCursor()
+	jfieldID fid_mouseHelper = env->GetFieldID(cls, "mouseHelper", "Lnet/minecraft/util/MouseHelper;");
+	if (fid_mouseHelper) {
+		jobject mouseHelper = env->GetObjectField(instance, fid_mouseHelper);
+		if (mouseHelper) {
+			jclass mouseHelperCls = env->GetObjectClass(mouseHelper);
+			if (mouseHelperCls) {
+				jmethodID mid_grab = env->GetMethodID(mouseHelperCls, "grabMouseCursor", "()V");
+				if (mid_grab) {
+					env->CallVoidMethod(mouseHelper, mid_grab);
+				}
+				env->DeleteLocalRef(mouseHelperCls);
+			}
+			env->DeleteLocalRef(mouseHelper);
+		}
+	}
+	env->ExceptionClear();
+	
+	// Direct LWJGL fallback
+	jclass mouseCls = env->FindClass("org/lwjgl/input/Mouse");
+	if (mouseCls) {
+		jmethodID mid_setGrabbed = env->GetStaticMethodID(mouseCls, "setGrabbed", "(Z)V");
+		if (mid_setGrabbed) {
+			env->CallStaticVoidMethod(mouseCls, mid_setGrabbed, JNI_TRUE);
+		}
+		env->DeleteLocalRef(mouseCls);
+	}
+	env->ExceptionClear();
 }

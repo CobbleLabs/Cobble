@@ -13,6 +13,8 @@ struct PlayerInfo
 {
 	jobject instance = nullptr;
 	std::string name;
+	std::string displayName;
+	int teamColor = -1;
 	double posX = 0.0;
 	double posY = 0.0;
 	double posZ = 0.0;
@@ -22,7 +24,7 @@ struct PlayerInfo
 	float health = 20.0f;
 	float maxHealth = 20.0f;
 	bool isInvisible = false;
-	int hurtTime = 0;  // 0-10: ticks since last hit (0 = can take damage)
+	int hurtTime = 0;
 };
 
 // Render position for WorldToScreen calculations
@@ -89,6 +91,10 @@ struct Minecraft
 	void openInventory();   // Open player inventory GUI (like pressing E)
 	void closeInventory();  // Close current GUI
 	bool isInventoryOpen(); // Check if inventory GUI is open
+	
+	// Get local player's team color from their displayName
+	// Returns -1 (UNKNOWN) if no color code found
+	int getLocalPlayerTeamColor();
 
 	// Hit detection for Hit Select module
 	bool isTargetingEntity();           // Check if looking at an entity
@@ -128,6 +134,11 @@ struct Minecraft
 	// Input control (JNI)
 	void setKeyBindState(int keyCode, bool pressed);
 	int getSneakKey(); // Returns key code for sneak keybind
+	
+	// Mouse grab control (for menu open/close)
+	// Releases or grabs mouse at LWJGL level to prevent camera movement when menu is open
+	void ungrabMouse();
+	void grabMouse();
 
 	jclass cls = nullptr;
 	jobject instance = nullptr;

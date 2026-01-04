@@ -2,6 +2,7 @@
 #include "../../sdk/minecraft.h"
 #include "../../jni/java.h"
 #include "../../util/logger.hpp"
+#include "../../util/friends_manager.h"
 #include "../../ui/menu/menu.h"
 #include "../../ui/widgets/widgets.hpp"
 #include "../../sdk/player.h"
@@ -18,6 +19,23 @@
 #include <Windows.h>
 
 AimAssist* aimAssist = nullptr;
+
+// Weapon item IDs
+namespace ItemIds {
+	// Swords
+	constexpr int WOOD_SWORD = 268;
+	constexpr int STONE_SWORD = 272;
+	constexpr int IRON_SWORD = 267;
+	constexpr int DIAMOND_SWORD = 276;
+	constexpr int GOLD_SWORD = 283;
+	
+	// Axes
+	constexpr int WOOD_AXE = 271;
+	constexpr int STONE_AXE = 275;
+	constexpr int IRON_AXE = 258;
+	constexpr int DIAMOND_AXE = 279;
+	constexpr int GOLD_AXE = 286;
+}
 
 // Cached JNI lookups for fast-path position reads
 static jclass g_entityCls = nullptr;
@@ -194,6 +212,12 @@ void AimAssist::onUpdate()
 		{
 			return;
 		}
+	}
+
+	// Weapon-only check
+	if (settings.weaponOnly && !isHoldingWeapon())
+	{
+		return;
 	}
 
 	float localYaw = player.getYaw();
@@ -411,6 +435,17 @@ bool AimAssist::findTarget(double& targetX, double& targetY, double& targetZ)
 	jobject bestPlayerObj = nullptr;
 	PlayerInfo closestPlayer;
 
+	// Debug: Log all players in range periodically
+	static int playerListLogCounter = 0;
+	if (++playerListLogCounter % 200 == 1 && !players.empty()) {
+		std::string allNames;
+		for (size_t i = 0; i < players.size() && i < 5; i++) {
+			if (i > 0) allNames += ", ";
+			allNames += players[i].name;
+		}
+		log_debug("[AimAssist] Players nearby (%zu): %s", players.size(), allNames.c_str());
+	}
+
 	for (auto& p : players)
 	{
 		double dx = p.posX - localX;
@@ -420,6 +455,43 @@ bool AimAssist::findTarget(double& targetX, double& targetY, double& targetZ)
 
 		if (dist > settings.distance || dist < 0.2f) continue;
 		if (p.isInvisible && !settings.invisibles) continue;
+
+		// Friends/Teams filter - skip friendly players
+		if (friendsManager && friendsManager->applyToCombat) {
+			// Get local player's team color for comparison (cached per scan)
+			static int localTeamColor = -1;
+			static Timer colorRefreshTimer;
+			if (colorRefreshTimer.Elapsed<>() > 1000) { // Refresh every second
+				localTeamColor = mc.getLocalPlayerTeamColor();
+				colorRefreshTimer.Start();
+			}
+			
+			ChatColor playerColor = static_cast<ChatColor>(p.teamColor);
+			ChatColor localColor = static_cast<ChatColor>(localTeamColor);
+			
+			// Strip color codes from name for friend matching (fallback if SDK doesn't clean it)
+			std::string cleanPlayerName = FriendsManager::stripColorCodes(p.name);
+			
+			bool isFriend = friendsManager->isFriend(cleanPlayerName);
+			bool isTeammate = friendsManager->isTeammate(cleanPlayerName, playerColor, localColor);
+			
+			if (isFriend || isTeammate) {
+				static int debugCounter = 0;
+				if (++debugCounter % 20 == 1) { // Log once per ~20 checks
+					log_debug("[AimAssist] Skipping %s (friend=%d, team=%d, pColor=%d, lColor=%d)", 
+						p.name.c_str(), isFriend, isTeammate, static_cast<int>(playerColor), localTeamColor);
+				}
+				continue;
+			} else {
+				// Debug: Log when NOT filtered to diagnose issues
+				static int notFilteredCounter = 0;
+				if (++notFilteredCounter % 100 == 1) { // Log less frequently
+					auto friendsList = friendsManager->getFriends();
+					log_debug("[AimAssist] NOT filtering '%s' (pColor=%d, lColor=%d) - friends: %zu", 
+						p.name.c_str(), static_cast<int>(playerColor), localTeamColor, friendsList.size());
+				}
+			}
+		}
 
 		float yawToTarget = getAngles(localX, localY, localZ, p.posX, p.posY, p.posZ).first;
 		float yawDiff = std::abs(wrapTo180(-(localYaw - yawToTarget)));
@@ -585,17 +657,13 @@ void AimAssist::applyAimRand(float yawDiff, float pitchDiff, float speed)
 	float jitterFade = std::clamp(std::max(absYawDiff, absPitchDiff) / 45.0f, 0.0f, 1.0f);
 	pitchrandsmooth *= jitterFade;
 
-	static double cursorAccumX = 0.0;
-	static double cursorAccumY = 0.0;
-
-	cursorAccumX += yawdiffSpeed;
 	cursorAccumY += pitchdiffSpeed + pitchrandsmooth;
 
-	int moveX = (int)std::round(cursorAccumX);
-	int moveY = (int)std::round(cursorAccumY);
-
-	cursorAccumX -= moveX;
-	cursorAccumY -= moveY;
+	int moveY = 0;
+	if (std::abs(cursorAccumY) >= 1.0) {
+		moveY = (int)std::round(cursorAccumY);
+		cursorAccumY -= moveY;
+	}
 
 	if (settings.horizontalOnly)
 	{
@@ -603,27 +671,22 @@ void AimAssist::applyAimRand(float yawDiff, float pitchDiff, float speed)
 		cursorAccumY = 0.0;
 	}
 
-	if (moveX == 0 && moveY == 0) return;
-
 	// --- debug counters (no spam) ---
 	static int   rot_calls = 0;
 	static float rot_maxMs = 0.0f;
 	static DWORD rot_lastPrint = GetTickCount();
-	static int   rot_lastMoveX = 0;
 	static int   rot_lastMoveY = 0;
+	static float rot_lastYawDelta = 0.0f;
 
 	static LARGE_INTEGER qpf = []{
 		LARGE_INTEGER f; QueryPerformanceFrequency(&f); return f;
 	}();
 
-	LARGE_INTEGER t0, t1;
-	QueryPerformanceCounter(&t0);
-
 	float sensBase = cachedMouseSensitivity * 0.6f + 0.2f;
 	float sensMultiplier = sensBase * sensBase * sensBase * 8.0f;
 
 	constexpr float kMouseGain = 0.15f;
-	float yawDelta = (float)moveX * sensMultiplier * kMouseGain;
+	float yawDelta = yawdiffSpeed * sensMultiplier * kMouseGain;
 	float pitchDelta = (float)moveY * sensMultiplier * kMouseGain;
 
 	// Clamp per-frame rotation to keep motion buttery even on spikes
@@ -632,7 +695,12 @@ void AimAssist::applyAimRand(float yawDiff, float pitchDiff, float speed)
 	yawDelta = std::clamp(yawDelta, -maxYawStep, maxYawStep);
 	pitchDelta = std::clamp(pitchDelta, -maxPitchStep, maxPitchStep);
 
-	if (moveX != 0) {
+	bool applyYaw = std::abs(yawDelta) > 0.0001f;
+	if (!applyYaw && moveY == 0) return;
+
+	LARGE_INTEGER t0, t1;
+	QueryPerformanceCounter(&t0);
+	if (applyYaw) {
 		float currentYaw = player.getYaw();
 		player.setYaw(currentYaw + yawDelta);
 	}
@@ -648,17 +716,37 @@ void AimAssist::applyAimRand(float yawDiff, float pitchDiff, float speed)
 	float ms = float((t1.QuadPart - t0.QuadPart) * 1000.0 / double(qpf.QuadPart));
 	rot_calls++;
 	if (ms > rot_maxMs) rot_maxMs = ms;
-	rot_lastMoveX = moveX;
 	rot_lastMoveY = moveY;
+	rot_lastYawDelta = yawDelta;
 
 	// Print 1 vez por segundo, no por llamada
 	DWORD now = GetTickCount();
 	if (now - rot_lastPrint >= 1000) {
-		log_debug("AimRotate: calls=%d max=%.3fms lastMove=(%d,%d)", rot_calls, rot_maxMs, rot_lastMoveX, rot_lastMoveY);
+		log_debug("AimRotate: calls=%d max=%.3fms lastYawDelta=%.3f lastMoveY=%d", rot_calls, rot_maxMs, rot_lastYawDelta, rot_lastMoveY);
 		rot_calls = 0;
 		rot_maxMs = 0.0f;
 		rot_lastPrint = now;
 	}
+}
+
+bool AimAssist::isHoldingWeapon()
+{
+	int id = player.getHeldItemId();
+	if (id == -1) return false;
+
+	// Swords
+	if (id == ItemIds::WOOD_SWORD || id == ItemIds::STONE_SWORD ||
+		id == ItemIds::IRON_SWORD || id == ItemIds::DIAMOND_SWORD ||
+		id == ItemIds::GOLD_SWORD)
+		return true;
+
+	// Axes
+	if (id == ItemIds::WOOD_AXE || id == ItemIds::STONE_AXE ||
+		id == ItemIds::IRON_AXE || id == ItemIds::DIAMOND_AXE ||
+		id == ItemIds::GOLD_AXE)
+		return true;
+
+	return false;
 }
 
 bool AimAssist::getAimPoint(double targetX, double targetY, double targetZ, double& aimX, double& aimY, double& aimZ)
@@ -748,6 +836,7 @@ void AimAssist::onRenderMenu()
 			ui::Checkbox("Horizontal Only", &settings.horizontalOnly);
 			ui::Checkbox("Lock Aim", &settings.lockAim);
 			ui::Checkbox("Break Blocks", &settings.breakBlocks);
+			ui::Checkbox("Weapon Only", &settings.weaponOnly);
 			ui::Checkbox("Aim Closest Point", &settings.aimAtClosestPoint);
 			ui::Checkbox("Target Invisibles", &settings.invisibles);
 			

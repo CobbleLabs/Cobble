@@ -573,6 +573,10 @@ int wmain(int argc, wchar_t* argv[]) {
 			printCentered("License verification failed", License::GetLastError());
 			std::cout << "\n";
 			
+			// Show HWID on screen for user to copy
+			printCentered("Your HWID:", "\x1b[37m");
+			printCentered(hwid, "\x1b[33m"); // Yellow for visibility
+			std::cout << "\n";
 			printCentered("HWID copied to clipboard", "\x1b[90m");
 			
 			if (OpenClipboard(nullptr)) {
@@ -585,7 +589,13 @@ int wmain(int argc, wchar_t* argv[]) {
 				}
 				CloseClipboard();
 			}
-			Sleep(4000);
+			
+			// Wait for user to read and copy
+			std::cout << "\n";
+			printCentered("Press any key to exit...", "\x1b[90m");
+			std::cout << VT_SHOW_CURSOR;
+			while (!_kbhit()) Sleep(50);
+			_getch();
 			return 1;
 		}
 	}

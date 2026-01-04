@@ -4,6 +4,8 @@
 #include <algorithm>
 #include <cstdint>
 #include <cstring>
+#include <cmath>
+#include <deque>
 #include <mutex>
 #include <atomic>
 #include <vector>
@@ -16,7 +18,7 @@
 // This uses JVMTI to intercept sendPacket calls. The approach:
 // 1. Cache classes and methods for C03PacketPlayer detection
 // 2. Bytecode-patch NetworkManager.sendPacket to call a native gate
-// 3. Queue movement packets, let everything else through
+// 3. Queue movement packets for a delayed, continuous server timeline
 // ============================================================================
 
 namespace {
@@ -28,6 +30,13 @@ constexpr const char* kHookClassDot = "com.cobble.agent.PacketHook";
 constexpr const char* kHookMethodName = "shouldSend";
 constexpr const char* kHookMethodDesc = "(Ljava/lang/Object;)Z";
 constexpr int kPrefixLen = 8;
+
+// Incoming packet hook for plugin messages (Lunar API)
+constexpr const char* kIncomingTargetClassSlash = "net/minecraft/client/network/NetHandlerPlayClient";
+constexpr const char* kIncomingHookClassSlash = "com/cobble/agent/PluginMsgHook";
+constexpr const char* kIncomingHookClassDot = "com.cobble.agent.PluginMsgHook";
+constexpr const char* kIncomingHookMethodName = "onPluginMessage";
+constexpr const char* kIncomingHookMethodDesc = "(Ljava/lang/Object;)V";
 
 static const unsigned char kPacketHookClassBytes[] = {
     0xca, 0xfe, 0xba, 0xbe, 0x00, 0x00, 0x00, 0x34, 0x00, 0x0c, 0x01, 0x00, 0x1b, 0x63, 0x6f, 0x6d,
@@ -788,33 +797,48 @@ static void JNICALL onClassFileLoadHook(jvmtiEnv* jvmti_env, JNIEnv* jni_env, jc
     (void)loader;
     (void)protection_domain;
 
-    if (!name || strcmp(name, kTargetClassSlash) != 0) return;
+    if (!name) return;
+    
+    // Handle NetworkManager.sendPacket (outgoing packets)
+    if (strcmp(name, kTargetClassSlash) == 0) {
+        std::vector<uint8_t> patched;
+        int patched_methods = patchNetworkManagerClass(class_data, static_cast<size_t>(class_data_len), patched);
+        if (patched_methods <= 0) {
+            if (patched_methods < 0) {
+                log_warn("[PacketInterceptor] Bytecode patch failed for %s", name);
+            }
+            return;
+        }
 
-    std::vector<uint8_t> patched;
-    int patched_methods = patchNetworkManagerClass(class_data, static_cast<size_t>(class_data_len), patched);
-    if (patched_methods <= 0) {
-        if (patched_methods < 0) {
-            log_warn("[PacketInterceptor] Bytecode patch failed for %s", name);
+        unsigned char* buffer = nullptr;
+        jvmtiError err = jvmti_env->Allocate(static_cast<jint>(patched.size()), &buffer);
+        if (err != JVMTI_ERROR_NONE || !buffer) {
+            log_warn("[PacketInterceptor] JVMTI Allocate failed for patched class: %d", err);
+            return;
+        }
+
+        memcpy(buffer, patched.data(), patched.size());
+        *new_class_data_len = static_cast<jint>(patched.size());
+        *new_class_data = buffer;
+
+        static std::atomic<bool> logged{false};
+        if (!logged.exchange(true)) {
+            log_ok("[PacketInterceptor] Patched NetworkManager.sendPacket bytecode (%d method(s))", patched_methods);
+        } else {
+            log_debug("[PacketInterceptor] Patched NetworkManager.sendPacket bytecode (%d method(s))", patched_methods);
         }
         return;
     }
-
-    unsigned char* buffer = nullptr;
-    jvmtiError err = jvmti_env->Allocate(static_cast<jint>(patched.size()), &buffer);
-    if (err != JVMTI_ERROR_NONE || !buffer) {
-        log_warn("[PacketInterceptor] JVMTI Allocate failed for patched class: %d", err);
-        return;
+    
+    // Log all class loads for debugging Lunar client classes
+    // TODO: Add handleCustomPayload hook for incoming plugin messages
+    if (strcmp(name, kIncomingTargetClassSlash) == 0) {
+        log_debug("[PacketInterceptor] NetHandlerPlayClient loaded - incoming packet hook TBD");
     }
-
-    memcpy(buffer, patched.data(), patched.size());
-    *new_class_data_len = static_cast<jint>(patched.size());
-    *new_class_data = buffer;
-
-    static std::atomic<bool> logged{false};
-    if (!logged.exchange(true)) {
-        log_ok("[PacketInterceptor] Patched NetworkManager.sendPacket bytecode (%d method(s))", patched_methods);
-    } else {
-        log_debug("[PacketInterceptor] Patched NetworkManager.sendPacket bytecode (%d method(s))", patched_methods);
+    
+    // Debug: Log Lunar-related classes
+    if (strstr(name, "lunar") != nullptr || strstr(name, "apollo") != nullptr) {
+        log_debug("[PacketInterceptor] Lunar class loaded: %s", name);
     }
 }
 
@@ -825,6 +849,8 @@ namespace PacketInterceptor {
 // State
 static std::atomic<bool> initialized{false};
 static std::atomic<bool> blinkActive{false};
+static std::atomic<bool> hybridIntercept{false};
+static std::atomic<bool> hybridRelease{false};
 
 // Cached JNI references
 static jclass cls_NetworkManager = nullptr;
@@ -838,17 +864,181 @@ static jmethodID mid_sendPacket = nullptr;
 
 static std::atomic<bool> bytecodeHookInstalled{false};
 
-// Packet queue for Blink
-static std::vector<jobject> packetQueue;
+struct PacketPos {
+    double x = 0.0;
+    double y = 0.0;
+    double z = 0.0;
+};
+
+struct QueuedPacket {
+    jobject packet = nullptr;
+    PacketPos pos{};
+    bool hasPos = false;
+};
+
+// Packet queue for Hybrid Blink
+static std::vector<QueuedPacket> packetQueue;
 static std::mutex queueMutex;
+
+static std::mutex shadowMutex;
+static PacketPos lastSentPos{};
+static bool haveLastSent = false;
+static PacketPos shadowPos{};
+static bool shadowInitialized = false;
+static std::deque<PacketPos> desiredQueue;
+static std::mutex desiredMutex;
+
+static std::chrono::steady_clock::time_point lastHybridSend{};
+
+static jfieldID fid_pkt_x = nullptr;
+static jfieldID fid_pkt_y = nullptr;
+static jfieldID fid_pkt_z = nullptr;
+static std::atomic<bool> packetFieldsReady{false};
+static bool packetFieldsLogged = false;
+static bool packetFieldsWarned = false;
+static std::mutex packetFieldMutex;
+
+constexpr int kHybridIntervalMs = 50;
+constexpr int kHybridDelayTicks = 6;
+constexpr double kHybridMaxSkipDist = 0.28;
+constexpr double kHybridMaxSkipY = 0.5;
+constexpr size_t kHybridMaxQueue = 200;
 
 // NetworkManager instance cache
 static jobject networkManagerInstance = nullptr;
 
-static std::atomic<bool> flushActive{false};
-static std::chrono::steady_clock::time_point lastFlushTime{};
-constexpr int kFlushIntervalMs = 50;
-constexpr int kFlushBatchSize = 1;
+static jfieldID getFieldIDSafe(JNIEnv* env, jclass cls, const char* name, const char* sig) {
+    jfieldID fid = env->GetFieldID(cls, name, sig);
+    if (env->ExceptionCheck()) {
+        env->ExceptionClear();
+        return nullptr;
+    }
+    return fid;
+}
+
+static jfieldID findFieldByNames(JNIEnv* env, jclass cls, const char* const* names, const char* sig) {
+    for (int i = 0; names[i] != nullptr; ++i) {
+        jfieldID fid = getFieldIDSafe(env, cls, names[i], sig);
+        if (fid) return fid;
+    }
+    return nullptr;
+}
+
+static bool cachePacketFields(JNIEnv* env) {
+    std::lock_guard<std::mutex> lock(packetFieldMutex);
+    if (packetFieldsReady.load()) return true;
+    if (!cls_C03PacketPlayer) return false;
+
+    const char* xNames[] = { "x", "field_149479_a", nullptr };
+    const char* yNames[] = { "y", "field_149477_b", nullptr };
+    const char* zNames[] = { "z", "field_149478_c", nullptr };
+
+    fid_pkt_x = findFieldByNames(env, cls_C03PacketPlayer, xNames, "D");
+    fid_pkt_y = findFieldByNames(env, cls_C03PacketPlayer, yNames, "D");
+    fid_pkt_z = findFieldByNames(env, cls_C03PacketPlayer, zNames, "D");
+
+    if ((!fid_pkt_x || !fid_pkt_y || !fid_pkt_z) && Java::tiEnv) {
+        jint fieldCount = 0;
+        jfieldID* fields = nullptr;
+        jvmtiError err = Java::tiEnv->GetClassFields(cls_C03PacketPlayer, &fieldCount, &fields);
+        if (err == JVMTI_ERROR_NONE && fieldCount > 0) {
+            std::vector<jfieldID> doubles;
+            doubles.reserve(3);
+            for (int i = 0; i < fieldCount; ++i) {
+                char* name = nullptr;
+                char* sig = nullptr;
+                Java::tiEnv->GetFieldName(cls_C03PacketPlayer, fields[i], &name, &sig, nullptr);
+                if (sig && sig[0] == 'D') {
+                    doubles.push_back(fields[i]);
+                }
+                if (name) Java::tiEnv->Deallocate((unsigned char*)name);
+                if (sig) Java::tiEnv->Deallocate((unsigned char*)sig);
+            }
+
+            if (doubles.size() >= 3) {
+                fid_pkt_x = doubles[0];
+                fid_pkt_y = doubles[1];
+                fid_pkt_z = doubles[2];
+            }
+        }
+        if (fields) {
+            Java::tiEnv->Deallocate((unsigned char*)fields);
+        }
+    }
+
+    packetFieldsReady.store((fid_pkt_x && fid_pkt_y && fid_pkt_z), std::memory_order_release);
+    if (packetFieldsReady.load()) {
+        if (!packetFieldsLogged) {
+            log_ok("[PacketInterceptor] Cached packet position fields for hybrid Blink");
+            packetFieldsLogged = true;
+        }
+    } else if (!packetFieldsWarned) {
+        log_warn("[PacketInterceptor] Failed to cache packet fields - hybrid skip disabled");
+        packetFieldsWarned = true;
+    }
+
+    return packetFieldsReady.load();
+}
+
+static bool readPacketPos(JNIEnv* env, jobject packet, PacketPos& out) {
+    if (!packetFieldsReady.load() || !packet) return false;
+    out.x = env->GetDoubleField(packet, fid_pkt_x);
+    out.y = env->GetDoubleField(packet, fid_pkt_y);
+    out.z = env->GetDoubleField(packet, fid_pkt_z);
+    if (env->ExceptionCheck()) {
+        env->ExceptionClear();
+        return false;
+    }
+    return true;
+}
+
+static bool isSafeSkip(const PacketPos& from, const PacketPos& to) {
+    const double dx = to.x - from.x;
+    const double dz = to.z - from.z;
+    const double dy = to.y - from.y;
+    const double horiz = std::sqrt(dx * dx + dz * dz);
+    return horiz <= kHybridMaxSkipDist && std::abs(dy) <= kHybridMaxSkipY;
+}
+
+static PacketPos stepToward(const PacketPos& from, const PacketPos& to, double maxStep, double maxStepY) {
+    PacketPos out = from;
+    double dx = to.x - from.x;
+    double dz = to.z - from.z;
+    double horiz = std::sqrt(dx * dx + dz * dz);
+    if (horiz > maxStep && horiz > 1e-6) {
+        double scale = maxStep / horiz;
+        dx *= scale;
+        dz *= scale;
+    }
+    out.x += dx;
+    out.z += dz;
+
+    double dy = to.y - from.y;
+    if (dy > maxStepY) dy = maxStepY;
+    if (dy < -maxStepY) dy = -maxStepY;
+    out.y += dy;
+    return out;
+}
+
+static void writePacketPos(JNIEnv* env, jobject packet, const PacketPos& pos) {
+    if (!packetFieldsReady.load()) return;
+    env->SetDoubleField(packet, fid_pkt_x, pos.x);
+    env->SetDoubleField(packet, fid_pkt_y, pos.y);
+    env->SetDoubleField(packet, fid_pkt_z, pos.z);
+    if (env->ExceptionCheck()) {
+        env->ExceptionClear();
+    }
+}
+
+static void clearDesiredQueue() {
+    std::lock_guard<std::mutex> lock(desiredMutex);
+    desiredQueue.clear();
+}
+
+static size_t getDesiredQueueCount() {
+    std::lock_guard<std::mutex> lock(desiredMutex);
+    return desiredQueue.size();
+}
 
 // ============================================================================
 // Helper: Get NetworkManager instance from player
@@ -1321,6 +1511,8 @@ bool Init() {
         log_err("[PacketInterceptor] Failed to cache packet classes");
         return false;
     }
+
+    cachePacketFields(env);
     
     bool interceptReady = false;
     if (Java::tiEnv && haveCaps) {
@@ -1366,14 +1558,22 @@ void Shutdown() {
     log_debug("[PacketInterceptor] Shutting down...");
     
     blinkActive = false;
+    hybridIntercept = false;
+    hybridRelease = false;
+    clearDesiredQueue();
+    {
+        std::lock_guard<std::mutex> lock(shadowMutex);
+        haveLastSent = false;
+        shadowInitialized = false;
+    }
     
     // Clear queue
     {
         std::lock_guard<std::mutex> lock(queueMutex);
         JNIEnv* env = Java::Env;
         if (env) {
-            for (jobject packet : packetQueue) {
-                env->DeleteGlobalRef(packet);
+            for (auto& qp : packetQueue) {
+                env->DeleteGlobalRef(qp.packet);
             }
         }
         packetQueue.clear();
@@ -1397,6 +1597,13 @@ void Shutdown() {
         if (cls_C05PacketPlayerLook) env->DeleteGlobalRef(cls_C05PacketPlayerLook);
         if (cls_C06PacketPlayerPosLook) env->DeleteGlobalRef(cls_C06PacketPlayerPosLook);
     }
+
+    fid_pkt_x = nullptr;
+    fid_pkt_y = nullptr;
+    fid_pkt_z = nullptr;
+    packetFieldsReady.store(false, std::memory_order_release);
+    packetFieldsLogged = false;
+    packetFieldsWarned = false;
     
     initialized = false;
     log_ok("[PacketInterceptor] Shutdown complete");
@@ -1410,8 +1617,32 @@ void setBlinkActive(bool active) {
     bool wasActive = blinkActive.exchange(active);
     
     if (active && !wasActive) {
-        log_ok("[PacketInterceptor] Blink ACTIVATED - queueing movement packets");
-        flushActive = false;
+        hybridIntercept = true;
+        hybridRelease = false;
+        lastHybridSend = std::chrono::steady_clock::now();
+        clearQueue();
+        clearDesiredQueue();
+        {
+            std::lock_guard<std::mutex> lock(shadowMutex);
+            if (player.isValid()) {
+                lastSentPos.x = player.getPosX();
+                lastSentPos.y = player.getPosY();
+                lastSentPos.z = player.getPosZ();
+                haveLastSent = true;
+                shadowPos = lastSentPos;
+                shadowInitialized = true;
+            } else {
+                haveLastSent = false;
+                shadowInitialized = false;
+            }
+        }
+
+        log_ok("[PacketInterceptor] Hybrid Blink ACTIVATED - delay %d ticks", kHybridDelayTicks);
+
+        if (!packetFieldsReady.load()) {
+            JNIEnv* env = Java::Env;
+            if (env) cachePacketFields(env);
+        }
         
         // Ensure we have NetworkManager instance
         if (!networkManagerInstance) {
@@ -1425,9 +1656,8 @@ void setBlinkActive(bool active) {
             }
         }
     } else if (!active && wasActive) {
-        log_ok("[PacketInterceptor] Blink DEACTIVATED - draining %d packets", getQueuedCount());
-        lastFlushTime = std::chrono::steady_clock::now() - std::chrono::milliseconds(kFlushIntervalMs);
-        flushActive = true;
+        hybridRelease = true;
+        log_ok("[PacketInterceptor] Hybrid Blink DEACTIVATED - releasing (queue: %zu)", getDesiredQueueCount());
     }
 }
 
@@ -1441,86 +1671,53 @@ int getQueuedCount() {
 }
 
 void flushQueue() {
-    std::lock_guard<std::mutex> lock(queueMutex);
-    
-    if (packetQueue.empty()) {
-        log_debug("[PacketInterceptor] Nothing to flush");
-        return;
-    }
-    
     JNIEnv* env = Java::Env;
     if (!env || !networkManagerInstance || !mid_sendPacket) {
         log_err("[PacketInterceptor] Cannot flush - missing dependencies");
-        // Clear anyway
-        for (jobject packet : packetQueue) {
-            if (env) env->DeleteGlobalRef(packet);
-        }
-        packetQueue.clear();
         return;
     }
-    
-    int count = (int)packetQueue.size();
-    log_ok("[PacketInterceptor] Flushing %d queued packets...", count);
-    
-    for (jobject packet : packetQueue) {
-        log_debug("[PacketInterceptor] Sending queued packet: %s", getPacketTypeName(env, packet));
-        
-        // Call sendPacket on NetworkManager
-        env->CallVoidMethod(networkManagerInstance, mid_sendPacket, packet);
-        
-        if (env->ExceptionCheck()) {
-            env->ExceptionDescribe();
-            env->ExceptionClear();
-            log_err("[PacketInterceptor] Exception while sending queued packet");
-        }
-        
-        env->DeleteGlobalRef(packet);
-    }
-    
-    packetQueue.clear();
-    log_ok("[PacketInterceptor] Flush complete - sent %d packets", count);
-}
 
-static void flushQueueBatch(int maxCount) {
-    if (maxCount <= 0) return;
-
-    std::vector<jobject> toSend;
-    toSend.reserve(maxCount);
-
+    std::vector<QueuedPacket> toSend;
     {
         std::lock_guard<std::mutex> lock(queueMutex);
-        int count = std::min<int>(maxCount, static_cast<int>(packetQueue.size()));
-        if (count == 0) return;
-        toSend.insert(toSend.end(), packetQueue.begin(), packetQueue.begin() + count);
-        packetQueue.erase(packetQueue.begin(), packetQueue.begin() + count);
-    }
-
-    JNIEnv* env = Java::Env;
-    if (!env || !networkManagerInstance || !mid_sendPacket) {
-        log_err("[PacketInterceptor] Cannot flush batch - missing dependencies");
-        for (jobject packet : toSend) {
-            if (env) env->DeleteGlobalRef(packet);
+        if (packetQueue.empty()) {
+            log_debug("[PacketInterceptor] Nothing to flush");
+            return;
         }
-        return;
+        toSend.swap(packetQueue);
     }
 
-    for (jobject packet : toSend) {
-        env->CallVoidMethod(networkManagerInstance, mid_sendPacket, packet);
+    int count = (int)toSend.size();
+    log_ok("[PacketInterceptor] Flushing %d queued packets...", count);
+    
+    for (auto& qp : toSend) {
+        log_debug("[PacketInterceptor] Sending queued packet: %s", getPacketTypeName(env, qp.packet));
+        
+        // Call sendPacket on NetworkManager
+        env->CallVoidMethod(networkManagerInstance, mid_sendPacket, qp.packet);
+        
         if (env->ExceptionCheck()) {
             env->ExceptionDescribe();
             env->ExceptionClear();
             log_err("[PacketInterceptor] Exception while sending queued packet");
         }
-        env->DeleteGlobalRef(packet);
+        
+        if (qp.hasPos) {
+            std::lock_guard<std::mutex> lock(shadowMutex);
+            lastSentPos = qp.pos;
+            haveLastSent = true;
+        }
+        env->DeleteGlobalRef(qp.packet);
     }
+    log_ok("[PacketInterceptor] Flush complete - sent %d packets", count);
 }
 
 void clearQueue() {
     std::lock_guard<std::mutex> lock(queueMutex);
     
     JNIEnv* env = Java::Env;
-    for (jobject packet : packetQueue) {
-        if (env) env->DeleteGlobalRef(packet);
+    for (auto& qp : packetQueue) {
+        if (env) env->DeleteGlobalRef(qp.packet);
     }
     packetQueue.clear();
     
@@ -1531,33 +1728,170 @@ void printDebugInfo() {
     log_debug("=== PacketInterceptor Debug ===");
     log_debug("  Initialized: %s", initialized.load() ? "YES" : "NO");
     log_debug("  Blink Active: %s", blinkActive.load() ? "YES" : "NO");
+    log_debug("  Hybrid Intercept: %s", hybridIntercept.load() ? "YES" : "NO");
+    log_debug("  Hybrid Release: %s", hybridRelease.load() ? "YES" : "NO");
     log_debug("  Queued Packets: %d", getQueuedCount());
+    log_debug("  Desired Queue: %zu", getDesiredQueueCount());
+    log_debug("  Packet Fields Ready: %s", packetFieldsReady.load() ? "YES" : "NO");
     log_debug("  NetworkManager: %p", networkManagerInstance);
     log_debug("  sendPacket method: %p", mid_sendPacket);
     log_debug("  C03PacketPlayer class: %p", cls_C03PacketPlayer);
 }
 
-void Tick() {
-    if (blinkActive.load()) return;
-    if (!flushActive.load()) return;
+bool getLastSentPosition(double& x, double& y, double& z) {
+    std::lock_guard<std::mutex> lock(shadowMutex);
+    if (!haveLastSent) return false;
+    x = lastSentPos.x;
+    y = lastSentPos.y;
+    z = lastSentPos.z;
+    return true;
+}
 
-    auto now = std::chrono::steady_clock::now();
-    if (std::chrono::duration_cast<std::chrono::milliseconds>(now - lastFlushTime).count() < kFlushIntervalMs) {
+void Tick() {
+    if (!hybridIntercept.load()) return;
+
+    if (packetFieldsReady.load()) {
+        if (hybridRelease.load() && player.isValid()) {
+            PacketPos target{};
+            target.x = player.getPosX();
+            target.y = player.getPosY();
+            target.z = player.getPosZ();
+
+            bool queueEmpty = false;
+            {
+                std::lock_guard<std::mutex> lock(desiredMutex);
+                queueEmpty = desiredQueue.empty();
+            }
+
+            std::lock_guard<std::mutex> lock(shadowMutex);
+            if (!shadowInitialized) {
+                shadowPos = target;
+                shadowInitialized = true;
+            }
+            if (queueEmpty && isSafeSkip(shadowPos, target)) {
+                clearDesiredQueue();
+                hybridRelease = false;
+                hybridIntercept = false;
+                log_ok("[PacketInterceptor] Hybrid release complete - caught up to client");
+            }
+        }
         return;
     }
-    lastFlushTime = now;
 
-    flushQueueBatch(kFlushBatchSize);
-
-    if (getQueuedCount() == 0) {
-        flushActive = false;
-        log_ok("[PacketInterceptor] Drain complete");
+    JNIEnv* env = Java::Env;
+    if (!env) return;
+    if (!networkManagerInstance) {
+        jobject nm = getNetworkManager(env);
+        if (nm) {
+            networkManagerInstance = env->NewGlobalRef(nm);
+            log_ok("[PacketInterceptor] Late-cached NetworkManager instance");
+        }
     }
+    if (!networkManagerInstance || !mid_sendPacket) return;
+    if (!packetFieldsReady.load()) {
+        cachePacketFields(env);
+    }
+
+    auto now = std::chrono::steady_clock::now();
+    if (std::chrono::duration_cast<std::chrono::milliseconds>(now - lastHybridSend).count() < kHybridIntervalMs) {
+        return;
+    }
+
+    int targetDelay = blinkActive.load() ? kHybridDelayTicks : 0;
+    PacketPos lastPos{};
+    bool haveLast = false;
+    {
+        std::lock_guard<std::mutex> lock(shadowMutex);
+        haveLast = haveLastSent;
+        if (haveLast) lastPos = lastSentPos;
+    }
+
+    QueuedPacket toSend{};
+    bool haveSend = false;
+    bool sentNewest = false;
+    bool releaseCandidate = false;
+
+    {
+        std::lock_guard<std::mutex> lock(queueMutex);
+        const size_t qsize = packetQueue.size();
+        if (qsize <= static_cast<size_t>(targetDelay)) {
+            return;
+        }
+
+        size_t sendIndex = 0;
+        if (hybridRelease.load() && haveLast && packetFieldsReady.load()) {
+            for (size_t i = qsize; i-- > 0;) {
+                auto& qp = packetQueue[i];
+                if (!qp.hasPos) {
+                    PacketPos tmp{};
+                    if (readPacketPos(env, qp.packet, tmp)) {
+                        qp.pos = tmp;
+                        qp.hasPos = true;
+                    }
+                }
+                if (qp.hasPos && isSafeSkip(lastPos, qp.pos)) {
+                    sendIndex = i;
+                    sentNewest = (i == qsize - 1);
+                    break;
+                }
+            }
+        }
+
+        if (sendIndex > 0) {
+            log_debug("[PacketInterceptor] Hybrid skip %zu packet(s) to catch up", sendIndex);
+            for (size_t i = 0; i < sendIndex; ++i) {
+                env->DeleteGlobalRef(packetQueue[i].packet);
+            }
+            packetQueue.erase(packetQueue.begin(),
+                packetQueue.begin() + static_cast<std::vector<QueuedPacket>::difference_type>(sendIndex));
+        }
+
+        if (!packetQueue.empty()) {
+            toSend = packetQueue.front();
+            packetQueue.erase(packetQueue.begin());
+            haveSend = true;
+            releaseCandidate = (hybridRelease.load() && sentNewest && packetQueue.empty());
+        }
+    }
+
+    if (!haveSend) return;
+    lastHybridSend = now;
+
+    env->CallVoidMethod(networkManagerInstance, mid_sendPacket, toSend.packet);
+    if (env->ExceptionCheck()) {
+        env->ExceptionDescribe();
+        env->ExceptionClear();
+        log_err("[PacketInterceptor] Exception while sending hybrid packet");
+    }
+
+    if (!toSend.hasPos && packetFieldsReady.load()) {
+        PacketPos tmp{};
+        if (readPacketPos(env, toSend.packet, tmp)) {
+            toSend.pos = tmp;
+            toSend.hasPos = true;
+        }
+    }
+    if (toSend.hasPos) {
+        std::lock_guard<std::mutex> lock(shadowMutex);
+        lastSentPos = toSend.pos;
+        haveLastSent = true;
+    }
+    env->DeleteGlobalRef(toSend.packet);
+
+    if (releaseCandidate) {
+        std::lock_guard<std::mutex> lock(queueMutex);
+        if (packetQueue.empty()) {
+            hybridRelease = false;
+            hybridIntercept = false;
+            log_ok("[PacketInterceptor] Hybrid release complete - passthrough restored");
+        }
+    }
+
 }
 
 bool shouldSendPacket(JNIEnv* env, jobject packet) {
-    if (!blinkActive.load()) {
-        return true;  // Not blinking, send everything
+    if (!hybridIntercept.load()) {
+        return true;  // Passthrough
     }
     
     // Check if this is a movement packet
@@ -1566,11 +1900,106 @@ bool shouldSendPacket(JNIEnv* env, jobject packet) {
         return true;
     }
     
-    // Movement packet while blinking - queue it
+    if (!packetFieldsReady.load()) {
+        cachePacketFields(env);
+    }
+
+    bool hasPosPacket = false;
+    if (cls_C04PacketPlayerPosition && env->IsInstanceOf(packet, cls_C04PacketPlayerPosition)) {
+        hasPosPacket = true;
+    } else if (cls_C06PacketPlayerPosLook && env->IsInstanceOf(packet, cls_C06PacketPlayerPosLook)) {
+        hasPosPacket = true;
+    }
+
+    if (packetFieldsReady.load() && player.isValid() && hasPosPacket) {
+        PacketPos desired{};
+        if (!readPacketPos(env, packet, desired)) {
+            desired.x = player.getPosX();
+            desired.y = player.getPosY();
+            desired.z = player.getPosZ();
+        }
+
+        PacketPos shadowSnapshot{};
+        {
+            std::lock_guard<std::mutex> lock(shadowMutex);
+            shadowSnapshot = shadowPos;
+        }
+
+        PacketPos target{};
+        size_t delay = blinkActive.load() ? kHybridDelayTicks : 0;
+        {
+            std::lock_guard<std::mutex> lock(desiredMutex);
+            desiredQueue.push_back(desired);
+            if (desiredQueue.size() > kHybridMaxQueue) {
+                desiredQueue.pop_front();
+            }
+
+            if (desiredQueue.size() <= delay) {
+                target = shadowSnapshot;
+            } else {
+                target = desiredQueue.front();
+                desiredQueue.pop_front();
+            }
+        }
+
+        PacketPos next{};
+        {
+            std::lock_guard<std::mutex> lock(shadowMutex);
+            if (!shadowInitialized) {
+                shadowPos = target;
+                shadowInitialized = true;
+            }
+            next = stepToward(shadowPos, target, kHybridMaxSkipDist, kHybridMaxSkipY);
+            shadowPos = next;
+            lastSentPos = next;
+            haveLastSent = true;
+        }
+
+        writePacketPos(env, packet, next);
+
+        if (hybridRelease.load() && !blinkActive.load()) {
+            bool queueEmpty = false;
+            {
+                std::lock_guard<std::mutex> lock(desiredMutex);
+                queueEmpty = desiredQueue.empty();
+            }
+            PacketPos current{};
+            current.x = player.getPosX();
+            current.y = player.getPosY();
+            current.z = player.getPosZ();
+            if (queueEmpty && isSafeSkip(next, current)) {
+                clearDesiredQueue();
+                hybridRelease = false;
+                hybridIntercept = false;
+                log_ok("[PacketInterceptor] Hybrid release complete - caught up to client");
+            }
+        }
+
+        return true;
+    }
+
+    // Movement packet while hybrid is active - queue it
     {
         std::lock_guard<std::mutex> lock(queueMutex);
         jobject globalRef = env->NewGlobalRef(packet);
-        packetQueue.push_back(globalRef);
+        if (!globalRef) {
+            return true;
+        }
+        QueuedPacket qp;
+        qp.packet = globalRef;
+        if (!packetFieldsReady.load()) {
+            cachePacketFields(env);
+        }
+        if (packetFieldsReady.load()) {
+            qp.hasPos = readPacketPos(env, packet, qp.pos);
+        }
+        packetQueue.push_back(qp);
+
+        if (packetQueue.size() > kHybridMaxQueue) {
+            env->DeleteGlobalRef(packetQueue.front().packet);
+            packetQueue.erase(packetQueue.begin());
+            log_warn("[PacketInterceptor] Hybrid queue capped at %zu packets", kHybridMaxQueue);
+        }
         
         static int debugCounter = 0;
         if (++debugCounter % 20 == 0 || packetQueue.size() <= 3) {

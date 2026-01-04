@@ -163,21 +163,44 @@ void probeNetworkClasses() {
         nullptr
     };
     
-    int foundCount = 0;
+    // Lunar/Apollo specific patterns
+    const char* lunarKeywords[] = {
+        "lunar", "Lunar",
+        "apollo", "Apollo", 
+        "moonsworth", "Moonsworth",
+        "team", "Team",
+        "TeamMember", "UpdateTeam",
+        nullptr
+    };
     
-    for (int i = 0; i < classCount && foundCount < 50; i++) {
+    int foundCount = 0;
+    int lunarCount = 0;
+    
+    for (int i = 0; i < classCount; i++) {
         char* sig = nullptr;
         Java::tiEnv->GetClassSignature(classes[i], &sig, nullptr);
         
         if (sig) {
-            // Check if signature matches any keyword
-            for (int k = 0; keywords[k] != nullptr; k++) {
-                if (strstr(sig, keywords[k])) {
-                    log_ok("[Classes] MATCH '%s': %s", keywords[k], sig);
-                    foundCount++;
-                    break;  // Don't log same class twice
+            // Check network keywords (limited output)
+            if (foundCount < 50) {
+                for (int k = 0; keywords[k] != nullptr; k++) {
+                    if (strstr(sig, keywords[k])) {
+                        log_ok("[Classes] MATCH '%s': %s", keywords[k], sig);
+                        foundCount++;
+                        break;  // Don't log same class twice
+                    }
                 }
             }
+            
+            // Check Lunar/Apollo keywords (log ALL of these)
+            for (int k = 0; lunarKeywords[k] != nullptr; k++) {
+                if (strstr(sig, lunarKeywords[k])) {
+                    log_ok("[Lunar] FOUND: %s", sig);
+                    lunarCount++;
+                    break;
+                }
+            }
+            
             Java::tiEnv->Deallocate((unsigned char*)sig);
         }
     }
@@ -189,6 +212,7 @@ void probeNetworkClasses() {
     Java::tiEnv->Deallocate((unsigned char*)classes);
     
     log_debug("[Classes] Found %d network-related classes", foundCount);
+    log_ok("[Lunar] Found %d Lunar/Apollo classes total", lunarCount);
 }
 
 // ============================================================================

@@ -13,6 +13,19 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/).
 - GlobalRef caching for packet classes and ClassLoader to keep JNI references stable.
 - Drain scheduler and `PacketInterceptor::Tick()` for batched flush of queued packets.
 - Overlay context guard with reinit cooldown and target window/context pinning.
+- **AimAssist Weapon Only**: New setting to only activate aim assist when holding swords or axes (ported from AutoClicker).
+- **Friends/Teams System**: New anti-targeting system for friendly players:
+  - Friends list: Add IGNs to ignore (case-insensitive matching)
+  - Team detection: Auto-detect teammates by GREEN/DARK_GREEN nametag colors
+  - Match own nametag: Players with same color as you are considered teammates
+  - Configurable filtering: Apply to Combat and/or Visual modules
+  - Full config persistence via cloud sync
+- **Complete Config Sync**: All module settings now persist to cloud sync:
+  - AimAssist: Added `weaponOnly`, `lockAim`, `reactionTime`
+  - Velocity: Added all 14 settings (fov, reduceDelay, jumpChance, conditions, etc.)
+  - Reach: Added all 7 settings (distance, randomize, conditions)
+  - Blink: Added all 3 settings (maxDuration, disableOnAttack, showDebug)
+  - AutoRefill: Added all 3 settings (refillSoup, refillPotions, speed)
 
 ### Changed
 - Blink now uses PacketInterceptor API (no `lastReportedPos` mutation).

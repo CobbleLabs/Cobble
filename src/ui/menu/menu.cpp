@@ -5,6 +5,7 @@
 #include "../hud/arraylist.h"
 #include "../hud/notifications.h"
 #include "../../config/config.hpp"
+#include "../../util/friends_manager.h"
 #include "../../module/module_manager.h"
 #include "../../module/combat/autoclicker.h"
 #include "../../module/combat/aimassist.h"
@@ -58,13 +59,14 @@ Module* getModuleForSubtab(int tabIdx, int subtabIdx)
 // Settings tab content - special case (not a module)
 static void renderSettingsPage()
 {
-	float halfWidth = (ImGui::GetWindowWidth() - GImGui->Style.WindowPadding.x * 2) / 2 - GImGui->Style.ItemSpacing.x / 2;
+	float thirdWidth = (ImGui::GetWindowWidth() - GImGui->Style.WindowPadding.x * 2) / 3 - GImGui->Style.ItemSpacing.x * 0.67f;
 	float bottomRowHeight = ui::s(100);
 	float topRowHeight = ImGui::GetContentRegionAvail().y - bottomRowHeight - ui::s(10);
 	
+	// Theme column
 	ImGui::BeginGroup();
 	{
-		ui::begin_child("Theme", { halfWidth, topRowHeight });
+		ui::begin_child("Theme", { thirdWidth, topRowHeight });
 		{
 			ui::color("Accent Color", g_SchemeColor);
 		}
@@ -74,9 +76,10 @@ static void renderSettingsPage()
 	
 	ImGui::SameLine();
 	
+	// HUD column
 	ImGui::BeginGroup();
 	{
-		ui::begin_child("HUD", { halfWidth, topRowHeight });
+		ui::begin_child("HUD", { thirdWidth, topRowHeight });
 		{
 			ui::Checkbox("ArrayList", &ArrayListRenderer::enabled);
 			if (ArrayListRenderer::enabled) {
@@ -127,6 +130,62 @@ static void renderSettingsPage()
 	}
 	ImGui::EndGroup();
 	
+	ImGui::SameLine();
+	
+	// Friends column
+	ImGui::BeginGroup();
+	{
+		ui::begin_child("Friends", { thirdWidth, topRowHeight });
+		{
+			if (friendsManager) {
+				// Add friend input
+				static char friendInput[64] = "";
+				ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - ui::s(60));
+				bool enterPressed = ImGui::InputText("##addfriend", friendInput, sizeof(friendInput), ImGuiInputTextFlags_EnterReturnsTrue);
+				ImGui::SameLine();
+				if ((ImGui::Button("Add", ImVec2(ui::s(50), 0)) || enterPressed) && friendInput[0] != '\0') {
+					friendsManager->addFriend(std::string(friendInput));
+					friendInput[0] = '\0';
+				}
+				
+				// Friends list
+				auto friends = friendsManager->getFriends();
+				if (!friends.empty()) {
+					ImGui::Separator();
+					for (auto& name : friends) {
+						ImGui::Text("%s", name.c_str());
+						ImGui::SameLine(ImGui::GetContentRegionAvail().x - ui::s(20));
+						ImGui::PushID(name.c_str());
+						if (ImGui::SmallButton("X")) {
+							friendsManager->removeFriend(name);
+						}
+						ImGui::PopID();
+					}
+				} else {
+					ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetColorU32(ImGuiCol_TextDisabled));
+					ImGui::TextWrapped("No friends added");
+					ImGui::PopStyleColor();
+				}
+				
+				ImGui::Spacing();
+				ImGui::Separator();
+				ImGui::Spacing();
+				ImGui::Text("Teams");
+				
+				ui::Checkbox("Match Nametag", &friendsManager->teams.matchOwnNametag);
+				ui::Checkbox("Combat Filter", &friendsManager->applyToCombat);
+				ui::Checkbox("Visual Filter", &friendsManager->applyToVisual);
+				
+				// Team colors (GREEN and DARK_GREEN are defaults)
+				ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetColorU32(ImGuiCol_TextDisabled));
+				ImGui::TextWrapped("Default: Green teammates");
+				ImGui::PopStyleColor();
+			}
+		}
+		ui::end_child();
+	}
+	ImGui::EndGroup();
+	
 	// Pin to bottom
 	ImGui::SetCursorPosY(ImGui::GetCursorPosY() + ImGui::GetContentRegionAvail().y - bottomRowHeight);
 	
@@ -151,6 +210,7 @@ static void renderSettingsPage()
 	}
 	ImGui::EndGroup();
 }
+
 
 // Render current page - calls module's onRenderMenu() dynamically
 static void renderPage()

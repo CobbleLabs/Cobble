@@ -138,9 +138,11 @@ namespace {
 			
 			if (Menu::isOpen) {
 				mc.releaseMovementKeys();
+				mc.ungrabMouse();  // Release mouse at LWJGL level to prevent camera movement
 			} else {
 				Menu::moduleToBind = nullptr;
 				mc.restoreMovementKeys();
+				mc.grabMouse();  // Re-grab mouse when menu closes
 				// Save config when menu closes (debounced sync to server)
 				ConfigManager::get().onSettingChanged();
 			}
@@ -186,6 +188,8 @@ namespace {
 				Menu::isOpen = false;
 				Menu::moduleToBind = nullptr;
 				ImGui::GetIO().MouseDrawCursor = false;
+				mc.restoreMovementKeys();
+				mc.grabMouse();  // Re-grab mouse when menu closes
 				ConfigManager::get().onSettingChanged();
 				return 1;
 			}

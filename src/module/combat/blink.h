@@ -3,9 +3,8 @@
 #include "../module.h"
 #include <chrono>
 
-// Blink module - blocks all outbound network traffic temporarily
-// Uses NtDeviceIoControlFile hook via WinsockHooks to intercept Java NIO
-// Server stops receiving position updates until Blink is disabled
+// Blink module - hybrid movement buffering via PacketInterceptor
+// Server sees continuous movement with a controlled delay (no hard freeze)
 
 class Blink : public Module
 {

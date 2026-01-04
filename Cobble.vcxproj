@@ -115,6 +115,7 @@
     <!-- Utilities -->
     <ClCompile Include="src\util\math\math.cpp" />
     <ClCompile Include="src\util\math\worldToScreen.cpp" />
+    <ClCompile Include="src\util\friends_manager.cpp" />
     <!-- External libraries -->
     <ClCompile Include="infra\ext\imgui\imgui.cpp" />
     <ClCompile Include="infra\ext\imgui\imgui_draw.cpp" />

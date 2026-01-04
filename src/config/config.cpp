@@ -13,6 +13,7 @@
 #include "../module/visual/esp.h"
 #include "../ui/hud/arraylist.h"
 #include "../ui/hud/notifications.h"
+#include "../util/friends_manager.h"
 
 using namespace ArrayListRenderer;
 
@@ -45,6 +46,29 @@ void ConfigManager::applyConfig() {
     if (config_.has("hud")) {
         enabled = config_["hud"]["arrayList"].as_bool(true);
         NotificationManager::enabled = config_["hud"]["notifications"].as_bool(true);
+    }
+    
+    // Apply friends settings
+    if (config_.has("friends") && friendsManager) {
+        // Load friends list (comma-separated)
+        if (config_["friends"].has("list")) {
+            friendsManager->clearFriends();
+            std::string friendsList = config_["friends"]["list"].as_string("");
+            if (!friendsList.empty()) {
+                size_t start = 0, end;
+                while ((end = friendsList.find(',', start)) != std::string::npos) {
+                    std::string name = friendsList.substr(start, end - start);
+                    if (!name.empty()) friendsManager->addFriend(name);
+                    start = end + 1;
+                }
+                std::string last = friendsList.substr(start);
+                if (!last.empty()) friendsManager->addFriend(last);
+            }
+        }
+        // Load team settings
+        friendsManager->teams.matchOwnNametag = config_["friends"]["matchOwnNametag"].as_bool(true);
+        friendsManager->applyToCombat = config_["friends"]["applyToCombat"].as_bool(true);
+        friendsManager->applyToVisual = config_["friends"]["applyToVisual"].as_bool(false);
     }
     
     // Apply module configs
@@ -86,10 +110,13 @@ void ConfigManager::applyConfig() {
                 s.speed = data["speed"].as_float(s.speed);
                 s.fov = data["fov"].as_int(s.fov);
                 s.distance = data["distance"].as_float(s.distance);
+                s.reactionTime = data["reactionTime"].as_int(s.reactionTime);
                 s.targetMode = static_cast<AimAssist::TargetMode>(data["targetMode"].as_int(static_cast<int>(s.targetMode)));
                 s.horizontalOnly = data["horizontalOnly"].as_bool(s.horizontalOnly);
                 s.breakBlocks = data["breakBlocks"].as_bool(s.breakBlocks);
+                s.weaponOnly = data["weaponOnly"].as_bool(s.weaponOnly);
                 s.aimAtClosestPoint = data["aimAtClosestPoint"].as_bool(s.aimAtClosestPoint);
+                s.lockAim = data["lockAim"].as_bool(s.lockAim);
                 s.alwaysAim = data["alwaysAim"].as_bool(s.alwaysAim);
                 s.invisibles = data["invisibles"].as_bool(s.invisibles);
             }
@@ -99,6 +126,16 @@ void ConfigManager::applyConfig() {
                 s.horizontal = data["horizontal"].as_float(s.horizontal);
                 s.vertical = data["vertical"].as_float(s.vertical);
                 s.chance = data["chance"].as_float(s.chance);
+                s.fov = data["fov"].as_float(s.fov);
+                s.reduceDelay = data["reduceDelay"].as_int(s.reduceDelay);
+                s.jumpChance = data["jumpChance"].as_float(s.jumpChance);
+                s.allowDoubleClicks = data["allowDoubleClicks"].as_bool(s.allowDoubleClicks);
+                s.verticalMode = static_cast<Velocity::VerticalMode>(data["verticalMode"].as_int(static_cast<int>(s.verticalMode)));
+                s.onlyLookingAtPlayer = data["onlyLookingAtPlayer"].as_bool(s.onlyLookingAtPlayer);
+                s.onlyMousePressed = data["onlyMousePressed"].as_bool(s.onlyMousePressed);
+                s.onlyMovingForward = data["onlyMovingForward"].as_bool(s.onlyMovingForward);
+                s.onlyHoldingWeapon = data["onlyHoldingWeapon"].as_bool(s.onlyHoldingWeapon);
+                s.onlySprinting = data["onlySprinting"].as_bool(s.onlySprinting);
             }
             else if (name == "NameTags" && nameTags) {
                 auto& s = nameTags->settings;
@@ -122,6 +159,28 @@ void ConfigManager::applyConfig() {
                 s.onlyLookingDown = data["onlyLookingDown"].as_bool(s.onlyLookingDown);
                 s.onlyWhenSneaking = data["onlyWhenSneaking"].as_bool(s.onlyWhenSneaking);
             }
+            else if (name == "Reach" && reach) {
+                auto& s = reach->settings;
+                s.distance = data["distance"].as_float(s.distance);
+                s.minDistance = data["minDistance"].as_float(s.minDistance);
+                s.maxDistance = data["maxDistance"].as_float(s.maxDistance);
+                s.randomize = data["randomize"].as_bool(s.randomize);
+                s.weaponsOnly = data["weaponsOnly"].as_bool(s.weaponsOnly);
+                s.sprintingOnly = data["sprintingOnly"].as_bool(s.sprintingOnly);
+                s.movingOnly = data["movingOnly"].as_bool(s.movingOnly);
+            }
+            else if (name == "Blink" && blink) {
+                auto& s = blink->settings;
+                s.maxDuration = data["maxDuration"].as_float(s.maxDuration);
+                s.disableOnAttack = data["disableOnAttack"].as_bool(s.disableOnAttack);
+                s.showDebug = data["showDebug"].as_bool(s.showDebug);
+            }
+            else if (name == "AutoRefill" && autoRefill) {
+                auto& s = autoRefill->settings;
+                s.refillSoup = data["refillSoup"].as_bool(s.refillSoup);
+                s.refillPotions = data["refillPotions"].as_bool(s.refillPotions);
+                s.speed = data["speed"].as_int(s.speed);
+            }
             
             break;
         }
@@ -142,6 +201,20 @@ void ConfigManager::buildConfigFromModules() {
     // HUD
     config_["hud"]["arrayList"] = enabled;
     config_["hud"]["notifications"] = NotificationManager::enabled;
+    
+    // Friends
+    if (friendsManager) {
+        auto friends = friendsManager->getFriends();
+        std::string friendsList;
+        for (size_t i = 0; i < friends.size(); ++i) {
+            if (i > 0) friendsList += ",";
+            friendsList += friends[i];
+        }
+        config_["friends"]["list"] = friendsList;
+        config_["friends"]["matchOwnNametag"] = friendsManager->teams.matchOwnNametag;
+        config_["friends"]["applyToCombat"] = friendsManager->applyToCombat;
+        config_["friends"]["applyToVisual"] = friendsManager->applyToVisual;
+    }
     
     // Build modules config
     for (auto* mod : moduleManager->getModules()) {
@@ -169,10 +242,13 @@ void ConfigManager::buildConfigFromModules() {
             config_["modules"][name]["speed"] = s.speed;
             config_["modules"][name]["fov"] = s.fov;
             config_["modules"][name]["distance"] = s.distance;
+            config_["modules"][name]["reactionTime"] = s.reactionTime;
             config_["modules"][name]["targetMode"] = static_cast<int>(s.targetMode);
             config_["modules"][name]["horizontalOnly"] = s.horizontalOnly;
             config_["modules"][name]["breakBlocks"] = s.breakBlocks;
+            config_["modules"][name]["weaponOnly"] = s.weaponOnly;
             config_["modules"][name]["aimAtClosestPoint"] = s.aimAtClosestPoint;
+            config_["modules"][name]["lockAim"] = s.lockAim;
             config_["modules"][name]["alwaysAim"] = s.alwaysAim;
             config_["modules"][name]["invisibles"] = s.invisibles;
         }
@@ -182,6 +258,16 @@ void ConfigManager::buildConfigFromModules() {
             config_["modules"][name]["horizontal"] = s.horizontal;
             config_["modules"][name]["vertical"] = s.vertical;
             config_["modules"][name]["chance"] = s.chance;
+            config_["modules"][name]["fov"] = s.fov;
+            config_["modules"][name]["reduceDelay"] = s.reduceDelay;
+            config_["modules"][name]["jumpChance"] = s.jumpChance;
+            config_["modules"][name]["allowDoubleClicks"] = s.allowDoubleClicks;
+            config_["modules"][name]["verticalMode"] = static_cast<int>(s.verticalMode);
+            config_["modules"][name]["onlyLookingAtPlayer"] = s.onlyLookingAtPlayer;
+            config_["modules"][name]["onlyMousePressed"] = s.onlyMousePressed;
+            config_["modules"][name]["onlyMovingForward"] = s.onlyMovingForward;
+            config_["modules"][name]["onlyHoldingWeapon"] = s.onlyHoldingWeapon;
+            config_["modules"][name]["onlySprinting"] = s.onlySprinting;
         }
         else if (name == "NameTags" && nameTags) {
             const auto& s = nameTags->settings;
@@ -204,6 +290,28 @@ void ConfigManager::buildConfigFromModules() {
             const auto& s = bridgeAssist->settings;
             config_["modules"][name]["onlyLookingDown"] = s.onlyLookingDown;
             config_["modules"][name]["onlyWhenSneaking"] = s.onlyWhenSneaking;
+        }
+        else if (name == "Reach" && reach) {
+            const auto& s = reach->settings;
+            config_["modules"][name]["distance"] = s.distance;
+            config_["modules"][name]["minDistance"] = s.minDistance;
+            config_["modules"][name]["maxDistance"] = s.maxDistance;
+            config_["modules"][name]["randomize"] = s.randomize;
+            config_["modules"][name]["weaponsOnly"] = s.weaponsOnly;
+            config_["modules"][name]["sprintingOnly"] = s.sprintingOnly;
+            config_["modules"][name]["movingOnly"] = s.movingOnly;
+        }
+        else if (name == "Blink" && blink) {
+            const auto& s = blink->settings;
+            config_["modules"][name]["maxDuration"] = s.maxDuration;
+            config_["modules"][name]["disableOnAttack"] = s.disableOnAttack;
+            config_["modules"][name]["showDebug"] = s.showDebug;
+        }
+        else if (name == "AutoRefill" && autoRefill) {
+            const auto& s = autoRefill->settings;
+            config_["modules"][name]["refillSoup"] = s.refillSoup;
+            config_["modules"][name]["refillPotions"] = s.refillPotions;
+            config_["modules"][name]["speed"] = s.speed;
         }
     }
 }

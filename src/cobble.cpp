@@ -15,6 +15,7 @@
 #include "ui/core/overlay.h"
 #include "ui/hud/notifications.h"
 #include "util/integrity.h"
+#include "util/friends_manager.h"
 #include "sdk/network_probe.hpp"
 #include "jni/packet_interceptor.hpp"
 
@@ -71,6 +72,7 @@ void cobble::context::initialize(HMODULE hModule)
 	bridgeAssist = new BridgeAssist();
 	nameTags = new NameTags();
 	esp = new ESP();
+	friendsManager = new FriendsManager();
 	log_ok("Modules allocated");
 
 	log_raw("Registering modules...");
@@ -203,6 +205,7 @@ void cobble::context::shutdown()
 	if (bridgeAssist) { delete bridgeAssist; bridgeAssist = nullptr; }
 	if (nameTags) { delete nameTags; nameTags = nullptr; }
 	if (esp) { delete esp; esp = nullptr; }
+	if (friendsManager) { delete friendsManager; friendsManager = nullptr; }
 	
 	if (moduleManager) { delete moduleManager; moduleManager = nullptr; }
 	
