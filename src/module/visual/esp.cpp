@@ -1,6 +1,6 @@
 #include "esp.h"
-#include "../../sdk/minecraft.h"
-#include "../../sdk/render_data.h"
+#include "../../sdk/core/minecraft.h"
+#include "../../sdk/player/render_data.h"
 #include "../../util/logger.hpp"
 #include "../../util/math/worldToScreen.h"
 #include "../../ui/widgets/widgets.hpp"

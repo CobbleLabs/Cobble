@@ -1,5 +1,5 @@
 #include "nojumpdelay.h"
-#include "../../sdk/minecraft.h"
+#include "../../sdk/core/minecraft.h"
 #include "../../ui/menu/menu.h"
 #include "../../ui/widgets/widgets.hpp"
 

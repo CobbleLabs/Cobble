@@ -1,6 +1,6 @@
 #include "java.h"
 #include "../util/logger.hpp"
-#include "../sdk/jstring_util.h"
+#include "../sdk/jni/jstring_util.h"
 
 JavaVM* vm;
 

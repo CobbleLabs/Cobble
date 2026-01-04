@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../jni/java.h"
+#include "../../jni/java.h"
 #include <string>
 
 // Helper to convert jstring to std::string

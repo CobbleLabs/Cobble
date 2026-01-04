@@ -570,7 +570,8 @@ int wmain(int argc, wchar_t* argv[]) {
 			Sleep(1000);
 		} else {
 			std::cout << "\n";
-			printCentered("License verification failed", License::GetLastError());
+			printCentered("License verification failed", "\x1b[31m");
+			printCentered(License::GetLastError(), "\x1b[37m");
 			std::cout << "\n";
 			
 			// Show HWID on screen for user to copy

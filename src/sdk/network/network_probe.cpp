@@ -1,7 +1,7 @@
 #include "network_probe.hpp"
-#include "../jni/java.h"
-#include "../util/logger.hpp"
-#include "jstring_util.h"
+#include "../../jni/java.h"
+#include "../../util/logger.hpp"
+#include "../jni/jstring_util.h"
 #include <vector>
 #include <string>
 

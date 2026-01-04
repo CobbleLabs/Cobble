@@ -1,6 +1,6 @@
 #include "packet_interceptor.hpp"
 #include "../util/logger.hpp"
-#include "../sdk/minecraft.h"
+#include "../sdk/core/minecraft.h"
 #include <algorithm>
 #include <cstdint>
 #include <cstring>

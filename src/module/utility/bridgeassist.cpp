@@ -1,6 +1,6 @@
 #include "bridgeassist.h"
-#include "../../sdk/minecraft.h"
-#include "../../sdk/player.h"
+#include "../../sdk/core/minecraft.h"
+#include "../../sdk/player/player.h"
 #include "../../ui/menu/menu.h"
 #include "../../ui/widgets/widgets.hpp"
 #include <Windows.h>

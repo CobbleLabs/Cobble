@@ -1,11 +1,11 @@
 #include "aimassist.h"
-#include "../../sdk/minecraft.h"
+#include "../../sdk/core/minecraft.h"
 #include "../../jni/java.h"
 #include "../../util/logger.hpp"
 #include "../../util/friends_manager.h"
 #include "../../ui/menu/menu.h"
 #include "../../ui/widgets/widgets.hpp"
-#include "../../sdk/player.h"
+#include "../../sdk/player/player.h"
 #include <array>
 #include <algorithm>
 #include <cmath>
@@ -259,6 +259,7 @@ void AimAssist::onUpdate()
 	// ============================================================
 
 	bool validCache = false;
+	bool forceScan = false;
 
 	if (cachedTarget) {
 		if (Java::Env->IsSameObject(cachedTarget, NULL)) {
@@ -270,26 +271,29 @@ void AimAssist::onUpdate()
 			// Update position from cached target (Fast JNI)
 			if (!g_fid_posX || !g_fid_posY || !g_fid_posZ) {
 				Java::Env->ExceptionClear();
-				return;
-			}
+				Java::Env->DeleteGlobalRef(cachedTarget);
+				cachedTarget = nullptr;
+				forceScan = true;
+			} else {
+				double tX = Java::Env->GetDoubleField(cachedTarget, g_fid_posX);
+				double tY = Java::Env->GetDoubleField(cachedTarget, g_fid_posY);
+				double tZ = Java::Env->GetDoubleField(cachedTarget, g_fid_posZ);
 
-			double tX = Java::Env->GetDoubleField(cachedTarget, g_fid_posX);
-			double tY = Java::Env->GetDoubleField(cachedTarget, g_fid_posY);
-			double tZ = Java::Env->GetDoubleField(cachedTarget, g_fid_posZ);
-
-			if (Java::Env->ExceptionCheck()) {
-				Java::Env->ExceptionClear();
-				return;
+				if (Java::Env->ExceptionCheck()) {
+					Java::Env->ExceptionClear();
+					Java::Env->DeleteGlobalRef(cachedTarget);
+					cachedTarget = nullptr;
+					forceScan = true;
+				} else {
+					// Validate distance/etc slightly? (Optional fast check)
+					// For now trust it until slow scan overrides it.
+					targetX = tX;
+					targetY = tY;
+					targetZ = tZ;
+					validCache = true;
+					hasLockedTarget = true;
+				}
 			}
-			
-			// Validate distance/etc slightly? (Optional fast check)
-			// For now trust it until slow scan overrides it.
-			
-			targetX = tX;
-			targetY = tY;
-			targetZ = tZ;
-			validCache = true;
-			hasLockedTarget = true;
 		}
 	}
 
@@ -297,6 +301,10 @@ void AimAssist::onUpdate()
 	// getNewTarget variable from above logic helps decide if we WANT a new target.
 	// findTarget now handles the 25ms rate limiting internally.
 	
+	if (forceScan) {
+		validCache = false;
+	}
+
 	if (!validCache || getNewTarget) 
 	{
 		// findTarget will return true ONLY if it updated the target (slow scan or cache hit inside it).
@@ -359,6 +367,8 @@ bool AimAssist::findTarget(double& targetX, double& targetY, double& targetZ)
 
 			if (!g_fid_posX || !g_fid_posY || !g_fid_posZ) {
 				Java::Env->ExceptionClear();
+				Java::Env->DeleteGlobalRef(cachedTarget);
+				cachedTarget = nullptr;
 				return false;
 			}
 			
@@ -369,6 +379,8 @@ bool AimAssist::findTarget(double& targetX, double& targetY, double& targetZ)
 
 			if (Java::Env->ExceptionCheck()) {
 				Java::Env->ExceptionClear();
+				Java::Env->DeleteGlobalRef(cachedTarget);
+				cachedTarget = nullptr;
 				return false;
 			}
 
@@ -682,7 +694,11 @@ void AimAssist::applyAimRand(float yawDiff, float pitchDiff, float speed)
 		LARGE_INTEGER f; QueryPerformanceFrequency(&f); return f;
 	}();
 
-	float sensBase = cachedMouseSensitivity * 0.6f + 0.2f;
+	// Ensure low in-game sensitivity doesn't overly throttle aim speed.
+	float speedNorm = std::clamp(settings.speed / 150.0f, 0.0f, 1.0f);
+	float minSens = std::lerp(0.15f, 0.45f, speedNorm);
+	float effectiveSens = std::max(cachedMouseSensitivity, minSens);
+	float sensBase = effectiveSens * 0.6f + 0.2f;
 	float sensMultiplier = sensBase * sensBase * sensBase * 8.0f;
 
 	constexpr float kMouseGain = 0.15f;
@@ -690,8 +706,8 @@ void AimAssist::applyAimRand(float yawDiff, float pitchDiff, float speed)
 	float pitchDelta = (float)moveY * sensMultiplier * kMouseGain;
 
 	// Clamp per-frame rotation to keep motion buttery even on spikes
-	const float maxYawStep = 4.0f;
-	const float maxPitchStep = 3.0f;
+	const float maxYawStep = std::lerp(3.0f, 9.0f, speedNorm);
+	const float maxPitchStep = std::lerp(2.0f, 7.0f, speedNorm);
 	yawDelta = std::clamp(yawDelta, -maxYawStep, maxYawStep);
 	pitchDelta = std::clamp(pitchDelta, -maxPitchStep, maxPitchStep);
 

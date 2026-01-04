@@ -1,8 +1,8 @@
 #pragma once
 
-#include "../jni/java.h"
-#include "../util/math/geometry.h"
-#include "../util/logger.hpp"
+#include "../../jni/java.h"
+#include "../../util/math/geometry.h"
+#include "../../util/logger.hpp"
 #include <vector>
 #include <string>
 #include <chrono>

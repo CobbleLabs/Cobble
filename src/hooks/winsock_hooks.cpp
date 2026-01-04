@@ -1,6 +1,6 @@
 #include "winsock_hooks.h"
 #include "../util/logger.hpp"
-#include "../sdk/minecraft.h"
+#include "../sdk/core/minecraft.h"
 
 #include <WinSock2.h>
 #include <Windows.h>

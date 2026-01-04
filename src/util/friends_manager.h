@@ -5,24 +5,24 @@
 #include <set>
 #include <mutex>
 
-// Minecraft color codes (§X format)
+// Minecraft color codes (Â§X format)
 enum class ChatColor : int {
-	BLACK = 0,        // §0
-	DARK_BLUE = 1,    // §1
-	DARK_GREEN = 2,   // §2
-	DARK_AQUA = 3,    // §3
-	DARK_RED = 4,     // §4
-	DARK_PURPLE = 5,  // §5
-	GOLD = 6,         // §6
-	GRAY = 7,         // §7
-	DARK_GRAY = 8,    // §8
-	BLUE = 9,         // §9
-	GREEN = 10,       // §a
-	AQUA = 11,        // §b
-	RED = 12,         // §c
-	LIGHT_PURPLE = 13,// §d
-	YELLOW = 14,      // §e
-	WHITE = 15,       // §f
+	BLACK = 0,        // Â§0
+	DARK_BLUE = 1,    // Â§1
+	DARK_GREEN = 2,   // Â§2
+	DARK_AQUA = 3,    // Â§3
+	DARK_RED = 4,     // Â§4
+	DARK_PURPLE = 5,  // Â§5
+	GOLD = 6,         // Â§6
+	GRAY = 7,         // Â§7
+	DARK_GRAY = 8,    // Â§8
+	BLUE = 9,         // Â§9
+	GREEN = 10,       // Â§a
+	AQUA = 11,        // Â§b
+	RED = 12,         // Â§c
+	LIGHT_PURPLE = 13,// Â§d
+	YELLOW = 14,      // Â§e
+	WHITE = 15,       // Â§f
 	UNKNOWN = -1
 };
 
@@ -97,12 +97,12 @@ public:
 	// Utility
 	// ============================================================
 	
-	// Strip all Minecraft color codes (§X) from a string
-	// Also handles UTF-8 § (0xC2 0xA7) and & prefix (some mods)
+	// Strip all Minecraft color codes (Â§X) from a string
+	// Also handles UTF-8 Â§ (0xC2 0xA7) and & prefix (some mods)
 	static std::string stripColorCodes(const std::string& input);
 	
 	// Extract ChatColor from a display name with color codes
-	// e.g. "§aPlayerName" -> ChatColor::GREEN
+	// e.g. "Â§aPlayerName" -> ChatColor::GREEN
 	static ChatColor extractColor(const std::string& displayName);
 	
 	// Get color code character for a ChatColor

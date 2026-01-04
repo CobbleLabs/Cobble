@@ -16,7 +16,7 @@
 #include "ui/hud/notifications.h"
 #include "util/integrity.h"
 #include "util/friends_manager.h"
-#include "sdk/network_probe.hpp"
+#include "sdk/network/network_probe.hpp"
 #include "jni/packet_interceptor.hpp"
 
 

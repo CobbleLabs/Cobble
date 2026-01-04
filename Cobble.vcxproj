@@ -88,9 +88,15 @@
     <ClCompile Include="src\cobble.cpp" />
     <ClCompile Include="src\jni\java.cpp" />
     <ClCompile Include="src\jni\packet_interceptor.cpp" />
-    <ClCompile Include="src\sdk\minecraft.cpp" />
-    <ClCompile Include="src\sdk\player.cpp" />
-    <ClCompile Include="src\sdk\network_probe.cpp" />
+    <ClCompile Include="src\sdk\core\minecraft.cpp" />
+    <ClCompile Include="src\sdk\player\player.cpp" />
+    <ClCompile Include="src\sdk\network\network_probe.cpp" />
+    <ClCompile Include="src\sdk\jni\jni_cache.cpp" />
+    <ClCompile Include="src\sdk\mc\input.cpp" />
+    <ClCompile Include="src\sdk\mc\world.cpp" />
+    <ClCompile Include="src\sdk\mc\render.cpp" />
+    <ClCompile Include="src\sdk\mc\inventory.cpp" />
+    <ClCompile Include="src\sdk\mc\player_list.cpp" />
     <ClCompile Include="src\module\module_manager.cpp" />
     <ClCompile Include="src\module\combat\autoclicker.cpp" />
     <ClCompile Include="src\module\combat\aimassist.cpp" />
@@ -134,10 +140,12 @@
     <ClInclude Include="src\jni\packet_interceptor.hpp" />
     <ClInclude Include="src\util\logger.hpp" />
     <ClInclude Include="src\sdk\version.h" />
-    <ClInclude Include="src\sdk\jstring_util.h" />
-    <ClInclude Include="src\sdk\minecraft.h" />
-    <ClInclude Include="src\sdk\player.h" />
-    <ClInclude Include="src\sdk\network_probe.hpp" />
+    <ClInclude Include="src\sdk\jni\jstring_util.h" />
+    <ClInclude Include="src\sdk\core\minecraft.h" />
+    <ClInclude Include="src\sdk\player\player.h" />
+    <ClInclude Include="src\sdk\player\render_data.h" />
+    <ClInclude Include="src\sdk\network\network_probe.hpp" />
+    <ClInclude Include="src\sdk\jni\jni_cache.h" />
     <ClInclude Include="src\module\module.h" />
     <ClInclude Include="src\module\module_manager.h" />
     <ClInclude Include="src\module\combat\autoclicker.h" />
@@ -151,7 +159,7 @@
     <ClInclude Include="src\module\utility\bridgeassist.h" />
     <ClInclude Include="src\module\visual\nametags.h" />
     <ClInclude Include="src\module\visual\esp.h" />
-    <!-- New UI includes -->
+    <!-- UI -->
     <ClInclude Include="src\ui\core\overlay.h" />
     <ClInclude Include="src\ui\menu\menu.h" />
     <ClInclude Include="src\ui\hud\arraylist.h" />

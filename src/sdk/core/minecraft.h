@@ -1,8 +1,8 @@
 #pragma once
 
-#include "../jni/java.h"
-#include "jstring_util.h"
-#include "player.h"
+#include "../../jni/java.h"
+#include "../jni/jstring_util.h"
+#include "../player/player.h"
 #include <vector>
 #include <map>
 #include <string>

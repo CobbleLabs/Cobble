@@ -1,9 +1,9 @@
 #pragma once
 
 // NetworkManager Discovery Probe
-// Diagnóstico para encontrar clases de red ofuscadas en Lunar Client
+// DiagnÃ³stico para encontrar clases de red ofuscadas en Lunar Client
 //
-// Uso: Llamar NetworkProbe::run() una vez después de SDK_Init()
+// Uso: Llamar NetworkProbe::run() una vez despuÃ©s de SDK_Init()
 // Los resultados se imprimen en el debug console.
 
 namespace NetworkProbe {

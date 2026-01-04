@@ -1,5 +1,5 @@
 #include "module_manager.h"
-#include "../sdk/minecraft.h"
+#include "../sdk/core/minecraft.h"
 #include "../jni/packet_interceptor.hpp"
 #include "../ui/menu/menu.h"
 

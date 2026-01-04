@@ -1,6 +1,6 @@
 #pragma once
 #include "../module.h"
-#include "../../sdk/minecraft.h"
+#include "../../sdk/core/minecraft.h"
 
 class BridgeAssist : public Module
 {

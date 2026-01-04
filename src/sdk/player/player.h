@@ -1,7 +1,7 @@
 #pragma once
 
-#include "../jni/java.h"
-#include "version.h"
+#include "../../jni/java.h"
+#include "../version.h"
 
 // Simplified wrapper for the local player (EntityPlayerSP/EntityClientPlayerMP)
 // Flattened hierarchy with only essential ghost client functionality

@@ -1,5 +1,5 @@
 #include "autorefill.h"
-#include "../../sdk/minecraft.h"
+#include "../../sdk/core/minecraft.h"
 #include "../../ui/widgets/widgets.hpp"
 
 #ifndef WIN32_LEAN_AND_MEAN

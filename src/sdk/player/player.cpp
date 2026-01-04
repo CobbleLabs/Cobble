@@ -1,6 +1,6 @@
 #include "player.h"
-#include "minecraft.h"
-#include "../util/logger.hpp"
+#include "../core/minecraft.h"
+#include "../../util/logger.hpp"
 
 LocalPlayer player;
 

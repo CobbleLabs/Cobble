@@ -1,6 +1,6 @@
 #include "blink.h"
-#include "../../sdk/minecraft.h"
-#include "../../sdk/render_data.h"
+#include "../../sdk/core/minecraft.h"
+#include "../../sdk/player/render_data.h"
 #include "../../ui/menu/menu.h"
 #include "../../ui/widgets/widgets.hpp"
 #include "../../util/logger.hpp"

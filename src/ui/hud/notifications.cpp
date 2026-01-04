@@ -1,6 +1,6 @@
 #include "notifications.h"
 #include "../core/overlay.h"
-#include "../../sdk/render_data.h"
+#include "../../sdk/player/render_data.h"
 #include "../../../infra/ext/imgui/imgui.h"
 #include "../widgets/widgets.hpp"
 

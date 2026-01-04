@@ -5,8 +5,8 @@
 #include "../widgets/widgets.hpp"
 #include "../widgets/icons.hpp"
 #include "../../util/logger.hpp"
-#include "../../sdk/render_data.h"
-#include "../../sdk/minecraft.h"
+#include "../../sdk/player/render_data.h"
+#include "../../sdk/core/minecraft.h"
 #include "../../module/module_manager.h"
 #include "../../config/config.hpp"
 

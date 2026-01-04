@@ -18,7 +18,7 @@
 #include "../../module/visual/nametags.h"
 #include "../../module/visual/esp.h"
 #include "../../cobble.hpp"
-#include "../../sdk/minecraft.h"
+#include "../../sdk/core/minecraft.h"
 
 #include <string>
 

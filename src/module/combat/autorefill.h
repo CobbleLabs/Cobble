@@ -1,7 +1,7 @@
 #pragma once
 
 #include "../module.h"
-#include "../../sdk/minecraft.h"
+#include "../../sdk/core/minecraft.h"
 #include <chrono>
 #include <vector>
 

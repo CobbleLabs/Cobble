@@ -9,6 +9,15 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/).
 ## [Unreleased]
 
 ### Added
+- **SDK Refactoring**: Modularización completa del SDK de Minecraft
+  - Nuevo **JNI Cache** (`sdk/jni/jni_cache.h/cpp`): Cache centralizado de todos los IDs JNI para mejor performance
+  - **Módulos separados** en `sdk/mc/`:
+    - `input.cpp`: Keyboard, mouse grab, movement keys
+    - `world.cpp`: getBlockId, rayTraceBlocks
+    - `render.cpp`: getRenderPos, getPartialTicks, targeting detection
+    - `inventory.cpp`: getInventorySlots, windowClick, open/close inventory
+    - `player_list.cpp`: getPlayerList, canEntityBeSeen, team color detection
+  - `minecraft.cpp` reducido de ~1850 líneas a ~130 líneas (solo core)
 - PacketInterceptor JVMTI bytecode hook for `NetworkManager.sendPacket` with native PacketHook bridge.
 - GlobalRef caching for packet classes and ClassLoader to keep JNI references stable.
 - Drain scheduler and `PacketInterceptor::Tick()` for batched flush of queued packets.

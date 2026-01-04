@@ -1,5 +1,5 @@
 #include "autoclicker.h"
-#include "../../sdk/minecraft.h"
+#include "../../sdk/core/minecraft.h"
 #include "../../util/logger.hpp"
 #include "../../ui/menu/menu.h"
 #include "../../ui/core/overlay.h"
@@ -255,19 +255,19 @@ void AutoClicker::calculateNextDelay()
 		case 0:  // No jitter
 			jitterAmount = 0;
 			break;
-		case 1:  // Small jitter ±2ms
+		case 1:  // Small jitter Â±2ms
 			{
 				std::uniform_int_distribution<int> jitterDist(-2, 2);
 				jitterAmount = jitterDist(rng);
 			}
 			break;
-		case 2:  // Medium jitter ±5ms
+		case 2:  // Medium jitter Â±5ms
 			{
 				std::uniform_int_distribution<int> jitterDist(-5, 5);
 				jitterAmount = jitterDist(rng);
 			}
 			break;
-		case 3:  // Large jitter ±12ms
+		case 3:  // Large jitter Â±12ms
 			{
 				std::uniform_int_distribution<int> jitterDist(-12, 12);
 				jitterAmount = jitterDist(rng);
@@ -381,7 +381,7 @@ void AutoClicker::updateFatigue()
 	// Base fatigue increases slowly over time (0.1% per minute)
 	float baseFatigue = 1.0f + (sessionDuration / 600.0f) * 0.1f;
 	
-	// Add random variation (±5%)
+	// Add random variation (Â±5%)
 	std::uniform_real_distribution<float> variationDist(-0.05f, 0.05f);
 	fatigueMultiplier = baseFatigue + variationDist(rng);
 	
@@ -442,9 +442,9 @@ void AutoClicker::updateJitterMode()
 	
 	// Distribution:
 	// 25% - no jitter (mode 0)
-	// 40% - small jitter ±2ms (mode 1)
-	// 25% - medium jitter ±5ms (mode 2)
-	// 10% - large jitter ±10ms (mode 3)
+	// 40% - small jitter Â±2ms (mode 1)
+	// 25% - medium jitter Â±5ms (mode 2)
+	// 10% - large jitter Â±10ms (mode 3)
 	
 	if (roll < 25) {
 		currentJitterMode = 0;

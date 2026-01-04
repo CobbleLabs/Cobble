@@ -32,7 +32,7 @@ public:
         return instance;
     }
     
-    // Startup: load local → apply → async fetch server
+    // Startup: load local â†’ apply â†’ async fetch server
     void init() {
         // Get HWID once at startup
         hwid_ = hwid::generate();
