@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 
 	"license-server/internal/config"
 	"license-server/internal/database"
@@ -38,7 +39,7 @@ type ManifestResponse struct {
 // GET /api/update/manifest
 func GetManifest(w http.ResponseWriter, r *http.Request) {
 	cfg := config.Get()
-	
+
 	// Read manifest.json from releases/latest/
 	manifestPath := filepath.Join(cfg.ReleasesDir, "latest", "manifest.json")
 	manifestBytes, err := os.ReadFile(manifestPath)
@@ -47,7 +48,7 @@ func GetManifest(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "No updates available", http.StatusNotFound)
 		return
 	}
-	
+
 	// Read signature
 	sigPath := filepath.Join(cfg.ReleasesDir, "latest", "manifest.sig")
 	sigBytes, err := os.ReadFile(sigPath)
@@ -56,12 +57,12 @@ func GetManifest(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Signature missing", http.StatusInternalServerError)
 		return
 	}
-	
+
 	response := ManifestResponse{
 		ManifestB64: base64.StdEncoding.EncodeToString(manifestBytes),
 		SigB64:      base64.StdEncoding.EncodeToString(sigBytes),
 	}
-	
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)
 }
@@ -70,14 +71,14 @@ func GetManifest(w http.ResponseWriter, r *http.Request) {
 // GET /api/update/loader
 func DownloadLoader(w http.ResponseWriter, r *http.Request) {
 	cfg := config.Get()
-	
+
 	// Verify license first
 	hwid := r.URL.Query().Get("hwid")
 	if hwid == "" {
 		http.Error(w, "Missing HWID", http.StatusBadRequest)
 		return
 	}
-	
+
 	// Check if user has valid license
 	var username string
 	err := database.DB.QueryRow("SELECT username FROM licenses WHERE hwid LIKE ? AND is_banned = 0", "%"+hwid+"%").Scan(&username)
@@ -85,11 +86,11 @@ func DownloadLoader(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Invalid license", http.StatusForbidden)
 		return
 	}
-	
+
 	// Serve file
 	loaderPath := filepath.Join(cfg.ReleasesDir, "latest", "CobbleLoader.exe")
 	serveFile(w, r, loaderPath, "CobbleLoader.exe")
-	
+
 	logger.Info("UPDATE", "Loader downloaded", logger.Fields{"user": username})
 }
 
@@ -97,14 +98,14 @@ func DownloadLoader(w http.ResponseWriter, r *http.Request) {
 // GET /api/update/dll
 func DownloadDLL(w http.ResponseWriter, r *http.Request) {
 	cfg := config.Get()
-	
+
 	// Verify license first
 	hwid := r.URL.Query().Get("hwid")
 	if hwid == "" {
 		http.Error(w, "Missing HWID", http.StatusBadRequest)
 		return
 	}
-	
+
 	// Check if user has valid license
 	var username string
 	err := database.DB.QueryRow("SELECT username FROM licenses WHERE hwid LIKE ? AND is_banned = 0", "%"+hwid+"%").Scan(&username)
@@ -112,11 +113,11 @@ func DownloadDLL(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Invalid license", http.StatusForbidden)
 		return
 	}
-	
+
 	// Serve file
 	dllPath := filepath.Join(cfg.ReleasesDir, "latest", "Cobble.dll")
 	serveFile(w, r, dllPath, "Cobble.dll")
-	
+
 	logger.Info("UPDATE", "DLL downloaded", logger.Fields{"user": username})
 }
 
@@ -127,12 +128,12 @@ func serveFile(w http.ResponseWriter, r *http.Request, path, filename string) {
 		return
 	}
 	defer file.Close()
-	
+
 	stat, _ := file.Stat()
 	w.Header().Set("Content-Type", "application/octet-stream")
 	w.Header().Set("Content-Disposition", "attachment; filename="+filename)
-	w.Header().Set("Content-Length", string(stat.Size()))
-	
+	w.Header().Set("Content-Length", strconv.FormatInt(stat.Size(), 10))
+
 	io.Copy(w, file)
 }
 

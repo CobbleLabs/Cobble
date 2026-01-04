@@ -6,6 +6,89 @@ This document describes the architecture of the Minecraft SDK after the modulari
 
 The SDK provides a C++ interface to interact with Minecraft's Java runtime via JNI. It abstracts game state (player, world, inventory) and provides methods for modules to query and manipulate the game.
 
+## Rotation Fields
+
+The LocalPlayer wrapper exposes rotation fields that mirror the Java Entity state. Understanding when to use each field is critical for smooth aim assist and avoiding detection.
+
+### Available Fields
+
+| Field | Purpose | When Updated by Game |
+|-------|---------|---------------------|
+| `rotationYaw/Pitch` | Current rotation | Every tick + mouse input |
+| `prevRotationYaw/Pitch` | Previous tick rotation | Start of each tick (copied from current) |
+| `lastReportedYaw/Pitch` | Last sent to server | After movement packet sent |
+
+### SDK Methods
+
+```cpp
+// Getters
+float getYaw();              // rotationYaw
+float getPitch();            // rotationPitch
+float getPrevYaw();          // prevRotationYaw
+float getPrevPitch();        // prevRotationPitch
+float getLastReportedYaw();  // lastReportedYaw
+float getLastReportedPitch();// lastReportedPitch
+
+// Setters
+void setYaw(float value);
+void setPitch(float value);
+void setPrevYaw(float value);
+void setPrevPitch(float value);
+void setLastReportedYaw(float value);
+void setLastReportedPitch(float value);
+```
+
+### Why prevRotation Matters
+
+Minecraft interpolates camera between `prevRotation` and `rotationYaw` using `partialTicks`. If you only update `rotationYaw`, the camera will visually "fight" back toward `prevRotationYaw` until the next tick.
+
+## Hitbox / Bounding Box (AxisAlignedBB)
+
+PlayerInfo now includes full **hitbox data** from `Entity.boundingBox` (AxisAlignedBB):
+
+### Fields
+```cpp
+// Raw AABB coordinates (world space)
+float hitboxMinX, hitboxMinY, hitboxMinZ;
+float hitboxMaxX, hitboxMaxY, hitboxMaxZ;
+bool isSneaking;
+```
+
+### Helper Methods
+```cpp
+// Hitbox center (for aim-at-center)
+float getHitboxCenterX() const;
+float getHitboxCenterY() const;
+float getHitboxCenterZ() const;
+
+// Dimensions
+float getHitboxWidth() const;   // Standard: 0.6
+float getHitboxHeight() const;  // Standard: 1.8 (1.62 sneaking)
+float getEyeHeight() const;     // 1.62 (1.54 sneaking)
+```
+
+### Usage in AimAssist
+```cpp
+// Aim at center of hitbox instead of posY + offset
+Vec3 targetPos = {
+    target.getHitboxCenterX(),
+    target.getHitboxCenterY(),  // More accurate than posY + 1.62
+    target.getHitboxCenterZ()
+};
+
+// Or aim at closest point in hitbox (for aim-at-closest-point feature)
+float clampedX = std::clamp(localX, target.hitboxMinX, target.hitboxMaxX);
+float clampedY = std::clamp(localY, target.hitboxMinY, target.hitboxMaxY);
+float clampedZ = std::clamp(localZ, target.hitboxMinZ, target.hitboxMaxZ);
+```
+
+### JNI Cache
+The following IDs are cached for hitbox access:
+- `fid_boundingBox` - Entity.boundingBox (1.7) or entityBoundingBox (1.8)
+- `cls_AxisAlignedBB` - AxisAlignedBB class
+- `fid_aabb_minX/Y/Z`, `fid_aabb_maxX/Y/Z` - AABB coordinate fields
+- `mid_isSneaking` - EntityLivingBase.isSneaking()
+
 ## Directory Structure
 
 ```

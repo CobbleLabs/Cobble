@@ -60,6 +60,15 @@ sleep 2
 
 if systemctl is-active --quiet cobble; then
     echo -e "${GREEN}=== Update successful! ===${NC}"
+    
+    # Ensure nginx is running
+    if systemctl is-active --quiet nginx; then
+        echo -e "${GREEN}Nginx reverse proxy: running${NC}"
+    else
+        echo -e "${YELLOW}Starting nginx...${NC}"
+        systemctl restart nginx
+    fi
+    
     echo ""
     echo "Check logs: journalctl -u cobble -f"
 else

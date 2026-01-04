@@ -27,10 +27,11 @@
 
 // Server configuration
 #define SERVER_HOST_PRIMARY "syra.club"
-#define SERVER_HOST_FALLBACK "172.235.136.152"
-#define SERVER_PORT 8080
+#define SERVER_HOST_FALLBACK "192.99.212.126"
+#define SERVER_PORT_HTTPS 443
+#define SERVER_PORT_HTTP 8080
 
-#define LICENSE_SERVER_PRIMARY "http://" SERVER_HOST_PRIMARY ":8080"
+#define LICENSE_SERVER_PRIMARY "https://" SERVER_HOST_PRIMARY
 #define LICENSE_SERVER_FALLBACK "http://" SERVER_HOST_FALLBACK ":8080"
 #define LICENSE_CHECK_ENABLED true
 
@@ -252,6 +253,80 @@ void printBanner() {
     std::cout << "\n";
     printCentered("v" + std::string(COBBLE_VERSION), "\x1b[90m"); // Dark Gray
     std::cout << "\n";
+}
+
+// 3.5 Download Progress Bar (similar style to showSmartLoading)
+static size_t g_downloadTotal = 0;
+static size_t g_downloadLast = 0;
+
+void showDownloadProgress(size_t downloaded, size_t total) {
+    // Throttle updates to avoid console spam
+    if (downloaded - g_downloadLast < 4096 && downloaded != total) return;
+    g_downloadLast = downloaded;
+    
+    if (total == 0) total = 1; // Avoid div by 0
+    g_downloadTotal = total;
+    
+    int width = getConsoleWidth();
+    int barLen = 30;
+    float pct = (float)downloaded / total;
+    if (pct > 1.0f) pct = 1.0f;
+    
+    // Partial block characters
+    const char* partials[] = {
+        " ",
+        "\xE2\x96\x8F", // 1/8
+        "\xE2\x96\x8E", // 2/8
+        "\xE2\x96\x8D", // 3/8
+        "\xE2\x96\x8C", // 4/8
+        "\xE2\x96\x8B", // 5/8
+        "\xE2\x96\x8A", // 6/8
+        "\xE2\x96\x89", // 7/8
+        "\xE2\x96\x88"  // 8/8 (Full)
+    };
+    
+    // Colors
+    RGB barStart = {255, 150, 50};  // Orange
+    RGB barEnd = {80, 200, 120};    // Green
+    RGB barBg = {40, 40, 50};
+    
+    // Calculate progress
+    int totalSubSteps = barLen * 8;
+    int steps = (int)(pct * totalSubSteps);
+    int fullChars = steps / 8;
+    int remainder = steps % 8;
+    
+    // Size display
+    int downloadedKB = (int)(downloaded / 1024);
+    int totalKB = (int)(total / 1024);
+    char sizeStr[64];
+    sprintf_s(sizeStr, "Downloading... %d / %d KB", downloadedKB, totalKB);
+    
+    // Clear and draw text
+    std::cout << "\r" << "\x1b[K";
+    printCentered(sizeStr, "\x1b[37m");
+    
+    // Draw bar
+    int padding = (width - barLen) / 2;
+    std::cout << std::string(padding, ' ');
+    std::cout << bgToVt(barBg);
+    
+    for (int b = 0; b < fullChars; b++) {
+        float t = (float)b / barLen;
+        std::cout << rgbToVt(lerpColor(barStart, barEnd, t)) << "\xE2\x96\x88";
+    }
+    
+    if (fullChars < barLen) {
+        float t = (float)fullChars / barLen;
+        std::cout << rgbToVt(lerpColor(barStart, barEnd, t)) << partials[remainder];
+    }
+    
+    int occupied = fullChars + (fullChars < barLen ? 1 : 0);
+    for (int b = occupied; b < barLen; b++) std::cout << " ";
+    
+    std::cout << VT_RESET;
+    std::cout << "\x1b[A"; // Move cursor up
+    std::cout.flush();
 }
 
 // 4. Loading Bar with Personality (Ultra Smooth + Solid Background)
@@ -493,10 +568,11 @@ int wmain(int argc, wchar_t* argv[]) {
 	
 	// ========== PHASE 2.5: UPDATE CHECK (BEFORE LOADING!) ==========
 	{
-		auto result = Updater::Check(COBBLE_VERSION, SERVER_HOST_PRIMARY, SERVER_HOST_FALLBACK, SERVER_PORT);
+		auto result = Updater::Check(COBBLE_VERSION, SERVER_HOST_PRIMARY, SERVER_PORT_HTTPS, SERVER_HOST_FALLBACK, SERVER_PORT_HTTP);
 		if (result.success) {
 			if (result.blocked || result.updateAvailable) {
-				bool mustUpdate = result.blocked;
+				// Force update if blocked (version too old) OR if update is marked as mandatory
+				bool mustUpdate = result.blocked || result.mandatory;
 				
 				std::cout << "\n";
 				if (mustUpdate) {
@@ -522,11 +598,17 @@ int wmain(int argc, wchar_t* argv[]) {
 				std::string hwid = HWID::Generate();
 				std::string tempDir = Updater::getTempDownloadDir();
 				std::string newLoaderPath = tempDir + "\\CobbleLoader.exe";
-				std::string downloadUrl = std::string("http://") + SERVER_HOST_PRIMARY + ":" + std::to_string(SERVER_PORT) + "/api/update/loader";
+				std::string downloadUrl = std::string("https://") + SERVER_HOST_PRIMARY + "/api/update/loader";
+				
+				// Setup progress bar (need 2 lines: text + bar)
+				g_downloadLast = 0;
+				std::cout << "\n"; // Line for progress bar
 				
 				if (Updater::downloadAndVerify(downloadUrl, newLoaderPath, 
 				                                result.manifest.loader.sha256, 
-				                                result.manifest.loader.size, hwid)) {
+				                                result.manifest.loader.size, hwid,
+				                                showDownloadProgress)) {
+					std::cout << "\n"; // Finish bar
 					if (Updater::spawnStub(Updater::getSelfPath(), newLoaderPath)) {
 						std::cout << "\n";
 						printCentered("Update downloaded!", "\x1b[32m");

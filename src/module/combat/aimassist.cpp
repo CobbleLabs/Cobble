@@ -135,8 +135,15 @@ void AimAssist::onEnable()
 	hasLockedTarget = false;
 	pitchdiffSpeed = 0.f;
 	yawdiffSpeed = 0.f;
-	cursorAccumX = 0.0;
 	cursorAccumY = 0.0;
+	targetHasHitbox = false;
+	targetHitboxMinX = targetHitboxMinY = targetHitboxMinZ = 0.0f;
+	targetHitboxMaxX = targetHitboxMaxY = targetHitboxMaxZ = 0.0f;
+	prevFrameHadTarget = false;
+	targetRampTimer.Start();
+	clickRampTimer.Start();
+	lastMouseDown = false;
+	clickStartedThisFrame = false;
 }
 
 void AimAssist::onDisable()
@@ -149,9 +156,14 @@ void AimAssist::onDisable()
 		cachedTarget = nullptr;
 	}
 	cleanup_entity_fields();
-	cursorAccumX = cursorAccumY = 0.0;
+	cursorAccumY = 0.0;
 	pitchdiffSpeed = yawdiffSpeed = 0.f;
+	targetHasHitbox = false;
+	targetHitboxMinX = targetHitboxMinY = targetHitboxMinZ = 0.0f;
+	targetHitboxMaxX = targetHitboxMaxY = targetHitboxMaxZ = 0.0f;
 	reactionTimeTimer.Start();
+	lastMouseDown = false;
+	clickStartedThisFrame = false;
 }
 
 float AimAssist::wrapTo180(float value)
@@ -197,16 +209,27 @@ float AimAssist::slerp(float start, float end, float t)
 
 void AimAssist::onUpdate()
 {
+	clickStartedThisFrame = false;
 	if (!player.isValid()) return;
 	if (Menu::isOpen) return;
 	if (mc.isInGui()) return;
 
-	if (!settings.alwaysAim && !(GetAsyncKeyState(VK_LBUTTON) & 0x8000))
+	bool mouseDown = (GetAsyncKeyState(VK_LBUTTON) & 0x8000) != 0;
+
+	if (!settings.alwaysAim && !mouseDown)
 	{
 		return;
 	}
 
-	if (settings.breakBlocks && (GetAsyncKeyState(VK_LBUTTON) & 0x8000))
+	if (mouseDown && !lastMouseDown) {
+		clickStartedThisFrame = true;
+		clickRampTimer.Start();
+		targetRampTimer.Start();
+		yawdiffSpeed = 0.f;
+		pitchdiffSpeed = 0.f;
+	}
+
+	if (settings.breakBlocks && mouseDown)
 	{
 		if (mc.isTargetingBlock())
 		{
@@ -225,6 +248,7 @@ void AimAssist::onUpdate()
 	double localX = player.getPosX();
 	double localY = player.getPosY();
 	double localZ = player.getPosZ();
+	targetChangedThisFrame = false;
 
 	bool getNewTarget = true;
 
@@ -313,22 +337,35 @@ void AimAssist::onUpdate()
 		
 		if (findTarget(targetX, targetY, targetZ)) {
 			hasLockedTarget = true;
+			if (!prevFrameHadTarget || targetChangedThisFrame) {
+				targetRampTimer.Start(); // ramp up speed when acquiring a target
+				yawdiffSpeed = 0.f;
+				pitchdiffSpeed = 0.f;
+			}
 		}
 	}
 	
-	if (!hasLockedTarget) return;
+	if (!hasLockedTarget) {
+		prevFrameHadTarget = false;
+		lastMouseDown = mouseDown;
+		return;
+	}
 
 	lockedTargetX = targetX;
 	lockedTargetY = targetY;
 	lockedTargetZ = targetZ;
 
-	if (Java::Version == MinecraftVersion::MC_1_7_10)
+	double aimTargetX = targetX;
+	double aimTargetY = targetY;
+	double aimTargetZ = targetZ;
+
+	if (!targetHasHitbox && Java::Version == MinecraftVersion::MC_1_7_10)
 	{
-		targetY += 1.6;
+		aimTargetY += 1.6;
 	}
 
 	double aimX, aimY, aimZ;
-	if (!getAimPoint(targetX, targetY, targetZ, aimX, aimY, aimZ))
+	if (!getAimPoint(aimTargetX, aimTargetY, aimTargetZ, aimX, aimY, aimZ))
 	{
 		return;
 	}
@@ -338,10 +375,13 @@ void AimAssist::onUpdate()
 	float yawDiff = wrapTo180(-(localYaw - yawTarget));
 	float pitchDiff = wrapTo180(-(localPitch - pitchTarget));
 
-	float speed = settings.speed * 3;
+	float speedSetting = std::min(settings.speed, 100.0f);
+	float speed = speedSetting * 3.0f;
 	cachedMouseSensitivity = mc.getMouseSensitivity();
 
 	applyAimRand(yawDiff, pitchDiff, speed);
+	prevFrameHadTarget = hasLockedTarget;
+	lastMouseDown = mouseDown;
 }
 
 bool AimAssist::findTarget(double& targetX, double& targetY, double& targetZ)
@@ -361,6 +401,8 @@ bool AimAssist::findTarget(double& targetX, double& targetY, double& targetZ)
 		if (Java::Env->IsSameObject(cachedTarget, NULL)) {
 			Java::Env->DeleteGlobalRef(cachedTarget); // Clean up invalid ref
 			cachedTarget = nullptr; // Invalid
+			targetHasHitbox = false;
+			prevFrameHadTarget = false;
 		}
 		else {
 			ensure_entity_fields(cachedTarget);
@@ -369,6 +411,7 @@ bool AimAssist::findTarget(double& targetX, double& targetY, double& targetZ)
 				Java::Env->ExceptionClear();
 				Java::Env->DeleteGlobalRef(cachedTarget);
 				cachedTarget = nullptr;
+				targetHasHitbox = false;
 				return false;
 			}
 			
@@ -381,12 +424,25 @@ bool AimAssist::findTarget(double& targetX, double& targetY, double& targetZ)
 				Java::Env->ExceptionClear();
 				Java::Env->DeleteGlobalRef(cachedTarget);
 				cachedTarget = nullptr;
+				targetHasHitbox = false;
+				prevFrameHadTarget = false;
 				return false;
 			}
 
 			// Basic distance check to see if we should drop it immediately?
 			// For now, assume stickiness for 50ms is fine.
 			
+			// If angle error is large, force slow scan to re-acquire smoothly
+			float localYaw = player.getYaw();
+			double localX = player.getPosX();
+			double localY = player.getPosY();
+			double localZ = player.getPosZ();
+			float yawToTarget = getAngles(localX, localY, localZ, cX, cY, cZ).first;
+			float yawDiff = std::abs(wrapTo180(-(localYaw - yawToTarget)));
+			if (yawDiff > 25.f) {
+				return false; // force slow scan/ramp
+			}
+
 			targetX = cX;
 			targetY = cY;
 			targetZ = cZ;
@@ -402,34 +458,11 @@ bool AimAssist::findTarget(double& targetX, double& targetY, double& targetZ)
 	// SLOW PATH: Full Scan
 	scanTimer.Start();
 
-	// Profiling getPlayerList (JNI heavy)
-	static int   pl_calls = 0;
-	static float pl_maxMs = 0.0f;
-	static DWORD pl_lastPrint = GetTickCount();
-	static LARGE_INTEGER qpf = []{ LARGE_INTEGER f; QueryPerformanceFrequency(&f); return f; }();
-
-	LARGE_INTEGER t0, t1;
-	QueryPerformanceCounter(&t0);
-
 	auto players = mc.getPlayerList();
-
-	QueryPerformanceCounter(&t1);
-	float ms = float((t1.QuadPart - t0.QuadPart) * 1000.0 / double(qpf.QuadPart));
-	
-	pl_calls++;
-	if (ms > pl_maxMs) pl_maxMs = ms;
-
-	DWORD now = GetTickCount();
-	if (now - pl_lastPrint >= 1000) {
-		log_debug("getPlayerList: calls=%d max=%.3fms count=%d cache=%d", 
-			pl_calls, pl_maxMs, (int)players.size(), (cachedTarget != nullptr));
-		pl_calls = 0;
-		pl_maxMs = 0.0f;
-		pl_lastPrint = now;
-	}
 
 	if (players.empty()) {
 		if (cachedTarget) { Java::Env->DeleteGlobalRef(cachedTarget); cachedTarget = nullptr; }
+		targetHasHitbox = false;
 		return false; 
 	}
 
@@ -446,17 +479,6 @@ bool AimAssist::findTarget(double& targetX, double& targetY, double& targetZ)
 	// Helper to keep track of best player instance
 	jobject bestPlayerObj = nullptr;
 	PlayerInfo closestPlayer;
-
-	// Debug: Log all players in range periodically
-	static int playerListLogCounter = 0;
-	if (++playerListLogCounter % 200 == 1 && !players.empty()) {
-		std::string allNames;
-		for (size_t i = 0; i < players.size() && i < 5; i++) {
-			if (i > 0) allNames += ", ";
-			allNames += players[i].name;
-		}
-		log_debug("[AimAssist] Players nearby (%zu): %s", players.size(), allNames.c_str());
-	}
 
 	for (auto& p : players)
 	{
@@ -487,22 +509,7 @@ bool AimAssist::findTarget(double& targetX, double& targetY, double& targetZ)
 			bool isFriend = friendsManager->isFriend(cleanPlayerName);
 			bool isTeammate = friendsManager->isTeammate(cleanPlayerName, playerColor, localColor);
 			
-			if (isFriend || isTeammate) {
-				static int debugCounter = 0;
-				if (++debugCounter % 20 == 1) { // Log once per ~20 checks
-					log_debug("[AimAssist] Skipping %s (friend=%d, team=%d, pColor=%d, lColor=%d)", 
-						p.name.c_str(), isFriend, isTeammate, static_cast<int>(playerColor), localTeamColor);
-				}
-				continue;
-			} else {
-				// Debug: Log when NOT filtered to diagnose issues
-				static int notFilteredCounter = 0;
-				if (++notFilteredCounter % 100 == 1) { // Log less frequently
-					auto friendsList = friendsManager->getFriends();
-					log_debug("[AimAssist] NOT filtering '%s' (pColor=%d, lColor=%d) - friends: %zu", 
-						p.name.c_str(), static_cast<int>(playerColor), localTeamColor, friendsList.size());
-				}
-			}
+			if (isFriend || isTeammate) continue;
 		}
 
 		float yawToTarget = getAngles(localX, localY, localZ, p.posX, p.posY, p.posZ).first;
@@ -546,6 +553,18 @@ bool AimAssist::findTarget(double& targetX, double& targetY, double& targetZ)
 		targetX = closestPlayer.posX;
 		targetY = closestPlayer.posY;
 		targetZ = closestPlayer.posZ;
+		targetHitboxMinX = closestPlayer.hitboxMinX;
+		targetHitboxMinY = closestPlayer.hitboxMinY;
+		targetHitboxMinZ = closestPlayer.hitboxMinZ;
+		targetHitboxMaxX = closestPlayer.hitboxMaxX;
+		targetHitboxMaxY = closestPlayer.hitboxMaxY;
+		targetHitboxMaxZ = closestPlayer.hitboxMaxZ;
+
+		float hitboxWidth = targetHitboxMaxX - targetHitboxMinX;
+		float hitboxHeight = targetHitboxMaxY - targetHitboxMinY;
+		targetHasHitbox = (hitboxWidth > 0.01f) && (hitboxHeight > 0.01f);
+	} else {
+		targetHasHitbox = false;
 	}
 
 	// Update Cached Target
@@ -556,9 +575,11 @@ bool AimAssist::findTarget(double& targetX, double& targetY, double& targetZ)
 			if (!Java::Env->IsSameObject(cachedTarget, bestPlayerObj)) {
 				Java::Env->DeleteGlobalRef(cachedTarget);
 				cachedTarget = Java::Env->NewGlobalRef(bestPlayerObj);
+				targetChangedThisFrame = true;
 			}
 		} else {
 			cachedTarget = Java::Env->NewGlobalRef(bestPlayerObj);
+			targetChangedThisFrame = true;
 		}
 	} else {
 		if (cachedTarget) {
@@ -580,11 +601,28 @@ void AimAssist::applyAimRand(float yawDiff, float pitchDiff, float speed)
 		return;
 	}
 
-	yawDiff += randFloat(-0.2f, 0.2f);
-	pitchDiff += randFloat(-0.2f, 0.2f);
+	float maxDiff = std::max(absYawDiff, absPitchDiff);
+	float jitterRange = (maxDiff < 10.f) ? 0.02f : (maxDiff < 30.f ? 0.05f : 0.08f);
+	if (maxDiff < 3.f) jitterRange = 0.0f; // no jitter when already aligned
+	yawDiff += randFloat(-jitterRange, jitterRange);
+	pitchDiff += randFloat(-jitterRange, jitterRange);
 	float baseSpeed = speed;
 	float alignment = std::clamp(std::max(absYawDiff, absPitchDiff) / 90.0f, 0.0f, 1.0f);
 	float dynamicSpeed = std::lerp(baseSpeed * 0.35f, baseSpeed, alignment);
+
+	float clampedSpeedSetting = std::min(settings.speed, 100.0f);
+	float speedNorm = std::clamp(clampedSpeedSetting / 100.0f, 0.0f, 1.0f);
+	// Ramp respects both time since acquisition and current angular error (larger error = slower ramp)
+	float timeRamp = std::clamp(targetRampTimer.Elapsed<>() / targetRampDurationMs, 0.25f, 1.0f);
+	float errorRamp = std::clamp(1.0f - (maxDiff / 90.0f), 0.25f, 1.0f);
+	float clickRamp = settings.alwaysAim ? 1.0f : std::clamp(clickRampTimer.Elapsed<>() / clickRampDurationMs, 0.3f, 1.0f);
+	float ramp = std::min({ timeRamp, errorRamp, clickRamp });
+	dynamicSpeed *= ramp;
+	if (clampedSpeedSetting >= 100.0f) {
+		dynamicSpeed *= 0.8f; // soften high-speed settings to avoid flicks
+	} else if (maxDiff < 20.f) {
+		dynamicSpeed *= 0.85f; // slow down near micro-adjust to prevent rebound
+	}
 
 	static bool once = false;
 	static float targetYawSpeed = 0.0f;
@@ -615,7 +653,7 @@ void AimAssist::applyAimRand(float yawDiff, float pitchDiff, float speed)
 		reactionTimeTimer.Start();
 	}
 
-	float smoothingStrength = std::clamp(0.08f + alignment * 0.18f + (settings.speed / 400.0f) * 0.1f, 0.08f, 0.3f);
+	float smoothingStrength = std::clamp(0.08f + alignment * 0.18f + (clampedSpeedSetting / 400.0f) * 0.1f, 0.08f, 0.3f);
 	yawdiffSpeed = std::lerp(yawdiffSpeed, targetYawSpeed, smoothingStrength);
 	pitchdiffSpeed = std::lerp(pitchdiffSpeed, targetPitchSpeed, smoothingStrength);
 
@@ -642,13 +680,8 @@ void AimAssist::applyAimRand(float yawDiff, float pitchDiff, float speed)
 			float t = (std::clamp(absYawDiff, 10.f, 50.f) - 9.99f) / 40.f;
 			pitchUpdateMsMin = (int)std::lerp((float)pitchUpdateMsMinLow, (float)pitchUpdateMsMinHigh, t);
 			pitchUpdateMsMax = (int)std::lerp((float)pitchUpdateMsMaxLow, (float)pitchUpdateMsMaxHigh, t);
-			int travelDistance = 2;
+			int travelDistance = 1;
 			pitchupdatems = randInt(pitchUpdateMsMin, pitchUpdateMsMax);
-
-			if (absYawDiff > 30.f)
-				travelDistance = 2;
-			else
-				travelDistance = 1;
 
 			if (pitchDiff > 0)
 				pitchrand = randInt(1, travelDistance);
@@ -683,19 +716,7 @@ void AimAssist::applyAimRand(float yawDiff, float pitchDiff, float speed)
 		cursorAccumY = 0.0;
 	}
 
-	// --- debug counters (no spam) ---
-	static int   rot_calls = 0;
-	static float rot_maxMs = 0.0f;
-	static DWORD rot_lastPrint = GetTickCount();
-	static int   rot_lastMoveY = 0;
-	static float rot_lastYawDelta = 0.0f;
-
-	static LARGE_INTEGER qpf = []{
-		LARGE_INTEGER f; QueryPerformanceFrequency(&f); return f;
-	}();
-
 	// Ensure low in-game sensitivity doesn't overly throttle aim speed.
-	float speedNorm = std::clamp(settings.speed / 150.0f, 0.0f, 1.0f);
 	float minSens = std::lerp(0.15f, 0.45f, speedNorm);
 	float effectiveSens = std::max(cachedMouseSensitivity, minSens);
 	float sensBase = effectiveSens * 0.6f + 0.2f;
@@ -705,43 +726,52 @@ void AimAssist::applyAimRand(float yawDiff, float pitchDiff, float speed)
 	float yawDelta = yawdiffSpeed * sensMultiplier * kMouseGain;
 	float pitchDelta = (float)moveY * sensMultiplier * kMouseGain;
 
+	// Guard against overshoot: clamp step to fraction of remaining error
+	auto clampStepToError = [](float delta, float remaining, float frac) -> float {
+		float sign = delta >= 0.f ? 1.f : -1.f;
+		float mag = std::abs(delta);
+		float maxStep = std::max(0.2f, std::abs(remaining) * frac);
+		mag = std::min(mag, maxStep);
+		mag = std::min(mag, std::abs(remaining));
+		return sign * mag;
+	};
+
+	float firstFracYaw = 0.55f;
+	float firstFracPitch = 0.6f;
+	if (targetChangedThisFrame || maxDiff > 20.f) {
+		firstFracYaw = 0.4f;
+		firstFracPitch = 0.55f;
+	}
+	yawDelta = clampStepToError(yawDelta, yawDiff, firstFracYaw);
+	pitchDelta = clampStepToError(pitchDelta, pitchDiff, firstFracPitch);
+
 	// Clamp per-frame rotation to keep motion buttery even on spikes
-	const float maxYawStep = std::lerp(3.0f, 9.0f, speedNorm);
-	const float maxPitchStep = std::lerp(2.0f, 7.0f, speedNorm);
+	float yawStepBase = std::lerp(2.5f, 6.5f, speedNorm);
+	float pitchStepBase = std::lerp(1.8f, 5.5f, speedNorm);
+	if (speedNorm > 0.8f) {
+		yawStepBase *= 0.85f;
+		pitchStepBase *= 0.85f;
+	}
+	const float maxYawStep = yawStepBase;
+	const float maxPitchStep = pitchStepBase;
 	yawDelta = std::clamp(yawDelta, -maxYawStep, maxYawStep);
 	pitchDelta = std::clamp(pitchDelta, -maxPitchStep, maxPitchStep);
 
 	bool applyYaw = std::abs(yawDelta) > 0.0001f;
 	if (!applyYaw && moveY == 0) return;
 
-	LARGE_INTEGER t0, t1;
-	QueryPerformanceCounter(&t0);
 	if (applyYaw) {
 		float currentYaw = player.getYaw();
-		player.setYaw(currentYaw + yawDelta);
+		float newYaw = currentYaw + yawDelta;
+		player.setYaw(newYaw);
+		player.setPrevYaw(newYaw);
 	}
 
 	if (moveY != 0) {
 		float currentPitch = player.getPitch();
 		float targetPitch = std::clamp(currentPitch + pitchDelta, -90.0f, 90.0f);
 		player.setPitch(targetPitch);
-	}
-
-	QueryPerformanceCounter(&t1);
-
-	float ms = float((t1.QuadPart - t0.QuadPart) * 1000.0 / double(qpf.QuadPart));
-	rot_calls++;
-	if (ms > rot_maxMs) rot_maxMs = ms;
-	rot_lastMoveY = moveY;
-	rot_lastYawDelta = yawDelta;
-
-	// Print 1 vez por segundo, no por llamada
-	DWORD now = GetTickCount();
-	if (now - rot_lastPrint >= 1000) {
-		log_debug("AimRotate: calls=%d max=%.3fms lastYawDelta=%.3f lastMoveY=%d", rot_calls, rot_maxMs, rot_lastYawDelta, rot_lastMoveY);
-		rot_calls = 0;
-		rot_maxMs = 0.0f;
-		rot_lastPrint = now;
+		player.setPrevPitch(targetPitch);
 	}
 }
 
@@ -771,6 +801,31 @@ bool AimAssist::getAimPoint(double targetX, double targetY, double targetZ, doub
 	double localY = player.getPosY();
 	double localZ = player.getPosZ();
 	float localYaw = player.getYaw();
+
+	// Prefer precise hitbox data from PlayerInfo when available
+	if (targetHasHitbox)
+	{
+		double minX = targetHitboxMinX;
+		double maxX = targetHitboxMaxX;
+		double minY = targetHitboxMinY;
+		double maxY = targetHitboxMaxY;
+		double minZ = targetHitboxMinZ;
+		double maxZ = targetHitboxMaxZ;
+
+		if (settings.aimAtClosestPoint)
+		{
+			aimX = std::clamp(localX, minX, maxX);
+			aimY = std::clamp(localY, minY, maxY);
+			aimZ = std::clamp(localZ, minZ, maxZ);
+			return true;
+		}
+
+		aimX = (minX + maxX) * 0.5;
+		aimZ = (minZ + maxZ) * 0.5;
+		double height = maxY - minY;
+		aimY = height > 0.01 ? minY + height * 0.5 : targetY;
+		return true;
+	}
 
 	constexpr double HALF_WIDTH = 0.3;
 
@@ -842,7 +897,7 @@ void AimAssist::onRenderMenu()
 		"Settings", [this, &currentMode]() {
 			ui::CheckboxBind("Enabled", &enabled, &keybind);
 			ImGui::Spacing();
-			ui::SliderFloat("Speed", &settings.speed, 1.0f, 150.0f, "%.0f");
+			ui::SliderFloat("Speed", &settings.speed, 1.0f, 100.0f, "%.0f");
 			ui::SliderInt("FOV", &settings.fov, 10, 360, "%d");
 			ui::SliderFloat("Distance", &settings.distance, 3.0f, 8.0f, "%.1f");
 			ui::SliderInt("Reaction Time", &settings.reactionTime, 0, 200, "%d ms");

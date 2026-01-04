@@ -36,6 +36,8 @@ void LocalPlayer::initFields()
 	// Rotation fields (in Entity)
 	fid_rotationYaw = Java::Env->GetFieldID(entityCls, "rotationYaw", "F");
 	fid_rotationPitch = Java::Env->GetFieldID(entityCls, "rotationPitch", "F");
+	fid_prevRotationYaw = Java::Env->GetFieldID(entityCls, "prevRotationYaw", "F");
+	fid_prevRotationPitch = Java::Env->GetFieldID(entityCls, "prevRotationPitch", "F");
 
 	// On ground (in Entity)
 	fid_onGround = Java::Env->GetFieldID(entityCls, "onGround", "Z");
@@ -189,6 +191,18 @@ float LocalPlayer::getPitch()
 	return Java::Env->GetFloatField(instance, fid_rotationPitch);
 }
 
+float LocalPlayer::getPrevYaw()
+{
+	if (!isValid() || !fid_prevRotationYaw) return getYaw();
+	return Java::Env->GetFloatField(instance, fid_prevRotationYaw);
+}
+
+float LocalPlayer::getPrevPitch()
+{
+	if (!isValid() || !fid_prevRotationPitch) return getPitch();
+	return Java::Env->GetFloatField(instance, fid_prevRotationPitch);
+}
+
 void LocalPlayer::setYaw(float value)
 {
 	if (!isValid() || !fid_rotationYaw) return;
@@ -199,6 +213,18 @@ void LocalPlayer::setPitch(float value)
 {
 	if (!isValid() || !fid_rotationPitch) return;
 	Java::Env->SetFloatField(instance, fid_rotationPitch, value);
+}
+
+void LocalPlayer::setPrevYaw(float value)
+{
+	if (!isValid() || !fid_prevRotationYaw) return;
+	Java::Env->SetFloatField(instance, fid_prevRotationYaw, value);
+}
+
+void LocalPlayer::setPrevPitch(float value)
+{
+	if (!isValid() || !fid_prevRotationPitch) return;
+	Java::Env->SetFloatField(instance, fid_prevRotationPitch, value);
 }
 
 // State

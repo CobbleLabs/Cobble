@@ -105,12 +105,26 @@ private:
 	AimBoost pitchBoost2{ 0.7f, 1.3f, 600, 900, false };
 
 	// Mouse + smoothing state
-	double cursorAccumX = 0.0;
 	double cursorAccumY = 0.0;
 	float cachedMouseSensitivity = 0.5f;
 
 	float pitchdiffSpeed = 0.f;
 	float yawdiffSpeed = 0.f;
+	bool targetHasHitbox = false;
+	float targetHitboxMinX = 0.0f;
+	float targetHitboxMinY = 0.0f;
+	float targetHitboxMinZ = 0.0f;
+	float targetHitboxMaxX = 0.0f;
+	float targetHitboxMaxY = 0.0f;
+	float targetHitboxMaxZ = 0.0f;
+	bool prevFrameHadTarget = false;
+	bool targetChangedThisFrame = false;
+	bool clickStartedThisFrame = false;
+	bool lastMouseDown = false;
+	Timer targetRampTimer;
+	float targetRampDurationMs = 200.0f;
+	Timer clickRampTimer;
+	float clickRampDurationMs = 140.0f;
 
 	Timer reactionTimeTimer;
 	

@@ -33,8 +33,12 @@ struct LocalPlayer
 	// Rotation
 	float getYaw();
 	float getPitch();
+	float getPrevYaw();
+	float getPrevPitch();
 	void setYaw(float value);
 	void setPitch(float value);
+	void setPrevYaw(float value);
+	void setPrevPitch(float value);
 
 	// State
 	bool isOnGround();
@@ -83,6 +87,8 @@ private:
 	jfieldID fid_motionZ = nullptr;
 	jfieldID fid_rotationYaw = nullptr;
 	jfieldID fid_rotationPitch = nullptr;
+	jfieldID fid_prevRotationYaw = nullptr;
+	jfieldID fid_prevRotationPitch = nullptr;
 	jfieldID fid_onGround = nullptr;
 	jfieldID fid_hurtTime = nullptr;
 	jfieldID fid_jumpTicks = nullptr;

@@ -212,6 +212,25 @@ std::vector<PlayerInfo> Minecraft::getPlayerList()
         if (JniCache::mid_getHealth) info.health = env->CallFloatMethod(entity, JniCache::mid_getHealth);
         if (JniCache::mid_getMaxHealth) info.maxHealth = env->CallFloatMethod(entity, JniCache::mid_getMaxHealth);
         if (JniCache::fid_hurtTime) info.hurtTime = env->GetIntField(entity, JniCache::fid_hurtTime);
+        
+        // Sneaking state
+        if (JniCache::mid_isSneaking) {
+            info.isSneaking = env->CallBooleanMethod(entity, JniCache::mid_isSneaking);
+        }
+        
+        // Hitbox (bounding box)
+        if (JniCache::fid_boundingBox && JniCache::cls_AxisAlignedBB) {
+            jobject aabb = env->GetObjectField(entity, JniCache::fid_boundingBox);
+            if (aabb) {
+                if (JniCache::fid_aabb_minX) info.hitboxMinX = (float)env->GetDoubleField(aabb, JniCache::fid_aabb_minX);
+                if (JniCache::fid_aabb_minY) info.hitboxMinY = (float)env->GetDoubleField(aabb, JniCache::fid_aabb_minY);
+                if (JniCache::fid_aabb_minZ) info.hitboxMinZ = (float)env->GetDoubleField(aabb, JniCache::fid_aabb_minZ);
+                if (JniCache::fid_aabb_maxX) info.hitboxMaxX = (float)env->GetDoubleField(aabb, JniCache::fid_aabb_maxX);
+                if (JniCache::fid_aabb_maxY) info.hitboxMaxY = (float)env->GetDoubleField(aabb, JniCache::fid_aabb_maxY);
+                if (JniCache::fid_aabb_maxZ) info.hitboxMaxZ = (float)env->GetDoubleField(aabb, JniCache::fid_aabb_maxZ);
+                env->DeleteLocalRef(aabb);
+            }
+        }
 
         result.push_back(std::move(info));
     }

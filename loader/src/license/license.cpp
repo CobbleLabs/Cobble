@@ -88,7 +88,7 @@ bool Verify(const std::string& serverUrl) {
         return false;
     }
 
-    DWORD timeout = 4000;
+    DWORD timeout = 2000; // 2s timeout for faster startup
     InternetSetOptionA(hInternet, INTERNET_OPTION_CONNECT_TIMEOUT, &timeout, sizeof(timeout));
     InternetSetOptionA(hInternet, INTERNET_OPTION_SEND_TIMEOUT, &timeout, sizeof(timeout));
     InternetSetOptionA(hInternet, INTERNET_OPTION_RECEIVE_TIMEOUT, &timeout, sizeof(timeout));

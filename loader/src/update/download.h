@@ -5,10 +5,10 @@
 #include <Windows.h>
 #include <wincrypt.h>
 #include <shlobj.h>
-#include <urlmon.h>
+#include <winhttp.h>
 
 #pragma comment(lib, "advapi32.lib")
-#pragma comment(lib, "urlmon.lib")
+#pragma comment(lib, "winhttp.lib")
 #pragma comment(lib, "ole32.lib")
 
 namespace Updater {
@@ -73,35 +73,136 @@ inline std::string getTempDownloadDir() {
     return dir;
 }
 
-// Download file to temp with verification
+// Progress callback signature: void callback(size_t downloaded, size_t total)
+using ProgressCallback = void(*)(size_t downloaded, size_t total);
+
+// Download file to temp with verification and progress reporting
 // Returns true if download successful and hash matches
 inline bool downloadAndVerify(const std::string& url, const std::string& destPath,
                               const std::string& expectedHash, size_t expectedSize,
-                              const std::string& hwid) {
+                              const std::string& hwid, ProgressCallback progress = nullptr) {
     // Download to .tmp first
     std::string tmpPath = destPath + ".tmp";
     
-    // Build full URL with HWID
-    std::string fullUrl = url + "?hwid=" + hwid;
+    // Parse URL
+    bool isHttps = (url.find("https://") == 0);
+    std::string host, path;
+    size_t start = isHttps ? 8 : 7;
+    size_t slashPos = url.find('/', start);
+    if (slashPos == std::string::npos) {
+        host = url.substr(start);
+        path = "/";
+    } else {
+        host = url.substr(start, slashPos - start);
+        path = url.substr(slashPos);
+    }
     
-    // Use URLDownloadToFile for simplicity
-    // In production, use WinHTTP for progress callbacks
-    HRESULT hr = URLDownloadToFileA(nullptr, fullUrl.c_str(), tmpPath.c_str(), 0, nullptr);
-    if (FAILED(hr)) {
-        DeleteFileA(tmpPath.c_str());
+    // Add HWID to path
+    path += "?hwid=" + hwid;
+    
+    // Convert to wide strings for WinHTTP
+    std::wstring wHost(host.begin(), host.end());
+    std::wstring wPath(path.begin(), path.end());
+    
+    // Open session
+    HINTERNET session = WinHttpOpen(L"CobbleUpdater/1.0", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, nullptr, nullptr, 0);
+    if (!session) return false;
+    
+    // Set timeouts (10 seconds for download)
+    DWORD timeout = 10000;
+    WinHttpSetOption(session, WINHTTP_OPTION_CONNECT_TIMEOUT, &timeout, sizeof(timeout));
+    WinHttpSetOption(session, WINHTTP_OPTION_RECEIVE_TIMEOUT, &timeout, sizeof(timeout));
+    
+    // Connect
+    INTERNET_PORT port = isHttps ? INTERNET_DEFAULT_HTTPS_PORT : INTERNET_DEFAULT_HTTP_PORT;
+    HINTERNET connect = WinHttpConnect(session, wHost.c_str(), port, 0);
+    if (!connect) {
+        WinHttpCloseHandle(session);
         return false;
     }
     
-    // Verify size
-    HANDLE file = CreateFileA(tmpPath.c_str(), GENERIC_READ, 0, nullptr, 
-                               OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
-    if (file == INVALID_HANDLE_VALUE) return false;
+    // Create request
+    DWORD flags = isHttps ? WINHTTP_FLAG_SECURE : 0;
+    HINTERNET request = WinHttpOpenRequest(connect, L"GET", wPath.c_str(), nullptr, 
+                                           WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES, flags);
+    if (!request) {
+        WinHttpCloseHandle(connect);
+        WinHttpCloseHandle(session);
+        return false;
+    }
     
-    LARGE_INTEGER size;
-    GetFileSizeEx(file, &size);
+    // Send request
+    if (!WinHttpSendRequest(request, nullptr, 0, nullptr, 0, 0, 0) ||
+        !WinHttpReceiveResponse(request, nullptr)) {
+        WinHttpCloseHandle(request);
+        WinHttpCloseHandle(connect);
+        WinHttpCloseHandle(session);
+        return false;
+    }
+    
+    // Check HTTP status code
+    DWORD statusCode = 0;
+    DWORD statusSize = sizeof(statusCode);
+    WinHttpQueryHeaders(request, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER,
+                        nullptr, &statusCode, &statusSize, nullptr);
+    if (statusCode != 200) {
+        WinHttpCloseHandle(request);
+        WinHttpCloseHandle(connect);
+        WinHttpCloseHandle(session);
+        return false;
+    }
+    
+    // Open output file
+    HANDLE file = CreateFileA(tmpPath.c_str(), GENERIC_WRITE, 0, nullptr,
+                              CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (file == INVALID_HANDLE_VALUE) {
+        WinHttpCloseHandle(request);
+        WinHttpCloseHandle(connect);
+        WinHttpCloseHandle(session);
+        return false;
+    }
+    
+    // Download in chunks with progress
+    size_t totalDownloaded = 0;
+    BYTE buffer[8192];
+    DWORD bytesAvailable = 0;
+    DWORD bytesRead = 0;
+    
+    while (true) {
+        // Check how much data is available
+        if (!WinHttpQueryDataAvailable(request, &bytesAvailable)) {
+            break;
+        }
+        
+        if (bytesAvailable == 0) {
+            break; // No more data
+        }
+        
+        // Read available data (up to buffer size)
+        DWORD toRead = (bytesAvailable > sizeof(buffer)) ? sizeof(buffer) : bytesAvailable;
+        if (!WinHttpReadData(request, buffer, toRead, &bytesRead) || bytesRead == 0) {
+            break;
+        }
+        
+        // Write to file
+        DWORD bytesWritten;
+        WriteFile(file, buffer, bytesRead, &bytesWritten, nullptr);
+        totalDownloaded += bytesRead;
+        
+        // Call progress callback
+        if (progress) {
+            progress(totalDownloaded, expectedSize);
+        }
+    }
+    
+    FlushFileBuffers(file);
     CloseHandle(file);
+    WinHttpCloseHandle(request);
+    WinHttpCloseHandle(connect);
+    WinHttpCloseHandle(session);
     
-    if ((size_t)size.QuadPart != expectedSize) {
+    // Verify size
+    if (totalDownloaded != expectedSize) {
         DeleteFileA(tmpPath.c_str());
         return false;
     }
@@ -111,14 +212,6 @@ inline bool downloadAndVerify(const std::string& url, const std::string& destPat
     if (actualHash != expectedHash) {
         DeleteFileA(tmpPath.c_str());
         return false;
-    }
-    
-    // Flush and rename atomically
-    file = CreateFileA(tmpPath.c_str(), GENERIC_WRITE, 0, nullptr, 
-                        OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
-    if (file != INVALID_HANDLE_VALUE) {
-        FlushFileBuffers(file);
-        CloseHandle(file);
     }
     
     // Rename tmp -> final

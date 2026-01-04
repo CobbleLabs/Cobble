@@ -25,6 +25,24 @@ struct PlayerInfo
 	float maxHealth = 20.0f;
 	bool isInvisible = false;
 	int hurtTime = 0;
+	
+	// Hitbox - bounding box dimensions (from AxisAlignedBB)
+	// Standard player hitbox is 0.6 wide, 1.8 tall (1.62 when sneaking)
+	float hitboxMinX = 0.0f;
+	float hitboxMinY = 0.0f;
+	float hitboxMinZ = 0.0f;
+	float hitboxMaxX = 0.0f;
+	float hitboxMaxY = 0.0f;
+	float hitboxMaxZ = 0.0f;
+	bool isSneaking = false;
+	
+	// Computed hitbox center
+	float getHitboxCenterX() const { return (hitboxMinX + hitboxMaxX) / 2.0f; }
+	float getHitboxCenterY() const { return (hitboxMinY + hitboxMaxY) / 2.0f; }
+	float getHitboxCenterZ() const { return (hitboxMinZ + hitboxMaxZ) / 2.0f; }
+	float getHitboxWidth() const { return hitboxMaxX - hitboxMinX; }
+	float getHitboxHeight() const { return hitboxMaxY - hitboxMinY; }
+	float getEyeHeight() const { return isSneaking ? 1.54f : 1.62f; }
 };
 
 // Render position for WorldToScreen calculations

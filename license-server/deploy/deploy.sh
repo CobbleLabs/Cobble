@@ -77,6 +77,14 @@ if [ "$COPY_ENV" != "true" ]; then
     read -p "DISCORD_ADMIN_ROLE (role ID): " DISCORD_ADMIN_ROLE
 fi
 
+# Domain for nginx reverse proxy
+echo ""
+read -p "Domain name for nginx (e.g. syra.club): " DOMAIN_NAME
+if [ -z "$DOMAIN_NAME" ]; then
+    echo -e "${RED}Domain name is required for nginx!${NC}"
+    exit 1
+fi
+
 # ============================================================================
 echo -e "${YELLOW}[1/6] Installing dependencies...${NC}"
 apt update -qq
@@ -95,7 +103,33 @@ fi
 echo -e "${GREEN}Go version: $(go version)${NC}"
 
 # ============================================================================
-echo -e "${YELLOW}[2/6] Building binary...${NC}"
+echo -e "${YELLOW}[2/7] Installing and configuring nginx...${NC}"
+apt install -y -qq nginx > /dev/null
+
+# Create nginx config for Cloudflare Flexible SSL
+cat > /etc/nginx/sites-available/cobble << NGINXEOF
+server {
+    listen 80;
+    server_name $DOMAIN_NAME;
+
+    location / {
+        proxy_pass http://127.0.0.1:8080;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+    }
+}
+NGINXEOF
+
+ln -sf /etc/nginx/sites-available/cobble /etc/nginx/sites-enabled/
+rm -f /etc/nginx/sites-enabled/default
+nginx -t && systemctl restart nginx
+systemctl enable nginx
+echo -e "${GREEN}Nginx configured as reverse proxy${NC}"
+
+# ============================================================================
+echo -e "${YELLOW}[3/7] Building binary...${NC}"
 
 go mod tidy
 go get github.com/bwmarrin/discordgo
@@ -112,13 +146,13 @@ fi
 echo -e "${GREEN}Binary built successfully${NC}"
 
 # ============================================================================
-echo -e "${YELLOW}[3/6] Creating user 'cobble'...${NC}"
+echo -e "${YELLOW}[4/7] Creating user 'cobble'...${NC}"
 if ! id "$USER" &>/dev/null; then
     useradd --system --no-create-home --shell /bin/false $USER
 fi
 
 # ============================================================================
-echo -e "${YELLOW}[4/6] Installing to $INSTALL_DIR...${NC}"
+echo -e "${YELLOW}[5/7] Installing to $INSTALL_DIR...${NC}"
 mkdir -p $INSTALL_DIR
 
 if [ -f "$INSTALL_DIR/licenses.db" ]; then
@@ -170,7 +204,7 @@ chown -R $USER:$USER $INSTALL_DIR
 rm cobble-server
 
 # ============================================================================
-echo -e "${YELLOW}[5/6] Creating systemd service...${NC}"
+echo -e "${YELLOW}[6/7] Creating systemd service...${NC}"
 
 cat > /etc/systemd/system/cobble.service << EOF
 [Unit]
@@ -204,7 +238,7 @@ WantedBy=multi-user.target
 EOF
 
 # ============================================================================
-echo -e "${YELLOW}[6/6] Starting service...${NC}"
+echo -e "${YELLOW}[7/7] Starting service...${NC}"
 
 systemctl daemon-reload
 systemctl enable cobble

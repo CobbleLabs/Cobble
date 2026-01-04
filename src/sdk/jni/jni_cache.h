@@ -99,6 +99,19 @@ extern jmethodID mid_getMaxHealth;
 extern jfieldID fid_hurtTime;
 extern jmethodID mid_canEntityBeSeen;
 
+// Bounding box (Entity.boundingBox -> AxisAlignedBB)
+extern jfieldID fid_boundingBox;
+extern jmethodID mid_isSneaking;
+
+// AxisAlignedBB fields (for hitbox dimensions)
+extern jclass cls_AxisAlignedBB;
+extern jfieldID fid_aabb_minX;
+extern jfieldID fid_aabb_minY;
+extern jfieldID fid_aabb_minZ;
+extern jfieldID fid_aabb_maxX;
+extern jfieldID fid_aabb_maxY;
+extern jfieldID fid_aabb_maxZ;
+
 // =============================================================================
 // EntityPlayer class IDs
 // =============================================================================

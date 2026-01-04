@@ -61,11 +61,21 @@ jfieldID fid_lastTickPosY = nullptr;
 jfieldID fid_lastTickPosZ = nullptr;
 jmethodID mid_isInvisible = nullptr;
 
-// EntityLivingBase IDs
 jmethodID mid_getHealth = nullptr;
 jmethodID mid_getMaxHealth = nullptr;
 jfieldID fid_hurtTime = nullptr;
 jmethodID mid_canEntityBeSeen = nullptr;
+jfieldID fid_boundingBox = nullptr;
+jmethodID mid_isSneaking = nullptr;
+
+// AxisAlignedBB class and fields
+jclass cls_AxisAlignedBB = nullptr;
+jfieldID fid_aabb_minX = nullptr;
+jfieldID fid_aabb_minY = nullptr;
+jfieldID fid_aabb_minZ = nullptr;
+jfieldID fid_aabb_maxX = nullptr;
+jfieldID fid_aabb_maxY = nullptr;
+jfieldID fid_aabb_maxZ = nullptr;
 
 // EntityPlayer IDs
 jmethodID mid_getName = nullptr;
@@ -315,6 +325,21 @@ bool Init()
         TRY_FIELD(fid_lastTickPosY, cls_Entity, "lastTickPosY", "D");
         TRY_FIELD(fid_lastTickPosZ, cls_Entity, "lastTickPosZ", "D");
         TRY_METHOD(mid_isInvisible, cls_Entity, "isInvisible", "()Z");
+        TRY_FIELD(fid_boundingBox, cls_Entity, "boundingBox", "Lnet/minecraft/util/AxisAlignedBB;");
+        if (!fid_boundingBox) {
+            TRY_FIELD(fid_boundingBox, cls_Entity, "entityBoundingBox", "Lnet/minecraft/util/AxisAlignedBB;"); // 1.8.x field name
+        }
+    }
+    
+    // AxisAlignedBB class and fields (for hitbox)
+    CACHE_CLASS(cls_AxisAlignedBB, "net.minecraft.util.AxisAlignedBB");
+    if (cls_AxisAlignedBB) {
+        TRY_FIELD(fid_aabb_minX, cls_AxisAlignedBB, "minX", "D");
+        TRY_FIELD(fid_aabb_minY, cls_AxisAlignedBB, "minY", "D");
+        TRY_FIELD(fid_aabb_minZ, cls_AxisAlignedBB, "minZ", "D");
+        TRY_FIELD(fid_aabb_maxX, cls_AxisAlignedBB, "maxX", "D");
+        TRY_FIELD(fid_aabb_maxY, cls_AxisAlignedBB, "maxY", "D");
+        TRY_FIELD(fid_aabb_maxZ, cls_AxisAlignedBB, "maxZ", "D");
     }
     
     // =========================================================================
@@ -326,6 +351,7 @@ bool Init()
         TRY_METHOD(mid_getMaxHealth, cls_EntityLivingBase, "getMaxHealth", "()F");
         TRY_FIELD(fid_hurtTime, cls_EntityLivingBase, "hurtTime", "I");
         TRY_METHOD(mid_canEntityBeSeen, cls_EntityLivingBase, "canEntityBeSeen", "(Lnet/minecraft/entity/Entity;)Z");
+        TRY_METHOD(mid_isSneaking, cls_EntityLivingBase, "isSneaking", "()Z");
     }
     
     // =========================================================================

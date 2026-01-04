@@ -35,11 +35,13 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/).
   - Reach: Added all 7 settings (distance, randomize, conditions)
   - Blink: Added all 3 settings (maxDuration, disableOnAttack, showDebug)
   - AutoRefill: Added all 3 settings (refillSoup, refillPotions, speed)
+- LocalPlayer: prev-rotation accessors (`prevRotationYaw`/`prevRotationPitch`) for smoother rotation updates.
 
 ### Changed
 - Blink now uses PacketInterceptor API (no `lastReportedPos` mutation).
 - ModuleManager calls `PacketInterceptor::Tick()` every update tick.
 - Overlay reinit path skips rendering when `wglMakeCurrent` fails.
+- AimAssist rotation updates now sync prev-rotation and last-reported yaw/pitch for smoother feel.
 
 ### Fixed
 - Reduced overlay context churn and GL error spam during frequent context changes.

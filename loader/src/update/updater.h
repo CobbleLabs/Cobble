@@ -107,8 +107,9 @@ inline CheckResult TryCheck(const std::string& currentVersion, const std::string
     HINTERNET connect = WinHttpConnect(session, host.c_str(), (INTERNET_PORT)port, 0);
     if (!connect) { WinHttpCloseHandle(session); result.error = "WinHttpConnect failed"; return result; }
     
+    DWORD flags = (port == 443) ? WINHTTP_FLAG_SECURE : 0;
     HINTERNET request = WinHttpOpenRequest(connect, L"GET", L"/api/update/manifest", nullptr, 
-                                           WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES, 0);
+                                           WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES, flags);
 
     if (!request) {
         WinHttpCloseHandle(connect); 
@@ -120,6 +121,12 @@ inline CheckResult TryCheck(const std::string& currentVersion, const std::string
     // Disable redirects to prevent http:8080 -> https:8080 loop
     DWORD disableRedirects = WINHTTP_OPTION_REDIRECT_POLICY_NEVER;
     WinHttpSetOption(request, WINHTTP_OPTION_REDIRECT_POLICY, &disableRedirects, sizeof(disableRedirects));
+    
+    // Set 2s timeout for faster startup
+    DWORD timeout = 2000;
+    WinHttpSetOption(request, WINHTTP_OPTION_CONNECT_TIMEOUT, &timeout, sizeof(timeout));
+    WinHttpSetOption(request, WINHTTP_OPTION_SEND_TIMEOUT, &timeout, sizeof(timeout));
+    WinHttpSetOption(request, WINHTTP_OPTION_RECEIVE_TIMEOUT, &timeout, sizeof(timeout));
     
     if (!WinHttpSendRequest(request, nullptr, 0, nullptr, 0, 0, 0) || 
         !WinHttpReceiveResponse(request, nullptr)) {
@@ -212,20 +219,21 @@ inline CheckResult TryCheck(const std::string& currentVersion, const std::string
 // Check for updates with fallback (call after license verification)
 inline CheckResult Check(const std::string& currentVersion, 
                          const std::string& primaryHost, 
+                         int primaryPort,
                          const std::string& fallbackHost, 
-                         int port) {
+                         int fallbackPort) {
     std::string highestSeen = getHighestSeen();
     if (highestSeen.empty()) {
         highestSeen = currentVersion;
         setHighestSeen(highestSeen);
     }
     
-    // Try primary host first
-    CheckResult result = TryCheck(currentVersion, primaryHost, port, highestSeen);
+    // Try primary host first (HTTPS)
+    CheckResult result = TryCheck(currentVersion, primaryHost, primaryPort, highestSeen);
     if (result.success) return result;
     
-    // Fallback to IP if primary failed
-    result = TryCheck(currentVersion, fallbackHost, port, highestSeen);
+    // Fallback to IP with HTTP
+    result = TryCheck(currentVersion, fallbackHost, fallbackPort, highestSeen);
     return result;
 }
 
