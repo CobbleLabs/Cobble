@@ -14,7 +14,7 @@
 
 // Set to 1 to enable debug console allocation and stdout logging
 #ifndef DEBUG_CONSOLE
-#define DEBUG_CONSOLE 0
+#define DEBUG_CONSOLE 1
 #endif
 
 enum class message_type : unsigned int {

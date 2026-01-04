@@ -805,7 +805,7 @@ static void JNICALL onClassFileLoadHook(jvmtiEnv* jvmti_env, JNIEnv* jni_env, jc
         int patched_methods = patchNetworkManagerClass(class_data, static_cast<size_t>(class_data_len), patched);
         if (patched_methods <= 0) {
             if (patched_methods < 0) {
-                log_warn("[PacketInterceptor] Bytecode patch failed for %s", name);
+                //log_warn("[PacketInterceptor] Bytecode patch failed for %s", name);
             }
             return;
         }
@@ -813,7 +813,7 @@ static void JNICALL onClassFileLoadHook(jvmtiEnv* jvmti_env, JNIEnv* jni_env, jc
         unsigned char* buffer = nullptr;
         jvmtiError err = jvmti_env->Allocate(static_cast<jint>(patched.size()), &buffer);
         if (err != JVMTI_ERROR_NONE || !buffer) {
-            log_warn("[PacketInterceptor] JVMTI Allocate failed for patched class: %d", err);
+            //log_warn("[PacketInterceptor] JVMTI Allocate failed for patched class: %d", err);
             return;
         }
 
@@ -823,9 +823,9 @@ static void JNICALL onClassFileLoadHook(jvmtiEnv* jvmti_env, JNIEnv* jni_env, jc
 
         static std::atomic<bool> logged{false};
         if (!logged.exchange(true)) {
-            log_ok("[PacketInterceptor] Patched NetworkManager.sendPacket bytecode (%d method(s))", patched_methods);
+            //log_ok("[PacketInterceptor] Patched NetworkManager.sendPacket bytecode (%d method(s))", patched_methods);
         } else {
-            log_debug("[PacketInterceptor] Patched NetworkManager.sendPacket bytecode (%d method(s))", patched_methods);
+            //log_debug("[PacketInterceptor] Patched NetworkManager.sendPacket bytecode (%d method(s))", patched_methods);
         }
         return;
     }
@@ -833,12 +833,12 @@ static void JNICALL onClassFileLoadHook(jvmtiEnv* jvmti_env, JNIEnv* jni_env, jc
     // Log all class loads for debugging Lunar client classes
     // TODO: Add handleCustomPayload hook for incoming plugin messages
     if (strcmp(name, kIncomingTargetClassSlash) == 0) {
-        log_debug("[PacketInterceptor] NetHandlerPlayClient loaded - incoming packet hook TBD");
+        //log_debug("[PacketInterceptor] NetHandlerPlayClient loaded - incoming packet hook TBD");
     }
     
     // Debug: Log Lunar-related classes
     if (strstr(name, "lunar") != nullptr || strstr(name, "apollo") != nullptr) {
-        log_debug("[PacketInterceptor] Lunar class loaded: %s", name);
+        //log_debug("[PacketInterceptor] Lunar class loaded: %s", name);
     }
 }
 
@@ -969,11 +969,11 @@ static bool cachePacketFields(JNIEnv* env) {
     packetFieldsReady.store((fid_pkt_x && fid_pkt_y && fid_pkt_z), std::memory_order_release);
     if (packetFieldsReady.load()) {
         if (!packetFieldsLogged) {
-            log_ok("[PacketInterceptor] Cached packet position fields for hybrid Blink");
+            //log_ok("[PacketInterceptor] Cached packet position fields for hybrid Blink");
             packetFieldsLogged = true;
         }
     } else if (!packetFieldsWarned) {
-        log_warn("[PacketInterceptor] Failed to cache packet fields - hybrid skip disabled");
+        //log_warn("[PacketInterceptor] Failed to cache packet fields - hybrid skip disabled");
         packetFieldsWarned = true;
     }
 
@@ -1044,19 +1044,19 @@ static size_t getDesiredQueueCount() {
 // Helper: Get NetworkManager instance from player
 // ============================================================================
 static jobject getNetworkManager(JNIEnv* env) {
-    log_debug("[PacketInterceptor] Getting NetworkManager instance...");
+    //log_debug("[PacketInterceptor] Getting NetworkManager instance...");
     
     // Path: thePlayer.sendQueue.netManager
     jobject player = mc.getPlayer();
     if (!player) {
-        log_warn("[PacketInterceptor] No player instance");
+        //log_warn("[PacketInterceptor] No player instance");
         return nullptr;
     }
     
     // Get EntityPlayerSP class
     jclass cls_EntityPlayerSP = nullptr;
     if (!Java::AssignClass("net.minecraft.client.entity.EntityPlayerSP", cls_EntityPlayerSP)) {
-        log_err("[PacketInterceptor] Failed to get EntityPlayerSP class");
+        //log_err("[PacketInterceptor] Failed to get EntityPlayerSP class");
         return nullptr;
     }
     
@@ -1065,7 +1065,7 @@ static jobject getNetworkManager(JNIEnv* env) {
         "Lnet/minecraft/client/network/NetHandlerPlayClient;");
     if (env->ExceptionCheck()) {
         env->ExceptionClear();
-        log_err("[PacketInterceptor] Failed to get sendQueue field");
+        //log_err("[PacketInterceptor] Failed to get sendQueue field");
         env->DeleteLocalRef(cls_EntityPlayerSP);
         return nullptr;
     }
@@ -1074,15 +1074,15 @@ static jobject getNetworkManager(JNIEnv* env) {
     env->DeleteLocalRef(cls_EntityPlayerSP);
     
     if (!sendQueue) {
-        log_warn("[PacketInterceptor] sendQueue is null");
+        //log_warn("[PacketInterceptor] sendQueue is null");
         return nullptr;
     }
-    log_debug("[PacketInterceptor] Got sendQueue: %p", sendQueue);
+    //log_debug("[PacketInterceptor] Got sendQueue: %p", sendQueue);
     
     // Get NetHandlerPlayClient class
     jclass cls_NetHandlerPlayClient = nullptr;
     if (!Java::AssignClass("net.minecraft.client.network.NetHandlerPlayClient", cls_NetHandlerPlayClient)) {
-        log_err("[PacketInterceptor] Failed to get NetHandlerPlayClient class");
+        //log_err("[PacketInterceptor] Failed to get NetHandlerPlayClient class");
         env->DeleteLocalRef(sendQueue);
         return nullptr;
     }
@@ -1092,7 +1092,7 @@ static jobject getNetworkManager(JNIEnv* env) {
         "Lnet/minecraft/network/NetworkManager;");
     if (env->ExceptionCheck()) {
         env->ExceptionClear();
-        log_err("[PacketInterceptor] Failed to get netManager field");
+        //log_err("[PacketInterceptor] Failed to get netManager field");
         env->DeleteLocalRef(cls_NetHandlerPlayClient);
         env->DeleteLocalRef(sendQueue);
         return nullptr;
@@ -1103,9 +1103,9 @@ static jobject getNetworkManager(JNIEnv* env) {
     env->DeleteLocalRef(sendQueue);
     
     if (netManager) {
-        log_ok("[PacketInterceptor] Got NetworkManager: %p", netManager);
+        //log_ok("[PacketInterceptor] Got NetworkManager: %p", netManager);
     } else {
-        log_warn("[PacketInterceptor] netManager is null");
+        //log_warn("[PacketInterceptor] netManager is null");
     }
     
     return netManager;
@@ -1115,7 +1115,7 @@ static jobject getNetworkManager(JNIEnv* env) {
 // Initialize packet classes cache
 // ============================================================================
 static bool cachePacketClasses(JNIEnv* env) {
-    log_debug("[PacketInterceptor] Caching packet classes...");
+    //log_debug("[PacketInterceptor] Caching packet classes...");
 
     auto makeGlobal = [env](jclass localRef) -> jclass {
         if (!localRef) return nullptr;
@@ -1127,38 +1127,38 @@ static bool cachePacketClasses(JNIEnv* env) {
     // NetworkManager
     jclass localClass = nullptr;
     if (!Java::AssignClass("net.minecraft.network.NetworkManager", localClass)) {
-        log_err("[PacketInterceptor] Failed to cache NetworkManager class");
+        //log_err("[PacketInterceptor] Failed to cache NetworkManager class");
         return false;
     }
     cls_NetworkManager = makeGlobal(localClass);
     if (!cls_NetworkManager) {
-        log_err("[PacketInterceptor] Failed to create global ref for NetworkManager");
+        //log_err("[PacketInterceptor] Failed to create global ref for NetworkManager");
         return false;
     }
-    log_ok("[PacketInterceptor] Cached NetworkManager class");
+    //log_ok("[PacketInterceptor] Cached NetworkManager class");
     
     // Base Packet class
     localClass = nullptr;
     if (!Java::AssignClass("net.minecraft.network.Packet", localClass)) {
-        log_err("[PacketInterceptor] Failed to cache Packet class");
+        //log_err("[PacketInterceptor] Failed to cache Packet class");
         return false;
     }
     cls_Packet = makeGlobal(localClass);
     if (!cls_Packet) {
-        log_err("[PacketInterceptor] Failed to create global ref for Packet");
+        //log_err("[PacketInterceptor] Failed to create global ref for Packet");
         return false;
     }
-    log_ok("[PacketInterceptor] Cached Packet class");
+    //log_ok("[PacketInterceptor] Cached Packet class");
     
     // C03PacketPlayer (base for movement)
     localClass = nullptr;
     if (!Java::AssignClass("net.minecraft.network.play.client.C03PacketPlayer", localClass)) {
-        log_warn("[PacketInterceptor] Failed to cache C03PacketPlayer - trying alternative names");
+        //log_warn("[PacketInterceptor] Failed to cache C03PacketPlayer - trying alternative names");
         // Try without full package
         cls_C03PacketPlayer = nullptr;
     } else {
         cls_C03PacketPlayer = makeGlobal(localClass);
-        log_ok("[PacketInterceptor] Cached C03PacketPlayer class");
+        //log_ok("[PacketInterceptor] Cached C03PacketPlayer class");
     }
     
     // C04PacketPlayerPosition (with position)
@@ -1171,7 +1171,7 @@ static bool cachePacketClasses(JNIEnv* env) {
         cls_C04PacketPlayerPosition = makeGlobal(localClass);
     }
     if (cls_C04PacketPlayerPosition) {
-        log_ok("[PacketInterceptor] Cached C04PacketPlayerPosition class");
+        //log_ok("[PacketInterceptor] Cached C04PacketPlayerPosition class");
     }
     
     // C05PacketPlayerLook (with rotation)
@@ -1183,7 +1183,7 @@ static bool cachePacketClasses(JNIEnv* env) {
         cls_C05PacketPlayerLook = makeGlobal(localClass);
     }
     if (cls_C05PacketPlayerLook) {
-        log_ok("[PacketInterceptor] Cached C05PacketPlayerLook class");
+        //log_ok("[PacketInterceptor] Cached C05PacketPlayerLook class");
     }
     
     // C06PacketPlayerPosLook (position + rotation)
@@ -1195,7 +1195,7 @@ static bool cachePacketClasses(JNIEnv* env) {
         cls_C06PacketPlayerPosLook = makeGlobal(localClass);
     }
     if (cls_C06PacketPlayerPosLook) {
-        log_ok("[PacketInterceptor] Cached C06PacketPlayerPosLook class");
+        //log_ok("[PacketInterceptor] Cached C06PacketPlayerPosLook class");
     }
     
     // Get sendPacket method
@@ -1203,7 +1203,7 @@ static bool cachePacketClasses(JNIEnv* env) {
         "(Lnet/minecraft/network/Packet;)V");
     if (env->ExceptionCheck()) {
         env->ExceptionClear();
-        log_warn("[PacketInterceptor] sendPacket(Packet) not found directly, trying alternatives...");
+        //log_warn("[PacketInterceptor] sendPacket(Packet) not found directly, trying alternatives...");
         
         // List methods to find correct signature
         if (Java::tiEnv) {
@@ -1215,11 +1215,11 @@ static bool cachePacketClasses(JNIEnv* env) {
                     char* sig = nullptr;
                     Java::tiEnv->GetMethodName(methods[i], &name, &sig, nullptr);
                     if (name && strcmp(name, "sendPacket") == 0) {
-                        log_debug("[PacketInterceptor] Found sendPacket variant: %s", sig);
+                        //log_debug("[PacketInterceptor] Found sendPacket variant: %s", sig);
                         // Try to get it with this signature
                         mid_sendPacket = env->GetMethodID(cls_NetworkManager, "sendPacket", sig);
                         if (!env->ExceptionCheck() && mid_sendPacket) {
-                            log_ok("[PacketInterceptor] Using sendPacket%s", sig);
+                            //log_ok("[PacketInterceptor] Using sendPacket%s", sig);
                             if (name) Java::tiEnv->Deallocate((unsigned char*)name);
                             if (sig) Java::tiEnv->Deallocate((unsigned char*)sig);
                             break;
@@ -1233,7 +1233,7 @@ static bool cachePacketClasses(JNIEnv* env) {
             }
         }
     } else {
-        log_ok("[PacketInterceptor] Cached sendPacket method");
+        //log_ok("[PacketInterceptor] Cached sendPacket method");
     }
     
     return true;
@@ -1255,7 +1255,7 @@ static bool ensureHookClass(JNIEnv* env) {
 
     if (!hook) {
         if (!Java::ClassLoader) {
-            log_err("[PacketInterceptor] No classloader available for PacketHook");
+            //log_err("[PacketInterceptor] No classloader available for PacketHook");
             return false;
         }
         hook = env->DefineClass(kHookClassSlash, Java::ClassLoader,
@@ -1271,7 +1271,7 @@ static bool ensureHookClass(JNIEnv* env) {
                 }
             }
             if (!hook) {
-                log_err("[PacketInterceptor] Failed to define PacketHook class");
+                //log_err("[PacketInterceptor] Failed to define PacketHook class");
                 return false;
             }
         }
@@ -1286,14 +1286,14 @@ static bool ensureHookClass(JNIEnv* env) {
         if (env->ExceptionCheck()) {
             env->ExceptionClear();
         }
-        log_err("[PacketInterceptor] Failed to register PacketHook native");
+        //log_err("[PacketInterceptor] Failed to register PacketHook native");
         env->DeleteLocalRef(hook);
         return false;
     }
 
     cls_PacketHook = (jclass)env->NewGlobalRef(hook);
     env->DeleteLocalRef(hook);
-    log_ok("[PacketInterceptor] PacketHook native bridge ready");
+    //log_ok("[PacketInterceptor] PacketHook native bridge ready");
     return true;
 }
 
@@ -1307,13 +1307,13 @@ static bool installBytecodeHook(JNIEnv* env) {
 
     jvmtiError err = Java::tiEnv->SetEventCallbacks(&callbacks, sizeof(callbacks));
     if (err != JVMTI_ERROR_NONE) {
-        log_warn("[PacketInterceptor] Failed to set JVMTI class hook callbacks: %d", err);
+        //log_warn("[PacketInterceptor] Failed to set JVMTI class hook callbacks: %d", err);
         return false;
     }
 
     err = Java::tiEnv->SetEventNotificationMode(JVMTI_ENABLE, JVMTI_EVENT_CLASS_FILE_LOAD_HOOK, nullptr);
     if (err != JVMTI_ERROR_NONE) {
-        log_warn("[PacketInterceptor] Failed to enable class hook events: %d", err);
+        //log_warn("[PacketInterceptor] Failed to enable class hook events: %d", err);
         return false;
     }
 
@@ -1324,16 +1324,16 @@ static bool installBytecodeHook(JNIEnv* env) {
         jclass classes[1] = { nm };
         err = Java::tiEnv->RetransformClasses(1, classes);
         if (err == JVMTI_ERROR_NONE) {
-            log_ok("[PacketInterceptor] Retransform requested for NetworkManager");
+            //log_ok("[PacketInterceptor] Retransform requested for NetworkManager");
         } else {
-            log_warn("[PacketInterceptor] RetransformClasses failed: %d", err);
+            //log_warn("[PacketInterceptor] RetransformClasses failed: %d", err);
         }
         env->DeleteLocalRef(nm);
     } else {
         if (env->ExceptionCheck()) {
             env->ExceptionClear();
         }
-        log_warn("[PacketInterceptor] NetworkManager class not available for retransform");
+        //log_warn("[PacketInterceptor] NetworkManager class not available for retransform");
     }
 
     return true;
@@ -1365,7 +1365,7 @@ static bool installMethodEntryHook() {
 
                     if (packet && !shouldSendPacket(jni_env, packet)) {
                         jvmti_env->ForceEarlyReturnVoid(thread);
-                        log_debug("[PacketInterceptor] Blocked sendPacket via ForceEarlyReturn");
+                        //log_debug("[PacketInterceptor] Blocked sendPacket via ForceEarlyReturn");
                     }
                     if (packet) {
                         jni_env->DeleteLocalRef(packet);
@@ -1380,17 +1380,17 @@ static bool installMethodEntryHook() {
 
     jvmtiError err = Java::tiEnv->SetEventCallbacks(&callbacks, sizeof(callbacks));
     if (err != JVMTI_ERROR_NONE) {
-        log_warn("[PacketInterceptor] Failed to set JVMTI callbacks: %d", err);
+        //log_warn("[PacketInterceptor] Failed to set JVMTI callbacks: %d", err);
         return false;
     }
 
     err = Java::tiEnv->SetEventNotificationMode(JVMTI_ENABLE, JVMTI_EVENT_METHOD_ENTRY, nullptr);
     if (err == JVMTI_ERROR_NONE) {
-        log_ok("[PacketInterceptor] JVMTI Method Entry hook installed");
+        //log_ok("[PacketInterceptor] JVMTI Method Entry hook installed");
         return true;
     }
 
-    log_warn("[PacketInterceptor] Failed to enable method entry events: %d", err);
+    //log_warn("[PacketInterceptor] Failed to enable method entry events: %d", err);
     return false;
 }
 
@@ -1473,16 +1473,16 @@ static const char* getPacketTypeName(JNIEnv* env, jobject packet) {
 // ============================================================================
 
 bool Init() {
-    log_debug("[PacketInterceptor] Initializing...");
+    //log_debug("[PacketInterceptor] Initializing...");
     
     if (!Java::Initialized) {
-        log_err("[PacketInterceptor] Java not initialized");
+        //log_err("[PacketInterceptor] Java not initialized");
         return false;
     }
     
     JNIEnv* env = Java::Env;
     if (!env) {
-        log_err("[PacketInterceptor] No JNIEnv");
+        //log_err("[PacketInterceptor] No JNIEnv");
         return false;
     }
     
@@ -1491,24 +1491,24 @@ bool Init() {
     bool haveCaps = false;
 
     if (!Java::tiEnv) {
-        log_warn("[PacketInterceptor] JVMTI not available - limited functionality");
+        //log_warn("[PacketInterceptor] JVMTI not available - limited functionality");
     } else {
-        log_ok("[PacketInterceptor] JVMTI available");
+        //log_ok("[PacketInterceptor] JVMTI available");
         if (Java::tiEnv->GetCapabilities(&caps) == JVMTI_ERROR_NONE) {
             haveCaps = true;
-            log_debug("[PacketInterceptor] JVMTI Capabilities:");
-            log_debug("  can_retransform_classes: %d", caps.can_retransform_classes);
-            log_debug("  can_redefine_classes: %d", caps.can_redefine_classes);
-            log_debug("  can_generate_all_class_hook_events: %d", caps.can_generate_all_class_hook_events);
-            log_debug("  can_generate_method_entry_events: %d", caps.can_generate_method_entry_events);
-            log_debug("  can_force_early_return: %d", caps.can_force_early_return);
-            log_debug("  can_access_local_variables: %d", caps.can_access_local_variables);
+            //log_debug("[PacketInterceptor] JVMTI Capabilities:");
+            //log_debug("  can_retransform_classes: %d", caps.can_retransform_classes);
+            //log_debug("  can_redefine_classes: %d", caps.can_redefine_classes);
+            //log_debug("  can_generate_all_class_hook_events: %d", caps.can_generate_all_class_hook_events);
+            //log_debug("  can_generate_method_entry_events: %d", caps.can_generate_method_entry_events);
+            //log_debug("  can_force_early_return: %d", caps.can_force_early_return);
+            //log_debug("  can_access_local_variables: %d", caps.can_access_local_variables);
         }
     }
     
     // Cache packet classes
     if (!cachePacketClasses(env)) {
-        log_err("[PacketInterceptor] Failed to cache packet classes");
+        //log_err("[PacketInterceptor] Failed to cache packet classes");
         return false;
     }
 
@@ -1520,10 +1520,10 @@ bool Init() {
             if (ensureHookClass(env) && installBytecodeHook(env)) {
                 interceptReady = true;
             } else {
-                log_warn("[PacketInterceptor] Bytecode hook setup failed");
+                //log_warn("[PacketInterceptor] Bytecode hook setup failed");
             }
         } else {
-            log_warn("[PacketInterceptor] Class hook capabilities unavailable");
+            //log_warn("[PacketInterceptor] Class hook capabilities unavailable");
         }
 
         if (!interceptReady && caps.can_generate_method_entry_events &&
@@ -1534,7 +1534,7 @@ bool Init() {
         }
 
         if (!interceptReady) {
-            log_warn("[PacketInterceptor] No usable JVMTI interception path available");
+            //log_warn("[PacketInterceptor] No usable JVMTI interception path available");
         }
     }
     
@@ -1543,19 +1543,19 @@ bool Init() {
     if (networkManagerInstance) {
         // Create global ref
         networkManagerInstance = env->NewGlobalRef(networkManagerInstance);
-        log_ok("[PacketInterceptor] Cached NetworkManager instance as GlobalRef");
+        //log_ok("[PacketInterceptor] Cached NetworkManager instance as GlobalRef");
     } else {
-        log_warn("[PacketInterceptor] No NetworkManager yet - will try later");
+        //log_warn("[PacketInterceptor] No NetworkManager yet - will try later");
     }
     
     initialized = true;
-    log_ok("[PacketInterceptor] Initialized successfully");
+    //log_ok("[PacketInterceptor] Initialized successfully");
     
     return true;
 }
 
 void Shutdown() {
-    log_debug("[PacketInterceptor] Shutting down...");
+    //log_debug("[PacketInterceptor] Shutting down...");
     
     blinkActive = false;
     hybridIntercept = false;
@@ -1606,7 +1606,7 @@ void Shutdown() {
     packetFieldsWarned = false;
     
     initialized = false;
-    log_ok("[PacketInterceptor] Shutdown complete");
+    //log_ok("[PacketInterceptor] Shutdown complete");
 }
 
 bool IsReady() {
@@ -1637,7 +1637,7 @@ void setBlinkActive(bool active) {
             }
         }
 
-        log_ok("[PacketInterceptor] Hybrid Blink ACTIVATED - delay %d ticks", kHybridDelayTicks);
+        //log_ok("[PacketInterceptor] Hybrid Blink ACTIVATED - delay %d ticks", kHybridDelayTicks);
 
         if (!packetFieldsReady.load()) {
             JNIEnv* env = Java::Env;
@@ -1651,13 +1651,13 @@ void setBlinkActive(bool active) {
                 jobject nm = getNetworkManager(env);
                 if (nm) {
                     networkManagerInstance = env->NewGlobalRef(nm);
-                    log_ok("[PacketInterceptor] Late-cached NetworkManager instance");
+                    //log_ok("[PacketInterceptor] Late-cached NetworkManager instance");
                 }
             }
         }
     } else if (!active && wasActive) {
         hybridRelease = true;
-        log_ok("[PacketInterceptor] Hybrid Blink DEACTIVATED - releasing (queue: %zu)", getDesiredQueueCount());
+        //log_ok("[PacketInterceptor] Hybrid Blink DEACTIVATED - releasing (queue: %zu)", getDesiredQueueCount());
     }
 }
 
@@ -1673,7 +1673,7 @@ int getQueuedCount() {
 void flushQueue() {
     JNIEnv* env = Java::Env;
     if (!env || !networkManagerInstance || !mid_sendPacket) {
-        log_err("[PacketInterceptor] Cannot flush - missing dependencies");
+        //log_err("[PacketInterceptor] Cannot flush - missing dependencies");
         return;
     }
 
@@ -1681,17 +1681,17 @@ void flushQueue() {
     {
         std::lock_guard<std::mutex> lock(queueMutex);
         if (packetQueue.empty()) {
-            log_debug("[PacketInterceptor] Nothing to flush");
+            //log_debug("[PacketInterceptor] Nothing to flush");
             return;
         }
         toSend.swap(packetQueue);
     }
 
     int count = (int)toSend.size();
-    log_ok("[PacketInterceptor] Flushing %d queued packets...", count);
+    //log_ok("[PacketInterceptor] Flushing %d queued packets...", count);
     
     for (auto& qp : toSend) {
-        log_debug("[PacketInterceptor] Sending queued packet: %s", getPacketTypeName(env, qp.packet));
+        //log_debug("[PacketInterceptor] Sending queued packet: %s", getPacketTypeName(env, qp.packet));
         
         // Call sendPacket on NetworkManager
         env->CallVoidMethod(networkManagerInstance, mid_sendPacket, qp.packet);
@@ -1699,7 +1699,7 @@ void flushQueue() {
         if (env->ExceptionCheck()) {
             env->ExceptionDescribe();
             env->ExceptionClear();
-            log_err("[PacketInterceptor] Exception while sending queued packet");
+            //log_err("[PacketInterceptor] Exception while sending queued packet");
         }
         
         if (qp.hasPos) {
@@ -1709,7 +1709,7 @@ void flushQueue() {
         }
         env->DeleteGlobalRef(qp.packet);
     }
-    log_ok("[PacketInterceptor] Flush complete - sent %d packets", count);
+    //log_ok("[PacketInterceptor] Flush complete - sent %d packets", count);
 }
 
 void clearQueue() {
@@ -1721,21 +1721,21 @@ void clearQueue() {
     }
     packetQueue.clear();
     
-    log_debug("[PacketInterceptor] Queue cleared");
+    //log_debug("[PacketInterceptor] Queue cleared");
 }
 
 void printDebugInfo() {
-    log_debug("=== PacketInterceptor Debug ===");
-    log_debug("  Initialized: %s", initialized.load() ? "YES" : "NO");
-    log_debug("  Blink Active: %s", blinkActive.load() ? "YES" : "NO");
-    log_debug("  Hybrid Intercept: %s", hybridIntercept.load() ? "YES" : "NO");
-    log_debug("  Hybrid Release: %s", hybridRelease.load() ? "YES" : "NO");
-    log_debug("  Queued Packets: %d", getQueuedCount());
-    log_debug("  Desired Queue: %zu", getDesiredQueueCount());
-    log_debug("  Packet Fields Ready: %s", packetFieldsReady.load() ? "YES" : "NO");
-    log_debug("  NetworkManager: %p", networkManagerInstance);
-    log_debug("  sendPacket method: %p", mid_sendPacket);
-    log_debug("  C03PacketPlayer class: %p", cls_C03PacketPlayer);
+    //log_debug("=== PacketInterceptor Debug ===");
+    //log_debug("  Initialized: %s", initialized.load() ? "YES" : "NO");
+    //log_debug("  Blink Active: %s", blinkActive.load() ? "YES" : "NO");
+    //log_debug("  Hybrid Intercept: %s", hybridIntercept.load() ? "YES" : "NO");
+    //log_debug("  Hybrid Release: %s", hybridRelease.load() ? "YES" : "NO");
+    //log_debug("  Queued Packets: %d", getQueuedCount());
+    //log_debug("  Desired Queue: %zu", getDesiredQueueCount());
+    //log_debug("  Packet Fields Ready: %s", packetFieldsReady.load() ? "YES" : "NO");
+    //log_debug("  NetworkManager: %p", networkManagerInstance);
+    //log_debug("  sendPacket method: %p", mid_sendPacket);
+    //log_debug("  C03PacketPlayer class: %p", cls_C03PacketPlayer);
 }
 
 bool getLastSentPosition(double& x, double& y, double& z) {
@@ -1772,7 +1772,7 @@ void Tick() {
                 clearDesiredQueue();
                 hybridRelease = false;
                 hybridIntercept = false;
-                log_ok("[PacketInterceptor] Hybrid release complete - caught up to client");
+                //log_ok("[PacketInterceptor] Hybrid release complete - caught up to client");
             }
         }
         return;
@@ -1784,7 +1784,7 @@ void Tick() {
         jobject nm = getNetworkManager(env);
         if (nm) {
             networkManagerInstance = env->NewGlobalRef(nm);
-            log_ok("[PacketInterceptor] Late-cached NetworkManager instance");
+            //log_ok("[PacketInterceptor] Late-cached NetworkManager instance");
         }
     }
     if (!networkManagerInstance || !mid_sendPacket) return;
@@ -1838,7 +1838,7 @@ void Tick() {
         }
 
         if (sendIndex > 0) {
-            log_debug("[PacketInterceptor] Hybrid skip %zu packet(s) to catch up", sendIndex);
+            //log_debug("[PacketInterceptor] Hybrid skip %zu packet(s) to catch up", sendIndex);
             for (size_t i = 0; i < sendIndex; ++i) {
                 env->DeleteGlobalRef(packetQueue[i].packet);
             }
@@ -1861,7 +1861,7 @@ void Tick() {
     if (env->ExceptionCheck()) {
         env->ExceptionDescribe();
         env->ExceptionClear();
-        log_err("[PacketInterceptor] Exception while sending hybrid packet");
+        //log_err("[PacketInterceptor] Exception while sending hybrid packet");
     }
 
     if (!toSend.hasPos && packetFieldsReady.load()) {
@@ -1883,7 +1883,7 @@ void Tick() {
         if (packetQueue.empty()) {
             hybridRelease = false;
             hybridIntercept = false;
-            log_ok("[PacketInterceptor] Hybrid release complete - passthrough restored");
+            //log_ok("[PacketInterceptor] Hybrid release complete - passthrough restored");
         }
     }
 
@@ -1971,7 +1971,7 @@ bool shouldSendPacket(JNIEnv* env, jobject packet) {
                 clearDesiredQueue();
                 hybridRelease = false;
                 hybridIntercept = false;
-                log_ok("[PacketInterceptor] Hybrid release complete - caught up to client");
+                //log_ok("[PacketInterceptor] Hybrid release complete - caught up to client");
             }
         }
 
@@ -1998,13 +1998,13 @@ bool shouldSendPacket(JNIEnv* env, jobject packet) {
         if (packetQueue.size() > kHybridMaxQueue) {
             env->DeleteGlobalRef(packetQueue.front().packet);
             packetQueue.erase(packetQueue.begin());
-            log_warn("[PacketInterceptor] Hybrid queue capped at %zu packets", kHybridMaxQueue);
+            //log_warn("[PacketInterceptor] Hybrid queue capped at %zu packets", kHybridMaxQueue);
         }
         
         static int debugCounter = 0;
         if (++debugCounter % 20 == 0 || packetQueue.size() <= 3) {
-            log_debug("[PacketInterceptor] Queued %s (total: %d)", 
-                getPacketTypeName(env, packet), (int)packetQueue.size());
+            //log_debug("[PacketInterceptor] Queued %s (total: %d)", 
+                getPacketTypeName(env, packet), (int)packetQueue.size();
         }
     }
     

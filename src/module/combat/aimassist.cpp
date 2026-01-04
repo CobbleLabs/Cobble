@@ -375,7 +375,7 @@ void AimAssist::onUpdate()
 	float yawDiff = wrapTo180(-(localYaw - yawTarget));
 	float pitchDiff = wrapTo180(-(localPitch - pitchTarget));
 
-	float speedSetting = std::min(settings.speed, 100.0f);
+	float speedSetting = std::min(settings.speed, 120.0f);
 	float speed = speedSetting * 3.0f;
 	cachedMouseSensitivity = mc.getMouseSensitivity();
 
@@ -610,15 +610,15 @@ void AimAssist::applyAimRand(float yawDiff, float pitchDiff, float speed)
 	float alignment = std::clamp(std::max(absYawDiff, absPitchDiff) / 90.0f, 0.0f, 1.0f);
 	float dynamicSpeed = std::lerp(baseSpeed * 0.35f, baseSpeed, alignment);
 
-	float clampedSpeedSetting = std::min(settings.speed, 100.0f);
-	float speedNorm = std::clamp(clampedSpeedSetting / 100.0f, 0.0f, 1.0f);
+	float clampedSpeedSetting = std::min(settings.speed, 120.0f);
+	float speedNorm = std::clamp(clampedSpeedSetting / 120.0f, 0.0f, 1.0f);
 	// Ramp respects both time since acquisition and current angular error (larger error = slower ramp)
 	float timeRamp = std::clamp(targetRampTimer.Elapsed<>() / targetRampDurationMs, 0.25f, 1.0f);
 	float errorRamp = std::clamp(1.0f - (maxDiff / 90.0f), 0.25f, 1.0f);
 	float clickRamp = settings.alwaysAim ? 1.0f : std::clamp(clickRampTimer.Elapsed<>() / clickRampDurationMs, 0.3f, 1.0f);
 	float ramp = std::min({ timeRamp, errorRamp, clickRamp });
 	dynamicSpeed *= ramp;
-	if (clampedSpeedSetting >= 100.0f) {
+	if (clampedSpeedSetting >= 120.0f) {
 		dynamicSpeed *= 0.8f; // soften high-speed settings to avoid flicks
 	} else if (maxDiff < 20.f) {
 		dynamicSpeed *= 0.85f; // slow down near micro-adjust to prevent rebound
@@ -897,7 +897,7 @@ void AimAssist::onRenderMenu()
 		"Settings", [this, &currentMode]() {
 			ui::CheckboxBind("Enabled", &enabled, &keybind);
 			ImGui::Spacing();
-			ui::SliderFloat("Speed", &settings.speed, 1.0f, 100.0f, "%.0f");
+			ui::SliderFloat("Speed", &settings.speed, 1.0f, 120.0f, "%.0f");
 			ui::SliderInt("FOV", &settings.fov, 10, 360, "%d");
 			ui::SliderFloat("Distance", &settings.distance, 3.0f, 8.0f, "%.1f");
 			ui::SliderInt("Reaction Time", &settings.reactionTime, 0, 200, "%d ms");

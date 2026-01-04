@@ -44,6 +44,7 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/).
 - AimAssist rotation updates now sync prev-rotation and last-reported yaw/pitch for smoother feel.
 
 ### Fixed
+- **Visual**: Restaurado `renderPartialTicks` en JniCache para que ESP y NameTags usen interpolacion real (sin tirones al acercarse al objetivo).
 - Reduced overlay context churn and GL error spam during frequent context changes.
 
 ## [0.20.1] - 2026-01-02

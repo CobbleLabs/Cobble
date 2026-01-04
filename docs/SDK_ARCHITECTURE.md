@@ -391,6 +391,7 @@ Get camera position for W2S	fid_renderManager, fid_renderPosX/Y/Z (1.8) or stati
 getPartialTicks()
 Get interpolation value	fid_timer, fid_renderPartialTicks
 Version Handling: RenderManager fields are instance fields in 1.8.x but static in 1.7.10.
+Note: `renderPartialTicks` lives in `net.minecraft.util.Timer` and is cached as `fid_renderPartialTicks`. If this ID is missing, partial ticks read as 0 and ESP/NameTags will render with visible stutter at close range.
 
 3.4 Inventory Module (
 mc/inventory.cpp

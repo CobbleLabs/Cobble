@@ -27,6 +27,7 @@ jclass cls_BlockPos = nullptr;
 jclass cls_Vec3 = nullptr;
 jclass cls_Block = nullptr;
 jclass cls_IBlockState = nullptr;
+jclass cls_Timer = nullptr;
 jclass cls_GuiScreen = nullptr;
 jclass cls_GuiInventory = nullptr;
 jclass cls_Container = nullptr;
@@ -263,6 +264,7 @@ bool Init()
     CACHE_CLASS(cls_Slot, "net.minecraft.inventory.Slot");
     CACHE_CLASS(cls_ItemStack, "net.minecraft.item.ItemStack");
     CACHE_CLASS(cls_Block, "net.minecraft.block.Block");
+    CACHE_CLASS(cls_Timer, "net.minecraft.util.Timer");
     
     // Version-specific classes
     if (is_1_7_10) {
@@ -431,6 +433,18 @@ bool Init()
             TRY_FIELD(fid_renderPosX, cls_RenderManager, "renderPosX", "D");
             TRY_FIELD(fid_renderPosY, cls_RenderManager, "renderPosY", "D");
             TRY_FIELD(fid_renderPosZ, cls_RenderManager, "renderPosZ", "D");
+        }
+    }
+    
+    // =========================================================================
+    // Timer class IDs
+    // =========================================================================
+    
+    if (cls_Timer) {
+        TRY_FIELD(fid_renderPartialTicks, cls_Timer, "renderPartialTicks", "F");
+        if (!fid_renderPartialTicks) {
+            // SRG/obfuscated fallback
+            TRY_FIELD(fid_renderPartialTicks, cls_Timer, "field_74281_c", "F");
         }
     }
     
@@ -611,6 +625,8 @@ void Cleanup()
     DELETE_GLOBAL(cls_Vec3);
     DELETE_GLOBAL(cls_Block);
     DELETE_GLOBAL(cls_IBlockState);
+    DELETE_GLOBAL(cls_Timer);
+    DELETE_GLOBAL(cls_AxisAlignedBB);
     DELETE_GLOBAL(cls_GuiScreen);
     DELETE_GLOBAL(cls_GuiInventory);
     DELETE_GLOBAL(cls_Container);

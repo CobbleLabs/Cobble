@@ -34,6 +34,7 @@ extern jclass cls_BlockPos;          // 1.8.x only
 extern jclass cls_Vec3;
 extern jclass cls_Block;
 extern jclass cls_IBlockState;
+extern jclass cls_Timer;
 
 // GUI & Inventory
 extern jclass cls_GuiScreen;
@@ -169,6 +170,7 @@ extern jfieldID fid_renderPosZ;
 // Timer class IDs
 // =============================================================================
 
+// Timer instance fields
 extern jfieldID fid_renderPartialTicks;
 
 // =============================================================================
