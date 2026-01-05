@@ -1,8 +1,10 @@
 #include "security.h"
+#include "xor.h"
 #include <TlHelp32.h>
 #include <DbgHelp.h>
 #include <intrin.h>
 #include <string>
+#include <vector>
 
 #pragma comment(lib, "ntdll.lib")
 #pragma comment(lib, "dbghelp.lib")
@@ -261,18 +263,18 @@ bool HasSuspiciousSpecs() {
 }
 
 bool HasVMRegistry() {
-    const wchar_t* vmKeys[] = {
-        L"System\\ControlSet001\\Services\\VMTools",
-        L"System\\ControlSet001\\Services\\VBoxGuest",
-        L"System\\ControlSet001\\Services\\VBoxMouse",
-        L"System\\ControlSet001\\Services\\VBoxService",
-        L"SOFTWARE\\Oracle\\VirtualBox Guest Additions",
-        L"SOFTWARE\\VMware, Inc.\\VMware Tools",
-    };
+    std::vector<std::wstring> vmKeys;
+    vmKeys.reserve(6);
+    vmKeys.push_back(_xorw_(L"System\\ControlSet001\\Services\\VMTools"));
+    vmKeys.push_back(_xorw_(L"System\\ControlSet001\\Services\\VBoxGuest"));
+    vmKeys.push_back(_xorw_(L"System\\ControlSet001\\Services\\VBoxMouse"));
+    vmKeys.push_back(_xorw_(L"System\\ControlSet001\\Services\\VBoxService"));
+    vmKeys.push_back(_xorw_(L"SOFTWARE\\Oracle\\VirtualBox Guest Additions"));
+    vmKeys.push_back(_xorw_(L"SOFTWARE\\VMware, Inc.\\VMware Tools"));
     
     for (const auto& keyPath : vmKeys) {
         HKEY hKey;
-        if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, keyPath, 0, KEY_QUERY_VALUE, &hKey) == ERROR_SUCCESS) {
+        if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, keyPath.c_str(), 0, KEY_QUERY_VALUE, &hKey) == ERROR_SUCCESS) {
             RegCloseKey(hKey);
             return true;
         }
@@ -282,18 +284,18 @@ bool HasVMRegistry() {
 }
 
 bool HasVMFiles() {
-    const wchar_t* vmFiles[] = {
-        L"C:\\Windows\\System32\\vm3dgl.dll",
-        L"C:\\Windows\\System32\\vboxdisp.dll",
-        L"C:\\Windows\\System32\\vboxhook.dll",
-        L"C:\\Windows\\System32\\vboxogl.dll",
-        L"C:\\Windows\\System32\\drivers\\vboxmouse.sys",
-        L"C:\\Windows\\System32\\drivers\\vmhgfs.sys",
-    };
+    std::vector<std::wstring> vmFiles;
+    vmFiles.reserve(6);
+    vmFiles.push_back(_xorw_(L"C:\\Windows\\System32\\vm3dgl.dll"));
+    vmFiles.push_back(_xorw_(L"C:\\Windows\\System32\\vboxdisp.dll"));
+    vmFiles.push_back(_xorw_(L"C:\\Windows\\System32\\vboxhook.dll"));
+    vmFiles.push_back(_xorw_(L"C:\\Windows\\System32\\vboxogl.dll"));
+    vmFiles.push_back(_xorw_(L"C:\\Windows\\System32\\drivers\\vboxmouse.sys"));
+    vmFiles.push_back(_xorw_(L"C:\\Windows\\System32\\drivers\\vmhgfs.sys"));
     
     for (const auto& filePath : vmFiles) {
         WIN32_FIND_DATAW findData;
-        HANDLE hFind = FindFirstFileW(filePath, &findData);
+        HANDLE hFind = FindFirstFileW(filePath.c_str(), &findData);
         if (hFind != INVALID_HANDLE_VALUE) {
             FindClose(hFind);
             return true;
@@ -329,15 +331,51 @@ bool HasVMWareACPI() {
 
 // Check for analysis tools running
 bool HasAnalysisTools() {
-    const wchar_t* badProcesses[] = {
-        L"x64dbg.exe", L"x32dbg.exe", L"ollydbg.exe", L"ida.exe", L"ida64.exe",
-        L"idaq.exe", L"idaq64.exe", L"windbg.exe", L"procmon.exe", L"procmon64.exe",
-        L"procexp.exe", L"procexp64.exe", L"processhacker.exe", L"pestudio.exe",
-        L"wireshark.exe", L"fiddler.exe", L"charles.exe", L"dumpcap.exe",
-        L"httpdebugger.exe", L"cheatengine-x86_64.exe", L"cheatengine.exe",
-        L"hiew32.exe", L"lordpe.exe", L"die.exe", L"dnspy.exe",
-        L"autoruns.exe", L"autorunsc.exe", L"regshot.exe",
-    };
+    // Build list dynamically to prevent static string extraction
+    std::vector<std::wstring> badProcesses;
+    badProcesses.reserve(28);
+    
+    // Debuggers
+    badProcesses.push_back(_xorw_(L"x64dbg.exe"));
+    badProcesses.push_back(_xorw_(L"x32dbg.exe"));
+    badProcesses.push_back(_xorw_(L"ollydbg.exe"));
+    badProcesses.push_back(_xorw_(L"windbg.exe"));
+    
+    // Disassemblers
+    badProcesses.push_back(_xorw_(L"ida.exe"));
+    badProcesses.push_back(_xorw_(L"ida64.exe"));
+    badProcesses.push_back(_xorw_(L"idaq.exe"));
+    badProcesses.push_back(_xorw_(L"idaq64.exe"));
+    badProcesses.push_back(_xorw_(L"dnspy.exe"));
+    
+    // System monitors
+    badProcesses.push_back(_xorw_(L"procmon.exe"));
+    badProcesses.push_back(_xorw_(L"procmon64.exe"));
+    badProcesses.push_back(_xorw_(L"procexp.exe"));
+    badProcesses.push_back(_xorw_(L"procexp64.exe"));
+    badProcesses.push_back(_xorw_(L"processhacker.exe"));
+    
+    // PE analyzers
+    badProcesses.push_back(_xorw_(L"pestudio.exe"));
+    badProcesses.push_back(_xorw_(L"hiew32.exe"));
+    badProcesses.push_back(_xorw_(L"lordpe.exe"));
+    badProcesses.push_back(_xorw_(L"die.exe"));
+    
+    // Network sniffers
+    badProcesses.push_back(_xorw_(L"wireshark.exe"));
+    badProcesses.push_back(_xorw_(L"fiddler.exe"));
+    badProcesses.push_back(_xorw_(L"charles.exe"));
+    badProcesses.push_back(_xorw_(L"dumpcap.exe"));
+    badProcesses.push_back(_xorw_(L"httpdebugger.exe"));
+    
+    // Memory editors
+    badProcesses.push_back(_xorw_(L"cheatengine-x86_64.exe"));
+    badProcesses.push_back(_xorw_(L"cheatengine.exe"));
+    
+    // System tools
+    badProcesses.push_back(_xorw_(L"autoruns.exe"));
+    badProcesses.push_back(_xorw_(L"autorunsc.exe"));
+    badProcesses.push_back(_xorw_(L"regshot.exe"));
     
     HANDLE hSnapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
     if (hSnapshot == INVALID_HANDLE_VALUE) return false;
@@ -347,7 +385,7 @@ bool HasAnalysisTools() {
     if (Process32FirstW(hSnapshot, &pe)) {
         do {
             for (const auto& badProc : badProcesses) {
-                if (_wcsicmp(pe.szExeFile, badProc) == 0) {
+                if (_wcsicmp(pe.szExeFile, badProc.c_str()) == 0) {
                     CloseHandle(hSnapshot);
                     return true;
                 }
@@ -387,15 +425,32 @@ bool HasSuspiciousUsername() {
     DWORD size = 256;
     GetUserNameW(username, &size);
     
-    const wchar_t* badUsernames[] = {
-        L"user", L"test", L"sandbox", L"malware", L"virus", L"sample",
-        L"admin", L"administrator", L"guest", L"vmware", L"vbox",
-        L"qemu", L"analysis", L"analyst", L"john", L"peter", 
-        L"currentuser", L"abby", L"george", L"hong", L"user1",
-    };
+    std::vector<std::wstring> badUsernames;
+    badUsernames.reserve(21);
+    badUsernames.push_back(_xorw_(L"user"));
+    badUsernames.push_back(_xorw_(L"test"));
+    badUsernames.push_back(_xorw_(L"sandbox"));
+    badUsernames.push_back(_xorw_(L"malware"));
+    badUsernames.push_back(_xorw_(L"virus"));
+    badUsernames.push_back(_xorw_(L"sample"));
+    badUsernames.push_back(_xorw_(L"admin"));
+    badUsernames.push_back(_xorw_(L"administrator"));
+    badUsernames.push_back(_xorw_(L"guest"));
+    badUsernames.push_back(_xorw_(L"vmware"));
+    badUsernames.push_back(_xorw_(L"vbox"));
+    badUsernames.push_back(_xorw_(L"qemu"));
+    badUsernames.push_back(_xorw_(L"analysis"));
+    badUsernames.push_back(_xorw_(L"analyst"));
+    badUsernames.push_back(_xorw_(L"john"));
+    badUsernames.push_back(_xorw_(L"peter"));
+    badUsernames.push_back(_xorw_(L"currentuser"));
+    badUsernames.push_back(_xorw_(L"abby"));
+    badUsernames.push_back(_xorw_(L"george"));
+    badUsernames.push_back(_xorw_(L"hong"));
+    badUsernames.push_back(_xorw_(L"user1"));
     
     for (const auto& badName : badUsernames) {
-        if (_wcsicmp(username, badName) == 0) {
+        if (_wcsicmp(username, badName.c_str()) == 0) {
             return true;
         }
     }
@@ -410,13 +465,20 @@ bool HasSuspiciousComputerName() {
     GetComputerNameW(computerName, &size);
     
     // Only check for obvious sandbox names (NOT DESKTOP- or WIN- which are normal Windows defaults)
-    const wchar_t* badNames[] = {
-        L"SANDBOX", L"VIRUS", L"MALWARE", L"SAMPLE", L"TEST-PC",
-        L"JOHN-PC", L"ANALYSIS", L"TEQUILABOOMBOOM", L"SANDBOX-PC",
-    };
+    std::vector<std::wstring> badNames;
+    badNames.reserve(9);
+    badNames.push_back(_xorw_(L"SANDBOX"));
+    badNames.push_back(_xorw_(L"VIRUS"));
+    badNames.push_back(_xorw_(L"MALWARE"));
+    badNames.push_back(_xorw_(L"SAMPLE"));
+    badNames.push_back(_xorw_(L"TEST-PC"));
+    badNames.push_back(_xorw_(L"JOHN-PC"));
+    badNames.push_back(_xorw_(L"ANALYSIS"));
+    badNames.push_back(_xorw_(L"TEQUILABOOMBOOM"));
+    badNames.push_back(_xorw_(L"SANDBOX-PC"));
     
     for (const auto& badName : badNames) {
-        if (_wcsicmp(computerName, badName) == 0) {
+        if (_wcsicmp(computerName, badName.c_str()) == 0) {
             return true;
         }
     }

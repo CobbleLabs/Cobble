@@ -25,14 +25,14 @@
 // CONFIG & GLOBALS
 // ============================================================================
 
-// Server configuration
-#define SERVER_HOST_PRIMARY "syra.club"
-#define SERVER_HOST_FALLBACK "192.99.212.126"
+// Server configuration - XOR encrypted at compile time
+inline const char* getServerPrimary() { return _xor_("syra.club"); }
+inline const char* getServerFallback() { return _xor_("192.99.212.126"); }
+inline const char* getLicenseServerPrimary() { return _xor_("https://syra.club"); }
+inline const char* getLicenseServerFallback() { return _xor_("http://192.99.212.126:8080"); }
+
 #define SERVER_PORT_HTTPS 443
 #define SERVER_PORT_HTTP 8080
-
-#define LICENSE_SERVER_PRIMARY "https://" SERVER_HOST_PRIMARY
-#define LICENSE_SERVER_FALLBACK "http://" SERVER_HOST_FALLBACK ":8080"
 #define LICENSE_CHECK_ENABLED true
 
 std::atomic<bool> g_SecurityViolation(false);
@@ -568,7 +568,7 @@ int wmain(int argc, wchar_t* argv[]) {
 	
 	// ========== PHASE 2.5: UPDATE CHECK (BEFORE LOADING!) ==========
 	{
-		auto result = Updater::Check(COBBLE_VERSION, SERVER_HOST_PRIMARY, SERVER_PORT_HTTPS, SERVER_HOST_FALLBACK, SERVER_PORT_HTTP);
+		auto result = Updater::Check(COBBLE_VERSION, getServerPrimary(), SERVER_PORT_HTTPS, getServerFallback(), SERVER_PORT_HTTP);
 		if (result.success) {
 			if (result.blocked || result.updateAvailable) {
 				// Force update if blocked (version too old) OR if update is marked as mandatory
@@ -598,7 +598,7 @@ int wmain(int argc, wchar_t* argv[]) {
 				std::string hwid = HWID::Generate();
 				std::string tempDir = Updater::getTempDownloadDir();
 				std::string newLoaderPath = tempDir + "\\CobbleLoader.exe";
-				std::string downloadUrl = std::string("https://") + SERVER_HOST_PRIMARY + "/api/update/loader";
+				std::string downloadUrl = std::string(_xor_("https://")) + getServerPrimary() + _xor_("/api/update/loader");
 				
 				// Setup progress bar (need 2 lines: text + bar)
 				g_downloadLast = 0;
@@ -641,8 +641,8 @@ int wmain(int argc, wchar_t* argv[]) {
 	std::string hwid = HWID::Generate();
 	bool licenseValid = false;
 	
-	if (License::Verify(LICENSE_SERVER_PRIMARY)) licenseValid = true;
-	else if (License::Verify(LICENSE_SERVER_FALLBACK)) licenseValid = true;
+	if (License::Verify(getLicenseServerPrimary())) licenseValid = true;
+	else if (License::Verify(getLicenseServerFallback())) licenseValid = true;
 
 	if (!licenseValid) {
 		if (License::NeedsUpdate()) {

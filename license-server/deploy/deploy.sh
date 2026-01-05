@@ -75,6 +75,11 @@ if [ "$COPY_ENV" != "true" ]; then
     read -p "DISCORD_TOKEN: " DISCORD_TOKEN
     read -p "DISCORD_GUILD (server ID): " DISCORD_GUILD
     read -p "DISCORD_ADMIN_ROLE (role ID): " DISCORD_ADMIN_ROLE
+    
+    echo ""
+    echo -e "${YELLOW}Ed25519 Signing Key (for signed license responses)${NC}"
+    read -p "Path to private.key [./private.key]: " SIGNING_KEY_PATH
+    SIGNING_KEY_PATH=${SIGNING_KEY_PATH:-./private.key}
 fi
 
 # Domain for nginx reverse proxy
@@ -131,6 +136,7 @@ echo -e "${GREEN}Nginx configured as reverse proxy${NC}"
 # ============================================================================
 echo -e "${YELLOW}[3/7] Building binary...${NC}"
 
+export PATH=$PATH:/usr/local/go/bin
 go mod tidy
 go get github.com/bwmarrin/discordgo
 go get github.com/joho/godotenv
@@ -190,12 +196,29 @@ MAX_CONCURRENT=$MAX_CONCURRENT
 # Logging: "text" (colored) or "json"
 LOG_FORMAT=text
 
+# Ed25519 Signing Key (for signed license responses)
+SIGNING_KEY_PATH=$INSTALL_DIR/private.key
+
 # Discord Bot (leave empty to disable)
 DISCORD_TOKEN=$DISCORD_TOKEN
 DISCORD_GUILD=$DISCORD_GUILD
 DISCORD_ADMIN_ROLE=$DISCORD_ADMIN_ROLE
 EOF
     echo -e "${GREEN}Created .env configuration file${NC}"
+fi
+
+# Copy signing key if exists
+if [ -f "private.key" ]; then
+    cp private.key $INSTALL_DIR/private.key
+    chmod 600 $INSTALL_DIR/private.key
+    echo -e "${GREEN}Signing key copied to $INSTALL_DIR${NC}"
+elif [ -f "$SIGNING_KEY_PATH" ] && [ "$SIGNING_KEY_PATH" != "./private.key" ]; then
+    cp "$SIGNING_KEY_PATH" $INSTALL_DIR/private.key
+    chmod 600 $INSTALL_DIR/private.key
+    echo -e "${GREEN}Signing key copied from $SIGNING_KEY_PATH${NC}"
+else
+    echo -e "${YELLOW}Warning: No signing key found. License responses will be unsigned.${NC}"
+    echo -e "${YELLOW}To enable: place private.key in project dir and re-deploy${NC}"
 fi
 
 cp cobble-server $INSTALL_DIR/

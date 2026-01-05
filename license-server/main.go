@@ -10,6 +10,7 @@ import (
 	"license-server/internal/database"
 	"license-server/internal/discord"
 	"license-server/internal/handlers"
+	"license-server/internal/helpers"
 	"license-server/internal/logger"
 	"license-server/internal/middleware"
 )
@@ -17,7 +18,7 @@ import (
 func main() {
 	cfg := config.Load()
 	logger.Init()
-	
+
 	logger.Info("SERVER", "Cobble License Server started", nil)
 	logger.Info("CONFIG", "Settings loaded", logger.Fields{
 		"min_version":    cfg.MinVersion,
@@ -35,6 +36,13 @@ func main() {
 	}
 	defer database.Close()
 
+	// Initialize signing key for signed responses
+	if err := helpers.InitSigningKey(cfg.SigningKeyPath); err != nil {
+		logger.Warn("SECURITY", "Signing key not loaded, responses will be unsigned", logger.Fields{"error": err.Error(), "path": cfg.SigningKeyPath})
+	} else {
+		logger.Info("SECURITY", "Signing key loaded", logger.Fields{"path": cfg.SigningKeyPath})
+	}
+
 	if cfg.IsDiscordEnabled() {
 		go discord.Start()
 	} else {
@@ -45,12 +53,12 @@ func main() {
 	http.HandleFunc("/api/register", middleware.RateLimit(handlers.Register))
 	http.HandleFunc("/api/config", middleware.RateLimit(handlers.GetConfig))
 	http.HandleFunc("/api/config/save", middleware.RateLimit(handlers.SaveConfig))
-	
+
 	// Update endpoints
 	http.HandleFunc("/api/update/manifest", middleware.RateLimit(handlers.GetManifest))
 	http.HandleFunc("/api/update/loader", middleware.RateLimit(handlers.DownloadLoader))
 	http.HandleFunc("/api/update/dll", middleware.RateLimit(handlers.DownloadDLL))
-	
+
 	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("OK"))
 	})

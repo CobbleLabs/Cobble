@@ -1,12 +1,17 @@
 #include "license.h"
 #include "hwid.h"
 #include "version.h"
+#include "../security/xor.h"
 #include "../util/json.h"
+#include "../update/tweetnacl.h"
 #include <Windows.h>
 #include <wininet.h>
+#include <wincrypt.h>
 #include <string>
 #include <sstream>
 #include <iomanip>
+#include <vector>
+#include <ctime>
 
 
 #pragma comment(lib, "wininet.lib")
@@ -14,6 +19,12 @@
 
 // Use centralized version
 #define CLIENT_VERSION COBBLE_VERSION
+
+// Same Ed25519 public key used for updates
+constexpr uint8_t LICENSE_PUBLIC_KEY[32] = {
+    0xd2, 0xb8, 0x41, 0x41, 0x05, 0x22, 0xdb, 0x99, 0xe7, 0x86, 0xf4, 0x60, 0x1a, 0xb2, 0x04, 0x61, 
+    0x0f, 0xdb, 0x14, 0x75, 0x0e, 0x93, 0xbb, 0xb5, 0xa1, 0x85, 0xc9, 0xd7, 0x23, 0x7d, 0x79, 0xac
+};
 
 namespace License {
 
@@ -39,6 +50,39 @@ std::string UrlEncode(const std::string& value) {
     }
 
     return escaped.str();
+}
+
+// Generate random hex nonce (16 bytes = 32 hex chars)
+std::string GenerateNonce() {
+    HCRYPTPROV hProv = 0;
+    if (!CryptAcquireContextW(&hProv, nullptr, nullptr, PROV_RSA_FULL, CRYPT_VERIFYCONTEXT)) {
+        return "";
+    }
+    
+    uint8_t bytes[16];
+    if (!CryptGenRandom(hProv, sizeof(bytes), bytes)) {
+        CryptReleaseContext(hProv, 0);
+        return "";
+    }
+    CryptReleaseContext(hProv, 0);
+    
+    std::ostringstream oss;
+    oss << std::hex << std::setfill('0');
+    for (int i = 0; i < 16; i++) {
+        oss << std::setw(2) << (int)bytes[i];
+    }
+    return oss.str();
+}
+
+// Base64 decode helper
+std::vector<uint8_t> Base64Decode(const std::string& input) {
+    DWORD outLen = 0;
+    CryptStringToBinaryA(input.c_str(), (DWORD)input.length(), CRYPT_STRING_BASE64, nullptr, &outLen, nullptr, nullptr);
+    
+    std::vector<uint8_t> output(outLen);
+    CryptStringToBinaryA(input.c_str(), (DWORD)input.length(), CRYPT_STRING_BASE64, output.data(), &outLen, nullptr, nullptr);
+    output.resize(outLen);
+    return output;
 }
 
 
@@ -70,15 +114,24 @@ bool Verify(const std::string& serverUrl) {
         return false;
     }
     
-    // Build URL
-    std::string url = serverUrl + "/api/verify";
+    // Generate random nonce for anti-replay
+    std::string nonce = GenerateNonce();
+    if (nonce.empty()) {
+        g_LastError = "Failed to generate nonce";
+        return false;
+    }
     
-    // Build POST data with VERSION
-    std::string postData = "hwid=" + UrlEncode(hwid) + "&version=" + UrlEncode(CLIENT_VERSION);
+    // Build URL
+    std::string url = serverUrl + _xor_("/api/verify");
+    
+    // Build POST data with HWID, nonce, and version
+    std::string postData = "hwid=" + UrlEncode(hwid) + 
+                          "&nonce=" + UrlEncode(nonce) +
+                          "&version=" + UrlEncode(CLIENT_VERSION);
     
     // Initialize WinInet
     HINTERNET hInternet = InternetOpenA(
-        "CobbleLoader/1.0",
+        _xor_("Mozilla/5.0"),
         INTERNET_OPEN_TYPE_PRECONFIG,
         NULL, NULL, 0
     );
@@ -88,7 +141,7 @@ bool Verify(const std::string& serverUrl) {
         return false;
     }
 
-    DWORD timeout = 2000; // 2s timeout for faster startup
+    DWORD timeout = 5000; // 5s timeout for crypto operations
     InternetSetOptionA(hInternet, INTERNET_OPTION_CONNECT_TIMEOUT, &timeout, sizeof(timeout));
     InternetSetOptionA(hInternet, INTERNET_OPTION_SEND_TIMEOUT, &timeout, sizeof(timeout));
     InternetSetOptionA(hInternet, INTERNET_OPTION_RECEIVE_TIMEOUT, &timeout, sizeof(timeout));
@@ -181,7 +234,7 @@ bool Verify(const std::string& serverUrl) {
 
     
     // Read response
-    char buffer[1024] = { 0 };
+    char buffer[4096] = { 0 };
     DWORD bytesRead = 0;
     std::string response;
     
@@ -202,25 +255,66 @@ bool Verify(const std::string& serverUrl) {
         return false;
     }
     
-    // Check for update requirement
-    if (json.get_bool("update", false)) {
-        g_NeedsUpdate = true;
-        g_MinVersion = json.get_string("min_version", "");
-        g_LastError = "Update required! You have v" + std::string(CLIENT_VERSION) + ", need v" + g_MinVersion;
+    // Check for signed response format - REQUIRED for security
+    std::string payloadB64 = json.get_string("payload_b64", "");
+    std::string sigB64 = json.get_string("sig_b64", "");
+    
+    if (payloadB64.empty() || sigB64.empty()) {
+        // No signature = reject (prevents proxy bypass attacks)
+        g_LastError = "Invalid response format";
         return false;
     }
     
-    // Check for valid license
-    if (json.get_bool("valid", false)) {
-        g_Username = json.get_string("username", "");
-        g_DaysRemaining = json.get_int("days_remaining", -1);
+    // Decode payload and signature
+    std::vector<uint8_t> payloadBytes = Base64Decode(payloadB64);
+    std::vector<uint8_t> sigBytes = Base64Decode(sigB64);
+    
+    if (payloadBytes.empty() || sigBytes.size() != 64) {
+        g_LastError = "Invalid response format";
+        return false;
+    }
+    
+    // Verify Ed25519 signature
+    if (!tweetnacl::verify(sigBytes.data(), payloadBytes.data(), payloadBytes.size(), LICENSE_PUBLIC_KEY)) {
+        g_LastError = "Invalid signature - response may have been tampered";
+        return false;
+    }
+    
+    // Parse verified payload
+    std::string payloadStr(payloadBytes.begin(), payloadBytes.end());
+    json::Object payload;
+    if (!payload.parse(payloadStr)) {
+        g_LastError = "Invalid payload format";
+        return false;
+    }
+    
+    // Verify nonce matches what we sent (anti-replay)
+    std::string responseNonce = payload.get_string("nonce", "");
+    if (responseNonce != nonce) {
+        g_LastError = "Nonce mismatch - possible replay attack";
+        return false;
+    }
+    
+    // Verify response hasn't expired
+    int64_t expiresAt = payload.get_int("expires_at", 0);
+    int64_t now = (int64_t)time(nullptr);
+    if (now > expiresAt) {
+        g_LastError = "Response expired";
+        return false;
+    }
+    
+    // All cryptographic checks passed - now check business logic
+    if (payload.get_bool("valid", false)) {
+        g_Username = payload.get_string("username", "");
+        g_DaysRemaining = payload.get_int("days_remaining", -1);
         return true;
     }
     
     // Extract error message
-    g_LastError = json.get_string("message", "License not valid");
+    g_LastError = payload.get_string("message", "License not valid");
     return false;
 }
+
 
 // Register new user (returns true if successful)
 bool Register(const std::string& serverUrl, const std::string& username) {
@@ -233,7 +327,7 @@ bool Register(const std::string& serverUrl, const std::string& username) {
     std::string url = serverUrl + "/api/register";
     std::string postData = "hwid=" + hwid + "&username=" + username;
     
-    HINTERNET hInternet = InternetOpenA("CobbleLoader/1.0", INTERNET_OPEN_TYPE_PRECONFIG, NULL, NULL, 0);
+    HINTERNET hInternet = InternetOpenA(_xor_("Mozilla/5.0"), INTERNET_OPEN_TYPE_PRECONFIG, NULL, NULL, 0);
     if (!hInternet) return false;
     
     URL_COMPONENTSA urlComp = { 0 };

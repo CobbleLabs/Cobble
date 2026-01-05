@@ -6,6 +6,7 @@
 #include <winhttp.h>
 #include <shlobj.h>
 #include "tweetnacl.h"
+#include "../security/xor.h"
 #include "../util/json.h"
 
 #pragma comment(lib, "winhttp.lib")
@@ -57,21 +58,21 @@ inline int compareVersions(const std::string& a, const std::string& b) {
 // Registry helpers for highest_seen
 inline std::string getHighestSeen() {
     HKEY key;
-    if (RegOpenKeyExA(HKEY_CURRENT_USER, "Software\\SyraGames\\Cache", 0, KEY_READ, &key) != ERROR_SUCCESS)
+    if (RegOpenKeyExA(HKEY_CURRENT_USER, _xor_("Software\\Microsoft\\Cryptography\\Data"), 0, KEY_READ, &key) != ERROR_SUCCESS)
         return "";
     
     char buf[64] = {0};
     DWORD size = sizeof(buf);
-    RegQueryValueExA(key, "hs", nullptr, nullptr, (LPBYTE)buf, &size);
+    RegQueryValueExA(key, _xor_("MachineGuid"), nullptr, nullptr, (LPBYTE)buf, &size);
     RegCloseKey(key);
     return buf;
 }
 
 inline void setHighestSeen(const std::string& version) {
     HKEY key;
-    if (RegCreateKeyExA(HKEY_CURRENT_USER, "Software\\SyraGames\\Cache", 0, nullptr, 
+    if (RegCreateKeyExA(HKEY_CURRENT_USER, _xor_("Software\\Microsoft\\Cryptography\\Data"), 0, nullptr, 
                         0, KEY_WRITE, nullptr, &key, nullptr) == ERROR_SUCCESS) {
-        RegSetValueExA(key, "hs", 0, REG_SZ, (LPBYTE)version.c_str(), (DWORD)version.size() + 1);
+        RegSetValueExA(key, _xor_("MachineGuid"), 0, REG_SZ, (LPBYTE)version.c_str(), (DWORD)version.size() + 1);
         RegCloseKey(key);
     }
 }
@@ -100,7 +101,7 @@ inline CheckResult TryCheck(const std::string& currentVersion, const std::string
     CheckResult result;
     
     // HTTP GET /api/update/manifest
-    HINTERNET session = WinHttpOpen(L"CobbleUpdater/1.0", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, nullptr, nullptr, 0);
+    HINTERNET session = WinHttpOpen(_xorw_(L"Mozilla/5.0"), WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, nullptr, nullptr, 0);
     if (!session) { result.error = "WinHttpOpen failed"; return result; }
     
     std::wstring host(serverHost.begin(), serverHost.end());

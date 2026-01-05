@@ -32,7 +32,8 @@ type Config struct {
 	DiscordAdminRole string
 
 	// Updates
-	ReleasesDir string
+	ReleasesDir    string
+	SigningKeyPath string
 }
 
 // Global config instance
@@ -68,7 +69,8 @@ func Load() *Config {
 		DiscordAdminRole: getEnv("DISCORD_ADMIN_ROLE", ""),
 
 		// Updates
-		ReleasesDir: getEnv("RELEASES_DIR", "./releases"),
+		ReleasesDir:    getEnv("RELEASES_DIR", "./releases"),
+		SigningKeyPath: getEnv("SIGNING_KEY_PATH", "./private.key"),
 	}
 
 	return cfg

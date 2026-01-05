@@ -31,6 +31,7 @@ echo -e "${YELLOW}[1/4] Stopping service...${NC}"
 systemctl stop cobble || true
 
 echo -e "${YELLOW}[2/4] Building new binary...${NC}"
+export PATH=$PATH:/usr/local/go/bin
 go mod tidy 2>/dev/null || true
 CGO_ENABLED=1 go build -o cobble-server .
 
@@ -51,6 +52,14 @@ if [ -f ".env" ]; then
     cp .env $INSTALL_DIR/.env
     chown cobble:cobble $INSTALL_DIR/.env
     echo -e "${GREEN}  .env copied to $INSTALL_DIR${NC}"
+fi
+
+# Copy signing key if exists and different
+if [ -f "private.key" ]; then
+    cp private.key $INSTALL_DIR/private.key
+    chmod 600 $INSTALL_DIR/private.key
+    chown cobble:cobble $INSTALL_DIR/private.key
+    echo -e "${GREEN}  Signing key copied to $INSTALL_DIR${NC}"
 fi
 
 echo -e "${YELLOW}[4/4] Starting service...${NC}"
