@@ -110,6 +110,9 @@ private:
 
 	float pitchdiffSpeed = 0.f;
 	float yawdiffSpeed = 0.f;
+	float targetYawSpeed = 0.f;
+	float targetPitchSpeed = 0.f;
+	bool reactionPrimed = false;
 	bool targetHasHitbox = false;
 	float targetHitboxMinX = 0.0f;
 	float targetHitboxMinY = 0.0f;
@@ -125,6 +128,10 @@ private:
 	float targetRampDurationMs = 200.0f;
 	Timer clickRampTimer;
 	float clickRampDurationMs = 140.0f;
+	Timer hitboxRefreshTimer;
+	float hitboxRefreshMs = 140.0f;
+	float targetSpeedVariance = 1.0f;
+	float aimHumanizer = 1.0f;
 
 	Timer reactionTimeTimer;
 	

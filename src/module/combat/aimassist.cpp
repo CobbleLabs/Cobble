@@ -136,14 +136,20 @@ void AimAssist::onEnable()
 	pitchdiffSpeed = 0.f;
 	yawdiffSpeed = 0.f;
 	cursorAccumY = 0.0;
+	targetYawSpeed = 0.f;
+	targetPitchSpeed = 0.f;
+	reactionPrimed = false;
 	targetHasHitbox = false;
 	targetHitboxMinX = targetHitboxMinY = targetHitboxMinZ = 0.0f;
 	targetHitboxMaxX = targetHitboxMaxY = targetHitboxMaxZ = 0.0f;
 	prevFrameHadTarget = false;
 	targetRampTimer.Start();
 	clickRampTimer.Start();
+	hitboxRefreshTimer.Start();
 	lastMouseDown = false;
 	clickStartedThisFrame = false;
+	targetSpeedVariance = 1.0f;
+	aimHumanizer = 1.0f;
 }
 
 void AimAssist::onDisable()
@@ -158,6 +164,9 @@ void AimAssist::onDisable()
 	cleanup_entity_fields();
 	cursorAccumY = 0.0;
 	pitchdiffSpeed = yawdiffSpeed = 0.f;
+	targetYawSpeed = 0.f;
+	targetPitchSpeed = 0.f;
+	reactionPrimed = false;
 	targetHasHitbox = false;
 	targetHitboxMinX = targetHitboxMinY = targetHitboxMinZ = 0.0f;
 	targetHitboxMaxX = targetHitboxMaxY = targetHitboxMaxZ = 0.0f;
@@ -227,6 +236,7 @@ void AimAssist::onUpdate()
 		targetRampTimer.Start();
 		yawdiffSpeed = 0.f;
 		pitchdiffSpeed = 0.f;
+		reactionPrimed = false;
 	}
 
 	if (settings.breakBlocks && mouseDown)
@@ -341,6 +351,10 @@ void AimAssist::onUpdate()
 				targetRampTimer.Start(); // ramp up speed when acquiring a target
 				yawdiffSpeed = 0.f;
 				pitchdiffSpeed = 0.f;
+				reactionPrimed = false;
+				targetSpeedVariance = randFloat(0.96f, 1.04f);
+				aimHumanizer = randFloat(0.94f, 1.06f);
+				hitboxRefreshTimer.Start();
 			}
 		}
 	}
@@ -375,7 +389,7 @@ void AimAssist::onUpdate()
 	float yawDiff = wrapTo180(-(localYaw - yawTarget));
 	float pitchDiff = wrapTo180(-(localPitch - pitchTarget));
 
-	float speedSetting = std::min(settings.speed, 120.0f);
+	float speedSetting = std::max(settings.speed, 1.0f);
 	float speed = speedSetting * 3.0f;
 	cachedMouseSensitivity = mc.getMouseSensitivity();
 
@@ -393,9 +407,11 @@ bool AimAssist::findTarget(double& targetX, double& targetY, double& targetZ)
 	// ============================================================
 
 	static Timer scanTimer;
+	JNIEnv* env = Java::Env;
+	bool wantHitboxRefresh = settings.lockAim && cachedTarget && hitboxRefreshTimer.Elapsed<>() >= hitboxRefreshMs;
 
 	// FAST PATH: If we have a cached target, update its position & validate
-	if (cachedTarget && scanTimer.Elapsed<>() < 50) // Rescan every 50ms
+	if (cachedTarget && scanTimer.Elapsed<>() < 50 && !wantHitboxRefresh) // Rescan every 50ms
 	{
 		// Check validity (basic)
 		if (Java::Env->IsSameObject(cachedTarget, NULL)) {
@@ -451,7 +467,7 @@ bool AimAssist::findTarget(double& targetX, double& targetY, double& targetZ)
 	}
 	
 	// SLOW PATH GUARD: If we didn't take the fast path, checks if we are allowed to scan
-	if (scanTimer.Elapsed<>() < 50) {
+	if (scanTimer.Elapsed<>() < 50 && !wantHitboxRefresh) {
 		return false; // Skip scan (rate limited)
 	}
 
@@ -477,11 +493,37 @@ bool AimAssist::findTarget(double& targetX, double& targetY, double& targetZ)
 	bool found = false;
 	
 	// Helper to keep track of best player instance
-	jobject bestPlayerObj = nullptr;
+	jobject bestPlayerObjLocal = nullptr;
 	PlayerInfo closestPlayer;
+	bool refreshedHitbox = false;
 
 	for (auto& p : players)
 	{
+		bool sameAsLocked = false;
+		if (cachedTarget && env) {
+			if (env->IsSameObject(cachedTarget, NULL)) {
+				Java::Env->DeleteGlobalRef(cachedTarget);
+				cachedTarget = nullptr;
+			} else {
+				sameAsLocked = env->IsSameObject(cachedTarget, p.instance);
+			}
+		}
+
+		// Refresh stored hitbox for lockAim to avoid stale dimensions
+		if (sameAsLocked && settings.lockAim)
+		{
+			targetHitboxMinX = p.hitboxMinX;
+			targetHitboxMinY = p.hitboxMinY;
+			targetHitboxMinZ = p.hitboxMinZ;
+			targetHitboxMaxX = p.hitboxMaxX;
+			targetHitboxMaxY = p.hitboxMaxY;
+			targetHitboxMaxZ = p.hitboxMaxZ;
+			float hitboxWidth = targetHitboxMaxX - targetHitboxMinX;
+			float hitboxHeight = targetHitboxMaxY - targetHitboxMinY;
+			targetHasHitbox = (hitboxWidth > 0.01f) && (hitboxHeight > 0.01f);
+			refreshedHitbox = true;
+		}
+
 		double dx = p.posX - localX;
 		double dy = p.posY - localY;
 		double dz = p.posZ - localZ;
@@ -524,7 +566,10 @@ bool AimAssist::findTarget(double& targetX, double& targetY, double& targetZ)
 				closestDistance = dist;
 				closestPlayer = p;
 				found = true;
-				bestPlayerObj = p.instance;
+				if (env) {
+					if (bestPlayerObjLocal) env->DeleteLocalRef(bestPlayerObjLocal);
+					bestPlayerObjLocal = p.instance ? env->NewLocalRef(p.instance) : nullptr;
+				}
 			}
 		}
 		else if (settings.targetMode == TargetMode::HEALTH)
@@ -534,7 +579,10 @@ bool AimAssist::findTarget(double& targetX, double& targetY, double& targetZ)
 				lowestHealth = p.health;
 				closestPlayer = p;
 				found = true;
-				bestPlayerObj = p.instance;
+				if (env) {
+					if (bestPlayerObjLocal) env->DeleteLocalRef(bestPlayerObjLocal);
+					bestPlayerObjLocal = p.instance ? env->NewLocalRef(p.instance) : nullptr;
+				}
 			}
 		}
 		else // TargetMode::FOV
@@ -544,8 +592,15 @@ bool AimAssist::findTarget(double& targetX, double& targetY, double& targetZ)
 				minimalAngleDiff = yawDiff;
 				closestPlayer = p;
 				found = true;
-				bestPlayerObj = p.instance;
+				if (env) {
+					if (bestPlayerObjLocal) env->DeleteLocalRef(bestPlayerObjLocal);
+					bestPlayerObjLocal = p.instance ? env->NewLocalRef(p.instance) : nullptr;
+				}
 			}
+		}
+
+		if (p.instance && env) {
+			env->DeleteLocalRef(p.instance);
 		}
 	}
 
@@ -568,17 +623,17 @@ bool AimAssist::findTarget(double& targetX, double& targetY, double& targetZ)
 	}
 
 	// Update Cached Target
-	if (found) {
+	if (found && bestPlayerObjLocal) {
 		if (cachedTarget) {
 			// Check if it's the SAME object to avoid delete/new overhead?
 			// IsSameObject is cheap.
-			if (!Java::Env->IsSameObject(cachedTarget, bestPlayerObj)) {
+			if (!Java::Env->IsSameObject(cachedTarget, bestPlayerObjLocal)) {
 				Java::Env->DeleteGlobalRef(cachedTarget);
-				cachedTarget = Java::Env->NewGlobalRef(bestPlayerObj);
+				cachedTarget = Java::Env->NewGlobalRef(bestPlayerObjLocal);
 				targetChangedThisFrame = true;
 			}
 		} else {
-			cachedTarget = Java::Env->NewGlobalRef(bestPlayerObj);
+			cachedTarget = Java::Env->NewGlobalRef(bestPlayerObjLocal);
 			targetChangedThisFrame = true;
 		}
 	} else {
@@ -586,6 +641,14 @@ bool AimAssist::findTarget(double& targetX, double& targetY, double& targetZ)
 			Java::Env->DeleteGlobalRef(cachedTarget);
 			cachedTarget = nullptr;
 		}
+	}
+
+	if (bestPlayerObjLocal && env) {
+		env->DeleteLocalRef(bestPlayerObjLocal);
+	}
+
+	if (refreshedHitbox) {
+		hitboxRefreshTimer.Start();
 	}
 	
 	return found;
@@ -602,32 +665,53 @@ void AimAssist::applyAimRand(float yawDiff, float pitchDiff, float speed)
 	}
 
 	float maxDiff = std::max(absYawDiff, absPitchDiff);
+	float rawSpeedSetting = std::max(settings.speed, 1.0f);
+	float speedNorm = std::clamp(rawSpeedSetting / 120.0f, 0.0f, 3.0f);
+	bool highSpeedNoJitter = speedNorm >= 1.6f;
+	float baseSpeed = std::max(speed, rawSpeedSetting * 3.0f);
 	float jitterRange = (maxDiff < 10.f) ? 0.02f : (maxDiff < 30.f ? 0.05f : 0.08f);
 	if (maxDiff < 3.f) jitterRange = 0.0f; // no jitter when already aligned
+	if (speedNorm >= 2.0f) {
+		jitterRange = (maxDiff > 45.f) ? jitterRange * 0.2f : 0.0f; // keep far sweeps a bit rough, lock-in stays steady
+	} else if (speedNorm >= 1.5f) {
+		jitterRange *= 0.25f;
+	} else {
+		float speedJitterScale = 1.0f / (1.0f + std::max(0.0f, speedNorm - 0.5f) * 3.0f);
+		jitterRange *= std::clamp(speedJitterScale, 0.15f, 1.0f);
+	}
+	if (highSpeedNoJitter) {
+		jitterRange = 0.0f;
+	}
 	yawDiff += randFloat(-jitterRange, jitterRange);
 	pitchDiff += randFloat(-jitterRange, jitterRange);
-	float baseSpeed = speed;
+
 	float alignment = std::clamp(std::max(absYawDiff, absPitchDiff) / 90.0f, 0.0f, 1.0f);
 	float dynamicSpeed = std::lerp(baseSpeed * 0.35f, baseSpeed, alignment);
+	dynamicSpeed *= targetSpeedVariance;
 
-	float clampedSpeedSetting = std::min(settings.speed, 120.0f);
-	float speedNorm = std::clamp(clampedSpeedSetting / 120.0f, 0.0f, 1.0f);
 	// Ramp respects both time since acquisition and current angular error (larger error = slower ramp)
 	float timeRamp = std::clamp(targetRampTimer.Elapsed<>() / targetRampDurationMs, 0.25f, 1.0f);
 	float errorRamp = std::clamp(1.0f - (maxDiff / 90.0f), 0.25f, 1.0f);
 	float clickRamp = settings.alwaysAim ? 1.0f : std::clamp(clickRampTimer.Elapsed<>() / clickRampDurationMs, 0.3f, 1.0f);
 	float ramp = std::min({ timeRamp, errorRamp, clickRamp });
 	dynamicSpeed *= ramp;
-	if (clampedSpeedSetting >= 120.0f) {
-		dynamicSpeed *= 0.8f; // soften high-speed settings to avoid flicks
+
+	if (rawSpeedSetting >= 120.0f) {
+		float extraAggro = std::clamp((rawSpeedSetting - 120.0f) / 200.0f, 0.0f, 1.0f);
+		dynamicSpeed *= std::lerp(0.8f, 0.4f, extraAggro); // dampen extremes to avoid flicks
 	} else if (maxDiff < 20.f) {
 		dynamicSpeed *= 0.85f; // slow down near micro-adjust to prevent rebound
 	}
+	if (speedNorm > 1.6f) {
+		float hs = std::clamp((speedNorm - 1.6f) / 1.4f, 0.0f, 1.0f);
+		dynamicSpeed *= std::lerp(0.85f, 0.6f, hs);
+	}
 
-	static bool once = false;
-	static float targetYawSpeed = 0.0f;
-	static float targetPitchSpeed = 0.0f;
-	if (!once || reactionTimeTimer.Elapsed<>() > settings.reactionTime)
+	if (maxDiff < 5.f && rawSpeedSetting > 150.0f) {
+		dynamicSpeed *= 0.5f;
+	}
+
+	if (!reactionPrimed || reactionTimeTimer.Elapsed<>() > settings.reactionTime)
 	{
 		float pitchBoosts = pitchBoost.Delay() * pitchBoost2.Delay();
 		float yawBoosts = yawBoost.Delay() * yawBoost2.Delay();
@@ -649,11 +733,14 @@ void AimAssist::applyAimRand(float yawDiff, float pitchDiff, float speed)
 			desiredYawSpeed = desiredYawSpeed < 0 ? -0.03f : 0.03f;
 		targetYawSpeed = desiredYawSpeed;
 
-		once = true;
+		reactionPrimed = true;
 		reactionTimeTimer.Start();
 	}
 
-	float smoothingStrength = std::clamp(0.08f + alignment * 0.18f + (clampedSpeedSetting / 400.0f) * 0.1f, 0.08f, 0.3f);
+	float smoothingHuman = std::clamp(aimHumanizer, 0.92f, 1.08f);
+	float smoothingStrength = std::clamp(
+		(0.08f + alignment * 0.18f + (std::min(rawSpeedSetting, 360.0f) / 400.0f) * 0.12f) * smoothingHuman,
+		0.08f, 0.35f);
 	yawdiffSpeed = std::lerp(yawdiffSpeed, targetYawSpeed, smoothingStrength);
 	pitchdiffSpeed = std::lerp(pitchdiffSpeed, targetPitchSpeed, smoothingStrength);
 
@@ -670,6 +757,10 @@ void AimAssist::applyAimRand(float yawDiff, float pitchDiff, float speed)
 	static int pitchupdatems = randInt(pitchUpdateMsMin, pitchUpdateMsMax);
 	static float pitchrandsmooth = 0;
 	static int pitchrandbegin = 0;
+
+	if (highSpeedNoJitter) {
+		pitchrandsmooth = 0.0f;
+	}
 
 	if (absYawDiff > absPitchDiff && absYawDiff > 5.f)
 	{
@@ -700,7 +791,12 @@ void AimAssist::applyAimRand(float yawDiff, float pitchDiff, float speed)
 	}
 
 	float jitterFade = std::clamp(std::max(absYawDiff, absPitchDiff) / 45.0f, 0.0f, 1.0f);
-	pitchrandsmooth *= jitterFade;
+	float pitchRandScale = 1.0f / (1.0f + std::max(0.0f, speedNorm - 0.8f) * 2.0f);
+	if (speedNorm >= 1.5f) {
+		pitchrandsmooth = 0.0f;
+	} else {
+		pitchrandsmooth *= jitterFade * std::clamp(pitchRandScale, 0.25f, 1.0f);
+	}
 
 	cursorAccumY += pitchdiffSpeed + pitchrandsmooth;
 
@@ -717,12 +813,12 @@ void AimAssist::applyAimRand(float yawDiff, float pitchDiff, float speed)
 	}
 
 	// Ensure low in-game sensitivity doesn't overly throttle aim speed.
-	float minSens = std::lerp(0.15f, 0.45f, speedNorm);
+	float minSens = std::lerp(0.15f, 0.45f, std::clamp(speedNorm, 0.0f, 1.5f));
 	float effectiveSens = std::max(cachedMouseSensitivity, minSens);
 	float sensBase = effectiveSens * 0.6f + 0.2f;
 	float sensMultiplier = sensBase * sensBase * sensBase * 8.0f;
 
-	constexpr float kMouseGain = 0.15f;
+	constexpr float kMouseGain = 0.10f;
 	float yawDelta = yawdiffSpeed * sensMultiplier * kMouseGain;
 	float pitchDelta = (float)moveY * sensMultiplier * kMouseGain;
 
@@ -736,29 +832,75 @@ void AimAssist::applyAimRand(float yawDiff, float pitchDiff, float speed)
 		return sign * mag;
 	};
 
-	float firstFracYaw = 0.55f;
-	float firstFracPitch = 0.6f;
+	float clampJitter = std::clamp(aimHumanizer, 0.9f, 1.1f);
+	float firstFracYaw = 0.55f * clampJitter;
+	float firstFracPitch = 0.6f * clampJitter;
 	if (targetChangedThisFrame || maxDiff > 20.f) {
 		firstFracYaw = 0.4f;
 		firstFracPitch = 0.55f;
 	}
-	yawDelta = clampStepToError(yawDelta, yawDiff, firstFracYaw);
-	pitchDelta = clampStepToError(pitchDelta, pitchDiff, firstFracPitch);
+	if (speedNorm > 1.5f) {
+		firstFracYaw *= 0.5f;
+		firstFracPitch *= 0.5f;
+		if (speedNorm > 1.8f) {
+			firstFracYaw *= 0.8f;
+			firstFracPitch *= 0.8f;
+		}
+	}
+	float yawDeltaErr = clampStepToError(yawDelta, yawDiff, firstFracYaw);
+	float pitchDeltaErr = clampStepToError(pitchDelta, pitchDiff, firstFracPitch);
+	bool yawErrClamped = std::abs(yawDeltaErr - yawDelta) > 1e-6f;
+	bool pitchErrClamped = std::abs(pitchDeltaErr - pitchDelta) > 1e-6f;
+	yawDelta = yawDeltaErr;
+	pitchDelta = pitchDeltaErr;
 
 	// Clamp per-frame rotation to keep motion buttery even on spikes
-	float yawStepBase = std::lerp(2.5f, 6.5f, speedNorm);
-	float pitchStepBase = std::lerp(1.8f, 5.5f, speedNorm);
-	if (speedNorm > 0.8f) {
+	float stepNorm = std::clamp(speedNorm, 0.0f, 2.2f);
+	float yawStepBase = std::lerp(2.5f, 6.5f, std::min(stepNorm, 1.0f)) + std::max(0.0f, stepNorm - 1.0f) * 2.0f;
+	float pitchStepBase = std::lerp(1.8f, 5.5f, std::min(stepNorm, 1.0f)) + std::max(0.0f, stepNorm - 1.0f) * 1.5f;
+	if (stepNorm > 0.8f) {
 		yawStepBase *= 0.85f;
 		pitchStepBase *= 0.85f;
 	}
-	const float maxYawStep = yawStepBase;
-	const float maxPitchStep = pitchStepBase;
-	yawDelta = std::clamp(yawDelta, -maxYawStep, maxYawStep);
-	pitchDelta = std::clamp(pitchDelta, -maxPitchStep, maxPitchStep);
+	if (stepNorm > 1.2f) {
+		yawStepBase *= 0.7f;
+		pitchStepBase *= 0.7f;
+		if (stepNorm > 1.6f) {
+			yawStepBase *= 0.6f;
+			pitchStepBase *= 0.6f;
+		}
+	}
+	const float maxYawStep = std::clamp(yawStepBase, 2.5f, 11.5f);
+	const float maxPitchStep = std::clamp(pitchStepBase, 1.8f, 9.5f);
+	float yawDeltaStep = std::clamp(yawDelta, -maxYawStep, maxYawStep);
+	float pitchDeltaStep = std::clamp(pitchDelta, -maxPitchStep, maxPitchStep);
+	bool yawStepClamped = std::abs(yawDeltaStep - yawDelta) > 1e-6f;
+	bool pitchStepClamped = std::abs(pitchDeltaStep - pitchDelta) > 1e-6f;
+	yawDelta = yawDeltaStep;
+	pitchDelta = pitchDeltaStep;
+
+	static Timer debugLogTimer;
+	if (debugLogTimer.Elapsed<>() > 300) {
+		const char* yErrF = yawErrClamped ? "E" : "";
+		const char* yStpF = yawStepClamped ? "S" : "";
+		const char* pErrF = pitchErrClamped ? "E" : "";
+		const char* pStpF = pitchStepClamped ? "S" : "";
+		log_debug("[AimAssist] spd=%.1f norm=%.2f dyn=%.2f ramp=%.2f (t=%.2f e=%.2f c=%.2f) jitter=%.4f diff(y=%.2f p=%.2f max=%.2f) step(y=%.2f p=%.2f) delta(y=%.3f%s%s p=%.3f%s%s)",
+			rawSpeedSetting, speedNorm, dynamicSpeed, ramp, timeRamp, errorRamp, clickRamp, jitterRange,
+			yawDiff, pitchDiff, maxDiff, maxYawStep, maxPitchStep,
+			yawDelta, yErrF, yStpF, pitchDelta, pErrF, pStpF);
+		debugLogTimer.Start();
+	}
 
 	bool applyYaw = std::abs(yawDelta) > 0.0001f;
-	if (!applyYaw && moveY == 0) return;
+	if (!applyYaw && moveY == 0) {
+		// Keep prev rotations in sync to avoid partial tick interpolation fighting
+		float curYaw = player.getYaw();
+		float curPitch = player.getPitch();
+		player.setPrevYaw(curYaw);
+		player.setPrevPitch(curPitch);
+		return;
+	}
 
 	if (applyYaw) {
 		float currentYaw = player.getYaw();
@@ -772,6 +914,9 @@ void AimAssist::applyAimRand(float yawDiff, float pitchDiff, float speed)
 		float targetPitch = std::clamp(currentPitch + pitchDelta, -90.0f, 90.0f);
 		player.setPitch(targetPitch);
 		player.setPrevPitch(targetPitch);
+	} else {
+		// Even without pitch movement, sync prevPitch to current to prevent visual tug
+		player.setPrevPitch(player.getPitch());
 	}
 }
 
@@ -897,7 +1042,7 @@ void AimAssist::onRenderMenu()
 		"Settings", [this, &currentMode]() {
 			ui::CheckboxBind("Enabled", &enabled, &keybind);
 			ImGui::Spacing();
-			ui::SliderFloat("Speed", &settings.speed, 1.0f, 120.0f, "%.0f");
+			ui::SliderFloat("Speed", &settings.speed, 1.0f, 120.0f, "%.0f", true);
 			ui::SliderInt("FOV", &settings.fov, 10, 360, "%d");
 			ui::SliderFloat("Distance", &settings.distance, 3.0f, 8.0f, "%.1f");
 			ui::SliderInt("Reaction Time", &settings.reactionTime, 0, 200, "%d ms");

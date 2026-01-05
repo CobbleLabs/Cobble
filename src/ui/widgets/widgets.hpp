@@ -89,7 +89,7 @@ namespace ui {
     bool CheckboxBind(const char* label, bool* v, int* key);
     
     // Sliders
-    bool SliderFloat(const char* label, float* v, float v_min, float v_max, const char* format = "%.1f");
+    bool SliderFloat(const char* label, float* v, float v_min, float v_max, const char* format = "%.1f", bool allowDirectInput = false);
     bool SliderInt(const char* label, int* v, int v_min, int v_max, const char* format = "%d");
     
     // Keybind capture

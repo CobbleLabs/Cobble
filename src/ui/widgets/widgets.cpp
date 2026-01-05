@@ -305,7 +305,7 @@ bool ui::CheckboxBind(const char* label, bool* v, int* key) {
 
 // ==================== SLIDER FLOAT ====================
 
-bool ui::SliderFloat(const char* label, float* v, float v_min, float v_max, const char* format) {
+bool ui::SliderFloat(const char* label, float* v, float v_min, float v_max, const char* format, bool allowDirectInput) {
     auto window = GetCurrentWindow();
     auto id = window->GetID(label);
     auto style = GetStyle();
@@ -316,6 +316,98 @@ bool ui::SliderFloat(const char* label, float* v, float v_min, float v_max, cons
     ImRect total_bb(pos, pos + ImVec2(CalcItemWidth(), label_size.y + style.ItemInnerSpacing.y * 1.25f + frame_size.y));
     ImRect bb(ImVec2(total_bb.Min.x, total_bb.Max.y - frame_size.y), ImVec2(total_bb.Max.x, total_bb.Max.y));
     
+    // Calculate value text area for direct input detection
+    char value_buf[64];
+    snprintf(value_buf, sizeof(value_buf), format, *v);
+    ImVec2 value_size = CalcTextSize(value_buf);
+    ImRect value_bb(ImVec2(total_bb.Max.x - value_size.x - s(4), total_bb.Min.y - s(2)),
+        ImVec2(total_bb.Max.x + s(4), total_bb.Min.y + value_size.y + s(2)));
+
+    // Track editing state with persistent storage
+    struct direct_input_state { 
+        bool editing; 
+        char buffer[32]; 
+        bool justStarted;
+    };
+    auto& inputState = anim_obj(label, 1, direct_input_state{ false, "", false });
+    
+    // Check for click on value text - only if allowDirectInput is true
+    if (allowDirectInput && !inputState.editing) {
+        if (IsMouseHoveringRect(value_bb.Min, value_bb.Max) && IsMouseClicked(ImGuiMouseButton_Left)) {
+            inputState.editing = true;
+            inputState.justStarted = true;
+            snprintf(inputState.buffer, sizeof(inputState.buffer), format, *v);
+        }
+    }
+    
+    // Handle text input mode - render input and return early
+    if (inputState.editing) {
+        ItemAdd(total_bb, id);
+        ItemSize(total_bb);
+        
+        // Draw slider background while editing
+        struct slider_state { float grab; float anim; ImColor col; };
+        auto& obj = anim_obj(label, 0, slider_state{ 0.f, 0.f, 0 });
+        float t = ImClamp((*v - v_min) / (v_max - v_min), 0.0f, 1.0f);
+        obj.grab = t * bb.GetWidth();
+        
+        window->DrawList->AddRectFilled(bb.Min, bb.Max, GetColor(ImGuiCol_FrameBg), 100);
+        window->DrawList->AddRectFilled(bb.Min, { bb.Min.x + obj.grab * anim, bb.Max.y }, GetSchemeColor(), 100);
+        float grab_radius = s(6.f);
+        window->DrawList->AddCircleFilled({ bb.Min.x + obj.grab * anim, bb.GetCenter().y }, grab_radius, GetColor(ImGuiCol_Text), 64);
+        window->DrawList->AddText(total_bb.Min, GetColor(ImGuiCol_TextDisabled), label, FindRenderedTextEnd(label));
+        
+        // Position input at value location
+        float inputWidth = s(25.f);
+        ImVec2 inputPos(total_bb.Max.x - inputWidth, total_bb.Min.y);
+        SetCursorScreenPos(inputPos);
+        PushItemWidth(inputWidth);
+        
+        PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(s(2), s(1)));
+        PushStyleColor(ImGuiCol_FrameBg, GetColor(ImGuiCol_FrameBgActive));
+        
+        // Set focus only on first frame
+        if (inputState.justStarted) {
+            SetKeyboardFocusHere();
+            inputState.justStarted = false;
+        }
+        
+        ImGuiInputTextFlags flags = ImGuiInputTextFlags_CharsDecimal | ImGuiInputTextFlags_AutoSelectAll | ImGuiInputTextFlags_EnterReturnsTrue;
+        bool enterPressed = InputText("##valueinput", inputState.buffer, sizeof(inputState.buffer), flags);
+        
+        // Only close on Enter key press
+        if (enterPressed) {
+            float newVal = 0.0f;
+            if (sscanf(inputState.buffer, "%f", &newVal) == 1 && std::isfinite(newVal)) {
+                *v = newVal;
+                MarkItemEdited(id);
+            }
+            inputState.editing = false;
+        }
+        
+        // Cancel on escape
+        if (IsKeyPressed(ImGuiKey_Escape)) {
+            inputState.editing = false;
+        }
+        
+        // Close if clicked outside the input box
+        if (IsMouseClicked(ImGuiMouseButton_Left) && !IsItemHovered()) {
+            float newVal = 0.0f;
+            if (sscanf(inputState.buffer, "%f", &newVal) == 1 && std::isfinite(newVal)) {
+                *v = newVal;
+                MarkItemEdited(id);
+            }
+            inputState.editing = false;
+        }
+        
+        PopStyleColor();
+        PopStyleVar();
+        PopItemWidth();
+        
+        return true;
+    }
+    
+    // Normal slider logic
     ItemAdd(total_bb, id);
     ItemSize(total_bb);
     
@@ -353,9 +445,6 @@ bool ui::SliderFloat(const char* label, float* v, float v_min, float v_max, cons
     
     obj.anim = animate(obj.anim, 0.f, 1.f, hovered || active);
     obj.col = col_anim(GetColor(ImGuiCol_FrameBg), GetColor(ImGuiCol_FrameBgHovered), obj.anim);
-    
-    char value_buf[64];
-    snprintf(value_buf, sizeof(value_buf), format, *v);
     
     window->DrawList->AddRectFilled(bb.Min, bb.Max, obj.col, 100);
     window->DrawList->AddRectFilled(bb.Min, { bb.Min.x + obj.grab * anim, bb.Max.y }, GetSchemeColor(), 100);
