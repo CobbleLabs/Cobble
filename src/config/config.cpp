@@ -13,6 +13,7 @@
 #include "../module/visual/esp.h"
 #include "../ui/hud/arraylist.h"
 #include "../ui/hud/notifications.h"
+#include "../ui/menu/menu.h"
 #include "../util/friends_manager.h"
 
 using namespace ArrayListRenderer;
@@ -40,6 +41,7 @@ void ConfigManager::applyConfig() {
     // Apply settings
     if (config_.has("settings")) {
         syncEnabled_ = config_["settings"]["cloudSync"].as_bool(false);
+        Menu::menuKey = config_["settings"]["menuKey"].as_int(0x2D); // VK_INSERT
     }
     
     // Apply HUD settings
@@ -69,6 +71,9 @@ void ConfigManager::applyConfig() {
         friendsManager->teams.matchOwnNametag = config_["friends"]["matchOwnNametag"].as_bool(true);
         friendsManager->applyToCombat = config_["friends"]["applyToCombat"].as_bool(true);
         friendsManager->applyToVisual = config_["friends"]["applyToVisual"].as_bool(false);
+        // Quick-add settings
+        friendsManager->quickAddEnabled = config_["friends"]["quickAddEnabled"].as_bool(true);
+        friendsManager->quickAddKey = config_["friends"]["quickAddKey"].as_int(0x04); // VK_MBUTTON
     }
     
     // Apply module configs
@@ -197,6 +202,7 @@ void ConfigManager::buildConfigFromModules() {
         
     // Settings
     config_["settings"]["cloudSync"] = syncEnabled_;
+    config_["settings"]["menuKey"] = Menu::menuKey;
     
     // HUD
     config_["hud"]["arrayList"] = enabled;
@@ -214,6 +220,9 @@ void ConfigManager::buildConfigFromModules() {
         config_["friends"]["matchOwnNametag"] = friendsManager->teams.matchOwnNametag;
         config_["friends"]["applyToCombat"] = friendsManager->applyToCombat;
         config_["friends"]["applyToVisual"] = friendsManager->applyToVisual;
+        // Quick-add settings
+        config_["friends"]["quickAddEnabled"] = friendsManager->quickAddEnabled;
+        config_["friends"]["quickAddKey"] = friendsManager->quickAddKey;
     }
     
     // Build modules config

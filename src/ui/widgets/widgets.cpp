@@ -20,7 +20,7 @@ inline ImU32 GetSchemeColor(float alpha) {
 // ==================== TAB DEFINITIONS ====================
 std::vector<ui::tab_t> ui::tabs = {
     { ICON_FA_CROSSHAIRS, "Combat", { "AutoClicker", "AimAssist", "AutoRefill", "Velocity", "Reach", "Blink" } },
-    { ICON_FA_EYE, "Visuals", { "NameTags", "ESP" } },
+    { ICON_FA_EYE, "Visuals", { "NameTags", "ESP", "ArrayList", "Notifications" } },
     { ICON_FA_ROCKET, "Movement", { "NoJumpDelay", "BridgeAssist" } },
     { ICON_FA_GEAR, "Settings", { } }
 };
@@ -285,9 +285,25 @@ bool ui::CheckboxBind(const char* label, bool* v, int* key) {
             else if (GetAsyncKeyState(VK_XBUTTON1) & 0x8000) { *key = VK_XBUTTON1; ClearActiveID(); changed = true; }
             else if (GetAsyncKeyState(VK_XBUTTON2) & 0x8000) { *key = VK_XBUTTON2; ClearActiveID(); changed = true; }
             else {
-                for (int vk = 0x08; vk <= 0x7B; vk++) {
-                    if (vk == VK_ESCAPE) continue;
-                    if (GetAsyncKeyState(vk) & 0x8000) { *key = vk; ClearActiveID(); changed = true; break; }
+                // Check all common key ranges
+                static const int keyRanges[][2] = {
+                    {0x08, 0x2F},  // Control keys, arrows, etc.
+                    {0x30, 0x39},  // Numbers 0-9
+                    {0x41, 0x5A},  // Letters A-Z
+                    {0x60, 0x6F},  // Numpad
+                    {0x70, 0x87},  // F1-F24
+                    {0x90, 0x91},  // NUMLOCK, SCROLL
+                    {0xA0, 0xB7},  // Shift variants, browser/media keys
+                    {0xBA, 0xC0},  // OEM keys: ;=,-./`
+                    {0xDB, 0xDF},  // OEM keys: [\]'
+                };
+                bool found = false;
+                for (const auto& range : keyRanges) {
+                    for (int vk = range[0]; vk <= range[1] && !found; vk++) {
+                        if (vk == VK_ESCAPE) continue;
+                        if (GetAsyncKeyState(vk) & 0x8000) { *key = vk; ClearActiveID(); changed = true; found = true; }
+                    }
+                    if (found) break;
                 }
             }
         }
@@ -458,6 +474,80 @@ bool ui::SliderFloat(const char* label, float* v, float v_min, float v_max, cons
     return active;
 }
 
+// ==================== SLIDER FLOAT WITH CLAMPING ====================
+// Same as SliderFloat but clamps value to [*clamp_min, *clamp_max] DURING drag
+// This prevents visual overshoot when linking min/max sliders
+
+bool ui::SliderFloat(const char* label, float* v, float v_min, float v_max, float* clamp_min, float* clamp_max, const char* format) {
+    auto window = GetCurrentWindow();
+    auto id = window->GetID(label);
+    auto style = GetStyle();
+    
+    ImVec2 pos = window->DC.CursorPos;
+    ImVec2 label_size = CalcTextSize(label, 0, 1);
+    ImVec2 frame_size = ImVec2(CalcItemWidth(), s(6));
+    ImRect total_bb(pos, pos + ImVec2(CalcItemWidth(), label_size.y + style.ItemInnerSpacing.y * 1.25f + frame_size.y));
+    ImRect bb(ImVec2(total_bb.Min.x, total_bb.Max.y - frame_size.y), ImVec2(total_bb.Max.x, total_bb.Max.y));
+    
+    char value_buf[64];
+    snprintf(value_buf, sizeof(value_buf), format, *v);
+    
+    ItemAdd(total_bb, id);
+    ItemSize(total_bb);
+    
+    const bool hovered = ItemHoverable(bb, id, 0);
+    const bool clicked = hovered && IsMouseClicked(ImGuiMouseButton_Left);
+    const bool active = GetActiveID() == id;
+    
+    if (clicked) {
+        SetActiveID(id, window);
+        SetFocusID(id, window);
+        FocusWindow(window);
+    }
+    
+    if (active && IsMouseReleased(ImGuiMouseButton_Left)) {
+        ClearActiveID();
+    }
+    
+    struct slider_state { float grab; float anim; ImColor col; };
+    auto& obj = anim_obj(label, 0, slider_state{ 0.f, 0.f, 0 });
+    
+    float t = (*v - v_min) / (v_max - v_min);
+    t = ImClamp(t, 0.0f, 1.0f);
+    float grab_pos = t * bb.GetWidth();
+    
+    if (active) {
+        float mouse_rel = ImClamp((GetMousePos().x - bb.Min.x) / bb.GetWidth(), 0.0f, 1.0f);
+        float new_val = v_min + mouse_rel * (v_max - v_min);
+        
+        // Apply linked clamping DURING drag
+        if (clamp_min && new_val < *clamp_min) new_val = *clamp_min;
+        if (clamp_max && new_val > *clamp_max) new_val = *clamp_max;
+        
+        *v = new_val;
+        MarkItemEdited(id);
+        t = (*v - v_min) / (v_max - v_min);
+        grab_pos = t * bb.GetWidth();
+        obj.grab = ImLerp(obj.grab, grab_pos, 24.f * GetIO().DeltaTime);
+    } else {
+        obj.grab = grab_pos;
+    }
+    
+    obj.anim = animate(obj.anim, 0.f, 1.f, hovered || active);
+    obj.col = col_anim(GetColor(ImGuiCol_FrameBg), GetColor(ImGuiCol_FrameBgHovered), obj.anim);
+    
+    window->DrawList->AddRectFilled(bb.Min, bb.Max, obj.col, 100);
+    window->DrawList->AddRectFilled(bb.Min, { bb.Min.x + obj.grab * anim, bb.Max.y }, GetSchemeColor(), 100);
+    
+    float grab_radius = s(active ? 7.f : (hovered ? 5.f : 6.f));
+    window->DrawList->AddCircleFilled({ bb.Min.x + obj.grab * anim, bb.GetCenter().y }, grab_radius, GetColor(ImGuiCol_Text), 64);
+    
+    window->DrawList->AddText(total_bb.Min, GetColor(ImGuiCol_TextDisabled), label, FindRenderedTextEnd(label));
+    window->DrawList->AddText({ total_bb.Max.x - CalcTextSize(value_buf).x, total_bb.Min.y }, GetColor(ImGuiCol_Text), value_buf);
+    
+    return active;
+}
+
 // ==================== SLIDER INT ====================
 
 bool ui::SliderInt(const char* label, int* v, int v_min, int v_max, const char* format) {
@@ -470,26 +560,185 @@ bool ui::SliderInt(const char* label, int* v, int v_min, int v_max, const char* 
 // ==================== KEY NAME LOOKUP ====================
 
 const char* ui::GetKeyName(int vk) {
-    static const char* keyNames[256] = {
-        "NONE", "LMB", "RMB", "BREAK", "MMB", "MB4", "MB5", "", "BACK", "TAB", 
-        "", "", "CLEAR", "ENTER", "", "", "SHIFT", "CTRL", "ALT", "PAUSE",
-        "CAPS", "", "", "", "", "", "", "ESC", "", "", "", "", 
-        "SPACE", "PGUP", "PGDN", "END", "HOME", "LEFT", "UP", "RIGHT", "DOWN", 
-        "", "", "", "PRTSC", "INS", "DEL", "", 
-        "0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "", "", "", "", "", "",
-        "", "A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M", 
-        "N", "O", "P", "Q", "R", "S", "T", "U", "V", "W", "X", "Y", "Z",
-        "LWIN", "RWIN", "", "", "", 
-        "NUM0", "NUM1", "NUM2", "NUM3", "NUM4", "NUM5", "NUM6", "NUM7", "NUM8", "NUM9",
-        "MUL", "ADD", "", "SUB", "DEC", "DIV", 
-        "F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9", "F10", "F11", "F12"
-    };
-    
-    if (vk >= 0 && vk < 124) {
-        const char* name = keyNames[vk];
-        if (name && name[0]) return name;
+    switch (vk) {
+        // Mouse buttons
+        case 0x00: return "NONE";
+        case 0x01: return "LMB";
+        case 0x02: return "RMB";
+        case 0x03: return "BREAK";
+        case 0x04: return "MMB";
+        case 0x05: return "MB4";
+        case 0x06: return "MB5";
+        
+        // Control keys
+        case 0x08: return "BACK";
+        case 0x09: return "TAB";
+        case 0x0C: return "CLEAR";
+        case 0x0D: return "ENTER";
+        case 0x10: return "SHIFT";
+        case 0x11: return "CTRL";
+        case 0x12: return "ALT";
+        case 0x13: return "PAUSE";
+        case 0x14: return "CAPS";
+        case 0x1B: return "ESC";
+        case 0x20: return "SPACE";
+        case 0x21: return "PGUP";
+        case 0x22: return "PGDN";
+        case 0x23: return "END";
+        case 0x24: return "HOME";
+        case 0x25: return "LEFT";
+        case 0x26: return "UP";
+        case 0x27: return "RIGHT";
+        case 0x28: return "DOWN";
+        case 0x29: return "SELECT";
+        case 0x2A: return "PRINT";
+        case 0x2B: return "EXEC";
+        case 0x2C: return "PRTSC";
+        case 0x2D: return "INS";
+        case 0x2E: return "DEL";
+        case 0x2F: return "HELP";
+        
+        // Numbers
+        case 0x30: return "0";
+        case 0x31: return "1";
+        case 0x32: return "2";
+        case 0x33: return "3";
+        case 0x34: return "4";
+        case 0x35: return "5";
+        case 0x36: return "6";
+        case 0x37: return "7";
+        case 0x38: return "8";
+        case 0x39: return "9";
+        
+        // Letters
+        case 0x41: return "A";
+        case 0x42: return "B";
+        case 0x43: return "C";
+        case 0x44: return "D";
+        case 0x45: return "E";
+        case 0x46: return "F";
+        case 0x47: return "G";
+        case 0x48: return "H";
+        case 0x49: return "I";
+        case 0x4A: return "J";
+        case 0x4B: return "K";
+        case 0x4C: return "L";
+        case 0x4D: return "M";
+        case 0x4E: return "N";
+        case 0x4F: return "O";
+        case 0x50: return "P";
+        case 0x51: return "Q";
+        case 0x52: return "R";
+        case 0x53: return "S";
+        case 0x54: return "T";
+        case 0x55: return "U";
+        case 0x56: return "V";
+        case 0x57: return "W";
+        case 0x58: return "X";
+        case 0x59: return "Y";
+        case 0x5A: return "Z";
+        
+        // Windows keys
+        case 0x5B: return "LWIN";
+        case 0x5C: return "RWIN";
+        case 0x5D: return "APPS";
+        case 0x5F: return "SLEEP";
+        
+        // Numpad
+        case 0x60: return "NUM0";
+        case 0x61: return "NUM1";
+        case 0x62: return "NUM2";
+        case 0x63: return "NUM3";
+        case 0x64: return "NUM4";
+        case 0x65: return "NUM5";
+        case 0x66: return "NUM6";
+        case 0x67: return "NUM7";
+        case 0x68: return "NUM8";
+        case 0x69: return "NUM9";
+        case 0x6A: return "NUM*";
+        case 0x6B: return "NUM+";
+        case 0x6C: return "NUMSEP";
+        case 0x6D: return "NUM-";
+        case 0x6E: return "NUM.";
+        case 0x6F: return "NUM/";
+        
+        // Function keys
+        case 0x70: return "F1";
+        case 0x71: return "F2";
+        case 0x72: return "F3";
+        case 0x73: return "F4";
+        case 0x74: return "F5";
+        case 0x75: return "F6";
+        case 0x76: return "F7";
+        case 0x77: return "F8";
+        case 0x78: return "F9";
+        case 0x79: return "F10";
+        case 0x7A: return "F11";
+        case 0x7B: return "F12";
+        case 0x7C: return "F13";
+        case 0x7D: return "F14";
+        case 0x7E: return "F15";
+        case 0x7F: return "F16";
+        case 0x80: return "F17";
+        case 0x81: return "F18";
+        case 0x82: return "F19";
+        case 0x83: return "F20";
+        case 0x84: return "F21";
+        case 0x85: return "F22";
+        case 0x86: return "F23";
+        case 0x87: return "F24";
+        
+        // Lock keys
+        case 0x90: return "NUMLOCK";
+        case 0x91: return "SCROLL";
+        
+        // Shift variants
+        case 0xA0: return "LSHIFT";
+        case 0xA1: return "RSHIFT";
+        case 0xA2: return "LCTRL";
+        case 0xA3: return "RCTRL";
+        case 0xA4: return "LALT";
+        case 0xA5: return "RALT";
+        
+        // Browser keys
+        case 0xA6: return "BBACK";
+        case 0xA7: return "BFWD";
+        case 0xA8: return "BREF";
+        case 0xA9: return "BSTOP";
+        case 0xAA: return "BSRCH";
+        case 0xAB: return "BFAV";
+        case 0xAC: return "BHOME";
+        
+        // Media keys
+        case 0xAD: return "MUTE";
+        case 0xAE: return "VOLDN";
+        case 0xAF: return "VOLUP";
+        case 0xB0: return "NEXT";
+        case 0xB1: return "PREV";
+        case 0xB2: return "STOP";
+        case 0xB3: return "PLAY";
+        case 0xB4: return "MAIL";
+        case 0xB5: return "MEDIA";
+        case 0xB6: return "APP1";
+        case 0xB7: return "APP2";
+        
+        // OEM keys (punctuation/symbols)
+        case 0xBA: return ";";    // OEM_1: ;:
+        case 0xBB: return "=";    // OEM_PLUS: =+
+        case 0xBC: return ",";    // OEM_COMMA: ,<
+        case 0xBD: return "-";    // OEM_MINUS: -_
+        case 0xBE: return ".";    // OEM_PERIOD: .>
+        case 0xBF: return "/";    // OEM_2: /?
+        case 0xC0: return "`";    // OEM_3: `~
+        case 0xDB: return "[";    // OEM_4: [{
+        case 0xDC: return "\\";   // OEM_5: \|
+        case 0xDD: return "]";    // OEM_6: ]}
+        case 0xDE: return "'";    // OEM_7: '"
+        case 0xDF: return "OEM8";
+        case 0xE2: return "<>";   // OEM_102: additional key on non-US keyboards
+        
+        default: return "NONE";
     }
-    return "NONE";
 }
 
 // ==================== BINDER ====================
@@ -545,9 +794,25 @@ bool ui::Binder(const char* label, int* key) {
             else if (GetAsyncKeyState(VK_XBUTTON1) & 0x8000) { *key = VK_XBUTTON1; ClearActiveID(); changed = true; }
             else if (GetAsyncKeyState(VK_XBUTTON2) & 0x8000) { *key = VK_XBUTTON2; ClearActiveID(); changed = true; }
             else {
-                for (int vk = 0x08; vk <= 0x7B; vk++) {
-                    if (vk == VK_ESCAPE) continue;
-                    if (GetAsyncKeyState(vk) & 0x8000) { *key = vk; ClearActiveID(); changed = true; break; }
+                // Check all common key ranges
+                static const int keyRanges[][2] = {
+                    {0x08, 0x2F},  // Control keys, arrows, etc.
+                    {0x30, 0x39},  // Numbers 0-9
+                    {0x41, 0x5A},  // Letters A-Z
+                    {0x60, 0x6F},  // Numpad
+                    {0x70, 0x87},  // F1-F24
+                    {0x90, 0x91},  // NUMLOCK, SCROLL
+                    {0xA0, 0xB7},  // Shift variants, browser/media keys
+                    {0xBA, 0xC0},  // OEM keys: ;=,-./`
+                    {0xDB, 0xDF},  // OEM keys: [\]'
+                };
+                bool found = false;
+                for (const auto& range : keyRanges) {
+                    for (int vk = range[0]; vk <= range[1] && !found; vk++) {
+                        if (vk == VK_ESCAPE) continue;
+                        if (GetAsyncKeyState(vk) & 0x8000) { *key = vk; ClearActiveID(); changed = true; found = true; }
+                    }
+                    if (found) break;
                 }
             }
         }

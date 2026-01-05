@@ -9,6 +9,15 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/).
 ## [Unreleased]
 
 ### Added
+- **Visual Team Resolver**: Pixel-based team detection for AimAssist
+  - Analyzes actual rendered nametag colors on screen (bypasses server data spoofing)
+  - Fallback mode: Only activates when scoreboard/§color detection returns UNKNOWN
+  - Rate-limited: 50ms per-entity analysis throttle, 200ms cache TTL
+  - Runs on render thread with `glReadPixels` for accurate color sampling
+  - HSV color classification: Green (80-150°) = teammate, Red (0-20° or 340-360°) = enemy
+  - ROI sampling: 8x4 grid (32 samples) in 40x18 pixel nametag region
+  - UI toggle: "Ignore teammates (visual)" checkbox in AimAssist Options
+  - UNKNOWN never counts as friendly (fail-safe design)
 - **SDK Refactoring**: Modularización completa del SDK de Minecraft
   - Nuevo **JNI Cache** (`sdk/jni/jni_cache.h/cpp`): Cache centralizado de todos los IDs JNI para mejor performance
   - **Módulos separados** en `sdk/mc/`:
@@ -42,8 +51,27 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/).
 - ModuleManager calls `PacketInterceptor::Tick()` every update tick.
 - Overlay reinit path skips rendering when `wglMakeCurrent` fails.
 - AimAssist rotation updates now sync prev-rotation and last-reported yaw/pitch for smoother feel.
+- **Menu Reorganization**:
+  - ArrayList y Notifications movidos de Settings → HUD a Visuals tab (subtabs separados)
+  - Settings → Theme renombrado a Settings → General (incluye Accent Color + Cloud Sync)
+  - Settings tab ahora tiene 2 columnas (General + Friends) en vez de 3
+- **Quick Add Friend**: Agregar amigo con tecla configurable mientras miras al jugador
+  - Default: Middle Mouse Button
+  - Muestra notificación toast al agregar
+  - Usa UUID para identificación confiable (anti-obfuscación)
+- **Configurable Menu Key**: El botón para abrir el menú ahora es configurable desde Settings → General
+  - Default: INSERT
+  - Se guarda en config para persistencia
+- **Expanded Key Mappings**: Soporte completo para todas las teclas en keybinds
+  - OEM keys: `.` `,` `;` `=` `-` `/` `` ` `` `[` `\` `]` `'`
+  - Function keys: F1-F24
+  - Lock keys: NUMLOCK, SCROLL
+  - Media/Browser keys: PLAY, MUTE, VOLUP, etc.
+  - Shift variants: LSHIFT, RSHIFT, LCTRL, RCTRL, LALT, RALT
 
 ### Fixed
+  - **AutoRefill**: Ahora solo refilea Instant Health 2 splash potions (damage 16421)
+    - Antes refillaba todas las pociones (speed, regen, etc.)
   - GCD compliance: Rotations now respect mouse sensitivity granularity
   - Micro-variance injection: Prevents identical consecutive rotations (P == lP fix)
   - Tick-skip randomization (~8%): Breaks rotation consistency patterns

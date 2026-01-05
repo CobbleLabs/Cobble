@@ -120,6 +120,10 @@ public:
 	bool applyToCombat = true;   // Filter AimAssist, AutoClicker
 	bool applyToVisual = false; // Change ESP/Nametag colors for friends
 	
+	// Quick-add friend feature (press key while looking at player)
+	bool quickAddEnabled = true;
+	int quickAddKey = 0x04;      // Default: middle mouse button (VK_MBUTTON)
+	
 	// ============================================================
 	// Combined Check - Use this in modules
 	// ============================================================

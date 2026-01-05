@@ -16,6 +16,8 @@
 #include "ui/hud/notifications.h"
 #include "util/integrity.h"
 #include "util/friends_manager.h"
+#include "util/visual_team_resolver.h"
+#include "sdk/player/render_data.h"
 #include "sdk/network/network_probe.hpp"
 #include "jni/packet_interceptor.hpp"
 
@@ -73,6 +75,7 @@ void cobble::context::initialize(HMODULE hModule)
 	nameTags = new NameTags();
 	esp = new ESP();
 	friendsManager = new FriendsManager();
+	visualTeamResolver = new VisualTeamResolver();
 	log_ok("Modules allocated");
 
 	log_raw("Registering modules...");
@@ -148,6 +151,15 @@ void cobble::context::initialize(HMODULE hModule)
 		player.refresh();
 		moduleManager->update();
 		
+		// Update render data matrices (for ESP/VisualTeamResolver) - must be on main thread with JNI access
+		RenderData::Update();
+		
+		// Background visual team scanning - pre-cache detection before AimAssist needs it
+		// Run every 20 ticks (~20ms) to minimize JNI overhead
+		if (visualTeamResolver && visualTeamResolver->enabled && tickCount % 20 == 0) {
+			visualTeamResolver->scanAllPlayers();
+		}
+		
 		// Periodic integrity check (silent exit if tampered)
 		if (tickCount % INTEGRITY_CHECK_INTERVAL == 0) {
 			if (!Integrity::Verify(moduleHandle)) {
@@ -206,6 +218,7 @@ void cobble::context::shutdown()
 	if (nameTags) { delete nameTags; nameTags = nullptr; }
 	if (esp) { delete esp; esp = nullptr; }
 	if (friendsManager) { delete friendsManager; friendsManager = nullptr; }
+	if (visualTeamResolver) { delete visualTeamResolver; visualTeamResolver = nullptr; }
 	
 	if (moduleManager) { delete moduleManager; moduleManager = nullptr; }
 	

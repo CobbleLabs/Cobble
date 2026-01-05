@@ -5,6 +5,8 @@
 #include "../widgets/widgets.hpp"
 #include "../widgets/icons.hpp"
 #include "../../util/logger.hpp"
+#include "../../util/friends_manager.h"
+#include "../../util/visual_team_resolver.h"
 #include "../../sdk/player/render_data.h"
 #include "../../sdk/core/minecraft.h"
 #include "../../module/module_manager.h"
@@ -133,7 +135,7 @@ namespace {
 	
 	LRESULT CALLBACK HookedWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 	{
-		if (msg == WM_KEYDOWN && wParam == VK_INSERT) {
+		if (msg == WM_KEYDOWN && wParam == Menu::menuKey) {
 			Menu::isOpen = !Menu::isOpen;
 			
 			if (Menu::isOpen) {
@@ -148,13 +150,58 @@ namespace {
 			}
 		}
 		
+		// Quick-add friend feature (when menu is closed and not in a GUI)
+		if (!Menu::isOpen && friendsManager && friendsManager->quickAddEnabled) {
+			bool quickAddPressed = false;
+			int quickKey = friendsManager->quickAddKey;
+			
+			// Detect key/mouse press based on VK code
+			if (quickKey == VK_MBUTTON && msg == WM_MBUTTONDOWN) quickAddPressed = true;
+			else if (quickKey == VK_XBUTTON1 && msg == WM_XBUTTONDOWN && GET_XBUTTON_WPARAM(wParam) == XBUTTON1) quickAddPressed = true;
+			else if (quickKey == VK_XBUTTON2 && msg == WM_XBUTTONDOWN && GET_XBUTTON_WPARAM(wParam) == XBUTTON2) quickAddPressed = true;
+			else if (msg == WM_KEYDOWN && (int)wParam == quickKey) quickAddPressed = true;
+			
+			if (quickAddPressed) {
+				log_debug("[QuickAdd] Key pressed (VK: 0x%02X), inGui: %s", quickKey, mc.isInGui() ? "yes" : "no");
+				
+				if (!mc.isInGui()) {
+					// Get targeted player info
+					PlayerInfo targetInfo = mc.getTargetedPlayerInfo();
+					log_debug("[QuickAdd] TargetInfo: uuid=%s, name=%s, profile=%s", 
+						targetInfo.uuid.c_str(), targetInfo.name.c_str(), targetInfo.profileName.c_str());
+					
+					if (!targetInfo.uuid.empty()) {
+						// Check if already a friend
+						if (!friendsManager->isFriendByUUID(targetInfo.uuid)) {
+							// Use profileName if available, else name
+							std::string displayName = targetInfo.profileName.empty() ? targetInfo.name : targetInfo.profileName;
+							friendsManager->addFriendByUUID(targetInfo.uuid, displayName);
+							
+							// Toast shown after Mojang resolves real name in addFriendByUUID
+							log_debug("[QuickAdd] Added %s as friend (UUID: %s)", displayName.c_str(), targetInfo.uuid.c_str());
+							
+							// Save config
+							ConfigManager::get().onSettingChanged();
+						} else {
+							// Already a friend
+							std::string displayName = friendsManager->getFriendDisplayName(targetInfo.uuid);
+							log_debug("[QuickAdd] %s is already a friend", displayName.c_str());
+							NotificationManager::addSystem(displayName + " is already a friend");
+						}
+					} else {
+						log_debug("[QuickAdd] No player targeted (uuid empty)");
+					}
+				}
+			}
+		}
+		
 		if (Menu::isOpen) {
 			if (Menu::moduleToBind != nullptr) {
 				if (msg == WM_KEYDOWN) {
 					if (wParam == VK_ESCAPE) {
 						Menu::moduleToBind->keybind = 0;
 						Menu::moduleToBind = nullptr;
-					} else if (wParam != VK_INSERT) {
+						} else if (wParam != Menu::menuKey) {
 						Menu::moduleToBind->keybind = (int)wParam;
 						Menu::moduleToBind = nullptr;
 					}
@@ -320,6 +367,13 @@ namespace {
 				(newWidth != RenderData::screenWidth || newHeight != RenderData::screenHeight)) {
 				RenderData::screenWidth = newWidth;
 				RenderData::screenHeight = newHeight;
+			}
+			
+			// Process visual team resolver on render thread (reads from game framebuffer)
+			// This uses the ORIGINAL GL context to read actual rendered pixels
+			if (visualTeamResolver && visualTeamResolver->enabled) {
+				visualTeamResolver->processRenderThread(RenderData::screenWidth, RenderData::screenHeight);
+				visualTeamResolver->tick();  // Clean stale cache entries
 			}
 			
 			if (!wglMakeCurrent(Overlay::deviceContext, Overlay::overlayContext)) {

@@ -3,6 +3,7 @@
 #include "http.hpp"
 #include "json.hpp"
 #include "../sdk/core/minecraft.h"
+#include "../ui/hud/notifications.h"
 #include <algorithm>
 #include <cctype>
 #include <chrono>
@@ -51,6 +52,46 @@ static std::string resolveMojangUUID(const std::string& username) {
     
     log_debug("[Friends] Mojang resolved '%s' -> %s", username.c_str(), uuid.c_str());
     return uuid;
+}
+
+// Resolve a UUID to real Minecraft username via Mojang session server
+// Returns empty string if not found or error
+// API: GET https://sessionserver.mojang.com/session/minecraft/profile/{uuid-no-dashes}
+static std::string resolveMojangUsername(const std::string& uuid) {
+    if (uuid.empty()) return "";
+    
+    // Remove dashes from UUID for API call
+    std::string cleanUUID = uuid;
+    cleanUUID.erase(std::remove(cleanUUID.begin(), cleanUUID.end(), '-'), cleanUUID.end());
+    
+    // GET https://sessionserver.mojang.com/session/minecraft/profile/{uuid}
+    std::wstring path = L"/session/minecraft/profile/" + std::wstring(cleanUUID.begin(), cleanUUID.end());
+    
+    log_debug("[Friends] Resolving UUID %s via Mojang...", uuid.c_str());
+    
+    auto response = http::get(L"sessionserver.mojang.com", 443, path, true);  // HTTPS
+    
+    if (!response.success || response.statusCode != 200) {
+        log_debug("[Friends] Mojang session API failed for UUID '%s': %s (status: %d)", 
+                  uuid.c_str(), response.error.c_str(), response.statusCode);
+        return "";
+    }
+    
+    // Parse JSON response: {"id": "UUID", "name": "RealUsername", ...}
+    json::Value root;
+    if (!json::Parser::parse(response.body, root)) {
+        log_debug("[Friends] Failed to parse Mojang session response for '%s'", uuid.c_str());
+        return "";
+    }
+    
+    std::string realName = root["name"].as_string();
+    if (realName.empty()) {
+        log_debug("[Friends] No name in Mojang response for UUID '%s'", uuid.c_str());
+        return "";
+    }
+    
+    log_debug("[Friends] Mojang resolved UUID %s -> '%s'", uuid.c_str(), realName.c_str());
+    return realName;
 }
 
 // ============================================================
@@ -188,17 +229,45 @@ char FriendsManager::getColorChar(ChatColor color) {
 
 void FriendsManager::addFriendByUUID(const std::string& uuid, const std::string& displayName) {
 	if (uuid.empty()) return;
-	std::lock_guard<std::mutex> lock(mutex_);
-	FriendData data;
-	data.uuid = uuid;
-	data.displayName = displayName.empty() ? uuid.substr(0, 8) : displayName;
-	friendsByUUID_[uuid] = data;
-	// Keep a lowercase name entry for legacy UI/config
-	std::string cleanName = stripColorCodes(data.displayName);
-	std::string lowerName = toLower(cleanName);
-	friendsByName_.insert(lowerName);
-	pendingNames_.erase(lowerName);
-	log_debug("[Friends] Added friend by UUID: %s (%s)", uuid.c_str(), data.displayName.c_str());
+	
+	std::string initialName = displayName.empty() ? uuid.substr(0, 8) : displayName;
+	
+	// Store immediately with provided name for instant UI feedback
+	{
+		std::lock_guard<std::mutex> lock(mutex_);
+		FriendData data;
+		data.uuid = uuid;
+		data.displayName = initialName;
+		friendsByUUID_[uuid] = data;
+		std::string cleanName = stripColorCodes(data.displayName);
+		std::string lowerName = toLower(cleanName);
+		friendsByName_.insert(lowerName);
+		pendingNames_.erase(lowerName);
+	}
+	
+	log_debug("[Friends] Added friend by UUID: %s (%s) - resolving real name...", uuid.c_str(), initialName.c_str());
+	
+	// Resolve REAL name via Mojang API in background (anti-cheat bypass)
+	std::thread([this, uuid, initialName]() {
+		std::string realName = resolveMojangUsername(uuid);
+		
+		if (!realName.empty() && realName != initialName) {
+			// Update with real name
+			std::lock_guard<std::mutex> lock(mutex_);
+			auto it = friendsByUUID_.find(uuid);
+			if (it != friendsByUUID_.end()) {
+				std::string oldClean = toLower(stripColorCodes(it->second.displayName));
+				friendsByName_.erase(oldClean);
+				
+				it->second.displayName = realName;
+				friendsByName_.insert(toLower(realName));
+				log_debug("[Friends] Updated friend %s: '%s' -> '%s'", uuid.c_str(), initialName.c_str(), realName.c_str());
+				
+				// Show corrected notification
+				NotificationManager::addSystem("Added " + realName);
+			}
+		}
+	}).detach();
 }
 
 void FriendsManager::removeFriendByUUID(const std::string& uuid) {
@@ -346,12 +415,13 @@ bool FriendsManager::isTeammate(const std::string& playerUUID, ChatColor playerC
 	static auto lastDebugLog = std::chrono::steady_clock::now();
 	auto now = std::chrono::steady_clock::now();
 	if (std::chrono::duration_cast<std::chrono::milliseconds>(now - lastDebugLog).count() > 500) {
-		log_debug("[Teams] Check UUID=%s playerColor=%d localColor=%d (auto=%d manual=%d manualColor=%d)",
-			playerUUID.empty() ? "?" : playerUUID.substr(0, 8).c_str(),
-			static_cast<int>(playerColor), static_cast<int>(localColor),
-			teams.matchOwnNametag ? 1 : 0,
-			teams.manualColorEnabled ? 1 : 0,
-			static_cast<int>(teams.manualColor));
+		// Debug logging disabled - uncomment to debug team detection
+		// log_debug("[Teams] Check UUID=%s playerColor=%d localColor=%d (auto=%d manual=%d manualColor=%d)",
+		// 	playerUUID.empty() ? "?" : playerUUID.substr(0, 8).c_str(),
+		// 	static_cast<int>(playerColor), static_cast<int>(localColor),
+		// 	teams.matchOwnNametag ? 1 : 0,
+		// 	teams.manualColorEnabled ? 1 : 0,
+		// 	static_cast<int>(teams.manualColor));
 		lastDebugLog = now;
 	}
 	

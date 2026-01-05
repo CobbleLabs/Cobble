@@ -465,12 +465,12 @@ void AutoClicker::onRenderMenu()
 {
 	ui::two_column(
 		"General", [this]() {
-			ui::CheckboxBind("Enabled", &enabled, &keybind);
+		ui::CheckboxBind("Enabled", &enabled, &keybind);
 			ImGui::Spacing();
-			ui::SliderFloat("Min CPS", &settings.minCPS, 1.0f, 20.0f, "%.1f");
-			ui::SliderFloat("Max CPS", &settings.maxCPS, 1.0f, 20.0f, "%.1f");
-			if (settings.minCPS > settings.maxCPS)
-				settings.minCPS = settings.maxCPS;
+			float minLimit = 1.0f;
+			float maxLimit = 20.0f;
+			ui::SliderFloat("Min CPS", &settings.minCPS, 1.0f, 20.0f, &minLimit, &settings.maxCPS, "%.1f");
+			ui::SliderFloat("Max CPS", &settings.maxCPS, 1.0f, 20.0f, &settings.minCPS, &maxLimit, "%.1f");
 		},
 		"Conditions", [this]() {
 			ui::Checkbox("Stable CPS", &settings.stableCPS);

@@ -42,6 +42,8 @@ Module* getModuleForSubtab(int tabIdx, int subtabIdx)
 		switch (subtabIdx) {
 			case 0: return nameTags;
 			case 1: return esp;
+			case 2: return nullptr; // ArrayList - special handling
+			case 3: return nullptr; // Notifications - special handling
 		}
 	}
 	// Movement Tab (2)
@@ -59,59 +61,20 @@ Module* getModuleForSubtab(int tabIdx, int subtabIdx)
 // Settings tab content - special case (not a module)
 static void renderSettingsPage()
 {
-	float thirdWidth = (ImGui::GetWindowWidth() - GImGui->Style.WindowPadding.x * 2) / 3 - GImGui->Style.ItemSpacing.x * 0.67f;
+	float halfWidth = (ImGui::GetWindowWidth() - GImGui->Style.WindowPadding.x * 2) / 2 - GImGui->Style.ItemSpacing.x / 2;
 	float bottomRowHeight = ui::s(100);
 	float topRowHeight = ImGui::GetContentRegionAvail().y - bottomRowHeight - ui::s(10);
 	
-	// Theme column
+	// General column (accent color + cloud sync)
 	ImGui::BeginGroup();
 	{
-		ui::begin_child("Theme", { thirdWidth, topRowHeight });
+		ui::begin_child("General", { halfWidth, topRowHeight });
 		{
+			ui::Binder("Menu Key", &Menu::menuKey);
+			
+			ImGui::Spacing();
+			
 			ui::color("Accent Color", g_SchemeColor);
-		}
-		ui::end_child();
-	}
-	ImGui::EndGroup();
-	
-	ImGui::SameLine();
-	
-	// HUD column
-	ImGui::BeginGroup();
-	{
-		ui::begin_child("HUD", { thirdWidth, topRowHeight });
-		{
-			ui::Checkbox("ArrayList", &ArrayListRenderer::enabled);
-			if (ArrayListRenderer::enabled) {
-				std::string preview = "None";
-				std::vector<std::string> parts;
-				if (ArrayListRenderer::showBackground) parts.push_back("BG");
-				if (ArrayListRenderer::sortByLength) parts.push_back("Sort");
-				
-				if (!parts.empty()) {
-					preview = "";
-					for (size_t i = 0; i < parts.size(); ++i) {
-						if (i > 0) preview += ", ";
-						preview += parts[i];
-					}
-				}
-				
-				ImGui::SetNextItemWidth(ImGui::CalcItemWidth());
-				if (ImGui::BeginCombo("Options", preview.c_str())) {
-					bool bg = ArrayListRenderer::showBackground;
-					if (ImGui::Selectable("Background", &bg, ImGuiSelectableFlags_DontClosePopups)) {
-						ArrayListRenderer::showBackground = bg;
-					}
-					
-					bool sort = ArrayListRenderer::sortByLength;
-					if (ImGui::Selectable("Sort by Length", &sort, ImGuiSelectableFlags_DontClosePopups)) {
-						ArrayListRenderer::sortByLength = sort;
-					}
-					
-					ImGui::EndCombo();
-				}
-			}
-			ui::Checkbox("Notifications", &NotificationManager::enabled);
 			
 			ImGui::Spacing();
 			ImGui::Separator();
@@ -135,7 +98,7 @@ static void renderSettingsPage()
 	// Friends column
 	ImGui::BeginGroup();
 	{
-		ui::begin_child("Friends", { thirdWidth, topRowHeight });
+		ui::begin_child("Friends", { halfWidth, topRowHeight });
 		{
 			if (friendsManager) {
 				// Add friend input
@@ -218,6 +181,18 @@ static void renderSettingsPage()
 						friendsManager->teams.manualColor = static_cast<ChatColor>(colorIdx);
 					}
 				}
+				
+				ImGui::Spacing();
+				ImGui::Separator();
+				ImGui::Spacing();
+				
+				// Quick-add friend feature
+				ui::CheckboxBind("Quick Add", &friendsManager->quickAddEnabled, &friendsManager->quickAddKey);
+				ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetColorU32(ImGuiCol_TextDisabled));
+				ImGui::TextWrapped("Press key while looking at player");
+				ImGui::PopStyleColor();
+				
+				ImGui::Spacing();
 				
 				ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetColorU32(ImGuiCol_TextDisabled));
 				ImGui::TextWrapped("Teammates ignored by combat");
@@ -335,6 +310,28 @@ static void renderPage()
             // Normal Module UI
             mod->onRenderMenu();
         }
+	}
+	// Special pages (ArrayList, Notifications) - no Module, render inline
+	else if (ui::cur_tab == 1) {
+		// Visuals tab
+		if (tab.cur_subtab == 2) {
+			// ArrayList settings
+			ui::two_column(
+				"Settings", []() {
+					ui::Checkbox("Enabled", &ArrayListRenderer::enabled);
+				},
+				"Options", []() {
+					ui::Checkbox("Background", &ArrayListRenderer::showBackground);
+					ui::Checkbox("Sort by Length", &ArrayListRenderer::sortByLength);
+				}
+			);
+		}
+		else if (tab.cur_subtab == 3) {
+			// Notifications settings
+			ui::section("Settings", []() {
+				ui::Checkbox("Enabled", &NotificationManager::enabled);
+			});
+		}
 	}
 }
 

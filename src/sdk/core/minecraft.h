@@ -125,6 +125,7 @@ struct Minecraft
 	// Hit detection for Hit Select module
 	bool isTargetingEntity();           // Check if looking at an entity
 	int getTargetedEntityHurtTime();    // Get hurtTime of targeted entity (0 = can take damage)
+	PlayerInfo getTargetedPlayerInfo(); // Get info (UUID, name) of targeted player (for quick-add friend)
 
 	// Movement control - release all movement keybinds
 	void releaseMovementKeys();

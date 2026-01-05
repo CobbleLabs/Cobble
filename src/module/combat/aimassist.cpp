@@ -3,6 +3,7 @@
 #include "../../jni/java.h"
 #include "../../util/logger.hpp"
 #include "../../util/friends_manager.h"
+#include "../../util/visual_team_resolver.h"
 #include "../../ui/menu/menu.h"
 #include "../../ui/widgets/widgets.hpp"
 #include "../../sdk/player/player.h"
@@ -587,7 +588,7 @@ bool AimAssist::findTarget(double& targetX, double& targetY, double& targetZ)
 	if (friendsManager) {
 		int resolved = friendsManager->resolvePending(players);
 		if (resolved > 0) {
-			log_debug("[AimAssist] Resolved %d pending friend(s) to UUID", resolved);
+			//log_debug("[AimAssist] Resolved %d pending friend(s) to UUID", resolved);
 		}
 	}
 
@@ -657,13 +658,15 @@ bool AimAssist::findTarget(double& targetX, double& targetY, double& targetZ)
 				localTeamColorDbg = mc.getLocalPlayerTeamColor();
 				colorRefreshTimerDbg.Start();
 			}
-			log_debug("[Teams] %s | pColor=%d lColor=%d | auto=%d manual=%d mColor=%d | apply=%d",
-				p.name.c_str(),
-				p.teamColor, localTeamColorDbg,
-				friendsManager->teams.matchOwnNametag ? 1 : 0,
-				friendsManager->teams.manualColorEnabled ? 1 : 0,
-				static_cast<int>(friendsManager->teams.manualColor),
-				friendsManager->applyToCombat ? 1 : 0);
+			// Debug logging disabled - uncomment to debug team color parsing
+			// log_debug("[Teams] %s | pColor=%d lColor=%d | auto=%d manual=%d mColor=%d | apply=%d",
+			// 	p.name.c_str(),
+			// 	p.teamColor, localTeamColorDbg,
+			// 	friendsManager->teams.matchOwnNametag ? 1 : 0,
+			// 	friendsManager->teams.manualColorEnabled ? 1 : 0,
+			// 	static_cast<int>(friendsManager->teams.manualColor),
+			// 	friendsManager->applyToCombat ? 1 : 0);
+			(void)localTeamColorDbg;  // Suppress unused warning
 			colorDebugCounter = 0;
 		}
 
@@ -685,7 +688,17 @@ bool AimAssist::findTarget(double& targetX, double& targetY, double& targetZ)
 			bool isFriendByName = friendsManager->isFriend(FriendsManager::stripColorCodes(p.name));
 			bool isTeammate = friendsManager->isTeammate(p.uuid, playerColor, localColor);
 			
-			if (isFriendByUUID || isFriendByName || isTeammate) {
+			// Visual team detection fallback: if scoreboard says UNKNOWN, check visual cache
+			bool visualFriendly = false;
+			if (!isTeammate && playerColor == ChatColor::UNKNOWN && visualTeamResolver && visualTeamResolver->enabled) {
+				visualFriendly = visualTeamResolver->isFriendly(p.uuid);
+				// Queue for visual analysis (will be processed on render thread)
+				// Pass renderPos for camera-relative coordinate calculation
+				RenderPos renderPos = mc.getRenderPos();
+				visualTeamResolver->queueForAnalysis(p.uuid, p, renderPos);
+			}
+			
+			if (isFriendByUUID || isFriendByName || isTeammate || visualFriendly) {
 				continue;
 			}
 		}
@@ -1069,10 +1082,12 @@ void AimAssist::applyAimRand(float yawDiff, float pitchDiff, float speed)
 		const char* yStpF = yawStepClamped ? "S" : "";
 		const char* pErrF = pitchErrClamped ? "E" : "";
 		const char* pStpF = pitchStepClamped ? "S" : "";
-		log_debug("[AimAssist] spd=%.1f norm=%.2f dyn=%.2f ramp=%.2f (t=%.2f e=%.2f c=%.2f) jitter=%.4f diff(y=%.2f p=%.2f max=%.2f) step(y=%.2f p=%.2f) delta(y=%.3f%s%s p=%.3f%s%s)",
-			rawSpeedSetting, speedNorm, dynamicSpeed, ramp, timeRamp, errorRamp, clickRamp, jitterRange,
-			yawDiff, pitchDiff, maxDiff, maxYawStep, maxPitchStep,
-			yawDelta, yErrF, yStpF, pitchDelta, pErrF, pStpF);
+		// Debug logging disabled - uncomment to debug aim calculations
+		// log_debug("[AimAssist] spd=%.1f norm=%.2f dyn=%.2f ramp=%.2f (t=%.2f e=%.2f c=%.2f) jitter=%.4f diff(y=%.2f p=%.2f max=%.2f) step(y=%.2f p=%.2f) delta(y=%.3f%s%s p=%.3f%s%s)",
+		// 	rawSpeedSetting, speedNorm, dynamicSpeed, ramp, timeRamp, errorRamp, clickRamp, jitterRange,
+		// 	yawDiff, pitchDiff, maxDiff, maxYawStep, maxPitchStep,
+		// 	yawDelta, yErrF, yStpF, pitchDelta, pErrF, pStpF);
+		(void)yErrF; (void)yStpF; (void)pErrF; (void)pStpF;  // Suppress unused warnings
 		debugLogTimer.Start();
 	}
 
@@ -1268,6 +1283,11 @@ void AimAssist::onRenderMenu()
 			ui::Checkbox("Weapon Only", &settings.weaponOnly);
 			ui::Checkbox("Aim Closest Point", &settings.aimAtClosestPoint);
 			ui::Checkbox("Target Invisibles", &settings.invisibles);
+			
+			// Visual team detection (pixel-based fallback)
+			if (visualTeamResolver) {
+				ui::Checkbox("Ignore teammates (visual)", &visualTeamResolver->enabled);
+			}
 			
 			ImGui::Spacing();
 			if (ImGui::Combo("Target Mode", &currentMode, targetModes, IM_ARRAYSIZE(targetModes)))

@@ -90,6 +90,8 @@ namespace ui {
     
     // Sliders
     bool SliderFloat(const char* label, float* v, float v_min, float v_max, const char* format = "%.1f", bool allowDirectInput = false);
+    // Slider with linked clamping - value is clamped to [clamp_min, clamp_max] DURING drag
+    bool SliderFloat(const char* label, float* v, float v_min, float v_max, float* clamp_min, float* clamp_max, const char* format = "%.1f");
     bool SliderInt(const char* label, int* v, int v_min, int v_max, const char* format = "%d");
     
     // Keybind capture

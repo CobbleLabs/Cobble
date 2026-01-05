@@ -3,6 +3,7 @@
 
 #include "../core/minecraft.h"
 #include "../jni/jni_cache.h"
+#include "../jni/jstring_util.h"
 #include "../../util/logger.hpp"
 
 // =============================================================================
@@ -153,6 +154,83 @@ int Minecraft::getTargetedEntityHurtTime()
 
     env->DeleteLocalRef(entityHit);
     return hurtTime;
+}
+
+// =============================================================================
+// getTargetedPlayerInfo - Get info (UUID, name) of player being looked at
+// =============================================================================
+
+PlayerInfo Minecraft::getTargetedPlayerInfo()
+{
+    PlayerInfo result;
+    if (!isValid()) return result;
+
+    JNIEnv* env = Java::GetEnv();
+    if (!env) return result;
+
+    if (!JniCache::fid_objectMouseOver) return result;
+    
+    jobject mouseOver = env->GetObjectField(instance, JniCache::fid_objectMouseOver);
+    if (!mouseOver) return result;
+
+    if (!JniCache::fid_entityHit) {
+        env->DeleteLocalRef(mouseOver);
+        return result;
+    }
+
+    jobject entityHit = env->GetObjectField(mouseOver, JniCache::fid_entityHit);
+    env->DeleteLocalRef(mouseOver);
+
+    if (!entityHit) return result;
+
+    // Check if it's a player entity
+    if (!JniCache::cls_EntityPlayer || !env->IsInstanceOf(entityHit, JniCache::cls_EntityPlayer)) {
+        env->DeleteLocalRef(entityHit);
+        return result;
+    }
+
+    // UUID - Stable player identity (MOST RELIABLE)
+    if (JniCache::mid_getUniqueID && JniCache::mid_uuidToString) {
+        jobject uuidObj = env->CallObjectMethod(entityHit, JniCache::mid_getUniqueID);
+        if (uuidObj) {
+            jstring uuidStr = (jstring)env->CallObjectMethod(uuidObj, JniCache::mid_uuidToString);
+            if (uuidStr) {
+                result.uuid = jstringToString(uuidStr);
+                env->DeleteLocalRef(uuidStr);
+            }
+            env->DeleteLocalRef(uuidObj);
+        }
+        env->ExceptionClear();
+    }
+
+    // GameProfile name FIRST (real name, not spoofable by plugins)
+    if (JniCache::mid_getGameProfile && JniCache::mid_getProfileName) {
+        jobject gp = env->CallObjectMethod(entityHit, JniCache::mid_getGameProfile);
+        if (gp) {
+            jstring profileName = (jstring)env->CallObjectMethod(gp, JniCache::mid_getProfileName);
+            if (profileName) {
+                result.profileName = jstringToString(profileName);
+                env->DeleteLocalRef(profileName);
+            }
+            env->DeleteLocalRef(gp);
+        }
+        env->ExceptionClear();
+    }
+
+    // Name (could be obfuscated - fallback only)
+    if (JniCache::mid_getName) {
+        jstring nameStr = (jstring)env->CallObjectMethod(entityHit, JniCache::mid_getName);
+        if (nameStr) {
+            result.name = jstringToString(nameStr);
+            env->DeleteLocalRef(nameStr);
+        }
+    }
+
+    log_debug("[getTargetedPlayerInfo] uuid=%s, profileName=%s, name=%s", 
+        result.uuid.c_str(), result.profileName.c_str(), result.name.c_str());
+
+    env->DeleteLocalRef(entityHit);
+    return result;
 }
 
 // =============================================================================

@@ -149,7 +149,8 @@ void AutoRefill::scanForRefills()
 		if (settings.refillSoup && slot.itemId == RefillItems::MUSHROOM_SOUP) {
 			isRefillable = true;
 		}
-		if (settings.refillPotions && slot.itemId == RefillItems::POTION) {
+		// Only refill Instant Health 2 splash potions (damage value 16421)
+		if (settings.refillPotions && slot.itemId == RefillItems::POTION && slot.damage == 16421) {
 			isRefillable = true;
 		}
 		
