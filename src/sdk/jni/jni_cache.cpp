@@ -17,6 +17,7 @@ jclass cls_EntityClientPlayerMP = nullptr;
 jclass cls_Entity = nullptr;
 jclass cls_EntityLivingBase = nullptr;
 jclass cls_EntityPlayer = nullptr;
+jclass cls_EntityArmorStand = nullptr;
 jclass cls_GameSettings = nullptr;
 jclass cls_KeyBinding = nullptr;
 jclass cls_MouseHelper = nullptr;
@@ -271,6 +272,7 @@ bool Init()
     
     CACHE_CLASS(cls_WorldClient, "net.minecraft.client.multiplayer.WorldClient");
     CACHE_CLASS(cls_EntityLivingBase, "net.minecraft.entity.EntityLivingBase");
+    CACHE_CLASS(cls_EntityArmorStand, "net.minecraft.entity.item.EntityArmorStand");
     CACHE_CLASS(cls_GameSettings, "net.minecraft.client.settings.GameSettings");
     CACHE_CLASS(cls_KeyBinding, "net.minecraft.client.settings.KeyBinding");
     CACHE_CLASS(cls_MouseHelper, "net.minecraft.util.MouseHelper");
@@ -435,6 +437,10 @@ bool Init()
         
         // getGameProfile for real Mojang username (can't be modified by server plugins)
         TRY_METHOD(mid_getGameProfile, cls_EntityPlayer, "getGameProfile", "()Lcom/mojang/authlib/GameProfile;");
+        if (!mid_getGameProfile) {
+            // 1.7.10 obfuscated name
+            TRY_METHOD(mid_getGameProfile, cls_EntityPlayer, "func_146103_bH", "()Lcom/mojang/authlib/GameProfile;");
+        }
         
         TRY_FIELD(fid_inventory, cls_EntityPlayer, "inventory", "Lnet/minecraft/entity/player/InventoryPlayer;");
         TRY_FIELD(fid_openContainer, cls_EntityPlayer, "openContainer", "Lnet/minecraft/inventory/Container;");
@@ -450,6 +456,10 @@ bool Init()
     if (cls_GameProfile) {
         log_debug("[JniCache] GameProfile class: OK");
         TRY_METHOD(mid_getProfileName, cls_GameProfile, "getName", "()Ljava/lang/String;");
+        if (!mid_getProfileName) {
+            // Obfuscated in older versions
+            TRY_METHOD(mid_getProfileName, cls_GameProfile, "func_111285_a", "()Ljava/lang/String;");
+        }
         log_debug("[JniCache] GameProfile.getName() method: %s", mid_getProfileName ? "OK" : "FAILED");
     } else {
         log_debug("[JniCache] GameProfile class: FAILED");
@@ -690,6 +700,7 @@ void Cleanup()
     DELETE_GLOBAL(cls_Entity);
     DELETE_GLOBAL(cls_EntityLivingBase);
     DELETE_GLOBAL(cls_EntityPlayer);
+    DELETE_GLOBAL(cls_EntityArmorStand);
     DELETE_GLOBAL(cls_GameSettings);
     DELETE_GLOBAL(cls_KeyBinding);
     DELETE_GLOBAL(cls_MouseHelper);

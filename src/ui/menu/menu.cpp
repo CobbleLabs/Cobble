@@ -148,40 +148,36 @@ static void renderSettingsPage()
 					std::string inputName = friendInput;
 					
 					// Try to find player in current world to get their UUID
-					Minecraft& mc = Minecraft::get();
 					PlayerInfo found = mc.findPlayerByName(inputName);
 					
 					if (!found.uuid.empty()) {
-						// Found player in world - add by UUID (reliable)
+						// Found player in world - add by UUID
 						friendsManager->addFriendByUUID(found.uuid, inputName);
-						lastAddStatus = "Added " + inputName + " (UUID found)";
+						lastAddStatus = "Added " + inputName;
 					} else {
-						// Player not in current world - add by name (legacy fallback)
+						// Resolve via Mojang API
 						friendsManager->addFriend(inputName);
-						lastAddStatus = "Added " + inputName + " (name only)";
+						lastAddStatus = "Resolving " + inputName + "...";
 					}
 					friendInput[0] = '\0';
 				}
 				
-				// Show last add status
-				if (!lastAddStatus.empty()) {
-					ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetColorU32(ImGuiCol_TextDisabled));
-					ImGui::TextWrapped("%s", lastAddStatus.c_str());
-					ImGui::PopStyleColor();
-				}
-				
-				// Friends list (use legacy names for UI until we migrate to UUID-based UI)
-				auto friends = friendsManager->getFriendNames();
+				// Friends list - show displayName as user typed it
+				auto friends = friendsManager->getFriends();
 				if (!friends.empty()) {
 					ImGui::Separator();
-					for (auto& name : friends) {
-						ImGui::Text("%s", name.c_str());
+					std::string toRemove = "";
+					for (const auto& f : friends) {
+						ImGui::Text("%s", f.displayName.c_str());
 						ImGui::SameLine(ImGui::GetContentRegionAvail().x - ui::s(20));
-						ImGui::PushID(name.c_str());
+						ImGui::PushID(f.uuid.c_str());
 						if (ImGui::SmallButton("X")) {
-							friendsManager->removeFriend(name);
+							toRemove = f.uuid;
 						}
 						ImGui::PopID();
+					}
+					if (!toRemove.empty()) {
+						friendsManager->removeFriendByUUID(toRemove);
 					}
 				} else {
 					ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetColorU32(ImGuiCol_TextDisabled));
@@ -192,15 +188,39 @@ static void renderSettingsPage()
 				ImGui::Spacing();
 				ImGui::Separator();
 				ImGui::Spacing();
-				ImGui::Text("Teams");
 				
-				ui::Checkbox("Match Nametag", &friendsManager->teams.matchOwnNametag);
-				ui::Checkbox("Combat Filter", &friendsManager->applyToCombat);
-				ui::Checkbox("Visual Filter", &friendsManager->applyToVisual);
+				// Auto team color - detect your nametag color
+				bool autoWasEnabled = friendsManager->teams.matchOwnNametag;
+				ui::Checkbox("Auto Team Color", &friendsManager->teams.matchOwnNametag);
+				if (friendsManager->teams.matchOwnNametag && !autoWasEnabled) {
+					// Just enabled Auto -> disable Manual
+					friendsManager->teams.manualColorEnabled = false;
+				}
 				
-				// Team colors (GREEN and DARK_GREEN are defaults)
+				// Manual color picker (mutually exclusive with Auto)
+				bool manualWasEnabled = friendsManager->teams.manualColorEnabled;
+				ui::Checkbox("Manual Color", &friendsManager->teams.manualColorEnabled);
+				if (friendsManager->teams.manualColorEnabled && !manualWasEnabled) {
+					// Just enabled Manual -> disable Auto
+					friendsManager->teams.matchOwnNametag = false;
+				}
+				if (friendsManager->teams.manualColorEnabled) {
+					static const char* colorNames[] = {
+						"Black", "Dark Blue", "Dark Green", "Dark Aqua",
+						"Dark Red", "Dark Purple", "Gold", "Gray",
+						"Dark Gray", "Blue", "Green", "Aqua",
+						"Red", "Light Purple", "Yellow", "White"
+					};
+					int colorIdx = static_cast<int>(friendsManager->teams.manualColor);
+					if (colorIdx < 0 || colorIdx > 15) colorIdx = 10; // Default Green
+					ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
+					if (ImGui::Combo("##teamcolor", &colorIdx, colorNames, 16)) {
+						friendsManager->teams.manualColor = static_cast<ChatColor>(colorIdx);
+					}
+				}
+				
 				ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetColorU32(ImGuiCol_TextDisabled));
-				ImGui::TextWrapped("Default: Green teammates");
+				ImGui::TextWrapped("Teammates ignored by combat");
 				ImGui::PopStyleColor();
 			}
 		}

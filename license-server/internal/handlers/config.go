@@ -11,36 +11,37 @@ import (
 	"license-server/internal/models"
 )
 
-// GetConfig handles GET /api/config - returns user's stored config
+// GetConfig handles POST /api/config - returns user's stored config
 func GetConfig(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet && r.Method != http.MethodPost {
+	if r.Method != http.MethodPost {
 		helpers.JSONResponse(w, http.StatusMethodNotAllowed, models.ErrorResponse{Error: "Method not allowed"})
 		return
 	}
 
 	hwid := r.FormValue("hwid")
+	token := r.FormValue("token")
+
 	if hwid == "" {
 		helpers.JSONResponse(w, http.StatusBadRequest, models.ConfigResponse{Success: false, Message: "HWID required"})
 		return
 	}
 
-	// Lookup username by HWID
-	var username string
-	err := database.DB.QueryRow("SELECT username FROM licenses WHERE hwid = ?", hwid).Scan(&username)
-	if err == sql.ErrNoRows {
-		helpers.JSONResponse(w, http.StatusOK, models.ConfigResponse{Success: false, Message: "License not found"})
+	// Validate session token
+	if token == "" {
+		helpers.JSONResponse(w, http.StatusUnauthorized, models.ConfigResponse{Success: false, Message: "Session token required"})
 		return
 	}
-	if err != nil {
-		logger.Error("DB", "Config lookup failed", logger.Fields{"error": err.Error()})
-		helpers.JSONResponse(w, http.StatusInternalServerError, models.ConfigResponse{Success: false, Message: "Server error"})
+
+	username, valid := database.ValidateSessionToken(hwid, token)
+	if !valid {
+		helpers.JSONResponse(w, http.StatusUnauthorized, models.ConfigResponse{Success: false, Message: "Invalid or expired session"})
 		return
 	}
 
 	// Get user's config
 	var config string
 	var version int
-	err = database.DB.QueryRow("SELECT config, version FROM user_configs WHERE username = ?", username).Scan(&config, &version)
+	err := database.DB.QueryRow("SELECT config, version FROM user_configs WHERE username = ?", username).Scan(&config, &version)
 	if err == sql.ErrNoRows {
 		// No config stored yet - return empty success (client uses local)
 		helpers.JSONResponse(w, http.StatusOK, models.ConfigResponse{Success: true, Config: "{}", Version: 1})
@@ -68,12 +69,26 @@ func SaveConfig(w http.ResponseWriter, r *http.Request) {
 	}
 
 	hwid := r.FormValue("hwid")
+	token := r.FormValue("token")
 	configJSON := r.FormValue("config")
 
 	if hwid == "" {
 		helpers.JSONResponse(w, http.StatusBadRequest, models.ConfigResponse{Success: false, Message: "HWID required"})
 		return
 	}
+
+	// Validate session token
+	if token == "" {
+		helpers.JSONResponse(w, http.StatusUnauthorized, models.ConfigResponse{Success: false, Message: "Session token required"})
+		return
+	}
+
+	username, valid := database.ValidateSessionToken(hwid, token)
+	if !valid {
+		helpers.JSONResponse(w, http.StatusUnauthorized, models.ConfigResponse{Success: false, Message: "Invalid or expired session"})
+		return
+	}
+
 	if configJSON == "" {
 		helpers.JSONResponse(w, http.StatusBadRequest, models.ConfigResponse{Success: false, Message: "Config required"})
 		return
@@ -86,21 +101,8 @@ func SaveConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Lookup username by HWID
-	var username string
-	err := database.DB.QueryRow("SELECT username FROM licenses WHERE hwid = ?", hwid).Scan(&username)
-	if err == sql.ErrNoRows {
-		helpers.JSONResponse(w, http.StatusOK, models.ConfigResponse{Success: false, Message: "License not found"})
-		return
-	}
-	if err != nil {
-		logger.Error("DB", "Config save lookup failed", logger.Fields{"error": err.Error()})
-		helpers.JSONResponse(w, http.StatusInternalServerError, models.ConfigResponse{Success: false, Message: "Server error"})
-		return
-	}
-
 	// Upsert config
-	_, err = database.DB.Exec(`
+	_, err := database.DB.Exec(`
 		INSERT INTO user_configs (username, config, version, updated_at)
 		VALUES (?, ?, 1, CURRENT_TIMESTAMP)
 		ON CONFLICT(username) DO UPDATE SET

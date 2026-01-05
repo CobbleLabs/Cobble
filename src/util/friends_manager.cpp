@@ -1,9 +1,57 @@
 #include "friends_manager.h"
 #include "logger.hpp"
+#include "http.hpp"
+#include "json.hpp"
+#include "../sdk/core/minecraft.h"
 #include <algorithm>
 #include <cctype>
+#include <chrono>
+#include <thread>
 
 FriendsManager* friendsManager = nullptr;
+
+// ============================================================
+// Mojang API UUID Resolution
+// ============================================================
+
+// Resolve a Minecraft username to UUID via Mojang API
+// Returns empty string if not found or error
+static std::string resolveMojangUUID(const std::string& username) {
+    if (username.empty()) return "";
+    
+    // GET https://api.mojang.com/users/profiles/minecraft/{username}
+    std::wstring path = L"/users/profiles/minecraft/" + std::wstring(username.begin(), username.end());
+    
+    auto response = http::get(L"api.mojang.com", 443, path, true);  // HTTPS
+    
+    if (!response.success || response.statusCode != 200) {
+        log_debug("[Friends] Mojang API failed for '%s': %s (status: %d)", 
+                  username.c_str(), response.error.c_str(), response.statusCode);
+        return "";
+    }
+    
+    // Parse JSON response: {"id": "UUID_WITHOUT_DASHES", "name": "ActualName"}
+    json::Value root;
+    if (!json::Parser::parse(response.body, root)) {
+        log_debug("[Friends] Failed to parse Mojang response for '%s'", username.c_str());
+        return "";
+    }
+    
+    std::string rawUUID = root["id"].as_string();
+    if (rawUUID.empty() || rawUUID.length() != 32) {
+        return "";
+    }
+    
+    // Convert to standard UUID format: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+    std::string uuid = rawUUID.substr(0, 8) + "-" +
+                       rawUUID.substr(8, 4) + "-" +
+                       rawUUID.substr(12, 4) + "-" +
+                       rawUUID.substr(16, 4) + "-" +
+                       rawUUID.substr(20, 12);
+    
+    log_debug("[Friends] Mojang resolved '%s' -> %s", username.c_str(), uuid.c_str());
+    return uuid;
+}
 
 // ============================================================
 // Utility
@@ -139,24 +187,45 @@ char FriendsManager::getColorChar(ChatColor color) {
 // ============================================================
 
 void FriendsManager::addFriendByUUID(const std::string& uuid, const std::string& displayName) {
+	if (uuid.empty()) return;
 	std::lock_guard<std::mutex> lock(mutex_);
 	FriendData data;
 	data.uuid = uuid;
 	data.displayName = displayName.empty() ? uuid.substr(0, 8) : displayName;
 	friendsByUUID_[uuid] = data;
+	// Keep a lowercase name entry for legacy UI/config
+	std::string cleanName = stripColorCodes(data.displayName);
+	std::string lowerName = toLower(cleanName);
+	friendsByName_.insert(lowerName);
+	pendingNames_.erase(lowerName);
 	log_debug("[Friends] Added friend by UUID: %s (%s)", uuid.c_str(), data.displayName.c_str());
 }
 
 void FriendsManager::removeFriendByUUID(const std::string& uuid) {
 	std::lock_guard<std::mutex> lock(mutex_);
-	friendsByUUID_.erase(uuid);
-	log_debug("[Friends] Removed friend by UUID: %s", uuid.c_str());
+	// Also remove from friendsByName_ using the displayName
+	auto it = friendsByUUID_.find(uuid);
+	if (it != friendsByUUID_.end()) {
+		std::string cleanName = stripColorCodes(it->second.displayName);
+		std::string lowerName = toLower(cleanName);
+		friendsByName_.erase(lowerName);
+		friendsByUUID_.erase(it);
+		log_debug("[Friends] Removed friend by UUID: %s (%s)", uuid.c_str(), cleanName.c_str());
+	}
 }
 
 bool FriendsManager::isFriendByUUID(const std::string& uuid) const {
 	if (uuid.empty()) return false;
 	std::lock_guard<std::mutex> lock(mutex_);
-	return friendsByUUID_.find(uuid) != friendsByUUID_.end();
+	// Normalize to lowercase for case-insensitive matching
+	std::string lowerUUID = toLower(uuid);
+	
+	for (const auto& pair : friendsByUUID_) {
+		if (toLower(pair.first) == lowerUUID) {
+			return true;
+		}
+	}
+	return false;
 }
 
 std::string FriendsManager::getFriendDisplayName(const std::string& uuid) const {
@@ -189,6 +258,7 @@ void FriendsManager::clearFriends() {
 	std::lock_guard<std::mutex> lock(mutex_);
 	friendsByUUID_.clear();
 	friendsByName_.clear();
+	pendingNames_.clear();
 }
 
 // ============================================================
@@ -196,15 +266,50 @@ void FriendsManager::clearFriends() {
 // ============================================================
 
 void FriendsManager::addFriend(const std::string& name) {
-	std::lock_guard<std::mutex> lock(mutex_);
-	std::string cleanName = stripColorCodes(name);
-	friendsByName_.insert(toLower(cleanName));
+    std::string cleanName = stripColorCodes(name);
+    std::string lower = toLower(cleanName);
+    
+    // Already have this friend by name?
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (friendsByName_.find(lower) != friendsByName_.end()) {
+            log_debug("[Friends] '%s' already in friends list", cleanName.c_str());
+            return;
+        }
+        // Add to name list immediately (for UI feedback)
+        friendsByName_.insert(lower);
+    }
+    
+    // Resolve UUID via Mojang API in background thread
+    std::thread([this, cleanName, lower]() {
+        std::string uuid = resolveMojangUUID(cleanName);
+        
+        if (!uuid.empty()) {
+            // Success - add as UUID-based friend
+            FriendData data;
+            data.uuid = uuid;
+            data.displayName = cleanName;
+            
+            std::lock_guard<std::mutex> lock(mutex_);
+            friendsByUUID_[uuid] = data;
+            pendingNames_.erase(lower);
+            log_ok("[Friends] Added '%s' (UUID: %s)", cleanName.c_str(), uuid.c_str());
+        } else {
+            // Failed - remove from lists (player not found)
+            std::lock_guard<std::mutex> lock(mutex_);
+            friendsByName_.erase(lower);
+            pendingNames_.erase(lower);
+            log_warn("[Friends] '%s' not found - removed from list", cleanName.c_str());
+        }
+    }).detach();
 }
 
 void FriendsManager::removeFriend(const std::string& name) {
 	std::lock_guard<std::mutex> lock(mutex_);
 	std::string cleanName = stripColorCodes(name);
-	friendsByName_.erase(toLower(cleanName));
+	std::string lower = toLower(cleanName);
+	friendsByName_.erase(lower);
+	pendingNames_.erase(lower);
 }
 
 bool FriendsManager::isFriend(const std::string& name) const {
@@ -220,7 +325,14 @@ bool FriendsManager::isFriend(const std::string& name) const {
 
 std::vector<std::string> FriendsManager::getFriendNames() const {
 	std::lock_guard<std::mutex> lock(mutex_);
-	return std::vector<std::string>(friendsByName_.begin(), friendsByName_.end());
+	std::set<std::string> combined = friendsByName_;
+	for (const auto& entry : friendsByUUID_) {
+		std::string cleanName = stripColorCodes(entry.second.displayName);
+		if (!cleanName.empty()) {
+			combined.insert(toLower(cleanName));
+		}
+	}
+	return std::vector<std::string>(combined.begin(), combined.end());
 }
 
 // ============================================================
@@ -230,6 +342,19 @@ std::vector<std::string> FriendsManager::getFriendNames() const {
 bool FriendsManager::isTeammate(const std::string& playerUUID, ChatColor playerColor, ChatColor localColor) const {
 	if (!teams.enabled) return false;
 	
+	// Debug: log parsed colors
+	static auto lastDebugLog = std::chrono::steady_clock::now();
+	auto now = std::chrono::steady_clock::now();
+	if (std::chrono::duration_cast<std::chrono::milliseconds>(now - lastDebugLog).count() > 500) {
+		log_debug("[Teams] Check UUID=%s playerColor=%d localColor=%d (auto=%d manual=%d manualColor=%d)",
+			playerUUID.empty() ? "?" : playerUUID.substr(0, 8).c_str(),
+			static_cast<int>(playerColor), static_cast<int>(localColor),
+			teams.matchOwnNametag ? 1 : 0,
+			teams.manualColorEnabled ? 1 : 0,
+			static_cast<int>(teams.manualColor));
+		lastDebugLog = now;
+	}
+	
 	// Check Lunar API teammates by UUID first (most reliable)
 	if (teams.lunarApiEnabled && !playerUUID.empty()) {
 		std::lock_guard<std::mutex> lock(mutex_);
@@ -238,13 +363,13 @@ bool FriendsManager::isTeammate(const std::string& playerUUID, ChatColor playerC
 		}
 	}
 	
-	// Check match own nametag
+	// Auto color: match own nametag color
 	if (teams.matchOwnNametag && localColor != ChatColor::UNKNOWN && playerColor == localColor) {
 		return true;
 	}
 	
-	// Check manual team colors
-	if (teams.teamColors.find(playerColor) != teams.teamColors.end()) {
+	// Manual color: filter by selected color
+	if (teams.manualColorEnabled && playerColor == teams.manualColor) {
 		return true;
 	}
 	
@@ -297,4 +422,76 @@ bool FriendsManager::shouldIgnore(const std::string& name, ChatColor playerColor
 	}
 	
 	return false;
+}
+
+// ============================================================
+// Pending resolution: convert name inputs to UUID when seen in-world
+// ============================================================
+
+int FriendsManager::resolvePending(const std::vector<PlayerInfo>& players) {
+	if (players.empty()) return 0;
+	std::lock_guard<std::mutex> lock(mutex_);
+	if (pendingNames_.empty()) return 0;
+
+	int resolved = 0;
+	std::vector<std::string> seenCandidates;
+
+	for (const auto& p : players) {
+		if (p.uuid.empty()) continue;
+		std::string uuidLower = toLower(p.uuid);
+		std::string uuidPrefix = uuidLower.size() >= 8 ? uuidLower.substr(0, 8) : uuidLower;
+
+		std::string candidateName = p.profileName;
+		if (candidateName.empty()) {
+			candidateName = p.name;
+		}
+		if (candidateName.empty() && !p.displayName.empty()) {
+			candidateName = stripColorCodes(p.displayName);
+		}
+		if (candidateName.empty()) continue;
+
+		std::string normalized = toLower(stripColorCodes(candidateName));
+		if (seenCandidates.size() < 5) {
+			seenCandidates.push_back(normalized);
+		}
+
+		// Direct match on normalized name
+		auto it = pendingNames_.find(normalized);
+		if (it == pendingNames_.end()) {
+			// Also match if user entered UUID or prefix of UUID as "name"
+			it = pendingNames_.find(uuidLower);
+			if (it == pendingNames_.end()) {
+				it = pendingNames_.find(uuidPrefix);
+			}
+			if (it == pendingNames_.end()) continue;
+		}
+
+		// Resolve to UUID and store friend entry
+		FriendData data;
+		data.uuid = p.uuid;
+		data.displayName = candidateName;
+		friendsByUUID_[p.uuid] = data;
+		friendsByName_.insert(normalized); // keep UI/backwards compat
+		pendingNames_.erase(it);
+		log_debug("[Friends] Resolved pending friend '%s' -> %s", normalized.c_str(), p.uuid.c_str());
+		++resolved;
+	}
+
+	// If nothing resolved, log pending state periodically for debugging
+	if (resolved == 0 && !pendingNames_.empty()) {
+		static auto lastLog = std::chrono::steady_clock::now();
+		auto now = std::chrono::steady_clock::now();
+		if (std::chrono::duration_cast<std::chrono::milliseconds>(now - lastLog).count() > 2000) {
+			std::string pendingSample = *pendingNames_.begin();
+			std::string seenSample;
+			for (size_t i = 0; i < seenCandidates.size(); ++i) {
+				if (i > 0) seenSample += ", ";
+				seenSample += seenCandidates[i];
+			}
+			log_debug("[Friends] Pending unresolved: %zu (e.g. %s) | seen candidates this tick: %s",
+				pendingNames_.size(), pendingSample.c_str(), seenSample.c_str());
+			lastLog = now;
+		}
+	}
+	return resolved;
 }

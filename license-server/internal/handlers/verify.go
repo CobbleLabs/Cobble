@@ -24,6 +24,7 @@ type SignedVerifyPayload struct {
 	Valid         bool   `json:"valid"`
 	Username      string `json:"username,omitempty"`
 	DaysRemaining int    `json:"days_remaining,omitempty"`
+	SessionToken  string `json:"session_token,omitempty"`
 	Message       string `json:"message,omitempty"`
 }
 
@@ -150,6 +151,10 @@ func sendSignedError(w http.ResponseWriter, hwid, nonce, message string) {
 // sendSignedSuccess sends a signed success response
 func sendSignedSuccess(w http.ResponseWriter, hwid, nonce, username string, daysRemaining int) {
 	now := time.Now().Unix()
+
+	// Generate session token for cloud sync
+	sessionToken := database.CreateSessionToken(hwid, username)
+
 	payload := SignedVerifyPayload{
 		HWID:          hwid,
 		Nonce:         nonce,
@@ -158,6 +163,7 @@ func sendSignedSuccess(w http.ResponseWriter, hwid, nonce, username string, days
 		Valid:         true,
 		Username:      username,
 		DaysRemaining: daysRemaining,
+		SessionToken:  sessionToken,
 		Message:       "Welcome, " + username,
 	}
 	sendSignedResponse(w, payload)

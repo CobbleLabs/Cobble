@@ -7,6 +7,8 @@
 #include <vector>
 #include <cmath>
 #include <conio.h>
+#include <fstream>
+#include <ShlObj.h>
 
 #include "process.h"
 #include "inject.h"
@@ -25,14 +27,11 @@
 // CONFIG & GLOBALS
 // ============================================================================
 
-// Server configuration - XOR encrypted at compile time
+// Server configuration
 inline const char* getServerPrimary() { return _xor_("syra.club"); }
-inline const char* getServerFallback() { return _xor_("192.99.212.126"); }
 inline const char* getLicenseServerPrimary() { return _xor_("https://syra.club"); }
-inline const char* getLicenseServerFallback() { return _xor_("https://192.99.212.126"); }
 
 #define SERVER_PORT_HTTPS 443
-#define SERVER_PORT_HTTP 8080
 #define LICENSE_CHECK_ENABLED true
 
 std::atomic<bool> g_SecurityViolation(false);
@@ -568,7 +567,7 @@ int wmain(int argc, wchar_t* argv[]) {
 	
 	// ========== PHASE 2.5: UPDATE CHECK (BEFORE LOADING!) ==========
 	{
-		auto result = Updater::Check(COBBLE_VERSION, getServerPrimary(), SERVER_PORT_HTTPS, getServerFallback(), SERVER_PORT_HTTP);
+		auto result = Updater::Check(COBBLE_VERSION, getServerPrimary(), SERVER_PORT_HTTPS);
 		if (result.success) {
 			if (result.blocked || result.updateAvailable) {
 				// Force update if blocked (version too old) OR if update is marked as mandatory
@@ -642,7 +641,6 @@ int wmain(int argc, wchar_t* argv[]) {
 	bool licenseValid = false;
 	
 	if (License::Verify(getLicenseServerPrimary())) licenseValid = true;
-	else if (License::Verify(getLicenseServerFallback())) licenseValid = true;
 
 	if (!licenseValid) {
 		if (License::NeedsUpdate()) {
@@ -680,6 +678,24 @@ int wmain(int argc, wchar_t* argv[]) {
 			while (!_kbhit()) Sleep(50);
 			_getch();
 			return 1;
+		}
+	} else {
+		// License valid - save session token for cloud sync
+		std::string sessionToken = License::GetSessionToken();
+		if (!sessionToken.empty()) {
+			wchar_t* appData = nullptr;
+			if (SHGetKnownFolderPath(FOLDERID_RoamingAppData, 0, nullptr, &appData) == S_OK) {
+				std::wstring cobbleDir = std::wstring(appData) + L"\\Cobble";
+				CreateDirectoryW(cobbleDir.c_str(), nullptr);
+				std::wstring sessionPath = cobbleDir + L"\\.session";
+				
+				std::ofstream sessionFile(sessionPath);
+				if (sessionFile.is_open()) {
+					sessionFile << sessionToken;
+					sessionFile.close();
+				}
+				CoTaskMemFree(appData);
+			}
 		}
 	}
 #endif

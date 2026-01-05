@@ -32,6 +32,7 @@ static std::string g_LastError;
 static bool g_NeedsUpdate = false;
 static std::string g_MinVersion;
 static std::string g_Username;
+static std::string g_SessionToken;
 static int g_DaysRemaining = -1;
 
 std::string UrlEncode(const std::string& value) {
@@ -104,6 +105,10 @@ std::string GetUsername() {
 
 int GetDaysRemaining() {
     return g_DaysRemaining;
+}
+
+std::string GetSessionToken() {
+    return g_SessionToken;
 }
 
 bool Verify(const std::string& serverUrl) {
@@ -307,6 +312,7 @@ bool Verify(const std::string& serverUrl) {
     if (payload.get_bool("valid", false)) {
         g_Username = payload.get_string("username", "");
         g_DaysRemaining = payload.get_int("days_remaining", -1);
+        g_SessionToken = payload.get_string("session_token", "");
         return true;
     }
     

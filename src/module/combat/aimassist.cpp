@@ -583,6 +583,14 @@ bool AimAssist::findTarget(double& targetX, double& targetY, double& targetZ)
 
 	auto players = mc.getPlayerList();
 
+	// Resolve pending name-only friends to UUIDs using live players
+	if (friendsManager) {
+		int resolved = friendsManager->resolvePending(players);
+		if (resolved > 0) {
+			log_debug("[AimAssist] Resolved %d pending friend(s) to UUID", resolved);
+		}
+	}
+
 	if (players.empty()) {
 		if (cachedTarget) { Java::Env->DeleteGlobalRef(cachedTarget); cachedTarget = nullptr; }
 		targetHasHitbox = false;
@@ -640,8 +648,27 @@ bool AimAssist::findTarget(double& targetX, double& targetY, double& targetZ)
 		if (p.isInvisible && !settings.invisibles) continue;
 		if (p.isNPC) continue;  // Skip NPCs/bots
 
-		// Friends/Teams filter - skip friendly players
-		if (friendsManager && friendsManager->applyToCombat) {
+		// Debug: Log parsed colors (every ~50 iterations) - BEFORE friend check
+		static int colorDebugCounter = 0;
+		if (++colorDebugCounter >= 50 && friendsManager) {
+			static int localTeamColorDbg = -1;
+			static Timer colorRefreshTimerDbg;
+			if (colorRefreshTimerDbg.Elapsed<>() > 1000) {
+				localTeamColorDbg = mc.getLocalPlayerTeamColor();
+				colorRefreshTimerDbg.Start();
+			}
+			log_debug("[Teams] %s | pColor=%d lColor=%d | auto=%d manual=%d mColor=%d | apply=%d",
+				p.name.c_str(),
+				p.teamColor, localTeamColorDbg,
+				friendsManager->teams.matchOwnNametag ? 1 : 0,
+				friendsManager->teams.manualColorEnabled ? 1 : 0,
+				static_cast<int>(friendsManager->teams.manualColor),
+				friendsManager->applyToCombat ? 1 : 0);
+			colorDebugCounter = 0;
+		}
+
+		// Friends/Teams filter - skip friendly players (ALWAYS active)
+		if (friendsManager) {
 			// Get local player's team color for comparison (cached per scan)
 			static int localTeamColor = -1;
 			static Timer colorRefreshTimer;
@@ -654,12 +681,13 @@ bool AimAssist::findTarget(double& targetX, double& targetY, double& targetZ)
 			ChatColor localColor = static_cast<ChatColor>(localTeamColor);
 			
 			// Use UUID for friend/team matching (reliable on servers with modified names)
-			// Name is only used as fallback for legacy friend entries
 			bool isFriendByUUID = !p.uuid.empty() && friendsManager->isFriendByUUID(p.uuid);
 			bool isFriendByName = friendsManager->isFriend(FriendsManager::stripColorCodes(p.name));
 			bool isTeammate = friendsManager->isTeammate(p.uuid, playerColor, localColor);
 			
-			if (isFriendByUUID || isFriendByName || isTeammate) continue;
+			if (isFriendByUUID || isFriendByName || isTeammate) {
+				continue;
+			}
 		}
 
 		float yawToTarget = getAngles(localX, localY, localZ, p.posX, p.posY, p.posZ).first;

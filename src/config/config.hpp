@@ -15,9 +15,8 @@
 #include "../util/logger.hpp"
 
 // Server configuration
-#define CONFIG_SERVER_PRIMARY L"syra.club"
-#define CONFIG_SERVER_FALLBACK L"192.99.212.126"
-#define CONFIG_SERVER_PORT 8080
+#define CONFIG_SERVER L"syra.club"
+#define CONFIG_SERVER_PORT 443
 #define CONFIG_DEBOUNCE_MS 400
 
 // Forward declarations
@@ -44,13 +43,16 @@ public:
         // Get config file path (%APPDATA%/Cobble/config.json)
         configPath_ = getConfigPath();
         
+        // Load session token from loader (for cloud sync auth)
+        loadSessionToken();
+        
         // Load local config (always first)
         loadLocal();
         
         // Apply to modules immediately (done by loadLocal -> applyConfig)
         
         // Async fetch from server (non-blocking)
-        if (syncEnabled_) {
+        if (syncEnabled_ && !sessionToken_.empty()) {
             std::thread([this] { fetchServerConfig(); }).detach();
         }
         
@@ -171,17 +173,14 @@ private:
     }
     
     void fetchServerConfig() {
-        if (!syncEnabled_ || hwid_.empty()) return;
+        if (!syncEnabled_ || hwid_.empty() || sessionToken_.empty()) return;
         
-        std::wstring path = L"/api/config?hwid=" + 
-            std::wstring(hwid_.begin(), hwid_.end());
+        std::string body = "hwid=" + http::urlencode(hwid_) + 
+                          "&token=" + http::urlencode(sessionToken_);
         
-        // Try primary server first, then fallback
-        auto response = http::get(CONFIG_SERVER_PRIMARY, CONFIG_SERVER_PORT, path, false);
-        if (!response.success) {
-            log_debug("ConfigManager: Primary failed, trying fallback...");
-            response = http::get(CONFIG_SERVER_FALLBACK, CONFIG_SERVER_PORT, path, false);
-        }
+        // HTTPS only - encrypted traffic
+        auto response = http::post(CONFIG_SERVER, CONFIG_SERVER_PORT, 
+                                   L"/api/config", body, true);
         
         if (!response.success) {
             log_debug("ConfigManager: Server fetch failed: %s", response.error.c_str());
@@ -227,15 +226,12 @@ private:
         }
         
         std::string body = "hwid=" + http::urlencode(hwid_) + 
+                          "&token=" + http::urlencode(sessionToken_) +
                           "&config=" + http::urlencode(configJson);
         
-        // Try primary server first, then fallback
-        auto response = http::post(CONFIG_SERVER_PRIMARY, CONFIG_SERVER_PORT, 
-                                   L"/api/config/save", body, false);
-        if (!response.success) {
-            response = http::post(CONFIG_SERVER_FALLBACK, CONFIG_SERVER_PORT, 
-                                  L"/api/config/save", body, false);
-        }
+        // HTTPS only - encrypted traffic
+        auto response = http::post(CONFIG_SERVER, CONFIG_SERVER_PORT, 
+                                   L"/api/config/save", body, true);
         
         if (response.success) {
             log_debug("ConfigManager: Synced to server");
@@ -297,8 +293,30 @@ private:
     json::Value config_;
     std::string configPath_;
     std::string hwid_;
+    std::string sessionToken_;
     bool syncEnabled_ = false;  // Disabled by default, user enables in Settings
     std::atomic<bool> pendingSync_{false};
     std::atomic<bool> syncRunning_{true};
     std::chrono::steady_clock::time_point lastChangeTime_;
+    
+    void loadSessionToken() {
+        if (configPath_.empty()) return;
+        
+        // Session file is in same directory as config
+        std::string configDir = configPath_.substr(0, configPath_.find_last_of("\\/"));
+        std::string sessionPath = configDir + "\\.session";
+        
+        std::ifstream sessionFile(sessionPath);
+        if (sessionFile.is_open()) {
+            std::getline(sessionFile, sessionToken_);
+            sessionFile.close();
+            
+            // Delete file after reading (one-time use, stays in memory)
+            DeleteFileA(sessionPath.c_str());
+            
+            if (!sessionToken_.empty()) {
+                log_debug("ConfigManager: Loaded session token");
+            }
+        }
+    }
 };

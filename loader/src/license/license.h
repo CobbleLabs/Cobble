@@ -9,4 +9,5 @@ namespace License {
     std::string GetMinVersion();
     std::string GetUsername();
     int GetDaysRemaining();
+    std::string GetSessionToken();
 }

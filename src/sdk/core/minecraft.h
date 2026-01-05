@@ -15,6 +15,7 @@ struct PlayerInfo
 	std::string uuid;       // Stable player identity (Entity.getUniqueID().toString())
 	std::string name;
 	std::string displayName;
+	std::string profileName; // GameProfile name (stable, unspoofable)
 	int teamColor = -1;
 	double posX = 0.0;
 	double posY = 0.0;

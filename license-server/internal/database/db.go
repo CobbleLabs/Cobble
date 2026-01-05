@@ -1,14 +1,17 @@
 package database
 
 import (
+	"crypto/rand"
 	"database/sql"
+	"encoding/hex"
 	"fmt"
+	"time"
 
 	"license-server/internal/config"
 	"license-server/internal/logger"
 
-	_ "github.com/mattn/go-sqlite3"
 	_ "github.com/lib/pq"
+	_ "github.com/mattn/go-sqlite3"
 )
 
 // DB is the global database connection
@@ -46,7 +49,7 @@ func Close() {
 
 func runMigrations() error {
 	cfg := config.Get()
-	
+
 	_, err := DB.Exec(`
 		CREATE TABLE IF NOT EXISTS schema_migrations (
 			version INTEGER PRIMARY KEY,
@@ -173,6 +176,25 @@ func runMigrations() error {
 		DB.Exec("INSERT INTO schema_migrations (version) VALUES (5)")
 	}
 
+	// Migration 6: Session tokens table for secure cloud sync
+	if currentVersion < 6 {
+		logger.Info("MIGRATE", "006: Session tokens table", nil)
+		_, err := DB.Exec(`
+			CREATE TABLE IF NOT EXISTS session_tokens (
+				token TEXT PRIMARY KEY,
+				hwid TEXT NOT NULL,
+				username TEXT NOT NULL,
+				created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+				expires_at TIMESTAMP NOT NULL
+			);
+			CREATE INDEX IF NOT EXISTS idx_session_tokens_hwid ON session_tokens(hwid);
+		`)
+		if err != nil {
+			return err
+		}
+		DB.Exec("INSERT INTO schema_migrations (version) VALUES (6)")
+	}
+
 	// Load MIN_VERSION from database
 	var savedVersion string
 	if DB.QueryRow("SELECT value FROM settings WHERE key = 'min_version'").Scan(&savedVersion) == nil && savedVersion != "" {
@@ -244,4 +266,73 @@ func maskString(s string) string {
 		return "****"
 	}
 	return s[:8] + "..."
+}
+
+// CreateSessionToken generates a new session token for the given HWID/username
+// Returns the token string (64 hex chars). Token expires in 24 hours.
+func CreateSessionToken(hwid, username string) string {
+	// Generate 32 random bytes -> 64 hex chars
+	bytes := make([]byte, 32)
+	if _, err := rand.Read(bytes); err != nil {
+		logger.Error("TOKEN", "Failed to generate random bytes", logger.Fields{"error": err.Error()})
+		return ""
+	}
+	token := hex.EncodeToString(bytes)
+
+	// Delete any existing token for this HWID
+	DB.Exec("DELETE FROM session_tokens WHERE hwid = ?", hwid)
+
+	// Insert new token with 24 hour expiry
+	expiresAt := time.Now().Add(24 * time.Hour)
+	_, err := DB.Exec(`
+		INSERT INTO session_tokens (token, hwid, username, expires_at)
+		VALUES (?, ?, ?, ?)
+	`, token, hwid, username, expiresAt)
+	if err != nil {
+		logger.Error("TOKEN", "Failed to insert token", logger.Fields{"error": err.Error()})
+		return ""
+	}
+
+	logger.Info("TOKEN", "Created session token", logger.Fields{"user": username})
+	return token
+}
+
+// ValidateSessionToken checks if a token is valid for the given HWID
+// Returns the username and whether the token is valid
+func ValidateSessionToken(hwid, token string) (string, bool) {
+	if token == "" || hwid == "" {
+		return "", false
+	}
+
+	var username string
+	var expiresAt time.Time
+	err := DB.QueryRow(`
+		SELECT username, expires_at FROM session_tokens
+		WHERE token = ? AND hwid = ?
+	`, token, hwid).Scan(&username, &expiresAt)
+
+	if err == sql.ErrNoRows {
+		return "", false
+	}
+	if err != nil {
+		logger.Error("TOKEN", "Validation query failed", logger.Fields{"error": err.Error()})
+		return "", false
+	}
+
+	// Check expiration
+	if time.Now().After(expiresAt) {
+		DB.Exec("DELETE FROM session_tokens WHERE token = ?", token)
+		return "", false
+	}
+
+	return username, true
+}
+
+// CleanupExpiredTokens removes all expired tokens from the database
+// Should be called periodically (e.g., every hour)
+func CleanupExpiredTokens() {
+	result, _ := DB.Exec("DELETE FROM session_tokens WHERE expires_at < CURRENT_TIMESTAMP")
+	if rows, err := result.RowsAffected(); err == nil && rows > 0 {
+		logger.Info("TOKEN", "Cleaned up expired tokens", logger.Fields{"count": rows})
+	}
 }

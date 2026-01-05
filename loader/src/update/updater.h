@@ -217,25 +217,18 @@ inline CheckResult TryCheck(const std::string& currentVersion, const std::string
     return result;
 }
 
-// Check for updates with fallback (call after license verification)
+// Check for updates (HTTPS only)
 inline CheckResult Check(const std::string& currentVersion, 
-                         const std::string& primaryHost, 
-                         int primaryPort,
-                         const std::string& fallbackHost, 
-                         int fallbackPort) {
+                         const std::string& host, 
+                         int port) {
     std::string highestSeen = getHighestSeen();
     if (highestSeen.empty()) {
         highestSeen = currentVersion;
         setHighestSeen(highestSeen);
     }
     
-    // Try primary host first (HTTPS)
-    CheckResult result = TryCheck(currentVersion, primaryHost, primaryPort, highestSeen);
-    if (result.success) return result;
-    
-    // Fallback to IP with HTTPS (secure channel required)
-    result = TryCheck(currentVersion, fallbackHost, 443, highestSeen);
-    return result;
+    // HTTPS only - no fallback
+    return TryCheck(currentVersion, host, port, highestSeen);
 }
 
 } // namespace Updater

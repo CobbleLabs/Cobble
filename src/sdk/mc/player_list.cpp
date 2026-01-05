@@ -183,6 +183,14 @@ std::vector<PlayerInfo> Minecraft::getPlayerList()
         jobject entity = env->CallObjectMethod(playerList, JniCache::mid_listGet, i);
         if (!entity) continue;
 
+        // Only track real players; drop fakes/armor stands early
+        bool isPlayerClass = JniCache::cls_EntityPlayer && env->IsInstanceOf(entity, JniCache::cls_EntityPlayer);
+        bool isArmorStand = JniCache::cls_EntityArmorStand && env->IsInstanceOf(entity, JniCache::cls_EntityArmorStand);
+        if (!isPlayerClass || isArmorStand) {
+            env->DeleteLocalRef(entity);
+            continue;
+        }
+
         // Skip local player
         if (localPlayer && env->IsSameObject(entity, localPlayer)) {
             env->DeleteLocalRef(entity);
@@ -216,6 +224,20 @@ std::vector<PlayerInfo> Minecraft::getPlayerList()
                     env->DeleteLocalRef(uuidStr);
                 }
                 env->DeleteLocalRef(uuidObj);
+            }
+            env->ExceptionClear();
+        }
+
+        // GameProfile name (real, not spoofable by plugins)
+        if (JniCache::mid_getGameProfile && JniCache::mid_getProfileName) {
+            jobject gp = env->CallObjectMethod(entity, JniCache::mid_getGameProfile);
+            if (gp) {
+                jstring profileName = (jstring)env->CallObjectMethod(gp, JniCache::mid_getProfileName);
+                if (profileName) {
+                    info.profileName = jstringToString(profileName);
+                    env->DeleteLocalRef(profileName);
+                }
+                env->DeleteLocalRef(gp);
             }
             env->ExceptionClear();
         }
@@ -392,6 +414,14 @@ PlayerInfo Minecraft::findPlayerByName(const std::string& searchName) {
             [](unsigned char c) { return std::tolower(c); });
         
         if (nameLower == searchLower) {
+            return p;
+        }
+
+        // Check real GameProfile name
+        std::string profileLower = p.profileName;
+        std::transform(profileLower.begin(), profileLower.end(), profileLower.begin(),
+            [](unsigned char c) { return std::tolower(c); });
+        if (!profileLower.empty() && profileLower == searchLower) {
             return p;
         }
         

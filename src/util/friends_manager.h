@@ -98,8 +98,8 @@ public:
 		bool matchOwnNametag = true;  // If true, players with same color as local are teammates
 		
 		// Manual team colors (ChatColor IDs that are considered friendly)
-		// Default: GREEN and DARK_GREEN
-		std::set<ChatColor> teamColors = { ChatColor::GREEN, ChatColor::DARK_GREEN };
+		bool manualColorEnabled = false;  // If true, use manualColor to filter
+		ChatColor manualColor = ChatColor::GREEN;  // Selected team color
 		
 		// Lunar API support
 		bool lunarApiEnabled = true;  // Read teammates from Lunar Client API packets
@@ -136,6 +136,10 @@ public:
 	// Utility
 	// ============================================================
 	
+	// Resolve pending name entries to UUIDs using live player data
+	// Returns number of pending entries resolved
+	int resolvePending(const std::vector<PlayerInfo>& players);
+	
 	// Strip all Minecraft color codes (§X) from a string
 	// Also handles UTF-8 § (0xC2 0xA7) and & prefix (some mods)
 	static std::string stripColorCodes(const std::string& input);
@@ -156,6 +160,9 @@ private:
 	// Friends by name (LEGACY) - Set<lowercase name>
 	// Used for backwards compatibility with old configs
 	std::set<std::string> friendsByName_;
+	
+	// Pending names awaiting UUID resolution (lowercase, colorless)
+	std::set<std::string> pendingNames_;
 	
 	// Lunar API teammates (UUIDs from UpdateTeamMembersMessage)
 	std::set<std::string> lunarTeammates_;

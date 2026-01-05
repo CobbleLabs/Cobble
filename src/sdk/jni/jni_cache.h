@@ -20,6 +20,7 @@ extern jclass cls_EntityClientPlayerMP; // 1.7.10 local player
 extern jclass cls_Entity;
 extern jclass cls_EntityLivingBase;
 extern jclass cls_EntityPlayer;
+extern jclass cls_EntityArmorStand;
 
 // Settings & Input
 extern jclass cls_GameSettings;
