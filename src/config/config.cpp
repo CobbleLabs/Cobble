@@ -136,6 +136,9 @@ void ConfigManager::applyConfig() {
                 s.onlyMovingForward = data["onlyMovingForward"].as_bool(s.onlyMovingForward);
                 s.onlyHoldingWeapon = data["onlyHoldingWeapon"].as_bool(s.onlyHoldingWeapon);
                 s.onlySprinting = data["onlySprinting"].as_bool(s.onlySprinting);
+                s.percentageVariance = data["percentageVariance"].as_float(s.percentageVariance);
+                s.tickSpread = data["tickSpread"].as_int(s.tickSpread);
+                s.microDelayMs = data["microDelayMs"].as_int(s.microDelayMs);
             }
             else if (name == "NameTags" && nameTags) {
                 auto& s = nameTags->settings;
@@ -268,6 +271,9 @@ void ConfigManager::buildConfigFromModules() {
             config_["modules"][name]["onlyMovingForward"] = s.onlyMovingForward;
             config_["modules"][name]["onlyHoldingWeapon"] = s.onlyHoldingWeapon;
             config_["modules"][name]["onlySprinting"] = s.onlySprinting;
+            config_["modules"][name]["percentageVariance"] = s.percentageVariance;
+            config_["modules"][name]["tickSpread"] = s.tickSpread;
+            config_["modules"][name]["microDelayMs"] = s.microDelayMs;
         }
         else if (name == "NameTags" && nameTags) {
             const auto& s = nameTags->settings;

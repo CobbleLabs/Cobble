@@ -36,6 +36,13 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/).
   - Blink: Added all 3 settings (maxDuration, disableOnAttack, showDebug)
   - AutoRefill: Added all 3 settings (refillSoup, refillPotions, speed)
 - LocalPlayer: prev-rotation accessors (`prevRotationYaw`/`prevRotationPitch`) for smoother rotation updates.
+- **Velocity Anti-Detection**: Sistema de randomización para evitar detección por anti-cheats
+  - **Percentage Variance** (0-10%): Randomiza el porcentaje de reducción en cada hit (ej: 88% ± 3% = 85-91%)
+  - **Tick Spread** (0-3): Distribución gradual de la reducción en múltiples ticks (menos predecible)
+  - **Micro Delay** (0-50ms): Variación aleatoria del timing de aplicación
+  - Valores conservadores por defecto: variance=3%, tickSpread=1, microDelay=15ms
+  - Implementado en modos Regular y Reduce
+  - Config persistence incluida (cloud sync compatible)
 
 ### Changed
 - Blink now uses PacketInterceptor API (no `lastReportedPos` mutation).
@@ -52,6 +59,8 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/).
 - **Visual**: Restaurado `renderPartialTicks` en JniCache para que ESP y NameTags usen interpolacion real (sin tirones al acercarse al objetivo).
 - Reduced overlay context churn and GL error spam during frequent context changes.
 - **Teams/Friends**: Arreglado problema donde en servidores protegidos el nombre mostraba el prefijo del server (ej: "Elevate") en vez del nombre real. Ahora usa `getName()` para el nombre y `getFormattedText` solo para detectar color de team.
+- **Velocity Gradual Application**: Arreglado bug donde tickSpread > 0 aplicaba reducción horizontal incorrecta (ej: 9% configurado → 29% aplicado). Ahora calcula correctamente la reducción gradual.
+- **Velocity Pending State**: Arreglado bug crítico donde cambiar de tickSpread>0 a tickSpread=0 dejaba estado residual activo, causando reducción incorrecta (ej: 50% → 57%). Ahora resetea pending.active=false en aplicación instantánea.
 
 ### Security
 - **License Fallback HTTPS**: `main.cpp` fallback server ahora usa HTTPS en vez de HTTP (previene MITM)

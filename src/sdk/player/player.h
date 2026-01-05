@@ -50,6 +50,8 @@ struct LocalPlayer
 	// Combat
 	float getHealth();
 	int getHurtTime();
+	int getHurtResistantTime();
+	int getMaxHurtResistantTime();
 	void jump();
 	void setJumpTicks(int value);
 
@@ -91,6 +93,8 @@ private:
 	jfieldID fid_prevRotationPitch = nullptr;
 	jfieldID fid_onGround = nullptr;
 	jfieldID fid_hurtTime = nullptr;
+	jfieldID fid_hurtResistantTime = nullptr;
+	jfieldID fid_maxHurtResistantTime = nullptr;
 	jfieldID fid_jumpTicks = nullptr;
 
 	// Methods

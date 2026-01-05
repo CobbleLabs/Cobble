@@ -193,4 +193,75 @@ inline std::string urlencode(const std::string& str) {
     return result;
 }
 
+// ============================================================
+// Mojang API - Username to UUID lookup
+// ============================================================
+
+// Response from Mojang API: {"id":"uuid_without_dashes","name":"Username"}
+struct MojangProfile {
+    std::string uuid;       // UUID with dashes
+    std::string name;       // Exact capitalized name from Mojang
+    bool found = false;
+};
+
+// Convert UUID without dashes to standard format with dashes
+inline std::string formatUUID(const std::string& raw) {
+    if (raw.length() != 32) return raw;
+    // xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+    return raw.substr(0, 8) + "-" + raw.substr(8, 4) + "-" + 
+           raw.substr(12, 4) + "-" + raw.substr(16, 4) + "-" + raw.substr(20);
+}
+
+// Lookup Minecraft username -> UUID via Mojang API
+// API: GET https://api.mojang.com/users/profiles/minecraft/{username}
+// Returns: {"id":"uuid_no_dashes","name":"ExactName"} or 204 No Content if not found
+inline MojangProfile lookupMojangUUID(const std::string& username) {
+    MojangProfile profile;
+    
+    // Build path: /users/profiles/minecraft/{username}
+    std::wstring path = L"/users/profiles/minecraft/";
+    for (char c : username) {
+        path += static_cast<wchar_t>(c);
+    }
+    
+    // Call Mojang API (HTTPS on port 443)
+    auto response = get(L"api.mojang.com", 443, path, true);
+    
+    if (!response.success) {
+        return profile;  // API error or user not found
+    }
+    
+    // Parse simple JSON: {"id":"uuid","name":"Name"}
+    // Simple parsing since we control the format
+    std::string& body = response.body;
+    
+    // Find "id":"value"
+    size_t idPos = body.find("\"id\":");
+    if (idPos != std::string::npos) {
+        size_t start = body.find('\"', idPos + 5);
+        if (start != std::string::npos) {
+            size_t end = body.find('\"', start + 1);
+            if (end != std::string::npos) {
+                std::string rawUUID = body.substr(start + 1, end - start - 1);
+                profile.uuid = formatUUID(rawUUID);
+            }
+        }
+    }
+    
+    // Find "name":"value"
+    size_t namePos = body.find("\"name\":");
+    if (namePos != std::string::npos) {
+        size_t start = body.find('\"', namePos + 7);
+        if (start != std::string::npos) {
+            size_t end = body.find('\"', start + 1);
+            if (end != std::string::npos) {
+                profile.name = body.substr(start + 1, end - start - 1);
+            }
+        }
+    }
+    
+    profile.found = !profile.uuid.empty();
+    return profile;
+}
+
 } // namespace http

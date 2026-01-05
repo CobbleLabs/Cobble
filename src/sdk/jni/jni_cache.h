@@ -119,6 +119,8 @@ extern jmethodID mid_getNetworkGameProfile;  // getGameProfile() -> GameProfile
 extern jmethodID mid_getHealth;
 extern jmethodID mid_getMaxHealth;
 extern jfieldID fid_hurtTime;
+extern jfieldID fid_hurtResistantTime;
+extern jfieldID fid_maxHurtResistantTime;
 extern jmethodID mid_canEntityBeSeen;
 
 // Bounding box (Entity.boundingBox -> AxisAlignedBB)

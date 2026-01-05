@@ -80,6 +80,8 @@ jmethodID mid_getNetworkGameProfile = nullptr;
 jmethodID mid_getHealth = nullptr;
 jmethodID mid_getMaxHealth = nullptr;
 jfieldID fid_hurtTime = nullptr;
+jfieldID fid_hurtResistantTime = nullptr;
+jfieldID fid_maxHurtResistantTime = nullptr;
 jmethodID mid_canEntityBeSeen = nullptr;
 jfieldID fid_boundingBox = nullptr;
 jmethodID mid_isSneaking = nullptr;
@@ -410,6 +412,8 @@ bool Init()
         TRY_METHOD(mid_getHealth, cls_EntityLivingBase, "getHealth", "()F");
         TRY_METHOD(mid_getMaxHealth, cls_EntityLivingBase, "getMaxHealth", "()F");
         TRY_FIELD(fid_hurtTime, cls_EntityLivingBase, "hurtTime", "I");
+        TRY_FIELD(fid_hurtResistantTime, cls_EntityLivingBase, "hurtResistantTime", "I");
+        TRY_FIELD(fid_maxHurtResistantTime, cls_EntityLivingBase, "maxHurtResistantTime", "I");
         TRY_METHOD(mid_canEntityBeSeen, cls_EntityLivingBase, "canEntityBeSeen", "(Lnet/minecraft/entity/Entity;)Z");
         TRY_METHOD(mid_isSneaking, cls_EntityLivingBase, "isSneaking", "()Z");
     }
