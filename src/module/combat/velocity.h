@@ -45,6 +45,11 @@ public:
 		// Ignore mode
 		VerticalMode verticalMode = VerticalMode::Never;
 
+		// Anti-detection
+		float percentageVariance = 3.0f;  // ±variance% randomization (0-10)
+		int tickSpread = 1;               // Spread reduction across N ticks (0-3)
+		int microDelayMs = 15;            // Random timing variance 0-N ms (0-50)
+
 		// Conditions
 		bool onlyLookingAtPlayer = false;
 		bool onlyMousePressed = false;
@@ -57,6 +62,19 @@ private:
 	int lastHurtTime = 0;
 	int ticksSinceHit = 0;
 	bool wasHitThisTick = false;
+
+	// Gradual application state
+	struct PendingReduction {
+		bool active = false;
+		double targetMotionX = 0.0;
+		double targetMotionY = 0.0;
+		double targetMotionZ = 0.0;
+		int ticksRemaining = 0;
+		int totalTicks = 0;
+	} pending;
+
+	unsigned long microDelayStart = 0;
+	int microDelayTarget = 0;
 
 	// Helper methods
 	bool checkChance(float chance);

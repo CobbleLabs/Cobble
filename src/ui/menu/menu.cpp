@@ -6,6 +6,8 @@
 #include "../hud/notifications.h"
 #include "../../config/config.hpp"
 #include "../../util/friends_manager.h"
+#include "../../util/logger.hpp"
+#include "../../util/http.hpp"
 #include "../../module/module_manager.h"
 #include "../../module/combat/autoclicker.h"
 #include "../../module/combat/aimassist.h"
@@ -21,6 +23,7 @@
 #include "../../sdk/core/minecraft.h"
 
 #include <string>
+#include <algorithm>
 
 // Module lookup by tab and subtab index
 // Returns the module that corresponds to the current subtab
@@ -109,19 +112,37 @@ static void renderSettingsPage()
 				ImGui::SameLine();
 				if ((ImGui::Button("Add", ImVec2(ui::s(50), 0)) || enterPressed) && friendInput[0] != '\0') {
 					std::string inputName = friendInput;
+					bool added = false;
 					
-					// Try to find player in current world to get their UUID
-					PlayerInfo found = mc.findPlayerByName(inputName);
-					
-					if (!found.uuid.empty()) {
-						// Found player in world - add by UUID
-						friendsManager->addFriendByUUID(found.uuid, inputName);
-						lastAddStatus = "Added " + inputName;
-					} else {
-						// Resolve via Mojang API
-						friendsManager->addFriend(inputName);
-						lastAddStatus = "Resolving " + inputName + "...";
+					// Step 1: Try Mojang API to get real UUID from username
+					// This is the CORRECT way - user types real Mojang name
+					auto mojangProfile = http::lookupMojangUUID(inputName);
+					if (mojangProfile.found) {
+						friendsManager->addFriendByUUID(mojangProfile.uuid, mojangProfile.name);
+						lastAddStatus = "Added '" + mojangProfile.name + "' (Mojang)";
+						log_debug("[Friends] Mojang API: %s -> %s", inputName.c_str(), mojangProfile.uuid.c_str());
+						added = true;
 					}
+					
+					// Step 2: If Mojang fails, try to find in current world
+					if (!added) {
+						Minecraft mc;
+						PlayerInfo found = mc.findPlayerByName(inputName);
+						if (!found.uuid.empty()) {
+							friendsManager->addFriendByUUID(found.uuid, inputName);
+							lastAddStatus = "Added '" + inputName + "' (World)";
+							log_debug("[Friends] World scan: %s -> %s", inputName.c_str(), found.uuid.c_str());
+							added = true;
+						}
+					}
+					
+					// Step 3: Fallback to name-only (not recommended)
+					if (!added) {
+						friendsManager->addFriend(inputName);
+						lastAddStatus = "'" + inputName + "' not found (name only)";
+						log_debug("[Friends] Fallback to name: %s", inputName.c_str());
+					}
+					
 					friendInput[0] = '\0';
 				}
 				

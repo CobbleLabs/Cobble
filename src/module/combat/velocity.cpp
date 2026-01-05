@@ -6,9 +6,13 @@
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
 #endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
 #include <Windows.h>
 #include <random>
 #include <cmath>
+#include <algorithm>
 
 Velocity* velocity = nullptr;
 
@@ -25,6 +29,8 @@ void Velocity::onEnable()
 	lastHurtTime = 0;
 	ticksSinceHit = 0;
 	wasHitThisTick = false;
+	pending.active = false;
+	microDelayStart = 0;
 }
 
 void Velocity::onDisable()
@@ -150,18 +156,70 @@ void Velocity::onUpdate()
 				// Check chance
 				if (!checkChance(settings.chance)) break;
 				
-				// Apply horizontal reduction
-				if (settings.horizontal < 100.0f) {
-					double motionX = player.getMotionX();
-					double motionZ = player.getMotionZ();
-					player.setMotionX(motionX * (settings.horizontal / 100.0));
-					player.setMotionZ(motionZ * (settings.horizontal / 100.0));
+				// Randomize percentages with variance
+				std::uniform_real_distribution<float> varDist(-settings.percentageVariance, settings.percentageVariance);
+				float hPercent = settings.horizontal + varDist(rng);
+				float vPercent = settings.vertical + varDist(rng);
+				
+				// Clamp to valid range
+				hPercent = std::max(0.0f, std::min(100.0f, hPercent));
+				vPercent = std::max(0.0f, std::min(100.0f, vPercent));
+				
+				// Micro-delay variance
+				if (settings.microDelayMs > 0) {
+					std::uniform_int_distribution<int> delayDist(0, settings.microDelayMs);
+					microDelayTarget = delayDist(rng);
+					microDelayStart = GetTickCount();
+				} else {
+					microDelayTarget = 0;
 				}
 				
-				// Apply vertical reduction
-				if (settings.vertical < 100.0f) {
+				// Check if we should apply now or wait for micro-delay
+				DWORD elapsed = (microDelayTarget > 0) ? (GetTickCount() - microDelayStart) : 999;
+				if (elapsed < (DWORD)microDelayTarget) {
+					// Wait for micro-delay
+					break;
+				}
+				
+				// Gradual application (spread across multiple ticks)
+				if (settings.tickSpread > 0) {
+					pending.active = true;
+					pending.totalTicks = settings.tickSpread + 1; // +1 for current tick
+					pending.ticksRemaining = settings.tickSpread;
+					
+					// Calculate target motion after reduction
+					double motionX = player.getMotionX();
 					double motionY = player.getMotionY();
-					player.setMotionY(motionY * (settings.vertical / 100.0));
+					double motionZ = player.getMotionZ();
+					
+					// Target = keep only hPercent% of original velocity
+					pending.targetMotionX = motionX * (hPercent / 100.0);
+					pending.targetMotionY = motionY * (vPercent / 100.0);
+					pending.targetMotionZ = motionZ * (hPercent / 100.0);
+					
+					// Apply reduction gradually - move towards target by 1/totalTicks each tick
+					double newX = motionX - ((motionX - pending.targetMotionX) / pending.totalTicks);
+					double newY = motionY - ((motionY - pending.targetMotionY) / pending.totalTicks);
+					double newZ = motionZ - ((motionZ - pending.targetMotionZ) / pending.totalTicks);
+					
+					player.setMotionX(newX);
+					player.setMotionY(newY);
+					player.setMotionZ(newZ);
+				} else {
+					// Instant application (no spread)
+					pending.active = false; // Reset any pending gradual state
+					
+					if (hPercent < 100.0f) {
+						double motionX = player.getMotionX();
+						double motionZ = player.getMotionZ();
+						player.setMotionX(motionX * (hPercent / 100.0));
+						player.setMotionZ(motionZ * (hPercent / 100.0));
+					}
+					
+					if (vPercent < 100.0f) {
+						double motionY = player.getMotionY();
+						player.setMotionY(motionY * (vPercent / 100.0));
+					}
 				}
 				break;
 			}
@@ -184,17 +242,24 @@ void Velocity::onUpdate()
 				// Attack slowdown abuse - reduce motion by attacking
 				if (!checkChance(settings.chance)) break;
 				
-				// Apply reduction similar to regular but can work on double clicks
-				if (settings.horizontal < 100.0f) {
+				// Randomize percentages with variance (same as Regular)
+				std::uniform_real_distribution<float> varDist(-settings.percentageVariance, settings.percentageVariance);
+				float hPercent = settings.horizontal + varDist(rng);
+				float vPercent = settings.vertical + varDist(rng);
+				
+				hPercent = std::max(0.0f, std::min(100.0f, hPercent));
+				vPercent = std::max(0.0f, std::min(100.0f, vPercent));
+				
+				if (hPercent < 100.0f) {
 					double motionX = player.getMotionX();
 					double motionZ = player.getMotionZ();
-					player.setMotionX(motionX * (settings.horizontal / 100.0));
-					player.setMotionZ(motionZ * (settings.horizontal / 100.0));
+					player.setMotionX(motionX * (hPercent / 100.0));
+					player.setMotionZ(motionZ * (hPercent / 100.0));
 				}
 				
-				if (settings.vertical < 100.0f) {
+				if (vPercent < 100.0f) {
 					double motionY = player.getMotionY();
-					player.setMotionY(motionY * (settings.vertical / 100.0));
+					player.setMotionY(motionY * (vPercent / 100.0));
 				}
 				break;
 			}
@@ -223,6 +288,27 @@ void Velocity::onUpdate()
 				}
 				break;
 			}
+		}
+	}
+	
+	// Continue gradual application if active
+	if (pending.active && pending.ticksRemaining > 0) {
+		double currentX = player.getMotionX();
+		double currentY = player.getMotionY();
+		double currentZ = player.getMotionZ();
+		
+		double xDiff = (currentX - pending.targetMotionX) / (pending.ticksRemaining + 1);
+		double yDiff = (currentY - pending.targetMotionY) / (pending.ticksRemaining + 1);
+		double zDiff = (currentZ - pending.targetMotionZ) / (pending.ticksRemaining + 1);
+		
+		player.setMotionX(currentX - xDiff);
+		player.setMotionY(currentY - yDiff);
+		player.setMotionZ(currentZ - zDiff);
+		
+		pending.ticksRemaining--;
+		
+		if (pending.ticksRemaining == 0) {
+			pending.active = false;
 		}
 	}
 
@@ -295,7 +381,33 @@ void Velocity::onRenderMenu()
 			if (ui::SliderInt("Delay", &delay, 0, 5, "%d ticks"))
 				settings.reduceDelay = delay;
 		},
-		"Conditions", [this]() {
+		"Settings", [this]() {
+			// Anti-detection (only for Regular/Reduce modes)
+			if (settings.mode == Mode::Regular || settings.mode == Mode::Reduce) {
+				ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.7f, 0.7f, 0.7f, 1.0f));
+				ImGui::Text("Anti-Detection");
+				ImGui::PopStyleColor();
+				ImGui::Spacing();
+				
+				ui::SliderFloat("Variance", &settings.percentageVariance, 0.0f, 10.0f, "%.1f%%");
+				
+				int spread = settings.tickSpread;
+				if (ui::SliderInt("Tick Spread", &spread, 0, 3, "%d"))
+					settings.tickSpread = spread;
+				
+				int microDelay = settings.microDelayMs;
+				if (ui::SliderInt("Micro Delay", &microDelay, 0, 50, "%dms"))
+					settings.microDelayMs = microDelay;
+				
+				ImGui::Spacing();
+			}
+			
+			// Conditions
+			ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.7f, 0.7f, 0.7f, 1.0f));
+			ImGui::Text("Conditions");
+			ImGui::PopStyleColor();
+			ImGui::Spacing();
+			
 			ui::Checkbox("Looking at Player", &settings.onlyLookingAtPlayer);
 			ui::Checkbox("Mouse Pressed", &settings.onlyMousePressed);
 			ui::Checkbox("Moving Forward", &settings.onlyMovingForward);
