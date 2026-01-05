@@ -12,6 +12,7 @@
 struct PlayerInfo
 {
 	jobject instance = nullptr;
+	std::string uuid;       // Stable player identity (Entity.getUniqueID().toString())
 	std::string name;
 	std::string displayName;
 	int teamColor = -1;
@@ -24,6 +25,7 @@ struct PlayerInfo
 	float health = 20.0f;
 	float maxHealth = 20.0f;
 	bool isInvisible = false;
+	bool isNPC = false;  // NPC detection (bots, server entities)
 	int hurtTime = 0;
 	
 	// Hitbox - bounding box dimensions (from AxisAlignedBB)
@@ -92,6 +94,11 @@ struct Minecraft
 
 	// Get all players in the world (excluding local player)
 	std::vector<PlayerInfo> getPlayerList();
+	
+	// Find a specific player by name and return their info (including UUID)
+	// Returns empty PlayerInfo if not found
+	// Use this to resolve name → UUID when adding friends
+	PlayerInfo findPlayerByName(const std::string& name);
 
 	// Check if local player can see target entity
 	bool canEntityBeSeen(jobject target);

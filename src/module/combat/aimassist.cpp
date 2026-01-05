@@ -638,6 +638,7 @@ bool AimAssist::findTarget(double& targetX, double& targetY, double& targetZ)
 
 		if (dist > settings.distance || dist < 0.2f) continue;
 		if (p.isInvisible && !settings.invisibles) continue;
+		if (p.isNPC) continue;  // Skip NPCs/bots
 
 		// Friends/Teams filter - skip friendly players
 		if (friendsManager && friendsManager->applyToCombat) {
@@ -652,13 +653,13 @@ bool AimAssist::findTarget(double& targetX, double& targetY, double& targetZ)
 			ChatColor playerColor = static_cast<ChatColor>(p.teamColor);
 			ChatColor localColor = static_cast<ChatColor>(localTeamColor);
 			
-			// Strip color codes from name for friend matching (fallback if SDK doesn't clean it)
-			std::string cleanPlayerName = FriendsManager::stripColorCodes(p.name);
+			// Use UUID for friend/team matching (reliable on servers with modified names)
+			// Name is only used as fallback for legacy friend entries
+			bool isFriendByUUID = !p.uuid.empty() && friendsManager->isFriendByUUID(p.uuid);
+			bool isFriendByName = friendsManager->isFriend(FriendsManager::stripColorCodes(p.name));
+			bool isTeammate = friendsManager->isTeammate(p.uuid, playerColor, localColor);
 			
-			bool isFriend = friendsManager->isFriend(cleanPlayerName);
-			bool isTeammate = friendsManager->isTeammate(cleanPlayerName, playerColor, localColor);
-			
-			if (isFriend || isTeammate) continue;
+			if (isFriendByUUID || isFriendByName || isTeammate) continue;
 		}
 
 		float yawToTarget = getAngles(localX, localY, localZ, p.posX, p.posY, p.posZ).first;
@@ -725,6 +726,20 @@ bool AimAssist::findTarget(double& targetX, double& targetY, double& targetZ)
 		float hitboxWidth = targetHitboxMaxX - targetHitboxMinX;
 		float hitboxHeight = targetHitboxMaxY - targetHitboxMinY;
 		targetHasHitbox = (hitboxWidth > 0.01f) && (hitboxHeight > 0.01f);
+		
+		// Debug: Log target info (rate-limited)
+		static Timer debugLogTimer;
+		if (debugLogTimer.Elapsed<>() > 500) { // Log every 500ms
+			log_debug("[AimAssist] Target: %s | UUID: %s | HP: %.1f | Dist: %.1fm | Team: %d",
+				closestPlayer.name.c_str(),
+				closestPlayer.uuid.empty() ? "N/A" : closestPlayer.uuid.substr(0, 8).c_str(),
+				closestPlayer.health,
+				std::sqrt((closestPlayer.posX - localX) * (closestPlayer.posX - localX) + 
+						  (closestPlayer.posY - localY) * (closestPlayer.posY - localY) + 
+						  (closestPlayer.posZ - localZ) * (closestPlayer.posZ - localZ)),
+				closestPlayer.teamColor);
+			debugLogTimer.Start();
+		}
 	} else {
 		targetHasHitbox = false;
 	}

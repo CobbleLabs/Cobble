@@ -3,56 +3,91 @@
 #include <string>
 #include <vector>
 #include <set>
+#include <map>
 #include <mutex>
 
-// Minecraft color codes (Â§X format)
+// Minecraft color codes (§X format)
 enum class ChatColor : int {
-	BLACK = 0,        // Â§0
-	DARK_BLUE = 1,    // Â§1
-	DARK_GREEN = 2,   // Â§2
-	DARK_AQUA = 3,    // Â§3
-	DARK_RED = 4,     // Â§4
-	DARK_PURPLE = 5,  // Â§5
-	GOLD = 6,         // Â§6
-	GRAY = 7,         // Â§7
-	DARK_GRAY = 8,    // Â§8
-	BLUE = 9,         // Â§9
-	GREEN = 10,       // Â§a
-	AQUA = 11,        // Â§b
-	RED = 12,         // Â§c
-	LIGHT_PURPLE = 13,// Â§d
-	YELLOW = 14,      // Â§e
-	WHITE = 15,       // Â§f
+	BLACK = 0,        // §0
+	DARK_BLUE = 1,    // §1
+	DARK_GREEN = 2,   // §2
+	DARK_AQUA = 3,    // §3
+	DARK_RED = 4,     // §4
+	DARK_PURPLE = 5,  // §5
+	GOLD = 6,         // §6
+	GRAY = 7,         // §7
+	DARK_GRAY = 8,    // §8
+	BLUE = 9,         // §9
+	GREEN = 10,       // §a
+	AQUA = 11,        // §b
+	RED = 12,         // §c
+	LIGHT_PURPLE = 13,// §d
+	YELLOW = 14,      // §e
+	WHITE = 15,       // §f
 	UNKNOWN = -1
 };
 
 // Forward declare
 struct PlayerInfo;
 
+// Friend data - UUID is the key, name is for display only
+struct FriendData {
+	std::string uuid;           // Primary key - NEVER changes
+	std::string displayName;    // For UI only - can change
+};
+
 // FriendsManager - Manages friends list and team detection
-// Used by combat modules to filter friendly targets
+// ============================================================
+// IMPORTANT: All matching is done by UUID, never by name!
+// Names are ONLY for display purposes (UI, debug logs)
+// Servers can and DO modify names, but UUID is immutable.
+// ============================================================
 class FriendsManager {
 public:
 	FriendsManager() = default;
 	
 	// ============================================================
-	// Friends System - Manual IGN list
+	// Friends System - UUID-based (primary)
 	// ============================================================
 	
-	// Add a friend by name (case insensitive matching)
+	// Add a friend by UUID (with optional display name for UI)
+	void addFriendByUUID(const std::string& uuid, const std::string& displayName = "");
+	
+	// Remove a friend by UUID
+	void removeFriendByUUID(const std::string& uuid);
+	
+	// Check if a UUID is in friends list - USE THIS FOR FILTERING
+	bool isFriendByUUID(const std::string& uuid) const;
+	
+	// Get friend display name for a UUID (for UI)
+	std::string getFriendDisplayName(const std::string& uuid) const;
+	
+	// Update friend's display name (when we learn their real name)
+	void updateFriendName(const std::string& uuid, const std::string& newName);
+	
+	// Get all friends (for UI display)
+	std::vector<FriendData> getFriends() const;
+	
+	// Clear all friends
+	void clearFriends();
+	
+	// ============================================================
+	// Friends System - Name-based (LEGACY - for backwards compat)
+	// NOTE: These still exist for config loading but internally
+	// will be converted to UUID when possible
+	// ============================================================
+	
+	// Add a friend by name (legacy support, stored as lowercase name)
 	void addFriend(const std::string& name);
 	
 	// Remove a friend by name
 	void removeFriend(const std::string& name);
 	
-	// Check if a name is in friends list
+	// Check if a name is in friends list (legacy fallback)
 	bool isFriend(const std::string& name) const;
 	
-	// Get all friends (for UI display)
-	std::vector<std::string> getFriends() const;
-	
-	// Clear all friends
-	void clearFriends();
+	// Get all friend names (for legacy config)
+	std::vector<std::string> getFriendNames() const;
 	
 	// ============================================================
 	// Teams System - Auto-detection via nametag color
@@ -71,7 +106,7 @@ public:
 	} teams;
 	
 	// Check if a player is a teammate based on color matching or Lunar API
-	bool isTeammate(const std::string& playerName, ChatColor playerColor, ChatColor localColor) const;
+	bool isTeammate(const std::string& playerUUID, ChatColor playerColor, ChatColor localColor) const;
 	
 	// Lunar API: Add player UUID to teammates set (called when packet received)
 	void addLunarTeammate(const std::string& uuid);
@@ -90,19 +125,23 @@ public:
 	// ============================================================
 	
 	// Returns true if this player should be ignored by combat modules
-	// Checks friends list, team colors, and Lunar API teammates
+	// Checks friends list (by UUID), team colors, and Lunar API teammates
+	// NOTE: Pass UUID for reliable matching, name is only for legacy fallback
+	bool shouldIgnoreByUUID(const std::string& uuid, ChatColor playerColor, ChatColor localColor) const;
+	
+	// Legacy name-based check (fallback only)
 	bool shouldIgnore(const std::string& name, ChatColor playerColor, ChatColor localColor) const;
 	
 	// ============================================================
 	// Utility
 	// ============================================================
 	
-	// Strip all Minecraft color codes (Â§X) from a string
-	// Also handles UTF-8 Â§ (0xC2 0xA7) and & prefix (some mods)
+	// Strip all Minecraft color codes (§X) from a string
+	// Also handles UTF-8 § (0xC2 0xA7) and & prefix (some mods)
 	static std::string stripColorCodes(const std::string& input);
 	
 	// Extract ChatColor from a display name with color codes
-	// e.g. "Â§aPlayerName" -> ChatColor::GREEN
+	// e.g. "§aPlayerName" -> ChatColor::GREEN
 	static ChatColor extractColor(const std::string& displayName);
 	
 	// Get color code character for a ChatColor
@@ -111,8 +150,12 @@ public:
 private:
 	mutable std::mutex mutex_;
 	
-	// Friends list (lowercase for case-insensitive matching)
-	std::set<std::string> friends_;
+	// Friends by UUID (PRIMARY) - Map<UUID, FriendData>
+	std::map<std::string, FriendData> friendsByUUID_;
+	
+	// Friends by name (LEGACY) - Set<lowercase name>
+	// Used for backwards compatibility with old configs
+	std::set<std::string> friendsByName_;
 	
 	// Lunar API teammates (UUIDs from UpdateTeamMembersMessage)
 	std::set<std::string> lunarTeammates_;

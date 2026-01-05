@@ -204,7 +204,7 @@ void ConfigManager::buildConfigFromModules() {
     
     // Friends
     if (friendsManager) {
-        auto friends = friendsManager->getFriends();
+        auto friends = friendsManager->getFriendNames();  // Legacy: save names for config
         std::string friendsList;
         for (size_t i = 0; i < friends.size(); ++i) {
             if (i > 0) friendsList += ",";

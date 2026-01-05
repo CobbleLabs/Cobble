@@ -40,6 +40,7 @@ jclass cls_Mouse = nullptr;
 // Minecraft IDs
 jmethodID mid_getMinecraft = nullptr;
 jmethodID mid_clickMouse = nullptr;
+jmethodID mid_getNetHandler = nullptr;
 jfieldID fid_thePlayer = nullptr;
 jfieldID fid_theWorld = nullptr;
 jfieldID fid_currentScreen = nullptr;
@@ -61,6 +62,19 @@ jfieldID fid_lastTickPosX = nullptr;
 jfieldID fid_lastTickPosY = nullptr;
 jfieldID fid_lastTickPosZ = nullptr;
 jmethodID mid_isInvisible = nullptr;
+jmethodID mid_getUniqueID = nullptr;
+
+// java.util.UUID IDs
+jclass cls_UUID = nullptr;
+jmethodID mid_uuidToString = nullptr;
+
+// NetHandlerPlayClient IDs (for TabList lookup)
+jclass cls_NetHandlerPlayClient = nullptr;
+jmethodID mid_getPlayerInfoByUUID = nullptr;
+
+// NetworkPlayerInfo IDs
+jclass cls_NetworkPlayerInfo = nullptr;
+jmethodID mid_getNetworkGameProfile = nullptr;
 
 jmethodID mid_getHealth = nullptr;
 jmethodID mid_getMaxHealth = nullptr;
@@ -81,8 +95,13 @@ jfieldID fid_aabb_maxZ = nullptr;
 // EntityPlayer IDs
 jmethodID mid_getName = nullptr;
 jmethodID mid_getDisplayName = nullptr;
+jmethodID mid_getGameProfile = nullptr;
 jfieldID fid_inventory = nullptr;
 jfieldID fid_openContainer = nullptr;
+
+// GameProfile IDs (com.mojang.authlib.GameProfile)
+jclass cls_GameProfile = nullptr;
+jmethodID mid_getProfileName = nullptr;
 
 // GameSettings IDs
 jfieldID fid_mouseSensitivity = nullptr;
@@ -295,6 +314,7 @@ bool Init()
     
     TRY_STATIC_METHOD(mid_getMinecraft, cls_Minecraft, "getMinecraft", "()Lnet/minecraft/client/Minecraft;");
     TRY_METHOD(mid_clickMouse, cls_Minecraft, "clickMouse", "()V");
+    TRY_METHOD(mid_getNetHandler, cls_Minecraft, "getNetHandler", "()Lnet/minecraft/client/network/NetHandlerPlayClient;");
     
     // Version-specific player field
     if (is_1_7_10) {
@@ -327,11 +347,47 @@ bool Init()
         TRY_FIELD(fid_lastTickPosY, cls_Entity, "lastTickPosY", "D");
         TRY_FIELD(fid_lastTickPosZ, cls_Entity, "lastTickPosZ", "D");
         TRY_METHOD(mid_isInvisible, cls_Entity, "isInvisible", "()Z");
+        TRY_METHOD(mid_getUniqueID, cls_Entity, "getUniqueID", "()Ljava/util/UUID;");
         TRY_FIELD(fid_boundingBox, cls_Entity, "boundingBox", "Lnet/minecraft/util/AxisAlignedBB;");
         if (!fid_boundingBox) {
             TRY_FIELD(fid_boundingBox, cls_Entity, "entityBoundingBox", "Lnet/minecraft/util/AxisAlignedBB;"); // 1.8.x field name
         }
     }
+    
+    // java.util.UUID class (for player identity)
+    jclass uuidLocal = env->FindClass("java/util/UUID");
+    if (uuidLocal) {
+        cls_UUID = (jclass)env->NewGlobalRef(uuidLocal);
+        env->DeleteLocalRef(uuidLocal);
+        if (cls_UUID) {
+            TRY_METHOD(mid_uuidToString, cls_UUID, "toString", "()Ljava/lang/String;");
+        }
+    }
+    env->ExceptionClear();
+    
+    // NetHandlerPlayClient class (for TabList lookup by UUID)
+    CACHE_CLASS(cls_NetHandlerPlayClient, "net.minecraft.client.network.NetHandlerPlayClient");
+    if (cls_NetHandlerPlayClient) {
+        // getPlayerInfo(UUID) -> NetworkPlayerInfo
+        TRY_METHOD(mid_getPlayerInfoByUUID, cls_NetHandlerPlayClient, "getPlayerInfo", "(Ljava/util/UUID;)Lnet/minecraft/client/network/NetworkPlayerInfo;");
+        log_debug("[JniCache] NetHandlerPlayClient.getPlayerInfo(UUID): %s", mid_getPlayerInfoByUUID ? "OK" : "FAILED");
+    } else {
+        log_debug("[JniCache] NetHandlerPlayClient class: FAILED");
+    }
+    
+    // NetworkPlayerInfo class (contains real GameProfile)
+    CACHE_CLASS(cls_NetworkPlayerInfo, "net.minecraft.client.network.NetworkPlayerInfo");
+    if (cls_NetworkPlayerInfo) {
+        // getGameProfile() -> com.mojang.authlib.GameProfile
+        TRY_METHOD(mid_getNetworkGameProfile, cls_NetworkPlayerInfo, "getGameProfile", "()Lcom/mojang/authlib/GameProfile;");
+        log_debug("[JniCache] NetworkPlayerInfo.getGameProfile(): %s", mid_getNetworkGameProfile ? "OK" : "FAILED");
+    } else {
+        log_debug("[JniCache] NetworkPlayerInfo class: FAILED");
+    }
+    
+    // Log Minecraft.getNetHandler status
+    log_debug("[JniCache] Minecraft.getNetHandler(): %s", mid_getNetHandler ? "OK" : "FAILED");
+    log_debug("[JniCache] GameProfile.getName(): %s", mid_getProfileName ? "OK" : "FAILED");
     
     // AxisAlignedBB class and fields (for hitbox)
     CACHE_CLASS(cls_AxisAlignedBB, "net.minecraft.util.AxisAlignedBB");
@@ -377,9 +433,28 @@ bool Init()
             }
         }
         
+        // getGameProfile for real Mojang username (can't be modified by server plugins)
+        TRY_METHOD(mid_getGameProfile, cls_EntityPlayer, "getGameProfile", "()Lcom/mojang/authlib/GameProfile;");
+        
         TRY_FIELD(fid_inventory, cls_EntityPlayer, "inventory", "Lnet/minecraft/entity/player/InventoryPlayer;");
         TRY_FIELD(fid_openContainer, cls_EntityPlayer, "openContainer", "Lnet/minecraft/inventory/Container;");
     }
+    
+    // =========================================================================
+    // GameProfile class IDs (com.mojang.authlib.GameProfile)
+    // =========================================================================
+    
+    // Load GameProfile class from Mojang's authlib
+    // Use CACHE_CLASS which uses the game's classloader (FindClass doesn't find authlib classes)
+    CACHE_CLASS(cls_GameProfile, "com.mojang.authlib.GameProfile");
+    if (cls_GameProfile) {
+        log_debug("[JniCache] GameProfile class: OK");
+        TRY_METHOD(mid_getProfileName, cls_GameProfile, "getName", "()Ljava/lang/String;");
+        log_debug("[JniCache] GameProfile.getName() method: %s", mid_getProfileName ? "OK" : "FAILED");
+    } else {
+        log_debug("[JniCache] GameProfile class: FAILED");
+    }
+    env->ExceptionClear();
     
     // =========================================================================
     // GameSettings class IDs

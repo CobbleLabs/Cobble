@@ -29,7 +29,7 @@
 inline const char* getServerPrimary() { return _xor_("syra.club"); }
 inline const char* getServerFallback() { return _xor_("192.99.212.126"); }
 inline const char* getLicenseServerPrimary() { return _xor_("https://syra.club"); }
-inline const char* getLicenseServerFallback() { return _xor_("http://192.99.212.126:8080"); }
+inline const char* getLicenseServerFallback() { return _xor_("https://192.99.212.126"); }
 
 #define SERVER_PORT_HTTPS 443
 #define SERVER_PORT_HTTP 8080

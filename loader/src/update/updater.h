@@ -233,8 +233,8 @@ inline CheckResult Check(const std::string& currentVersion,
     CheckResult result = TryCheck(currentVersion, primaryHost, primaryPort, highestSeen);
     if (result.success) return result;
     
-    // Fallback to IP with HTTP
-    result = TryCheck(currentVersion, fallbackHost, fallbackPort, highestSeen);
+    // Fallback to IP with HTTPS (secure channel required)
+    result = TryCheck(currentVersion, fallbackHost, 443, highestSeen);
     return result;
 }
 

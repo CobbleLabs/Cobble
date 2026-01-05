@@ -23,9 +23,9 @@ std::string FriendsManager::stripColorCodes(const std::string& input) {
 	for (size_t i = 0; i < input.size(); ) {
 		unsigned char c = input[i];
 		
-		// Check for UTF-8 Â§ (0xC2 0xA7)
+		// Check for UTF-8 § (0xC2 0xA7)
 		if (c == 0xC2 && i + 1 < input.size() && (unsigned char)input[i + 1] == 0xA7) {
-			// Skip the Â§ (2 bytes) and the following color code character
+			// Skip the § (2 bytes) and the following color code character
 			i += 2;
 			if (i < input.size()) {
 				// Skip the color code char (0-9, a-f, k-o, r)
@@ -34,17 +34,17 @@ std::string FriendsManager::stripColorCodes(const std::string& input) {
 			continue;
 		}
 		
-		// Check for corrupted encoding pattern: â”¬Âº (0xE2 0x94 0xAC followed by 0xC2 0xBA or similar)
-		// This happens when Â§ (0xC2 0xA7) is double-encoded or misinterpreted
-		// Pattern: â”¬ = 0xE2 0x94 0xAC (Box Drawing Light Down And Horizontal)
+		// Check for corrupted encoding pattern: ┬º (0xE2 0x94 0xAC followed by 0xC2 0xBA or similar)
+		// This happens when § (0xC2 0xA7) is double-encoded or misinterpreted
+		// Pattern: ┬ = 0xE2 0x94 0xAC (Box Drawing Light Down And Horizontal)
 		if (c == 0xE2 && i + 2 < input.size() && 
 			(unsigned char)input[i + 1] == 0x94 && (unsigned char)input[i + 2] == 0xAC) {
-			// Skip â”¬ (3 bytes)
+			// Skip ┬ (3 bytes)
 			i += 3;
-			// Check for Âº (0xC2 0xBA) - masculine ordinal indicator
+			// Check for º (0xC2 0xBA) - masculine ordinal indicator
 			if (i + 1 < input.size() && (unsigned char)input[i] == 0xC2 && 
 				(unsigned char)input[i + 1] == 0xBA) {
-				// Skip Âº (2 bytes) and the color code
+				// Skip º (2 bytes) and the color code
 				i += 2;
 				if (i < input.size()) {
 					// Skip the color code char
@@ -54,10 +54,10 @@ std::string FriendsManager::stripColorCodes(const std::string& input) {
 			continue;
 		}
 		
-		// Alternative corruption: just Âº followed by color code 
-		// (partial corruption of Â§)
+		// Alternative corruption: just º followed by color code 
+		// (partial corruption of §)
 		if (c == 0xC2 && i + 1 < input.size() && (unsigned char)input[i + 1] == 0xBA) {
-			// Skip Âº and see if next is a color code
+			// Skip º and see if next is a color code
 			i += 2;
 			if (i < input.size()) {
 				char next = std::tolower(input[i]);
@@ -80,10 +80,10 @@ std::string FriendsManager::stripColorCodes(const std::string& input) {
 			}
 		}
 		
-		// Check for raw Â§ byte (sometimes seen in corrupted encoding)
-		// Latin-1 Â§ = 0xA7 as single byte
+		// Check for raw § byte (sometimes seen in corrupted encoding)
+		// Latin-1 § = 0xA7 as single byte
 		if (c == 0xA7 && i + 1 < input.size()) {
-			// Skip Â§ and the color code
+			// Skip § and the color code
 			i += 2;
 			continue;
 		}
@@ -97,16 +97,16 @@ std::string FriendsManager::stripColorCodes(const std::string& input) {
 }
 
 ChatColor FriendsManager::extractColor(const std::string& displayName) {
-	// Look for color code pattern: Â§ followed by 0-9 or a-f
+	// Look for color code pattern: § followed by 0-9 or a-f
 	// Also handle & as alternate color code char (some mods)
 	
 	for (size_t i = 0; i + 1 < displayName.size(); i++) {
 		char c = displayName[i];
 		
-		// Check for Â§ (UTF-8: 0xC2 0xA7) or &
+		// Check for § (UTF-8: 0xC2 0xA7) or &
 		bool isColorPrefix = false;
 		if ((unsigned char)c == 0xC2 && i + 2 < displayName.size() && (unsigned char)displayName[i + 1] == 0xA7) {
-			// UTF-8 Â§ character
+			// UTF-8 § character
 			i++; // skip to the A7
 			isColorPrefix = true;
 		} else if (c == '&') {
@@ -135,19 +135,76 @@ char FriendsManager::getColorChar(ChatColor color) {
 }
 
 // ============================================================
-// Friends System
+// Friends System - UUID-based (PRIMARY)
+// ============================================================
+
+void FriendsManager::addFriendByUUID(const std::string& uuid, const std::string& displayName) {
+	std::lock_guard<std::mutex> lock(mutex_);
+	FriendData data;
+	data.uuid = uuid;
+	data.displayName = displayName.empty() ? uuid.substr(0, 8) : displayName;
+	friendsByUUID_[uuid] = data;
+	log_debug("[Friends] Added friend by UUID: %s (%s)", uuid.c_str(), data.displayName.c_str());
+}
+
+void FriendsManager::removeFriendByUUID(const std::string& uuid) {
+	std::lock_guard<std::mutex> lock(mutex_);
+	friendsByUUID_.erase(uuid);
+	log_debug("[Friends] Removed friend by UUID: %s", uuid.c_str());
+}
+
+bool FriendsManager::isFriendByUUID(const std::string& uuid) const {
+	if (uuid.empty()) return false;
+	std::lock_guard<std::mutex> lock(mutex_);
+	return friendsByUUID_.find(uuid) != friendsByUUID_.end();
+}
+
+std::string FriendsManager::getFriendDisplayName(const std::string& uuid) const {
+	std::lock_guard<std::mutex> lock(mutex_);
+	auto it = friendsByUUID_.find(uuid);
+	if (it != friendsByUUID_.end()) {
+		return it->second.displayName;
+	}
+	return "";
+}
+
+void FriendsManager::updateFriendName(const std::string& uuid, const std::string& newName) {
+	std::lock_guard<std::mutex> lock(mutex_);
+	auto it = friendsByUUID_.find(uuid);
+	if (it != friendsByUUID_.end()) {
+		it->second.displayName = newName;
+	}
+}
+
+std::vector<FriendData> FriendsManager::getFriends() const {
+	std::lock_guard<std::mutex> lock(mutex_);
+	std::vector<FriendData> result;
+	for (const auto& pair : friendsByUUID_) {
+		result.push_back(pair.second);
+	}
+	return result;
+}
+
+void FriendsManager::clearFriends() {
+	std::lock_guard<std::mutex> lock(mutex_);
+	friendsByUUID_.clear();
+	friendsByName_.clear();
+}
+
+// ============================================================
+// Friends System - Name-based (LEGACY)
 // ============================================================
 
 void FriendsManager::addFriend(const std::string& name) {
 	std::lock_guard<std::mutex> lock(mutex_);
 	std::string cleanName = stripColorCodes(name);
-	friends_.insert(toLower(cleanName));
+	friendsByName_.insert(toLower(cleanName));
 }
 
 void FriendsManager::removeFriend(const std::string& name) {
 	std::lock_guard<std::mutex> lock(mutex_);
 	std::string cleanName = stripColorCodes(name);
-	friends_.erase(toLower(cleanName));
+	friendsByName_.erase(toLower(cleanName));
 }
 
 bool FriendsManager::isFriend(const std::string& name) const {
@@ -156,37 +213,32 @@ bool FriendsManager::isFriend(const std::string& name) const {
 	// Strip color codes first, then lowercase for matching
 	std::string cleanName = stripColorCodes(name);
 	std::string lowerName = toLower(cleanName);
-	bool found = friends_.find(lowerName) != friends_.end();
-	
-	// Debug logging
-	static int debugCounter = 0;
-	if (++debugCounter % 50 == 1 && !friends_.empty()) {
-		std::string firstFriend = *friends_.begin();
-		log_debug("[Friends] isFriend('%s') -> clean='%s', lower='%s', found=%d, list has %zu, first='%s'",
-			name.c_str(), cleanName.c_str(), lowerName.c_str(), found, friends_.size(), firstFriend.c_str());
-	}
+	bool found = friendsByName_.find(lowerName) != friendsByName_.end();
 	
 	return found;
 }
 
-std::vector<std::string> FriendsManager::getFriends() const {
+std::vector<std::string> FriendsManager::getFriendNames() const {
 	std::lock_guard<std::mutex> lock(mutex_);
-	return std::vector<std::string>(friends_.begin(), friends_.end());
-}
-
-void FriendsManager::clearFriends() {
-	std::lock_guard<std::mutex> lock(mutex_);
-	friends_.clear();
+	return std::vector<std::string>(friendsByName_.begin(), friendsByName_.end());
 }
 
 // ============================================================
 // Teams System
 // ============================================================
 
-bool FriendsManager::isTeammate(const std::string& playerName, ChatColor playerColor, ChatColor localColor) const {
+bool FriendsManager::isTeammate(const std::string& playerUUID, ChatColor playerColor, ChatColor localColor) const {
 	if (!teams.enabled) return false;
 	
-	// Check match own nametag first
+	// Check Lunar API teammates by UUID first (most reliable)
+	if (teams.lunarApiEnabled && !playerUUID.empty()) {
+		std::lock_guard<std::mutex> lock(mutex_);
+		if (lunarTeammates_.find(playerUUID) != lunarTeammates_.end()) {
+			return true;
+		}
+	}
+	
+	// Check match own nametag
 	if (teams.matchOwnNametag && localColor != ChatColor::UNKNOWN && playerColor == localColor) {
 		return true;
 	}
@@ -219,19 +271,30 @@ bool FriendsManager::isLunarTeammate(const std::string& uuid) const {
 // Combined Check
 // ============================================================
 
+bool FriendsManager::shouldIgnoreByUUID(const std::string& uuid, ChatColor playerColor, ChatColor localColor) const {
+	// Check friends by UUID first (most reliable)
+	if (isFriendByUUID(uuid)) {
+		return true;
+	}
+	
+	// Check teams (also uses UUID for Lunar API)
+	if (isTeammate(uuid, playerColor, localColor)) {
+		return true;
+	}
+	
+	return false;
+}
+
 bool FriendsManager::shouldIgnore(const std::string& name, ChatColor playerColor, ChatColor localColor) const {
-	// Check friends first
+	// Legacy name-based check
 	if (isFriend(name)) {
 		return true;
 	}
 	
-	// Check teams
-	if (isTeammate(name, playerColor, localColor)) {
+	// Teams still need UUID for Lunar API, but color matching works without it
+	if (isTeammate("", playerColor, localColor)) {
 		return true;
 	}
-	
-	// Lunar API check would need UUID which we don't have here
-	// That check is done separately when UUID is available
 	
 	return false;
 }

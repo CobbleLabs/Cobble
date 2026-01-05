@@ -140,16 +140,38 @@ static void renderSettingsPage()
 			if (friendsManager) {
 				// Add friend input
 				static char friendInput[64] = "";
+				static std::string lastAddStatus = "";
 				ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - ui::s(60));
 				bool enterPressed = ImGui::InputText("##addfriend", friendInput, sizeof(friendInput), ImGuiInputTextFlags_EnterReturnsTrue);
 				ImGui::SameLine();
 				if ((ImGui::Button("Add", ImVec2(ui::s(50), 0)) || enterPressed) && friendInput[0] != '\0') {
-					friendsManager->addFriend(std::string(friendInput));
+					std::string inputName = friendInput;
+					
+					// Try to find player in current world to get their UUID
+					Minecraft& mc = Minecraft::get();
+					PlayerInfo found = mc.findPlayerByName(inputName);
+					
+					if (!found.uuid.empty()) {
+						// Found player in world - add by UUID (reliable)
+						friendsManager->addFriendByUUID(found.uuid, inputName);
+						lastAddStatus = "Added " + inputName + " (UUID found)";
+					} else {
+						// Player not in current world - add by name (legacy fallback)
+						friendsManager->addFriend(inputName);
+						lastAddStatus = "Added " + inputName + " (name only)";
+					}
 					friendInput[0] = '\0';
 				}
 				
-				// Friends list
-				auto friends = friendsManager->getFriends();
+				// Show last add status
+				if (!lastAddStatus.empty()) {
+					ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetColorU32(ImGuiCol_TextDisabled));
+					ImGui::TextWrapped("%s", lastAddStatus.c_str());
+					ImGui::PopStyleColor();
+				}
+				
+				// Friends list (use legacy names for UI until we migrate to UUID-based UI)
+				auto friends = friendsManager->getFriendNames();
 				if (!friends.empty()) {
 					ImGui::Separator();
 					for (auto& name : friends) {

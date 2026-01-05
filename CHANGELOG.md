@@ -51,6 +51,12 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/).
   - prevRotation offset: Tiny delta between prev/current prevents detection
 - **Visual**: Restaurado `renderPartialTicks` en JniCache para que ESP y NameTags usen interpolacion real (sin tirones al acercarse al objetivo).
 - Reduced overlay context churn and GL error spam during frequent context changes.
+- **Teams/Friends**: Arreglado problema donde en servidores protegidos el nombre mostraba el prefijo del server (ej: "Elevate") en vez del nombre real. Ahora usa `getName()` para el nombre y `getFormattedText` solo para detectar color de team.
+
+### Security
+- **License Fallback HTTPS**: `main.cpp` fallback server ahora usa HTTPS en vez de HTTP (previene MITM)
+- **Register Endpoint Signed**: `/api/register` ahora usa Ed25519 signed responses (igual que `/api/verify`)
+- **Update Fallback HTTPS**: `updater.h` fallback ahora usa HTTPS port 443 (previene MITM en updates)
 
 ## [0.20.1] - 2026-01-02
 

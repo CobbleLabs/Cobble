@@ -61,6 +61,7 @@ extern jmethodID mid_getMinecraft;
 
 // Instance methods
 extern jmethodID mid_clickMouse;
+extern jmethodID mid_getNetHandler;  // getNetHandler() -> NetHandlerPlayClient
 
 // Fields
 extern jfieldID fid_thePlayer;
@@ -90,6 +91,25 @@ extern jfieldID fid_lastTickPosZ;
 
 // Methods (Entity)
 extern jmethodID mid_isInvisible;
+extern jmethodID mid_getUniqueID;  // Entity.getUniqueID() -> java.util.UUID
+
+// java.util.UUID class
+extern jclass cls_UUID;
+extern jmethodID mid_uuidToString;  // UUID.toString() -> String
+
+// =============================================================================
+// NetHandlerPlayClient class IDs (for TabList lookup)
+// =============================================================================
+
+extern jclass cls_NetHandlerPlayClient;
+extern jmethodID mid_getPlayerInfoByUUID;  // getPlayerInfo(UUID) -> NetworkPlayerInfo
+
+// =============================================================================
+// NetworkPlayerInfo class IDs
+// =============================================================================
+
+extern jclass cls_NetworkPlayerInfo;
+extern jmethodID mid_getNetworkGameProfile;  // getGameProfile() -> GameProfile
 
 // =============================================================================
 // EntityLivingBase class IDs
@@ -119,8 +139,16 @@ extern jfieldID fid_aabb_maxZ;
 
 extern jmethodID mid_getName;
 extern jmethodID mid_getDisplayName;
+extern jmethodID mid_getGameProfile;  // EntityPlayer.getGameProfile() -> GameProfile
 extern jfieldID fid_inventory;
 extern jfieldID fid_openContainer;
+
+// =============================================================================
+// GameProfile class IDs (com.mojang.authlib.GameProfile)
+// =============================================================================
+
+extern jclass cls_GameProfile;
+extern jmethodID mid_getProfileName;  // GameProfile.getName() -> String (real name)
 
 // =============================================================================
 // GameSettings class IDs
