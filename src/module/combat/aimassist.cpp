@@ -83,7 +83,7 @@ struct NeuromotorState {
 	int ticksUntilCorrection = 0; // When to apply micro-correction
 	Timer stateRefreshTimer;
 	
-	void update(std::mt19937& rng) {
+	void update(std::mt19937& rng, float speedSetting = 50.0f) {
 		auto randF = [&](float min, float max) {
 			std::uniform_real_distribution<float> d(min, max);
 			return d(rng);
@@ -93,22 +93,37 @@ struct NeuromotorState {
 			return d(rng);
 		};
 		
+		// Scale drift based on speed setting
+		// Low speed needs minimal drift (clean aim), high speed also needs clean aim
+		// Medium-low speeds (40-60) can have slightly more drift for human-like feel
+		// Formula creates bell curve peaking around speed 50
+		float speedNorm = speedSetting / 100.0f;
+		float bellCurve = std::exp(-std::pow((speedNorm - 0.5f) * 2.5f, 2.0f));
+		float speedScale = 0.15f + bellCurve * 0.45f; // Range: 0.15 to 0.60
+		
 		// Brownian drift: small random walk that accumulates
-		driftYaw += randF(-0.015f, 0.015f);
-		driftPitch += randF(-0.01f, 0.01f);
+		float yawDriftStep = randF(-0.012f, 0.012f) * speedScale;
+		float pitchDriftStep = randF(-0.008f, 0.008f) * speedScale;
 		
-		// Decay drift slowly (mean-reverting)
-		driftYaw *= 0.92f;
-		driftPitch *= 0.92f;
+		driftYaw += yawDriftStep;
+		driftPitch += pitchDriftStep;
 		
-		// Clamp drift to realistic ranges
-		driftYaw = std::clamp(driftYaw, -0.08f, 0.08f);
-		driftPitch = std::clamp(driftPitch, -0.06f, 0.06f);
+		// Decay drift slowly (mean-reverting) - faster decay at low speeds
+		float decayRate = std::lerp(0.85f, 0.94f, speedScale);
+		driftYaw *= decayRate;
+		driftPitch *= decayRate;
+		
+		// Clamp drift to realistic ranges (scaled)
+		float maxDrift = 0.06f * speedScale;
+		driftYaw = std::clamp(driftYaw, -maxDrift, maxDrift);
+		driftPitch = std::clamp(driftPitch, -maxDrift * 0.8f, maxDrift * 0.8f);
 		
 		// Refresh overshoot tendency periodically (humans are inconsistent)
 		if (stateRefreshTimer.Elapsed<>() > randF(800.f, 2000.f)) {
-			overshootFactor = randF(0.92f, 1.08f);
-			reactionJitter = randF(-15.f, 15.f); // ±15ms jitter
+			// Overshoot closer to 1.0 at low speeds (more precise)
+			float overshootRange = std::lerp(0.02f, 0.08f, speedScale);
+			overshootFactor = 1.0f + randF(-overshootRange, overshootRange);
+			reactionJitter = randF(-15.f, 15.f) * speedScale;
 			ticksUntilCorrection = randI(3, 12);
 			stateRefreshTimer.Start();
 		}
@@ -809,8 +824,8 @@ void AimAssist::applyAimRand(float yawDiff, float pitchDiff, float speed)
 		return;
 	}
 
-	// Update neuromotor state every frame
-	g_neuroState.update(rng);
+	// Update neuromotor state every frame (scaled by speed setting)
+	g_neuroState.update(rng, rawSpeedSetting);
 
 	if (rawSpeedSetting >= 120.0f) {
 		float extraAggro = std::clamp((rawSpeedSetting - 120.0f) / 200.0f, 0.0f, 1.0f);
