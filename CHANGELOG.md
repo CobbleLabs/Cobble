@@ -44,6 +44,11 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/).
 - AimAssist rotation updates now sync prev-rotation and last-reported yaw/pitch for smoother feel.
 
 ### Fixed
+  - GCD compliance: Rotations now respect mouse sensitivity granularity
+  - Micro-variance injection: Prevents identical consecutive rotations (P == lP fix)
+  - Tick-skip randomization (~8%): Breaks rotation consistency patterns
+  - Deceleration near target: Natural slowdown when within 6° of aim point
+  - prevRotation offset: Tiny delta between prev/current prevents detection
 - **Visual**: Restaurado `renderPartialTicks` en JniCache para que ESP y NameTags usen interpolacion real (sin tirones al acercarse al objetivo).
 - Reduced overlay context churn and GL error spam during frequent context changes.
 

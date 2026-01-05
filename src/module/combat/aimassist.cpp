@@ -66,6 +66,98 @@ static void cleanup_entity_fields()
 }
 
 // ============================================================
+// Neuromotor Noise Simulation
+// Instead of fixed ranges, simulate actual human motor noise:
+// - Brownian drift (accumulated small errors)
+// - Reaction time jitter (variable delay)
+// - Imperfect GCD (real mouse != perfect quantization)
+// - Overshoot/undershoot (motor control imprecision)
+// ============================================================
+
+// Neuromotor state - persists across frames for continuity
+struct NeuromotorState {
+	float driftYaw = 0.0f;      // Accumulated Brownian drift
+	float driftPitch = 0.0f;
+	float reactionJitter = 0.0f; // Variable reaction delay
+	float overshootFactor = 1.0f; // Tendency to over/undershoot
+	int ticksUntilCorrection = 0; // When to apply micro-correction
+	Timer stateRefreshTimer;
+	
+	void update(std::mt19937& rng) {
+		auto randF = [&](float min, float max) {
+			std::uniform_real_distribution<float> d(min, max);
+			return d(rng);
+		};
+		auto randI = [&](int min, int max) {
+			std::uniform_int_distribution<int> d(min, max);
+			return d(rng);
+		};
+		
+		// Brownian drift: small random walk that accumulates
+		driftYaw += randF(-0.015f, 0.015f);
+		driftPitch += randF(-0.01f, 0.01f);
+		
+		// Decay drift slowly (mean-reverting)
+		driftYaw *= 0.92f;
+		driftPitch *= 0.92f;
+		
+		// Clamp drift to realistic ranges
+		driftYaw = std::clamp(driftYaw, -0.08f, 0.08f);
+		driftPitch = std::clamp(driftPitch, -0.06f, 0.06f);
+		
+		// Refresh overshoot tendency periodically (humans are inconsistent)
+		if (stateRefreshTimer.Elapsed<>() > randF(800.f, 2000.f)) {
+			overshootFactor = randF(0.92f, 1.08f);
+			reactionJitter = randF(-15.f, 15.f); // ±15ms jitter
+			ticksUntilCorrection = randI(3, 12);
+			stateRefreshTimer.Start();
+		}
+	}
+};
+
+static NeuromotorState g_neuroState;
+
+// GCD with imperfection - real mouse input isn't perfectly quantized
+static float calculateGCD(float sensitivity) {
+	float f = sensitivity * 0.6f + 0.2f;
+	return f * f * f * 1.2f;
+}
+
+static float applyGCDWithImperfection(float delta, float gcd, std::mt19937& rng) {
+	if (gcd < 0.0001f) return delta;
+	
+	// 15% chance to NOT snap to GCD (real hardware jitter)
+	std::uniform_int_distribution<int> chance(0, 100);
+	if (chance(rng) < 15) {
+		// Add small non-GCD noise
+		std::uniform_real_distribution<float> noise(-gcd * 0.3f, gcd * 0.3f);
+		return delta + noise(rng);
+	}
+	
+	return std::round(delta / gcd) * gcd;
+}
+
+// Tick skip with Poisson-like distribution (not periodic)
+static bool shouldSkipTick(std::mt19937& rng) {
+	// Exponential inter-arrival time instead of periodic counter
+	static float nextSkipTime = 0.f;
+	static Timer skipTimer;
+	
+	if (skipTimer.Elapsed<>() > nextSkipTime) {
+		// Exponential distribution with mean ~150ms between skips
+		std::exponential_distribution<float> exp(1.0f / 150.0f);
+		nextSkipTime = std::clamp(exp(rng), 50.f, 500.f);
+		skipTimer.Start();
+		return true;
+	}
+	return false;
+}
+
+static float g_cachedGCD = 0.0f;
+static Timer g_gcdRefreshTimer;
+
+
+// ============================================================
 // AimBoost Implementation
 // ============================================================
 
@@ -696,6 +788,30 @@ void AimAssist::applyAimRand(float yawDiff, float pitchDiff, float speed)
 	float ramp = std::min({ timeRamp, errorRamp, clickRamp });
 	dynamicSpeed *= ramp;
 
+	// ========== ANTI-CHEAT BYPASS v2: Variable Deceleration ==========
+	// Randomize deceleration zone per target (humans are inconsistent)
+	static float currentDecelZone = 6.0f;
+	if (targetChangedThisFrame) {
+		currentDecelZone = randFloat(4.0f, 8.0f); // Variable zone
+	}
+	if (maxDiff < currentDecelZone) {
+		// Variable exponent for non-uniform deceleration curve
+		float decelExponent = randFloat(1.2f, 1.8f);
+		float decelFactor = std::pow(maxDiff / currentDecelZone, decelExponent);
+		// Apply overshoot tendency from neuromotor state
+		decelFactor *= g_neuroState.overshootFactor;
+		dynamicSpeed *= std::max(0.2f, decelFactor);
+	}
+
+	// ========== ANTI-CHEAT BYPASS v2: Poisson Tick Skip ==========
+	// Non-periodic skips with exponential inter-arrival times
+	if (shouldSkipTick(rng)) {
+		return;
+	}
+
+	// Update neuromotor state every frame
+	g_neuroState.update(rng);
+
 	if (rawSpeedSetting >= 120.0f) {
 		float extraAggro = std::clamp((rawSpeedSetting - 120.0f) / 200.0f, 0.0f, 1.0f);
 		dynamicSpeed *= std::lerp(0.8f, 0.4f, extraAggro); // dampen extremes to avoid flicks
@@ -800,16 +916,26 @@ void AimAssist::applyAimRand(float yawDiff, float pitchDiff, float speed)
 
 	cursorAccumY += pitchdiffSpeed + pitchrandsmooth;
 
-	int moveY = 0;
-	if (std::abs(cursorAccumY) >= 1.0) {
-		moveY = (int)std::round(cursorAccumY);
-		cursorAccumY -= moveY;
+	// Apply pitch continuously like yaw (not integer-based)
+	// This prevents gcdP: 0.0 detection when pitch changes are small
+	float pitchAccum = (float)cursorAccumY;
+	
+	// Keep fractional part for smoother accumulation
+	if (std::abs(cursorAccumY) >= 0.1) {
+		cursorAccumY *= 0.7; // Decay instead of hard reset
 	}
 
 	if (settings.horizontalOnly)
 	{
-		moveY = 0;
+		pitchAccum = 0.0f;
 		cursorAccumY = 0.0;
+	} else {
+		// ========== ANTI-CHEAT: Baseline Pitch Movement ==========
+		// Humans NEVER have exactly 0.0 pitch movement - add micro-noise
+		float baselinePitch = g_neuroState.driftPitch * 0.3f;
+		if (std::abs(pitchAccum) < 0.001f) {
+			pitchAccum = baselinePitch; // Ensure never exactly 0
+		}
 	}
 
 	// Ensure low in-game sensitivity doesn't overly throttle aim speed.
@@ -820,7 +946,7 @@ void AimAssist::applyAimRand(float yawDiff, float pitchDiff, float speed)
 
 	constexpr float kMouseGain = 0.10f;
 	float yawDelta = yawdiffSpeed * sensMultiplier * kMouseGain;
-	float pitchDelta = (float)moveY * sensMultiplier * kMouseGain;
+	float pitchDelta = pitchAccum * sensMultiplier * kMouseGain; // Use float, not int
 
 	// Guard against overshoot: clamp step to fraction of remaining error
 	auto clampStepToError = [](float delta, float remaining, float frac) -> float {
@@ -892,13 +1018,35 @@ void AimAssist::applyAimRand(float yawDiff, float pitchDiff, float speed)
 		debugLogTimer.Start();
 	}
 
+	// ========== ANTI-CHEAT BYPASS v2: GCD with Imperfection ==========
+	// Refresh GCD periodically
+	if (g_gcdRefreshTimer.Elapsed<>() > 500.0f) {
+		g_cachedGCD = calculateGCD(cachedMouseSensitivity);
+		g_gcdRefreshTimer.Start();
+	}
+	if (g_cachedGCD < 0.0001f) {
+		g_cachedGCD = calculateGCD(cachedMouseSensitivity);
+	}
+
+	// Apply GCD with occasional imperfection (real hardware isn't perfect)
+	yawDelta = applyGCDWithImperfection(yawDelta, g_cachedGCD, rng);
+	pitchDelta = applyGCDWithImperfection(pitchDelta, g_cachedGCD, rng);
+
+	// ========== ANTI-CHEAT BYPASS v2: Brownian Drift ==========
+	// Add accumulated drift instead of fixed-range variance (continuous, natural)
+	yawDelta += g_neuroState.driftYaw;
+	pitchDelta += settings.horizontalOnly ? 0.f : g_neuroState.driftPitch;
+
 	bool applyYaw = std::abs(yawDelta) > 0.0001f;
-	if (!applyYaw && moveY == 0) {
-		// Keep prev rotations in sync to avoid partial tick interpolation fighting
+	bool applyPitch = std::abs(pitchDelta) > 0.0001f;
+	if (!applyYaw && !applyPitch) {
+		// No rotation this frame - set prev slightly behind current (natural interpolation)
 		float curYaw = player.getYaw();
 		float curPitch = player.getPitch();
-		player.setPrevYaw(curYaw);
-		player.setPrevPitch(curPitch);
+		// ========== Physical Continuity ==========
+		// Use drift as offset instead of random (maintains physical coherence)
+		player.setPrevYaw(curYaw - g_neuroState.driftYaw * 0.5f);
+		player.setPrevPitch(curPitch - g_neuroState.driftPitch * 0.5f);
 		return;
 	}
 
@@ -906,17 +1054,24 @@ void AimAssist::applyAimRand(float yawDiff, float pitchDiff, float speed)
 		float currentYaw = player.getYaw();
 		float newYaw = currentYaw + yawDelta;
 		player.setYaw(newYaw);
-		player.setPrevYaw(newYaw);
+		// ========== Physical Continuity ==========
+		// prevYaw = lerp towards newYaw (natural interpolation, not random)
+		float prevLerp = randFloat(0.85f, 0.95f);
+		player.setPrevYaw(std::lerp(currentYaw, newYaw, prevLerp));
 	}
 
-	if (moveY != 0) {
+	if (applyPitch) {
 		float currentPitch = player.getPitch();
-		float targetPitch = std::clamp(currentPitch + pitchDelta, -90.0f, 90.0f);
-		player.setPitch(targetPitch);
-		player.setPrevPitch(targetPitch);
+		float finalPitch = std::clamp(currentPitch + pitchDelta, -90.0f, 90.0f);
+		player.setPitch(finalPitch);
+		// ========== Physical Continuity ==========
+		// prevPitch = lerp towards finalPitch
+		float prevLerp = randFloat(0.85f, 0.95f);
+		player.setPrevPitch(std::lerp(currentPitch, finalPitch, prevLerp));
 	} else {
-		// Even without pitch movement, sync prevPitch to current to prevent visual tug
-		player.setPrevPitch(player.getPitch());
+		// Sync prevPitch with small drift-based offset
+		float curPitch = player.getPitch();
+		player.setPrevPitch(curPitch - g_neuroState.driftPitch * 0.3f);
 	}
 }
 
