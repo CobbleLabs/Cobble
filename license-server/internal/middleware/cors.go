@@ -15,7 +15,7 @@ func CORS(next http.Handler) http.Handler {
 		allowedOrigin := cfg.FrontendURL
 
 		// Allow the configured frontend URL or production
-		if origin == allowedOrigin || allowedOrigin == "*" || origin == "https://syra.club" {
+		if origin == allowedOrigin || allowedOrigin == "*" || origin == "https://cobble.vip" {
 			w.Header().Set("Access-Control-Allow-Origin", origin)
 		} else if allowedOrigin == "" {
 			// If no frontend URL configured, allow localhost for dev
