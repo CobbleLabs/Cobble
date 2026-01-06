@@ -30,6 +30,7 @@ namespace License {
 
 static std::string g_LastError;
 static bool g_NeedsUpdate = false;
+static bool g_RequiresLogin = false;
 static std::string g_MinVersion;
 static std::string g_Username;
 static std::string g_SessionToken;
@@ -229,13 +230,8 @@ bool Verify(const std::string& serverUrl) {
     DWORD statusCodeSize = sizeof(statusCode);
     HttpQueryInfoA(hRequest, HTTP_QUERY_STATUS_CODE | HTTP_QUERY_FLAG_NUMBER, &statusCode, &statusCodeSize, NULL);
 
-    if (statusCode != 200) {
-        InternetCloseHandle(hRequest);
-        InternetCloseHandle(hConnect);
-        InternetCloseHandle(hInternet);
-        g_LastError = "Server returned error (Status: " + std::to_string(statusCode) + ")";
-        return false;
-    }
+    // Note: We don't return early on non-200 anymore - the server sends signed
+    // error responses that we need to parse to determine if login is required
 
     
     // Read response
@@ -253,10 +249,28 @@ bool Verify(const std::string& serverUrl) {
     InternetCloseHandle(hConnect);
     InternetCloseHandle(hInternet);
     
+    // Check for empty response
+    if (response.empty()) {
+        g_LastError = "No response from server (Status: " + std::to_string(statusCode) + ")";
+        // Assume unregistered HWID if we got a 4xx error
+        if (statusCode >= 400 && statusCode < 500) {
+            g_RequiresLogin = true;
+        }
+        return false;
+    }
+    
     // Parse JSON response
     json::Object json;
     if (!json.parse(response)) {
-        g_LastError = "Invalid server response";
+        // Check if raw response indicates login needed
+        if (response.find("not registered") != std::string::npos ||
+            response.find("login") != std::string::npos ||
+            response.find("No license") != std::string::npos) {
+            g_RequiresLogin = true;
+            g_LastError = "Device not registered";
+        } else {
+            g_LastError = "Invalid server response";
+        }
         return false;
     }
     
@@ -265,8 +279,18 @@ bool Verify(const std::string& serverUrl) {
     std::string sigB64 = json.get_string("sig_b64", "");
     
     if (payloadB64.empty() || sigB64.empty()) {
-        // No signature = reject (prevents proxy bypass attacks)
-        g_LastError = "Invalid response format";
+        // No signature - check for plain error response with login hint
+        std::string errorMsg = json.get_string("error", "");
+        std::string message = json.get_string("message", "");
+        if (errorMsg.find("not registered") != std::string::npos ||
+            errorMsg.find("login") != std::string::npos ||
+            message.find("not registered") != std::string::npos ||
+            message.find("login") != std::string::npos) {
+            g_RequiresLogin = true;
+            g_LastError = "Device not registered";
+        } else {
+            g_LastError = errorMsg.empty() ? "Invalid response format" : errorMsg;
+        }
         return false;
     }
     
@@ -318,6 +342,225 @@ bool Verify(const std::string& serverUrl) {
     
     // Extract error message
     g_LastError = payload.get_string("message", "License not valid");
+    
+    // Check if this is an unregistered HWID (requires login)
+    std::string errCode = payload.get_string("code", "");
+    if (errCode == "HWID_NOT_REGISTERED" || 
+        g_LastError.find("not registered") != std::string::npos ||
+        g_LastError.find("No license") != std::string::npos ||
+        g_LastError.find("login first") != std::string::npos ||
+        g_LastError.find("Please login") != std::string::npos) {
+        g_RequiresLogin = true;
+    }
+    return false;
+}
+
+bool RequiresLogin() {
+    return g_RequiresLogin;
+}
+
+bool LoginWithCredentials(const std::string& serverUrl, 
+                          const std::string& username, 
+                          const std::string& password) {
+    g_RequiresLogin = false;
+    
+    // Generate HWID
+    std::string hwid = HWID::Generate();
+    if (hwid.empty()) {
+        g_LastError = "Failed to generate HWID";
+        return false;
+    }
+    
+    // Generate random nonce for anti-replay
+    std::string nonce = GenerateNonce();
+    if (nonce.empty()) {
+        g_LastError = "Failed to generate nonce";
+        return false;
+    }
+    
+    // Build URL
+    std::string url = serverUrl + _xor_("/api/loader/login");
+    
+    // Build POST data as JSON
+    std::string postData = "{\"username\":\"" + username + 
+                           "\",\"password\":\"" + password + 
+                           "\",\"hwid\":\"" + hwid + 
+                           "\",\"nonce\":\"" + nonce + 
+                           "\",\"version\":\"" + std::string(CLIENT_VERSION) + "\"}";
+    
+    // Initialize WinInet
+    HINTERNET hInternet = InternetOpenA(
+        _xor_("Mozilla/5.0"),
+        INTERNET_OPEN_TYPE_PRECONFIG,
+        NULL, NULL, 0
+    );
+    
+    if (!hInternet) {
+        g_LastError = "Network error";
+        return false;
+    }
+    
+    DWORD timeout = 8000;
+    InternetSetOptionA(hInternet, INTERNET_OPTION_CONNECT_TIMEOUT, &timeout, sizeof(timeout));
+    InternetSetOptionA(hInternet, INTERNET_OPTION_SEND_TIMEOUT, &timeout, sizeof(timeout));
+    InternetSetOptionA(hInternet, INTERNET_OPTION_RECEIVE_TIMEOUT, &timeout, sizeof(timeout));
+    
+    // Parse URL
+    URL_COMPONENTSA urlComp = { 0 };
+    urlComp.dwStructSize = sizeof(urlComp);
+    
+    char hostName[256] = { 0 };
+    char urlPath[1024] = { 0 };
+    
+    urlComp.lpszHostName = hostName;
+    urlComp.dwHostNameLength = sizeof(hostName);
+    urlComp.lpszUrlPath = urlPath;
+    urlComp.dwUrlPathLength = sizeof(urlPath);
+    
+    if (!InternetCrackUrlA(url.c_str(), 0, 0, &urlComp)) {
+        InternetCloseHandle(hInternet);
+        g_LastError = "Invalid server URL";
+        return false;
+    }
+    
+    DWORD flags = (urlComp.nScheme == INTERNET_SCHEME_HTTPS) ? 
+                  INTERNET_FLAG_SECURE : 0;
+    
+    HINTERNET hConnect = InternetConnectA(
+        hInternet,
+        hostName,
+        urlComp.nPort,
+        NULL, NULL,
+        INTERNET_SERVICE_HTTP,
+        0, 0
+    );
+    
+    if (!hConnect) {
+        InternetCloseHandle(hInternet);
+        g_LastError = "Connection failed";
+        return false;
+    }
+    
+    HINTERNET hRequest = HttpOpenRequestA(
+        hConnect,
+        "POST",
+        urlPath,
+        NULL, NULL, NULL,
+        flags | INTERNET_FLAG_NO_CACHE_WRITE | INTERNET_FLAG_RELOAD,
+        0
+    );
+    
+    if (!hRequest) {
+        InternetCloseHandle(hConnect);
+        InternetCloseHandle(hInternet);
+        g_LastError = "Request failed";
+        return false;
+    }
+    
+    std::string headers = "Content-Type: application/json\r\n";
+    
+    BOOL result = HttpSendRequestA(
+        hRequest,
+        headers.c_str(),
+        (DWORD)headers.length(),
+        (LPVOID)postData.c_str(),
+        (DWORD)postData.length()
+    );
+    
+    if (!result) {
+        InternetCloseHandle(hRequest);
+        InternetCloseHandle(hConnect);
+        InternetCloseHandle(hInternet);
+        g_LastError = "Request failed";
+        return false;
+    }
+    
+    DWORD statusCode = 0;
+    DWORD statusCodeSize = sizeof(statusCode);
+    HttpQueryInfoA(hRequest, HTTP_QUERY_STATUS_CODE | HTTP_QUERY_FLAG_NUMBER, &statusCode, &statusCodeSize, NULL);
+    
+    // Read response
+    char buffer[4096] = { 0 };
+    DWORD bytesRead = 0;
+    std::string response;
+    
+    while (InternetReadFile(hRequest, buffer, sizeof(buffer) - 1, &bytesRead) && bytesRead > 0) {
+        buffer[bytesRead] = '\0';
+        response += buffer;
+    }
+    
+    InternetCloseHandle(hRequest);
+    InternetCloseHandle(hConnect);
+    InternetCloseHandle(hInternet);
+    
+    // Parse JSON response
+    json::Object json;
+    if (!json.parse(response)) {
+        g_LastError = "Invalid response";
+        return false;
+    }
+    
+    // Check for signed response format
+    std::string payloadB64 = json.get_string("payload_b64", "");
+    std::string sigB64 = json.get_string("sig_b64", "");
+    
+    if (payloadB64.empty() || sigB64.empty()) {
+        // Fallback to unsigned response (legacy or error)
+        if (statusCode != 200) {
+            g_LastError = json.get_string("error", "Authentication failed");
+            return false;
+        }
+        g_LastError = "Invalid response format";
+        return false;
+    }
+    
+    // Decode payload and signature
+    std::vector<uint8_t> payloadBytes = Base64Decode(payloadB64);
+    std::vector<uint8_t> sigBytes = Base64Decode(sigB64);
+    
+    if (payloadBytes.empty() || sigBytes.size() != 64) {
+        g_LastError = "Invalid response format";
+        return false;
+    }
+    
+    // Verify Ed25519 signature
+    if (!tweetnacl::verify(sigBytes.data(), payloadBytes.data(), payloadBytes.size(), LICENSE_PUBLIC_KEY)) {
+        g_LastError = "Signature verification failed";
+        return false;
+    }
+    
+    // Parse verified payload
+    std::string payloadStr(payloadBytes.begin(), payloadBytes.end());
+    json::Object payload;
+    if (!payload.parse(payloadStr)) {
+        g_LastError = "Invalid payload";
+        return false;
+    }
+    
+    // Verify nonce matches
+    std::string responseNonce = payload.get_string("nonce", "");
+    if (responseNonce != nonce) {
+        g_LastError = "Security check failed";
+        return false;
+    }
+    
+    // Verify response hasn't expired
+    int64_t expiresAt = payload.get_int("expires_at", 0);
+    int64_t now = (int64_t)time(nullptr);
+    if (now > expiresAt) {
+        g_LastError = "Response expired";
+        return false;
+    }
+    
+    // Check business logic
+    if (payload.get_bool("valid", false)) {
+        g_Username = payload.get_string("username", username);
+        g_DaysRemaining = payload.get_int("days_remaining", -1);
+        g_SessionToken = payload.get_string("session_token", "");
+        return true;
+    }
+    
+    g_LastError = payload.get_string("message", "Authentication failed");
     return false;
 }
 

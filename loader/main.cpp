@@ -442,6 +442,60 @@ void printSearchSpinner(const std::string& msg) {
     std::cout << "\x1b[A"; 
 }
 
+// Elegant centered text input with visible typing
+std::string getInputCentered(const std::string& prompt) {
+    int width = getConsoleWidth();
+    std::string fullPrompt = prompt + ": ";
+    int leftPad = (width - (int)fullPrompt.length() - 20) / 2;
+    if (leftPad < 2) leftPad = 2;
+    
+    std::cout << VT_SHOW_CURSOR;
+    std::cout << std::string(leftPad, ' ') << "\x1b[37m" << fullPrompt << VT_RESET;
+    
+    std::string input;
+    char c;
+    while ((c = _getch()) != '\r' && c != '\n') {
+        if (c == '\b' || c == 127) { // Backspace
+            if (!input.empty()) {
+                input.pop_back();
+                std::cout << "\b \b";
+            }
+        } else if (c >= 32 && c < 127) { // Printable
+            input += c;
+            std::cout << c;
+        }
+    }
+    std::cout << "\n" << VT_HIDE_CURSOR;
+    return input;
+}
+
+// Secure password input (masked with dots)
+std::string getPasswordCentered(const std::string& prompt) {
+    int width = getConsoleWidth();
+    std::string fullPrompt = prompt + ": ";
+    int leftPad = (width - (int)fullPrompt.length() - 20) / 2;
+    if (leftPad < 2) leftPad = 2;
+    
+    std::cout << VT_SHOW_CURSOR;
+    std::cout << std::string(leftPad, ' ') << "\x1b[37m" << fullPrompt << VT_RESET;
+    
+    std::string password;
+    char c;
+    while ((c = _getch()) != '\r' && c != '\n') {
+        if (c == '\b' || c == 127) { // Backspace
+            if (!password.empty()) {
+                password.pop_back();
+                std::cout << "\b \b";
+            }
+        } else if (c >= 32 && c < 127) { // Printable
+            password += c;
+            std::cout << "\x1b[90m" << "\xE2\x80\xA2" << VT_RESET; // Bullet point
+        }
+    }
+    std::cout << "\n" << VT_HIDE_CURSOR;
+    return password;
+}
+
 // ============================================================================
 // SECURITY THREADS
 // ============================================================================
@@ -636,42 +690,44 @@ int wmain(int argc, wchar_t* argv[]) {
 
 	// ========== PHASE 3: LICENSE ==========
 #if LICENSE_CHECK_ENABLED
-	// Silent verify
-	std::string hwid = HWID::Generate();
 	bool licenseValid = false;
 	
-	if (License::Verify(getLicenseServerPrimary())) licenseValid = true;
-
-	if (!licenseValid) {
-		if (License::NeedsUpdate()) {
-			// Special case: License valid but version outdated
-			// Proceed to Update Check phase immediately
-			printCentered("Version outdated", "\x1b[33m");
-			Sleep(1000);
+	// First, try silent HWID verification (for returning users)
+	if (License::Verify(getLicenseServerPrimary())) {
+		licenseValid = true;
+	}
+	
+	// If verification failed and we need login (new device/first time)
+	if (!licenseValid && License::RequiresLogin()) {
+		std::cout << "\n";
+		printCentered("Login required", "\x1b[33m");
+		printCentered("Enter your Cobble account credentials", "\x1b[90m");
+		std::cout << "\n";
+		
+		// Get credentials with elegant input
+		std::string username = getInputCentered("Username");
+		std::string password = getPasswordCentered("Password");
+		
+		if (username.empty() || password.empty()) {
+			printCentered("Cancelled", "\x1b[31m");
+			Sleep(1500);
+			return 1;
+		}
+		
+		std::cout << "\n";
+		printCentered("Authenticating...", "\x1b[90m");
+		
+		if (License::LoginWithCredentials(getLicenseServerPrimary(), username, password)) {
+			licenseValid = true;
+			// Clear the authenticating message
+			std::cout << "\r\x1b[K\x1b[A\x1b[K";
+			printCentered("Device registered", "\x1b[32m");
+			Sleep(800);
 		} else {
+			std::cout << "\r\x1b[K\x1b[A\x1b[K";
 			std::cout << "\n";
-			printCentered("License verification failed", "\x1b[31m");
-			printCentered(License::GetLastError(), "\x1b[37m");
-			std::cout << "\n";
-			
-			// Show HWID on screen for user to copy
-			printCentered("Your HWID:", "\x1b[37m");
-			printCentered(hwid, "\x1b[33m"); // Yellow for visibility
-			std::cout << "\n";
-			printCentered("HWID copied to clipboard", "\x1b[90m");
-			
-			if (OpenClipboard(nullptr)) {
-				EmptyClipboard();
-				HGLOBAL hMem = GlobalAlloc(GMEM_MOVEABLE, hwid.size() + 1);
-				if (hMem) {
-					memcpy(GlobalLock(hMem), hwid.c_str(), hwid.size() + 1);
-					GlobalUnlock(hMem);
-					SetClipboardData(CF_TEXT, hMem);
-				}
-				CloseClipboard();
-			}
-			
-			// Wait for user to read and copy
+			printCentered("Authentication failed", "\x1b[31m");
+			printCentered(License::GetLastError(), "\x1b[90m");
 			std::cout << "\n";
 			printCentered("Press any key to exit...", "\x1b[90m");
 			std::cout << VT_SHOW_CURSOR;
@@ -679,23 +735,23 @@ int wmain(int argc, wchar_t* argv[]) {
 			_getch();
 			return 1;
 		}
-	} else {
-		// License valid - save session token for cloud sync
-		std::string sessionToken = License::GetSessionToken();
-		if (!sessionToken.empty()) {
-			wchar_t* appData = nullptr;
-			if (SHGetKnownFolderPath(FOLDERID_RoamingAppData, 0, nullptr, &appData) == S_OK) {
-				std::wstring cobbleDir = std::wstring(appData) + L"\\Cobble";
-				CreateDirectoryW(cobbleDir.c_str(), nullptr);
-				std::wstring sessionPath = cobbleDir + L"\\.session";
-				
-				std::ofstream sessionFile(sessionPath);
-				if (sessionFile.is_open()) {
-					sessionFile << sessionToken;
-					sessionFile.close();
-				}
-				CoTaskMemFree(appData);
-			}
+	}
+	
+	// Handle other failure cases (banned, expired, etc.)
+	if (!licenseValid) {
+		if (License::NeedsUpdate()) {
+			printCentered("Version outdated", "\x1b[33m");
+			Sleep(1000);
+		} else {
+			std::cout << "\n";
+			printCentered("Access denied", "\x1b[31m");
+			printCentered(License::GetLastError(), "\x1b[90m");
+			std::cout << "\n";
+			printCentered("Press any key to exit...", "\x1b[90m");
+			std::cout << VT_SHOW_CURSOR;
+			while (!_kbhit()) Sleep(50);
+			_getch();
+			return 1;
 		}
 	}
 #endif

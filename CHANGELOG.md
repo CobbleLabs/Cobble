@@ -9,6 +9,30 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/).
 ## [Unreleased]
 
 ### Added
+- **License Server v2.0**: Complete refactor for web frontend integration
+  - **PostgreSQL-only**: Removed SQLite support, 10 PostgreSQL migrations
+  - **Users table**: Separate from licenses with FK relationship
+  - **JWT Authentication**: Access tokens (15m) + Refresh tokens (7d, HttpOnly cookies)
+  - **Argon2id password hashing**: Secure password storage
+  - **CORS middleware**: Configurable frontend URL
+  - **New endpoints**:
+    - Auth: `/api/auth/register`, `/login`, `/refresh`, `/logout`, `/me`
+    - Loader: `/api/loader/login` (first-time login with HWID binding)
+    - Profile: `/api/users/me`, `/password`, `/hwid`, `/hwid/reset`
+    - Dashboard: `/api/announcements`, `/downloads`, `/changelogs`
+    - Admin: Full CRUD for users, licenses, announcements, audit logs
+  - **Loader login flow**: First login requires username+password, binds HWID. Subsequent logins auto-verify by HWID
+  - **Legacy endpoints preserved**: Discord bot commands still work via X-API-Key auth
+- **Website Frontend API Integration**
+  - `lib/api.ts`: Secure API client with in-memory token storage (not localStorage)
+  - `context/AuthContext.tsx`: Session management, auto-refresh, protected routes
+  - Login/Register pages connected to real API with validation
+  - Dashboard shows real user data, license status, announcements from API
+  - Profile page: Edit discord ID, change password with API calls
+  - HWID Manager: Real HWID status, reset functionality with cooldown
+  - Downloads: License check, fetches available downloads from API
+  - Changelogs: Fetches release history from API
+  - Admin menu only visible for admin role users
 - **Visual Team Resolver**: Pixel-based team detection for AimAssist
   - Analyzes actual rendered nametag colors on screen (bypasses server data spoofing)
   - Fallback mode: Only activates when scoreboard/§color detection returns UNKNOWN

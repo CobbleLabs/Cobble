@@ -11,7 +11,6 @@ import (
 	"license-server/internal/logger"
 
 	_ "github.com/lib/pq"
-	_ "github.com/mattn/go-sqlite3"
 )
 
 // DB is the global database connection
@@ -20,23 +19,27 @@ var DB *sql.DB
 // Init opens the database connection and runs migrations
 func Init() error {
 	cfg := config.Get()
-	var err error
 
-	if cfg.DBType == "postgres" && cfg.DBURL != "" {
-		DB, err = sql.Open("postgres", cfg.DBURL)
-	} else {
-		DB, err = sql.Open("sqlite3", cfg.DBPath)
+	if cfg.DBURL == "" {
+		return fmt.Errorf("DATABASE_URL is required")
 	}
 
+	var err error
+	DB, err = sql.Open("postgres", cfg.DBURL)
 	if err != nil {
 		return fmt.Errorf("failed to open database: %w", err)
+	}
+
+	// Test connection
+	if err := DB.Ping(); err != nil {
+		return fmt.Errorf("failed to connect to database: %w", err)
 	}
 
 	if err := runMigrations(); err != nil {
 		return fmt.Errorf("failed to run migrations: %w", err)
 	}
 
-	logger.Info("DB", "Initialized", logger.Fields{"type": cfg.DBType})
+	logger.Info("DB", "Initialized", logger.Fields{"type": "postgres"})
 	return nil
 }
 
@@ -50,6 +53,7 @@ func Close() {
 func runMigrations() error {
 	cfg := config.Get()
 
+	// Create migrations table
 	_, err := DB.Exec(`
 		CREATE TABLE IF NOT EXISTS schema_migrations (
 			version INTEGER PRIMARY KEY,
@@ -63,36 +67,27 @@ func runMigrations() error {
 	var currentVersion int
 	DB.QueryRow("SELECT COALESCE(MAX(version), 0) FROM schema_migrations").Scan(&currentVersion)
 
-	// Migration 1: Initial schema
+	// Migration 1: Users table
 	if currentVersion < 1 {
-		logger.Info("MIGRATE", "001: Initial schema", nil)
+		logger.Info("MIGRATE", "001: Users table", nil)
 		_, err := DB.Exec(`
-			CREATE TABLE IF NOT EXISTS licenses (
-				id INTEGER PRIMARY KEY AUTOINCREMENT,
-				hwid TEXT UNIQUE,
-				username TEXT NOT NULL UNIQUE,
-				email TEXT,
-				expires_at TIMESTAMP NOT NULL,
-				created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-				updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-				is_banned INTEGER NOT NULL DEFAULT 0,
-				ban_reason TEXT,
-				last_seen_at TIMESTAMP,
-				last_ip TEXT,
-				notes TEXT
-			);
-			CREATE INDEX IF NOT EXISTS idx_licenses_hwid ON licenses(hwid);
-			CREATE INDEX IF NOT EXISTS idx_licenses_username ON licenses(username);
+			CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 			
-			CREATE TABLE IF NOT EXISTS audit_log (
-				id INTEGER PRIMARY KEY AUTOINCREMENT,
-				action TEXT NOT NULL,
-				hwid TEXT,
-				admin_key TEXT,
-				ip_address TEXT,
-				details TEXT,
-				created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+			CREATE TABLE IF NOT EXISTS users (
+				id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+				username VARCHAR(32) UNIQUE NOT NULL,
+				email VARCHAR(255) UNIQUE NOT NULL,
+				password_hash VARCHAR(255) NOT NULL,
+				role VARCHAR(16) DEFAULT 'user',
+				avatar_url VARCHAR(512),
+				discord_id VARCHAR(32),
+				created_at TIMESTAMP DEFAULT NOW(),
+				updated_at TIMESTAMP DEFAULT NOW(),
+				banned_at TIMESTAMP,
+				ban_reason TEXT
 			);
+			CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
+			CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
 		`)
 		if err != nil {
 			return err
@@ -100,28 +95,22 @@ func runMigrations() error {
 		DB.Exec("INSERT INTO schema_migrations (version) VALUES (1)")
 	}
 
-	// Migration 2: HWID history + sessions
+	// Migration 2: Licenses table (linked to users)
 	if currentVersion < 2 {
-		logger.Info("MIGRATE", "002: HWID history + sessions", nil)
+		logger.Info("MIGRATE", "002: Licenses table", nil)
 		_, err := DB.Exec(`
-			CREATE TABLE IF NOT EXISTS hwid_history (
-				id INTEGER PRIMARY KEY AUTOINCREMENT,
-				username TEXT NOT NULL,
-				hwid TEXT NOT NULL,
-				ip_address TEXT,
-				first_seen_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-				last_seen_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-				UNIQUE(username, hwid)
+			CREATE TABLE IF NOT EXISTS licenses (
+				id SERIAL PRIMARY KEY,
+				user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+				plan VARCHAR(16) DEFAULT 'none',
+				expires_at TIMESTAMP,
+				hwid VARCHAR(64) UNIQUE,
+				hwid_last_reset TIMESTAMP,
+				created_at TIMESTAMP DEFAULT NOW(),
+				updated_at TIMESTAMP DEFAULT NOW()
 			);
-			
-			CREATE TABLE IF NOT EXISTS active_sessions (
-				id INTEGER PRIMARY KEY AUTOINCREMENT,
-				username TEXT NOT NULL,
-				ip_address TEXT NOT NULL,
-				hwid TEXT NOT NULL,
-				last_seen_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-				UNIQUE(username, ip_address)
-			);
+			CREATE INDEX IF NOT EXISTS idx_licenses_user_id ON licenses(user_id);
+			CREATE INDEX IF NOT EXISTS idx_licenses_hwid ON licenses(hwid);
 		`)
 		if err != nil {
 			return err
@@ -129,24 +118,40 @@ func runMigrations() error {
 		DB.Exec("INSERT INTO schema_migrations (version) VALUES (2)")
 	}
 
-	// Migration 3: Settings table
+	// Migration 3: Refresh tokens
 	if currentVersion < 3 {
-		logger.Info("MIGRATE", "003: Settings table", nil)
-		DB.Exec(`CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)`)
-		DB.Exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('min_version', ?)", cfg.MinVersion)
+		logger.Info("MIGRATE", "003: Refresh tokens", nil)
+		_, err := DB.Exec(`
+			CREATE TABLE IF NOT EXISTS refresh_tokens (
+				id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+				user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+				token_hash VARCHAR(64) NOT NULL,
+				expires_at TIMESTAMP NOT NULL,
+				created_at TIMESTAMP DEFAULT NOW()
+			);
+			CREATE INDEX IF NOT EXISTS idx_refresh_tokens_user_id ON refresh_tokens(user_id);
+			CREATE INDEX IF NOT EXISTS idx_refresh_tokens_hash ON refresh_tokens(token_hash);
+		`)
+		if err != nil {
+			return err
+		}
 		DB.Exec("INSERT INTO schema_migrations (version) VALUES (3)")
 	}
 
-	// Migration 4: User configs table (stores full config per user for sync)
+	// Migration 4: Announcements
 	if currentVersion < 4 {
-		logger.Info("MIGRATE", "004: User configs table", nil)
+		logger.Info("MIGRATE", "004: Announcements", nil)
 		_, err := DB.Exec(`
-			CREATE TABLE IF NOT EXISTS user_configs (
-				username TEXT PRIMARY KEY,
-				config TEXT NOT NULL DEFAULT '{}',
-				version INTEGER NOT NULL DEFAULT 1,
-				updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
-			)
+			CREATE TABLE IF NOT EXISTS announcements (
+				id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+				title VARCHAR(255) NOT NULL,
+				content TEXT NOT NULL,
+				type VARCHAR(16) DEFAULT 'info',
+				pinned BOOLEAN DEFAULT FALSE,
+				published BOOLEAN DEFAULT TRUE,
+				created_at TIMESTAMP DEFAULT NOW(),
+				updated_at TIMESTAMP DEFAULT NOW()
+			);
 		`)
 		if err != nil {
 			return err
@@ -154,45 +159,117 @@ func runMigrations() error {
 		DB.Exec("INSERT INTO schema_migrations (version) VALUES (4)")
 	}
 
-	// Migration 5: Fix active_sessions to be unique by username only (not username+ip)
+	// Migration 5: Changelogs
 	if currentVersion < 5 {
-		DB.Exec(`
-			CREATE TABLE IF NOT EXISTS active_sessions_new (
-				id INTEGER PRIMARY KEY AUTOINCREMENT,
-				username TEXT NOT NULL UNIQUE,
-				ip_address TEXT NOT NULL,
-				hwid TEXT NOT NULL,
-				last_seen_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
-			)
-		`)
-		DB.Exec(`
-			INSERT OR REPLACE INTO active_sessions_new (username, ip_address, hwid, last_seen_at)
-			SELECT username, ip_address, hwid, MAX(last_seen_at)
-			FROM active_sessions
-			GROUP BY username
-		`)
-		DB.Exec(`DROP TABLE IF EXISTS active_sessions`)
-		DB.Exec(`ALTER TABLE active_sessions_new RENAME TO active_sessions`)
-		DB.Exec("INSERT INTO schema_migrations (version) VALUES (5)")
-	}
-
-	// Migration 6: Session tokens table for secure cloud sync
-	if currentVersion < 6 {
-		logger.Info("MIGRATE", "006: Session tokens table", nil)
+		logger.Info("MIGRATE", "005: Changelogs", nil)
 		_, err := DB.Exec(`
-			CREATE TABLE IF NOT EXISTS session_tokens (
-				token TEXT PRIMARY KEY,
-				hwid TEXT NOT NULL,
-				username TEXT NOT NULL,
-				created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-				expires_at TIMESTAMP NOT NULL
+			CREATE TABLE IF NOT EXISTS changelogs (
+				id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+				version VARCHAR(32) NOT NULL,
+				changes JSONB NOT NULL DEFAULT '[]',
+				released_at TIMESTAMP DEFAULT NOW()
 			);
-			CREATE INDEX IF NOT EXISTS idx_session_tokens_hwid ON session_tokens(hwid);
 		`)
 		if err != nil {
 			return err
 		}
+		DB.Exec("INSERT INTO schema_migrations (version) VALUES (5)")
+	}
+
+	// Migration 6: Settings table
+	if currentVersion < 6 {
+		logger.Info("MIGRATE", "006: Settings table", nil)
+		DB.Exec(`CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)`)
+		DB.Exec("INSERT INTO settings (key, value) VALUES ('min_version', $1) ON CONFLICT DO NOTHING", cfg.MinVersion)
 		DB.Exec("INSERT INTO schema_migrations (version) VALUES (6)")
+	}
+
+	// Migration 7: Audit log
+	if currentVersion < 7 {
+		logger.Info("MIGRATE", "007: Audit log", nil)
+		_, err := DB.Exec(`
+			CREATE TABLE IF NOT EXISTS audit_log (
+				id SERIAL PRIMARY KEY,
+				admin_id UUID REFERENCES users(id),
+				action VARCHAR(64) NOT NULL,
+				target_type VARCHAR(32),
+				target_id UUID,
+				details JSONB,
+				ip_address INET,
+				created_at TIMESTAMP DEFAULT NOW()
+			);
+			CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_log(created_at DESC);
+		`)
+		if err != nil {
+			return err
+		}
+		DB.Exec("INSERT INTO schema_migrations (version) VALUES (7)")
+	}
+
+	// Migration 8: HWID history + sessions
+	if currentVersion < 8 {
+		logger.Info("MIGRATE", "008: HWID history + sessions", nil)
+		_, err := DB.Exec(`
+			CREATE TABLE IF NOT EXISTS hwid_history (
+				id SERIAL PRIMARY KEY,
+				user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+				hwid VARCHAR(64) NOT NULL,
+				ip_address INET,
+				first_seen_at TIMESTAMP DEFAULT NOW(),
+				last_seen_at TIMESTAMP DEFAULT NOW(),
+				UNIQUE(user_id, hwid)
+			);
+			
+			CREATE TABLE IF NOT EXISTS active_sessions (
+				id SERIAL PRIMARY KEY,
+				user_id UUID UNIQUE REFERENCES users(id) ON DELETE CASCADE,
+				ip_address INET NOT NULL,
+				hwid VARCHAR(64) NOT NULL,
+				last_seen_at TIMESTAMP DEFAULT NOW()
+			);
+		`)
+		if err != nil {
+			return err
+		}
+		DB.Exec("INSERT INTO schema_migrations (version) VALUES (8)")
+	}
+
+	// Migration 9: Session tokens for loader
+	if currentVersion < 9 {
+		logger.Info("MIGRATE", "009: Session tokens", nil)
+		_, err := DB.Exec(`
+			CREATE TABLE IF NOT EXISTS session_tokens (
+				id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+				token VARCHAR(64) NOT NULL,
+				hwid VARCHAR(64) NOT NULL,
+				username VARCHAR(32) NOT NULL,
+				created_at TIMESTAMP DEFAULT NOW(),
+				expires_at TIMESTAMP NOT NULL
+			);
+			CREATE INDEX IF NOT EXISTS idx_session_tokens_hwid ON session_tokens(hwid);
+			CREATE INDEX IF NOT EXISTS idx_session_tokens_token ON session_tokens(token);
+		`)
+		if err != nil {
+			return err
+		}
+		DB.Exec("INSERT INTO schema_migrations (version) VALUES (9)")
+	}
+
+	// Migration 10: User configs for cloud sync
+	if currentVersion < 10 {
+		logger.Info("MIGRATE", "010: User configs", nil)
+		_, err := DB.Exec(`
+			CREATE TABLE IF NOT EXISTS user_configs (
+				username VARCHAR(32) PRIMARY KEY,
+				config TEXT NOT NULL DEFAULT '{}',
+				version INTEGER NOT NULL DEFAULT 1,
+				updated_at TIMESTAMP DEFAULT NOW()
+			)
+		`)
+		if err != nil {
+			return err
+		}
+		DB.Exec("INSERT INTO schema_migrations (version) VALUES (10)")
 	}
 
 	// Load MIN_VERSION from database
@@ -205,71 +282,278 @@ func runMigrations() error {
 	return nil
 }
 
-// Helper functions for handlers
+// ============================================
+// User helpers
+// ============================================
 
-// LogAudit records an action in the audit log
-func LogAudit(action, hwid, adminKey, ip, details string) {
-	maskedKey := maskString(adminKey)
+// CreateUser inserts a new user
+func CreateUser(username, email, passwordHash string) (string, error) {
+	var id string
+	err := DB.QueryRow(`
+		INSERT INTO users (username, email, password_hash)
+		VALUES ($1, $2, $3)
+		RETURNING id
+	`, username, email, passwordHash).Scan(&id)
+	return id, err
+}
+
+// GetUserByEmail retrieves a user by email
+func GetUserByEmail(email string) (*UserRow, error) {
+	var u UserRow
+	err := DB.QueryRow(`
+		SELECT id, username, email, password_hash, role, avatar_url, discord_id, created_at, updated_at, banned_at, ban_reason
+		FROM users WHERE email = $1
+	`, email).Scan(&u.ID, &u.Username, &u.Email, &u.PasswordHash, &u.Role, &u.AvatarURL, &u.DiscordID, &u.CreatedAt, &u.UpdatedAt, &u.BannedAt, &u.BanReason)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	return &u, err
+}
+
+// GetUserByID retrieves a user by ID
+func GetUserByID(id string) (*UserRow, error) {
+	var u UserRow
+	err := DB.QueryRow(`
+		SELECT id, username, email, password_hash, role, avatar_url, discord_id, created_at, updated_at, banned_at, ban_reason
+		FROM users WHERE id = $1
+	`, id).Scan(&u.ID, &u.Username, &u.Email, &u.PasswordHash, &u.Role, &u.AvatarURL, &u.DiscordID, &u.CreatedAt, &u.UpdatedAt, &u.BannedAt, &u.BanReason)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	return &u, err
+}
+
+// GetUserByUsername retrieves a user by username
+func GetUserByUsername(username string) (*UserRow, error) {
+	var u UserRow
+	err := DB.QueryRow(`
+		SELECT id, username, email, password_hash, role, avatar_url, discord_id, created_at, updated_at, banned_at, ban_reason
+		FROM users WHERE LOWER(username) = LOWER($1)
+	`, username).Scan(&u.ID, &u.Username, &u.Email, &u.PasswordHash, &u.Role, &u.AvatarURL, &u.DiscordID, &u.CreatedAt, &u.UpdatedAt, &u.BannedAt, &u.BanReason)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	return &u, err
+}
+
+// UserRow is the database row representation
+type UserRow struct {
+	ID           string
+	Username     string
+	Email        string
+	PasswordHash string
+	Role         string
+	AvatarURL    *string
+	DiscordID    *string
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
+	BannedAt     *time.Time
+	BanReason    *string
+}
+
+// ============================================
+// License helpers
+// ============================================
+
+// GetLicenseByUserID gets a license by user ID
+func GetLicenseByUserID(userID string) (*LicenseRow, error) {
+	var l LicenseRow
+	err := DB.QueryRow(`
+		SELECT id, user_id, plan, expires_at, hwid, hwid_last_reset, created_at, updated_at
+		FROM licenses WHERE user_id = $1
+	`, userID).Scan(&l.ID, &l.UserID, &l.Plan, &l.ExpiresAt, &l.HWID, &l.HWIDLastReset, &l.CreatedAt, &l.UpdatedAt)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	return &l, err
+}
+
+// GetLicenseByHWID gets a license by HWID
+func GetLicenseByHWID(hwid string) (*LicenseRow, error) {
+	var l LicenseRow
+	err := DB.QueryRow(`
+		SELECT id, user_id, plan, expires_at, hwid, hwid_last_reset, created_at, updated_at
+		FROM licenses WHERE hwid = $1
+	`, hwid).Scan(&l.ID, &l.UserID, &l.Plan, &l.ExpiresAt, &l.HWID, &l.HWIDLastReset, &l.CreatedAt, &l.UpdatedAt)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	return &l, err
+}
+
+// CreateLicense creates a new license for a user
+func CreateLicense(userID, plan string, expiresAt *time.Time) (int, error) {
+	var id int
+	err := DB.QueryRow(`
+		INSERT INTO licenses (user_id, plan, expires_at)
+		VALUES ($1, $2, $3)
+		RETURNING id
+	`, userID, plan, expiresAt).Scan(&id)
+	return id, err
+}
+
+// BindHWID sets the HWID on a license
+func BindHWID(licenseID int, hwid string) error {
+	_, err := DB.Exec(`
+		UPDATE licenses SET hwid = $1, updated_at = NOW()
+		WHERE id = $2
+	`, hwid, licenseID)
+	return err
+}
+
+// LicenseRow is the database row representation
+type LicenseRow struct {
+	ID            int
+	UserID        string
+	Plan          string
+	ExpiresAt     *time.Time
+	HWID          *string
+	HWIDLastReset *time.Time
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
+}
+
+// IsActive checks if the license is currently active
+func (l *LicenseRow) IsActive() bool {
+	if l.Plan == "none" {
+		return false
+	}
+	if l.Plan == "lifetime" {
+		return true
+	}
+	if l.ExpiresAt == nil {
+		return false
+	}
+	return l.ExpiresAt.After(time.Now())
+}
+
+// ============================================
+// Refresh token helpers
+// ============================================
+
+// StoreRefreshToken stores a hashed refresh token
+func StoreRefreshToken(userID, tokenHash string, expiresAt time.Time) error {
+	// Delete old tokens for this user first
+	DB.Exec("DELETE FROM refresh_tokens WHERE user_id = $1", userID)
+
+	_, err := DB.Exec(`
+		INSERT INTO refresh_tokens (user_id, token_hash, expires_at)
+		VALUES ($1, $2, $3)
+	`, userID, tokenHash, expiresAt)
+	return err
+}
+
+// ValidateRefreshToken checks if a token hash exists and is valid
+func ValidateRefreshToken(tokenHash string) (string, bool) {
+	var userID string
+	var expiresAt time.Time
+
+	err := DB.QueryRow(`
+		SELECT user_id, expires_at FROM refresh_tokens
+		WHERE token_hash = $1
+	`, tokenHash).Scan(&userID, &expiresAt)
+
+	if err != nil || time.Now().After(expiresAt) {
+		return "", false
+	}
+
+	return userID, true
+}
+
+// DeleteRefreshToken removes a refresh token
+func DeleteRefreshToken(tokenHash string) {
+	DB.Exec("DELETE FROM refresh_tokens WHERE token_hash = $1", tokenHash)
+}
+
+// DeleteUserRefreshTokens removes all refresh tokens for a user
+func DeleteUserRefreshTokens(userID string) {
+	DB.Exec("DELETE FROM refresh_tokens WHERE user_id = $1", userID)
+}
+
+// ============================================
+// HWID helpers
+// ============================================
+
+// RecordHWID records a HWID usage for a user
+func RecordHWID(userID, hwid, ip string) {
 	DB.Exec(`
-		INSERT INTO audit_log (action, hwid, admin_key, ip_address, details)
-		VALUES (?, ?, ?, ?, ?)
-	`, action, hwid, maskedKey, ip, details)
+		INSERT INTO hwid_history (user_id, hwid, ip_address)
+		VALUES ($1, $2, $3)
+		ON CONFLICT(user_id, hwid) DO UPDATE SET 
+			last_seen_at = NOW(),
+			ip_address = $3
+	`, userID, hwid, ip)
 }
 
 // CountUserHWIDs returns the number of unique HWIDs for a user
-func CountUserHWIDs(username string) int {
+func CountUserHWIDs(userID string) int {
 	var count int
-	DB.QueryRow("SELECT COUNT(DISTINCT hwid) FROM hwid_history WHERE username = ?", username).Scan(&count)
+	DB.QueryRow("SELECT COUNT(DISTINCT hwid) FROM hwid_history WHERE user_id = $1", userID).Scan(&count)
 	return count
 }
 
-// RecordHWID records a HWID usage
-func RecordHWID(username, hwid, ip string) {
+// RecordSession records an active session
+func RecordSession(userID, hwid, ip string) {
 	DB.Exec(`
-		INSERT INTO hwid_history (username, hwid, ip_address)
-		VALUES (?, ?, ?)
-		ON CONFLICT(username, hwid) DO UPDATE SET 
-			last_seen_at = CURRENT_TIMESTAMP,
-			ip_address = excluded.ip_address
-	`, username, hwid, ip)
+		INSERT INTO active_sessions (user_id, hwid, ip_address, last_seen_at)
+		VALUES ($1, $2, $3, NOW())
+		ON CONFLICT(user_id) DO UPDATE SET 
+			last_seen_at = NOW(),
+			hwid = $2,
+			ip_address = $3
+	`, userID, hwid, ip)
 }
 
 // CountConcurrentSessions returns the count of active IPs in last 5 minutes
-func CountConcurrentSessions(username string) int {
+func CountConcurrentSessions(userID string) int {
 	var count int
 	DB.QueryRow(`
 		SELECT COUNT(DISTINCT ip_address) FROM active_sessions 
-		WHERE username = ? AND last_seen_at > datetime('now', '-5 minutes')
-	`, username).Scan(&count)
+		WHERE user_id = $1 AND last_seen_at > NOW() - INTERVAL '5 minutes'
+	`, userID).Scan(&count)
 	return count
 }
 
-// RecordSession records an active session (unique per username)
-func RecordSession(username, hwid, ip string) {
+// ============================================
+// Audit helpers
+// ============================================
+
+// LogAudit records an action in the audit log (legacy format for compatibility)
+func LogAudit(action, hwid, adminKey, ip, details string) {
 	DB.Exec(`
-		INSERT INTO active_sessions (username, hwid, ip_address, last_seen_at)
-		VALUES (?, ?, ?, CURRENT_TIMESTAMP)
-		ON CONFLICT(username) DO UPDATE SET 
-			last_seen_at = CURRENT_TIMESTAMP,
-			hwid = excluded.hwid,
-			ip_address = excluded.ip_address
-	`, username, hwid, ip)
+		INSERT INTO audit_log (action, details, ip_address)
+		VALUES ($1, $2, $3)
+	`, action, details, ip)
 }
+
+// LogAuditAdmin records an admin action
+func LogAuditAdmin(adminID, action, targetType string, targetID *string, details map[string]interface{}, ip string) {
+	detailsJSON := "{}"
+	if details != nil {
+		// Simple JSON encoding
+		detailsJSON = fmt.Sprintf("%v", details)
+	}
+	DB.Exec(`
+		INSERT INTO audit_log (admin_id, action, target_type, target_id, details, ip_address)
+		VALUES ($1, $2, $3, $4, $5, $6)
+	`, adminID, action, targetType, targetID, detailsJSON, ip)
+}
+
+// ============================================
+// Settings helpers
+// ============================================
 
 // SaveMinVersion persists the minimum version to the database
 func SaveMinVersion(version string) {
-	DB.Exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('min_version', ?)", version)
+	DB.Exec("INSERT INTO settings (key, value) VALUES ('min_version', $1) ON CONFLICT (key) DO UPDATE SET value = $1", version)
 }
 
-func maskString(s string) string {
-	if len(s) <= 8 {
-		return "****"
-	}
-	return s[:8] + "..."
-}
+// ============================================
+// Session token helpers (for loader)
+// ============================================
 
 // CreateSessionToken generates a new session token for the given HWID/username
-// Returns the token string (64 hex chars). Token expires in 24 hours.
+// Returns the token string. Token expires in 24 hours.
 func CreateSessionToken(hwid, username string) string {
 	// Generate 32 random bytes -> 64 hex chars
 	bytes := make([]byte, 32)
@@ -280,13 +564,13 @@ func CreateSessionToken(hwid, username string) string {
 	token := hex.EncodeToString(bytes)
 
 	// Delete any existing token for this HWID
-	DB.Exec("DELETE FROM session_tokens WHERE hwid = ?", hwid)
+	DB.Exec("DELETE FROM session_tokens WHERE hwid = $1", hwid)
 
 	// Insert new token with 24 hour expiry
 	expiresAt := time.Now().Add(24 * time.Hour)
 	_, err := DB.Exec(`
 		INSERT INTO session_tokens (token, hwid, username, expires_at)
-		VALUES (?, ?, ?, ?)
+		VALUES ($1, $2, $3, $4)
 	`, token, hwid, username, expiresAt)
 	if err != nil {
 		logger.Error("TOKEN", "Failed to insert token", logger.Fields{"error": err.Error()})
@@ -308,7 +592,7 @@ func ValidateSessionToken(hwid, token string) (string, bool) {
 	var expiresAt time.Time
 	err := DB.QueryRow(`
 		SELECT username, expires_at FROM session_tokens
-		WHERE token = ? AND hwid = ?
+		WHERE token = $1 AND hwid = $2
 	`, token, hwid).Scan(&username, &expiresAt)
 
 	if err == sql.ErrNoRows {
@@ -321,18 +605,9 @@ func ValidateSessionToken(hwid, token string) (string, bool) {
 
 	// Check expiration
 	if time.Now().After(expiresAt) {
-		DB.Exec("DELETE FROM session_tokens WHERE token = ?", token)
+		DB.Exec("DELETE FROM session_tokens WHERE token = $1", token)
 		return "", false
 	}
 
 	return username, true
-}
-
-// CleanupExpiredTokens removes all expired tokens from the database
-// Should be called periodically (e.g., every hour)
-func CleanupExpiredTokens() {
-	result, _ := DB.Exec("DELETE FROM session_tokens WHERE expires_at < CURRENT_TIMESTAMP")
-	if rows, err := result.RowsAffected(); err == nil && rows > 0 {
-		logger.Info("TOKEN", "Cleaned up expired tokens", logger.Fields{"count": rows})
-	}
 }

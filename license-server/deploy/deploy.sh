@@ -1,5 +1,5 @@
 #!/bin/bash
-# Cobble License Server - Ubuntu 24.04 Complete Deploy Script
+# Cobble License Server
 # Run from the license-server directory: sudo bash deploy/deploy.sh
 
 set -e
@@ -55,11 +55,27 @@ if [ "$COPY_ENV" != "true" ]; then
     echo "Enter configuration values (or press Enter for defaults):"
     echo ""
     
+    read -p "DATABASE_URL (PostgreSQL, required): " DATABASE_URL
+    if [ -z "$DATABASE_URL" ]; then
+        echo -e "${RED}DATABASE_URL is required!${NC}"
+        echo "Example: postgres://user:pass@localhost:5432/cobble"
+        exit 1
+    fi
+
     read -p "ADMIN_KEY (required): " ADMIN_KEY
     if [ -z "$ADMIN_KEY" ]; then
         echo -e "${RED}ADMIN_KEY cannot be empty!${NC}"
         exit 1
     fi
+    
+    read -p "JWT_SECRET (32+ chars, required): " JWT_SECRET
+    if [ -z "$JWT_SECRET" ] || [ ${#JWT_SECRET} -lt 32 ]; then
+        echo -e "${RED}JWT_SECRET must be at least 32 characters!${NC}"
+        exit 1
+    fi
+    
+    read -p "FRONTEND_URL [http://localhost:3000]: " FRONTEND_URL
+    FRONTEND_URL=${FRONTEND_URL:-http://localhost:3000}
 
     read -p "MIN_VERSION [1.0.0]: " MIN_VERSION
     MIN_VERSION=${MIN_VERSION:-1.0.0}
@@ -67,8 +83,8 @@ if [ "$COPY_ENV" != "true" ]; then
     read -p "MAX_HWID_COUNT [2]: " MAX_HWID_COUNT
     MAX_HWID_COUNT=${MAX_HWID_COUNT:-2}
 
-    read -p "MAX_CONCURRENT [1]: " MAX_CONCURRENT
-    MAX_CONCURRENT=${MAX_CONCURRENT:-1}
+    read -p "MAX_CONCURRENT [2]: " MAX_CONCURRENT
+    MAX_CONCURRENT=${MAX_CONCURRENT:-2}
 
     echo ""
     echo -e "${YELLOW}Discord Bot (optional - press Enter to skip)${NC}"
@@ -84,16 +100,16 @@ fi
 
 # Domain for nginx reverse proxy
 echo ""
-read -p "Domain name for nginx (e.g. syra.club): " DOMAIN_NAME
+read -p "Domain name for nginx (e.g. cobble.vip): " DOMAIN_NAME
 if [ -z "$DOMAIN_NAME" ]; then
     echo -e "${RED}Domain name is required for nginx!${NC}"
     exit 1
 fi
 
 # ============================================================================
-echo -e "${YELLOW}[1/6] Installing dependencies...${NC}"
+echo -e "${YELLOW}[1/7] Installing dependencies...${NC}"
 apt update -qq
-apt install -y -qq build-essential wget > /dev/null
+apt install -y -qq build-essential wget postgresql-client > /dev/null
 
 if ! command -v go &> /dev/null; then
     echo -e "${YELLOW}Installing Go...${NC}"
@@ -138,11 +154,7 @@ echo -e "${YELLOW}[3/7] Building binary...${NC}"
 
 export PATH=$PATH:/usr/local/go/bin
 go mod tidy
-go get github.com/bwmarrin/discordgo
-go get github.com/joho/godotenv
-go get github.com/mattn/go-sqlite3
-
-CGO_ENABLED=1 go build -o cobble-server .
+go build -o cobble-server .
 
 if [ ! -f "cobble-server" ]; then
     echo -e "${RED}Build failed!${NC}"
@@ -161,18 +173,12 @@ fi
 echo -e "${YELLOW}[5/7] Installing to $INSTALL_DIR...${NC}"
 mkdir -p $INSTALL_DIR
 
-if [ -f "$INSTALL_DIR/licenses.db" ]; then
-    echo -e "${GREEN}Preserving existing database${NC}"
-fi
-
 # Handle .env file
 if [ -f "$INSTALL_DIR/.env" ]; then
     echo -e "${GREEN}Preserving existing .env in $INSTALL_DIR${NC}"
 elif [ "$COPY_ENV" = "true" ]; then
     # Copy .env from project directory
     cp .env $INSTALL_DIR/.env
-    # Update DB_PATH to use INSTALL_DIR
-    sed -i "s|DB_PATH=.*|DB_PATH=$INSTALL_DIR/licenses.db|g" $INSTALL_DIR/.env
     echo -e "${GREEN}Copied .env from project directory${NC}"
 else
     # Create new .env file from prompted values
@@ -184,9 +190,16 @@ else
 PORT=8080
 ADMIN_KEY=$ADMIN_KEY
 
-# Database
-DB_TYPE=sqlite
-DB_PATH=$INSTALL_DIR/licenses.db
+# Database (PostgreSQL)
+DATABASE_URL=$DATABASE_URL
+
+# JWT Authentication
+JWT_SECRET=$JWT_SECRET
+JWT_ACCESS_EXPIRY=15m
+JWT_REFRESH_EXPIRY=168h
+
+# CORS
+FRONTEND_URL=$FRONTEND_URL
 
 # Anti-cheat (MIN_VERSION is also saved in database for runtime updates)
 MIN_VERSION=$MIN_VERSION
@@ -194,7 +207,7 @@ MAX_HWID_COUNT=$MAX_HWID_COUNT
 MAX_CONCURRENT=$MAX_CONCURRENT
 
 # Logging: "text" (colored) or "json"
-LOG_FORMAT=text
+LOG_FORMAT=json
 
 # Ed25519 Signing Key (for signed license responses)
 SIGNING_KEY_PATH=$INSTALL_DIR/private.key
@@ -232,7 +245,7 @@ echo -e "${YELLOW}[6/7] Creating systemd service...${NC}"
 cat > /etc/systemd/system/cobble.service << EOF
 [Unit]
 Description=Cobble License Server
-After=network.target
+After=network.target postgresql.service
 
 [Service]
 Type=simple
@@ -276,7 +289,7 @@ if systemctl is-active --quiet cobble; then
     echo -e "${GREEN}╚════════════════════════════════════════════╝${NC}"
     echo ""
     echo -e "Config:   ${YELLOW}$INSTALL_DIR/.env${NC}"
-    echo -e "Database: ${YELLOW}$INSTALL_DIR/licenses.db${NC}"
+    echo -e "Database: ${YELLOW}PostgreSQL (see DATABASE_URL)${NC}"
     
     if [ -n "$DISCORD_TOKEN" ]; then
         echo -e "Discord:  ${GREEN}Enabled${NC}"

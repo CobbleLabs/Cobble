@@ -2,8 +2,21 @@
 #include <string>
 
 namespace License {
+    // Core verification (HWID-based, for returning users)
     bool Verify(const std::string& serverUrl);
+    
+    // Login with credentials (first-time or new device)
+    bool LoginWithCredentials(const std::string& serverUrl, 
+                              const std::string& username, 
+                              const std::string& password);
+    
+    // Check if last Verify failure was due to unregistered HWID
+    bool RequiresLogin();
+    
+    // Legacy registration (deprecated)
     bool Register(const std::string& serverUrl, const std::string& username);
+    
+    // Status getters
     std::string GetLastError();
     bool NeedsUpdate();
     std::string GetMinVersion();

@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"strconv"
+	"time"
 
 	"github.com/joho/godotenv"
 )
@@ -13,10 +14,16 @@ type Config struct {
 	Port     string
 	AdminKey string
 
-	// Database
-	DBType string
-	DBPath string
-	DBURL  string
+	// Database (PostgreSQL only)
+	DBURL string
+
+	// JWT
+	JWTSecret        string
+	JWTAccessExpiry  time.Duration
+	JWTRefreshExpiry time.Duration
+
+	// CORS
+	FrontendURL string
 
 	// Anti-cheat
 	MinVersion    string
@@ -34,13 +41,15 @@ type Config struct {
 	// Updates
 	ReleasesDir    string
 	SigningKeyPath string
+
+	// Security
+	SecureCookies bool // Set to true in production with HTTPS
 }
 
 // Global config instance
 var cfg *Config
 
 // Load reads configuration from environment variables
-// It will load .env file if present, but env vars take precedence
 func Load() *Config {
 	// Load .env file (optional - won't error if missing)
 	godotenv.Load()
@@ -50,10 +59,16 @@ func Load() *Config {
 		Port:     getEnv("PORT", "8080"),
 		AdminKey: getEnv("ADMIN_KEY", "change-this-to-a-secure-key"),
 
-		// Database
-		DBType: getEnv("DB_TYPE", "sqlite"),
-		DBPath: getEnv("DB_PATH", "./licenses.db"),
-		DBURL:  getEnv("DATABASE_URL", ""),
+		// Database (PostgreSQL only)
+		DBURL: getEnv("DATABASE_URL", ""),
+
+		// JWT
+		JWTSecret:        getEnv("JWT_SECRET", "change-this-to-a-32-char-secret"),
+		JWTAccessExpiry:  getEnvDuration("JWT_ACCESS_EXPIRY", 15*time.Minute),
+		JWTRefreshExpiry: getEnvDuration("JWT_REFRESH_EXPIRY", 7*24*time.Hour),
+
+		// CORS
+		FrontendURL: getEnv("FRONTEND_URL", "http://localhost:3000"),
 
 		// Anti-cheat
 		MinVersion:    getEnv("MIN_VERSION", "1.0.0"),
@@ -71,6 +86,9 @@ func Load() *Config {
 		// Updates
 		ReleasesDir:    getEnv("RELEASES_DIR", "./releases"),
 		SigningKeyPath: getEnv("SIGNING_KEY_PATH", "./private.key"),
+
+		// Security (set SECURE_COOKIES=true in production)
+		SecureCookies: getEnvBool("SECURE_COOKIES", false),
 	}
 
 	return cfg
@@ -101,6 +119,11 @@ func (c *Config) IsDefaultAdminKey() bool {
 	return c.AdminKey == "change-this-to-a-secure-key"
 }
 
+// IsDefaultJWTSecret checks if using insecure default JWT secret
+func (c *Config) IsDefaultJWTSecret() bool {
+	return c.JWTSecret == "change-this-to-a-32-char-secret"
+}
+
 func getEnv(key, fallback string) string {
 	if val := os.Getenv(key); val != "" {
 		return val
@@ -112,6 +135,24 @@ func getEnvInt(key string, fallback int) int {
 	if val := os.Getenv(key); val != "" {
 		if i, err := strconv.Atoi(val); err == nil {
 			return i
+		}
+	}
+	return fallback
+}
+
+func getEnvDuration(key string, fallback time.Duration) time.Duration {
+	if val := os.Getenv(key); val != "" {
+		if d, err := time.ParseDuration(val); err == nil {
+			return d
+		}
+	}
+	return fallback
+}
+
+func getEnvBool(key string, fallback bool) bool {
+	if val := os.Getenv(key); val != "" {
+		if b, err := strconv.ParseBool(val); err == nil {
+			return b
 		}
 	}
 	return fallback

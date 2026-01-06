@@ -2,20 +2,16 @@ package models
 
 import "time"
 
-// License represents a user license
+// License represents a user license (new structure with user FK)
 type License struct {
-	ID         int        `json:"id"`
-	HWID       *string    `json:"hwid,omitempty"`
-	Username   string     `json:"username"`
-	Email      *string    `json:"email,omitempty"`
-	ExpiresAt  time.Time  `json:"expires_at"`
-	CreatedAt  time.Time  `json:"created_at"`
-	UpdatedAt  time.Time  `json:"updated_at"`
-	IsBanned   bool       `json:"is_banned"`
-	BanReason  *string    `json:"ban_reason,omitempty"`
-	LastSeenAt *time.Time `json:"last_seen_at,omitempty"`
-	LastIP     *string    `json:"last_ip,omitempty"`
-	Notes      *string    `json:"notes,omitempty"`
+	ID            int        `json:"id"`
+	UserID        string     `json:"user_id,omitempty"`
+	Plan          string     `json:"plan"`
+	ExpiresAt     *time.Time `json:"expires_at,omitempty"`
+	HWID          *string    `json:"hwid,omitempty"`
+	HWIDLastReset *time.Time `json:"hwid_last_reset,omitempty"`
+	CreatedAt     time.Time  `json:"created_at"`
+	UpdatedAt     time.Time  `json:"updated_at"`
 }
 
 // VerifyResponse is returned by /api/verify
@@ -39,18 +35,18 @@ type SuccessResponse struct {
 	Data    interface{} `json:"data,omitempty"`
 }
 
-// UserConfig represents stored user configuration (full config, not just overrides)
+// UserConfig represents stored user configuration
 type UserConfig struct {
 	Username  string `json:"username"`
-	Config    string `json:"config"`     // Full JSON config blob
-	Version   int    `json:"version"`    // Schema version for migrations
+	Config    string `json:"config"`
+	Version   int    `json:"version"`
 	UpdatedAt string `json:"updated_at"`
 }
 
 // ConfigResponse is returned by GET /api/config
 type ConfigResponse struct {
 	Success bool   `json:"success"`
-	Config  string `json:"config,omitempty"`  // Full JSON config
+	Config  string `json:"config,omitempty"`
 	Version int    `json:"version,omitempty"`
 	Message string `json:"message,omitempty"`
 }

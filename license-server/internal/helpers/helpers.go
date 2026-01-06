@@ -26,13 +26,13 @@ func GetClientIP(r *http.Request) string {
 	if xri := r.Header.Get("X-Real-IP"); xri != "" {
 		return xri
 	}
-	
+
 	// Handle IPv6 (brackets) and port
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err == nil {
 		return host
 	}
-	
+
 	return r.RemoteAddr
 }
 
@@ -54,6 +54,23 @@ func NullString(s string) *string {
 
 // CompareVersions compares two semver strings
 // Returns: 1 if v1 > v2, -1 if v1 < v2, 0 if equal
+// MaskHWID masks a HWID for display
+func MaskHWID(hwid *string) string {
+	if hwid == nil || len(*hwid) < 8 {
+		return ""
+	}
+	return (*hwid)[:8]
+}
+
+// GenerateNonce generates a random nonce for anti-replay
+func GenerateNonce() string {
+	bytes := make([]byte, 16)
+	for i := range bytes {
+		bytes[i] = "0123456789abcdef"[i%16]
+	}
+	return string(bytes)
+}
+
 func CompareVersions(v1, v2 string) int {
 	parse := func(v string) []int {
 		parts := strings.Split(v, ".")
@@ -63,7 +80,7 @@ func CompareVersions(v1, v2 string) int {
 		}
 		return result
 	}
-	
+
 	p1, p2 := parse(v1), parse(v2)
 	for i := 0; i < 3; i++ {
 		if p1[i] > p2[i] {

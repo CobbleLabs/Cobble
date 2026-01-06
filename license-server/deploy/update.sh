@@ -33,7 +33,7 @@ systemctl stop cobble || true
 echo -e "${YELLOW}[2/4] Building new binary...${NC}"
 export PATH=$PATH:/usr/local/go/bin
 go mod tidy 2>/dev/null || true
-CGO_ENABLED=1 go build -o cobble-server .
+go build -o cobble-server .
 
 if [ ! -f "cobble-server" ]; then
     echo -e "${RED}Build failed!${NC}"

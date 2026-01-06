@@ -93,9 +93,47 @@ Overlay reinit is guarded to avoid rapid context churn.
 
 | Component | Responsibility |
 |-----------|----------------|
-| `handlers/` | API endpoints (verify, admin, config) |
-| `middleware/` | Rate limiting, auth |
-| `database/` | SQLite/PostgreSQL persistence |
+| `handlers/auth.go` | JWT auth (register, login, refresh, logout, me) |
+| `handlers/verify.go` | HWID verification with signed responses |
+| `handlers/loader.go` | Loader login (username+password → HWID bind) |
+| `handlers/profile.go` | User profile, password change, HWID reset |
+| `handlers/dashboard.go` | Announcements, changelogs, downloads |
+| `handlers/admin.go` | User/license CRUD, announcements, logs |
+| `middleware/` | CORS, JWT auth, API key auth, rate limiting |
+| `database/` | PostgreSQL persistence |
+
+#### Loader Authentication Flow (v2)
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                    FIRST RUN (No stored HWID)                            │
+├─────────────────────────────────────────────────────────────────────────┤
+│  1. Loader prompts: "Username:" + "Password:"                           │
+│  2. POST /api/loader/login { username, password, hwid }                 │
+│  3. Server:                                                             │
+│     ├── Verify credentials                                              │
+│     ├── Check if user has license                                       │
+│     ├── Check HWID slots (max 2 devices)                                │
+│     ├── Bind HWID to license                                            │
+│     └── Return signed response { valid, nonce, expires, plan }          │
+│  4. Loader stores HWID → %APPDATA%/Cobble/hwid.dat                     │
+└─────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────┐
+│                    SUBSEQUENT RUNS (HWID exists)                         │
+├─────────────────────────────────────────────────────────────────────────┤
+│  1. Loader reads stored HWID                                            │
+│  2. POST /api/verify { hwid, version, nonce }                           │
+│  3. Server signs response with Ed25519 private key                      │
+│  4. Loader verifies signature with hardcoded public key                 │
+│  5. Check nonce matches (anti-replay)                                   │
+│  6. Check expiry timestamp                                              │
+│  7. If valid → inject DLL                                               │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+> **C++ Developer Note**: Update loader to use `/api/loader/login` for first run.
+> Prompt username+password when no hwid.dat exists. Store HWID on success.
 
 ### Config System (`src/config/`)
 
