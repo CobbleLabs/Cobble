@@ -27,8 +27,8 @@ export default function LandingLayout({
                 animate={{ y: 0 }}
                 transition={{ duration: 0.5 }}
                 className={clsx(
-                    "fixed top-0 left-0 w-full z-50 py-4 px-6 md:px-12 flex items-center justify-between transition-all duration-300",
-                    scrolled ? "bg-[#0A0A0A]/80 backdrop-blur-md border-b border-[#1E1E1E]" : "bg-transparent"
+                    "fixed top-0 left-0 w-full z-50 py-4 px-6 md:px-12 flex items-center justify-between transition-all duration-300 border-b",
+                    scrolled ? "bg-[#0A0A0A]/80 backdrop-blur-md border-[var(--border-color)]" : "bg-transparent border-transparent"
                 )}
             >
                 <div className="text-xl font-heading font-bold tracking-widest text-white uppercase flex items-center gap-2">

@@ -51,7 +51,7 @@ bool vtEnabled = false;
 
 // Colors
 struct RGB { int r, g, b; };
-// Syra Orange Gradients
+// Orange Gradients
 const RGB COL_START = { 255, 165, 0 };   // Orange
 const RGB COL_END   = { 255, 69, 0 };    // Red-Orange
 
