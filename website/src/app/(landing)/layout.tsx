@@ -31,11 +31,8 @@ export default function LandingLayout({
                     scrolled ? "bg-[#0A0A0A]/80 backdrop-blur-md border-[var(--border-color)]" : "bg-transparent border-transparent"
                 )}
             >
-                <div className="text-xl font-heading font-bold tracking-widest text-white uppercase flex items-center gap-2">
-                    <div className="w-8 h-8 bg-[#4A90E2] rounded flex items-center justify-center">
-                        <span className="text-white text-lg font-black font-heading">C</span>
-                    </div>
-                    COBBLE
+                <div className="text-xl font-heading font-bold tracking-wide text-white flex items-center gap-2">
+                    Cobble
                 </div>
 
                 <div className="hidden md:flex items-center gap-8 text-sm font-medium text-gray-300">

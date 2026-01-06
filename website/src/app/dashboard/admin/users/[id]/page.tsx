@@ -1,5 +1,6 @@
 "use client";
 
+import { useState, useEffect, useCallback } from "react";
 import { motion } from "framer-motion";
 import { Heading, Text } from "@/components/ui/Typography";
 import { Card } from "@/components/ui/Card";
@@ -7,29 +8,147 @@ import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import { Modal } from "@/components/ui/Modal";
 import { Input } from "@/components/ui/Input";
-import { User, Shield, Activity, HardDrive, Ban, Undo2, Plus, AlertTriangle } from "lucide-react";
+import { User, Shield, HardDrive, Ban, Undo2, Plus, AlertTriangle, CheckCircle, Timer } from "lucide-react";
 import { fadeInUp, staggerContainer } from "@/lib/motion";
 import { useParams, useRouter } from "next/navigation";
-import { useState } from "react";
 import { useToast } from "@/context/ToastContext";
+import { useRequireAdmin } from "@/context/AuthContext";
+import * as api from "@/lib/api";
 
 export default function UserDetailPage() {
+    const { isAdmin, isLoading: authLoading } = useRequireAdmin();
     const { showToast } = useToast();
-    const params = useParams(); // params.id
+    const params = useParams();
     const router = useRouter();
-    const [isBanModalOpen, setIsBanModalOpen] = useState(false);
-    const [isExtendModalOpen, setIsExtendModalOpen] = useState(false);
+    const userId = params.id as string;
 
-    // Mock data
-    const user = {
-        username: "xac",
-        email: "xac@example.com",
-        discord: "xac#123",
-        ip: "192.168.1.1",
-        plan: "Lifetime",
-        status: "Active",
-        hwid: "HWID-1234-5678-90AB"
+    const [user, setUser] = useState<api.AdminUser | null>(null);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
+
+    // Modal states
+    const [isBanModalOpen, setIsBanModalOpen] = useState(false);
+    const [isUnbanModalOpen, setIsUnbanModalOpen] = useState(false);
+    const [isExtendModalOpen, setIsExtendModalOpen] = useState(false);
+    const [isCreateLicenseModalOpen, setIsCreateLicenseModalOpen] = useState(false);
+    const [modalLoading, setModalLoading] = useState(false);
+
+    // Form states
+    const [banReason, setBanReason] = useState("");
+    const [extendDays, setExtendDays] = useState("30");
+    const [licensePlan, setLicensePlan] = useState("monthly");
+    const [licenseDays, setLicenseDays] = useState("30");
+
+    const fetchUser = useCallback(async () => {
+        setLoading(true);
+        setError(null);
+        try {
+            const data = await api.admin.getUser(userId);
+            setUser(data);
+        } catch (err) {
+            console.error("Failed to fetch user:", err);
+            setError("Failed to load user");
+        } finally {
+            setLoading(false);
+        }
+    }, [userId]);
+
+    useEffect(() => {
+        if (isAdmin && userId) {
+            fetchUser();
+        }
+    }, [isAdmin, userId, fetchUser]);
+
+    const handleBan = async () => {
+        if (!user) return;
+        setModalLoading(true);
+        try {
+            await api.admin.banUser(user.id, banReason);
+            showToast({ title: "User Banned", message: `${user.username} has been banned`, type: "success" });
+            setIsBanModalOpen(false);
+            setBanReason("");
+            fetchUser();
+        } catch (err) {
+            const msg = err instanceof Error ? err.message : "Failed to ban user";
+            showToast({ title: "Error", message: msg, type: "error" });
+        } finally {
+            setModalLoading(false);
+        }
     };
+
+    const handleUnban = async () => {
+        if (!user) return;
+        setModalLoading(true);
+        try {
+            await api.admin.unbanUser(user.id);
+            showToast({ title: "User Unbanned", message: `${user.username} has been unbanned`, type: "success" });
+            setIsUnbanModalOpen(false);
+            fetchUser();
+        } catch (err) {
+            const msg = err instanceof Error ? err.message : "Failed to unban user";
+            showToast({ title: "Error", message: msg, type: "error" });
+        } finally {
+            setModalLoading(false);
+        }
+    };
+
+    const handleExtendLicense = async () => {
+        if (!user?.license) return;
+        setModalLoading(true);
+        try {
+            await api.admin.extendLicense(user.license.id, parseInt(extendDays));
+            showToast({ title: "License Extended", message: `Added ${extendDays} days`, type: "success" });
+            setIsExtendModalOpen(false);
+            setExtendDays("30");
+            fetchUser();
+        } catch (err) {
+            const msg = err instanceof Error ? err.message : "Failed to extend license";
+            showToast({ title: "Error", message: msg, type: "error" });
+        } finally {
+            setModalLoading(false);
+        }
+    };
+
+    const handleCreateLicense = async () => {
+        if (!user) return;
+        setModalLoading(true);
+        try {
+            await api.admin.createLicense(
+                user.id,
+                licensePlan,
+                licensePlan === "lifetime" ? undefined : parseInt(licenseDays)
+            );
+            showToast({ title: "License Created", message: `${licensePlan} license created`, type: "success" });
+            setIsCreateLicenseModalOpen(false);
+            setLicensePlan("monthly");
+            setLicenseDays("30");
+            fetchUser();
+        } catch (err) {
+            const msg = err instanceof Error ? err.message : "Failed to create license";
+            showToast({ title: "Error", message: msg, type: "error" });
+        } finally {
+            setModalLoading(false);
+        }
+    };
+
+    if (authLoading || loading) {
+        return (
+            <div className="flex items-center justify-center min-h-[50vh]">
+                <div className="w-8 h-8 border-2 border-[var(--accent-primary)] border-t-transparent rounded-full animate-spin" />
+            </div>
+        );
+    }
+
+    if (error || !user) {
+        return (
+            <div className="flex flex-col items-center justify-center min-h-[50vh] gap-4">
+                <Text className="text-[var(--error)]">{error || "User not found"}</Text>
+                <Button variant="secondary" onClick={() => router.back()}>Go Back</Button>
+            </div>
+        );
+    }
+
+    const isBanned = !!user.banned_at;
 
     return (
         <motion.div
@@ -47,15 +166,23 @@ export default function UserDetailPage() {
                     <div>
                         <Heading className="text-3xl flex items-center gap-3">
                             {user.username}
-                            <Badge variant="success">{user.status}</Badge>
+                            <Badge variant={isBanned ? "error" : "success"}>
+                                {isBanned ? "Banned" : "Active"}
+                            </Badge>
                         </Heading>
-                        <Text className="text-sm text-[var(--text-muted)]">ID: {params.id}</Text>
+                        <Text className="text-sm text-[var(--text-muted)]">ID: {user.id}</Text>
                     </div>
                 </div>
                 <div className="flex gap-3">
-                    <Button variant="danger" icon={<Ban className="w-4 h-4" />} onClick={() => setIsBanModalOpen(true)}>
-                        Ban User
-                    </Button>
+                    {isBanned ? (
+                        <Button variant="secondary" icon={<CheckCircle className="w-4 h-4" />} onClick={() => setIsUnbanModalOpen(true)}>
+                            Unban User
+                        </Button>
+                    ) : (
+                        <Button variant="danger" icon={<Ban className="w-4 h-4" />} onClick={() => setIsBanModalOpen(true)}>
+                            Ban User
+                        </Button>
+                    )}
                 </div>
             </motion.div>
 
@@ -73,13 +200,19 @@ export default function UserDetailPage() {
                                 <div className="text-white font-medium">{user.email}</div>
                             </div>
                             <div>
-                                <div className="text-sm text-[var(--text-secondary)]">Discord</div>
-                                <div className="text-white font-medium">{user.discord}</div>
+                                <div className="text-sm text-[var(--text-secondary)]">Role</div>
+                                <Badge variant={user.role === "admin" ? "warning" : "secondary"}>{user.role}</Badge>
                             </div>
                             <div>
-                                <div className="text-sm text-[var(--text-secondary)]">Latest IP</div>
-                                <div className="text-white text-sm">{user.ip}</div>
+                                <div className="text-sm text-[var(--text-secondary)]">Registered</div>
+                                <div className="text-white text-sm">{new Date(user.created_at).toLocaleDateString()}</div>
                             </div>
+                            {isBanned && user.ban_reason && (
+                                <div>
+                                    <div className="text-sm text-[var(--text-secondary)]">Ban Reason</div>
+                                    <div className="text-[var(--error)] text-sm">{user.ban_reason}</div>
+                                </div>
+                            )}
                         </div>
                     </Card>
 
@@ -88,21 +221,47 @@ export default function UserDetailPage() {
                             <Shield className="w-5 h-5 text-[var(--accent-primary)]" />
                             <Heading className="text-xl">License</Heading>
                         </div>
-                        <div className="space-y-4">
-                            <div className="flex justify-between items-center">
-                                <span className="text-[var(--text-secondary)]">Plan</span>
-                                <Badge variant="success">{user.plan}</Badge>
+                        {user.license ? (
+                            <div className="space-y-4">
+                                <div className="flex justify-between items-center">
+                                    <span className="text-[var(--text-secondary)]">Plan</span>
+                                    <Badge variant={user.license.plan === "lifetime" ? "success" : "info"}>
+                                        {user.license.plan}
+                                    </Badge>
+                                </div>
+                                {user.license.plan !== "lifetime" && user.license.expires_at && (
+                                    <div className="flex justify-between items-center">
+                                        <span className="text-[var(--text-secondary)]">Expires</span>
+                                        <div className="flex items-center gap-2 text-sm">
+                                            <Timer className="w-4 h-4" />
+                                            {new Date(user.license.expires_at).toLocaleDateString()}
+                                        </div>
+                                    </div>
+                                )}
+                                <Button
+                                    variant="secondary"
+                                    className="w-full"
+                                    size="sm"
+                                    icon={<Plus className="w-4 h-4" />}
+                                    onClick={() => setIsExtendModalOpen(true)}
+                                >
+                                    Extend License
+                                </Button>
                             </div>
-                            <Button
-                                variant="secondary"
-                                className="w-full"
-                                size="sm"
-                                icon={<Plus className="w-4 h-4" />}
-                                onClick={() => setIsExtendModalOpen(true)}
-                            >
-                                Add/Extend License
-                            </Button>
-                        </div>
+                        ) : (
+                            <div className="space-y-4">
+                                <Text className="text-[var(--text-muted)]">No license</Text>
+                                <Button
+                                    variant="primary"
+                                    className="w-full"
+                                    size="sm"
+                                    icon={<Plus className="w-4 h-4" />}
+                                    onClick={() => setIsCreateLicenseModalOpen(true)}
+                                >
+                                    Create License
+                                </Button>
+                            </div>
+                        )}
                     </Card>
                 </motion.div>
 
@@ -115,44 +274,21 @@ export default function UserDetailPage() {
                                 <HardDrive className="w-5 h-5 text-purple-500" />
                                 <Heading className="text-xl">Hardware ID</Heading>
                             </div>
-                            <Button variant="secondary" size="sm" onClick={() => showToast({ title: "HWID Reset", message: "User's HWID has been successfully reset.", type: "success" })}>Reset HWID</Button>
                         </div>
 
-                        <div className="p-4 bg-[var(--bg-primary)] border border-[var(--border-color)] rounded-xl text-sm mb-4 break-all text-[var(--text-secondary)]">
-                            {user.hwid}
-                        </div>
-
-                        <div className="space-y-3">
-                            <div className="text-sm font-semibold text-[var(--text-secondary)]">History</div>
-                            <div className="flex items-center justify-between text-sm py-2 border-b border-[var(--border-color)]">
-                                <span className="text-[var(--text-muted)]">HWID-OLD-111...</span>
-                                <span className="text-[var(--text-muted)]">3 months ago</span>
+                        {user.license?.hwid ? (
+                            <div className="p-4 bg-[var(--bg-primary)] border border-[var(--border-color)] rounded-xl text-sm mb-4 break-all text-[var(--text-secondary)] font-mono">
+                                {user.license.hwid}
                             </div>
-                            <div className="flex items-center justify-between text-sm py-2 border-b border-[var(--border-color)]">
-                                <span className="text-[var(--text-muted)]">HWID-OLD-222...</span>
-                                <span className="text-[var(--text-muted)]">6 months ago</span>
+                        ) : (
+                            <Text className="text-[var(--text-muted)]">No HWID bound</Text>
+                        )}
+
+                        {user.license?.hwid_last_reset && (
+                            <div className="text-sm text-[var(--text-muted)] mt-2">
+                                Last reset: {new Date(user.license.hwid_last_reset).toLocaleDateString()}
                             </div>
-                        </div>
-                    </Card>
-
-                    {/* Activity Log */}
-                    <Card>
-                        <div className="flex items-center gap-3 mb-6">
-                            <Activity className="w-5 h-5 text-blue-500" />
-                            <Heading className="text-xl">Recent Activity</Heading>
-                        </div>
-
-                        <div className="space-y-4">
-                            {[1, 2, 3].map((i) => (
-                                <div key={i} className="flex items-start gap-4 text-sm">
-                                    <div className="w-2 h-2 rounded-full bg-[var(--accent-primary)] mt-1.5" />
-                                    <div>
-                                        <div className="text-white">Launched Client v2.1</div>
-                                        <div className="text-[var(--text-muted)]">Today, 14:30</div>
-                                    </div>
-                                </div>
-                            ))}
-                        </div>
+                        )}
                     </Card>
                 </motion.div>
             </div>
@@ -165,10 +301,7 @@ export default function UserDetailPage() {
                 footer={
                     <>
                         <Button variant="ghost" onClick={() => setIsBanModalOpen(false)}>Cancel</Button>
-                        <Button variant="danger" onClick={() => {
-                            setIsBanModalOpen(false);
-                            showToast({ title: "User Banned", message: "The user has been banned successfully.", type: "error" });
-                        }}>Ban User</Button>
+                        <Button variant="danger" onClick={handleBan} loading={modalLoading}>Ban User</Button>
                     </>
                 }
             >
@@ -179,8 +312,37 @@ export default function UserDetailPage() {
                             This action will immediately revoke access for <strong>{user.username}</strong>.
                         </div>
                     </div>
+                    <Input
+                        label="Reason"
+                        placeholder="e.g. Chargeback, TOS violation"
+                        value={banReason}
+                        onChange={(e) => setBanReason(e.target.value)}
+                    />
+                </div>
+            </Modal>
 
-                    <Input label="Reason" placeholder="e.g. Chargeback, Cheating" />
+            {/* Unban Modal */}
+            <Modal
+                isOpen={isUnbanModalOpen}
+                onClose={() => setIsUnbanModalOpen(false)}
+                title="Unban User"
+                footer={
+                    <>
+                        <Button variant="ghost" onClick={() => setIsUnbanModalOpen(false)}>Cancel</Button>
+                        <Button onClick={handleUnban} loading={modalLoading}>Unban User</Button>
+                    </>
+                }
+            >
+                <div className="space-y-4">
+                    <Text>
+                        Are you sure you want to unban <strong>{user.username}</strong>?
+                    </Text>
+                    {user.ban_reason && (
+                        <div className="p-4 bg-[var(--bg-tertiary)] rounded-xl text-sm">
+                            <span className="text-[var(--text-secondary)]">Ban reason: </span>
+                            <span className="text-white">{user.ban_reason}</span>
+                        </div>
+                    )}
                 </div>
             </Modal>
 
@@ -188,27 +350,62 @@ export default function UserDetailPage() {
             <Modal
                 isOpen={isExtendModalOpen}
                 onClose={() => setIsExtendModalOpen(false)}
-                title="Add/Extend License"
+                title="Extend License"
                 footer={
                     <>
                         <Button variant="ghost" onClick={() => setIsExtendModalOpen(false)}>Cancel</Button>
-                        <Button onClick={() => {
-                            setIsExtendModalOpen(false);
-                            showToast({ title: "License Updated", message: "User license has been extended.", type: "success" });
-                        }}>Update License</Button>
+                        <Button onClick={handleExtendLicense} loading={modalLoading}>Extend License</Button>
                     </>
                 }
             >
-                <div>
-                    <Input label="Days" type="number" placeholder="30" />
-                    <div className="mt-4">
-                        <label className="text-sm font-medium text-[var(--text-secondary)] mb-1.5 block">Update Plan (Optional)</label>
-                        <select className="w-full bg-[var(--bg-primary)] border border-[var(--border-color)] rounded-xl px-4 py-3 text-white outline-none focus:border-[var(--accent-primary)] transition-colors">
-                            <option>No Change</option>
-                            <option>Monthly</option>
-                            <option>Lifetime</option>
+                <div className="space-y-4">
+                    <Text>
+                        Extending license for <strong>{user.username}</strong>.
+                    </Text>
+                    <Input
+                        label="Days to Add"
+                        type="number"
+                        value={extendDays}
+                        onChange={(e) => setExtendDays(e.target.value)}
+                    />
+                </div>
+            </Modal>
+
+            {/* Create License Modal */}
+            <Modal
+                isOpen={isCreateLicenseModalOpen}
+                onClose={() => setIsCreateLicenseModalOpen(false)}
+                title="Create License"
+                footer={
+                    <>
+                        <Button variant="ghost" onClick={() => setIsCreateLicenseModalOpen(false)}>Cancel</Button>
+                        <Button onClick={handleCreateLicense} loading={modalLoading}>Create License</Button>
+                    </>
+                }
+            >
+                <div className="space-y-4">
+                    <Text>
+                        Creating license for <strong>{user.username}</strong>.
+                    </Text>
+                    <div>
+                        <label className="text-sm font-medium text-[var(--text-secondary)] mb-1.5 block">Plan Type</label>
+                        <select
+                            className="w-full bg-[var(--bg-primary)] border border-[var(--border-color)] rounded-xl px-4 py-3 text-white outline-none focus:border-[var(--accent-primary)] transition-colors"
+                            value={licensePlan}
+                            onChange={(e) => setLicensePlan(e.target.value)}
+                        >
+                            <option value="monthly">Monthly</option>
+                            <option value="lifetime">Lifetime</option>
                         </select>
                     </div>
+                    {licensePlan !== "lifetime" && (
+                        <Input
+                            label="Duration (Days)"
+                            type="number"
+                            value={licenseDays}
+                            onChange={(e) => setLicenseDays(e.target.value)}
+                        />
+                    )}
                 </div>
             </Modal>
         </motion.div>

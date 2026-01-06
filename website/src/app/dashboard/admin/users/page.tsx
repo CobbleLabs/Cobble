@@ -1,9 +1,11 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { motion } from "framer-motion";
 import { Heading, Text } from "@/components/ui/Typography";
 import { Table } from "@/components/ui/Table";
+import { Loader } from "@/components/ui/Loader";
+import { LoadingTransition } from "@/components/ui/LoadingTransition";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
@@ -36,11 +38,12 @@ export default function AdminUsersPage() {
     const [licensePlan, setLicensePlan] = useState("monthly");
     const [licenseDays, setLicenseDays] = useState("30");
 
-    const fetchUsers = useCallback(async () => {
+    const fetchUsers = useCallback(async (searchTerm: string, pageNum: number) => {
         setLoading(true);
         try {
-            const data = await api.admin.getUsers({ search: search || undefined, page, limit });
-            setUsers(data.users || []);
+            const data = await api.admin.getUsers({ search: searchTerm || undefined, page: pageNum, limit });
+            const usersData = data.users || [];
+            setUsers(usersData);
             setTotal(data.total || 0);
         } catch (error) {
             console.error("Failed to fetch users:", error);
@@ -48,24 +51,26 @@ export default function AdminUsersPage() {
         } finally {
             setLoading(false);
         }
-    }, [search, page, showToast]);
+    }, [showToast]);
 
+    // Initial fetch when admin status is confirmed
     useEffect(() => {
         if (isAdmin) {
-            fetchUsers();
+            fetchUsers(search, page);
         }
-    }, [isAdmin, fetchUsers]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [isAdmin, page]); // Only fetch on mount and page change
 
-    // Debounced search
+    // Debounced search - only triggers new search, not initial load
     useEffect(() => {
+        if (!isAdmin) return;
         const timer = setTimeout(() => {
-            if (isAdmin) {
-                setPage(1);
-                fetchUsers();
-            }
+            setPage(1); // Reset to page 1 on search
+            fetchUsers(search, 1);
         }, 300);
         return () => clearTimeout(timer);
-    }, [search]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [search]); // Only when search changes
 
     const openModal = (type: typeof modalType, user?: api.AdminUser) => {
         setSelectedUser(user || null);
@@ -86,7 +91,7 @@ export default function AdminUsersPage() {
             await api.admin.banUser(selectedUser.id, banReason);
             showToast({ title: "User Banned", message: `${selectedUser.username} has been banned`, type: "success" });
             closeModal();
-            fetchUsers();
+            fetchUsers(search, page);
         } catch (error) {
             const msg = error instanceof Error ? error.message : "Failed to ban user";
             showToast({ title: "Error", message: msg, type: "error" });
@@ -102,7 +107,7 @@ export default function AdminUsersPage() {
             await api.admin.unbanUser(selectedUser.id);
             showToast({ title: "User Unbanned", message: `${selectedUser.username} has been unbanned`, type: "success" });
             closeModal();
-            fetchUsers();
+            fetchUsers(search, page);
         } catch (error) {
             const msg = error instanceof Error ? error.message : "Failed to unban user";
             showToast({ title: "Error", message: msg, type: "error" });
@@ -118,7 +123,7 @@ export default function AdminUsersPage() {
             await api.admin.extendLicense(selectedUser.license.id, parseInt(extendDays));
             showToast({ title: "License Extended", message: `Added ${extendDays} days`, type: "success" });
             closeModal();
-            fetchUsers();
+            fetchUsers(search, page);
         } catch (error) {
             const msg = error instanceof Error ? error.message : "Failed to extend license";
             showToast({ title: "Error", message: msg, type: "error" });
@@ -138,7 +143,7 @@ export default function AdminUsersPage() {
             );
             showToast({ title: "License Created", message: `${licensePlan} license created`, type: "success" });
             closeModal();
-            fetchUsers();
+            fetchUsers(search, page);
         } catch (error) {
             const msg = error instanceof Error ? error.message : "Failed to create license";
             showToast({ title: "Error", message: msg, type: "error" });
@@ -183,90 +188,84 @@ export default function AdminUsersPage() {
             </motion.div>
 
             <motion.div variants={fadeInUp}>
-                {loading ? (
-                    <div className="bg-[var(--bg-primary)] border border-[var(--border-color)] rounded-3xl p-8">
-                        <div className="animate-pulse space-y-4">
-                            {[1, 2, 3, 4, 5].map((i) => (
-                                <div key={i} className="h-12 bg-[var(--bg-tertiary)] rounded" />
-                            ))}
-                        </div>
-                    </div>
-                ) : users.length > 0 ? (
-                    <Table
-                        data={users}
-                        columns={[
-                            { header: "Username", accessorKey: "username", className: "font-semibold text-white" },
-                            { header: "Email", accessorKey: "email" },
-                            {
-                                header: "Plan",
-                                accessorKey: "license",
-                                cell: (item) => {
-                                    if (!item.license) return <Badge variant="secondary">No License</Badge>;
-                                    const variant = item.license.plan === "lifetime" ? "success" : "info";
-                                    return <Badge variant={variant}>{item.license.plan}</Badge>;
-                                }
-                            },
-                            {
-                                header: "Expires",
-                                accessorKey: "license",
-                                cell: (item) => {
-                                    if (!item.license) return <span className="text-[var(--text-muted)]">-</span>;
-                                    if (item.license.plan === "lifetime") return <span className="text-[var(--success)]">Never</span>;
-                                    if (!item.license.expires_at) return <span className="text-[var(--text-muted)]">-</span>;
-                                    return (
-                                        <div className="flex items-center gap-2">
-                                            <Timer className="w-4 h-4 text-[var(--text-secondary)]" />
-                                            {new Date(item.license.expires_at).toLocaleDateString()}
+                <LoadingTransition loading={loading} skeleton={<Loader />}>
+                    {users.length > 0 ? (
+                        <Table
+                            data={users}
+                            columns={[
+                                { header: "Username", accessorKey: "username", className: "font-semibold text-white" },
+                                { header: "Email", accessorKey: "email" },
+                                {
+                                    header: "Plan",
+                                    accessorKey: "license",
+                                    cell: (item) => {
+                                        if (!item.license) return <Badge variant="secondary">No License</Badge>;
+                                        const variant = item.license.plan === "lifetime" ? "success" : "info";
+                                        return <Badge variant={variant}>{item.license.plan}</Badge>;
+                                    }
+                                },
+                                {
+                                    header: "Expires",
+                                    accessorKey: "license",
+                                    cell: (item) => {
+                                        if (!item.license) return <span className="text-[var(--text-muted)]">-</span>;
+                                        if (item.license.plan === "lifetime") return <span className="text-[var(--success)]">Never</span>;
+                                        if (!item.license.expires_at) return <span className="text-[var(--text-muted)]">-</span>;
+                                        return (
+                                            <div className="flex items-center gap-2">
+                                                <Timer className="w-4 h-4 text-[var(--text-secondary)]" />
+                                                {new Date(item.license.expires_at).toLocaleDateString()}
+                                            </div>
+                                        );
+                                    }
+                                },
+                                {
+                                    header: "Status",
+                                    cell: (item) => (
+                                        <Badge variant={item.banned_at ? "error" : "success"}>
+                                            {item.banned_at ? "Banned" : "Active"}
+                                        </Badge>
+                                    )
+                                },
+                                {
+                                    header: "Actions",
+                                    cell: (item) => (
+                                        <div className="flex gap-2">
+                                            <Link href={`/dashboard/admin/users/${item.id}`}>
+                                                <Button size="sm" variant="secondary" icon={<Eye className="w-3 h-3" />}>View</Button>
+                                            </Link>
+                                            {item.license ? (
+                                                <Button size="sm" variant="secondary" onClick={() => openModal("extend", item)}>
+                                                    Extend
+                                                </Button>
+                                            ) : (
+                                                <Button size="sm" variant="secondary" icon={<Plus className="w-3 h-3" />} onClick={() => openModal("license", item)}>
+                                                    License
+                                                </Button>
+                                            )}
+                                            {item.banned_at ? (
+                                                <Button size="sm" variant="secondary" onClick={() => openModal("unban", item)}>
+                                                    Unban
+                                                </Button>
+                                            ) : (
+                                                <Button size="sm" variant="danger" onClick={() => openModal("ban", item)}>
+                                                    Ban
+                                                </Button>
+                                            )}
                                         </div>
-                                    );
+                                    )
                                 }
-                            },
-                            {
-                                header: "Status",
-                                cell: (item) => (
-                                    <Badge variant={item.banned_at ? "error" : "success"}>
-                                        {item.banned_at ? "Banned" : "Active"}
-                                    </Badge>
-                                )
-                            },
-                            {
-                                header: "Actions",
-                                cell: (item) => (
-                                    <div className="flex gap-2">
-                                        <Link href={`/dashboard/admin/users/${item.id}`}>
-                                            <Button size="sm" variant="secondary" icon={<Eye className="w-3 h-3" />}>View</Button>
-                                        </Link>
-                                        {item.license ? (
-                                            <Button size="sm" variant="secondary" onClick={() => openModal("extend", item)}>
-                                                Extend
-                                            </Button>
-                                        ) : (
-                                            <Button size="sm" variant="secondary" icon={<Plus className="w-3 h-3" />} onClick={() => openModal("license", item)}>
-                                                License
-                                            </Button>
-                                        )}
-                                        {item.banned_at ? (
-                                            <Button size="sm" variant="secondary" onClick={() => openModal("unban", item)}>
-                                                Unban
-                                            </Button>
-                                        ) : (
-                                            <Button size="sm" variant="danger" onClick={() => openModal("ban", item)}>
-                                                Ban
-                                            </Button>
-                                        )}
-                                    </div>
-                                )
-                            }
-                        ]}
-                    />
-                ) : (
-                    <div className="bg-[var(--bg-primary)] border border-[var(--border-color)] rounded-3xl p-12 text-center">
-                        <Text>No users found.</Text>
-                    </div>
-                )}
+                            ]}
+                        />
+                    ) : (
+                        <div className="bg-[var(--bg-primary)] border border-[var(--border-color)] rounded-3xl p-12 text-center">
+                            <Text>No users found.</Text>
+                        </div>
+                    )}
+                </LoadingTransition>
 
                 {/* Pagination */}
-                {totalPages > 1 && (
+                {!loading && totalPages > 1 && (
                     <div className="flex items-center justify-between mt-6">
                         <Text className="text-sm">{total} users total</Text>
                         <div className="flex items-center gap-2">

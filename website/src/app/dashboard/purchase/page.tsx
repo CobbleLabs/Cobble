@@ -5,7 +5,12 @@ import { FAQItem } from "@/components/ui/FAQItem";
 import { PricingCard } from "@/components/ui/PricingCard";
 import { Heading, Text } from "@/components/ui/Typography";
 
+import { useAuth } from "@/context/AuthContext";
+
 export default function PurchasePage() {
+    const { user } = useAuth();
+    const hasMonthly = user?.license?.plan === 'monthly';
+
     return (
         <motion.div
             initial={{ opacity: 0, y: 20 }}
@@ -17,15 +22,17 @@ export default function PurchasePage() {
                 <Text>Unlock the full power of Cobble today.</Text>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                <PricingCard
-                    title="Monthly Access"
-                    price="10"
-                    period="/mo"
-                    description="Flexible access for short-term domination."
-                    features={["Full Module Access", "24/7 Support", "Cloud Configs", "HWID Resets"]}
-                    buttonText="Purchase Now"
-                />
+            <div className={`grid grid-cols-1 ${hasMonthly ? 'place-items-center' : 'md:grid-cols-2'} gap-8`}>
+                {!hasMonthly && (
+                    <PricingCard
+                        title="Monthly Access"
+                        price="10"
+                        period="/mo"
+                        description="Flexible access for short-term domination."
+                        features={["Full Module Access", "24/7 Support", "Cloud Configs", "HWID Resets"]}
+                        buttonText="Purchase Now"
+                    />
+                )}
                 <PricingCard
                     title="Lifetime Access"
                     price="25"
@@ -34,6 +41,7 @@ export default function PurchasePage() {
                     features={["Full Module Access", "Priority Support", "Cloud Configs", "Unlimited HWID Resets", "Early Access Beta"]}
                     isPopular
                     buttonText="Purchase Now"
+                    className={hasMonthly ? "max-w-md w-full" : ""}
                 />
             </div>
 

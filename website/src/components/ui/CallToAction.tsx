@@ -30,7 +30,7 @@ export function CallToAction() {
                     </Text>
 
                     <div className="flex justify-center">
-                        <Link href="https://discord.gg/cobble" target="_blank">
+                        <Link href="https://discord.gg/bEB2feGC" target="_blank">
                             <Button
                                 size="lg"
                                 className="bg-[#5865F2] hover:bg-[#4752C4] text-white border-none shadow-[0_4px_20px_rgba(88,101,242,0.3)] hover:shadow-[0_4px_30px_rgba(88,101,242,0.5)] transition-all px-12 py-6 text-xl h-auto"

@@ -4,6 +4,8 @@ import { useState, useEffect, useCallback } from "react";
 import { motion } from "framer-motion";
 import { Heading, Text } from "@/components/ui/Typography";
 import { Table } from "@/components/ui/Table";
+import { Loader } from "@/components/ui/Loader";
+import { LoadingTransition } from "@/components/ui/LoadingTransition";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
@@ -28,12 +30,10 @@ export default function AdminBansPage() {
     const [selectedUser, setSelectedUser] = useState<api.AdminUser | null>(null);
     const [modalLoading, setModalLoading] = useState(false);
 
-    // Fetch only banned users
-    const fetchBannedUsers = useCallback(async () => {
+    const fetchBannedUsers = useCallback(async (searchTerm: string, pageNum: number) => {
         setLoading(true);
         try {
-            // Fetch all users and filter banned ones (backend should ideally have a filter)
-            const data = await api.admin.getUsers({ search: search || undefined, page, limit });
+            const data = await api.admin.getUsers({ search: searchTerm || undefined, page: pageNum, limit });
             const bannedUsers = (data.users || []).filter(u => u.banned_at);
             setUsers(bannedUsers);
             setTotal(bannedUsers.length);
@@ -43,23 +43,24 @@ export default function AdminBansPage() {
         } finally {
             setLoading(false);
         }
-    }, [search, page, showToast]);
+    }, [showToast]);
 
     useEffect(() => {
         if (isAdmin) {
-            fetchBannedUsers();
+            fetchBannedUsers(search, page);
         }
-    }, [isAdmin, fetchBannedUsers]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [isAdmin, page]);
 
     // Debounced search
     useEffect(() => {
+        if (!isAdmin) return;
         const timer = setTimeout(() => {
-            if (isAdmin) {
-                setPage(1);
-                fetchBannedUsers();
-            }
+            setPage(1);
+            fetchBannedUsers(search, 1);
         }, 300);
         return () => clearTimeout(timer);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [search]);
 
     const handleUnban = async () => {
@@ -70,7 +71,7 @@ export default function AdminBansPage() {
             await api.admin.unbanUser(selectedUser.id);
             showToast({ title: "User Unbanned", message: `${selectedUser.username} has been unbanned`, type: "success" });
             setSelectedUser(null);
-            fetchBannedUsers();
+            fetchBannedUsers(search, page);
         } catch (error) {
             const msg = error instanceof Error ? error.message : "Failed to unban";
             showToast({ title: "Error", message: msg, type: "error" });
@@ -113,56 +114,50 @@ export default function AdminBansPage() {
             </motion.div>
 
             <motion.div variants={fadeInUp}>
-                {loading ? (
-                    <div className="bg-[var(--bg-primary)] border border-[var(--border-color)] rounded-3xl p-8">
-                        <div className="animate-pulse space-y-4">
-                            {[1, 2, 3].map((i) => (
-                                <div key={i} className="h-12 bg-[var(--bg-tertiary)] rounded" />
-                            ))}
+                <LoadingTransition loading={loading} skeleton={<Loader />}>
+                    {users.length > 0 ? (
+                        <Table
+                            data={users}
+                            columns={[
+                                { header: "User", accessorKey: "username", className: "font-semibold text-white" },
+                                { header: "Email", accessorKey: "email" },
+                                {
+                                    header: "Reason",
+                                    accessorKey: "ban_reason",
+                                    cell: (item) => (
+                                        <span className="text-[var(--text-secondary)]">{item.ban_reason || "No reason"}</span>
+                                    )
+                                },
+                                {
+                                    header: "Date",
+                                    accessorKey: "banned_at",
+                                    cell: (item) => item.banned_at ? new Date(item.banned_at).toLocaleDateString() : "-"
+                                },
+                                {
+                                    header: "Actions",
+                                    cell: (item) => (
+                                        <Button
+                                            size="sm"
+                                            variant="secondary"
+                                            onClick={() => setSelectedUser(item)}
+                                        >
+                                            Unban
+                                        </Button>
+                                    )
+                                }
+                            ]}
+                        />
+                    ) : (
+                        <div className="bg-[var(--bg-primary)] border border-[var(--border-color)] rounded-3xl p-12 text-center">
+                            <Ban className="w-12 h-12 text-[var(--text-muted)] mx-auto mb-4" />
+                            <Heading className="text-xl mb-2">No Banned Users</Heading>
+                            <Text>All users are in good standing.</Text>
                         </div>
-                    </div>
-                ) : users.length > 0 ? (
-                    <Table
-                        data={users}
-                        columns={[
-                            { header: "User", accessorKey: "username", className: "font-semibold text-white" },
-                            { header: "Email", accessorKey: "email" },
-                            {
-                                header: "Reason",
-                                accessorKey: "ban_reason",
-                                cell: (item) => (
-                                    <span className="text-[var(--text-secondary)]">{item.ban_reason || "No reason"}</span>
-                                )
-                            },
-                            {
-                                header: "Date",
-                                accessorKey: "banned_at",
-                                cell: (item) => item.banned_at ? new Date(item.banned_at).toLocaleDateString() : "-"
-                            },
-                            {
-                                header: "Actions",
-                                cell: (item) => (
-                                    <Button
-                                        size="sm"
-                                        variant="secondary"
-                                        onClick={() => setSelectedUser(item)}
-                                    >
-                                        Unban
-                                    </Button>
-                                )
-                            }
-                        ]}
-                    />
-                ) : (
-                    <div className="bg-[var(--bg-primary)] border border-[var(--border-color)] rounded-3xl p-12 text-center">
-                        <Ban className="w-12 h-12 text-[var(--text-muted)] mx-auto mb-4" />
-                        <Heading className="text-xl mb-2">No Banned Users</Heading>
-                        <Text>All users are in good standing.</Text>
-                    </div>
-                )}
+                    )}
+                </LoadingTransition>
 
                 {/* Pagination */}
-                {totalPages > 1 && (
+                {!loading && totalPages > 1 && (
                     <div className="flex items-center justify-between mt-6">
                         <Text className="text-sm">{total} banned users</Text>
                         <div className="flex items-center gap-2">

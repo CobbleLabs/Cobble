@@ -1,9 +1,11 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { motion } from "framer-motion";
 import { Heading, Text } from "@/components/ui/Typography";
 import { Table } from "@/components/ui/Table";
+import { Loader } from "@/components/ui/Loader";
+import { LoadingTransition } from "@/components/ui/LoadingTransition";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Terminal, ChevronLeft, ChevronRight } from "lucide-react";
@@ -33,7 +35,8 @@ export default function AdminLogsPage() {
         setLoading(true);
         try {
             const data = await api.admin.getLogs({ page, limit });
-            setLogs(data.logs || []);
+            const logsData = data.logs || [];
+            setLogs(logsData);
             setTotal(data.total || 0);
         } catch (error) {
             console.error("Failed to fetch logs:", error);
@@ -86,59 +89,53 @@ export default function AdminLogsPage() {
             </motion.div>
 
             <motion.div variants={fadeInUp}>
-                {loading ? (
-                    <div className="bg-[var(--bg-primary)] border border-[var(--border-color)] rounded-3xl p-8">
-                        <div className="animate-pulse space-y-3">
-                            {[1, 2, 3, 4, 5, 6, 7, 8].map((i) => (
-                                <div key={i} className="h-10 bg-[var(--bg-tertiary)] rounded" />
-                            ))}
+                <LoadingTransition loading={loading} skeleton={<Loader />}>
+                    {logs.length > 0 ? (
+                        <Table
+                            data={logs}
+                            columns={[
+                                {
+                                    header: "Time",
+                                    accessorKey: "created_at",
+                                    className: "text-[var(--text-muted)] whitespace-nowrap",
+                                    cell: (item) => {
+                                        const date = new Date(item.created_at);
+                                        return `${date.toLocaleDateString()} ${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+                                    }
+                                },
+                                {
+                                    header: "Actor",
+                                    accessorKey: "actor",
+                                    cell: (item) => <span className="text-white font-medium">{item.actor}</span>
+                                },
+                                {
+                                    header: "Action",
+                                    accessorKey: "action",
+                                    cell: (item) => (
+                                        <Badge variant="default" className={getActionColor(item.action)}>
+                                            {item.action}
+                                        </Badge>
+                                    )
+                                },
+                                {
+                                    header: "Target",
+                                    accessorKey: "target",
+                                    cell: (item) => <span>{item.target || "-"}</span>
+                                },
+                                {
+                                    header: "Details",
+                                    accessorKey: "metadata",
+                                    cell: (item) => <span className="text-[var(--text-muted)]">{item.metadata || "-"}</span>
+                                },
+                            ]}
+                        />
+                    ) : (
+                        <div className="bg-[var(--bg-primary)] border border-[var(--border-color)] rounded-3xl p-12 text-center">
+                            <Terminal className="w-12 h-12 text-[var(--text-muted)] mx-auto mb-4" />
+                            <Text>No logs found.</Text>
                         </div>
-                    </div>
-                ) : logs.length > 0 ? (
-                    <Table
-                        data={logs}
-                        columns={[
-                            {
-                                header: "Time",
-                                accessorKey: "created_at",
-                                className: "text-[var(--text-muted)] whitespace-nowrap",
-                                cell: (item) => {
-                                    const date = new Date(item.created_at);
-                                    return `${date.toLocaleDateString()} ${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
-                                }
-                            },
-                            {
-                                header: "Actor",
-                                accessorKey: "actor",
-                                cell: (item) => <span className="text-white font-medium">{item.actor}</span>
-                            },
-                            {
-                                header: "Action",
-                                accessorKey: "action",
-                                cell: (item) => (
-                                    <Badge variant="default" className={getActionColor(item.action)}>
-                                        {item.action}
-                                    </Badge>
-                                )
-                            },
-                            {
-                                header: "Target",
-                                accessorKey: "target",
-                                cell: (item) => <span>{item.target || "-"}</span>
-                            },
-                            {
-                                header: "Details",
-                                accessorKey: "metadata",
-                                cell: (item) => <span className="text-[var(--text-muted)]">{item.metadata || "-"}</span>
-                            },
-                        ]}
-                    />
-                ) : (
-                    <div className="bg-[var(--bg-primary)] border border-[var(--border-color)] rounded-3xl p-12 text-center">
-                        <Terminal className="w-12 h-12 text-[var(--text-muted)] mx-auto mb-4" />
-                        <Text>No logs found.</Text>
-                    </div>
-                )}
+                    )}
+                </LoadingTransition>
 
                 {/* Pagination */}
                 {totalPages > 1 && (

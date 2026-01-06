@@ -6,6 +6,8 @@ import { Heading, Text } from "@/components/ui/Typography";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Table } from "@/components/ui/Table";
+import { Loader } from "@/components/ui/Loader";
+import { LoadingTransition } from "@/components/ui/LoadingTransition";
 import { Modal } from "@/components/ui/Modal";
 import { Input } from "@/components/ui/Input";
 import { Badge } from "@/components/ui/Badge";
@@ -38,7 +40,8 @@ export default function AdminAnnouncementsPage() {
         setLoading(true);
         try {
             const data = await api.admin.getAnnouncements();
-            setAnnouncements(data || []);
+            const announcementsData = data || [];
+            setAnnouncements(announcementsData);
         } catch (error) {
             console.error("Failed to fetch announcements:", error);
             showToast({ title: "Error", message: "Failed to load announcements", type: "error" });
@@ -169,84 +172,78 @@ export default function AdminAnnouncementsPage() {
             </motion.div>
 
             <motion.div variants={fadeInUp}>
-                {loading ? (
-                    <Card className="p-8">
-                        <div className="animate-pulse space-y-4">
-                            {[1, 2, 3].map((i) => (
-                                <div key={i} className="h-12 bg-[var(--bg-tertiary)] rounded" />
-                            ))}
-                        </div>
-                    </Card>
-                ) : announcements.length > 0 ? (
-                    <Card className="p-0 overflow-hidden">
-                        <Table
-                            data={announcements}
-                            columns={[
-                                {
-                                    header: "Title",
-                                    accessorKey: "title",
-                                    cell: (item) => (
-                                        <div className="flex items-center gap-3">
-                                            <div className="p-2 bg-[var(--accent-primary)]/10 rounded-lg text-[var(--accent-primary)]">
-                                                <Megaphone className="w-4 h-4" />
+                <LoadingTransition loading={loading} skeleton={<Loader />}>
+                    {announcements.length > 0 ? (
+                        <Card className="p-0 overflow-hidden">
+                            <Table
+                                data={announcements}
+                                columns={[
+                                    {
+                                        header: "Title",
+                                        accessorKey: "title",
+                                        cell: (item) => (
+                                            <div className="flex items-center gap-3">
+                                                <div className="p-2 bg-[var(--accent-primary)]/10 rounded-lg text-[var(--accent-primary)]">
+                                                    <Megaphone className="w-4 h-4" />
+                                                </div>
+                                                <span className="font-medium text-white">{item.title}</span>
+                                                {item.pinned && <Pin className="w-4 h-4 text-[var(--accent-primary)]" />}
                                             </div>
-                                            <span className="font-medium text-white">{item.title}</span>
-                                            {item.pinned && <Pin className="w-4 h-4 text-[var(--accent-primary)]" />}
-                                        </div>
-                                    )
-                                },
-                                {
-                                    header: "Type",
-                                    accessorKey: "type",
-                                    cell: (item) => {
-                                        const variant = item.type === "warning" ? "warning" : item.type === "update" ? "info" : "secondary";
-                                        return <Badge variant={variant}>{item.type}</Badge>;
+                                        )
+                                    },
+                                    {
+                                        header: "Type",
+                                        accessorKey: "type",
+                                        cell: (item) => {
+                                            const variant = item.type === "warning" ? "warning" : item.type === "update" ? "info" : "secondary";
+                                            return <Badge variant={variant}>{item.type}</Badge>;
+                                        }
+                                    },
+                                    {
+                                        header: "Date",
+                                        accessorKey: "created_at",
+                                        cell: (item) => (
+                                            <div className="flex items-center gap-2 text-[var(--text-secondary)]">
+                                                <Calendar className="w-4 h-4" />
+                                                {new Date(item.created_at).toLocaleDateString()}
+                                            </div>
+                                        )
+                                    },
+                                    {
+                                        header: "Actions",
+                                        accessorKey: "id",
+                                        cell: (item) => (
+                                            <div className="flex items-center gap-2">
+                                                <Button
+                                                    size="sm"
+                                                    variant="secondary"
+                                                    icon={<Edit2 className="w-4 h-4" />}
+                                                    onClick={() => openEditModal(item)}
+                                                >
+                                                    Edit
+                                                </Button>
+                                                <Button
+                                                    size="sm"
+                                                    variant="danger"
+                                                    icon={<Trash2 className="w-4 h-4" />}
+                                                    onClick={() => openDeleteModal(item)}
+                                                >
+                                                    Delete
+                                                </Button>
+                                            </div>
+                                        )
                                     }
-                                },
-                                {
-                                    header: "Date",
-                                    accessorKey: "created_at",
-                                    cell: (item) => (
-                                        <div className="flex items-center gap-2 text-[var(--text-secondary)]">
-                                            <Calendar className="w-4 h-4" />
-                                            {new Date(item.created_at).toLocaleDateString()}
-                                        </div>
-                                    )
-                                },
-                                {
-                                    header: "Actions",
-                                    accessorKey: "id",
-                                    cell: (item) => (
-                                        <div className="flex items-center gap-2">
-                                            <Button
-                                                size="sm"
-                                                variant="secondary"
-                                                icon={<Edit2 className="w-4 h-4" />}
-                                                onClick={() => openEditModal(item)}
-                                            >
-                                                Edit
-                                            </Button>
-                                            <Button
-                                                size="sm"
-                                                variant="danger"
-                                                icon={<Trash2 className="w-4 h-4" />}
-                                                onClick={() => openDeleteModal(item)}
-                                            >
-                                                Delete
-                                            </Button>
-                                        </div>
-                                    )
-                                }
-                            ]}
-                        />
-                    </Card>
-                ) : (
-                    <Card className="p-12 text-center">
-                        <Megaphone className="w-12 h-12 text-[var(--text-muted)] mx-auto mb-4" />
-                        <Text>No announcements yet.</Text>
-                        <Button className="mt-4" onClick={openCreateModal}>Create First Announcement</Button>
-                    </Card>
-                )}
+                                ]}
+                            />
+                        </Card>
+                    ) : (
+                        <Card className="p-12 text-center">
+                            <Megaphone className="w-12 h-12 text-[var(--text-muted)] mx-auto mb-4" />
+                            <Text>No announcements yet.</Text>
+                            <Button className="mt-4" onClick={openCreateModal}>Create First Announcement</Button>
+                        </Card>
+                    )}
+                </LoadingTransition>
             </motion.div>
 
             {/* Create Modal */}

@@ -31,7 +31,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     useEffect(() => {
         const initAuth = async () => {
             try {
-                // Try to refresh token (uses HttpOnly cookie)
+                // First try to use existing token from localStorage
+                const existingToken = api.getAccessToken();
+                if (existingToken) {
+                    try {
+                        const userData = await api.getMe();
+                        setUser(userData);
+                        setIsLoading(false);
+                        return;
+                    } catch {
+                        // Token invalid, try refresh below
+                    }
+                }
+
+                // Fallback: Try to refresh token using HttpOnly cookie
                 const refreshed = await api.refreshToken();
                 if (refreshed) {
                     const userData = await api.getMe();

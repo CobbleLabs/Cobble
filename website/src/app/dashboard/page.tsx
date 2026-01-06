@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { Activity, Clock, ShieldCheck, Download, ExternalLink } from "lucide-react";
 import { Heading, Text } from "@/components/ui/Typography";
+import { Loader } from "@/components/ui/Loader";
+import { LoadingTransition } from "@/components/ui/LoadingTransition";
 import { BentoGrid, BentoItem } from "@/components/ui/BentoGrid";
 import { ActionCard } from "@/components/ui/ActionCard";
 import { UpdateItem } from "@/components/ui/UpdateItem";
@@ -40,14 +42,30 @@ export default function DashboardPage() {
     // License info
     const license = user?.license;
     const isLifetime = license?.plan === "lifetime";
-    const isActive = isLifetime || (license?.expires_at && new Date(license.expires_at) > new Date());
-    const planName = isLifetime ? "Lifetime Access" : license?.plan === "monthly" ? "Monthly Plan" : "No License";
+    const isTrial = license?.plan === "trial";
+    const isMonthly = license?.plan === "monthly";
+
+    // A license is active if:
+    // - It's lifetime (never expires)
+    // - It's monthly/trial AND either has no expiry (admin granted, valid indefinitely) OR expiry is in the future
+    const isActive = !!license && (
+        isLifetime ||
+        !license.expires_at ||
+        new Date(license.expires_at) > new Date()
+    );
+
+    const planName = isLifetime ? "Lifetime Access" :
+        isTrial ? "Trial" :
+            isMonthly ? "Monthly Plan" :
+                license ? "Active License" : "No License";
 
     // Days remaining
     let daysRemaining = isLifetime ? "∞" : "0";
     if (!isLifetime && license?.expires_at) {
         const days = Math.ceil((new Date(license.expires_at).getTime() - Date.now()) / (1000 * 60 * 60 * 24));
         daysRemaining = days > 0 ? days.toString() : "Expired";
+    } else if (license && !isLifetime && !license.expires_at) {
+        daysRemaining = "∞"; // No expiry set means unlimited
     }
 
     // HWID info
@@ -144,75 +162,68 @@ export default function DashboardPage() {
                             title="Join Discord"
                             description="Get help & community updates"
                             color="purple"
-                            href="https://discord.gg/YOURSERVER"
+                            href="https://discord.gg/bEB2feGC"
                             external
                         />
                     </div>
 
                     <Heading className="text-xl mb-6 mt-8">Announcements</Heading>
-                    {loading ? (
-                        <Card className="p-6 animate-pulse">
-                            <div className="h-6 bg-[var(--bg-tertiary)] rounded w-1/3 mb-4" />
-                            <div className="h-4 bg-[var(--bg-tertiary)] rounded w-2/3" />
-                        </Card>
-                    ) : announcements.length > 0 ? (
-                        <div className="space-y-4">
-                            {announcements.slice(0, 3).map((announcement) => (
-                                <Card key={announcement.id} className="p-6">
-                                    <div className="flex items-start gap-4">
-                                        <div className="p-2 bg-[var(--accent-primary)]/10 rounded-lg text-[var(--accent-primary)] mt-1">
-                                            <Activity className="w-5 h-5" />
-                                        </div>
-                                        <div>
-                                            <div className="flex items-center gap-2 mb-2">
-                                                <h3 className="text-lg font-bold text-white">{announcement.title}</h3>
-                                                {announcement.pinned && (
-                                                    <Badge variant="warning">Pinned</Badge>
-                                                )}
+                    <LoadingTransition loading={loading} skeleton={<Loader centered />}>
+                        {announcements.length > 0 ? (
+                            <div className="space-y-4">
+                                {announcements.slice(0, 3).map((announcement) => (
+                                    <Card key={announcement.id} className="p-6">
+                                        <div className="flex items-start gap-4">
+                                            <div className="p-2 bg-[var(--accent-primary)]/10 rounded-lg text-[var(--accent-primary)] mt-1">
+                                                <Activity className="w-5 h-5" />
                                             </div>
-                                            <Text className="text-sm leading-relaxed mb-4">
-                                                {announcement.content}
-                                            </Text>
-                                            <div className="flex items-center gap-2 text-xs font-medium text-[var(--text-secondary)]">
-                                                <span className="text-[var(--accent-primary)]">Administrator</span>
-                                                <span>•</span>
-                                                <span>{new Date(announcement.created_at).toLocaleDateString()}</span>
+                                            <div>
+                                                <div className="flex items-center gap-2 mb-2">
+                                                    <h3 className="text-lg font-bold text-white">{announcement.title}</h3>
+                                                    {announcement.pinned && (
+                                                        <Badge variant="warning">Pinned</Badge>
+                                                    )}
+                                                </div>
+                                                <Text className="text-sm leading-relaxed mb-4">
+                                                    {announcement.content}
+                                                </Text>
+                                                <div className="flex items-center gap-2 text-xs font-medium text-[var(--text-secondary)]">
+                                                    <span className="text-[var(--accent-primary)]">Administrator</span>
+                                                    <span>•</span>
+                                                    <span>{new Date(announcement.created_at).toLocaleDateString()}</span>
+                                                </div>
                                             </div>
                                         </div>
-                                    </div>
-                                </Card>
-                            ))}
-                        </div>
-                    ) : (
-                        <Card className="p-6">
-                            <Text className="text-center">No announcements yet.</Text>
-                        </Card>
-                    )}
+                                    </Card>
+                                ))}
+                            </div>
+                        ) : (
+                            <Card className="p-6">
+                                <Text className="text-center">No announcements yet.</Text>
+                            </Card>
+                        )}
+                    </LoadingTransition>
                 </motion.div>
 
                 {/* Recent News */}
                 <motion.div variants={fadeInUp}>
                     <Heading className="text-xl mb-6">Latest Updates</Heading>
-                    <Card className="space-y-6">
-                        {loading ? (
-                            <div className="animate-pulse space-y-4">
-                                {[1, 2, 3].map((i) => (
-                                    <div key={i} className="h-16 bg-[var(--bg-tertiary)] rounded" />
-                                ))}
-                            </div>
-                        ) : changelogs.length > 0 ? (
-                            changelogs.slice(0, 5).map((changelog) => (
-                                <UpdateItem
-                                    key={changelog.id}
-                                    version={changelog.version}
-                                    date={new Date(changelog.released_at).toLocaleDateString()}
-                                    description={changelog.changes?.[0] || "New update"}
-                                />
-                            ))
-                        ) : (
-                            <Text className="text-center py-4">No changelogs yet.</Text>
-                        )}
-                    </Card>
+                    <LoadingTransition loading={loading} skeleton={<Loader centered />}>
+                        <Card className="space-y-6">
+                            {changelogs.length > 0 ? (
+                                changelogs.slice(0, 5).map((changelog) => (
+                                    <UpdateItem
+                                        key={changelog.id}
+                                        version={changelog.version}
+                                        date={new Date(changelog.released_at).toLocaleDateString()}
+                                        description={changelog.changes?.[0] || "New update"}
+                                    />
+                                ))
+                            ) : (
+                                <Text className="text-center py-4">No changelogs yet.</Text>
+                            )}
+                        </Card>
+                    </LoadingTransition>
                 </motion.div>
             </div>
         </motion.div>

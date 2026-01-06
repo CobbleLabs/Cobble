@@ -6,6 +6,8 @@ import { RefreshCcw, Monitor, ShieldAlert, Clock } from "lucide-react";
 import { useToast } from "@/context/ToastContext";
 import { Button } from "@/components/ui/Button";
 import { Heading, Text } from "@/components/ui/Typography";
+import { Loader } from "@/components/ui/Loader";
+import { LoadingTransition } from "@/components/ui/LoadingTransition";
 import { useAuth } from "@/context/AuthContext";
 import * as api from "@/lib/api";
 
@@ -82,13 +84,13 @@ export default function HWIDPage() {
 
                 <h2 className="text-[var(--text-secondary)] mb-2 text-sm uppercase tracking-widest">CURRENT HWID</h2>
 
-                {fetchingStatus ? (
-                    <div className="text-3xl font-medium text-[var(--text-secondary)] mb-8">Loading...</div>
-                ) : (
-                    <div className="text-3xl md:text-4xl font-black text-white tracking-tight mb-8 font-mono">
-                        {displayHWID}
-                    </div>
-                )}
+                <div className="h-20 flex items-center justify-center mb-6">
+                    <LoadingTransition loading={fetchingStatus} skeleton={<Loader size="sm" />}>
+                        <div className="text-3xl md:text-4xl font-black text-white tracking-tight font-mono">
+                            {displayHWID}
+                        </div>
+                    </LoadingTransition>
+                </div>
 
                 <div className="flex justify-center gap-4">
                     <Button

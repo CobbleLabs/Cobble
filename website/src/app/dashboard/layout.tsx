@@ -9,11 +9,11 @@ import clsx from "clsx";
 import { useAuth } from "@/context/AuthContext";
 
 const navItems = [
-    { name: "Overview", href: "/dashboard", icon: LayoutDashboard },
-    { name: "Purchase", href: "/dashboard/purchase", icon: ShoppingCart },
-    { name: "Downloads", href: "/dashboard/downloads", icon: Download },
-    { name: "HWID Manager", href: "/dashboard/hwid", icon: Shield },
-    { name: "Changelogs", href: "/dashboard/changelogs", icon: FileText },
+    { name: "Overview", href: "/dashboard", icon: LayoutDashboard, requiresLicense: false, hideIfLifetime: false },
+    { name: "Purchase", href: "/dashboard/purchase", icon: ShoppingCart, requiresLicense: false, hideIfLifetime: true },
+    { name: "Downloads", href: "/dashboard/downloads", icon: Download, requiresLicense: true, hideIfLifetime: false },
+    { name: "HWID Manager", href: "/dashboard/hwid", icon: Shield, requiresLicense: true, hideIfLifetime: false },
+    { name: "Changelogs", href: "/dashboard/changelogs", icon: FileText, requiresLicense: false, hideIfLifetime: false },
 ];
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
@@ -39,8 +39,18 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     }
 
     const isAdmin = user?.role === "admin";
-    const planDisplay = user?.license?.plan === "lifetime" ? "Lifetime" :
+    const hasLicense = !!user?.license;
+    const isLifetime = user?.license?.plan === "lifetime";
+    const planDisplay = isLifetime ? "Lifetime" :
         user?.license?.plan === "monthly" ? "Monthly" : "No Plan";
+
+    // Filter nav items based on license status (admins see everything)
+    const filteredNavItems = navItems.filter(item => {
+        if (isAdmin) return true; // Admins see all items
+        if (item.requiresLicense && !hasLicense) return false;
+        if (item.hideIfLifetime && isLifetime) return false;
+        return true;
+    });
 
     return (
         <div className="min-h-screen bg-[#0A0A0A] text-white font-sans flex overflow-hidden">
@@ -48,16 +58,13 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             {/* Sidebar (Desktop) */}
             <aside className="hidden md:flex flex-col w-72 h-screen fixed left-0 top-0 border-r border-[var(--border-color)] bg-[#0F0F0F] z-20">
                 <div className="p-8">
-                    <Link href="/" className="text-2xl font-bold tracking-widest text-white uppercase flex items-center gap-2">
-                        <div className="w-8 h-8 bg-[var(--accent-primary)] rounded flex items-center justify-center">
-                            <span className="text-white text-lg font-black">C</span>
-                        </div>
-                        COBBLE
+                    <Link href="/" className="text-2xl font-bold tracking-wide text-white flex items-center gap-2">
+                        Cobble
                     </Link>
                 </div>
 
                 <nav className="flex-1 px-4 space-y-2 overflow-y-auto custom-scrollbar">
-                    {navItems.map((item) => {
+                    {filteredNavItems.map((item) => {
                         const isActive = pathname === item.href;
                         return (
                             <Link key={item.href} href={item.href}>
@@ -178,7 +185,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
                 {/* Mobile Header */}
                 <header className="md:hidden h-16 border-b border-[var(--border-color)] bg-[#0F0F0F] flex items-center justify-between px-4 z-20">
-                    <span className="font-bold text-lg">COBBLE</span>
+                    <span className="font-bold text-lg">Cobble</span>
                     <button onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}>
                         {isMobileMenuOpen ? <X /> : <Menu />}
                     </button>
@@ -194,7 +201,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                             className="fixed inset-0 z-50 bg-[#0F0F0F] md:hidden pt-20 px-4"
                         >
                             <nav className="space-y-2">
-                                {navItems.map((item) => (
+                                {filteredNavItems.map((item) => (
                                     <Link key={item.href} href={item.href} onClick={() => setIsMobileMenuOpen(false)}>
                                         <div className={clsx(
                                             "flex items-center gap-4 px-4 py-4 rounded-xl text-lg font-medium",

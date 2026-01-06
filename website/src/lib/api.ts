@@ -1,9 +1,28 @@
 // API Client for Cobble Backend
-// Security: Access token in memory only, refresh token via HttpOnly cookie
+// DEV MODE: Token in localStorage (persists across page loads)
+// PROD MODE: Access token in memory, refresh via HttpOnly cookie
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://syra.club';
 
-// In-memory token storage (more secure than localStorage)
+// Use localStorage in development to persist tokens across page loads
+// This is needed because cross-domain cookies don't work without same domain
+const TOKEN_STORAGE_KEY = 'cobble_access_token';
+
+function getStoredToken(): string | null {
+    if (typeof window === 'undefined') return null;
+    return localStorage.getItem(TOKEN_STORAGE_KEY);
+}
+
+function storeToken(token: string | null) {
+    if (typeof window === 'undefined') return;
+    if (token) {
+        localStorage.setItem(TOKEN_STORAGE_KEY, token);
+    } else {
+        localStorage.removeItem(TOKEN_STORAGE_KEY);
+    }
+}
+
+// In-memory fallback
 let accessToken: string | null = null;
 
 export interface User {
@@ -19,7 +38,7 @@ export interface User {
 
 export interface License {
     id: number;
-    plan: 'monthly' | 'lifetime';
+    plan: 'monthly' | 'lifetime' | 'trial';
     expires_at?: string;
     hwid?: string;
     hwid_last_reset?: string;
@@ -62,17 +81,26 @@ export interface ApiError {
     error: string;
 }
 
-// Token management
+// Token management - uses localStorage for persistence
 export function setAccessToken(token: string | null) {
     accessToken = token;
+    storeToken(token);
 }
 
 export function getAccessToken(): string | null {
-    return accessToken;
+    // Try memory first, then localStorage
+    if (accessToken) return accessToken;
+    const stored = getStoredToken();
+    if (stored) {
+        accessToken = stored;
+        return stored;
+    }
+    return null;
 }
 
 export function clearAuth() {
     accessToken = null;
+    storeToken(null);
 }
 
 // Base fetch with auth and error handling
@@ -88,8 +116,9 @@ async function apiFetch<T>(
     };
 
     // Add auth header if we have a token
-    if (accessToken) {
-        (headers as Record<string, string>)['Authorization'] = `Bearer ${accessToken}`;
+    const token = getAccessToken();
+    if (token) {
+        (headers as Record<string, string>)['Authorization'] = `Bearer ${token}`;
     }
 
     const response = await fetch(url, {
@@ -146,17 +175,27 @@ export async function register(username: string, email: string, password: string
     });
 }
 
+let refreshPromise: Promise<boolean> | null = null;
+
 export async function refreshToken(): Promise<boolean> {
-    try {
-        const data = await apiFetch<{ access_token: string }>('/api/auth/refresh', {
-            method: 'POST',
-        });
-        setAccessToken(data.access_token);
-        return true;
-    } catch {
-        clearAuth();
-        return false;
-    }
+    if (refreshPromise) return refreshPromise;
+
+    refreshPromise = (async () => {
+        try {
+            const data = await apiFetch<{ access_token: string }>('/api/auth/refresh', {
+                method: 'POST',
+            });
+            setAccessToken(data.access_token);
+            return true;
+        } catch {
+            clearAuth();
+            return false;
+        } finally {
+            refreshPromise = null;
+        }
+    })();
+
+    return refreshPromise;
 }
 
 export async function logout(): Promise<void> {

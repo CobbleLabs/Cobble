@@ -5,6 +5,8 @@ import { motion } from "framer-motion";
 import { Download, AlertTriangle, Terminal, Lock } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Heading, Text } from "@/components/ui/Typography";
+import { Loader } from "@/components/ui/Loader";
+import { LoadingTransition } from "@/components/ui/LoadingTransition";
 import { useToast } from "@/context/ToastContext";
 import { useAuth } from "@/context/AuthContext";
 import * as api from "@/lib/api";
@@ -97,66 +99,62 @@ export default function DownloadsPage() {
                         <Button>Get a License</Button>
                     </a>
                 </div>
-            ) : loading ? (
-                /* Loading State */
-                <div className="bg-[var(--bg-primary)] border border-[var(--border-color)] rounded-3xl p-8 animate-pulse">
-                    <div className="flex items-start gap-6">
-                        <div className="w-16 h-16 bg-[var(--bg-tertiary)] rounded-2xl" />
-                        <div className="flex-1 space-y-4">
-                            <div className="h-6 bg-[var(--bg-tertiary)] rounded w-1/3" />
-                            <div className="h-4 bg-[var(--bg-tertiary)] rounded w-2/3" />
+
+            ) : (
+                <LoadingTransition loading={loading} skeleton={<Loader centered />}>
+                    {downloads.length > 0 ? (
+                        /* Downloads List */
+                        <div className="space-y-4">
+                            {downloads.map((item) => (
+                                <div
+                                    key={item.id}
+                                    className="bg-[var(--bg-primary)] border border-[var(--border-color)] rounded-3xl p-8 hover:border-[var(--accent-primary)]/50 transition-colors group"
+                                >
+                                    <div className="flex items-start gap-6">
+                                        <div className="w-16 h-16 bg-[var(--accent-primary)]/10 rounded-2xl flex items-center justify-center flex-shrink-0 group-hover:scale-110 transition-transform">
+                                            <Terminal className="w-8 h-8 text-[var(--accent-primary)]" />
+                                        </div>
+                                        <div className="flex-1">
+                                            <h3 className="text-2xl font-bold text-white mb-1">{item.name}</h3>
+                                            <Text className="mb-4">Version {item.version}</Text>
+                                            <Button
+                                                icon={<Download className="w-5 h-5" />}
+                                                onClick={() => handleDownload(item)}
+                                                loading={downloading === item.id}
+                                            >
+                                                Download
+                                            </Button>
+                                        </div>
+                                    </div>
+                                </div>
+                            ))}
                         </div>
-                    </div>
-                </div>
-            ) : downloads.length > 0 ? (
-                /* Downloads List */
-                <div className="space-y-4">
-                    {downloads.map((item) => (
-                        <div
-                            key={item.id}
-                            className="bg-[var(--bg-primary)] border border-[var(--border-color)] rounded-3xl p-8 hover:border-[var(--accent-primary)]/50 transition-colors group"
-                        >
+
+                    ) : (
+                        /* Fallback - Direct Loader Download */
+                        <div className="bg-[var(--bg-primary)] border border-[var(--border-color)] rounded-3xl p-8 hover:border-[var(--accent-primary)]/50 transition-colors group">
                             <div className="flex items-start gap-6">
                                 <div className="w-16 h-16 bg-[var(--accent-primary)]/10 rounded-2xl flex items-center justify-center flex-shrink-0 group-hover:scale-110 transition-transform">
                                     <Terminal className="w-8 h-8 text-[var(--accent-primary)]" />
                                 </div>
                                 <div className="flex-1">
-                                    <h3 className="text-2xl font-bold text-white mb-1">{item.name}</h3>
-                                    <Text className="mb-4">Version {item.version}</Text>
+                                    <h3 className="text-2xl font-bold text-white mb-2">Cobble Loader</h3>
+                                    <Text className="mb-4">
+                                        The official auto-updating loader. Simply run it and log in.
+                                    </Text>
                                     <Button
                                         icon={<Download className="w-5 h-5" />}
-                                        onClick={() => handleDownload(item)}
-                                        loading={downloading === item.id}
+                                        onClick={() => showToast({ title: "Coming Soon", message: "Download will be available shortly.", type: "info" })}
                                     >
                                         Download
                                     </Button>
                                 </div>
                             </div>
                         </div>
-                    ))}
-                </div>
-            ) : (
-                /* Fallback - Direct Loader Download */
-                <div className="bg-[var(--bg-primary)] border border-[var(--border-color)] rounded-3xl p-8 hover:border-[var(--accent-primary)]/50 transition-colors group">
-                    <div className="flex items-start gap-6">
-                        <div className="w-16 h-16 bg-[var(--accent-primary)]/10 rounded-2xl flex items-center justify-center flex-shrink-0 group-hover:scale-110 transition-transform">
-                            <Terminal className="w-8 h-8 text-[var(--accent-primary)]" />
-                        </div>
-                        <div className="flex-1">
-                            <h3 className="text-2xl font-bold text-white mb-2">Cobble Loader</h3>
-                            <Text className="mb-4">
-                                The official auto-updating loader. Simply run it and log in.
-                            </Text>
-                            <Button
-                                icon={<Download className="w-5 h-5" />}
-                                onClick={() => showToast({ title: "Coming Soon", message: "Download will be available shortly.", type: "info" })}
-                            >
-                                Download
-                            </Button>
-                        </div>
-                    </div>
-                </div>
-            )}
+                    )}
+                </LoadingTransition>
+            )
+            }
 
             <div className="bg-[var(--bg-primary)] border border-[var(--border-color)] rounded-3xl p-8">
                 <h3 className="text-xl font-bold font-heading text-white mb-4">Installation Instructions</h3>
@@ -167,6 +165,6 @@ export default function DownloadsPage() {
                     <li>Run as Administrator.</li>
                 </ol>
             </div>
-        </motion.div>
+        </motion.div >
     );
 }

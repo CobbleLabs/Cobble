@@ -19,6 +19,7 @@ interface PricingCardProps {
     delay?: number;
     buttonText?: string;
     href?: string;
+    className?: string;
 }
 
 export function PricingCard({
@@ -30,7 +31,8 @@ export function PricingCard({
     isPopular = false,
     delay = 0,
     buttonText = "Get Started",
-    href = "/register"
+    href = "/register",
+    className
 }: PricingCardProps) {
     return (
         <motion.div
@@ -38,7 +40,7 @@ export function PricingCard({
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true }}
             transition={{ duration: 0.5, delay }}
-            className="h-full"
+            className={clsx("h-full", className)}
         >
             <Card
                 variant={isPopular ? "premium" : "default"}
