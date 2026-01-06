@@ -2,7 +2,7 @@
 // DEV MODE: Token in localStorage (persists across page loads)
 // PROD MODE: Access token in memory, refresh via HttpOnly cookie
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://syra.club';
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://cobble.vip';
 
 // Use localStorage in development to persist tokens across page loads
 // This is needed because cross-domain cookies don't work without same domain

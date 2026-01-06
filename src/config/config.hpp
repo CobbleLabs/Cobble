@@ -15,7 +15,7 @@
 #include "../util/logger.hpp"
 
 // Server configuration
-#define CONFIG_SERVER L"syra.club"
+#define CONFIG_SERVER L"cobble.vip"
 #define CONFIG_SERVER_PORT 443
 #define CONFIG_DEBOUNCE_MS 400
 
