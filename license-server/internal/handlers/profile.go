@@ -41,7 +41,6 @@ func GetProfile(w http.ResponseWriter, r *http.Request) {
 			Email:     user.Email,
 			Role:      user.Role,
 			AvatarURL: user.AvatarURL,
-			DiscordID: user.DiscordID,
 			CreatedAt: user.CreatedAt,
 			UpdatedAt: user.UpdatedAt,
 		},
@@ -76,7 +75,6 @@ func UpdateProfile(w http.ResponseWriter, r *http.Request) {
 
 	var updates struct {
 		AvatarURL *string `json:"avatar_url"`
-		DiscordID *string `json:"discord_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&updates); err != nil {
 		helpers.JSONResponse(w, http.StatusBadRequest, models.ErrorResponse{Error: "Invalid JSON"})
@@ -86,9 +84,6 @@ func UpdateProfile(w http.ResponseWriter, r *http.Request) {
 	// Update only provided fields
 	if updates.AvatarURL != nil {
 		database.DB.Exec("UPDATE users SET avatar_url = $1, updated_at = NOW() WHERE id = $2", *updates.AvatarURL, userID)
-	}
-	if updates.DiscordID != nil {
-		database.DB.Exec("UPDATE users SET discord_id = $1, updated_at = NOW() WHERE id = $2", *updates.DiscordID, userID)
 	}
 
 	helpers.JSONResponse(w, http.StatusOK, models.SuccessResponse{Success: true})
