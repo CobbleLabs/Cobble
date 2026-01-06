@@ -1,0 +1,19 @@
+# Ignore environment files
+.env
+
+# Ignore database
+*.db
+
+# Ignore binary
+cobble-discord-bot
+cobble-discord-bot.exe
+
+# Go
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+go.work

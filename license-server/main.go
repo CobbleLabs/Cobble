@@ -8,7 +8,6 @@ import (
 
 	"license-server/internal/config"
 	"license-server/internal/database"
-	"license-server/internal/discord"
 	"license-server/internal/handlers"
 	"license-server/internal/helpers"
 	"license-server/internal/logger"
@@ -46,11 +45,7 @@ func main() {
 		logger.Info("SECURITY", "Signing key loaded", logger.Fields{"path": cfg.SigningKeyPath})
 	}
 
-	if cfg.IsDiscordEnabled() {
-		go discord.Start()
-	} else {
-		logger.Info("DISCORD", "Bot disabled (set DISCORD_TOKEN, DISCORD_GUILD, DISCORD_ADMIN_ROLE to enable)", nil)
-	}
+	// Discord bot removed - now standalone in discord-bot/ directory
 
 	// Create router with CORS
 	mux := http.NewServeMux()
@@ -113,7 +108,7 @@ func main() {
 	mux.HandleFunc("/api/admin/logs", middleware.RequireAdmin(handlers.AdminGetLogs))
 	mux.HandleFunc("/api/admin/stats", middleware.RequireAdmin(handlers.Stats))
 
-	// Legacy admin endpoints (API key auth for Discord bot)
+	// Legacy admin endpoints (API key auth)
 	mux.HandleFunc("/api/admin/add", middleware.AdminAuth(handlers.AddLicense))
 	mux.HandleFunc("/api/admin/ban", middleware.AdminAuth(handlers.Ban))
 	mux.HandleFunc("/api/admin/unban", middleware.AdminAuth(handlers.Unban))

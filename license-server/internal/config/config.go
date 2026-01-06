@@ -33,11 +33,6 @@ type Config struct {
 	// Logging
 	LogFormat string
 
-	// Discord
-	DiscordToken     string
-	DiscordGuild     string
-	DiscordAdminRole string
-
 	// Updates
 	ReleasesDir    string
 	SigningKeyPath string
@@ -78,11 +73,6 @@ func Load() *Config {
 		// Logging
 		LogFormat: getEnv("LOG_FORMAT", "text"),
 
-		// Discord
-		DiscordToken:     getEnv("DISCORD_TOKEN", ""),
-		DiscordGuild:     getEnv("DISCORD_GUILD", ""),
-		DiscordAdminRole: getEnv("DISCORD_ADMIN_ROLE", ""),
-
 		// Updates
 		ReleasesDir:    getEnv("RELEASES_DIR", "./releases"),
 		SigningKeyPath: getEnv("SIGNING_KEY_PATH", "./private.key"),
@@ -109,10 +99,7 @@ func SetMinVersion(version string) {
 	}
 }
 
-// IsDiscordEnabled checks if Discord bot should start
-func (c *Config) IsDiscordEnabled() bool {
-	return c.DiscordToken != "" && c.DiscordGuild != "" && c.DiscordAdminRole != ""
-}
+
 
 // IsDefaultAdminKey checks if using insecure default key
 func (c *Config) IsDefaultAdminKey() bool {

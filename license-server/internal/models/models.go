@@ -10,7 +10,6 @@ type User struct {
 	PasswordHash string     `json:"-"` // Never expose
 	Role         string     `json:"role"`
 	AvatarURL    *string    `json:"avatar_url,omitempty"`
-	DiscordID    *string    `json:"discord_id,omitempty"`
 	CreatedAt    time.Time  `json:"created_at"`
 	UpdatedAt    time.Time  `json:"updated_at"`
 	BannedAt     *time.Time `json:"banned_at,omitempty"`
