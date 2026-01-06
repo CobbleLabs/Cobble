@@ -3,9 +3,10 @@
 import { LayoutDashboard, ShoppingCart, Download, Shield, FileText, Menu, X, LogOut, User, ChevronDown } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import clsx from "clsx";
+import { useAuth } from "@/context/AuthContext";
 
 const navItems = [
     { name: "Overview", href: "/dashboard", icon: LayoutDashboard },
@@ -19,6 +20,27 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     const pathname = usePathname();
     const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
     const [isAdminOpen, setIsAdminOpen] = useState(false);
+    const { user, isLoading, logout } = useAuth();
+
+    // Keep admin menu open if on admin page
+    useEffect(() => {
+        if (pathname.startsWith("/dashboard/admin")) {
+            setIsAdminOpen(true);
+        }
+    }, [pathname]);
+
+    // Loading state
+    if (isLoading) {
+        return (
+            <div className="min-h-screen flex items-center justify-center bg-[#0A0A0A]">
+                <div className="w-8 h-8 border-2 border-[var(--accent-primary)] border-t-transparent rounded-full animate-spin" />
+            </div>
+        );
+    }
+
+    const isAdmin = user?.role === "admin";
+    const planDisplay = user?.license?.plan === "lifetime" ? "Lifetime" :
+        user?.license?.plan === "monthly" ? "Monthly" : "No Plan";
 
     return (
         <div className="min-h-screen bg-[#0A0A0A] text-white font-sans flex overflow-hidden">
@@ -58,56 +80,58 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                         );
                     })}
 
-                    {/* Admin Divider */}
-                    <div className="my-4 border-t border-[var(--border-color)]" />
-
-                    {/* Admin Menu */}
-                    <div>
-                        <button
-                            onClick={() => setIsAdminOpen(!isAdminOpen)}
-                            className={clsx(
-                                "w-full flex items-center justify-between px-4 py-3.5 rounded-xl transition-all duration-300 group",
-                                pathname.startsWith("/dashboard/admin") ? "text-white" : "text-[var(--text-secondary)] hover:text-white hover:bg-[var(--bg-tertiary)]"
-                            )}
-                        >
-                            <div className="flex items-center gap-4">
-                                <Shield className={clsx("w-5 h-5", pathname.startsWith("/dashboard/admin") ? "text-red-500" : "text-gray-500 group-hover:text-red-500")} />
-                                <span className="font-medium">Admin</span>
-                            </div>
-                            <ChevronDown className={clsx("w-4 h-4 transition-transform", isAdminOpen ? "rotate-180" : "")} />
-                        </button>
-
-                        <AnimatePresence>
-                            {(isAdminOpen || pathname.startsWith("/dashboard/admin")) && (
-                                <motion.div
-                                    initial={{ height: 0, opacity: 0 }}
-                                    animate={{ height: "auto", opacity: 1 }}
-                                    exit={{ height: 0, opacity: 0 }}
-                                    className="overflow-hidden"
+                    {/* Admin Menu - Only show for admins */}
+                    {isAdmin && (
+                        <>
+                            <div className="my-4 border-t border-[var(--border-color)]" />
+                            <div>
+                                <button
+                                    onClick={() => setIsAdminOpen(!isAdminOpen)}
+                                    className={clsx(
+                                        "w-full flex items-center justify-between px-4 py-3.5 rounded-xl transition-all duration-300 group",
+                                        pathname.startsWith("/dashboard/admin") ? "text-white" : "text-[var(--text-secondary)] hover:text-white hover:bg-[var(--bg-tertiary)]"
+                                    )}
                                 >
-                                    <div className="pl-12 pr-4 space-y-1 py-1">
-                                        {[
-                                            { name: "Users", href: "/dashboard/admin/users" },
-                                            { name: "Bans", href: "/dashboard/admin/bans" },
-                                            { name: "Logs", href: "/dashboard/admin/logs" },
-                                            { name: "Announcements", href: "/dashboard/admin/announcements" },
-                                        ].map((subItem) => (
-                                            <Link key={subItem.href} href={subItem.href}>
-                                                <div className={clsx(
-                                                    "py-2 px-3 rounded-lg text-sm transition-colors block",
-                                                    pathname === subItem.href
-                                                        ? "text-red-500 bg-red-500/10 font-medium"
-                                                        : "text-[var(--text-secondary)] hover:text-white hover:bg-[var(--bg-tertiary)]"
-                                                )}>
-                                                    {subItem.name}
-                                                </div>
-                                            </Link>
-                                        ))}
+                                    <div className="flex items-center gap-4">
+                                        <Shield className={clsx("w-5 h-5", pathname.startsWith("/dashboard/admin") ? "text-red-500" : "text-gray-500 group-hover:text-red-500")} />
+                                        <span className="font-medium">Admin</span>
                                     </div>
-                                </motion.div>
-                            )}
-                        </AnimatePresence>
-                    </div>
+                                    <ChevronDown className={clsx("w-4 h-4 transition-transform", isAdminOpen ? "rotate-180" : "")} />
+                                </button>
+
+                                <AnimatePresence>
+                                    {isAdminOpen && (
+                                        <motion.div
+                                            initial={{ height: 0, opacity: 0 }}
+                                            animate={{ height: "auto", opacity: 1 }}
+                                            exit={{ height: 0, opacity: 0 }}
+                                            className="overflow-hidden"
+                                        >
+                                            <div className="pl-12 pr-4 space-y-1 py-1">
+                                                {[
+                                                    { name: "Users", href: "/dashboard/admin/users" },
+                                                    { name: "Bans", href: "/dashboard/admin/bans" },
+                                                    { name: "Logs", href: "/dashboard/admin/logs" },
+                                                    { name: "Announcements", href: "/dashboard/admin/announcements" },
+                                                ].map((subItem) => (
+                                                    <Link key={subItem.href} href={subItem.href}>
+                                                        <div className={clsx(
+                                                            "py-2 px-3 rounded-lg text-sm transition-colors block",
+                                                            pathname === subItem.href
+                                                                ? "text-red-500 bg-red-500/10 font-medium"
+                                                                : "text-[var(--text-secondary)] hover:text-white hover:bg-[var(--bg-tertiary)]"
+                                                        )}>
+                                                            {subItem.name}
+                                                        </div>
+                                                    </Link>
+                                                ))}
+                                            </div>
+                                        </motion.div>
+                                    )}
+                                </AnimatePresence>
+                            </div>
+                        </>
+                    )}
 
                 </nav>
 
@@ -127,14 +151,22 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
                     {/* User Card */}
                     <div className="bg-[var(--bg-primary)] border border-[var(--border-color)] rounded-xl p-4 flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-full bg-[var(--bg-secondary)] flex items-center justify-center text-gray-400">
-                            <User className="w-5 h-5" />
+                        <div className="w-10 h-10 rounded-full bg-[var(--bg-secondary)] flex items-center justify-center text-gray-400 overflow-hidden">
+                            {user?.avatar_url ? (
+                                <img src={user.avatar_url} alt={user.username} className="w-full h-full object-cover" />
+                            ) : (
+                                <User className="w-5 h-5" />
+                            )}
                         </div>
                         <div className="flex-1 min-w-0">
-                            <div className="text-sm font-semibold truncate">User123</div>
-                            <div className="text-xs text-[var(--text-muted)] truncate">Lifetime Plan</div>
+                            <div className="text-sm font-semibold truncate">{user?.username || "Guest"}</div>
+                            <div className="text-xs text-[var(--text-muted)] truncate">{planDisplay}</div>
                         </div>
-                        <button className="text-[var(--text-secondary)] hover:text-[var(--error)] transition-colors">
+                        <button
+                            onClick={logout}
+                            className="text-[var(--text-secondary)] hover:text-[var(--error)] transition-colors"
+                            title="Logout"
+                        >
                             <LogOut className="w-5 h-5" />
                         </button>
                     </div>
@@ -174,6 +206,15 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                                     </Link>
                                 ))}
                             </nav>
+                            <div className="mt-8 pt-4 border-t border-[var(--border-color)]">
+                                <button
+                                    onClick={logout}
+                                    className="flex items-center gap-4 px-4 py-4 text-[var(--text-secondary)] hover:text-red-500"
+                                >
+                                    <LogOut className="w-6 h-6" />
+                                    Logout
+                                </button>
+                            </div>
                         </motion.div>
                     )}
                 </AnimatePresence>

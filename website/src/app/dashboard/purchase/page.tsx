@@ -28,7 +28,7 @@ export default function PurchasePage() {
                 />
                 <PricingCard
                     title="Lifetime Access"
-                    price="50"
+                    price="25"
                     period="/life"
                     description="One-time payment. Own it forever."
                     features={["Full Module Access", "Priority Support", "Cloud Configs", "Unlimited HWID Resets", "Early Access Beta"]}

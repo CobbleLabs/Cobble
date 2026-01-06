@@ -1,9 +1,10 @@
 "use client";
 
 import Link from "next/link";
-
-import { useState } from "react";
+import { useRouter } from "next/navigation";
+import { useState, useEffect } from "react";
 import { useToast } from "@/context/ToastContext";
+import { useAuth } from "@/context/AuthContext";
 import { ArrowRight } from "lucide-react";
 import { AuthNavbar } from "@/components/ui/AuthNavbar";
 import { Button } from "@/components/ui/Button";
@@ -13,20 +14,38 @@ import { motion } from "framer-motion";
 
 export default function LoginPage() {
     const [email, setEmail] = useState("");
-
     const [password, setPassword] = useState("");
     const [isLoading, setIsLoading] = useState(false);
     const { showToast } = useToast();
+    const { login, isAuthenticated, isLoading: authLoading } = useAuth();
+    const router = useRouter();
+
+    // Redirect if already logged in (in useEffect to avoid setState during render)
+    useEffect(() => {
+        if (!authLoading && isAuthenticated) {
+            router.replace("/dashboard");
+        }
+    }, [isAuthenticated, authLoading, router]);
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
+
+        if (!email || !password) {
+            showToast({ title: "Error", message: "Please fill in all fields", type: "error" });
+            return;
+        }
+
         setIsLoading(true);
-        // TODO: API
-        setTimeout(() => {
-            setIsLoading(false);
+        try {
+            await login(email, password);
             showToast({ title: "Welcome back!", message: "Successfully logged in.", type: "success" });
-            window.location.href = "/dashboard";
-        }, 1000);
+            router.push("/dashboard");
+        } catch (error) {
+            const message = error instanceof Error ? error.message : "Login failed";
+            showToast({ title: "Login Failed", message, type: "error" });
+        } finally {
+            setIsLoading(false);
+        }
     };
 
     return (
@@ -57,6 +76,7 @@ export default function LoginPage() {
                             onChange={(e) => setEmail(e.target.value)}
                             placeholder="name@example.com"
                             required
+                            autoComplete="email"
                         />
 
                         <Input
@@ -66,6 +86,7 @@ export default function LoginPage() {
                             onChange={(e) => setPassword(e.target.value)}
                             placeholder="••••••••"
                             required
+                            autoComplete="current-password"
                         />
 
                         <Button

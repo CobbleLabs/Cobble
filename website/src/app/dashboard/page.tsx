@@ -1,16 +1,61 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { Activity, Clock, ShieldCheck, Download, ExternalLink } from "lucide-react";
 import { Heading, Text } from "@/components/ui/Typography";
-import { Card } from "@/components/ui/Card";
 import { BentoGrid, BentoItem } from "@/components/ui/BentoGrid";
 import { ActionCard } from "@/components/ui/ActionCard";
 import { UpdateItem } from "@/components/ui/UpdateItem";
 import { Badge } from "@/components/ui/Badge";
+import { Card } from "@/components/ui/Card";
 import { staggerContainer, fadeInUp } from "@/lib/motion";
+import { useAuth } from "@/context/AuthContext";
+import * as api from "@/lib/api";
 
 export default function DashboardPage() {
+    const { user } = useAuth();
+    const [announcements, setAnnouncements] = useState<api.Announcement[]>([]);
+    const [changelogs, setChangelogs] = useState<api.Changelog[]>([]);
+    const [loading, setLoading] = useState(true);
+
+    useEffect(() => {
+        async function fetchData() {
+            try {
+                const [announcementsData, changelogsData] = await Promise.all([
+                    api.getAnnouncements(),
+                    api.getChangelogs(),
+                ]);
+                setAnnouncements(announcementsData || []);
+                setChangelogs(changelogsData || []);
+            } catch (error) {
+                console.error("Failed to fetch dashboard data:", error);
+            } finally {
+                setLoading(false);
+            }
+        }
+        fetchData();
+    }, []);
+
+    // License info
+    const license = user?.license;
+    const isLifetime = license?.plan === "lifetime";
+    const isActive = isLifetime || (license?.expires_at && new Date(license.expires_at) > new Date());
+    const planName = isLifetime ? "Lifetime Access" : license?.plan === "monthly" ? "Monthly Plan" : "No License";
+
+    // Days remaining
+    let daysRemaining = isLifetime ? "∞" : "0";
+    if (!isLifetime && license?.expires_at) {
+        const days = Math.ceil((new Date(license.expires_at).getTime() - Date.now()) / (1000 * 60 * 60 * 24));
+        daysRemaining = days > 0 ? days.toString() : "Expired";
+    }
+
+    // HWID info
+    const hwidStatus = license?.hwid ? "Locked" : "Not Set";
+    const hwidResetInfo = license?.hwid_last_reset
+        ? `Reset available in ${Math.max(0, 30 - Math.ceil((Date.now() - new Date(license.hwid_last_reset).getTime()) / (1000 * 60 * 60 * 24)))} days`
+        : "Reset available";
+
     return (
         <motion.div
             variants={staggerContainer}
@@ -19,7 +64,7 @@ export default function DashboardPage() {
             className="space-y-8"
         >
             <motion.div variants={fadeInUp}>
-                <Heading className="text-4xl mb-2">Welcome back, User</Heading>
+                <Heading className="text-4xl mb-2">Welcome back, {user?.username || "User"}</Heading>
                 <Text>Here&apos;s an overview of your Cobble status.</Text>
             </motion.div>
 
@@ -34,15 +79,23 @@ export default function DashboardPage() {
                         <div className="p-3 bg-[var(--accent-primary)]/10 rounded-xl text-[var(--accent-primary)]">
                             <ShieldCheck className="w-8 h-8" />
                         </div>
-                        <Badge variant="success">ACTIVE</Badge>
+                        <Badge variant={isActive ? "success" : "error"}>
+                            {isActive ? "ACTIVE" : "INACTIVE"}
+                        </Badge>
                     </div>
 
                     <h3 className="text-[var(--text-secondary)] text-sm font-medium mb-1">Current Plan</h3>
-                    <div className="text-3xl font-bold text-white mb-6">Lifetime Access</div>
+                    <div className="text-3xl font-bold text-white mb-6">{planName}</div>
 
                     <div className="h-1.5 w-full bg-[var(--bg-tertiary)] rounded-full overflow-hidden">
-                        <div className="h-full bg-[var(--accent-primary)] w-full shadow-[0_0_10px_var(--accent-primary)]" />
+                        <div
+                            className="h-full bg-[var(--accent-primary)] shadow-[0_0_10px_var(--accent-primary)]"
+                            style={{ width: isLifetime ? "100%" : isActive ? "75%" : "0%" }}
+                        />
                     </div>
+                    {!isLifetime && isActive && (
+                        <Text className="text-xs mt-2">{daysRemaining} days remaining</Text>
+                    )}
                 </BentoItem>
 
                 {/* HWID Status */}
@@ -53,8 +106,8 @@ export default function DashboardPage() {
                         </div>
                         <div className="text-sm font-medium text-[var(--text-secondary)]">HWID Status</div>
                     </div>
-                    <div className="text-2xl font-bold text-white mb-2">Locked</div>
-                    <Text className="text-xs">Reset available in 14 days</Text>
+                    <div className="text-2xl font-bold text-white mb-2">{hwidStatus}</div>
+                    <Text className="text-xs">{hwidResetInfo}</Text>
                 </BentoItem>
 
                 {/* Session Time */}
@@ -63,10 +116,14 @@ export default function DashboardPage() {
                         <div className="p-2.5 bg-yellow-500/10 rounded-lg text-yellow-500">
                             <Clock className="w-6 h-6" />
                         </div>
-                        <div className="text-sm font-medium text-[var(--text-secondary)]">Last Seen</div>
+                        <div className="text-sm font-medium text-[var(--text-secondary)]">Account</div>
                     </div>
-                    <div className="text-2xl font-bold text-white mb-2">2h ago</div>
-                    <Text className="text-xs">v2.0.1</Text>
+                    <div className="text-2xl font-bold text-white mb-2">
+                        {user?.role === "admin" ? "Admin" : "User"}
+                    </div>
+                    <Text className="text-xs">
+                        Member since {user?.created_at ? new Date(user.created_at).toLocaleDateString() : "N/A"}
+                    </Text>
                 </BentoItem>
             </BentoGrid>
 
@@ -80,44 +137,81 @@ export default function DashboardPage() {
                             title="Download Loader"
                             description="Get the latest client version"
                             color="blue"
+                            href="/dashboard/downloads"
                         />
                         <ActionCard
                             icon={ExternalLink}
                             title="Join Discord"
                             description="Get help & community updates"
                             color="purple"
+                            href="https://discord.gg/YOURSERVER"
+                            external
                         />
                     </div>
 
                     <Heading className="text-xl mb-6 mt-8">Announcements</Heading>
-                    <Card className="p-6">
-                        <div className="flex items-start gap-4">
-                            <div className="p-2 bg-[var(--accent-primary)]/10 rounded-lg text-[var(--accent-primary)] mt-1">
-                                <Activity className="w-5 h-5" />
-                            </div>
-                            <div>
-                                <h3 className="text-lg font-bold text-white mb-2">Welcome to Cobble v2.0</h3>
-                                <Text className="text-sm leading-relaxed mb-4">
-                                    We&apos;re excited to announce the release of our biggest update yet! Enjoy the new UI, improved performance, and enhanced security features.
-                                    Join our Discord for more details and giveaways.
-                                </Text>
-                                <div className="flex items-center gap-2 text-xs font-medium text-[var(--text-secondary)]">
-                                    <span className="text-[var(--accent-primary)]">Administrator</span>
-                                    <span>•</span>
-                                    <span>Posted just now</span>
-                                </div>
-                            </div>
+                    {loading ? (
+                        <Card className="p-6 animate-pulse">
+                            <div className="h-6 bg-[var(--bg-tertiary)] rounded w-1/3 mb-4" />
+                            <div className="h-4 bg-[var(--bg-tertiary)] rounded w-2/3" />
+                        </Card>
+                    ) : announcements.length > 0 ? (
+                        <div className="space-y-4">
+                            {announcements.slice(0, 3).map((announcement) => (
+                                <Card key={announcement.id} className="p-6">
+                                    <div className="flex items-start gap-4">
+                                        <div className="p-2 bg-[var(--accent-primary)]/10 rounded-lg text-[var(--accent-primary)] mt-1">
+                                            <Activity className="w-5 h-5" />
+                                        </div>
+                                        <div>
+                                            <div className="flex items-center gap-2 mb-2">
+                                                <h3 className="text-lg font-bold text-white">{announcement.title}</h3>
+                                                {announcement.pinned && (
+                                                    <Badge variant="warning">Pinned</Badge>
+                                                )}
+                                            </div>
+                                            <Text className="text-sm leading-relaxed mb-4">
+                                                {announcement.content}
+                                            </Text>
+                                            <div className="flex items-center gap-2 text-xs font-medium text-[var(--text-secondary)]">
+                                                <span className="text-[var(--accent-primary)]">Administrator</span>
+                                                <span>•</span>
+                                                <span>{new Date(announcement.created_at).toLocaleDateString()}</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </Card>
+                            ))}
                         </div>
-                    </Card>
+                    ) : (
+                        <Card className="p-6">
+                            <Text className="text-center">No announcements yet.</Text>
+                        </Card>
+                    )}
                 </motion.div>
 
                 {/* Recent News */}
                 <motion.div variants={fadeInUp}>
                     <Heading className="text-xl mb-6">Latest Updates</Heading>
                     <Card className="space-y-6">
-                        <UpdateItem version="v2.0.2" date="Today" description="Fixed movement lag on Hypixel" />
-                        <UpdateItem version="v2.0.1" date="Yesterday" description="Improved AimAssist randomization" />
-                        <UpdateItem version="v2.0.0" date="2 days ago" description="Major UI overhaul released" />
+                        {loading ? (
+                            <div className="animate-pulse space-y-4">
+                                {[1, 2, 3].map((i) => (
+                                    <div key={i} className="h-16 bg-[var(--bg-tertiary)] rounded" />
+                                ))}
+                            </div>
+                        ) : changelogs.length > 0 ? (
+                            changelogs.slice(0, 5).map((changelog) => (
+                                <UpdateItem
+                                    key={changelog.id}
+                                    version={changelog.version}
+                                    date={new Date(changelog.released_at).toLocaleDateString()}
+                                    description={changelog.changes?.[0] || "New update"}
+                                />
+                            ))
+                        ) : (
+                            <Text className="text-center py-4">No changelogs yet.</Text>
+                        )}
                     </Card>
                 </motion.div>
             </div>

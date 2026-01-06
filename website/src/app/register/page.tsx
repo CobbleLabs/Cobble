@@ -1,8 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useRouter } from "next/navigation";
+import { useState, useEffect } from "react";
 import { useToast } from "@/context/ToastContext";
+import { useAuth } from "@/context/AuthContext";
 import { ArrowRight } from "lucide-react";
 import { AuthNavbar } from "@/components/ui/AuthNavbar";
 import { Button } from "@/components/ui/Button";
@@ -12,6 +14,8 @@ import { motion } from "framer-motion";
 
 export default function RegisterPage() {
     const { showToast } = useToast();
+    const { register, isAuthenticated, isLoading: authLoading } = useAuth();
+    const router = useRouter();
     const [formData, setFormData] = useState({
         username: "",
         email: "",
@@ -20,15 +24,52 @@ export default function RegisterPage() {
     });
     const [isLoading, setIsLoading] = useState(false);
 
+    // Redirect if already logged in (in useEffect to avoid setState during render)
+    useEffect(() => {
+        if (!authLoading && isAuthenticated) {
+            router.replace("/dashboard");
+        }
+    }, [isAuthenticated, authLoading, router]);
+
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
+
+        // Validation
+        if (!formData.username || !formData.email || !formData.password) {
+            showToast({ title: "Error", message: "Please fill in all fields", type: "error" });
+            return;
+        }
+
+        if (formData.username.length < 3 || formData.username.length > 32) {
+            showToast({ title: "Error", message: "Username must be 3-32 characters", type: "error" });
+            return;
+        }
+
+        if (formData.password.length < 8) {
+            showToast({ title: "Error", message: "Password must be at least 8 characters", type: "error" });
+            return;
+        }
+
+        if (formData.password !== formData.confirmPassword) {
+            showToast({ title: "Error", message: "Passwords do not match", type: "error" });
+            return;
+        }
+
         setIsLoading(true);
-        // TODO: API
-        setTimeout(() => {
+        try {
+            await register(formData.username, formData.email, formData.password);
+            showToast({
+                title: "Account Created",
+                message: "Please log in with your new account",
+                type: "success"
+            });
+            router.push("/login");
+        } catch (error) {
+            const message = error instanceof Error ? error.message : "Registration failed";
+            showToast({ title: "Registration Failed", message, type: "error" });
+        } finally {
             setIsLoading(false);
-            showToast({ title: "Account Created", message: "Successfully registered!", type: "success" });
-            window.location.href = "/dashboard";
-        }, 1000);
+        }
     };
 
     return (
@@ -58,6 +99,9 @@ export default function RegisterPage() {
                             value={formData.username}
                             onChange={(e) => setFormData({ ...formData, username: e.target.value })}
                             required
+                            autoComplete="username"
+                            minLength={3}
+                            maxLength={32}
                         />
 
                         <Input
@@ -66,6 +110,7 @@ export default function RegisterPage() {
                             value={formData.email}
                             onChange={(e) => setFormData({ ...formData, email: e.target.value })}
                             required
+                            autoComplete="email"
                         />
 
                         <div className="grid grid-cols-2 gap-4">
@@ -75,6 +120,8 @@ export default function RegisterPage() {
                                 value={formData.password}
                                 onChange={(e) => setFormData({ ...formData, password: e.target.value })}
                                 required
+                                autoComplete="new-password"
+                                minLength={8}
                             />
                             <Input
                                 label="Confirm"
@@ -82,6 +129,7 @@ export default function RegisterPage() {
                                 value={formData.confirmPassword}
                                 onChange={(e) => setFormData({ ...formData, confirmPassword: e.target.value })}
                                 required
+                                autoComplete="new-password"
                             />
                         </div>
 

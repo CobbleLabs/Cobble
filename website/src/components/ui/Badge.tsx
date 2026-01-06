@@ -5,7 +5,7 @@ import { ReactNode } from "react";
 
 interface BadgeProps {
     children: ReactNode;
-    variant?: "success" | "warning" | "error" | "info" | "default";
+    variant?: "success" | "warning" | "error" | "info" | "default" | "secondary";
     className?: string;
 }
 
@@ -15,6 +15,7 @@ export function Badge({ children, variant = "default", className }: BadgeProps) 
         warning: "bg-[var(--warning)] text-white border-transparent",
         error: "bg-[var(--error)] text-white border-transparent",
         info: "bg-[var(--accent-primary)] text-white border-transparent",
+        secondary: "bg-[var(--bg-secondary)] text-[var(--text-secondary)] border-[var(--border-color)]",
         default: "bg-[var(--bg-tertiary)] text-[var(--text-secondary)] border-[var(--border-color)]"
     };
 
