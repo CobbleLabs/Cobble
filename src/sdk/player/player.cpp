@@ -372,6 +372,175 @@ cleanup:
 	return result;
 }
 
+int LocalPlayer::getItemInSlot(int slot)
+{
+	if (!isValid()) return -1;
+	if (slot < 0 || slot > 35) return -1;  // Valid slots: 0-35 (hotbar + inventory)
+	
+	// Get InventoryPlayer class
+	jclass inventoryCls = nullptr;
+	if (!Java::AssignClass("net.minecraft.entity.player.InventoryPlayer", inventoryCls)) {
+		if (Java::Env->ExceptionCheck()) Java::Env->ExceptionClear();
+		return -1;
+	}
+	
+	// Get ItemStack class
+	jclass itemStackCls = nullptr;
+	if (!Java::AssignClass("net.minecraft.item.ItemStack", itemStackCls)) {
+		Java::Env->DeleteLocalRef(inventoryCls);
+		if (Java::Env->ExceptionCheck()) Java::Env->ExceptionClear();
+		return -1;
+	}
+	
+	// Get Item class
+	jclass itemCls = nullptr;
+	if (!Java::AssignClass("net.minecraft.item.Item", itemCls)) {
+		Java::Env->DeleteLocalRef(inventoryCls);
+		Java::Env->DeleteLocalRef(itemStackCls);
+		if (Java::Env->ExceptionCheck()) Java::Env->ExceptionClear();
+		return -1;
+	}
+	
+	// Get player.inventory field
+	jfieldID fid_inventory = Java::Env->GetFieldID(cls, "inventory", "Lnet/minecraft/entity/player/InventoryPlayer;");
+	if (!fid_inventory || Java::Env->ExceptionCheck()) {
+		Java::Env->ExceptionClear();
+		Java::Env->DeleteLocalRef(inventoryCls);
+		Java::Env->DeleteLocalRef(itemStackCls);
+		Java::Env->DeleteLocalRef(itemCls);
+		return -1;
+	}
+	
+	jobject inventory = Java::Env->GetObjectField(instance, fid_inventory);
+	if (!inventory || Java::Env->ExceptionCheck()) {
+		Java::Env->ExceptionClear();
+		Java::Env->DeleteLocalRef(inventoryCls);
+		Java::Env->DeleteLocalRef(itemStackCls);
+		Java::Env->DeleteLocalRef(itemCls);
+		return -1;
+	}
+	
+	// Get inventory.mainInventory field (array of ItemStack)
+	jfieldID fid_mainInventory = Java::Env->GetFieldID(inventoryCls, "mainInventory", "[Lnet/minecraft/item/ItemStack;");
+	if (!fid_mainInventory || Java::Env->ExceptionCheck()) {
+		Java::Env->ExceptionClear();
+		Java::Env->DeleteLocalRef(inventory);
+		Java::Env->DeleteLocalRef(inventoryCls);
+		Java::Env->DeleteLocalRef(itemStackCls);
+		Java::Env->DeleteLocalRef(itemCls);
+		return -1;
+	}
+	
+	jobjectArray mainInventory = (jobjectArray)Java::Env->GetObjectField(inventory, fid_mainInventory);
+	if (!mainInventory || Java::Env->ExceptionCheck()) {
+		Java::Env->ExceptionClear();
+		Java::Env->DeleteLocalRef(inventory);
+		Java::Env->DeleteLocalRef(inventoryCls);
+		Java::Env->DeleteLocalRef(itemStackCls);
+		Java::Env->DeleteLocalRef(itemCls);
+		return -1;
+	}
+	
+	// Check array bounds
+	jsize arrayLength = Java::Env->GetArrayLength(mainInventory);
+	if (slot >= arrayLength) {
+		Java::Env->DeleteLocalRef(mainInventory);
+		Java::Env->DeleteLocalRef(inventory);
+		Java::Env->DeleteLocalRef(inventoryCls);
+		Java::Env->DeleteLocalRef(itemStackCls);
+		Java::Env->DeleteLocalRef(itemCls);
+		return -1;
+	}
+	
+	// Get ItemStack from array
+	jobject itemStack = Java::Env->GetObjectArrayElement(mainInventory, slot);
+	if (Java::Env->ExceptionCheck()) {
+		Java::Env->ExceptionClear();
+		Java::Env->DeleteLocalRef(mainInventory);
+		Java::Env->DeleteLocalRef(inventory);
+		Java::Env->DeleteLocalRef(inventoryCls);
+		Java::Env->DeleteLocalRef(itemStackCls);
+		Java::Env->DeleteLocalRef(itemCls);
+		return -1;
+	}
+	
+	if (!itemStack) {
+		// Empty slot - not an error
+		Java::Env->DeleteLocalRef(mainInventory);
+		Java::Env->DeleteLocalRef(inventory);
+		Java::Env->DeleteLocalRef(inventoryCls);
+		Java::Env->DeleteLocalRef(itemStackCls);
+		Java::Env->DeleteLocalRef(itemCls);
+		return -1;
+	}
+	
+	// Get itemStack.getItem() method
+	jmethodID mid_getItem = Java::Env->GetMethodID(itemStackCls, "getItem", "()Lnet/minecraft/item/Item;");
+	if (!mid_getItem || Java::Env->ExceptionCheck()) {
+		Java::Env->ExceptionClear();
+		Java::Env->DeleteLocalRef(itemStack);
+		Java::Env->DeleteLocalRef(mainInventory);
+		Java::Env->DeleteLocalRef(inventory);
+		Java::Env->DeleteLocalRef(inventoryCls);
+		Java::Env->DeleteLocalRef(itemStackCls);
+		Java::Env->DeleteLocalRef(itemCls);
+		return -1;
+	}
+	
+	jobject item = Java::Env->CallObjectMethod(itemStack, mid_getItem);
+	if (Java::Env->ExceptionCheck()) {
+		Java::Env->ExceptionClear();
+		Java::Env->DeleteLocalRef(itemStack);
+		Java::Env->DeleteLocalRef(mainInventory);
+		Java::Env->DeleteLocalRef(inventory);
+		Java::Env->DeleteLocalRef(inventoryCls);
+		Java::Env->DeleteLocalRef(itemStackCls);
+		Java::Env->DeleteLocalRef(itemCls);
+		return -1;
+	}
+	
+	if (!item) {
+		Java::Env->DeleteLocalRef(itemStack);
+		Java::Env->DeleteLocalRef(mainInventory);
+		Java::Env->DeleteLocalRef(inventory);
+		Java::Env->DeleteLocalRef(inventoryCls);
+		Java::Env->DeleteLocalRef(itemStackCls);
+		Java::Env->DeleteLocalRef(itemCls);
+		return -1;
+	}
+	
+	// Get Item.getIdFromItem static method
+	jmethodID mid_getIdFromItem = Java::Env->GetStaticMethodID(itemCls, "getIdFromItem", "(Lnet/minecraft/item/Item;)I");
+	if (!mid_getIdFromItem || Java::Env->ExceptionCheck()) {
+		Java::Env->ExceptionClear();
+		Java::Env->DeleteLocalRef(item);
+		Java::Env->DeleteLocalRef(itemStack);
+		Java::Env->DeleteLocalRef(mainInventory);
+		Java::Env->DeleteLocalRef(inventory);
+		Java::Env->DeleteLocalRef(inventoryCls);
+		Java::Env->DeleteLocalRef(itemStackCls);
+		Java::Env->DeleteLocalRef(itemCls);
+		return -1;
+	}
+	
+	int itemId = Java::Env->CallStaticIntMethod(itemCls, mid_getIdFromItem, item);
+	if (Java::Env->ExceptionCheck()) {
+		Java::Env->ExceptionClear();
+		itemId = -1;
+	}
+	
+	// Cleanup
+	Java::Env->DeleteLocalRef(item);
+	Java::Env->DeleteLocalRef(itemStack);
+	Java::Env->DeleteLocalRef(mainInventory);
+	Java::Env->DeleteLocalRef(inventory);
+	Java::Env->DeleteLocalRef(inventoryCls);
+	Java::Env->DeleteLocalRef(itemStackCls);
+	Java::Env->DeleteLocalRef(itemCls);
+	
+	return itemId;
+}
+
 // ============================================================================
 // Blink - lastReportedPos manipulation
 // These fields control when Minecraft sends C03PacketPlayer
