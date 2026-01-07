@@ -8,6 +8,7 @@
 #include "module/combat/reach.h"
 #include "module/combat/blink.h"
 #include "module/utility/nojumpdelay.h"
+#include "module/utility/noitemrelease.h"
 #include "module/utility/bridgeassist.h"
 #include "module/visual/nametags.h"
 #include "module/visual/esp.h"
@@ -71,6 +72,7 @@ void cobble::context::initialize(HMODULE hModule)
 	reach = new Reach();
 	blink = new Blink();
 	noJumpDelay = new NoJumpDelay();
+	noItemRelease = new NoItemRelease();
 	bridgeAssist = new BridgeAssist();
 	nameTags = new NameTags();
 	esp = new ESP();
@@ -86,6 +88,7 @@ void cobble::context::initialize(HMODULE hModule)
 	moduleManager->registerModule(reach);
 	moduleManager->registerModule(blink);
 	moduleManager->registerModule(noJumpDelay);
+	moduleManager->registerModule(noItemRelease);
 	moduleManager->registerModule(bridgeAssist);
 	moduleManager->registerModule(nameTags);
 	moduleManager->registerModule(esp);
@@ -196,6 +199,7 @@ void cobble::context::shutdown()
 	if (reach) reach->setEnabled(false);
 	if (blink) blink->setEnabled(false);
 	if (noJumpDelay) noJumpDelay->setEnabled(false);
+	if (noItemRelease) noItemRelease->setEnabled(false);
 	if (bridgeAssist) bridgeAssist->setEnabled(false);
 	if (nameTags) nameTags->setEnabled(false);
 	if (esp) esp->setEnabled(false);
@@ -214,6 +218,7 @@ void cobble::context::shutdown()
 	if (reach) { delete reach; reach = nullptr; }
 	if (blink) { delete blink; blink = nullptr; }
 	if (noJumpDelay) { delete noJumpDelay; noJumpDelay = nullptr; }
+	if (noItemRelease) { delete noItemRelease; noItemRelease = nullptr; }
 	if (bridgeAssist) { delete bridgeAssist; bridgeAssist = nullptr; }
 	if (nameTags) { delete nameTags; nameTags = nullptr; }
 	if (esp) { delete esp; esp = nullptr; }
