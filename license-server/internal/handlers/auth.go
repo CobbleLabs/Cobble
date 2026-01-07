@@ -1,6 +1,8 @@
 package handlers
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"net/http"
 	"regexp"
@@ -15,9 +17,19 @@ import (
 	"license-server/internal/logger"
 	"license-server/internal/middleware"
 	"license-server/internal/models"
+	"license-server/internal/services"
 )
 
 var emailRegex = regexp.MustCompile(`^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$`)
+
+// generateVerificationToken creates a secure random token
+func generateVerificationToken() (string, error) {
+	bytes := make([]byte, 32)
+	if _, err := rand.Read(bytes); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(bytes), nil
+}
 
 // WebRegister handles POST /api/auth/register
 func WebRegister(w http.ResponseWriter, r *http.Request) {
@@ -61,14 +73,14 @@ func WebRegister(w http.ResponseWriter, r *http.Request) {
 	// Check if email already exists
 	existing, _ := database.GetUserByEmail(req.Email)
 	if existing != nil {
-		helpers.JSONResponse(w, http.StatusConflict, models.ErrorResponse{Error: "Email already registered"})
+		helpers.JSONResponse(w, http.StatusConflict, models.ErrorResponse{Error: "Unable to create account with provided details"})
 		return
 	}
 
 	// Check if username already exists
 	existingUsername, _ := database.GetUserByUsername(req.Username)
 	if existingUsername != nil {
-		helpers.JSONResponse(w, http.StatusConflict, models.ErrorResponse{Error: "Username already taken"})
+		helpers.JSONResponse(w, http.StatusConflict, models.ErrorResponse{Error: "Unable to create account with provided details"})
 		return
 	}
 
@@ -80,23 +92,42 @@ func WebRegister(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Create user
-	userID, err := database.CreateUser(req.Username, req.Email, passwordHash)
+	// Generate verification token
+	verificationToken, err := generateVerificationToken()
+	if err != nil {
+		logger.Error("AUTH", "Failed to generate verification token", logger.Fields{"error": err.Error()})
+		helpers.JSONResponse(w, http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to create account"})
+		return
+	}
+	tokenExpiry := time.Now().Add(24 * time.Hour)
+
+	// Create user with verification token
+	userID, err := database.CreateUser(req.Username, req.Email, passwordHash, verificationToken, tokenExpiry)
 	if err != nil {
 		logger.Error("AUTH", "Failed to create user", logger.Fields{"error": err.Error()})
 		helpers.JSONResponse(w, http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to create account"})
 		return
 	}
 
-	logger.Info("AUTH", "User registered", logger.Fields{"user": req.Username, "email": req.Email})
+	// Send verification email
+	cfg := config.Get()
+	verificationLink := cfg.FrontendURL + "/verify-email?token=" + verificationToken
+	emailService := services.NewEmailService()
+	if err := emailService.SendVerificationEmail(req.Email, verificationLink); err != nil {
+		logger.Error("AUTH", "Failed to send verification email", logger.Fields{"error": err.Error(), "email": req.Email})
+		// Don't fail registration, just log the error
+	}
 
-	// Return success (user needs to login separately)
+	logger.Info("AUTH", "User registered (pending verification)", logger.Fields{"user": req.Username, "email": req.Email})
+
+	// Return success with verification_required flag
 	helpers.JSONResponse(w, http.StatusCreated, models.SuccessResponse{
 		Success: true,
 		Data: map[string]interface{}{
-			"id":       userID,
-			"username": req.Username,
-			"email":    req.Email,
+			"id":                    userID,
+			"username":              req.Username,
+			"email":                 req.Email,
+			"verification_required": true,
 		},
 	})
 }
@@ -114,23 +145,40 @@ func Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	req.Email = strings.TrimSpace(strings.ToLower(req.Email))
+	req.Identifier = strings.TrimSpace(req.Identifier)
 
-	// Get user
-	user, err := database.GetUserByEmail(req.Email)
+	// Determine if identifier is email or username and get user
+	var user *database.UserRow
+	var err error
+	if strings.Contains(req.Identifier, "@") {
+		// Looks like an email
+		user, err = database.GetUserByEmail(strings.ToLower(req.Identifier))
+	} else {
+		// Treat as username
+		user, err = database.GetUserByUsername(req.Identifier)
+	}
+
 	if err != nil {
 		logger.Error("AUTH", "Login DB error", logger.Fields{"error": err.Error()})
 		helpers.JSONResponse(w, http.StatusInternalServerError, models.ErrorResponse{Error: "Login failed"})
 		return
 	}
 	if user == nil {
-		helpers.JSONResponse(w, http.StatusUnauthorized, models.ErrorResponse{Error: "Invalid email or password"})
+		helpers.JSONResponse(w, http.StatusUnauthorized, models.ErrorResponse{Error: "Invalid username/email or password"})
 		return
 	}
 
 	// Verify password
 	if !auth.VerifyPassword(user.PasswordHash, req.Password) {
+		// Record failed attempt for rate limiting/lockout
+		middleware.RecordFailedLogin(helpers.GetClientIP(r))
 		helpers.JSONResponse(w, http.StatusUnauthorized, models.ErrorResponse{Error: "Invalid email or password"})
+		return
+	}
+
+	// Check if email is verified
+	if !user.EmailVerified {
+		helpers.JSONResponse(w, http.StatusForbidden, models.ErrorResponse{Error: "email_not_verified"})
 		return
 	}
 
@@ -356,4 +404,123 @@ func Me(w http.ResponseWriter, r *http.Request) {
 	}
 
 	helpers.JSONResponse(w, http.StatusOK, response)
+}
+
+// VerifyEmail handles GET /api/auth/verify-email?token=xxx
+func VerifyEmail(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		helpers.JSONResponse(w, http.StatusMethodNotAllowed, models.ErrorResponse{Error: "Method not allowed"})
+		return
+	}
+
+	token := r.URL.Query().Get("token")
+	if token == "" {
+		helpers.JSONResponse(w, http.StatusBadRequest, models.ErrorResponse{Error: "Token required"})
+		return
+	}
+
+	// Find user by verification token
+	user, err := database.GetUserByVerificationToken(token)
+	if err != nil {
+		logger.Error("AUTH", "Verification token lookup error", logger.Fields{"error": err.Error()})
+		helpers.JSONResponse(w, http.StatusInternalServerError, models.ErrorResponse{Error: "Verification failed"})
+		return
+	}
+	if user == nil {
+		helpers.JSONResponse(w, http.StatusBadRequest, models.ErrorResponse{Error: "Invalid or expired verification token"})
+		return
+	}
+
+	// Check if token is expired
+	if user.VerificationTokenExpires != nil && time.Now().After(*user.VerificationTokenExpires) {
+		helpers.JSONResponse(w, http.StatusBadRequest, models.ErrorResponse{Error: "Verification token has expired"})
+		return
+	}
+
+	// Mark email as verified
+	if err := database.VerifyUserEmail(user.ID); err != nil {
+		logger.Error("AUTH", "Failed to verify user email", logger.Fields{"error": err.Error(), "user_id": user.ID})
+		helpers.JSONResponse(w, http.StatusInternalServerError, models.ErrorResponse{Error: "Verification failed"})
+		return
+	}
+
+	logger.Info("AUTH", "Email verified", logger.Fields{"user": user.Username, "email": user.Email})
+
+	helpers.JSONResponse(w, http.StatusOK, models.SuccessResponse{
+		Success: true,
+		Data: map[string]interface{}{
+			"message": "Email verified successfully. You can now log in.",
+		},
+	})
+}
+
+// ResendVerification handles POST /api/auth/resend-verification
+func ResendVerification(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		helpers.JSONResponse(w, http.StatusMethodNotAllowed, models.ErrorResponse{Error: "Method not allowed"})
+		return
+	}
+
+	var req struct {
+		Email string `json:"email"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		helpers.JSONResponse(w, http.StatusBadRequest, models.ErrorResponse{Error: "Invalid JSON"})
+		return
+	}
+
+	req.Email = strings.TrimSpace(strings.ToLower(req.Email))
+	if req.Email == "" {
+		helpers.JSONResponse(w, http.StatusBadRequest, models.ErrorResponse{Error: "Email required"})
+		return
+	}
+
+	// Find user by email
+	user, err := database.GetUserByEmail(req.Email)
+	if err != nil {
+		logger.Error("AUTH", "Resend verification DB error", logger.Fields{"error": err.Error()})
+		helpers.JSONResponse(w, http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to resend verification"})
+		return
+	}
+
+	// Always return success to prevent email enumeration
+	if user == nil || user.EmailVerified {
+		helpers.JSONResponse(w, http.StatusOK, models.SuccessResponse{
+			Success: true,
+			Data:    map[string]interface{}{"message": "If an unverified account exists with this email, a verification link has been sent."},
+		})
+		return
+	}
+
+	// Generate new verification token
+	verificationToken, err := generateVerificationToken()
+	if err != nil {
+		logger.Error("AUTH", "Failed to generate new verification token", logger.Fields{"error": err.Error()})
+		helpers.JSONResponse(w, http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to resend verification"})
+		return
+	}
+	tokenExpiry := time.Now().Add(24 * time.Hour)
+
+	// Update user with new token
+	if err := database.SetVerificationToken(user.ID, verificationToken, tokenExpiry); err != nil {
+		logger.Error("AUTH", "Failed to update verification token", logger.Fields{"error": err.Error()})
+		helpers.JSONResponse(w, http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to resend verification"})
+		return
+	}
+
+	// Send verification email
+	cfg := config.Get()
+	verificationLink := cfg.FrontendURL + "/verify-email?token=" + verificationToken
+	emailService := services.NewEmailService()
+	if err := emailService.SendVerificationEmail(req.Email, verificationLink); err != nil {
+		logger.Error("AUTH", "Failed to resend verification email", logger.Fields{"error": err.Error(), "email": req.Email})
+		// Don't fail, just log
+	}
+
+	logger.Info("AUTH", "Verification email resent", logger.Fields{"email": req.Email})
+
+	helpers.JSONResponse(w, http.StatusOK, models.SuccessResponse{
+		Success: true,
+		Data:    map[string]interface{}{"message": "If an unverified account exists with this email, a verification link has been sent."},
+	})
 }

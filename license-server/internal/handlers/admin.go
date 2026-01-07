@@ -151,6 +151,12 @@ func AdminGetUser(w http.ResponseWriter, r *http.Request) {
 	}
 	userID := parts[len(parts)-1]
 
+	// Validate UUID format
+	if !helpers.IsValidUUID(userID) {
+		helpers.JSONResponse(w, http.StatusBadRequest, models.ErrorResponse{Error: "Invalid user ID format"})
+		return
+	}
+
 	user, err := database.GetUserByID(userID)
 	if err != nil || user == nil {
 		helpers.JSONResponse(w, http.StatusNotFound, models.ErrorResponse{Error: "User not found"})
@@ -199,6 +205,12 @@ func AdminUpdateUser(w http.ResponseWriter, r *http.Request) {
 	}
 	userID := parts[len(parts)-1]
 
+	// Validate UUID format
+	if !helpers.IsValidUUID(userID) {
+		helpers.JSONResponse(w, http.StatusBadRequest, models.ErrorResponse{Error: "Invalid user ID format"})
+		return
+	}
+
 	var updates models.AdminUserUpdate
 	if err := json.NewDecoder(r.Body).Decode(&updates); err != nil {
 		helpers.JSONResponse(w, http.StatusBadRequest, models.ErrorResponse{Error: "Invalid JSON"})
@@ -238,6 +250,12 @@ func AdminBanUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	userID := parts[len(parts)-2]
+
+	// Validate UUID format
+	if !helpers.IsValidUUID(userID) {
+		helpers.JSONResponse(w, http.StatusBadRequest, models.ErrorResponse{Error: "Invalid user ID format"})
+		return
+	}
 
 	var req struct {
 		Reason string `json:"reason"`
@@ -560,6 +578,169 @@ func AdminGetLogs(w http.ResponseWriter, r *http.Request) {
 
 // Legacy endpoints for backward compatibility with Discord bot / old API
 
+// ============================================
+// Changelog Management
+// ============================================
+
+// AdminListChangelogs handles GET /api/admin/changelogs
+func AdminListChangelogs(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		helpers.JSONResponse(w, http.StatusMethodNotAllowed, models.ErrorResponse{Error: "Method not allowed"})
+		return
+	}
+
+	rows, err := database.DB.Query(`
+		SELECT id, version, changes, released_at
+		FROM changelogs
+		ORDER BY released_at DESC
+		LIMIT 50
+	`)
+	if err != nil {
+		helpers.JSONResponse(w, http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to fetch changelogs"})
+		return
+	}
+	defer rows.Close()
+
+	var changelogs []models.Changelog
+	for rows.Next() {
+		var c models.Changelog
+		var changesJSON string
+		rows.Scan(&c.ID, &c.Version, &changesJSON, &c.ReleasedAt)
+		if changesJSON != "" {
+			json.Unmarshal([]byte(changesJSON), &c.Changes)
+		}
+		if c.Changes == nil {
+			c.Changes = []string{}
+		}
+		changelogs = append(changelogs, c)
+	}
+
+	if changelogs == nil {
+		changelogs = []models.Changelog{}
+	}
+
+	helpers.JSONResponse(w, http.StatusOK, changelogs)
+}
+
+// AdminCreateChangelog handles POST /api/admin/changelogs
+func AdminCreateChangelog(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		helpers.JSONResponse(w, http.StatusMethodNotAllowed, models.ErrorResponse{Error: "Method not allowed"})
+		return
+	}
+
+	var req struct {
+		Version string   `json:"version"`
+		Changes []string `json:"changes"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		helpers.JSONResponse(w, http.StatusBadRequest, models.ErrorResponse{Error: "Invalid JSON"})
+		return
+	}
+
+	if req.Version == "" || len(req.Changes) == 0 {
+		helpers.JSONResponse(w, http.StatusBadRequest, models.ErrorResponse{Error: "Version and changes required"})
+		return
+	}
+
+	changesJSON, _ := json.Marshal(req.Changes)
+
+	var id int
+	err := database.DB.QueryRow(`
+		INSERT INTO changelogs (version, changes, released_at)
+		VALUES ($1, $2, NOW())
+		RETURNING id
+	`, req.Version, string(changesJSON)).Scan(&id)
+
+	if err != nil {
+		logger.Error("ADMIN", "Failed to create changelog", logger.Fields{"error": err.Error()})
+		helpers.JSONResponse(w, http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to create changelog"})
+		return
+	}
+
+	adminID := middleware.GetUserID(r)
+	idStr := strconv.Itoa(id)
+	database.LogAuditAdmin(adminID, "changelog.create", "changelog", &idStr, nil, helpers.GetClientIP(r))
+
+	logger.Info("ADMIN", "Changelog created", logger.Fields{"id": id, "version": req.Version})
+	helpers.JSONResponse(w, http.StatusCreated, models.SuccessResponse{
+		Success: true,
+		Data:    map[string]interface{}{"id": id, "version": req.Version},
+	})
+}
+
+// AdminUpdateChangelog handles PATCH /api/admin/changelogs/:id
+func AdminUpdateChangelog(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPatch {
+		helpers.JSONResponse(w, http.StatusMethodNotAllowed, models.ErrorResponse{Error: "Method not allowed"})
+		return
+	}
+
+	parts := strings.Split(r.URL.Path, "/")
+	if len(parts) < 4 {
+		helpers.JSONResponse(w, http.StatusBadRequest, models.ErrorResponse{Error: "Changelog ID required"})
+		return
+	}
+	id := parts[len(parts)-1]
+
+	var req struct {
+		Version string   `json:"version"`
+		Changes []string `json:"changes"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		helpers.JSONResponse(w, http.StatusBadRequest, models.ErrorResponse{Error: "Invalid JSON"})
+		return
+	}
+
+	changesJSON, _ := json.Marshal(req.Changes)
+
+	_, err := database.DB.Exec(`
+		UPDATE changelogs
+		SET version = $1, changes = $2
+		WHERE id = $3
+	`, req.Version, string(changesJSON), id)
+
+	if err != nil {
+		logger.Error("ADMIN", "Failed to update changelog", logger.Fields{"error": err.Error()})
+		helpers.JSONResponse(w, http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to update changelog"})
+		return
+	}
+
+	adminID := middleware.GetUserID(r)
+	database.LogAuditAdmin(adminID, "changelog.update", "changelog", &id, nil, helpers.GetClientIP(r))
+
+	logger.Info("ADMIN", "Changelog updated", logger.Fields{"id": id})
+	helpers.JSONResponse(w, http.StatusOK, models.SuccessResponse{Success: true})
+}
+
+// AdminDeleteChangelog handles DELETE /api/admin/changelogs/:id
+func AdminDeleteChangelog(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodDelete {
+		helpers.JSONResponse(w, http.StatusMethodNotAllowed, models.ErrorResponse{Error: "Method not allowed"})
+		return
+	}
+
+	parts := strings.Split(r.URL.Path, "/")
+	if len(parts) < 4 {
+		helpers.JSONResponse(w, http.StatusBadRequest, models.ErrorResponse{Error: "Changelog ID required"})
+		return
+	}
+	id := parts[len(parts)-1]
+
+	_, err := database.DB.Exec("DELETE FROM changelogs WHERE id = $1", id)
+	if err != nil {
+		logger.Error("ADMIN", "Failed to delete changelog", logger.Fields{"error": err.Error()})
+		helpers.JSONResponse(w, http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to delete changelog"})
+		return
+	}
+
+	adminID := middleware.GetUserID(r)
+	database.LogAuditAdmin(adminID, "changelog.delete", "changelog", &id, nil, helpers.GetClientIP(r))
+
+	logger.Info("ADMIN", "Changelog deleted", logger.Fields{"id": id})
+	helpers.JSONResponse(w, http.StatusOK, models.SuccessResponse{Success: true})
+}
+
 // AddLicense handles POST /api/admin/add (legacy)
 func AddLicense(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
@@ -728,5 +909,109 @@ func SetVersion(w http.ResponseWriter, r *http.Request) {
 			"min_version": version,
 			"message":     "All clients below this version will be forced to update.",
 		},
+	})
+}
+
+// AdminResetHWID handles POST /api/admin/users/{id}/reset-hwid
+func AdminResetHWID(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		helpers.JSONResponse(w, http.StatusMethodNotAllowed, models.ErrorResponse{Error: "Method not allowed"})
+		return
+	}
+
+	parts := strings.Split(r.URL.Path, "/")
+	if len(parts) < 5 {
+		helpers.JSONResponse(w, http.StatusBadRequest, models.ErrorResponse{Error: "User ID required"})
+		return
+	}
+	userID := parts[len(parts)-2]
+
+	if !helpers.IsValidUUID(userID) {
+		helpers.JSONResponse(w, http.StatusBadRequest, models.ErrorResponse{Error: "Invalid user ID format"})
+		return
+	}
+
+	// Get user's license
+	license, err := database.GetLicenseByUserID(userID)
+	if err != nil || license == nil {
+		helpers.JSONResponse(w, http.StatusNotFound, models.ErrorResponse{Error: "License not found"})
+		return
+	}
+
+	// Reset HWID
+	_, err = database.DB.Exec(`
+		UPDATE licenses 
+		SET hwid = NULL, hwid_last_reset = NOW(), updated_at = NOW() 
+		WHERE user_id = $1
+	`, userID)
+	if err != nil {
+		logger.Error("ADMIN", "Failed to reset HWID", logger.Fields{"error": err.Error(), "user_id": userID})
+		helpers.JSONResponse(w, http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to reset HWID"})
+		return
+	}
+
+	adminID := middleware.GetUserID(r)
+	database.LogAuditAdmin(adminID, "hwid.reset", "user", &userID, nil, helpers.GetClientIP(r))
+
+	logger.Info("ADMIN", "HWID reset", logger.Fields{"user_id": userID})
+	helpers.JSONResponse(w, http.StatusOK, models.SuccessResponse{
+		Success: true,
+		Data:    map[string]string{"message": "HWID reset successfully"},
+	})
+}
+
+// AdminDeleteUser handles DELETE /api/admin/users/{id}
+func AdminDeleteUser(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodDelete {
+		helpers.JSONResponse(w, http.StatusMethodNotAllowed, models.ErrorResponse{Error: "Method not allowed"})
+		return
+	}
+
+	parts := strings.Split(r.URL.Path, "/")
+	if len(parts) < 4 {
+		helpers.JSONResponse(w, http.StatusBadRequest, models.ErrorResponse{Error: "User ID required"})
+		return
+	}
+	userID := parts[len(parts)-1]
+
+	if !helpers.IsValidUUID(userID) {
+		helpers.JSONResponse(w, http.StatusBadRequest, models.ErrorResponse{Error: "Invalid user ID format"})
+		return
+	}
+
+	// Get user info for logging
+	user, _ := database.GetUserByID(userID)
+	if user == nil {
+		helpers.JSONResponse(w, http.StatusNotFound, models.ErrorResponse{Error: "User not found"})
+		return
+	}
+
+	// Don't allow deleting admin users
+	if user.Role == "admin" {
+		helpers.JSONResponse(w, http.StatusForbidden, models.ErrorResponse{Error: "Cannot delete admin accounts"})
+		return
+	}
+
+	// Delete user's license first (foreign key)
+	database.DB.Exec("DELETE FROM licenses WHERE user_id = $1", userID)
+
+	// Delete session tokens
+	database.DB.Exec("DELETE FROM session_tokens WHERE username = $1", user.Username)
+
+	// Delete user
+	_, err := database.DB.Exec("DELETE FROM users WHERE id = $1", userID)
+	if err != nil {
+		logger.Error("ADMIN", "Failed to delete user", logger.Fields{"error": err.Error(), "user_id": userID})
+		helpers.JSONResponse(w, http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to delete user"})
+		return
+	}
+
+	adminID := middleware.GetUserID(r)
+	database.LogAuditAdmin(adminID, "user.delete", "user", &userID, map[string]interface{}{"username": user.Username}, helpers.GetClientIP(r))
+
+	logger.Info("ADMIN", "User deleted", logger.Fields{"user_id": userID, "username": user.Username})
+	helpers.JSONResponse(w, http.StatusOK, models.SuccessResponse{
+		Success: true,
+		Data:    map[string]string{"message": "User deleted successfully"},
 	})
 }

@@ -4,11 +4,11 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"license-server/internal/config"
 	"license-server/internal/database"
-	"license-server/internal/discord"
 	"license-server/internal/handlers"
 	"license-server/internal/helpers"
 	"license-server/internal/logger"
@@ -46,11 +46,7 @@ func main() {
 		logger.Info("SECURITY", "Signing key loaded", logger.Fields{"path": cfg.SigningKeyPath})
 	}
 
-	if cfg.IsDiscordEnabled() {
-		go discord.Start()
-	} else {
-		logger.Info("DISCORD", "Bot disabled (set DISCORD_TOKEN, DISCORD_GUILD, DISCORD_ADMIN_ROLE to enable)", nil)
-	}
+	// Discord bot removed - now standalone in discord-bot/ directory
 
 	// Create router with CORS
 	mux := http.NewServeMux()
@@ -59,12 +55,14 @@ func main() {
 	// Public endpoints (no auth)
 	// ============================================
 
-	// Auth endpoints
-	mux.HandleFunc("/api/auth/register", handlers.WebRegister)
-	mux.HandleFunc("/api/auth/login", handlers.Login)
+	// Auth endpoints (with stricter rate limiting)
+	mux.HandleFunc("/api/auth/register", middleware.AuthRateLimit(handlers.WebRegister))
+	mux.HandleFunc("/api/auth/login", middleware.AuthRateLimit(handlers.Login))
 	mux.HandleFunc("/api/auth/refresh", handlers.Refresh)
 	mux.HandleFunc("/api/auth/logout", handlers.Logout)
 	mux.HandleFunc("/api/auth/me", middleware.RequireAuth(handlers.Me))
+	mux.HandleFunc("/api/auth/verify-email", handlers.VerifyEmail)
+	mux.HandleFunc("/api/auth/resend-verification", middleware.AuthRateLimit(handlers.ResendVerification))
 
 	// Loader endpoints
 	mux.HandleFunc("/api/loader/login", handlers.LoaderLogin)
@@ -110,10 +108,12 @@ func main() {
 	mux.HandleFunc("/api/admin/licenses/", middleware.RequireAdmin(handlers.AdminExtendLicense))
 	mux.HandleFunc("/api/admin/announcements", middleware.RequireAdmin(handleAdminAnnouncementRoutes))
 	mux.HandleFunc("/api/admin/announcements/", middleware.RequireAdmin(handleAdminAnnouncementRoutes))
+	mux.HandleFunc("/api/admin/changelogs", middleware.RequireAdmin(handleAdminChangelogRoutes))
+	mux.HandleFunc("/api/admin/changelogs/", middleware.RequireAdmin(handleAdminChangelogRoutes))
 	mux.HandleFunc("/api/admin/logs", middleware.RequireAdmin(handlers.AdminGetLogs))
 	mux.HandleFunc("/api/admin/stats", middleware.RequireAdmin(handlers.Stats))
 
-	// Legacy admin endpoints (API key auth for Discord bot)
+	// Legacy admin endpoints (API key auth)
 	mux.HandleFunc("/api/admin/add", middleware.AdminAuth(handlers.AddLicense))
 	mux.HandleFunc("/api/admin/ban", middleware.AdminAuth(handlers.Ban))
 	mux.HandleFunc("/api/admin/unban", middleware.AdminAuth(handlers.Unban))
@@ -155,11 +155,19 @@ func handleAdminUserRoutes(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// /api/admin/users/:id/reset-hwid
+	if strings.HasSuffix(path, "/reset-hwid") {
+		handlers.AdminResetHWID(w, r)
+		return
+	}
+
 	// /api/admin/users/:id
 	if r.Method == http.MethodGet {
 		handlers.AdminGetUser(w, r)
 	} else if r.Method == http.MethodPatch {
 		handlers.AdminUpdateUser(w, r)
+	} else if r.Method == http.MethodDelete {
+		handlers.AdminDeleteUser(w, r)
 	} else {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 	}
@@ -186,6 +194,32 @@ func handleAdminAnnouncementRoutes(w http.ResponseWriter, r *http.Request) {
 		handlers.AdminUpdateAnnouncement(w, r)
 	} else if r.Method == http.MethodDelete {
 		handlers.AdminDeleteAnnouncement(w, r)
+	} else {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+// handleAdminChangelogRoutes routes /api/admin/changelogs/* requests
+func handleAdminChangelogRoutes(w http.ResponseWriter, r *http.Request) {
+	path := r.URL.Path
+
+	// /api/admin/changelogs (no ID)
+	if path == "/api/admin/changelogs" || path == "/api/admin/changelogs/" {
+		if r.Method == http.MethodGet {
+			handlers.AdminListChangelogs(w, r)
+		} else if r.Method == http.MethodPost {
+			handlers.AdminCreateChangelog(w, r)
+		} else {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		}
+		return
+	}
+
+	// /api/admin/changelogs/:id
+	if r.Method == http.MethodPatch {
+		handlers.AdminUpdateChangelog(w, r)
+	} else if r.Method == http.MethodDelete {
+		handlers.AdminDeleteChangelog(w, r)
 	} else {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 	}

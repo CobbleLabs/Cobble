@@ -60,10 +60,10 @@ export default function RegisterPage() {
             await register(formData.username, formData.email, formData.password);
             showToast({
                 title: "Account Created",
-                message: "Please log in with your new account",
+                message: "Please check your email to verify your account",
                 type: "success"
             });
-            router.push("/login");
+            router.push(`/check-email?email=${encodeURIComponent(formData.email)}`);
         } catch (error) {
             const message = error instanceof Error ? error.message : "Registration failed";
             showToast({ title: "Registration Failed", message, type: "error" });

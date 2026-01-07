@@ -144,7 +144,7 @@ export default function Home() {
               <Zap className="w-10 h-10 text-[var(--accent-primary)] mb-4 transition-all duration-300 group-hover:scale-125 group-hover:fill-[var(--accent-primary)]/20" />
               <Heading className="text-2xl mb-2">Instant.</Heading>
               <Text className="text-sm leading-relaxed">
-                If you miss, it&apos;s not us. Pure C++ performance.
+                If you miss, it&apos;s not us.
               </Text>
             </BentoItem>
 

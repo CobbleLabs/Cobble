@@ -10,7 +10,6 @@ type User struct {
 	PasswordHash string     `json:"-"` // Never expose
 	Role         string     `json:"role"`
 	AvatarURL    *string    `json:"avatar_url,omitempty"`
-	DiscordID    *string    `json:"discord_id,omitempty"`
 	CreatedAt    time.Time  `json:"created_at"`
 	UpdatedAt    time.Time  `json:"updated_at"`
 	BannedAt     *time.Time `json:"banned_at,omitempty"`
@@ -75,10 +74,10 @@ type RegisterRequest struct {
 	Password string `json:"password"`
 }
 
-// LoginRequest for authentication
+// LoginRequest for authentication (supports email or username)
 type LoginRequest struct {
-	Email    string `json:"email"`
-	Password string `json:"password"`
+	Identifier string `json:"identifier"` // Can be email or username
+	Password   string `json:"password"`
 }
 
 // LoaderLoginRequest for first-time loader login

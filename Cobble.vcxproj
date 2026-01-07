@@ -106,6 +106,7 @@
     <ClCompile Include="src\module\combat\blink.cpp" />
     <ClCompile Include="src\hooks\winsock_hooks.cpp" />
     <ClCompile Include="src\module\utility\nojumpdelay.cpp" />
+    <ClCompile Include="src\module\utility\noitemrelease.cpp" />
     <ClCompile Include="src\module\utility\bridgeassist.cpp" />
     <ClCompile Include="src\module\visual\nametags.cpp" />
     <ClCompile Include="src\module\visual\esp.cpp" />

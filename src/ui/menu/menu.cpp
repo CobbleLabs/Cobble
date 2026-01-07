@@ -16,6 +16,7 @@
 #include "../../module/combat/reach.h"
 #include "../../module/combat/blink.h"
 #include "../../module/utility/nojumpdelay.h"
+#include "../../module/utility/noitemrelease.h"
 #include "../../module/utility/bridgeassist.h"
 #include "../../module/visual/nametags.h"
 #include "../../module/visual/esp.h"
@@ -53,7 +54,8 @@ Module* getModuleForSubtab(int tabIdx, int subtabIdx)
 	else if (tabIdx == 2) {
 		switch (subtabIdx) {
 			case 0: return noJumpDelay;
-			case 1: return bridgeAssist;
+			case 1: return noItemRelease;
+			case 2: return bridgeAssist;
 		}
 	}
 	// Settings Tab (3) - no module, handled specially

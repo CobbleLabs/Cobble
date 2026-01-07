@@ -119,6 +119,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                                                     { name: "Users", href: "/dashboard/admin/users" },
                                                     { name: "Bans", href: "/dashboard/admin/bans" },
                                                     { name: "Logs", href: "/dashboard/admin/logs" },
+                                                    { name: "Changelogs", href: "/dashboard/admin/changelogs" },
                                                     { name: "Announcements", href: "/dashboard/admin/announcements" },
                                                 ].map((subItem) => (
                                                     <Link key={subItem.href} href={subItem.href}>

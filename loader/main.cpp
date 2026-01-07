@@ -28,8 +28,8 @@
 // ============================================================================
 
 // Server configuration
-inline const char* getServerPrimary() { return _xor_("cobble.vip"); }
-inline const char* getLicenseServerPrimary() { return _xor_("https://cobble.vip"); }
+inline const char* getServerPrimary() { return _xor_("api.cobble.vip"); }
+inline const char* getLicenseServerPrimary() { return _xor_("https://api.cobble.vip"); }
 
 #define SERVER_PORT_HTTPS 443
 #define LICENSE_CHECK_ENABLED true
