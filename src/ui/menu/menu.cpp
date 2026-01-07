@@ -21,6 +21,7 @@
 #include "../../module/visual/nametags.h"
 #include "../../module/visual/esp.h"
 #include "../../module/visual/tracers.h"
+#include "../../module/visual/blockesp.h"
 #include "../../cobble.hpp"
 #include "../../sdk/core/minecraft.h"
 
@@ -48,8 +49,9 @@ Module* getModuleForSubtab(int tabIdx, int subtabIdx)
 			case 0: return nameTags;
 			case 1: return esp;
 			case 2: return tracers;
-			case 3: return nullptr; // ArrayList - special handling
-			case 4: return nullptr; // Notifications - special handling
+			case 3: return blockESP;
+			case 4: return nullptr; // ArrayList - special handling
+			case 5: return nullptr; // Notifications - special handling
 		}
 	}
 	// Movement Tab (2)

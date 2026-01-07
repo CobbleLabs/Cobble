@@ -13,6 +13,7 @@
 #include "module/visual/nametags.h"
 #include "module/visual/esp.h"
 #include "module/visual/tracers.h"
+#include "module/visual/blockesp.h"
 #include "hooks/winsock_hooks.h"
 #include "ui/core/overlay.h"
 #include "ui/hud/notifications.h"
@@ -78,6 +79,7 @@ void cobble::context::initialize(HMODULE hModule)
 	nameTags = new NameTags();
 	esp = new ESP();
 	tracers = new Tracers();
+	blockESP = new BlockESP();
 	friendsManager = new FriendsManager();
 	visualTeamResolver = new VisualTeamResolver();
 	log_ok("Modules allocated");
@@ -95,6 +97,7 @@ void cobble::context::initialize(HMODULE hModule)
 	moduleManager->registerModule(nameTags);
 	moduleManager->registerModule(esp);
 	moduleManager->registerModule(tracers);
+	moduleManager->registerModule(blockESP);
 	log_ok("Modules registered");
 	
 	// Initialize config (loads local, applies to modules, async fetch from server)
