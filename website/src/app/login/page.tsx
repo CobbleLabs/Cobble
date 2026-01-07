@@ -13,7 +13,7 @@ import { Input } from "@/components/ui/Input";
 import { motion } from "framer-motion";
 
 export default function LoginPage() {
-    const [email, setEmail] = useState("");
+    const [identifier, setIdentifier] = useState("");
     const [password, setPassword] = useState("");
     const [isLoading, setIsLoading] = useState(false);
     const { showToast } = useToast();
@@ -30,14 +30,14 @@ export default function LoginPage() {
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
 
-        if (!email || !password) {
+        if (!identifier || !password) {
             showToast({ title: "Error", message: "Please fill in all fields", type: "error" });
             return;
         }
 
         setIsLoading(true);
         try {
-            await login(email, password);
+            await login(identifier, password);
             showToast({ title: "Welcome back!", message: "Successfully logged in.", type: "success" });
             router.push("/dashboard");
         } catch (error) {
@@ -57,9 +57,9 @@ export default function LoginPage() {
             <div className="absolute bottom-0 right-0 w-[600px] h-[600px] bg-purple-600 opacity-10 blur-[120px] rounded-full pointer-events-none" />
 
             <motion.div
-                initial={{ opacity: 0, scale: 0.95 }}
-                animate={{ opacity: 1, scale: 1 }}
-                transition={{ duration: 0.5 }}
+                initial={{ opacity: 0, y: 20, filter: "blur(4px)" }}
+                animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
+                transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
                 className="w-full max-w-md relative z-10 px-6"
             >
                 <div className="text-center mb-8">
@@ -70,13 +70,13 @@ export default function LoginPage() {
                 <div className="bg-[var(--bg-secondary)] border border-[var(--border-color)] p-8 rounded-2xl shadow-2xl backdrop-blur-sm">
                     <form onSubmit={handleSubmit} className="space-y-6">
                         <Input
-                            label="Email Address"
-                            type="email"
-                            value={email}
-                            onChange={(e) => setEmail(e.target.value)}
-                            placeholder="name@example.com"
+                            label="Username or Email"
+                            type="text"
+                            value={identifier}
+                            onChange={(e) => setIdentifier(e.target.value)}
+                            placeholder="Username or Email"
                             required
-                            autoComplete="email"
+                            autoComplete="username"
                         />
 
                         <Input

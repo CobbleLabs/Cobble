@@ -64,24 +64,24 @@ const FAQItem = ({ question, answer, isOpen, onClick }: FAQItemProps) => {
 
 const faqs = [
     {
-        question: "Is Cobble really undetectable?",
-        answer: "Yes. Cobble utilizes advanced kernel-level injection methods that hide the client from task manager, file system scans, and memory dumps. We have maintained a 99.9% undetected rate on major servers for over 2 years."
+        question: "What versions and clients are supported?",
+        answer: "Cobble supports 1.7.10 and 1.8.9 on Lunar Client. Those are the only supported versions and clients."
     },
     {
-        question: "What versions of Minecraft are supported?",
-        answer: "We currently support Minecraft Java Edition versions 1.7.10, 1.8.9, and 1.12.2. Support for 1.19+ is currently in beta testing for lifetime users."
-    },
-    {
-        question: "Do I need to disable my antivirus?",
-        answer: "Due to the nature of how our injection works (interacting with game memory), some antiviruses may flag the loader as a false positive. We recommend adding an exclusion for the Cobble folder."
-    },
-    {
-        question: "Can I transfer my license to another PC?",
-        answer: "Yes! Your license is bound to your HWID. You can reset your HWID once per month directly from the dashboard to move your license to a new computer."
+        question: "Do I need to disable my antivirus or Windows Defender?",
+        answer: "Yes, some antiviruses may flag Cobble due to how it works. If that happens, just add an exclusion."
     },
     {
         question: "What payment methods do you accept?",
-        answer: "We accept all major credit cards (via Stripe), PayPal, and various cryptocurrencies including Bitcoin, Ethereum, and Litecoin for maximum privacy."
+        answer: "We accept PayPal and any Crypto currency."
+    },
+    {
+        question: "Can I share or resell my account?",
+        answer: "No, Licenses are personal and bound to you. Sharing, reselling or leaking access will get the license terminated."
+    },
+    {
+        question: "How do I get support if I need help?",
+        answer: "All support is handled through our Discord. Open a ticket and we’ll take it from there."
     }
 ];
 
@@ -102,8 +102,7 @@ export function FAQ() {
                     className="text-center mb-16"
                 >
                     <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-[var(--accent-primary)]/10 text-[var(--accent-primary)] text-sm font-medium mb-4">
-                        <HelpCircle className="w-4 h-4" />
-                        <span>Support Center</span>
+                        <span>SUPPORT CENTER</span>
                     </div>
                     <Heading className="text-4xl md:text-5xl mb-6">Frequently Asked Questions</Heading>
                     <Text className="text-lg">

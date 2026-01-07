@@ -159,10 +159,10 @@ async function apiFetch<T>(
 }
 
 // Auth endpoints
-export async function login(email: string, password: string): Promise<AuthResponse> {
+export async function login(identifier: string, password: string): Promise<AuthResponse> {
     const data = await apiFetch<AuthResponse>('/api/auth/login', {
         method: 'POST',
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({ identifier, password }),
     });
     setAccessToken(data.access_token);
     return data;
