@@ -47,17 +47,26 @@ export default function DownloadsPage() {
 
     const handleDownload = async (item: DownloadItem) => {
         setDownloading(item.id);
-        showToast({ title: "Download Started", message: `${item.name} is downloading...`, type: "info" });
+        showToast({ title: "Downloading", message: `${item.name} is downloading...`, type: "info" });
 
         try {
-            // Create a link and trigger download
+            // Use authenticated fetch to get the file as blob
+            const response = await api.downloadFile(item.download_url);
+
+            // Create blob URL and trigger download
+            const blob = await response.blob();
+            const url = window.URL.createObjectURL(blob);
             const link = document.createElement('a');
-            link.href = item.download_url;
-            link.download = item.name;
+            link.href = url;
+            link.download = 'CobbleLoader.exe';
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);
+            window.URL.revokeObjectURL(url);
+
+            showToast({ title: "Download Complete", message: `${item.name} downloaded successfully`, type: "success" });
         } catch (error) {
+            console.error("Download failed:", error);
             showToast({ title: "Download Failed", message: "Please try again", type: "error" });
         } finally {
             setDownloading(null);

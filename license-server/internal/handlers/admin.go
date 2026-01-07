@@ -335,8 +335,16 @@ func AdminCreateLicense(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var expiresAt *time.Time
-	if req.Plan != "lifetime" && req.Duration != nil {
-		exp := time.Now().AddDate(0, 0, *req.Duration)
+	if req.Plan != "lifetime" {
+		var days int
+		if req.Duration != nil {
+			days = *req.Duration
+		} else if req.Plan == "monthly" {
+			days = 30 // Default monthly duration
+		} else {
+			days = 30 // Default for custom/trial if not specified
+		}
+		exp := time.Now().AddDate(0, 0, days)
 		expiresAt = &exp
 	}
 
@@ -386,6 +394,54 @@ func AdminExtendLicense(w http.ResponseWriter, r *http.Request) {
 	adminID := middleware.GetUserID(r)
 	database.LogAuditAdmin(adminID, "license.extend", "license", &licenseID, map[string]interface{}{"days": req.Days}, helpers.GetClientIP(r))
 
+	helpers.JSONResponse(w, http.StatusOK, models.SuccessResponse{Success: true})
+}
+
+// AdminRevokeLicense handles DELETE /api/admin/users/:id/revoke-license
+func AdminRevokeLicense(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodDelete {
+		helpers.JSONResponse(w, http.StatusMethodNotAllowed, models.ErrorResponse{Error: "Method not allowed"})
+		return
+	}
+
+	// Get user ID from URL path
+	parts := strings.Split(r.URL.Path, "/")
+	if len(parts) < 5 {
+		helpers.JSONResponse(w, http.StatusBadRequest, models.ErrorResponse{Error: "User ID required"})
+		return
+	}
+	userID := parts[len(parts)-2]
+
+	// Get user
+	user, _ := database.GetUserByID(userID)
+	if user == nil {
+		helpers.JSONResponse(w, http.StatusNotFound, models.ErrorResponse{Error: "User not found"})
+		return
+	}
+
+	// Get license
+	license, _ := database.GetLicenseByUserID(userID)
+	if license == nil {
+		helpers.JSONResponse(w, http.StatusNotFound, models.ErrorResponse{Error: "User has no license"})
+		return
+	}
+
+	// Delete the license
+	_, err := database.DB.Exec("DELETE FROM licenses WHERE user_id = $1", userID)
+	if err != nil {
+		logger.Error("ADMIN", "Failed to revoke license", logger.Fields{"error": err.Error()})
+		helpers.JSONResponse(w, http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to revoke license"})
+		return
+	}
+
+	// Log action
+	adminID := middleware.GetUserID(r)
+	database.LogAuditAdmin(adminID, "license.revoke", "user", &userID, map[string]interface{}{
+		"username": user.Username,
+		"plan":     license.Plan,
+	}, helpers.GetClientIP(r))
+
+	logger.Info("ADMIN", "License revoked", logger.Fields{"user": user.Username})
 	helpers.JSONResponse(w, http.StatusOK, models.SuccessResponse{Success: true})
 }
 
@@ -645,7 +701,7 @@ func AdminCreateChangelog(w http.ResponseWriter, r *http.Request) {
 
 	changesJSON, _ := json.Marshal(req.Changes)
 
-	var id int
+	var id string
 	err := database.DB.QueryRow(`
 		INSERT INTO changelogs (version, changes, released_at)
 		VALUES ($1, $2, NOW())
@@ -659,8 +715,7 @@ func AdminCreateChangelog(w http.ResponseWriter, r *http.Request) {
 	}
 
 	adminID := middleware.GetUserID(r)
-	idStr := strconv.Itoa(id)
-	database.LogAuditAdmin(adminID, "changelog.create", "changelog", &idStr, nil, helpers.GetClientIP(r))
+	database.LogAuditAdmin(adminID, "changelog.create", "changelog", &id, nil, helpers.GetClientIP(r))
 
 	logger.Info("ADMIN", "Changelog created", logger.Fields{"id": id, "version": req.Version})
 	helpers.JSONResponse(w, http.StatusCreated, models.SuccessResponse{

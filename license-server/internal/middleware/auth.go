@@ -89,3 +89,30 @@ func GetUserID(r *http.Request) string {
 	}
 	return claims.Subject
 }
+
+// TryGetUserID attempts to extract user ID from JWT in Authorization header
+// Returns empty string if no valid JWT found (does not require RequireAuth middleware)
+func TryGetUserID(r *http.Request) string {
+	// First try context (if RequireAuth middleware was used)
+	if userID := GetUserID(r); userID != "" {
+		return userID
+	}
+
+	// Try to parse JWT from Authorization header directly
+	authHeader := r.Header.Get("Authorization")
+	if authHeader == "" {
+		return ""
+	}
+
+	parts := strings.SplitN(authHeader, " ", 2)
+	if len(parts) != 2 || parts[0] != "Bearer" {
+		return ""
+	}
+
+	claims, err := auth.ValidateAccessToken(parts[1])
+	if err != nil {
+		return ""
+	}
+
+	return claims.Subject
+}

@@ -33,6 +33,7 @@ export default function UserDetailPage() {
     const [isCreateLicenseModalOpen, setIsCreateLicenseModalOpen] = useState(false);
     const [isResetHwidModalOpen, setIsResetHwidModalOpen] = useState(false);
     const [isDeleteUserModalOpen, setIsDeleteUserModalOpen] = useState(false);
+    const [isRevokeLicenseModalOpen, setIsRevokeLicenseModalOpen] = useState(false);
     const [modalLoading, setModalLoading] = useState(false);
 
     // Form states
@@ -115,10 +116,13 @@ export default function UserDetailPage() {
         if (!user) return;
         setModalLoading(true);
         try {
+            const days = licensePlan === "lifetime" ? undefined :
+                licensePlan === "monthly" ? 30 :
+                    parseInt(licenseDays);
             await api.admin.createLicense(
                 user.id,
                 licensePlan,
-                licensePlan === "lifetime" ? undefined : parseInt(licenseDays)
+                days
             );
             showToast({ title: "License Created", message: `${licensePlan} license created`, type: "success" });
             setIsCreateLicenseModalOpen(false);
@@ -158,6 +162,22 @@ export default function UserDetailPage() {
             router.push("/dashboard/admin/users");
         } catch (err) {
             const msg = err instanceof Error ? err.message : "Failed to delete user";
+            showToast({ title: "Error", message: msg, type: "error" });
+        } finally {
+            setModalLoading(false);
+        }
+    };
+
+    const handleRevokeLicense = async () => {
+        if (!user) return;
+        setModalLoading(true);
+        try {
+            await api.admin.revokeLicense(user.id);
+            showToast({ title: "License Revoked", message: `License has been revoked for ${user.username}`, type: "success" });
+            setIsRevokeLicenseModalOpen(false);
+            fetchUser();
+        } catch (err) {
+            const msg = err instanceof Error ? err.message : "Failed to revoke license";
             showToast({ title: "Error", message: msg, type: "error" });
         } finally {
             setModalLoading(false);
@@ -279,6 +299,15 @@ export default function UserDetailPage() {
                                     onClick={() => setIsExtendModalOpen(true)}
                                 >
                                     Extend License
+                                </Button>
+                                <Button
+                                    variant="danger"
+                                    className="w-full"
+                                    size="sm"
+                                    icon={<Trash2 className="w-4 h-4" />}
+                                    onClick={() => setIsRevokeLicenseModalOpen(true)}
+                                >
+                                    Revoke License
                                 </Button>
                             </div>
                         ) : (
@@ -458,17 +487,24 @@ export default function UserDetailPage() {
                             value={licensePlan}
                             onChange={(e) => setLicensePlan(e.target.value)}
                         >
-                            <option value="monthly">Monthly</option>
+                            <option value="monthly">Monthly (30 days)</option>
                             <option value="lifetime">Lifetime</option>
+                            <option value="custom">Custom Duration</option>
                         </select>
                     </div>
-                    {licensePlan !== "lifetime" && (
+                    {licensePlan === "custom" && (
                         <Input
                             label="Duration (Days)"
                             type="number"
+                            placeholder="Enter number of days"
                             value={licenseDays}
                             onChange={(e) => setLicenseDays(e.target.value)}
                         />
+                    )}
+                    {licensePlan === "monthly" && (
+                        <div className="text-sm text-[var(--text-muted)] p-3 bg-[var(--bg-secondary)] rounded-xl">
+                            30 days access
+                        </div>
                     )}
                 </div>
             </Modal>
@@ -512,6 +548,31 @@ export default function UserDetailPage() {
                         <AlertTriangle className="w-5 h-5 shrink-0 mt-0.5" />
                         <div className="text-sm">
                             <strong>This action cannot be undone.</strong> This will permanently delete the account for <strong>{user.username}</strong> including their license, sessions, and all associated data.
+                        </div>
+                    </div>
+                </div>
+            </Modal>
+
+            {/* Revoke License Modal */}
+            <Modal
+                isOpen={isRevokeLicenseModalOpen}
+                onClose={() => setIsRevokeLicenseModalOpen(false)}
+                title="Revoke License"
+                footer={
+                    <>
+                        <Button variant="ghost" onClick={() => setIsRevokeLicenseModalOpen(false)}>Cancel</Button>
+                        <Button variant="danger" onClick={handleRevokeLicense} loading={modalLoading}>Revoke License</Button>
+                    </>
+                }
+            >
+                <div className="space-y-4">
+                    <Text>
+                        Are you sure you want to revoke the license for <strong>{user.username}</strong>?
+                    </Text>
+                    <div className="p-4 bg-red-500/10 border border-red-500/20 rounded-xl flex items-start gap-3 text-red-400">
+                        <AlertTriangle className="w-5 h-5 shrink-0 mt-0.5" />
+                        <div className="text-sm">
+                            This will remove their license completely. They will no longer have access to the application until a new license is granted.
                         </div>
                     </div>
                 </div>

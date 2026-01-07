@@ -86,6 +86,7 @@ type LoaderLoginRequest struct {
 	Password string `json:"password"`
 	HWID     string `json:"hwid"`
 	Version  string `json:"version"`
+	Nonce    string `json:"nonce"`
 }
 
 // PasswordChangeRequest for password update

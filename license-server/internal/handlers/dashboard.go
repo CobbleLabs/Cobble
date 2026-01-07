@@ -3,6 +3,8 @@ package handlers
 import (
 	"encoding/json"
 	"net/http"
+	"os"
+	"path/filepath"
 
 	"license-server/internal/config"
 	"license-server/internal/database"
@@ -10,6 +12,29 @@ import (
 	"license-server/internal/middleware"
 	"license-server/internal/models"
 )
+
+// getLatestVersion reads the version from the manifest.json file
+func getLatestVersion() string {
+	cfg := config.Get()
+	manifestPath := filepath.Join(cfg.ReleasesDir, "latest", "manifest.json")
+
+	data, err := os.ReadFile(manifestPath)
+	if err != nil {
+		return cfg.MinVersion // Fallback to config
+	}
+
+	var manifest struct {
+		Version string `json:"version"`
+	}
+	if err := json.Unmarshal(data, &manifest); err != nil {
+		return cfg.MinVersion
+	}
+
+	if manifest.Version == "" {
+		return cfg.MinVersion
+	}
+	return manifest.Version
+}
 
 // GetAnnouncements handles GET /api/announcements
 func GetAnnouncements(w http.ResponseWriter, r *http.Request) {
@@ -66,16 +91,14 @@ func GetDownloads(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cfg := config.Get()
-
-	// Return current version info
+	// Return current version info (reads from manifest.json)
 	downloads := []models.Download{
 		{
 			ID:          "loader",
-			Version:     cfg.MinVersion,
+			Version:     getLatestVersion(),
 			Name:        "Cobble Loader",
 			Size:        "~2 MB",
-			DownloadURL: "/api/update/loader?hwid=" + helpers.MaskHWID(license.HWID),
+			DownloadURL: "/api/update/loader", // Uses JWT auth
 			Changelog:   "Latest stable release",
 		},
 	}
