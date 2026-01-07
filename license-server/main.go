@@ -161,6 +161,12 @@ func handleAdminUserRoutes(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// /api/admin/users/:id/revoke-license
+	if strings.HasSuffix(path, "/revoke-license") {
+		handlers.AdminRevokeLicense(w, r)
+		return
+	}
+
 	// /api/admin/users/:id
 	if r.Method == http.MethodGet {
 		handlers.AdminGetUser(w, r)

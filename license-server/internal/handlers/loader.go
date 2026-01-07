@@ -35,9 +35,9 @@ func LoaderLogin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	clientIP := helpers.GetClientIP(r)
-	nonce := r.FormValue("nonce")
+	nonce := req.Nonce
 	if nonce == "" {
-		// Generate a nonce if not provided
+		// Generate a nonce if not provided (legacy fallback)
 		nonce = helpers.GenerateNonce()
 	}
 
@@ -106,7 +106,7 @@ func LoaderLogin(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		logger.Warn("LOADER", "HWID changed", logger.Fields{
-			"user":    user.Username,
+			"user":     user.Username,
 			"old_hwid": (*license.HWID)[:8] + "...",
 			"new_hwid": req.HWID[:8] + "...",
 		})

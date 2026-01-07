@@ -57,7 +57,8 @@ export default function DashboardPage() {
     const planName = isLifetime ? "Lifetime Access" :
         isTrial ? "Trial" :
             isMonthly ? "Monthly Plan" :
-                license ? "Active License" : "No License";
+                license?.plan === "custom" ? "Custom License" :
+                    license ? "Active License" : "No License";
 
     // Days remaining calculation
     let daysRemaining = "0";

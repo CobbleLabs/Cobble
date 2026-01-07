@@ -466,12 +466,14 @@ type LicenseRow struct {
 
 // IsActive checks if the license is currently active
 func (l *LicenseRow) IsActive() bool {
-	if l.Plan == "none" {
+	if l.Plan == "none" || l.Plan == "" {
 		return false
 	}
+	// Lifetime never expires
 	if l.Plan == "lifetime" {
 		return true
 	}
+	// Monthly, custom, trial - need valid expiration date
 	if l.ExpiresAt == nil {
 		return false
 	}

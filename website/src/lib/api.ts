@@ -15,7 +15,7 @@ export interface User {
 
 export interface License {
     id: number;
-    plan: 'monthly' | 'lifetime' | 'trial';
+    plan: 'monthly' | 'lifetime' | 'trial' | 'custom';
     expires_at?: string;
     hwid?: string;
     hwid_last_reset?: string;
@@ -124,6 +124,31 @@ async function apiFetch<T>(
     const text = await response.text();
     if (!text) return {} as T;
     return JSON.parse(text);
+}
+
+// Download file with authentication (returns raw Response for blob handling)
+export async function downloadFile(endpoint: string): Promise<Response> {
+    const url = `${API_URL}${endpoint}`;
+
+    const headers: HeadersInit = {};
+
+    // Add auth header if we have a token
+    const token = getAccessToken();
+    if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+    }
+
+    const response = await fetch(url, {
+        method: 'GET',
+        headers,
+        credentials: 'include',
+    });
+
+    if (!response.ok) {
+        throw new Error(`Download failed: HTTP ${response.status}`);
+    }
+
+    return response;
 }
 
 // Auth endpoints
@@ -322,6 +347,10 @@ export const admin = {
 
     async deleteUser(userId: string): Promise<void> {
         await apiFetch(`/api/admin/users/${userId}`, { method: 'DELETE' });
+    },
+
+    async revokeLicense(userId: string): Promise<void> {
+        await apiFetch(`/api/admin/users/${userId}/revoke-license`, { method: 'DELETE' });
     },
 
     async getChangelogs(): Promise<Changelog[]> {

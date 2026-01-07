@@ -13,6 +13,7 @@ import (
 	"license-server/internal/config"
 	"license-server/internal/database"
 	"license-server/internal/logger"
+	"license-server/internal/middleware"
 )
 
 // Manifest structure for updates
@@ -69,22 +70,46 @@ func GetManifest(w http.ResponseWriter, r *http.Request) {
 
 // DownloadLoader serves the loader executable
 // GET /api/update/loader
+// Supports two auth methods:
+// 1. hwid query param (for loader/client)
+// 2. JWT token (for website downloads)
 func DownloadLoader(w http.ResponseWriter, r *http.Request) {
 	cfg := config.Get()
 
-	// Verify license first
-	hwid := r.URL.Query().Get("hwid")
-	if hwid == "" {
-		http.Error(w, "Missing HWID", http.StatusBadRequest)
-		return
-	}
-
-	// Check if user has valid license
 	var username string
-	err := database.DB.QueryRow("SELECT username FROM licenses WHERE hwid LIKE ? AND is_banned = 0", "%"+hwid+"%").Scan(&username)
-	if err != nil {
-		http.Error(w, "Invalid license", http.StatusForbidden)
-		return
+
+	// Try JWT auth first (for website downloads)
+	userID := middleware.TryGetUserID(r)
+	if userID != "" {
+		// Authenticated via JWT - check license
+		license, _ := database.GetLicenseByUserID(userID)
+		if license == nil || !license.IsActive() {
+			http.Error(w, "Active license required", http.StatusForbidden)
+			return
+		}
+		user, _ := database.GetUserByID(userID)
+		if user != nil {
+			username = user.Username
+		}
+	} else {
+		// Fallback to HWID query param (for loader/client)
+		hwid := r.URL.Query().Get("hwid")
+		if hwid == "" {
+			http.Error(w, "Authentication required", http.StatusUnauthorized)
+			return
+		}
+
+		// Check if user has valid license and is not banned
+		err := database.DB.QueryRow(`
+			SELECT u.username FROM licenses l
+			JOIN users u ON u.id = l.user_id
+			WHERE l.hwid LIKE '%' || $1 || '%' 
+			AND u.banned_at IS NULL
+		`, hwid).Scan(&username)
+		if err != nil {
+			http.Error(w, "Invalid license", http.StatusForbidden)
+			return
+		}
 	}
 
 	// Serve file
@@ -106,9 +131,14 @@ func DownloadDLL(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Check if user has valid license
+	// Check if user has valid license and is not banned
 	var username string
-	err := database.DB.QueryRow("SELECT username FROM licenses WHERE hwid LIKE ? AND is_banned = 0", "%"+hwid+"%").Scan(&username)
+	err := database.DB.QueryRow(`
+		SELECT u.username FROM licenses l
+		JOIN users u ON u.id = l.user_id
+		WHERE l.hwid LIKE '%' || $1 || '%' 
+		AND u.banned_at IS NULL
+	`, hwid).Scan(&username)
 	if err != nil {
 		http.Error(w, "Invalid license", http.StatusForbidden)
 		return

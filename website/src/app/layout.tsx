@@ -7,7 +7,7 @@ const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
 
 export const metadata: Metadata = {
   title: "Cobble",
-  description: "Advanced Minecraft ghost client",
+  description: "Advanced Minecraft Gaming Chair",
 };
 
 export default function RootLayout({
