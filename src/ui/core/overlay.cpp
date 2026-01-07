@@ -491,4 +491,12 @@ void Overlay::Render()
 	ArrayListRenderer::render();
 	NotificationManager::update();
 	NotificationManager::render();
+	
+	// Visual Team Resolver debug overlay
+	if (visualTeamResolver && visualTeamResolver->debugOverlay) {
+		ImDrawList* draw = ImGui::GetWindowDrawList();
+		if (draw) {
+			visualTeamResolver->renderDebugOverlay(draw);
+		}
+	}
 }

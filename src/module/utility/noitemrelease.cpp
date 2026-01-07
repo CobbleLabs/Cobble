@@ -147,7 +147,7 @@ void NoItemRelease::onUpdate()
 	if (!enabled) {
 		if (wasUsingItem) {
 			wasUsingItem = false;
-			log_debug("[NoItemRelease] Module disabled, reset wasUsingItem");
+			//log_debug("[NoItemRelease] Module disabled, reset wasUsingItem");
 		}
 		return;
 	}
@@ -171,14 +171,14 @@ void NoItemRelease::onUpdate()
 		// User is actively using a valid item
 		wasUsingItem = true;
 		if (!previousState) {
-			log_debug("[NoItemRelease] Started using item (wasUsingItem = true)");
+			//log_debug("[NoItemRelease] Started using item (wasUsingItem = true)");
 		}
 	}
 	else if (actualRightClick && !shouldKeepUsing) {
 		// User clicked with invalid item - stop blocking
 		wasUsingItem = false;
 		if (previousState) {
-			log_debug("[NoItemRelease] Clicked with invalid item (wasUsingItem = false)");
+			//log_debug("[NoItemRelease] Clicked with invalid item (wasUsingItem = false)");
 		}
 	}
 	// If not clicking, maintain current state
@@ -187,7 +187,7 @@ void NoItemRelease::onUpdate()
 	// Debug: log every 60 ticks if wasUsingItem is true
 	static int debugCounter = 0;
 	if (wasUsingItem && ++debugCounter % 60 == 0) {
-		log_debug("[NoItemRelease] State: wasUsingItem=true, rightClick=%d, shouldKeep=%d", actualRightClick, shouldKeepUsing);
+		//log_debug("[NoItemRelease] State: wasUsingItem=true, rightClick=%d, shouldKeep=%d", actualRightClick, shouldKeepUsing);
 	}
 }
 

@@ -264,4 +264,49 @@ inline MojangProfile lookupMojangUUID(const std::string& username) {
     return profile;
 }
 
+// Lookup Minecraft UUID -> Username via Mojang API
+// API: GET https://sessionserver.mojang.com/session/minecraft/profile/{uuid}
+// Returns: {"id":"uuid_no_dashes","name":"ExactName",...}
+inline std::string lookupMojangName(const std::string& uuid) {
+    // Remove dashes from UUID for API
+    std::string cleanUUID;
+    for (char c : uuid) {
+        if (c != '-') cleanUUID += c;
+    }
+    
+    if (cleanUUID.length() != 32) return "";
+    
+    // Build path: /session/minecraft/profile/{uuid}
+    std::wstring path = L"/session/minecraft/profile/";
+    for (char c : cleanUUID) {
+        path += static_cast<wchar_t>(c);
+    }
+    
+    // Call Mojang Session API (HTTPS on port 443)
+    auto response = get(L"sessionserver.mojang.com", 443, path, true);
+    
+    if (!response.success) {
+        return "";  // API error or user not found
+    }
+    
+    // Parse JSON for "name" : "value" (note: Mojang uses spaces around colon)
+    std::string& body = response.body;
+    size_t namePos = body.find("\"name\"");
+    if (namePos != std::string::npos) {
+        // Skip past "name", any whitespace, colon, any whitespace
+        size_t colonPos = body.find(':', namePos + 6);
+        if (colonPos != std::string::npos) {
+            size_t start = body.find('\"', colonPos + 1);
+            if (start != std::string::npos) {
+                size_t end = body.find('\"', start + 1);
+                if (end != std::string::npos) {
+                    return body.substr(start + 1, end - start - 1);
+                }
+            }
+        }
+    }
+    
+    return "";
+}
+
 } // namespace http
