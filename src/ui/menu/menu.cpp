@@ -18,6 +18,7 @@
 #include "../../module/utility/nojumpdelay.h"
 #include "../../module/utility/noitemrelease.h"
 #include "../../module/utility/bridgeassist.h"
+#include "../../module/utility/sprint.h"
 #include "../../module/visual/nametags.h"
 #include "../../module/visual/esp.h"
 #include "../../module/visual/tracers.h"
@@ -57,9 +58,10 @@ Module* getModuleForSubtab(int tabIdx, int subtabIdx)
 	// Movement Tab (2)
 	else if (tabIdx == 2) {
 		switch (subtabIdx) {
-			case 0: return noJumpDelay;
-			case 1: return noItemRelease;
-			case 2: return bridgeAssist;
+			case 0: return sprint;
+			case 1: return noJumpDelay;
+			case 2: return noItemRelease;
+			case 3: return bridgeAssist;
 		}
 	}
 	// Settings Tab (3) - no module, handled specially
@@ -341,7 +343,7 @@ static void renderPage()
 	// Special pages (ArrayList, Notifications) - no Module, render inline
 	else if (ui::cur_tab == 1) {
 		// Visuals tab
-		if (tab.cur_subtab == 3) {
+		if (tab.cur_subtab == 4) {
 			// ArrayList settings
 			ui::two_column(
 				"Settings", []() {
@@ -353,7 +355,7 @@ static void renderPage()
 				}
 			);
 		}
-		else if (tab.cur_subtab == 4) {
+		else if (tab.cur_subtab == 5) {
 			// Notifications settings
 			ui::section("Settings", []() {
 				ui::Checkbox("Enabled", &NotificationManager::enabled);
