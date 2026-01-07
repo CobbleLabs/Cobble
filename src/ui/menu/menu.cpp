@@ -20,6 +20,7 @@
 #include "../../module/utility/bridgeassist.h"
 #include "../../module/visual/nametags.h"
 #include "../../module/visual/esp.h"
+#include "../../module/visual/tracers.h"
 #include "../../cobble.hpp"
 #include "../../sdk/core/minecraft.h"
 
@@ -46,8 +47,9 @@ Module* getModuleForSubtab(int tabIdx, int subtabIdx)
 		switch (subtabIdx) {
 			case 0: return nameTags;
 			case 1: return esp;
-			case 2: return nullptr; // ArrayList - special handling
-			case 3: return nullptr; // Notifications - special handling
+			case 2: return tracers;
+			case 3: return nullptr; // ArrayList - special handling
+			case 4: return nullptr; // Notifications - special handling
 		}
 	}
 	// Movement Tab (2)

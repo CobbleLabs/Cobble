@@ -1,6 +1,7 @@
 #include "autoclicker.h"
 #include "../../sdk/core/minecraft.h"
 #include "../../util/logger.hpp"
+#include "../../util/inventory_cache.h"
 #include "../../ui/menu/menu.h"
 #include "../../ui/core/overlay.h"
 #include "../../ui/widgets/widgets.hpp"
@@ -200,16 +201,32 @@ void AutoClicker::calculateNextDelay()
 	
 	if (minCps > maxCps) std::swap(minCps, maxCps);
 	
-	// Stable CPS mode - exact CPS, no randomization
+	// Stable CPS mode - minimal randomization for natural feel
 	if (settings.stableCPS) {
 		// Use average of min and max for stable CPS
 		float targetCps = (minCps + maxCps) / 2.0f;
+		
+		// Add very slight variation (±1.5%) to avoid robotic pattern
+		std::uniform_real_distribution<float> minVarDist(-0.015f, 0.015f);
+		targetCps *= (1.0f + minVarDist(rng));
+		
 		float delay = 1000.0f / targetCps;
 		
 		// Halve the delay because alternating pattern needs 2 calls per click
 		delay *= 0.5f;
 		
-		nextDelayMs = static_cast<int>(delay);
+		// Use delay accumulator to maintain sub-millisecond precision
+		// This prevents CPS drift from int casting
+		float totalDelay = delay + delayAccumulator;
+		nextDelayMs = static_cast<int>(totalDelay);
+		
+		// Track fractional milliseconds for next calculation
+		delayAccumulator = totalDelay - static_cast<float>(nextDelayMs);
+		
+		// Prevent accumulator drift
+		if (delayAccumulator > 5.0f) delayAccumulator = 5.0f;
+		if (delayAccumulator < -5.0f) delayAccumulator = -5.0f;
+		
 		nextDelayMs = (std::max)(nextDelayMs, 20);
 		nextDelayMs = (std::min)(nextDelayMs, 100);
 		return;
