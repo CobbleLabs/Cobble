@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import { Modal } from "@/components/ui/Modal";
 import { Input } from "@/components/ui/Input";
-import { User, Shield, HardDrive, Ban, Undo2, Plus, AlertTriangle, CheckCircle, Timer } from "lucide-react";
+import { User, Shield, HardDrive, Ban, Undo2, Plus, AlertTriangle, CheckCircle, Timer, RefreshCw, Trash2 } from "lucide-react";
 import { fadeInUp, staggerContainer } from "@/lib/motion";
 import { useParams, useRouter } from "next/navigation";
 import { useToast } from "@/context/ToastContext";
@@ -31,6 +31,8 @@ export default function UserDetailPage() {
     const [isUnbanModalOpen, setIsUnbanModalOpen] = useState(false);
     const [isExtendModalOpen, setIsExtendModalOpen] = useState(false);
     const [isCreateLicenseModalOpen, setIsCreateLicenseModalOpen] = useState(false);
+    const [isResetHwidModalOpen, setIsResetHwidModalOpen] = useState(false);
+    const [isDeleteUserModalOpen, setIsDeleteUserModalOpen] = useState(false);
     const [modalLoading, setModalLoading] = useState(false);
 
     // Form states
@@ -125,6 +127,37 @@ export default function UserDetailPage() {
             fetchUser();
         } catch (err) {
             const msg = err instanceof Error ? err.message : "Failed to create license";
+            showToast({ title: "Error", message: msg, type: "error" });
+        } finally {
+            setModalLoading(false);
+        }
+    };
+
+    const handleResetHwid = async () => {
+        if (!user) return;
+        setModalLoading(true);
+        try {
+            await api.admin.resetHwid(user.id);
+            showToast({ title: "HWID Reset", message: `HWID has been reset for ${user.username}`, type: "success" });
+            setIsResetHwidModalOpen(false);
+            fetchUser();
+        } catch (err) {
+            const msg = err instanceof Error ? err.message : "Failed to reset HWID";
+            showToast({ title: "Error", message: msg, type: "error" });
+        } finally {
+            setModalLoading(false);
+        }
+    };
+
+    const handleDeleteUser = async () => {
+        if (!user) return;
+        setModalLoading(true);
+        try {
+            await api.admin.deleteUser(user.id);
+            showToast({ title: "User Deleted", message: `${user.username} has been permanently deleted`, type: "success" });
+            router.push("/dashboard/admin/users");
+        } catch (err) {
+            const msg = err instanceof Error ? err.message : "Failed to delete user";
             showToast({ title: "Error", message: msg, type: "error" });
         } finally {
             setModalLoading(false);
@@ -289,6 +322,37 @@ export default function UserDetailPage() {
                                 Last reset: {new Date(user.license.hwid_last_reset).toLocaleDateString()}
                             </div>
                         )}
+                        {user.license?.hwid && (
+                            <Button
+                                variant="secondary"
+                                className="w-full mt-4"
+                                size="sm"
+                                icon={<RefreshCw className="w-4 h-4" />}
+                                onClick={() => setIsResetHwidModalOpen(true)}
+                            >
+                                Reset HWID
+                            </Button>
+                        )}
+                    </Card>
+
+                    {/* Danger Zone */}
+                    <Card className="border-red-500/30">
+                        <div className="flex items-center gap-3 mb-6">
+                            <AlertTriangle className="w-5 h-5 text-red-500" />
+                            <Heading className="text-xl text-red-400">Danger Zone</Heading>
+                        </div>
+                        <Text className="text-[var(--text-muted)] mb-4 text-sm">
+                            Permanently delete this user account and all associated data.
+                        </Text>
+                        <Button
+                            variant="danger"
+                            className="w-full"
+                            size="sm"
+                            icon={<Trash2 className="w-4 h-4" />}
+                            onClick={() => setIsDeleteUserModalOpen(true)}
+                        >
+                            Delete User
+                        </Button>
                     </Card>
                 </motion.div>
             </div>
@@ -406,6 +470,50 @@ export default function UserDetailPage() {
                             onChange={(e) => setLicenseDays(e.target.value)}
                         />
                     )}
+                </div>
+            </Modal>
+
+            {/* Reset HWID Modal */}
+            <Modal
+                isOpen={isResetHwidModalOpen}
+                onClose={() => setIsResetHwidModalOpen(false)}
+                title="Reset HWID"
+                footer={
+                    <>
+                        <Button variant="ghost" onClick={() => setIsResetHwidModalOpen(false)}>Cancel</Button>
+                        <Button onClick={handleResetHwid} loading={modalLoading}>Reset HWID</Button>
+                    </>
+                }
+            >
+                <div className="space-y-4">
+                    <Text>
+                        Are you sure you want to reset the Hardware ID for <strong>{user.username}</strong>?
+                    </Text>
+                    <div className="p-4 bg-yellow-500/10 border border-yellow-500/20 rounded-xl text-yellow-400 text-sm">
+                        This will allow them to bind a new device. Their current HWID will be cleared.
+                    </div>
+                </div>
+            </Modal>
+
+            {/* Delete User Modal */}
+            <Modal
+                isOpen={isDeleteUserModalOpen}
+                onClose={() => setIsDeleteUserModalOpen(false)}
+                title="Delete User"
+                footer={
+                    <>
+                        <Button variant="ghost" onClick={() => setIsDeleteUserModalOpen(false)}>Cancel</Button>
+                        <Button variant="danger" onClick={handleDeleteUser} loading={modalLoading}>Delete Permanently</Button>
+                    </>
+                }
+            >
+                <div className="space-y-4">
+                    <div className="p-4 bg-red-500/10 border border-red-500/20 rounded-xl flex items-start gap-3 text-red-400">
+                        <AlertTriangle className="w-5 h-5 shrink-0 mt-0.5" />
+                        <div className="text-sm">
+                            <strong>This action cannot be undone.</strong> This will permanently delete the account for <strong>{user.username}</strong> including their license, sessions, and all associated data.
+                        </div>
+                    </div>
                 </div>
             </Modal>
         </motion.div>

@@ -33,17 +33,16 @@ type Config struct {
 	// Logging
 	LogFormat string
 
-	// Discord
-	DiscordToken     string
-	DiscordGuild     string
-	DiscordAdminRole string
-
 	// Updates
 	ReleasesDir    string
 	SigningKeyPath string
 
 	// Security
 	SecureCookies bool // Set to true in production with HTTPS
+
+	// Email (Resend)
+	ResendAPIKey    string
+	ResendFromEmail string
 }
 
 // Global config instance
@@ -78,17 +77,16 @@ func Load() *Config {
 		// Logging
 		LogFormat: getEnv("LOG_FORMAT", "text"),
 
-		// Discord
-		DiscordToken:     getEnv("DISCORD_TOKEN", ""),
-		DiscordGuild:     getEnv("DISCORD_GUILD", ""),
-		DiscordAdminRole: getEnv("DISCORD_ADMIN_ROLE", ""),
-
 		// Updates
 		ReleasesDir:    getEnv("RELEASES_DIR", "./releases"),
 		SigningKeyPath: getEnv("SIGNING_KEY_PATH", "./private.key"),
 
 		// Security (set SECURE_COOKIES=true in production)
 		SecureCookies: getEnvBool("SECURE_COOKIES", false),
+
+		// Email (Resend)
+		ResendAPIKey:    getEnv("RESEND_API_KEY", ""),
+		ResendFromEmail: getEnv("RESEND_FROM_EMAIL", "Cobble Security <noreply@cobble.vip>"),
 	}
 
 	return cfg
@@ -109,10 +107,7 @@ func SetMinVersion(version string) {
 	}
 }
 
-// IsDiscordEnabled checks if Discord bot should start
-func (c *Config) IsDiscordEnabled() bool {
-	return c.DiscordToken != "" && c.DiscordGuild != "" && c.DiscordAdminRole != ""
-}
+
 
 // IsDefaultAdminKey checks if using insecure default key
 func (c *Config) IsDefaultAdminKey() bool {

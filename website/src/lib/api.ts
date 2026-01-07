@@ -1,28 +1,5 @@
-// API Client for Cobble Backend
-// DEV MODE: Token in localStorage (persists across page loads)
-// PROD MODE: Access token in memory, refresh via HttpOnly cookie
-
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://cobble.vip';
 
-// Use localStorage in development to persist tokens across page loads
-// This is needed because cross-domain cookies don't work without same domain
-const TOKEN_STORAGE_KEY = 'cobble_access_token';
-
-function getStoredToken(): string | null {
-    if (typeof window === 'undefined') return null;
-    return localStorage.getItem(TOKEN_STORAGE_KEY);
-}
-
-function storeToken(token: string | null) {
-    if (typeof window === 'undefined') return;
-    if (token) {
-        localStorage.setItem(TOKEN_STORAGE_KEY, token);
-    } else {
-        localStorage.removeItem(TOKEN_STORAGE_KEY);
-    }
-}
-
-// In-memory fallback
 let accessToken: string | null = null;
 
 export interface User {
@@ -81,26 +58,17 @@ export interface ApiError {
     error: string;
 }
 
-// Token management - uses localStorage for persistence
+// Token management - memory only for security
 export function setAccessToken(token: string | null) {
     accessToken = token;
-    storeToken(token);
 }
 
 export function getAccessToken(): string | null {
-    // Try memory first, then localStorage
-    if (accessToken) return accessToken;
-    const stored = getStoredToken();
-    if (stored) {
-        accessToken = stored;
-        return stored;
-    }
-    return null;
+    return accessToken;
 }
 
 export function clearAuth() {
     accessToken = null;
-    storeToken(null);
 }
 
 // Base fetch with auth and error handling
@@ -346,5 +314,35 @@ export const admin = {
 
     async getStats(): Promise<{ total_users: number; active_licenses: number; total_lifetime: number; total_monthly: number }> {
         return apiFetch('/api/admin/stats');
+    },
+
+    async resetHwid(userId: string): Promise<void> {
+        await apiFetch(`/api/admin/users/${userId}/reset-hwid`, { method: 'POST' });
+    },
+
+    async deleteUser(userId: string): Promise<void> {
+        await apiFetch(`/api/admin/users/${userId}`, { method: 'DELETE' });
+    },
+
+    async getChangelogs(): Promise<Changelog[]> {
+        return apiFetch('/api/admin/changelogs');
+    },
+
+    async createChangelog(data: { version: string; changes: string[] }): Promise<void> {
+        await apiFetch('/api/admin/changelogs', {
+            method: 'POST',
+            body: JSON.stringify(data),
+        });
+    },
+
+    async updateChangelog(id: string, data: { version: string; changes: string[] }): Promise<void> {
+        await apiFetch(`/api/admin/changelogs/${id}`, {
+            method: 'PATCH',
+            body: JSON.stringify(data),
+        });
+    },
+
+    async deleteChangelog(id: string): Promise<void> {
+        await apiFetch(`/api/admin/changelogs/${id}`, { method: 'DELETE' });
     },
 };

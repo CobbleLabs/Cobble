@@ -272,6 +272,21 @@ func runMigrations() error {
 		DB.Exec("INSERT INTO schema_migrations (version) VALUES (10)")
 	}
 
+	// Migration 11: Email verification fields
+	if currentVersion < 11 {
+		logger.Info("MIGRATE", "011: Email verification", nil)
+		_, err := DB.Exec(`
+			ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified BOOLEAN DEFAULT FALSE;
+			ALTER TABLE users ADD COLUMN IF NOT EXISTS verification_token VARCHAR(64);
+			ALTER TABLE users ADD COLUMN IF NOT EXISTS verification_token_expires TIMESTAMP;
+			CREATE INDEX IF NOT EXISTS idx_users_verification_token ON users(verification_token);
+		`)
+		if err != nil {
+			return err
+		}
+		DB.Exec("INSERT INTO schema_migrations (version) VALUES (11)")
+	}
+
 	// Load MIN_VERSION from database
 	var savedVersion string
 	if DB.QueryRow("SELECT value FROM settings WHERE key = 'min_version'").Scan(&savedVersion) == nil && savedVersion != "" {
@@ -286,24 +301,57 @@ func runMigrations() error {
 // User helpers
 // ============================================
 
-// CreateUser inserts a new user
-func CreateUser(username, email, passwordHash string) (string, error) {
+// CreateUser inserts a new user with verification token
+func CreateUser(username, email, passwordHash, verificationToken string, tokenExpiry time.Time) (string, error) {
 	var id string
 	err := DB.QueryRow(`
-		INSERT INTO users (username, email, password_hash)
-		VALUES ($1, $2, $3)
+		INSERT INTO users (username, email, password_hash, email_verified, verification_token, verification_token_expires)
+		VALUES ($1, $2, $3, FALSE, $4, $5)
 		RETURNING id
-	`, username, email, passwordHash).Scan(&id)
+	`, username, email, passwordHash, verificationToken, tokenExpiry).Scan(&id)
 	return id, err
+}
+
+// GetUserByVerificationToken retrieves a user by their verification token
+func GetUserByVerificationToken(token string) (*UserRow, error) {
+	var u UserRow
+	err := DB.QueryRow(`
+		SELECT id, username, email, password_hash, role, avatar_url, discord_id, created_at, updated_at, banned_at, ban_reason, email_verified, verification_token, verification_token_expires
+		FROM users WHERE verification_token = $1
+	`, token).Scan(&u.ID, &u.Username, &u.Email, &u.PasswordHash, &u.Role, &u.AvatarURL, &u.DiscordID, &u.CreatedAt, &u.UpdatedAt, &u.BannedAt, &u.BanReason, &u.EmailVerified, &u.VerificationToken, &u.VerificationTokenExpires)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	return &u, err
+}
+
+// VerifyUserEmail marks user as verified and clears token
+func VerifyUserEmail(userID string) error {
+	_, err := DB.Exec(`
+		UPDATE users 
+		SET email_verified = TRUE, verification_token = NULL, verification_token_expires = NULL, updated_at = NOW()
+		WHERE id = $1
+	`, userID)
+	return err
+}
+
+// SetVerificationToken updates the verification token for a user
+func SetVerificationToken(userID, token string, expiry time.Time) error {
+	_, err := DB.Exec(`
+		UPDATE users 
+		SET verification_token = $2, verification_token_expires = $3, updated_at = NOW()
+		WHERE id = $1
+	`, userID, token, expiry)
+	return err
 }
 
 // GetUserByEmail retrieves a user by email
 func GetUserByEmail(email string) (*UserRow, error) {
 	var u UserRow
 	err := DB.QueryRow(`
-		SELECT id, username, email, password_hash, role, avatar_url, discord_id, created_at, updated_at, banned_at, ban_reason
+		SELECT id, username, email, password_hash, role, avatar_url, discord_id, created_at, updated_at, banned_at, ban_reason, email_verified
 		FROM users WHERE email = $1
-	`, email).Scan(&u.ID, &u.Username, &u.Email, &u.PasswordHash, &u.Role, &u.AvatarURL, &u.DiscordID, &u.CreatedAt, &u.UpdatedAt, &u.BannedAt, &u.BanReason)
+	`, email).Scan(&u.ID, &u.Username, &u.Email, &u.PasswordHash, &u.Role, &u.AvatarURL, &u.DiscordID, &u.CreatedAt, &u.UpdatedAt, &u.BannedAt, &u.BanReason, &u.EmailVerified)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -314,9 +362,9 @@ func GetUserByEmail(email string) (*UserRow, error) {
 func GetUserByID(id string) (*UserRow, error) {
 	var u UserRow
 	err := DB.QueryRow(`
-		SELECT id, username, email, password_hash, role, avatar_url, discord_id, created_at, updated_at, banned_at, ban_reason
+		SELECT id, username, email, password_hash, role, avatar_url, discord_id, created_at, updated_at, banned_at, ban_reason, email_verified
 		FROM users WHERE id = $1
-	`, id).Scan(&u.ID, &u.Username, &u.Email, &u.PasswordHash, &u.Role, &u.AvatarURL, &u.DiscordID, &u.CreatedAt, &u.UpdatedAt, &u.BannedAt, &u.BanReason)
+	`, id).Scan(&u.ID, &u.Username, &u.Email, &u.PasswordHash, &u.Role, &u.AvatarURL, &u.DiscordID, &u.CreatedAt, &u.UpdatedAt, &u.BannedAt, &u.BanReason, &u.EmailVerified)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -327,9 +375,9 @@ func GetUserByID(id string) (*UserRow, error) {
 func GetUserByUsername(username string) (*UserRow, error) {
 	var u UserRow
 	err := DB.QueryRow(`
-		SELECT id, username, email, password_hash, role, avatar_url, discord_id, created_at, updated_at, banned_at, ban_reason
+		SELECT id, username, email, password_hash, role, avatar_url, discord_id, created_at, updated_at, banned_at, ban_reason, email_verified
 		FROM users WHERE LOWER(username) = LOWER($1)
-	`, username).Scan(&u.ID, &u.Username, &u.Email, &u.PasswordHash, &u.Role, &u.AvatarURL, &u.DiscordID, &u.CreatedAt, &u.UpdatedAt, &u.BannedAt, &u.BanReason)
+	`, username).Scan(&u.ID, &u.Username, &u.Email, &u.PasswordHash, &u.Role, &u.AvatarURL, &u.DiscordID, &u.CreatedAt, &u.UpdatedAt, &u.BannedAt, &u.BanReason, &u.EmailVerified)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -338,17 +386,20 @@ func GetUserByUsername(username string) (*UserRow, error) {
 
 // UserRow is the database row representation
 type UserRow struct {
-	ID           string
-	Username     string
-	Email        string
-	PasswordHash string
-	Role         string
-	AvatarURL    *string
-	DiscordID    *string
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
-	BannedAt     *time.Time
-	BanReason    *string
+	ID                       string
+	Username                 string
+	Email                    string
+	PasswordHash             string
+	Role                     string
+	AvatarURL                *string
+	DiscordID                *string
+	CreatedAt                time.Time
+	UpdatedAt                time.Time
+	BannedAt                 *time.Time
+	BanReason                *string
+	EmailVerified            bool
+	VerificationToken        *string
+	VerificationTokenExpires *time.Time
 }
 
 // ============================================

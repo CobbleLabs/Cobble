@@ -90,13 +90,26 @@ func LoaderLogin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Bind HWID if not already bound
-	if license.HWID == nil || *license.HWID != req.HWID {
+	if license.HWID == nil {
+		// First time binding HWID
 		if err := database.BindHWID(license.ID, req.HWID); err != nil {
 			logger.Error("LOADER", "Failed to bind HWID", logger.Fields{"error": err.Error()})
-			sendLoaderError(w, req.HWID, nonce, "Failed to bind HWID")
+			sendLoaderError(w, req.HWID, nonce, "Failed to register HWID")
 			return
 		}
-		logger.Info("LOADER", "HWID bound", logger.Fields{"user": user.Username, "hwid": req.HWID[:8] + "..."})
+		logger.Info("LOADER", "HWID registered", logger.Fields{"user": user.Username, "hwid": req.HWID[:8] + "..."})
+	} else if *license.HWID != req.HWID {
+		// HWID mismatch - update to new HWID
+		if err := database.BindHWID(license.ID, req.HWID); err != nil {
+			logger.Error("LOADER", "Failed to update HWID", logger.Fields{"error": err.Error()})
+			sendLoaderError(w, req.HWID, nonce, "Failed to update HWID")
+			return
+		}
+		logger.Warn("LOADER", "HWID changed", logger.Fields{
+			"user":    user.Username,
+			"old_hwid": (*license.HWID)[:8] + "...",
+			"new_hwid": req.HWID[:8] + "...",
+		})
 	}
 
 	// Record HWID + session

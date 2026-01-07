@@ -42,6 +42,18 @@ export default function LoginPage() {
             router.push("/dashboard");
         } catch (error) {
             const message = error instanceof Error ? error.message : "Login failed";
+
+            // Handle email not verified error
+            if (message === "email_not_verified") {
+                showToast({
+                    title: "Email Not Verified",
+                    message: "Please verify your email before logging in.",
+                    type: "error"
+                });
+                router.push(`/check-email?email=${encodeURIComponent(identifier)}`);
+                return;
+            }
+
             showToast({ title: "Login Failed", message, type: "error" });
         } finally {
             setIsLoading(false);

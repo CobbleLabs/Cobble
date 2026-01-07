@@ -27,24 +27,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const isAuthenticated = !!user;
 
-    // Try to restore session on mount
+    // Try to restore session on mount using refresh token cookie
     useEffect(() => {
         const initAuth = async () => {
             try {
-                // First try to use existing token from localStorage
-                const existingToken = api.getAccessToken();
-                if (existingToken) {
-                    try {
-                        const userData = await api.getMe();
-                        setUser(userData);
-                        setIsLoading(false);
-                        return;
-                    } catch {
-                        // Token invalid, try refresh below
-                    }
-                }
-
-                // Fallback: Try to refresh token using HttpOnly cookie
                 const refreshed = await api.refreshToken();
                 if (refreshed) {
                     const userData = await api.getMe();
