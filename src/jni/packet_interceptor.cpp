@@ -1347,7 +1347,11 @@ static bool installMethodEntryHook() {
     memset(&callbacks, 0, sizeof(callbacks));
     callbacks.MethodEntry = [](jvmtiEnv* jvmti_env, JNIEnv* jni_env,
                                jthread thread, jmethodID method) {
-        if (!blinkActive.load()) return;
+        // Hook should be active for Blink OR NoItemRelease
+        bool shouldIntercept = blinkActive.load() || 
+                              (::noItemRelease && ::noItemRelease->enabled && ::noItemRelease->wasUsingItem);
+        
+        if (!shouldIntercept) return;
 
         char* methodName = nullptr;
         jvmti_env->GetMethodName(method, &methodName, nullptr, nullptr);
@@ -1891,12 +1895,19 @@ void Tick() {
 }
 
 bool shouldSendPacket(JNIEnv* env, jobject packet) {
+    // Debug: log every packet to see if this is even called
+    static int packetCount = 0;
+    if (++packetCount % 100 == 0) {
+        log_debug("[PacketInterceptor] shouldSendPacket called (count: %d)", packetCount);
+    }
+    
     // ===== NOITEMRELEASE PACKET BLOCKING =====
     // Check for C07PacketPlayerDigging with RELEASE_USE_ITEM action
     // This check MUST happen regardless of hybridIntercept state
     {
         // Use global noItemRelease pointer (defined in noitemrelease.cpp)
-        if (::noItemRelease && ::noItemRelease->enabled) {
+        // IMPORTANT: Only block if module is enabled AND wasUsingItem is true
+        if (::noItemRelease && ::noItemRelease->enabled && ::noItemRelease->wasUsingItem) {
             jclass cls = env->GetObjectClass(packet);
             if (cls) {
                 const char* className = nullptr;
@@ -1911,70 +1922,15 @@ bool shouldSendPacket(JNIEnv* env, jobject packet) {
                             if (cstr) {
                                 // Check if it's C07PacketPlayerDigging
                                 if (strstr(cstr, "C07PacketPlayerDigging") != nullptr) {
-                                    log_debug("[NoItemRelease] Detected C07PacketPlayerDigging");
-                                    
-                                    // Clear any previous exceptions
-                                    if (env->ExceptionCheck()) {
-                                        env->ExceptionClear();
-                                    }
-                                    
-                                    // List all fields to find the action field
-                                    jclass clazz = env->FindClass("java/lang/Class");
-                                    if (clazz) {
-                                        jmethodID getDeclaredFields = env->GetMethodID(clazz, "getDeclaredFields", "()[Ljava/lang/reflect/Field;");
-                                        if (getDeclaredFields) {
-                                            jobjectArray fields = (jobjectArray)env->CallObjectMethod(cls, getDeclaredFields);
-                                            if (fields) {
-                                                jsize fieldCount = env->GetArrayLength(fields);
-                                                log_debug("[NoItemRelease] Class has %d fields:", fieldCount);
-                                                
-                                                jclass fieldClass = env->FindClass("java/lang/reflect/Field");
-                                                jmethodID getNameMethod = env->GetMethodID(fieldClass, "getName", "()Ljava/lang/String;");
-                                                
-                                                for (jsize i = 0; i < fieldCount; i++) {
-                                                    jobject field = env->GetObjectArrayElement(fields, i);
-                                                    jstring fieldName = (jstring)env->CallObjectMethod(field, getNameMethod);
-                                                    const char* fieldNameStr = env->GetStringUTFChars(fieldName, nullptr);
-                                                    log_debug("[NoItemRelease]   Field %d: %s", i, fieldNameStr);
-                                                    env->ReleaseStringUTFChars(fieldName, fieldNameStr);
-                                                    env->DeleteLocalRef(fieldName);
-                                                    env->DeleteLocalRef(field);
-                                                }
-                                                
-                                                env->DeleteLocalRef(fieldClass);
-                                                env->DeleteLocalRef(fields);
-                                            }
-                                        }
-                                        env->DeleteLocalRef(clazz);
-                                    }
-                                    
-                                    // Get the STATUS field (not action!) to check if it's RELEASE_USE_ITEM
+                                    // Get the status field to check if it's RELEASE_USE_ITEM
                                     jfieldID statusField = env->GetFieldID(cls, "status", "Lnet/minecraft/network/play/client/C07PacketPlayerDigging$Action;");
-                                    if (!statusField) {
-                                        log_debug("[NoItemRelease] Failed to get status field, trying obfuscated names");
-                                        if (env->ExceptionCheck()) env->ExceptionClear();
-                                        
-                                        // Try common obfuscated names for status field
-                                        const char* obfNames[] = {"field_180762_c", "c", "d", "e"};
-                                        for (const char* name : obfNames) {
-                                            statusField = env->GetFieldID(cls, name, "Lnet/minecraft/network/play/client/C07PacketPlayerDigging$Action;");
-                                            if (statusField) {
-                                                log_debug("[NoItemRelease] Found status field as '%s'", name);
-                                                break;
-                                            }
-                                            if (env->ExceptionCheck()) env->ExceptionClear();
-                                        }
-                                    }
+                                    if (env->ExceptionCheck()) env->ExceptionClear();
                                     
                                     if (statusField) {
-                                        log_debug("[NoItemRelease] Got status field");
                                         jobject statusObj = env->GetObjectField(packet, statusField);
                                         if (statusObj) {
-                                            log_debug("[NoItemRelease] Got status object");
-                                            // Get Action enum class
                                             jclass statusCls = env->GetObjectClass(statusObj);
                                             if (statusCls) {
-                                                // Call name() to get enum value
                                                 jmethodID nameMethod = env->GetMethodID(statusCls, "name", "()Ljava/lang/String;");
                                                 if (nameMethod) {
                                                     jstring enumName = (jstring)env->CallObjectMethod(statusObj, nameMethod);
@@ -1982,8 +1938,9 @@ bool shouldSendPacket(JNIEnv* env, jobject packet) {
                                                         const char* statusStr = env->GetStringUTFChars(enumName, nullptr);
                                                         if (statusStr) {
                                                             bool shouldBlock = (strcmp(statusStr, "RELEASE_USE_ITEM") == 0);
-                                                            log_debug("[NoItemRelease] Status: %s, Block: %d", statusStr, shouldBlock);
                                                             env->ReleaseStringUTFChars(enumName, statusStr);
+                                                            
+                                                            // Clean up all references before returning
                                                             env->DeleteLocalRef(enumName);
                                                             env->DeleteLocalRef(statusCls);
                                                             env->DeleteLocalRef(statusObj);
@@ -1993,29 +1950,18 @@ bool shouldSendPacket(JNIEnv* env, jobject packet) {
                                                             env->DeleteLocalRef(cls);
                                                             
                                                             if (shouldBlock) {
-                                                                // Block this packet!
-                                                                log_ok("[NoItemRelease] ✓ BLOCKING RELEASE_USE_ITEM packet!");
                                                                 return false;
                                                             }
-                                                        } else {
-                                                            log_debug("[NoItemRelease] Failed to get status string");
+                                                            // Don't continue processing, we already cleaned up
+                                                            goto skip_cleanup;
                                                         }
-                                                    } else {
-                                                        log_debug("[NoItemRelease] enumName is null");
                                                     }
-                                                } else {
-                                                    log_debug("[NoItemRelease] Failed to get name() method");
+                                                    if (enumName) env->DeleteLocalRef(enumName);
                                                 }
                                                 env->DeleteLocalRef(statusCls);
-                                            } else {
-                                                log_debug("[NoItemRelease] Failed to get status class");
                                             }
                                             env->DeleteLocalRef(statusObj);
-                                        } else {
-                                            log_debug("[NoItemRelease] statusObj is null");
                                         }
-                                    } else {
-                                        log_debug("[NoItemRelease] Failed to get status field (all names tried)");
                                     }
                                 }
                                 env->ReleaseStringUTFChars(jname, cstr);
@@ -2025,6 +1971,7 @@ bool shouldSendPacket(JNIEnv* env, jobject packet) {
                     }
                     env->DeleteLocalRef(clsCls);
                 }
+                skip_cleanup:  // Jump here if we already cleaned up references
                 env->DeleteLocalRef(cls);
             }
             // Clear any potential exceptions from the check
