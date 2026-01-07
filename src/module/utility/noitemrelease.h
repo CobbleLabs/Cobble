@@ -21,9 +21,11 @@ public:
 	struct {
 		ItemReleaseMode mode = ItemReleaseMode::ALL;
 	} settings;
+	
+	// State - needs to be public for packet interceptor
+	bool wasUsingItem = false;
 
 private:
-	bool wasUsingItem = false;
 	bool shouldBlockRelease();
 	bool isConsumable(int itemId);
 	bool isSword(int itemId);
