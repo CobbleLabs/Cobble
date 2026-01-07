@@ -84,6 +84,10 @@ public:
 	bool isTargetingBlock();
 	bool isTargetingPlayer();
 	int getHeldItemId();
+	
+private:
+	// Delay accumulator for precise stable CPS timing
+	float delayAccumulator = 0.0f;
 };
 
 extern AutoClicker* autoClicker;
