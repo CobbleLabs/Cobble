@@ -339,7 +339,7 @@ static void renderPage()
 	// Special pages (ArrayList, Notifications) - no Module, render inline
 	else if (ui::cur_tab == 1) {
 		// Visuals tab
-		if (tab.cur_subtab == 2) {
+		if (tab.cur_subtab == 3) {
 			// ArrayList settings
 			ui::two_column(
 				"Settings", []() {
@@ -351,7 +351,7 @@ static void renderPage()
 				}
 			);
 		}
-		else if (tab.cur_subtab == 3) {
+		else if (tab.cur_subtab == 4) {
 			// Notifications settings
 			ui::section("Settings", []() {
 				ui::Checkbox("Enabled", &NotificationManager::enabled);

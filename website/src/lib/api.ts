@@ -294,10 +294,10 @@ export const admin = {
         await apiFetch(`/api/admin/users/${userId}/ban`, { method: 'DELETE' });
     },
 
-    async createLicense(userId: string, plan: string, days?: number): Promise<void> {
+    async createLicense(userId: string, plan: string, duration?: number): Promise<void> {
         await apiFetch('/api/admin/licenses', {
             method: 'POST',
-            body: JSON.stringify({ user_id: userId, plan, days }),
+            body: JSON.stringify({ user_id: userId, plan, duration }),
         });
     },
 

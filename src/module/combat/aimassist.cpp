@@ -659,14 +659,13 @@ bool AimAssist::findTarget(double& targetX, double& targetY, double& targetZ)
 				colorRefreshTimerDbg.Start();
 			}
 			// Debug logging disabled - uncomment to debug team color parsing
-			// log_debug("[Teams] %s | pColor=%d lColor=%d | auto=%d manual=%d mColor=%d | apply=%d",
-			// 	p.name.c_str(),
-			// 	p.teamColor, localTeamColorDbg,
-			// 	friendsManager->teams.matchOwnNametag ? 1 : 0,
-			// 	friendsManager->teams.manualColorEnabled ? 1 : 0,
-			// 	static_cast<int>(friendsManager->teams.manualColor),
-			// 	friendsManager->applyToCombat ? 1 : 0);
-			(void)localTeamColorDbg;  // Suppress unused warning
+			log_debug("[Teams] %s | pColor=%d lColor=%d | auto=%d manual=%d mColor=%d | apply=%d",
+				p.name.c_str(),
+				p.teamColor, localTeamColorDbg,
+				friendsManager->teams.matchOwnNametag ? 1 : 0,
+				friendsManager->teams.manualColorEnabled ? 1 : 0,
+				static_cast<int>(friendsManager->teams.manualColor),
+				friendsManager->applyToCombat ? 1 : 0);
 			colorDebugCounter = 0;
 		}
 
