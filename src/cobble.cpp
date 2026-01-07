@@ -10,10 +10,12 @@
 #include "module/utility/nojumpdelay.h"
 #include "module/utility/noitemrelease.h"
 #include "module/utility/bridgeassist.h"
+#include "module/utility/sprint.h"
 #include "module/visual/nametags.h"
 #include "module/visual/esp.h"
 #include "module/visual/tracers.h"
 #include "module/visual/blockesp.h"
+
 #include "hooks/winsock_hooks.h"
 #include "ui/core/overlay.h"
 #include "ui/hud/notifications.h"
@@ -76,6 +78,7 @@ void cobble::context::initialize(HMODULE hModule)
 	noJumpDelay = new NoJumpDelay();
 	noItemRelease = new NoItemRelease();
 	bridgeAssist = new BridgeAssist();
+	sprint = new Sprint();
 	nameTags = new NameTags();
 	esp = new ESP();
 	tracers = new Tracers();
@@ -94,6 +97,7 @@ void cobble::context::initialize(HMODULE hModule)
 	moduleManager->registerModule(noJumpDelay);
 	moduleManager->registerModule(noItemRelease);
 	moduleManager->registerModule(bridgeAssist);
+	moduleManager->registerModule(sprint);
 	moduleManager->registerModule(nameTags);
 	moduleManager->registerModule(esp);
 	moduleManager->registerModule(tracers);
@@ -207,6 +211,7 @@ void cobble::context::shutdown()
 	if (noJumpDelay) noJumpDelay->setEnabled(false);
 	if (noItemRelease) noItemRelease->setEnabled(false);
 	if (bridgeAssist) bridgeAssist->setEnabled(false);
+	if (sprint) sprint->setEnabled(false);
 	if (nameTags) nameTags->setEnabled(false);
 	if (esp) esp->setEnabled(false);
 	
@@ -226,6 +231,7 @@ void cobble::context::shutdown()
 	if (noJumpDelay) { delete noJumpDelay; noJumpDelay = nullptr; }
 	if (noItemRelease) { delete noItemRelease; noItemRelease = nullptr; }
 	if (bridgeAssist) { delete bridgeAssist; bridgeAssist = nullptr; }
+	if (sprint) { delete sprint; sprint = nullptr; }
 	if (nameTags) { delete nameTags; nameTags = nullptr; }
 	if (esp) { delete esp; esp = nullptr; }
 	if (friendsManager) { delete friendsManager; friendsManager = nullptr; }
