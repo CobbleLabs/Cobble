@@ -1,7 +1,6 @@
 "use client";
 
 import Link from "next/link";
-import { ChevronUp } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import clsx from "clsx";
 import { useState, useEffect } from "react";
@@ -39,7 +38,8 @@ export default function LandingLayout({
                     <Link href="/" className="hover:text-white transition-colors">Home</Link>
                     <Link href="#features" className="hover:text-white transition-colors">Features</Link>
                     <Link href="#pricing" className="hover:text-white transition-colors">Pricing</Link>
-                    <Link href="#" className="hover:text-white transition-colors">Support</Link>
+                    <Link href="#faq" className="hover:text-white transition-colors">FAQ</Link>
+                    <Link href="#community" className="hover:text-white transition-colors">Support</Link>
                 </div>
 
                 <div className="flex items-center gap-4">
@@ -53,15 +53,6 @@ export default function LandingLayout({
             </motion.nav>
 
             {children}
-
-            <div className="fixed bottom-8 right-8 z-50">
-                <button
-                    onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
-                    className="bg-[#4A90E2] p-3 rounded-full text-white shadow-lg hover:bg-[#357ABD] transition-all hover:scale-110"
-                >
-                    <ChevronUp className="w-5 h-5" />
-                </button>
-            </div>
         </>
     );
 }

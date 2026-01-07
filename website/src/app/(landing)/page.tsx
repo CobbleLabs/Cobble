@@ -14,7 +14,21 @@ import { Typewriter } from "@/components/ui/Typewriter";
 import { fadeInUp } from "@/lib/motion";
 import clsx from "clsx";
 
+import { useAuth } from "@/context/AuthContext";
+import { useRouter } from "next/navigation";
+
 export default function Home() {
+  const { isAuthenticated } = useAuth();
+  const router = useRouter();
+
+  const handleChangelogsClick = () => {
+    if (isAuthenticated) {
+      router.push("/dashboard");
+    } else {
+      router.push("/login");
+    }
+  };
+
   return (
     <main className="bg-[#0A0A0A] overflow-x-hidden">
       {/* Hero Section */}
@@ -51,7 +65,7 @@ export default function Home() {
             </h1>
             <div className="text-2xl md:text-4xl font-medium text-[var(--text-secondary)] h-12 flex items-center justify-center gap-2">
               <Typewriter
-                words={["Undetectable.", "Built for Players.", "Precision.", "Zero compromises.", "Designed to dominate."]}
+                words={["Built to win.", "Must be skill.", "Just better.", "Too late.", "Just a good gaming chair."]}
                 typingSpeed={100}
                 deletingSpeed={50}
                 pauseDuration={2000}
@@ -77,24 +91,13 @@ export default function Home() {
             </Link>
           </motion.div>
 
-          {/* Floating Stats */}
+          {/* Decorative gradient line */}
           <motion.div
-            initial={{ opacity: 0, y: 30 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.8, delay: 0.8 }}
-            className="mt-16 flex flex-wrap items-center justify-center gap-8 md:gap-12"
-          >
-            {[
-              { value: "10K+", label: "Active Users" },
-              { value: "99.9%", label: "Undetected" },
-              { value: "24/7", label: "Support" },
-            ].map((stat) => (
-              <div key={stat.label} className="text-center">
-                <div className="text-3xl md:text-4xl font-black text-white mb-1">{stat.value}</div>
-                <div className="text-sm text-[var(--text-secondary)]">{stat.label}</div>
-              </div>
-            ))}
-          </motion.div>
+            initial={{ opacity: 0, scaleX: 0 }}
+            animate={{ opacity: 1, scaleX: 1 }}
+            transition={{ duration: 1, delay: 1 }}
+            className="mt-16 mx-auto w-full max-w-md h-px bg-gradient-to-r from-transparent via-[var(--accent-primary)]/50 to-transparent"
+          />
 
         </div>
       </section>
@@ -109,60 +112,69 @@ export default function Home() {
             variants={fadeInUp}
             className="text-center mb-20"
           >
-            <Heading className="text-5xl mb-6">Unmatched Power.</Heading>
-            <Text className="text-lg">Everything you need to dominate right at your fingertips.</Text>
+            <Heading className="text-5xl mb-6">Unfair by design.</Heading>
+            <Text className="text-lg">Weird how easy it is.</Text>
           </motion.div>
 
           <BentoGrid>
-            {/* Large Card */}
-            <BentoItem colSpan={2} delay={0.1}>
-              <div className="absolute top-0 right-0 w-64 h-64 bg-[var(--accent-primary)]/10 blur-[80px] rounded-full group-hover:bg-[var(--accent-primary)]/20 transition-all" />
-              <Shield className="w-12 h-12 text-[var(--accent-primary)] mb-6" />
-              <Heading className="text-3xl mb-4">Undetectable Security</Heading>
-              <Text className="text-lg leading-relaxed max-w-md">
-                Our kernel-level protection system ensures you stay completely hidden from screenshares and server-side anti-cheats.
-                Play with confidence.
+            {/* Row 1: Invisible, Precision, Instant */}
+            <BentoItem delay={0.1}>
+              <div className="absolute top-0 right-0 w-48 h-48 bg-[var(--accent-primary)]/10 blur-[60px] rounded-full group-hover:bg-[var(--accent-primary)]/20 transition-all duration-500" />
+              <Shield className="w-10 h-10 text-[var(--accent-primary)] mb-4 transition-transform duration-300 group-hover:scale-110" />
+              <Heading className="text-2xl mb-2">Invisible.</Heading>
+              <Text className="text-sm leading-relaxed">
+                Screenshare all you want. We&apos;re not in the picture.
               </Text>
             </BentoItem>
 
-            {/* Tall Card */}
-            <BentoItem rowSpan={2} delay={0.2}>
-              <div className="absolute top-0 left-0 w-full h-full bg-gradient-to-b from-transparent to-[var(--accent-primary)]/5 opacity-0 group-hover:opacity-100 transition-opacity" />
-              <div className="h-full flex flex-col justify-end">
-                <MousePointer2 className="w-12 h-12 text-[var(--accent-primary)] mb-6" />
-                <Heading className="text-3xl mb-4">Aim Assist</Heading>
-                <Text className="leading-relaxed">
-                  Humanized smoothing algorithms that look legit even in slow motion. Customizable FOV and randomization.
-                </Text>
+            <BentoItem delay={0.2}>
+              <div className="absolute bottom-0 left-0 w-full h-32 bg-gradient-to-t from-[var(--accent-primary)]/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
+              <div className="relative">
+                <MousePointer2 className="w-10 h-10 text-[var(--accent-primary)] mb-4 transition-transform duration-300 group-hover:translate-x-1 group-hover:-translate-y-1" />
+                <div className="absolute top-0 left-0 w-10 h-10 bg-[var(--accent-primary)]/50 blur-lg rounded-full opacity-0 group-hover:opacity-50 transition-opacity duration-300" />
               </div>
+              <Heading className="text-2xl mb-2">Precision.</Heading>
+              <Text className="text-sm leading-relaxed">
+                Looks legit even in slow motion. Feels like you just got better.
+              </Text>
             </BentoItem>
 
-            {/* Small Card */}
             <BentoItem delay={0.3}>
-              <Zap className="w-10 h-10 text-[var(--warning)] mb-4 group-hover:scale-110 transition-transform" />
-              <Heading className="text-xl mb-2">Zero Latency</Heading>
-              <Text className="text-sm">Optimized C++ core for maximum FPS.</Text>
+              <div className="absolute inset-0 bg-[var(--accent-primary)]/5 opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
+              <Zap className="w-10 h-10 text-[var(--accent-primary)] mb-4 transition-all duration-300 group-hover:scale-125 group-hover:fill-[var(--accent-primary)]/20" />
+              <Heading className="text-2xl mb-2">Instant.</Heading>
+              <Text className="text-sm leading-relaxed">
+                If you miss, it&apos;s not us. Pure C++ performance.
+              </Text>
             </BentoItem>
 
-            {/* Small Card */}
+            {/* Row 2: Always synced, Always ahead */}
             <BentoItem delay={0.4}>
-              <Settings className="w-10 h-10 text-purple-500 mb-4 group-hover:rotate-90 transition-transform duration-500" />
-              <Heading className="text-xl mb-2">Cloud Configs</Heading>
-              <Text className="text-sm">Sync your settings across all devices instantly.</Text>
+              <Settings className="w-10 h-10 text-[var(--accent-primary)] mb-4 transition-transform duration-300 group-hover:scale-110" />
+              <Heading className="text-2xl mb-2">Always synced.</Heading>
+              <Text className="text-sm leading-relaxed">
+                Log in. Everything&apos;s already there. Cloud saves.
+              </Text>
             </BentoItem>
 
-            {/* Wide Card */}
             <BentoItem colSpan={2} delay={0.5}>
-              <div className="absolute -right-10 -bottom-10 w-48 h-48 bg-[var(--accent-primary)]/10 rounded-full blur-3xl group-hover:bg-[var(--accent-primary)]/20 transition-all" />
-              <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
-                <div className="max-w-md">
-                  <RefreshCw className="w-12 h-12 text-[var(--accent-primary)] mb-6" />
-                  <Heading className="text-3xl mb-4">Constant Updates</Heading>
-                  <Text className="text-lg">
-                    We are always ahead of the curve. Updates are pushed automatically via our cloud loader.
+              <div className="absolute -right-10 -bottom-10 w-64 h-64 bg-[var(--accent-primary)]/10 rounded-full blur-[80px] group-hover:bg-[var(--accent-primary)]/20 transition-all duration-500" />
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-6 relative z-10">
+                <div>
+                  <RefreshCw className="w-10 h-10 text-[var(--accent-primary)] mb-4 transition-transform duration-300 group-hover:scale-110" />
+                  <Heading className="text-2xl mb-2">Always ahead.</Heading>
+                  <Text className="text-sm leading-relaxed max-w-sm">
+                    They patch. We&apos;re already there. Constant automatic updates via cloud.
                   </Text>
                 </div>
-                <Button variant="secondary">View Changelogs</Button>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  className="mt-2 sm:mt-0"
+                  onClick={handleChangelogsClick}
+                >
+                  View Changelogs
+                </Button>
               </div>
             </BentoItem>
           </BentoGrid>
@@ -180,23 +192,23 @@ export default function Home() {
         >
           <span className="text-[var(--accent-primary)] font-bold tracking-widest uppercase text-sm">PRICING</span>
           <Heading className="text-5xl mt-4 mb-6">Simple, Transparent Pricing.</Heading>
-          <Text>No hidden fees. Cancel anytime.</Text>
+          <Text>Yeah, it’s that simple.</Text>
         </motion.div>
 
         <div className="max-w-5xl mx-auto grid grid-cols-1 md:grid-cols-2 gap-8">
           <PricingCard
             title="Monthly"
             price="10"
-            description="Perfect for starters."
+            description="Start here."
             features={["Full Access to All Modules", "24/7 Premium Support", "Cloud Configs", "HWID Resets"]}
             delay={0}
             buttonText="Get Started"
           />
           <PricingCard
             title="Lifetime"
-            price="25"
-            description="The ultimate value choice."
-            features={["Lifetime Access", "Priority Support Queue", "Exclusive Discord Role", "Early Access Features"]}
+            price="45"
+            description="The right choice."
+            features={["Lifetime Access", "Priority Support", "Exclusive Discord Role", "Early Access Features"]}
             isPopular
             delay={0.2}
             buttonText="Get Lifetime"

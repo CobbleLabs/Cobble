@@ -59,13 +59,28 @@ export default function DashboardPage() {
             isMonthly ? "Monthly Plan" :
                 license ? "Active License" : "No License";
 
-    // Days remaining
-    let daysRemaining = isLifetime ? "∞" : "0";
-    if (!isLifetime && license?.expires_at) {
+    // Days remaining calculation
+    let daysRemaining = "0";
+    let progressPercent = 0;
+    const MONTHLY_DURATION = 30; // Monthly plan is 30 days
+
+    if (isLifetime) {
+        daysRemaining = "∞";
+        progressPercent = 100;
+    } else if (license?.expires_at) {
         const days = Math.ceil((new Date(license.expires_at).getTime() - Date.now()) / (1000 * 60 * 60 * 24));
-        daysRemaining = days > 0 ? days.toString() : "Expired";
-    } else if (license && !isLifetime && !license.expires_at) {
-        daysRemaining = "∞"; // No expiry set means unlimited
+        if (days > 0) {
+            daysRemaining = days.toString();
+            // Calculate progress based on 30-day monthly cycle
+            progressPercent = Math.min(100, Math.max(0, (days / MONTHLY_DURATION) * 100));
+        } else {
+            daysRemaining = "Expired";
+            progressPercent = 0;
+        }
+    } else if (license && !license.expires_at) {
+        // No expiry set (admin granted unlimited) - treat as lifetime for display
+        daysRemaining = "∞";
+        progressPercent = 100;
     }
 
     // HWID info
@@ -107,12 +122,12 @@ export default function DashboardPage() {
 
                     <div className="h-1.5 w-full bg-[var(--bg-tertiary)] rounded-full overflow-hidden">
                         <div
-                            className="h-full bg-[var(--accent-primary)] shadow-[0_0_10px_var(--accent-primary)]"
-                            style={{ width: isLifetime ? "100%" : isActive ? "75%" : "0%" }}
+                            className="h-full bg-[var(--accent-primary)] shadow-[0_0_10px_var(--accent-primary)] transition-all duration-500"
+                            style={{ width: `${progressPercent}%` }}
                         />
                     </div>
-                    {!isLifetime && isActive && (
-                        <Text className="text-xs mt-2">{daysRemaining} days remaining</Text>
+                    {isActive && (
+                        <Text className="text-xs mt-2">{daysRemaining === "∞" ? "Unlimited access" : `${daysRemaining} days remaining`}</Text>
                     )}
                 </BentoItem>
 

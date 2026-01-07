@@ -188,6 +188,21 @@ server {
         proxy_cache_bypass \$http_upgrade;
     }
 }
+
+# API Backend (Go server on port 8080)
+server {
+    listen 80;
+    server_name api.$DOMAIN_NAME;
+
+    location / {
+        proxy_pass http://localhost:8080;
+        proxy_http_version 1.1;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+    }
+}
 NGINXEOF
 
 # Enable site
@@ -198,7 +213,7 @@ rm -f /etc/nginx/sites-enabled/default
 nginx -t && systemctl reload nginx
 systemctl enable nginx
 
-echo -e "${GREEN}Nginx configured for $DOMAIN_NAME and www.$DOMAIN_NAME${NC}"
+echo -e "${GREEN}Nginx configured for $DOMAIN_NAME, www.$DOMAIN_NAME, and api.$DOMAIN_NAME${NC}"
 
 # ============================================================================
 echo -e "${YELLOW}[6/6] SSL Certificate Setup...${NC}"

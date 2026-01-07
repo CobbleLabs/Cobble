@@ -81,9 +81,9 @@ export default function RegisterPage() {
             <div className="absolute bottom-0 right-0 w-[600px] h-[600px] bg-purple-600 opacity-10 blur-[120px] rounded-full pointer-events-none" />
 
             <motion.div
-                initial={{ opacity: 0, scale: 0.95 }}
-                animate={{ opacity: 1, scale: 1 }}
-                transition={{ duration: 0.5 }}
+                initial={{ opacity: 0, y: 20, filter: "blur(4px)" }}
+                animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
+                transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
                 className="w-full max-w-md relative z-10 px-6"
             >
                 <div className="text-center mb-8">
