@@ -110,6 +110,7 @@
     <ClCompile Include="src\module\utility\bridgeassist.cpp" />
     <ClCompile Include="src\module\visual\nametags.cpp" />
     <ClCompile Include="src\module\visual\esp.cpp" />
+    <ClCompile Include="src\module\visual\tracers.cpp" />
     <!-- UI structure -->
     <ClCompile Include="src\ui\core\overlay.cpp" />
     <ClCompile Include="src\ui\menu\menu.cpp" />
@@ -124,6 +125,8 @@
     <ClCompile Include="src\util\math\worldToScreen.cpp" />
     <ClCompile Include="src\util\friends_manager.cpp" />
     <ClCompile Include="src\util\visual_team_resolver.cpp" />
+    <ClCompile Include="src\util\inventory_cache.cpp" />
+    <ClCompile Include="src\util\inventory_hooks.cpp" />
     <!-- External libraries -->
     <ClCompile Include="infra\ext\imgui\imgui.cpp" />
     <ClCompile Include="infra\ext\imgui\imgui_draw.cpp" />

@@ -57,6 +57,7 @@ struct LocalPlayer
 
 	// Inventory (for weapon detection)
 	int getHeldItemId();
+	int getItemInSlot(int slot);  // Get item ID in specific hotbar/inventory slot (0-35)
 
 	// Blink - lastReportedPos (prevents sending movement packets)
 	double getLastReportedPosX();
