@@ -145,7 +145,10 @@ bool NoItemRelease::shouldBlockRelease()
 void NoItemRelease::onUpdate()
 {
 	if (!enabled) {
-		wasUsingItem = false;
+		if (wasUsingItem) {
+			wasUsingItem = false;
+			log_debug("[NoItemRelease] Module disabled, reset wasUsingItem");
+		}
 		return;
 	}
 	if (Menu::isOpen) return;
@@ -158,25 +161,33 @@ void NoItemRelease::onUpdate()
 	// Check what item we're holding
 	bool shouldKeepUsing = shouldBlockRelease();
 	
-	// Simple state tracking for packet blocker:
-	// - When user presses right-click with valid item -> set flag
-	// - Packet interceptor will block RELEASE_USE_ITEM packets while flag is set
-	// - User can release right-click and move freely (client-side)
-	// - Server never receives release packet, continues item usage
+	// State tracking logic:
+	// Once started, keep blocking until user CLICKS AGAIN with a different/invalid item
+	// This allows movement, sprinting, etc without canceling
+	
+	bool previousState = wasUsingItem;
 	
 	if (actualRightClick && shouldKeepUsing) {
 		// User is actively using a valid item
 		wasUsingItem = true;
+		if (!previousState) {
+			log_debug("[NoItemRelease] Started using item (wasUsingItem = true)");
+		}
 	}
-	else if (!actualRightClick && shouldKeepUsing) {
-		// User released right-click, but we should block the release packet
-		// Keep the flag set so packet blocker knows to cancel RELEASE_USE_ITEM
-		// Don't simulate any input - let user move freely
-		wasUsingItem = true;
-	}
-	else {
-		// Reset if we're not holding a valid item anymore
+	else if (actualRightClick && !shouldKeepUsing) {
+		// User clicked with invalid item - stop blocking
 		wasUsingItem = false;
+		if (previousState) {
+			log_debug("[NoItemRelease] Clicked with invalid item (wasUsingItem = false)");
+		}
+	}
+	// If not clicking, maintain current state
+	// This is the key: don't reset just because we're not clicking
+	
+	// Debug: log every 60 ticks if wasUsingItem is true
+	static int debugCounter = 0;
+	if (wasUsingItem && ++debugCounter % 60 == 0) {
+		log_debug("[NoItemRelease] State: wasUsingItem=true, rightClick=%d, shouldKeep=%d", actualRightClick, shouldKeepUsing);
 	}
 }
 
