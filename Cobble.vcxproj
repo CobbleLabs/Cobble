@@ -110,6 +110,7 @@
     <ClCompile Include="src\module\utility\bridgeassist.cpp" />
     <ClCompile Include="src\module\visual\nametags.cpp" />
     <ClCompile Include="src\module\visual\esp.cpp" />
+    <ClCompile Include="src\module\visual\tracers.cpp" />
     <!-- UI structure -->
     <ClCompile Include="src\ui\core\overlay.cpp" />
     <ClCompile Include="src\ui\menu\menu.cpp" />

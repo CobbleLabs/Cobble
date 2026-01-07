@@ -12,6 +12,7 @@
 #include "module/utility/bridgeassist.h"
 #include "module/visual/nametags.h"
 #include "module/visual/esp.h"
+#include "module/visual/tracers.h"
 #include "hooks/winsock_hooks.h"
 #include "ui/core/overlay.h"
 #include "ui/hud/notifications.h"
@@ -76,6 +77,7 @@ void cobble::context::initialize(HMODULE hModule)
 	bridgeAssist = new BridgeAssist();
 	nameTags = new NameTags();
 	esp = new ESP();
+	tracers = new Tracers();
 	friendsManager = new FriendsManager();
 	visualTeamResolver = new VisualTeamResolver();
 	log_ok("Modules allocated");
@@ -92,6 +94,7 @@ void cobble::context::initialize(HMODULE hModule)
 	moduleManager->registerModule(bridgeAssist);
 	moduleManager->registerModule(nameTags);
 	moduleManager->registerModule(esp);
+	moduleManager->registerModule(tracers);
 	log_ok("Modules registered");
 	
 	// Initialize config (loads local, applies to modules, async fetch from server)
