@@ -89,6 +89,10 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/).
   - Valores conservadores por defecto: variance=3%, tickSpread=1, microDelay=15ms
   - Implementado en modos Regular y Reduce
   - Config persistence incluida (cloud sync compatible)
+- **Sprint Module**: Auto-sprint functionality in Movement tab
+  - Automatically enables sprinting without holding vanilla sprint key
+  - Clean disable: restores normal sprint state when toggled off
+  - Simple UI with keybind support
 
 ### Changed
 - Blink now uses PacketInterceptor API (no `lastReportedPos` mutation).
@@ -126,6 +130,7 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/).
 - **Teams/Friends**: Arreglado problema donde en servidores protegidos el nombre mostraba el prefijo del server (ej: "Elevate") en vez del nombre real. Ahora usa `getName()` para el nombre y `getFormattedText` solo para detectar color de team.
 - **Velocity Gradual Application**: Arreglado bug donde tickSpread > 0 aplicaba reducción horizontal incorrecta (ej: 9% configurado → 29% aplicado). Ahora calcula correctamente la reducción gradual.
 - **Velocity Pending State**: Arreglado bug crítico donde cambiar de tickSpread>0 a tickSpread=0 dejaba estado residual activo, causando reducción incorrecta (ej: 50% → 57%). Ahora resetea pending.active=false en aplicación instantánea.
+- **Notifications Menu**: Fixed bug where Notifications settings page was not rendering due to incorrect subtab index (was checking index 4 instead of 5 in Visuals tab).
 
 ### Security
 - **License Fallback HTTPS**: `main.cpp` fallback server ahora usa HTTPS en vez de HTTP (previene MITM)
