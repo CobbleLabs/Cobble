@@ -15,7 +15,7 @@ export interface User {
 
 export interface License {
     id: number;
-    plan: 'monthly' | 'lifetime' | 'trial' | 'custom';
+    plan: 'none' | 'monthly' | 'lifetime' | 'trial' | 'custom';
     expires_at?: string;
     hwid?: string;
     hwid_last_reset?: string;
@@ -228,6 +228,25 @@ export async function getHWIDStatus(): Promise<HWIDStatus> {
 
 export async function resetHWID(): Promise<void> {
     await apiFetch('/api/users/me/hwid/reset', { method: 'POST' });
+}
+
+// Payment endpoints
+export interface ActivatePaymentResponse {
+    success: boolean;
+    data: {
+        plan: string;
+        message: string;
+    };
+}
+
+export async function activatePayment(orderId: string, plan: 'monthly' | 'lifetime'): Promise<ActivatePaymentResponse> {
+    return apiFetch('/api/payments/activate', {
+        method: 'POST',
+        body: JSON.stringify({
+            order_id: orderId,
+            plan: plan,
+        }),
+    });
 }
 
 // Dashboard endpoints

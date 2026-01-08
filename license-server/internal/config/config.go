@@ -38,11 +38,15 @@ type Config struct {
 	SigningKeyPath string
 
 	// Security
-	SecureCookies bool // Set to true in production with HTTPS
+	SecureCookies bool   // Set to true in production with HTTPS
+	CookieDomain  string // Domain for cookies (e.g., ".cobble.vip" for cross-subdomain)
 
 	// Email (Resend)
 	ResendAPIKey    string
 	ResendFromEmail string
+
+	// PayPal
+	PayPalWebhookID string
 }
 
 // Global config instance
@@ -83,10 +87,14 @@ func Load() *Config {
 
 		// Security (set SECURE_COOKIES=true in production)
 		SecureCookies: getEnvBool("SECURE_COOKIES", false),
+		CookieDomain:  getEnv("COOKIE_DOMAIN", ""), // e.g., ".cobble.vip"
 
 		// Email (Resend)
 		ResendAPIKey:    getEnv("RESEND_API_KEY", ""),
 		ResendFromEmail: getEnv("RESEND_FROM_EMAIL", "Cobble Security <noreply@cobble.vip>"),
+
+		// PayPal
+		PayPalWebhookID: getEnv("PAYPAL_WEBHOOK_ID", ""),
 	}
 
 	return cfg
@@ -106,8 +114,6 @@ func SetMinVersion(version string) {
 		cfg.MinVersion = version
 	}
 }
-
-
 
 // IsDefaultAdminKey checks if using insecure default key
 func (c *Config) IsDefaultAdminKey() bool {

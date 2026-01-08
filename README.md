@@ -5,7 +5,7 @@ Ghost client for Lunar Client via JNI injection.
 ## Features
 
 - **Combat**: AutoClicker, AimAssist, Velocity, Reach, AutoRefill
-- **Visual**: NameTags
+- **Visual**: NameTags, ESP, Tracers, Notifications, ArrayList
 - **Utility**: NoJumpDelay
 - **UI**: Custom ImGui overlay with modular settings
 

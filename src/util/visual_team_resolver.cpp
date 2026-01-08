@@ -14,7 +14,7 @@
 VisualTeamResolver* visualTeamResolver = nullptr;
 
 // Debug toggle
-static bool g_visualTeamDebug = true;
+static bool g_visualTeamDebug = false;
 
 // ============================================================
 // Main API
@@ -85,8 +85,7 @@ void VisualTeamResolver::updateTracks(const std::vector<PlayerInfo>& players,
 		                               track.velocityY * track.velocityY + 
 		                               track.velocityZ * track.velocityZ);
 		
-		// Interpolated position for render sync (using PlayerInfo's lastPos from JNI)
-		// This matches the pattern used in ESP/Nametags for frame-accurate positions
+		// Interpolated position for render sync
 		double interpX = p.lastPosX + (p.posX - p.lastPosX) * partialTicks;
 		double interpY = p.lastPosY + (p.posY - p.lastPosY) * partialTicks;
 		double interpZ = p.lastPosZ + (p.posZ - p.lastPosZ) * partialTicks;
@@ -94,7 +93,7 @@ void VisualTeamResolver::updateTracks(const std::vector<PlayerInfo>& players,
 		track.worldY = interpY;
 		track.worldZ = interpZ;
 		
-		// Calculate distance (using interpolated position)
+		// Calculate distance
 		double dx = interpX - renderPos.x;
 		double dy = interpY - renderPos.y;
 		double dz = interpZ - renderPos.z;
@@ -105,14 +104,14 @@ void VisualTeamResolver::updateTracks(const std::vector<PlayerInfo>& players,
 			track.playerName = p.name;
 		}
 		
-		// Store previous screen position for motion compensation
+		// Store previous screen position
 		track.lastScreenX = track.screenX;
 		track.lastScreenY = track.screenY;
 		
 		// Project to screen using interpolated position
 		Vector3 headPos(
 			(float)(interpX - renderPos.x),
-			(float)(interpY + 2.15f - renderPos.y),  // Original height for nametag
+			(float)(interpY + 2.15f - renderPos.y),
 			(float)(interpZ - renderPos.z)
 		);
 		
@@ -134,12 +133,15 @@ void VisualTeamResolver::queueForAnalysis(const std::string& uuid, const PlayerI
 	std::lock_guard<std::mutex> lock(mutex_);
 	
 	auto it = tracks_.find(uuid);
-	if (it == tracks_.end()) return;  // Must have track from updateTracks
+	if (it == tracks_.end()) return;
 	
 	VisualTrack& track = it->second;
-	track.lastSeen = std::chrono::steady_clock::now();
+	auto now = std::chrono::steady_clock::now();
+	track.lastSeen = now;
 	
-	if (track.sticky) return;
+	// Allow sticky players to be revalidated every stickyRecheckMs
+	auto sinceLastAnalyze = std::chrono::duration_cast<std::chrono::milliseconds>(now - track.lastAnalyzed).count();
+	if (track.sticky && sinceLastAnalyze < stickyRecheckMs) return;
 	if (track.distance > maxAnalysisDistance) return;
 	if (shouldThrottle(uuid)) return;
 	if (!track.onScreen) return;
@@ -149,7 +151,7 @@ void VisualTeamResolver::queueForAnalysis(const std::string& uuid, const PlayerI
 	pending.uuid = uuid;
 	pending.playerName = entity.name;
 	pending.headX = track.worldX;
-	pending.headY = track.worldY + 2.15;  // Consistent with updateTracks
+	pending.headY = track.worldY + 2.15;
 	pending.headZ = track.worldZ;
 	pending.renderX = renderPos.x;
 	pending.renderY = renderPos.y;
@@ -184,7 +186,7 @@ void VisualTeamResolver::processRenderThread(int displayWidth, int displayHeight
 	for (const auto& pending : toProcess) {
 		if (processed >= maxAnalysesPerFrame) break;
 		
-		// Use track's pre-calculated screen position (single source of truth)
+		// Use track's pre-calculated screen position
 		VisualTrack localTrack;
 		{
 			std::lock_guard<std::mutex> lock(mutex_);
@@ -193,54 +195,44 @@ void VisualTeamResolver::processRenderThread(int displayWidth, int displayHeight
 			localTrack = it->second;
 		}
 		
-		// Motion compensation: predict where the nametag will be this frame
-		float deltaX = localTrack.screenX - localTrack.lastScreenX;
-		float deltaY = localTrack.screenY - localTrack.lastScreenY;
-		float motionFactor = std::clamp(localTrack.speed * 0.12f, 0.0f, 1.0f);
-		float compensatedX = localTrack.screenX + deltaX * motionFactor;
-		float compensatedY = localTrack.screenY + deltaY * motionFactor;
-		
-		int centerX = (int)compensatedX;
-		int centerY = (int)compensatedY;
+		int centerX = (int)localTrack.screenX;
+		int centerY = (int)localTrack.screenY;
 		
 		float projectedHeight = (displayHeight * 1.8f) / (pending.distance * 2.0f);
 		if (projectedHeight < minScreenSize) continue;
 		
-		int nametagYOffset = std::clamp((int)(projectedHeight * 0.25f), 4, 24);
-		int sampleY = centerY - nametagYOffset;
-		
 		int margin = 30;
 		if (centerX < margin || centerX >= displayWidth - margin ||
-		    sampleY < margin || sampleY >= displayHeight - margin) {
+		    centerY < margin || centerY >= displayHeight - margin) {
 			continue;
 		}
 		
-		// Dynamic offset based on distance AND speed
-		float speedFactor = 1.0f + localTrack.speed * 0.2f;  // Bigger offset when moving fast
-		int dynamicOffset = (int)(projectedHeight * 0.15f * speedFactor);
-		if (dynamicOffset < 3) dynamicOffset = 3;
-		if (dynamicOffset > 20) dynamicOffset = 20;  // Allow larger offset when moving
-		
-		// Band height: 2 rows when still, 3 rows when moving (dy = -1, 0, +1)
-		bool isMoving = localTrack.speed > 2.0f;  // ~walking speed
-		int bandHeight = isMoving ? 3 : 2;
+		// Dynamic offset based on distance AND speed (wider ROI when moving)
+		float speedBonus = std::clamp(localTrack.speed * 2.0f, 0.0f, 10.0f);
+		int dynamicOffset = (int)(projectedHeight * 0.15f) + (int)speedBonus;
+		if (dynamicOffset < 5) dynamicOffset = 5;
+		if (dynamicOffset > 25) dynamicOffset = 25;
 		
 		float dominantHue = 0.0f;
 		bool valid = false;
 		VisualRejectReason rejectReason = REJECT_NONE;
-		analyzeScreenRegion(centerX, sampleY, displayHeight, dynamicOffset, 
-		                    bandHeight, isMoving, dominantHue, valid, rejectReason);
+		int bestRowOffset = 0;
+		
+		// New robust sampling with vertical band scan
+		analyzeScreenRegion(centerX, centerY, displayHeight, dynamicOffset, 
+		                    dominantHue, valid, rejectReason, bestRowOffset);
 		
 		processed++;
 		
-		// Store debug sample (compensated position for accurate overlay)
+		// Store debug sample
 		if (debugOverlay) {
 			std::lock_guard<std::mutex> lock(mutex_);
 			DebugSample ds;
 			ds.screenX = centerX;
-			ds.screenY = sampleY;
+			ds.screenY = centerY + bestRowOffset;  // Show where we actually found the nametag
 			ds.offset = dynamicOffset;
-			ds.bandHeight = bandHeight;
+			ds.bandHeight = 3;  // Always 3 rows now
+			ds.bestRowOffset = bestRowOffset;
 			ds.valid = valid;
 			ds.hue = dominantHue;
 			ds.timestamp = now;
@@ -283,8 +275,8 @@ void VisualTeamResolver::processRenderThread(int displayWidth, int displayHeight
 				}).detach();
 			}
 			
-			// Update confidence
-			track.addSample(dominantHue, valid);
+			// Update confidence with rejection reason for smart decay
+			track.addSample(dominantHue, valid, rejectReason);
 			track.updateSticky();
 			track.lastRejectReason = rejectReason;
 			
@@ -311,13 +303,14 @@ void VisualTeamResolver::processRenderThread(int displayWidth, int displayHeight
 							case REJECT_LOW_SATURATION: rejectStr = " [LOW_SAT]"; break;
 							case REJECT_HIGH_VARIANCE: rejectStr = " [HIGH_VAR]"; break;
 							case REJECT_MIXED_COLORS: rejectStr = " [MIXED]"; break;
+							case REJECT_OCCLUDED: rejectStr = " [OCCLUDED]"; break;
 							default: break;
 						}
 					}
 					
-					log_debug("[VisualTeam] %s: %.2f (%s)%s%s",
+					log_debug("[VisualTeam] %s: %.2f (%s) row=%+d%s%s",
 						displayName.c_str(), track.confidence, resultStr,
-						track.sticky ? " [STICKY]" : "", rejectStr);
+						bestRowOffset, track.sticky ? " [STICKY]" : "", rejectStr);
 				}
 			}
 		}
@@ -361,11 +354,9 @@ void VisualTeamResolver::applyClusterInference() {
 		
 		// Apply cluster inference
 		if (nearbyFriendly >= clusterMinPlayers && nearbyEnemy == 0) {
-			// Surrounded by friendlies -> probably friendly
 			track.confidence += clusterConfidenceBoost;
 			if (track.confidence > 1.0f) track.confidence = 1.0f;
 		} else if (nearbyEnemy >= clusterMinPlayers && nearbyFriendly == 0) {
-			// Surrounded by enemies -> probably enemy
 			track.confidence -= clusterConfidenceBoost;
 			if (track.confidence < 0.0f) track.confidence = 0.0f;
 		}
@@ -383,6 +374,14 @@ void VisualTeamResolver::tick() {
 			now - it->second.lastSeen
 		).count();
 		
+		if (it->second.sticky) {
+			auto stickyAgeMs = std::chrono::duration_cast<std::chrono::milliseconds>(now - it->second.stickySince).count();
+			if (stickyAgeMs > stickyTimeoutMs) {
+				it->second.sticky = false;
+				it->second.stickyContradictions = 0;
+			}
+		}
+		
 		float effectiveTTL = it->second.sticky ? 30000.0f : cacheTTLMs;
 		
 		if (ageMs > effectiveTTL) {
@@ -392,19 +391,60 @@ void VisualTeamResolver::tick() {
 		}
 	}
 	
-	// Clean old debug samples
-	auto cutoff = now - std::chrono::milliseconds(500);
+	// Clean old debug samples (very short TTL to avoid stale overlay when camera moves)
+	auto cutoff = now - std::chrono::milliseconds(50);
 	while (!debugSamples_.empty() && debugSamples_.front().timestamp < cutoff) {
 		debugSamples_.pop_front();
 	}
 }
 
+void VisualTeamResolver::resetAllTracks() {
+	std::lock_guard<std::mutex> lock(mutex_);
+	tracks_.clear();
+	pendingQueue_.clear();
+	debugSamples_.clear();
+	log_debug("[VisualTeam] All tracks reset (world change detected)");
+}
+
+// Static to track world reference (GlobalRef)
+static jobject s_lastWorldRef = nullptr;
+
 void VisualTeamResolver::scanAllPlayers() {
 	if (!enabled) return;
 	
+	// Detect world change using IsSameObject (not pointer comparison - local refs change every call!)
+	jobject currentWorld = mc.getWorld();
+	bool worldChanged = false;
+	
+	if (s_lastWorldRef == nullptr && currentWorld != nullptr) {
+		worldChanged = true;
+	} else if (s_lastWorldRef != nullptr && currentWorld == nullptr) {
+		worldChanged = true;
+	} else if (s_lastWorldRef != nullptr && currentWorld != nullptr) {
+		if (!Java::Env->IsSameObject(s_lastWorldRef, currentWorld)) {
+			worldChanged = true;
+		}
+	}
+	
+	if (worldChanged) {
+		resetAllTracks();
+		
+		if (s_lastWorldRef) {
+			Java::Env->DeleteGlobalRef(s_lastWorldRef);
+			s_lastWorldRef = nullptr;
+		}
+		
+		if (currentWorld) {
+			s_lastWorldRef = Java::Env->NewGlobalRef(currentWorld);
+		}
+	}
+	
+	if (currentWorld) {
+		Java::Env->DeleteLocalRef(currentWorld);
+	}
+	
 	auto players = mc.getPlayerList();
 	RenderPos renderPos = mc.getRenderPos();
-	// Get partialTicks for interpolation (matches ESP/Nametags pattern)
 	float partialTicks = mc.getPartialTicks();
 	
 	// Update tracks first
@@ -430,30 +470,34 @@ void VisualTeamResolver::renderDebugOverlay(ImDrawList* draw) {
 	
 	std::lock_guard<std::mutex> lock(mutex_);
 	
-	// Draw sample points (compensated position - where we actually sample)
+	// Draw sample points
 	for (const auto& ds : debugSamples_) {
 		int x = ds.screenX;
 		int y = ds.screenY;
 		int off = ds.offset;
-		int halfOff = off / 2;
 		
 		ImU32 centerColor = ds.valid ? IM_COL32(0, 255, 0, 200) : IM_COL32(255, 0, 0, 200);
 		ImU32 sampleColor = IM_COL32(0, 200, 255, 180);
+		ImU32 bestRowColor = IM_COL32(255, 255, 0, 200);
 		
-		// Draw vertical band when moving (bandHeight > 1)
-		int startDy = (ds.bandHeight > 1) ? -1 : 0;
-		int endDy = (ds.bandHeight > 1) ? 1 : 0;
-		
-		for (int dy = startDy; dy <= endDy; dy++) {
+		// Draw 9 sample points per row, 3 rows
+		for (int dy = -1; dy <= 1; dy++) {
 			int yRow = y + dy;
-			// 5 sample points per row
-			draw->AddRectFilled(ImVec2((float)(x-off-2), (float)(yRow-2)), ImVec2((float)(x-off+2), (float)(yRow+2)), sampleColor);
-			draw->AddRectFilled(ImVec2((float)(x-halfOff-2), (float)(yRow-2)), ImVec2((float)(x-halfOff+2), (float)(yRow+2)), sampleColor);
-			draw->AddRectFilled(ImVec2((float)(x-2), (float)(yRow-2)), ImVec2((float)(x+2), (float)(yRow+2)), dy == 0 ? centerColor : sampleColor);
-			draw->AddRectFilled(ImVec2((float)(x+halfOff-2), (float)(yRow-2)), ImVec2((float)(x+halfOff+2), (float)(yRow+2)), sampleColor);
-			draw->AddRectFilled(ImVec2((float)(x+off-2), (float)(yRow-2)), ImVec2((float)(x+off+2), (float)(yRow+2)), sampleColor);
+			bool isBestRow = (dy == 0);  // centerY is already adjusted to best row
+			ImU32 rowColor = isBestRow ? bestRowColor : sampleColor;
 			
-			draw->AddLine(ImVec2((float)(x-off), (float)yRow), ImVec2((float)(x+off), (float)yRow), IM_COL32(255, 255, 0, 100), 1.0f);
+			// 9 horizontal sample points
+			for (int i = -4; i <= 4; i++) {
+				int xPos = x + (off * i / 4);
+				draw->AddRectFilled(
+					ImVec2((float)(xPos-1), (float)(yRow-1)), 
+					ImVec2((float)(xPos+1), (float)(yRow+1)), 
+					(i == 0 && isBestRow) ? centerColor : rowColor
+				);
+			}
+			
+			draw->AddLine(ImVec2((float)(x-off), (float)yRow), ImVec2((float)(x+off), (float)yRow), 
+			              IM_COL32(255, 255, 0, isBestRow ? 150 : 60), 1.0f);
 		}
 	}
 	
@@ -523,155 +567,219 @@ void VisualTeamResolver::rgbToHsv(float r, float g, float b, float& h, float& s,
 	if (h < 0.0f) h += 360.0f;
 }
 
-bool VisualTeamResolver::analyzeScreenRegion(int centerX, int centerY, int displayHeight, 
-                                              int dynamicOffset, int bandHeight, bool isMoving,
+SampleClassification VisualTeamResolver::classifySample(float r, float g, float b, float a, float& hue) {
+	hue = 0.0f;
+	
+	// Check transparency first
+	if (a < minAlpha) {
+		return SAMPLE_TRANSPARENT;
+	}
+	
+	float h, s, v;
+	rgbToHsv(r, g, b, h, s, v);
+	hue = h;
+	
+	// Near-green relaxation: allow darker/less saturated greens (for &2 dark green)
+	float distToGreen = fabsf(h - 120.0f);
+	if (distToGreen > 180.0f) distToGreen = 360.0f - distToGreen;
+	bool nearGreen = distToGreen < 40.0f;
+	
+	// Relax thresholds for near-green colors (shadow/outline still filtered)
+	float satThreshold = nearGreen ? minSaturation * 0.4f : minSaturation;
+	float valThreshold = nearGreen ? minValue * 0.6f : minValue;
+	
+	if (s < satThreshold || v < valThreshold) {
+		return SAMPLE_LOW_SAT;
+	}
+	
+	// Any saturated color is valid for classification
+	// Green = friendly, anything else = enemy (handled in addSample)
+	return SAMPLE_COLOR_VALID;
+}
+
+bool VisualTeamResolver::sampleBlock3x3(const std::vector<unsigned char>& buffer, int roiSize, int bufX, int bufY,
+                                         float& avgR, float& avgG, float& avgB, float& avgA) {
+	avgR = avgG = avgB = avgA = 0.0f;
+	int count = 0;
+	
+	for (int dx = -1; dx <= 1; dx++) {
+		for (int dy = -1; dy <= 1; dy++) {
+			int x = bufX + dx;
+			int y = bufY + dy;
+			
+			if (x < 0 || x >= roiSize || y < 0 || y >= roiSize) continue;
+			
+			int flippedY = roiSize - 1 - y;
+			int idx = (flippedY * roiSize + x) * 4;
+			
+			if (idx < 0 || idx + 3 >= (int)buffer.size()) continue;
+			
+			avgR += buffer[idx] / 255.0f;
+			avgG += buffer[idx + 1] / 255.0f;
+			avgB += buffer[idx + 2] / 255.0f;
+			avgA += buffer[idx + 3] / 255.0f;
+			count++;
+		}
+	}
+	
+	if (count == 0) return false;
+	
+	avgR /= count;
+	avgG /= count;
+	avgB /= count;
+	avgA /= count;
+	return true;
+}
+
+bool VisualTeamResolver::analyzeScreenRegion(int centerX, int centerY, int displayHeight,
+                                              int dynamicOffset,
                                               float& dominantHue, bool& valid,
-                                              VisualRejectReason& rejectReason) {
+                                              VisualRejectReason& rejectReason,
+                                              int& bestRowOffset) {
 	valid = false;
 	dominantHue = 0.0f;
 	rejectReason = REJECT_NONE;
+	bestRowOffset = 0;
 	
-	// Larger ROI when using vertical band
-	int roiSize = dynamicOffset * 2 + 4 + bandHeight * 2;
+	// ============================================================
+	// VERTICAL BAND SCAN: Find the best Y offset (-12 to +2)
+	// ============================================================
+	
+	// ROI large enough for vertical scan
+	int roiWidth = dynamicOffset * 2 + 10;
+	int roiHeight = 20;  // -12 to +2 = 15 rows, plus margin
+	int roiSize = std::max(roiWidth, roiHeight);
 	int roiHalf = roiSize / 2;
 	
 	int roiX = centerX - roiHalf;
-	int roiY = centerY - roiHalf;
+	int roiY = centerY - 12 - 2;  // Start above the expected nametag position
 	int glRoiY = displayHeight - roiY - roiSize;
 	
-	std::vector<GLubyte> buffer(roiSize * roiSize * 4);
+	// Clamp ROI to screen bounds
+	if (roiX < 0) roiX = 0;
+	if (glRoiY < 0) glRoiY = 0;
+	
+	std::vector<unsigned char> buffer(roiSize * roiSize * 4);
 	glPixelStorei(GL_PACK_ALIGNMENT, 1);
 	glReadPixels(roiX, glRoiY, roiSize, roiSize, GL_RGBA, GL_UNSIGNED_BYTE, buffer.data());
 	
-	// Build sample points: horizontal strip with optional vertical band
-	std::vector<std::pair<int, int>> samplePoints;
-	int halfOff = dynamicOffset / 2;
+	// ============================================================
+	// SCAN EACH ROW (dy = -12 to +2) and count valid samples
+	// ============================================================
 	
-	// Vertical band: sample dy = -1, 0, +1 when moving; only 0 when still
-	int startDy = (bandHeight > 1) ? -1 : 0;
-	int endDy = (bandHeight > 1) ? 1 : 0;
+	struct RowResult {
+		int dy;
+		int validCount;
+		int greenCount;
+		int redCount;
+		int transparentCount;
+		int lowSatCount;
+		float greenSum;
+		float redSum;
+	};
 	
-	for (int dy = startDy; dy <= endDy; dy++) {
-		samplePoints.push_back({-dynamicOffset, dy});
-		samplePoints.push_back({-halfOff, dy});
-		samplePoints.push_back({0, dy});
-		samplePoints.push_back({halfOff, dy});
-		samplePoints.push_back({dynamicOffset, dy});
+	std::vector<RowResult> rowResults;
+	
+	// 9 horizontal sample points per row
+	std::vector<int> xOffsets;
+	for (int i = -4; i <= 4; i++) {
+		xOffsets.push_back(dynamicOffset * i / 4);
 	}
 	
-	std::vector<float> validHues;
-	int lowSatCount = 0;
-	int lowAlphaCount = 0;
-	
-	// Debug logging
-	static int debugCounter = 0;
-	bool shouldDebugLog = (++debugCounter % 50 == 1);
-	
-	for (size_t i = 0; i < samplePoints.size(); i++) {
-		const auto& sample = samplePoints[i];
-		int bufX = roiHalf + sample.first;
-		int bufY = roiHalf + sample.second;
+	for (int dy = -12; dy <= 2; dy++) {
+		RowResult row = { dy, 0, 0, 0, 0, 0, 0.0f, 0.0f };
 		
-		if (bufX < 0 || bufX >= roiSize || bufY < 0 || bufY >= roiSize) continue;
-		
-		int flippedBufY = roiSize - 1 - bufY;
-		int idx = (flippedBufY * roiSize + bufX) * 4;
-		
-		if (idx < 0 || idx + 3 >= (int)buffer.size()) continue;
-		
-		float r = buffer[idx] / 255.0f;
-		float g = buffer[idx + 1] / 255.0f;
-		float b = buffer[idx + 2] / 255.0f;
-		float a = buffer[idx + 3] / 255.0f;
-		
-		if (shouldDebugLog && i == 0) {
-			float h, s, v;
-			rgbToHsv(r, g, b, h, s, v);
-			log_debug("[VT-Pixel] center(%d,%d) band=%d RGBA=%.2f,%.2f,%.2f,%.2f HSV=%.0f,%.2f,%.2f",
-				centerX, centerY, bandHeight, r, g, b, a, h, s, v);
+		// Always 3 vertical sub-rows per scan row
+		for (int subDy = -1; subDy <= 1; subDy++) {
+			for (int xOff : xOffsets) {
+				int bufX = roiHalf + xOff;
+				int bufY = 12 + dy + subDy;  // 12 is our centerY offset in ROI
+				
+				float avgR, avgG, avgB, avgA;
+				if (!sampleBlock3x3(buffer, roiSize, bufX, bufY, avgR, avgG, avgB, avgA)) {
+					continue;
+				}
+				
+				float hue;
+				SampleClassification cls = classifySample(avgR, avgG, avgB, avgA, hue);
+				
+				switch (cls) {
+					case SAMPLE_COLOR_VALID: {
+						row.validCount++;
+						// Angular distance classification
+						float distToGreen = fabsf(hue - 120.0f);
+						if (distToGreen > 180.0f) distToGreen = 360.0f - distToGreen;
+						if (distToGreen < 50.0f) {
+							row.greenCount++;
+							row.greenSum += hue;
+						} else {
+							row.redCount++;
+							row.redSum += (hue > 300.0f) ? (hue - 360.0f) : hue;
+						}
+						break;
+					}
+					case SAMPLE_TRANSPARENT:
+						row.transparentCount++;
+						break;
+					case SAMPLE_LOW_SAT:
+						row.lowSatCount++;
+						break;
+					case SAMPLE_MIXED:
+						break;
+				}
+			}
 		}
 		
-		if (a < minAlpha) {
-			lowAlphaCount++;
-			continue;
-		}
-		
-		float h, s, v;
-		rgbToHsv(r, g, b, h, s, v);
-		
-		float satThreshold = (v > 0.8f) ? minSaturation * 0.7f : minSaturation;
-		float valueThreshold = minValue;
-		
-		if (s < satThreshold || v < valueThreshold) {
-			lowSatCount++;
-			continue;
-		}
-		
-		bool isGreen = (h >= 70.0f && h <= 170.0f);
-		bool isRed = (h >= 0.0f && h <= 30.0f) || (h >= 330.0f && h <= 360.0f);
-		
-		if (isGreen || isRed) {
-			validHues.push_back(h);
+		rowResults.push_back(row);
+	}
+	
+	// ============================================================
+	// FIND BEST ROW (most valid samples)
+	// ============================================================
+	
+	int bestIdx = -1;
+	int bestValidCount = 0;
+	
+	for (size_t i = 0; i < rowResults.size(); i++) {
+		if (rowResults[i].validCount > bestValidCount) {
+			bestValidCount = rowResults[i].validCount;
+			bestIdx = (int)i;
 		}
 	}
 	
-	// Require more than a single hit to avoid noise from particles/overlays
-	size_t minSamples = isMoving ? 2 : 3;
-	if (validHues.size() < minSamples) {
-		rejectReason = (lowSatCount >= 3) ? REJECT_LOW_SATURATION : REJECT_NO_SAMPLES;
-		return false;
-	}
-	
-	// Variance rejection
-	std::vector<float> normalizedHues;
-	for (float h : validHues) {
-		if (h > 300.0f) h -= 360.0f;
-		normalizedHues.push_back(h);
-	}
-	
-	float mean = std::accumulate(normalizedHues.begin(), normalizedHues.end(), 0.0f) / normalizedHues.size();
-	float variance = 0.0f;
-	for (float h : normalizedHues) {
-		variance += (h - mean) * (h - mean);
-	}
-	variance /= normalizedHues.size();
-	float stddev = std::sqrt(variance);
-	
-	if (stddev > maxHueVariance) {
-		rejectReason = REJECT_HIGH_VARIANCE;
-		return false;
-	}
-	
-	// Count colors
-	int greenCount = 0, redCount = 0;
-	float greenSum = 0, redSum = 0;
-	
-	for (float h : validHues) {
-		if (h >= 70.0f && h <= 170.0f) {
-			greenCount++;
-			greenSum += h;
+	if (bestIdx < 0 || bestValidCount < 3) {
+		// Check if mostly transparent (occluded)
+		int totalTransparent = 0;
+		int totalSamples = 0;
+		for (const auto& r : rowResults) {
+			totalTransparent += r.transparentCount;
+			totalSamples += r.validCount + r.transparentCount + r.lowSatCount;
+		}
+		
+		if (totalSamples > 0 && (float)totalTransparent / totalSamples > 0.7f) {
+			rejectReason = REJECT_OCCLUDED;
 		} else {
-			redCount++;
-			redSum += (h > 300.0f) ? (h - 360.0f) : h;
+			int totalLowSat = 0;
+			for (const auto& r : rowResults) totalLowSat += r.lowSatCount;
+			rejectReason = (totalLowSat >= 10) ? REJECT_LOW_SATURATION : REJECT_NO_SAMPLES;
 		}
+		return false;
 	}
 	
-	// Anti-mix ratio
-	int total = greenCount + redCount;
-	if (total >= 3) {
-		int dominant = greenCount > redCount ? greenCount : redCount;
-		float ratio = (float)dominant / total;
-		if (ratio < 0.75f) {
-			rejectReason = REJECT_MIXED_COLORS;
-			return false;
-		}
-	}
+	const RowResult& best = rowResults[bestIdx];
+	bestRowOffset = best.dy;
 	
-	if (greenCount > redCount && greenCount >= 2) {
-		dominantHue = greenSum / greenCount;
+	// ============================================================
+	// DETERMINE DOMINANT COLOR
+	// ============================================================
+	
+	if (best.greenCount >= best.redCount && best.greenCount >= 2) {
+		// Majority green = friendly
+		dominantHue = best.greenSum / best.greenCount;
 		valid = true;
-	} else if (redCount > greenCount && redCount >= 2) {
-		dominantHue = redSum / redCount;
+	} else if (best.redCount >= 1) {
+		// Any non-green = enemy (redCount is actually "nonGreenCount")
+		dominantHue = best.redSum / best.redCount;
 		if (dominantHue < 0) dominantHue += 360.0f;
 		valid = true;
 	}

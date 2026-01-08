@@ -287,6 +287,28 @@ func runMigrations() error {
 		DB.Exec("INSERT INTO schema_migrations (version) VALUES (11)")
 	}
 
+	// Migration 12: Payments table
+	if currentVersion < 12 {
+		logger.Info("MIGRATE", "012: Payments table", nil)
+		_, err := DB.Exec(`
+			CREATE TABLE IF NOT EXISTS payments (
+				id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+				user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+				paypal_order_id VARCHAR(64) NOT NULL UNIQUE,
+				plan VARCHAR(16) NOT NULL,
+				amount_usd DECIMAL(10,2) NOT NULL,
+				status VARCHAR(32) DEFAULT 'completed',
+				created_at TIMESTAMP DEFAULT NOW()
+			);
+			CREATE INDEX IF NOT EXISTS idx_payments_user_id ON payments(user_id);
+			CREATE INDEX IF NOT EXISTS idx_payments_order_id ON payments(paypal_order_id);
+		`)
+		if err != nil {
+			return err
+		}
+		DB.Exec("INSERT INTO schema_migrations (version) VALUES (12)")
+	}
+
 	// Load MIN_VERSION from database
 	var savedVersion string
 	if DB.QueryRow("SELECT value FROM settings WHERE key = 'min_version'").Scan(&savedVersion) == nil && savedVersion != "" {
@@ -663,4 +685,34 @@ func ValidateSessionToken(hwid, token string) (string, bool) {
 	}
 
 	return username, true
+}
+
+// ============================================
+// Payment helpers
+// ============================================
+
+// CreatePayment records a new PayPal payment
+func CreatePayment(userID, orderID, plan string, amount float64) error {
+	_, err := DB.Exec(`
+		INSERT INTO payments (user_id, paypal_order_id, plan, amount_usd)
+		VALUES ($1, $2, $3, $4)
+	`, userID, orderID, plan, amount)
+	return err
+}
+
+// PaymentExists checks if a payment with the given order ID already exists
+func PaymentExists(orderID string) bool {
+	var exists bool
+	DB.QueryRow("SELECT EXISTS(SELECT 1 FROM payments WHERE paypal_order_id = $1)", orderID).Scan(&exists)
+	return exists
+}
+
+// UpdateLicense updates an existing license's plan and expiration
+func UpdateLicense(licenseID int, plan string, expiresAt *time.Time) error {
+	_, err := DB.Exec(`
+		UPDATE licenses 
+		SET plan = $2, expires_at = $3, updated_at = NOW()
+		WHERE id = $1
+	`, licenseID, plan, expiresAt)
+	return err
 }

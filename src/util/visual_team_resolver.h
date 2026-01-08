@@ -9,14 +9,15 @@
 #include "math/geometry.h"
 #include "../../infra/ext/imgui/imgui.h"
 
-// Visual Team Resolver v3 - With Tracking & Persistence
+// Visual Team Resolver v4 - Robust Sampling Overhaul
 // ============================================================
 // Features:
-// - Pixel-based team detection (horizontal strip sampling)
-// - Position tracking with velocity prediction
-// - Fallback to last known state when visual fails
+// - Vertical band scanning to find optimal nametag Y
+// - High-density horizontal sampling (9+ points)
+// - 3x3 block averaging for noise reduction
+// - Sample classification (valid, low_sat, transparent, mixed)
+// - Angular hue distance for better color matching
 // - Cluster inference (nearby players influence)
-// - Nearest-neighbor association
 // ============================================================
 
 enum class VisualTeamResult {
@@ -32,6 +33,14 @@ enum VisualRejectReason {
 	REJECT_HIGH_VARIANCE,
 	REJECT_MIXED_COLORS,
 	REJECT_OCCLUDED
+};
+
+// Sample classification for smarter decay logic
+enum SampleClassification {
+	SAMPLE_COLOR_VALID = 0,  // Clear green/red detected
+	SAMPLE_LOW_SAT,          // Shadow/outline (grayish)
+	SAMPLE_TRANSPARENT,      // Alpha too low (missed nametag)
+	SAMPLE_MIXED             // Ambiguous color
 };
 
 // ============================================================
@@ -65,11 +74,13 @@ struct VisualTrack {
 	std::chrono::steady_clock::time_point lastSeen;
 	std::chrono::steady_clock::time_point lastAnalyzed;
 	std::chrono::steady_clock::time_point lastLogTime;
+	std::chrono::steady_clock::time_point lastValidSampleTime;  // For grace period
 	
 	// Sticky state
 	bool sticky = false;
 	std::chrono::steady_clock::time_point stickySince;
 	float lastStableConfidence = 0.5f;
+	int stickyContradictions = 0;
 	
 	// Get current result based on confidence
 	VisualTeamResult getResult() const {
@@ -78,27 +89,78 @@ struct VisualTrack {
 		return VisualTeamResult::UNKNOWN;
 	}
 	
-	// Update confidence with new sample
-	void addSample(float hue, bool valid) {
+	void addSample(float hue, bool valid, VisualRejectReason reason) {
+		auto now = std::chrono::steady_clock::now();
+		
 		if (!valid) {
+			// Grace period: don't do anything for 500ms after last valid sample
+			auto sinceLast = std::chrono::duration_cast<std::chrono::milliseconds>(
+				now - lastValidSampleTime
+			).count();
+			
+			if (sinceLast < 500) {
+				return;  // Within grace period - hold confidence
+			}
+			
+			// After grace period: if we STILL can't see the nametag, bias toward enemy
+			// Rationale: if they were friendly, we'd eventually see green
 			consecutiveFailures++;
 			consecutiveSuccesses = 0;
-			// Lean to enemy faster when vision repeatedly fails
-			float decayTarget = 0.25f;
-			float decayRate = (consecutiveFailures >= 3) ? 0.22f : 0.12f;
+			
+			// Slow decay toward enemy (0.2 = ENEMY threshold)
+			float decayTarget = 0.2f;
+			float decayRate = 0.08f;  // Slow but steady
+			
+			// Faster decay if we've been failing for a while
+			if (consecutiveFailures >= 5) {
+				decayRate = 0.15f;
+			}
+			
 			confidence = confidence * (1.0f - decayRate) + decayTarget * decayRate;
 			if (confidence < 0.0f) confidence = 0.0f;
 			return;
 		}
 		
+		// Valid sample - update timestamp
+		lastValidSampleTime = now;
+		
+		// If we were sticky and now see a contradictory hue, break sticky
+		if (sticky) {
+			// Use angular distance for contradiction check
+			float distToGreen = fabsf(hue - 120.0f);
+			if (distToGreen > 180.0f) distToGreen = 360.0f - distToGreen;
+			bool seenGreen = distToGreen < 50.0f;
+			
+			// Green = friendly, anything else = enemy
+			bool contradicts = (getResult() == VisualTeamResult::FRIENDLY && !seenGreen) ||
+			                   (getResult() == VisualTeamResult::ENEMY && seenGreen);
+			if (contradicts) {
+				stickyContradictions++;
+			} else {
+				stickyContradictions = 0;
+			}
+			
+			// Increased threshold to prevent one-off bad frames
+			if (stickyContradictions >= 5) {
+				sticky = false;
+				stickyContradictions = 0;
+				confidence = 0.5f;
+				lastStableConfidence = 0.5f;
+			}
+		}
+		
 		consecutiveSuccesses++;
 		consecutiveFailures = 0;
 		
-		float target = 0.5f;
-		if (hue >= 80.0f && hue <= 160.0f) {
+		// Green = friendly, any other saturated color = enemy
+		float distToGreen = fabsf(hue - 120.0f);
+		if (distToGreen > 180.0f) distToGreen = 360.0f - distToGreen;
+		
+		float target;
+		if (distToGreen < 40.0f) {
 			target = 1.0f;  // Green = friendly
-		} else if ((hue >= 0.0f && hue <= 30.0f) || (hue >= 330.0f && hue <= 360.0f)) {
-			target = 0.0f;  // Red = enemy
+		} else {
+			target = 0.0f;  // Any other color = enemy (red, purple, yellow, etc.)
 		}
 		
 		// Faster learning when consistent
@@ -120,8 +182,9 @@ struct VisualTrack {
 		}
 		
 		auto stableMs = std::chrono::duration_cast<std::chrono::milliseconds>(now - stickySince).count();
-		if (stableMs >= 1500 && (confidence > 0.8f || confidence < 0.2f)) {
+		if (stableMs >= 1500 && (confidence > 0.8f || confidence < 0.2f) && consecutiveSuccesses >= 3) {
 			sticky = true;
+			stickySince = now;
 		}
 	}
 	
@@ -210,6 +273,9 @@ public:
 	// Clean stale entries
 	void tick();
 	
+	// Reset all tracks (call on world change)
+	void resetAllTracks();
+	
 	// Background scan
 	void scanAllPlayers();
 	
@@ -225,9 +291,9 @@ public:
 	float cacheTTLMs = 15000.0f;
 	float analysisIntervalMs = 100.0f;
 	
-	// HSV thresholds
-	float minSaturation = 0.16f;
-	float minValue = 0.20f;
+	// HSV thresholds (increased saturation for better noise rejection)
+	float minSaturation = 0.22f;
+	float minValue = 0.15f;
 	float minAlpha = 0.80f;
 	
 	// Variance rejection
@@ -239,9 +305,11 @@ public:
 	
 	// Rate limiting
 	int maxAnalysesPerFrame = 3;
+	float stickyRecheckMs = 1500.0f;   // Force periodic re-check even if sticky
+	float stickyTimeoutMs = 10000.0f;  // Drop sticky after this time regardless
 	
-	// Cluster inference
-	float clusterRadius = 2.0f;        // World units
+	// Cluster inference (increased radius for better group detection)
+	float clusterRadius = 8.0f;        // World units
 	int clusterMinPlayers = 2;         // Min neighbors for inference
 	float clusterConfidenceBoost = 0.1f;
 	
@@ -268,7 +336,8 @@ private:
 	struct DebugSample {
 		int screenX, screenY;
 		int offset;
-		int bandHeight;  // 2=still, 3=moving
+		int bandHeight;
+		int bestRowOffset;  // Which dy gave best results
 		bool valid;
 		float hue;
 		std::chrono::steady_clock::time_point timestamp;
@@ -280,9 +349,19 @@ private:
 	// ============================================================
 	
 	void rgbToHsv(float r, float g, float b, float& h, float& s, float& v);
+	
+	// New robust sampling method
 	bool analyzeScreenRegion(int centerX, int centerY, int displayHeight, int dynamicOffset,
-	                         int bandHeight, bool isMoving,
-	                         float& dominantHue, bool& valid, VisualRejectReason& rejectReason);
+	                         float& dominantHue, bool& valid, VisualRejectReason& rejectReason,
+	                         int& bestRowOffset);
+	
+	// Classify a single sample point
+	SampleClassification classifySample(float r, float g, float b, float a, float& hue);
+	
+	// 3x3 block average at a point
+	bool sampleBlock3x3(const std::vector<unsigned char>& buffer, int roiSize, int bufX, int bufY,
+	                    float& avgR, float& avgG, float& avgB, float& avgA);
+	
 	bool shouldThrottle(const std::string& uuid) const;
 };
 
