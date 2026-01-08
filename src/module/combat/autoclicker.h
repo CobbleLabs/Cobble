@@ -23,6 +23,7 @@ public:
 		
 		// Stable CPS mode - no randomization, exact CPS
 		bool stableCPS = false;
+		float stableCPSValue = 17.0f;  // Exact CPS when stable mode is on
 		
 		// Advanced randomization (only when stableCPS is false)
 		bool advancedMode = true;
@@ -37,8 +38,13 @@ public:
 
 private:
 	std::chrono::steady_clock::time_point lastClick;
-	int nextDelayMs = 100;
-	std::mt19937 rng;
+        std::chrono::steady_clock::time_point nextEventTime;  // For stable CPS absolute timing
+        std::chrono::steady_clock::time_point nextStableClickTime;  // Stable mode timeline
+        double stableIntervalMs = 0.0;  // Fixed interval for stable mode
+        std::chrono::steady_clock::duration stableInterval =
+                std::chrono::steady_clock::duration::zero();  // Precomputed stable interval
+        int nextDelayMs = 100;
+        std::mt19937 rng;
 	
 	// Dynamic delay anti-detection system
 	int clicksSinceRangeChange = 0;
