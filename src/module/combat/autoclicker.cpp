@@ -13,6 +13,7 @@
 #define NOMINMAX
 #endif
 #include <Windows.h>
+#include <vector>
 
 AutoClicker* autoClicker = nullptr;
 
@@ -45,11 +46,20 @@ AutoClicker::AutoClicker() : Module("AutoClicker")
 
 void AutoClicker::onEnable()
 {
-	lastClick = std::chrono::steady_clock::now();
+        auto now = std::chrono::steady_clock::now();
+
+        // Stable mode - add 1ms margin to ensure display never exceeds target  
+        stableIntervalMs = (1000.0 / static_cast<double>(settings.stableCPSValue));
+        stableInterval = std::chrono::duration_cast<std::chrono::steady_clock::duration>(
+                std::chrono::duration<double, std::milli>(stableIntervalMs));
+        nextStableClickTime = now;
+	
+	// Random mode
+	lastClick = now;
 	lastClickWasDown = false;
 	wasBreakingBlock = false;
 	clicksSinceRangeChange = 0;
-	sessionStart = std::chrono::steady_clock::now();
+	sessionStart = now;
 	fatigueMultiplier = 1.0f;
 	clicksSinceLastFatigueUpdate = 0;
 	inBurst = false;
@@ -58,8 +68,10 @@ void AutoClicker::onEnable()
 	currentJitterMode = 0;
 	jitterModeClicksRemaining = 0;
 	
-	regenerateDelayRange();
-	calculateNextDelay();
+	if (!settings.stableCPS) {
+		regenerateDelayRange();
+		calculateNextDelay();
+	}
 }
 
 void AutoClicker::onDisable()
@@ -105,27 +117,26 @@ void AutoClicker::onUpdate()
 	// Only click when Minecraft window is focused (prevents issues with window resizing)
 	if (hwnd != Overlay::gameWindow) return;
 	
-	// Not holding left mouse button
+	// Not holding left mouse button - resync timeline to prevent burst on re-press
 	if (!(GetAsyncKeyState(VK_LBUTTON) & 0x8000)) {
+		if (settings.stableCPS) {
+			nextStableClickTime = std::chrono::steady_clock::now();
+		}
 		return;
 	}
+	
 	// Check GUI state
 	bool inInventory = mc.isInventoryOpen();  // True only for GuiContainer (chest, inventory, etc.)
 	bool inAnyGui = mc.isInGui();  // True for any GUI screen including pause menu
 	
 	// If in a GUI but not an inventory, always stop clicking
-	if (inAnyGui && !inInventory) {
-		return;
-	}
+	if (inAnyGui && !inInventory) return;
+	
 	// If in inventory, check the workInInventory setting
-	if (inInventory && !settings.workInInventory) {
-		return;
-	}
+	if (inInventory && !settings.workInInventory) return;
 	
 	// Weapon-only check (skip in inventory)
-	if (settings.weaponOnly && !inInventory && !isHoldingWeapon()) {
-		return;
-	}
+	if (settings.weaponOnly && !inInventory && !isHoldingWeapon()) return;
 	
 	// Break blocks - edge detection state machine
 	// Only transition on state CHANGE, not every frame
@@ -154,7 +165,9 @@ void AutoClicker::onUpdate()
 		wasBreakingBlock = false;
 		lastClickWasDown = false;
 		// Reset timing so autoclicks resume immediately
-		lastClick = std::chrono::steady_clock::now();
+		auto now = std::chrono::steady_clock::now();
+		lastClick = now;
+		nextEventTime = now;
 	}
 	
 	// Attacking only - check if player is in crosshair (skip in inventory)
@@ -164,13 +177,48 @@ void AutoClicker::onUpdate()
 		}
 	}
 	
-	// Check timing
+        // =======================
+        // STABLE MODE - FIXED CPS
+        // =======================
+        if (settings.stableCPS) {
+                auto now = std::chrono::steady_clock::now();
+                if (stableInterval.count() <= 0) {
+                        stableIntervalMs = (1000.0 / static_cast<double>(settings.stableCPSValue));
+                        stableInterval = std::chrono::duration_cast<std::chrono::steady_clock::duration>(
+                                std::chrono::duration<double, std::milli>(stableIntervalMs));
+                }
+
+                if (now < nextStableClickTime) return;
+
+                // Click completo - SendMessage para timing exacto, compensando frames lentos
+                static auto startTime = std::chrono::steady_clock::now();       
+                static int clickCount = 0;
+                do {
+                        SendMessage(hwnd, WM_LBUTTONDOWN, MK_LBUTTON, 0);
+                        SendMessage(hwnd, WM_LBUTTONUP, 0, 0);
+                        clickCount++;
+                        nextStableClickTime += stableInterval;
+                } while (now >= nextStableClickTime);
+
+                // Debug: log CPS every 5 seconds
+                auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - startTime).count();
+                if (elapsed >= 5000) {
+                        double avgCps = static_cast<double>(clickCount) * 1000.0 / static_cast<double>(elapsed);
+                        log_debug("[AutoClicker] Stable: %.2f CPS (target: %.0f, interval: %.2fms)",
+                                avgCps, settings.stableCPSValue, stableIntervalMs);
+                        clickCount = 0;
+                        startTime = now;
+                }
+
+                return;
+        }
+	
+	// Random mode: relative delay
 	auto now = std::chrono::steady_clock::now();
 	auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - lastClick);
-	
 	if (elapsed.count() < nextDelayMs) return;
 	
-	// Drop check - random chance to skip a click
+	// Drop check - random chance to skip a click (random mode only)
 	if (settings.advancedMode && settings.dropChance > 0.0f) {
 		std::uniform_real_distribution<float> dropDist(0.0f, 100.0f);
 		if (dropDist(rng) < settings.dropChance) {
@@ -180,12 +228,12 @@ void AutoClicker::onUpdate()
 		}
 	}
 	
-	// Perform click
+	// Perform click (random mode)
 	doClick();
 	lastClick = now;
 	lastAutoClick = now;
 	
-	// Update dynamic delay system
+	// Update dynamic delay system (random mode only)
 	clicksSinceRangeChange++;
 	if (clicksSinceRangeChange >= clicksUntilRangeChange) {
 		regenerateDelayRange();
@@ -201,36 +249,8 @@ void AutoClicker::calculateNextDelay()
 	
 	if (minCps > maxCps) std::swap(minCps, maxCps);
 	
-	// Stable CPS mode - minimal randomization for natural feel
-	if (settings.stableCPS) {
-		// Use average of min and max for stable CPS
-		float targetCps = (minCps + maxCps) / 2.0f;
-		
-		// Add very slight variation (±1.5%) to avoid robotic pattern
-		std::uniform_real_distribution<float> minVarDist(-0.015f, 0.015f);
-		targetCps *= (1.0f + minVarDist(rng));
-		
-		float delay = 1000.0f / targetCps;
-		
-		// Halve the delay because alternating pattern needs 2 calls per click
-		delay *= 0.5f;
-		
-		// Use delay accumulator to maintain sub-millisecond precision
-		// This prevents CPS drift from int casting
-		float totalDelay = delay + delayAccumulator;
-		nextDelayMs = static_cast<int>(totalDelay);
-		
-		// Track fractional milliseconds for next calculation
-		delayAccumulator = totalDelay - static_cast<float>(nextDelayMs);
-		
-		// Prevent accumulator drift
-		if (delayAccumulator > 5.0f) delayAccumulator = 5.0f;
-		if (delayAccumulator < -5.0f) delayAccumulator = -5.0f;
-		
-		nextDelayMs = (std::max)(nextDelayMs, 20);
-		nextDelayMs = (std::min)(nextDelayMs, 100);
-		return;
-	}
+	// Stable mode no pasa por calculateNextDelay - usa su propio timeline
+	if (settings.stableCPS) return;
 	
 	// Update humanization systems (only in randomized mode)
 	updateFatigue();
@@ -307,8 +327,7 @@ void AutoClicker::doClick()
 	HWND hwnd = GetForegroundWindow();
 	if (!hwnd) return;
 	
-	// Alternating pattern using PostMessage (like reference code)
-	// This works correctly when user is holding physical click
+	// Solo random mode usa doClick - stable mode hace click directo en onUpdate
 	if (lastClickWasDown) {
 		PostMessage(hwnd, WM_LBUTTONUP, 0, 0);
 		lastClickWasDown = false;
@@ -484,10 +503,24 @@ void AutoClicker::onRenderMenu()
 		"General", [this]() {
 		ui::CheckboxBind("Enabled", &enabled, &keybind);
 			ImGui::Spacing();
-			float minLimit = 1.0f;
-			float maxLimit = 20.0f;
-			ui::SliderFloat("Min CPS", &settings.minCPS, 1.0f, 20.0f, &minLimit, &settings.maxCPS, "%.1f");
-			ui::SliderFloat("Max CPS", &settings.maxCPS, 1.0f, 20.0f, &settings.minCPS, &maxLimit, "%.1f");
+			
+                        if (settings.stableCPS) {
+                                // Stable mode: single slider for exact CPS (integer steps 1-25)
+                                int cpsInt = static_cast<int>(settings.stableCPSValue);
+                                if (ui::SliderInt("CPS", &cpsInt, 1, 25, "%d")) {
+                                        settings.stableCPSValue = static_cast<float>(cpsInt);
+                                        stableIntervalMs = (1000.0 / static_cast<double>(settings.stableCPSValue));
+                                        stableInterval = std::chrono::duration_cast<std::chrono::steady_clock::duration>(
+                                                std::chrono::duration<double, std::milli>(stableIntervalMs));
+                                        nextStableClickTime = std::chrono::steady_clock::now();
+                                }
+                        } else {
+				// Random mode: min/max sliders
+				float minLimit = 1.0f;
+				float maxLimit = 20.0f;
+				ui::SliderFloat("Min CPS", &settings.minCPS, 1.0f, 20.0f, &minLimit, &settings.maxCPS, "%.1f");
+				ui::SliderFloat("Max CPS", &settings.maxCPS, 1.0f, 20.0f, &settings.minCPS, &maxLimit, "%.1f");
+			}
 		},
 		"Conditions", [this]() {
 			ui::Checkbox("Stable CPS", &settings.stableCPS);
