@@ -282,10 +282,16 @@ void VisualTeamResolver::processRenderThread(int displayWidth, int displayHeight
 			track.lastRejectReason = rejectReason;
 			
 			// ============================================================
-			// Auto-friend: register high-confidence sticky teammates
+			// Auto-friend: register high-confidence teammates
+			// Trigger on: sticky + 85% OR any time confidence > 95%
 			// ============================================================
 			if (friendsManager) {
-				if (!track.autoFriend && track.sticky && track.confidence > 0.85f) {
+				bool shouldAutoFriend = !track.autoFriend && (
+					(track.sticky && track.confidence > 0.85f) ||  // Sticky + high confidence
+					(track.confidence > 0.95f)                      // Very high confidence (faster trigger)
+				);
+				
+				if (shouldAutoFriend) {
 					friendsManager->addVisualFriend(pending.uuid);
 					track.autoFriend = true;
 					log_debug("[VisualTeam] Auto-friended %s (confidence=%.2f)", 
@@ -542,32 +548,61 @@ void VisualTeamResolver::renderDebugOverlay(ImDrawList* draw) {
 		}
 	}
 	
-	// Draw track info for each player
+	// Draw 2D ESP boxes for each player
+	auto now = std::chrono::steady_clock::now();
 	for (const auto& [uuid, track] : tracks_) {
 		if (!track.onScreen) continue;
 		
-		ImU32 textColor;
+		// Skip stale tracks (not seen in last 1 second)
+		auto ageMs = std::chrono::duration_cast<std::chrono::milliseconds>(now - track.lastSeen).count();
+		if (ageMs > 1000) continue;
+		
+		ImU32 boxColor;
 		const char* label;
 		
-		switch (track.getResult()) {
-			case VisualTeamResult::FRIENDLY:
-				textColor = IM_COL32(0, 255, 0, 255);
-				label = "F";
-				break;
-			case VisualTeamResult::ENEMY:
-				textColor = IM_COL32(255, 0, 0, 255);
-				label = "E";
-				break;
-			default:
-				textColor = IM_COL32(150, 150, 150, 255);
-				label = "?";
-				break;
+		// Check if this player is a visual friend (more reliable than just getResult)
+		bool isVisualFriend = track.autoFriend || track.getResult() == VisualTeamResult::FRIENDLY;
+		
+		if (isVisualFriend) {
+			boxColor = IM_COL32(0, 255, 0, 200);  // Green for friends
+			label = "F";
+		} else if (track.getResult() == VisualTeamResult::ENEMY) {
+			boxColor = IM_COL32(255, 0, 0, 200);  // Red for enemies
+			label = "E";
+		} else {
+			boxColor = IM_COL32(150, 150, 150, 150);  // Gray for unknown
+			label = "?";
 		}
 		
-		// Draw confidence badge above player
+		// Calculate box size based on distance (approximate 2D projection)
+		float boxHeight = 1800.0f / (track.distance + 1.0f);  // ~1.8 blocks player height
+		float boxWidth = boxHeight * 0.5f;  // ~0.6 blocks wide
+		
+		// Clamp box size
+		if (boxHeight > 300.0f) boxHeight = 300.0f;
+		if (boxHeight < 20.0f) boxHeight = 20.0f;
+		boxWidth = boxHeight * 0.5f;
+		
+		// Box corners (centered on screen position, which is at head level)
+		float left = track.screenX - boxWidth * 0.5f;
+		float right = track.screenX + boxWidth * 0.5f;
+		float top = track.screenY - boxHeight * 0.15f;  // Head is near top
+		float bottom = track.screenY + boxHeight * 0.85f;  // Feet extend down
+		
+		// Draw box outline (no fill)
+		draw->AddRect(
+			ImVec2(left, top), 
+			ImVec2(right, bottom), 
+			boxColor, 
+			0.0f,  // rounding
+			0,     // flags
+			2.0f   // thickness
+		);
+		
+		// Draw confidence badge above box
 		char buf[32];
 		snprintf(buf, sizeof(buf), "[%s %.0f%%]", label, track.confidence * 100.0f);
-		draw->AddText(ImVec2(track.screenX - 20.0f, track.screenY - 25.0f), textColor, buf);
+		draw->AddText(ImVec2(left, top - 15.0f), boxColor, buf);
 	}
 }
 
