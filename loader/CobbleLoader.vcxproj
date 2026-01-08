@@ -65,12 +65,20 @@
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp20</LanguageStandard>
       <AdditionalIncludeDirectories>$(ProjectDir)src;$(ProjectDir)src\core;$(ProjectDir)src\security;$(ProjectDir)src\license;$(ProjectDir)res;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <!-- Obfuscation optimizations -->
+      <Optimization>MaxSpeed</Optimization>
+      <InlineFunctionExpansion>AnySuitable</InlineFunctionExpansion>
+      <FavorSizeOrSpeed>Speed</FavorSizeOrSpeed>
+      <OmitFramePointers>true</OmitFramePointers>
+      <EnableFiberSafeOptimizations>true</EnableFiberSafeOptimizations>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <OptimizeReferences>true</OptimizeReferences>
       <GenerateDebugInformation>false</GenerateDebugInformation>
+      <!-- Strip all symbols -->
+      <AdditionalOptions>/PDBALTPATH:none %(AdditionalOptions)</AdditionalOptions>
     </Link>
   </ItemDefinitionGroup>
   <!-- Source Files -->
@@ -91,6 +99,12 @@
     <ClInclude Include="src\license\license.h" />
     <ClInclude Include="src\license\hwid.h" />
     <ClInclude Include="res\resource.h" />
+    <!-- Protection System -->
+    <ClInclude Include="src\util\obfuscate.hpp" />
+    <ClInclude Include="src\util\control_flow.hpp" />
+    <ClInclude Include="src\security\antidbg.hpp" />
+    <ClInclude Include="src\security\integrity.hpp" />
+    <ClInclude Include="src\security\integrity_gen.hpp" />
   </ItemGroup>
   <!-- Resources -->
   <ItemGroup>
