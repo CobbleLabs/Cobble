@@ -1,4 +1,5 @@
 #include "visual_team_resolver.h"
+#include "friends_manager.h"
 #include "logger.hpp"
 #include "http.hpp"
 #include "math/worldToScreen.h"
@@ -14,7 +15,7 @@
 VisualTeamResolver* visualTeamResolver = nullptr;
 
 // Debug toggle
-static bool g_visualTeamDebug = false;
+static bool g_visualTeamDebug = true;
 
 // ============================================================
 // Main API
@@ -280,6 +281,40 @@ void VisualTeamResolver::processRenderThread(int displayWidth, int displayHeight
 			track.updateSticky();
 			track.lastRejectReason = rejectReason;
 			
+			// ============================================================
+			// Auto-friend: register high-confidence sticky teammates
+			// ============================================================
+			if (friendsManager) {
+				if (!track.autoFriend && track.sticky && track.confidence > 0.85f) {
+					friendsManager->addVisualFriend(pending.uuid);
+					track.autoFriend = true;
+					log_debug("[VisualTeam] Auto-friended %s (confidence=%.2f)", 
+						track.playerName.empty() ? pending.uuid.substr(0, 8).c_str() : track.playerName.c_str(),
+						track.confidence);
+				}
+				
+				// Auto-unfriend: ONLY remove when we have EVIDENCE (consecutive enemy samples)
+				// No confidence decay unfriend - visual friend = innocent until proven guilty
+				// CRITICAL: Only count valid samples (saw actual red), not decay from LOW_SAT/OCCLUDED
+				if (track.autoFriend) {
+					if (valid && track.getResult() == VisualTeamResult::ENEMY) {
+						// We SAW red color - this is real evidence
+						track.consecutiveEnemySamples++;
+						if (track.consecutiveEnemySamples >= 3) {
+							friendsManager->removeVisualFriend(pending.uuid);
+							track.autoFriend = false;
+							track.consecutiveEnemySamples = 0;
+							log_debug("[VisualTeam] Auto-unfriended %s (3 VALID enemy samples)", 
+								track.playerName.empty() ? pending.uuid.substr(0, 8).c_str() : track.playerName.c_str());
+						}
+					} else if (valid) {
+						// Valid sample but not enemy - reset counter
+						track.consecutiveEnemySamples = 0;
+					}
+					// Invalid samples (LOW_SAT, OCCLUDED, etc.) don't affect the counter either way
+				}
+			}
+			
 			// Rate-limited debug logging
 			if (g_visualTeamDebug) {
 				auto logElapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -403,6 +438,12 @@ void VisualTeamResolver::resetAllTracks() {
 	tracks_.clear();
 	pendingQueue_.clear();
 	debugSamples_.clear();
+	
+	// Clear visual friends on world change
+	if (friendsManager) {
+		friendsManager->clearVisualFriends();
+	}
+	
 	log_debug("[VisualTeam] All tracks reset (world change detected)");
 }
 

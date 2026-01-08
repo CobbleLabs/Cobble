@@ -38,13 +38,10 @@ public:
 		bool drawCoal = false;
 		bool drawChests = true;
 		
-		// Scan settings
-		float scanRadius = 25.0f;
-		float scanInterval = 5.0f;  // Seconds between scans
-		
 		// Visual settings
-		float alpha = 0.5f;
-		bool distanceFade = true;
+		float range = 25.0f;        // Scan radius in blocks
+		int opacity = 75;           // 0-100%
+		bool fadeWithDistance = true;
 	} settings;
 
 private:
@@ -54,6 +51,7 @@ private:
 	
 	// Scan state
 	long long lastScanTime = 0;
+	double lastScanX = 0, lastScanY = 0, lastScanZ = 0;
 	
 	// Render thread data
 	double cachedLocalX = 0, cachedLocalY = 0, cachedLocalZ = 0;

@@ -38,8 +38,8 @@ public:
 		float thickness = 2.0f;
 		float range = 128.0f;
 		
-		// Line start position (0 = center, 1 = bottom, 2 = custom)
-		int lineFrom = 0;  // 0=Center, 1=Bottom, 2=Crosshair
+		// Line start position (0 = center, 1 = bottom)
+		int lineFrom = 0;  // 0=Center, 1=Bottom
 	} settings;
 
 private:

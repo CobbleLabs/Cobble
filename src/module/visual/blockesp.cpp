@@ -49,32 +49,32 @@ void BlockESP::getBlockColor(int blockId, float* outColor)
 {
 	switch (blockId) {
 		case DIAMOND_ORE:
-			outColor[0] = 0.1f; outColor[1] = 0.7f; outColor[2] = 1.0f; outColor[3] = settings.alpha;
+			outColor[0] = 0.1f; outColor[1] = 0.7f; outColor[2] = 1.0f; outColor[3] = settings.opacity / 100.0f;
 			break;
 		case EMERALD_ORE:
-			outColor[0] = 0.2f; outColor[1] = 0.7f; outColor[2] = 0.2f; outColor[3] = settings.alpha;
+			outColor[0] = 0.2f; outColor[1] = 0.7f; outColor[2] = 0.2f; outColor[3] = settings.opacity / 100.0f;
 			break;
 		case IRON_ORE:
-			outColor[0] = 0.7f; outColor[1] = 0.4f; outColor[2] = 0.2f; outColor[3] = settings.alpha;
+			outColor[0] = 0.7f; outColor[1] = 0.4f; outColor[2] = 0.2f; outColor[3] = settings.opacity / 100.0f;
 			break;
 		case GOLD_ORE:
-			outColor[0] = 0.7f; outColor[1] = 0.6f; outColor[2] = 0.2f; outColor[3] = settings.alpha;
+			outColor[0] = 0.7f; outColor[1] = 0.6f; outColor[2] = 0.2f; outColor[3] = settings.opacity / 100.0f;
 			break;
 		case LAPIS_ORE:
-			outColor[0] = 0.2f; outColor[1] = 0.2f; outColor[2] = 0.9f; outColor[3] = settings.alpha;
+			outColor[0] = 0.2f; outColor[1] = 0.2f; outColor[2] = 0.9f; outColor[3] = settings.opacity / 100.0f;
 			break;
 		case COAL_ORE:
-			outColor[0] = 0.1f; outColor[1] = 0.1f; outColor[2] = 0.1f; outColor[3] = settings.alpha;
+			outColor[0] = 0.1f; outColor[1] = 0.1f; outColor[2] = 0.1f; outColor[3] = settings.opacity / 100.0f;
 			break;
 		case REDSTONE_ORE:
 		case REDSTONE_ORE_LIT:
-			outColor[0] = 0.7f; outColor[1] = 0.1f; outColor[2] = 0.1f; outColor[3] = settings.alpha;
+			outColor[0] = 0.7f; outColor[1] = 0.1f; outColor[2] = 0.1f; outColor[3] = settings.opacity / 100.0f;
 			break;
 		case CHEST:
-			outColor[0] = 0.4f; outColor[1] = 0.23f; outColor[2] = 0.125f; outColor[3] = settings.alpha;
+			outColor[0] = 0.4f; outColor[1] = 0.23f; outColor[2] = 0.125f; outColor[3] = settings.opacity / 100.0f;
 			break;
 		default:
-			outColor[0] = 1.0f; outColor[1] = 1.0f; outColor[2] = 1.0f; outColor[3] = settings.alpha;
+			outColor[0] = 1.0f; outColor[1] = 1.0f; outColor[2] = 1.0f; outColor[3] = settings.opacity / 100.0f;
 			break;
 	}
 }
@@ -93,7 +93,7 @@ void BlockESP::scanBlocks()
 	int centerZ = (int)floor(localZ);
 	
 	std::vector<BlockData> newBlocks;
-	int radius = (int)settings.scanRadius;
+	int radius = (int)settings.range;
 	
 	// Scan in a cube around the player
 	for (int x = centerX - radius; x <= centerX + radius; x++) {
@@ -132,7 +132,7 @@ void BlockESP::scanBlocks()
 		cachedBlocks = std::move(newBlocks);
 	}
 	
-	log_debug("[BlockESP] Scanned %d blocks", cachedBlocks.size());
+	//log_debug("[BlockESP] Scanned %d blocks", cachedBlocks.size());
 }
 
 void BlockESP::onUpdate()
@@ -145,13 +145,27 @@ void BlockESP::onUpdate()
 		return;
 	}
 	
-	// Periodic scan (every N seconds)
+	// Smart auto-rescan: by movement (>5 blocks) OR by time (>2s)
 	long long currentTime = GetTickCount64();
-	long long scanIntervalMs = (long long)(settings.scanInterval * 1000.0f);
+	double localX = player.getPosX();
+	double localY = player.getPosY();
+	double localZ = player.getPosZ();
 	
-	if (currentTime - lastScanTime >= scanIntervalMs) {
+	double dx = localX - lastScanX;
+	double dy = localY - lastScanY;
+	double dz = localZ - lastScanZ;
+	double moveDistance = std::sqrt(dx * dx + dy * dy + dz * dz);
+	
+	bool shouldRescan = false;
+	if (moveDistance > 5.0) shouldRescan = true;           // Moved >5 blocks
+	if (currentTime - lastScanTime >= 2000) shouldRescan = true;  // >2 seconds since last scan
+	
+	if (shouldRescan) {
 		scanBlocks();
 		lastScanTime = currentTime;
+		lastScanX = localX;
+		lastScanY = localY;
+		lastScanZ = localZ;
 	}
 	
 	// Cache player position for render thread
@@ -212,12 +226,12 @@ void BlockESP::onRender()
 		
 		// Calculate alpha based on distance if enabled
 		float alpha = block.color[3];
-		if (settings.distanceFade) {
+		if (settings.fadeWithDistance) {
 			double dx = block.x - localX;
 			double dy = block.y - localY;
 			double dz = block.z - localZ;
 			float distance = (float)std::sqrt(dx * dx + dy * dy + dz * dz);
-			float fadeFactor = 1.0f - std::min(distance / settings.scanRadius, 1.0f);
+			float fadeFactor = 1.0f - std::min(distance / settings.range, 1.0f);
 			alpha = block.color[3] * fadeFactor;
 		}
 		
@@ -348,19 +362,9 @@ void BlockESP::onRenderMenu()
 			ui::Checkbox("Chests", &settings.drawChests);
 		},
 		"Settings", [this]() {
-			ui::SliderFloat("Scan Radius", &settings.scanRadius, 10.0f, 50.0f, "%.0f blocks");
-			ui::SliderFloat("Scan Interval", &settings.scanInterval, 1.0f, 10.0f, "%.1f sec");
-			ui::SliderFloat("Alpha", &settings.alpha, 0.1f, 1.0f, "%.2f");
-			ui::Checkbox("Distance Fade", &settings.distanceFade);
-			
-			ImGui::Spacing();
-			ImGui::Separator();
-			ImGui::Spacing();
-			
-			// Manual rescan button
-			if (ImGui::Button("Rescan Now", ImVec2(-1, 0))) {
-				lastScanTime = 0;  // Force rescan on next update
-			}
+			ui::SliderFloat("Range", &settings.range, 10.0f, 50.0f, "%.0f blocks");
+			ui::SliderInt("Opacity", &settings.opacity, 10, 100, "%d%%");
+			ui::Checkbox("Fade with Distance", &settings.fadeWithDistance);
 		}
 	);
 }

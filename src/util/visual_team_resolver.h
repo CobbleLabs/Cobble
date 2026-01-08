@@ -82,6 +82,10 @@ struct VisualTrack {
 	float lastStableConfidence = 0.5f;
 	int stickyContradictions = 0;
 	
+	// Visual friend tracking (for auto-friend/unfriend logic)
+	bool autoFriend = false;
+	int consecutiveEnemySamples = 0;
+	
 	// Get current result based on confidence
 	VisualTeamResult getResult() const {
 		if (confidence > 0.7f) return VisualTeamResult::FRIENDLY;

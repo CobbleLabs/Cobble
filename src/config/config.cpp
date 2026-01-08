@@ -9,8 +9,12 @@
 #include "../module/combat/blink.h"
 #include "../module/utility/nojumpdelay.h"
 #include "../module/utility/bridgeassist.h"
+#include "../module/utility/sprint.h"
+#include "../module/utility/noitemrelease.h"
 #include "../module/visual/nametags.h"
 #include "../module/visual/esp.h"
+#include "../module/visual/blockesp.h"
+#include "../module/visual/tracers.h"
 #include "../ui/hud/arraylist.h"
 #include "../ui/hud/notifications.h"
 #include "../ui/menu/menu.h"
@@ -117,11 +121,9 @@ void ConfigManager::applyConfig() {
                 s.distance = data["distance"].as_float(s.distance);
                 s.reactionTime = data["reactionTime"].as_int(s.reactionTime);
                 s.targetMode = static_cast<AimAssist::TargetMode>(data["targetMode"].as_int(static_cast<int>(s.targetMode)));
-                s.horizontalOnly = data["horizontalOnly"].as_bool(s.horizontalOnly);
                 s.breakBlocks = data["breakBlocks"].as_bool(s.breakBlocks);
                 s.weaponOnly = data["weaponOnly"].as_bool(s.weaponOnly);
                 s.aimAtClosestPoint = data["aimAtClosestPoint"].as_bool(s.aimAtClosestPoint);
-                s.lockAim = data["lockAim"].as_bool(s.lockAim);
                 s.alwaysAim = data["alwaysAim"].as_bool(s.alwaysAim);
                 s.invisibles = data["invisibles"].as_bool(s.invisibles);
             }
@@ -188,6 +190,32 @@ void ConfigManager::applyConfig() {
                 s.refillSoup = data["refillSoup"].as_bool(s.refillSoup);
                 s.refillPotions = data["refillPotions"].as_bool(s.refillPotions);
                 s.speed = data["speed"].as_int(s.speed);
+            }
+            else if (name == "BlockESP" && blockESP) {
+                auto& s = blockESP->settings;
+                s.drawDiamond = data["drawDiamond"].as_bool(s.drawDiamond);
+                s.drawEmerald = data["drawEmerald"].as_bool(s.drawEmerald);
+                s.drawIron = data["drawIron"].as_bool(s.drawIron);
+                s.drawGold = data["drawGold"].as_bool(s.drawGold);
+                s.drawLapis = data["drawLapis"].as_bool(s.drawLapis);
+                s.drawRedstone = data["drawRedstone"].as_bool(s.drawRedstone);
+                s.drawCoal = data["drawCoal"].as_bool(s.drawCoal);
+                s.drawChests = data["drawChests"].as_bool(s.drawChests);
+                s.range = data["range"].as_float(s.range);
+                s.opacity = data["opacity"].as_int(s.opacity);
+                s.fadeWithDistance = data["fadeWithDistance"].as_bool(s.fadeWithDistance);
+            }
+            else if (name == "Tracers" && tracers) {
+                auto& s = tracers->settings;
+                s.colorByDistance = data["colorByDistance"].as_bool(s.colorByDistance);
+                s.colorByHealth = data["colorByHealth"].as_bool(s.colorByHealth);
+                s.colorByTeam = data["colorByTeam"].as_bool(s.colorByTeam);
+                s.thickness = data["thickness"].as_float(s.thickness);
+                s.range = data["range"].as_float(s.range);
+                s.lineFrom = data["lineFrom"].as_int(s.lineFrom);
+            }
+            else if (name == "NoItemRelease" && noItemRelease) {
+                noItemRelease->settings.mode = static_cast<ItemReleaseMode>(data["mode"].as_int(static_cast<int>(noItemRelease->settings.mode)));
             }
             
             break;
@@ -256,11 +284,9 @@ void ConfigManager::buildConfigFromModules() {
             config_["modules"][name]["distance"] = s.distance;
             config_["modules"][name]["reactionTime"] = s.reactionTime;
             config_["modules"][name]["targetMode"] = static_cast<int>(s.targetMode);
-            config_["modules"][name]["horizontalOnly"] = s.horizontalOnly;
             config_["modules"][name]["breakBlocks"] = s.breakBlocks;
             config_["modules"][name]["weaponOnly"] = s.weaponOnly;
             config_["modules"][name]["aimAtClosestPoint"] = s.aimAtClosestPoint;
-            config_["modules"][name]["lockAim"] = s.lockAim;
             config_["modules"][name]["alwaysAim"] = s.alwaysAim;
             config_["modules"][name]["invisibles"] = s.invisibles;
         }
@@ -327,6 +353,32 @@ void ConfigManager::buildConfigFromModules() {
             config_["modules"][name]["refillSoup"] = s.refillSoup;
             config_["modules"][name]["refillPotions"] = s.refillPotions;
             config_["modules"][name]["speed"] = s.speed;
+        }
+        else if (name == "BlockESP" && blockESP) {
+            const auto& s = blockESP->settings;
+            config_["modules"][name]["drawDiamond"] = s.drawDiamond;
+            config_["modules"][name]["drawEmerald"] = s.drawEmerald;
+            config_["modules"][name]["drawIron"] = s.drawIron;
+            config_["modules"][name]["drawGold"] = s.drawGold;
+            config_["modules"][name]["drawLapis"] = s.drawLapis;
+            config_["modules"][name]["drawRedstone"] = s.drawRedstone;
+            config_["modules"][name]["drawCoal"] = s.drawCoal;
+            config_["modules"][name]["drawChests"] = s.drawChests;
+            config_["modules"][name]["range"] = s.range;
+            config_["modules"][name]["opacity"] = s.opacity;
+            config_["modules"][name]["fadeWithDistance"] = s.fadeWithDistance;
+        }
+        else if (name == "Tracers" && tracers) {
+            const auto& s = tracers->settings;
+            config_["modules"][name]["colorByDistance"] = s.colorByDistance;
+            config_["modules"][name]["colorByHealth"] = s.colorByHealth;
+            config_["modules"][name]["colorByTeam"] = s.colorByTeam;
+            config_["modules"][name]["thickness"] = s.thickness;
+            config_["modules"][name]["range"] = s.range;
+            config_["modules"][name]["lineFrom"] = s.lineFrom;
+        }
+        else if (name == "NoItemRelease" && noItemRelease) {
+            config_["modules"][name]["mode"] = static_cast<int>(noItemRelease->settings.mode);
         }
     }
 }

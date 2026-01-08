@@ -20,8 +20,21 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/).
   - **Grace period**: 500ms hold after last valid sample before decaying (prevents flicker on brief occlusion)
   - **Increased cluster radius**: 2.0 → 8.0 blocks for better group inference
   - **Increased sticky contradictions threshold**: 2 → 5 (prevents one-off bad frames from breaking sticky)
+- **AimAssist Spring-Damper Physics**: Replaced lerp/ramp/gapBoost heuristics with physics-based smoothing
+  - Uses `acc = k*error - c*velocity` integration for continuous, smooth motion
+  - Eliminates stiction (stuck-then-jump at low speeds) and artificial jumps
+  - Stiffness (k) scales with speed setting (40-200 range)
+  - Subcritical damping (0.85x critical) for slight human-like overshoot
+  - Frame-rate independent using real delta time measurement
+  - Proper prevRotation handling for smooth interpolation with partialTicks
 
 ### Added
+- **Visual Friends System**: Auto-detect and cache teammates to fix AimAssist timing race condition
+  - Fixes issue where AimAssist briefly targeted teammates when turning (hitbox seen before nametag sampled)
+  - When `VisualTeamResolver` detects a player as FRIENDLY with high confidence (>85%) + sticky, auto-adds to `visualFriends`
+  - `friendsManager->shouldIgnoreByUUID()` now checks visual friends first for instant skip
+  - Auto-unfriend when 3 consecutive enemy samples detected or confidence drops below 40%
+  - Automatic cleanup on world change (prevents stale teammates from previous match)
 - **License Server v2.0**: Complete refactor for web frontend integration
   - **PostgreSQL-only**: Removed SQLite support, 10 PostgreSQL migrations
   - **Users table**: Separate from licenses with FK relationship

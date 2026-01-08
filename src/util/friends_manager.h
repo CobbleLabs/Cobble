@@ -114,6 +114,16 @@ public:
 	bool isLunarTeammate(const std::string& uuid) const;
 	
 	// ============================================================
+	// Visual Friends - Auto-detected teammates (cleared on world change)
+	// ============================================================
+	
+	// Add/remove player from visual friends (auto-detected via nametag color)
+	void addVisualFriend(const std::string& uuid);
+	void removeVisualFriend(const std::string& uuid);
+	bool isVisualFriend(const std::string& uuid) const;
+	void clearVisualFriends();
+	
+	// ============================================================
 	// Application Scope
 	// ============================================================
 	
@@ -170,6 +180,9 @@ private:
 	
 	// Lunar API teammates (UUIDs from UpdateTeamMembersMessage)
 	std::set<std::string> lunarTeammates_;
+	
+	// Visual friends (auto-detected teammates, cleared on world change)
+	std::set<std::string> visualFriends_;
 	
 	// Helper to lowercase a string
 	static std::string toLower(const std::string& s);

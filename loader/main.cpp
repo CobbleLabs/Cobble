@@ -83,6 +83,9 @@ void setupConsole() {
 	SetConsoleCP(CP_UTF8);
 	SetConsoleTitleW(L"Cobble Client");
 	
+	// Small delay to let console fully initialize (fixes Win10 race condition)
+	Sleep(50);
+	
 	// Enable VT
 	DWORD mode = 0;
 	GetConsoleMode(hConsole, &mode);
@@ -93,54 +96,53 @@ void setupConsole() {
 	int CONSOLE_WIDTH = getScaledConsoleWidth();
 	int CONSOLE_HEIGHT = getScaledConsoleHeight();
 	
-	// Force Resize via ANSI (Best for Windows Terminal / Win11)
-	// \x1b[8;{rows};{cols}t
-	std::cout << "\x1b[8;" << CONSOLE_HEIGHT << ";" << CONSOLE_WIDTH << "t";
-	
-	std::cout << VT_HIDE_CURSOR;
-	
 	HWND hWnd = GetConsoleWindow();
 	LONG style = GetWindowLong(hWnd, GWL_STYLE);
 	style &= ~(WS_MAXIMIZEBOX | WS_SIZEBOX);
 	SetWindowLong(hWnd, GWL_STYLE, style);
 	
-	// Resize Strategy: MINIMIZE WINDOW -> SET BUFFER -> EXPAND WINDOW
-	// This prevents "The parameter is incorrect" if the new buffer is smaller than the current window.
-	
-	// 1. Shrink window to avoid buffer constraint errors
-	SMALL_RECT minWin = { 0, 0, 1, 1 };
-	SetConsoleWindowInfo(hConsole, TRUE, &minWin);
+	// Retry loop for console resize (Win10 sometimes needs multiple attempts)
+	for (int attempt = 0; attempt < 3; attempt++) {
+		// 1. Shrink window first to avoid buffer constraint errors
+		SMALL_RECT minWin = { 0, 0, 1, 1 };
+		SetConsoleWindowInfo(hConsole, TRUE, &minWin);
+		Sleep(10);
 
-	// 2. Set Buffer Size
-	COORD bufferSize = { (SHORT)CONSOLE_WIDTH, (SHORT)CONSOLE_HEIGHT };
-	if (!SetConsoleScreenBufferSize(hConsole, bufferSize))
-	{
-		// Fallback: try smaller size if first attempt fails
-		bufferSize = { 80, 25 };
-		SetConsoleScreenBufferSize(hConsole, bufferSize);
-		CONSOLE_WIDTH = 80;
-		CONSOLE_HEIGHT = 25;
-	}
+		// 2. Set Buffer Size
+		COORD bufferSize = { (SHORT)CONSOLE_WIDTH, (SHORT)CONSOLE_HEIGHT };
+		if (!SetConsoleScreenBufferSize(hConsole, bufferSize)) {
+			bufferSize = { 80, 25 };
+			SetConsoleScreenBufferSize(hConsole, bufferSize);
+			CONSOLE_WIDTH = 80;
+			CONSOLE_HEIGHT = 25;
+		}
+		Sleep(10);
 
-	// 3. Set Window Size
-	SMALL_RECT windowSize = { 0, 0, (SHORT)(CONSOLE_WIDTH - 1), (SHORT)(CONSOLE_HEIGHT - 1) };
-	SetConsoleWindowInfo(hConsole, TRUE, &windowSize);
-	
-	// 4. Fix buffer again just in case window resize forced a change
-	SetConsoleScreenBufferSize(hConsole, bufferSize);
-	
-	// 5. Verify the resize worked
-	CONSOLE_SCREEN_BUFFER_INFO csbi;
-	if (GetConsoleScreenBufferInfo(hConsole, &csbi))
-	{
-		int actualWidth = csbi.srWindow.Right - csbi.srWindow.Left + 1;
-		int actualHeight = csbi.srWindow.Bottom - csbi.srWindow.Top + 1;
+		// 3. Set Window Size
+		SMALL_RECT windowSize = { 0, 0, (SHORT)(CONSOLE_WIDTH - 1), (SHORT)(CONSOLE_HEIGHT - 1) };
+		SetConsoleWindowInfo(hConsole, TRUE, &windowSize);
+		Sleep(10);
 		
-		// If verification failed significantly, we're on a system with incompatible settings
-		// Just proceed - the content will adapt
+		// 4. Fix buffer again
+		SetConsoleScreenBufferSize(hConsole, bufferSize);
+		
+		// 5. Verify resize worked
+		CONSOLE_SCREEN_BUFFER_INFO csbi;
+		if (GetConsoleScreenBufferInfo(hConsole, &csbi)) {
+			int actualWidth = csbi.srWindow.Right - csbi.srWindow.Left + 1;
+			int actualHeight = csbi.srWindow.Bottom - csbi.srWindow.Top + 1;
+			
+			// If close enough, we're good
+			if (actualWidth >= CONSOLE_WIDTH - 2 && actualHeight >= CONSOLE_HEIGHT - 2) {
+				break;
+			}
+		}
+		Sleep(50); // Wait before retry
 	}
+	
+	std::cout << VT_HIDE_CURSOR;
     
-    // Center logic
+    // Center window on screen
     RECT rect;
     GetWindowRect(hWnd, &rect);
     int width = rect.right - rect.left;

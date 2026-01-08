@@ -227,12 +227,9 @@ void Tracers::onRender()
 	if (settings.lineFrom == 0) {
 		// Center of screen
 		startPos = ImVec2(RenderData::screenWidth / 2.0f, RenderData::screenHeight / 2.0f);
-	} else if (settings.lineFrom == 1) {
+	} else {
 		// Bottom center of screen
 		startPos = ImVec2(RenderData::screenWidth / 2.0f, RenderData::screenHeight);
-	} else {
-		// Crosshair position (center)
-		startPos = ImVec2(RenderData::screenWidth / 2.0f, RenderData::screenHeight / 2.0f);
 	}
 	
 	// Draw tracers to each player
@@ -288,8 +285,8 @@ void Tracers::onRenderMenu()
 			ImGui::Spacing();
 			
 			// Line start position
-			const char* lineFromOptions[] = { "Center", "Bottom", "Crosshair" };
-			ui::Combo("Line From", &settings.lineFrom, lineFromOptions, 3);
+			const char* lineFromOptions[] = { "Center", "Bottom" };
+			ui::Combo("Line From", &settings.lineFrom, lineFromOptions, 2);
 			
 			ui::SliderFloat("Thickness", &settings.thickness, 1.0f, 5.0f, "%.1fpx");
 			ui::SliderFloat("Range", &settings.range, 16.0f, 256.0f, "%.0fm");

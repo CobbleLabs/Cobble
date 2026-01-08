@@ -463,11 +463,52 @@ bool FriendsManager::isLunarTeammate(const std::string& uuid) const {
 }
 
 // ============================================================
+// Visual Friends - Auto-detected teammates
+// ============================================================
+
+void FriendsManager::addVisualFriend(const std::string& uuid) {
+	if (uuid.empty()) return;
+	std::lock_guard<std::mutex> lock(mutex_);
+	if (visualFriends_.find(uuid) == visualFriends_.end()) {
+		visualFriends_.insert(uuid);
+		log_debug("[Friends] Added visual friend: %s", uuid.substr(0, 8).c_str());
+	}
+}
+
+void FriendsManager::removeVisualFriend(const std::string& uuid) {
+	std::lock_guard<std::mutex> lock(mutex_);
+	auto it = visualFriends_.find(uuid);
+	if (it != visualFriends_.end()) {
+		visualFriends_.erase(it);
+		log_debug("[Friends] Removed visual friend: %s", uuid.substr(0, 8).c_str());
+	}
+}
+
+bool FriendsManager::isVisualFriend(const std::string& uuid) const {
+	if (uuid.empty()) return false;
+	std::lock_guard<std::mutex> lock(mutex_);
+	return visualFriends_.find(uuid) != visualFriends_.end();
+}
+
+void FriendsManager::clearVisualFriends() {
+	std::lock_guard<std::mutex> lock(mutex_);
+	if (!visualFriends_.empty()) {
+		log_debug("[Friends] Cleared %zu visual friends (world change)", visualFriends_.size());
+		visualFriends_.clear();
+	}
+}
+
+// ============================================================
 // Combined Check
 // ============================================================
 
 bool FriendsManager::shouldIgnoreByUUID(const std::string& uuid, ChatColor playerColor, ChatColor localColor) const {
-	// Check friends by UUID first (most reliable)
+	// Check visual friends first (fastest - auto-detected teammates)
+	if (isVisualFriend(uuid)) {
+		return true;
+	}
+	
+	// Check friends by UUID (manual friends)
 	if (isFriendByUUID(uuid)) {
 		return true;
 	}
