@@ -8,6 +8,19 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/).
 
 ## [Unreleased]
 
+### Changed
+- **Visual Team Resolver v4**: Complete sampling overhaul for stable detection
+  - **Vertical band scan**: Scans dy = -12 to +2 to find optimal nametag Y (fixes sneaking, slabs, third-person)
+  - **9-point horizontal sampling**: Increased from 5 points per row for better letter/shadow coverage
+  - **Always 3 rows**: Removed conditional band height (fixes pot splashes, camera bob)
+  - **3x3 block averaging**: Each sample point averages 9 pixels (kills AA noise, particles)
+  - **Sample classification enum**: `COLOR_VALID`, `LOW_SAT`, `TRANSPARENT`, `MIXED`
+  - **Angular hue distance**: Replaced hard hue ranges with distance to target color (tolerant to shaders/packs)
+  - **Smart decay logic**: Don't decay confidence on `OCCLUDED` or `LOW_SAT` rejections
+  - **Grace period**: 500ms hold after last valid sample before decaying (prevents flicker on brief occlusion)
+  - **Increased cluster radius**: 2.0 → 8.0 blocks for better group inference
+  - **Increased sticky contradictions threshold**: 2 → 5 (prevents one-off bad frames from breaking sticky)
+
 ### Added
 - **License Server v2.0**: Complete refactor for web frontend integration
   - **PostgreSQL-only**: Removed SQLite support, 10 PostgreSQL migrations

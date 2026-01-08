@@ -97,6 +97,9 @@ func main() {
 	mux.HandleFunc("/api/users/me/hwid/reset", middleware.RequireAuth(handlers.ResetHWID))
 	mux.HandleFunc("/api/downloads", middleware.RequireAuth(handlers.GetDownloads))
 
+	// Payment endpoints
+	mux.HandleFunc("/api/payments/activate", middleware.RequireAuth(handlers.ActivatePayment))
+
 	// ============================================
 	// Admin endpoints (require JWT with admin role)
 	// ============================================

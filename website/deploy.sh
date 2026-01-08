@@ -45,6 +45,28 @@ API_URL=${API_URL:-https://api.$DOMAIN_NAME}
 read -p "Install directory [/opt/cobble-website]: " INSTALL_DIR
 INSTALL_DIR=${INSTALL_DIR:-/opt/cobble-website}
 
+# Check if .env.production exists in install directory (preserve existing config)
+PRESERVE_ENV=false
+if [ -f "$INSTALL_DIR/.env.production" ]; then
+    echo -e "${GREEN}Found existing .env.production in $INSTALL_DIR${NC}"
+    read -p "Keep existing config? [Y/n]: " KEEP_ENV
+    KEEP_ENV=${KEEP_ENV:-Y}
+    if [[ "$KEEP_ENV" =~ ^[Yy]$ ]]; then
+        PRESERVE_ENV=true
+        echo -e "${GREEN}Will preserve existing .env.production${NC}"
+    fi
+fi
+
+# If not preserving, ask for PayPal config
+if [ "$PRESERVE_ENV" != "true" ]; then
+    echo ""
+    echo -e "${YELLOW}=== PayPal Configuration ===${NC}"
+    read -p "PayPal Client ID (from developer.paypal.com): " PAYPAL_CLIENT_ID
+    if [ -z "$PAYPAL_CLIENT_ID" ]; then
+        echo -e "${YELLOW}Warning: No PayPal Client ID provided. Payments will not work!${NC}"
+    fi
+fi
+
 # ============================================================================
 echo -e "${YELLOW}[1/6] Installing dependencies...${NC}"
 
@@ -65,12 +87,20 @@ apt-get install -y -qq nginx certbot python3-certbot-nginx > /dev/null
 # ============================================================================
 echo -e "${YELLOW}[2/6] Building website...${NC}"
 
-# Create .env.production
-cat > .env.production << EOF
+# Handle .env.production
+if [ "$PRESERVE_ENV" = "true" ]; then
+    # Copy existing .env.production from install dir to build dir
+    cp "$INSTALL_DIR/.env.production" .env.production
+    echo -e "${GREEN}Using existing .env.production from $INSTALL_DIR${NC}"
+else
+    # Create new .env.production
+    cat > .env.production << EOF
 NEXT_PUBLIC_API_URL=$API_URL
+NEXT_PUBLIC_PAYPAL_CLIENT_ID=$PAYPAL_CLIENT_ID
 NODE_ENV=production
 EOF
-echo -e "${GREEN}Created .env.production${NC}"
+    echo -e "${GREEN}Created .env.production${NC}"
+fi
 
 # Install dependencies
 npm install --production=false

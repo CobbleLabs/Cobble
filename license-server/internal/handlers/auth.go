@@ -228,17 +228,22 @@ func Login(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Set refresh token as HttpOnly cookie
-	// Secure and SameSite controlled by SECURE_COOKIES env var
+	// For cross-domain (e.g., cobble.vip -> api.cobble.vip), need SameSite=None + Secure
 	sameSite := http.SameSiteLaxMode
-	if config.Get().SecureCookies {
+	cookieDomain := config.Get().CookieDomain
+	if cookieDomain != "" {
+		// Cross-domain requires SameSite=None and Secure=true
+		sameSite = http.SameSiteNoneMode
+	} else if config.Get().SecureCookies {
 		sameSite = http.SameSiteStrictMode
 	}
 	http.SetCookie(w, &http.Cookie{
 		Name:     "refresh_token",
 		Value:    refreshToken,
 		Path:     "/",
+		Domain:   cookieDomain,
 		HttpOnly: true,
-		Secure:   config.Get().SecureCookies,
+		Secure:   config.Get().SecureCookies || cookieDomain != "",
 		SameSite: sameSite,
 		Expires:  expiresAt,
 	})
@@ -332,17 +337,21 @@ func Logout(w http.ResponseWriter, r *http.Request) {
 		database.DeleteRefreshToken(tokenHash)
 	}
 
-	// Clear the cookie
+	// Clear the cookie - must match same Domain/SameSite used when setting
 	logoutSameSite := http.SameSiteLaxMode
-	if config.Get().SecureCookies {
+	cookieDomain := config.Get().CookieDomain
+	if cookieDomain != "" {
+		logoutSameSite = http.SameSiteNoneMode
+	} else if config.Get().SecureCookies {
 		logoutSameSite = http.SameSiteStrictMode
 	}
 	http.SetCookie(w, &http.Cookie{
 		Name:     "refresh_token",
 		Value:    "",
 		Path:     "/",
+		Domain:   cookieDomain,
 		HttpOnly: true,
-		Secure:   config.Get().SecureCookies,
+		Secure:   config.Get().SecureCookies || cookieDomain != "",
 		SameSite: logoutSameSite,
 		MaxAge:   -1,
 	})

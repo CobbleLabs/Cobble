@@ -1898,7 +1898,7 @@ bool shouldSendPacket(JNIEnv* env, jobject packet) {
     // Debug: log every packet to see if this is even called
     static int packetCount = 0;
     if (++packetCount % 100 == 0) {
-        log_debug("[PacketInterceptor] shouldSendPacket called (count: %d)", packetCount);
+        //log_debug("[PacketInterceptor] shouldSendPacket called (count: %d)", packetCount);
     }
     
     // ===== NOITEMRELEASE PACKET BLOCKING =====
