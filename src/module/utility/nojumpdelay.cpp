@@ -31,7 +31,7 @@ void NoJumpDelay::onUpdate()
 	if (!player.isValid()) return;
 
 	// Reset jump ticks when on ground to remove jump delay
-	// This allows instant re-jump when landing (bhop)
+	// This allows instant re-jump when landing
 	if (player.isOnGround() && (GetAsyncKeyState(VK_SPACE) & 0x8000)) {
 		player.setJumpTicks(0);
 	}
