@@ -8,6 +8,15 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/).
 
 ## [Unreleased]
 
+### Added
+- **Custom Protection System - Phase 1**: Multi-layer obfuscation and anti-tamper for loader
+  - **Compile-time String Obfuscation** (`obfuscate.hpp`): XOR encryption with per-build unique keys from `__TIME__`
+  - **Enhanced Anti-Debug** (`antidbg.hpp`): RDTSC timing traps, hardware breakpoint detection, debugger window detection
+  - **Self-Hashing Integrity Guard** (`integrity.hpp`): Multi-chunk FNV-1a hash verification with distributed checkpoints
+  - Critical strings (server URLs, paths) now encrypted and not visible in binary
+  - Crash silently on tamper detection to appear as normal bugs
+  - Zero performance overhead (compile-time encryption, on-demand decryption)
+
 ### Changed
 - **Visual Team Resolver v4**: Complete sampling overhaul for stable detection
   - **Vertical band scan**: Scans dy = -12 to +2 to find optimal nametag Y (fixes sneaking, slabs, third-person)

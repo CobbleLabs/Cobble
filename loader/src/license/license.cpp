@@ -3,6 +3,7 @@
 #include "version.h"
 #include "../security/xor.h"
 #include "../util/json.h"
+#include "../util/control_flow.hpp"
 #include "../update/tweetnacl.h"
 #include <Windows.h>
 #include <wininet.h>

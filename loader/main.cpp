@@ -23,13 +23,19 @@
 #include "src/update/updater.h"
 #include "src/update/download.h"
 
+// Protection system
+#include "src/util/obfuscate.hpp"
+#include "src/security/antidbg.hpp"
+#include "src/security/integrity.hpp"
+#include "src/security/integrity_gen.hpp"
+
 // ============================================================================
 // CONFIG & GLOBALS
 // ============================================================================
 
-// Server configuration
-inline const char* getServerPrimary() { return _xor_("api.cobble.vip"); }
-inline const char* getLicenseServerPrimary() { return _xor_("https://api.cobble.vip"); }
+// Server configuration (obfuscated)
+inline std::string getServerPrimary() { return OBFS("api.cobble.vip"); }
+inline std::string getLicenseServerPrimary() { return OBFS("https://api.cobble.vip"); }
 
 #define SERVER_PORT_HTTPS 443
 #define LICENSE_CHECK_ENABLED true
@@ -611,6 +617,10 @@ int wmain(int argc, wchar_t* argv[]) {
 	if (Security::IsBeingDebugged()) return 1;
 	Security::Initialize();
 	
+	// Enhanced anti-debug calibration
+	AntiDebug::calibrate();
+	if (AntiDebug::isDebugged()) return 1;
+	
 	HANDLE hThread1 = CreateThread(NULL, 0, SecurityThread1, NULL, 0, NULL);
 	HANDLE hThread2 = CreateThread(NULL, 0, SecurityThread2, NULL, 0, NULL);
 	if (hThread1) CloseHandle(hThread1);
@@ -653,7 +663,7 @@ int wmain(int argc, wchar_t* argv[]) {
 				std::string hwid = HWID::Generate();
 				std::string tempDir = Updater::getTempDownloadDir();
 				std::string newLoaderPath = tempDir + "\\CobbleLoader.exe";
-				std::string downloadUrl = std::string(_xor_("https://")) + getServerPrimary() + _xor_("/api/update/loader");
+				std::string downloadUrl = OBFS("https://") + getServerPrimary() + OBFS("/api/update/loader");
 				
 				// Setup progress bar (need 2 lines: text + bar)
 				g_downloadLast = 0;
@@ -695,7 +705,7 @@ int wmain(int argc, wchar_t* argv[]) {
 	bool licenseValid = false;
 	
 	// First, try silent HWID verification (for returning users)
-	if (License::Verify(getLicenseServerPrimary())) {
+	if (License::Verify(getLicenseServerPrimary().c_str())) {
 		licenseValid = true;
 	}
 	
@@ -717,9 +727,9 @@ int wmain(int argc, wchar_t* argv[]) {
 		}
 		
 		std::cout << "\n";
-		printCentered("Authenticating...", "\x1b[90m");
-		
-		if (License::LoginWithCredentials(getLicenseServerPrimary(), username, password)) {
+			printCentered("Authenticating...", "\x1b[90m");
+			
+			if (License::LoginWithCredentials(getLicenseServerPrimary().c_str(), username, password)) {
 			licenseValid = true;
 			// Clear the authenticating message
 			std::cout << "\r\x1b[K\x1b[A\x1b[K";
