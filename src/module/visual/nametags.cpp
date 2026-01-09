@@ -2,12 +2,14 @@
 #include "../../sdk/core/minecraft.h"
 #include "../../sdk/player/render_data.h"
 #include "../../util/logger.hpp"
+#include "../../util/http.hpp"
 #include "../../util/math/worldToScreen.h"
 #include "../../ui/widgets/widgets.hpp"
 
 #include "../../../infra/ext/imgui/imgui.h"
 #include <cmath>
 #include <cstdio>
+#include <thread>
 
 NameTags* nameTags = nullptr;
 
@@ -46,6 +48,7 @@ void NameTags::onDisable()
 	
 	std::lock_guard<std::mutex> lock(cacheMutex);
 	cachedPlayers.clear();
+	mojangCache.clear();
 }
 
 // Detect world change (server join/leave, dimension change)
@@ -154,6 +157,7 @@ void NameTags::onUpdate()
 		
 		CachedPlayer cached;
 		cached.name = p.name;
+		cached.uuid = p.uuid;
 		cached.posX = p.posX;
 		cached.posY = p.posY;
 		cached.posZ = p.posZ;
@@ -164,6 +168,37 @@ void NameTags::onUpdate()
 		cached.health = p.health;
 		cached.maxHealth = p.maxHealth;
 		cached.valid = true;
+		
+		// Mojang name resolution for obfuscated GameProfiles
+		// Always lookup, but only override display name if different from server name
+		if (!p.uuid.empty()) {
+			auto& entry = mojangCache[p.uuid];
+			
+			if (entry.lookupDone) {
+				// Compare with server name - only use Mojang if different
+				if (!entry.realName.empty() && entry.realName != p.name) {
+					cached.mojangName = entry.realName;
+				}
+			} else if (!entry.lookupQueued) {
+				// Queue async lookup
+				entry.lookupQueued = true;
+				std::string uuidCopy = p.uuid;
+				
+				std::thread([this, uuidCopy]() {
+					std::string realName = http::lookupMojangName(uuidCopy);
+					if (!realName.empty()) {
+						std::lock_guard<std::mutex> lock(cacheMutex);
+						auto& e = mojangCache[uuidCopy];
+						e.realName = realName;
+						e.lookupDone = true;
+					} else {
+						std::lock_guard<std::mutex> lock(cacheMutex);
+						auto& e = mojangCache[uuidCopy];
+						e.lookupDone = true;  // Mark done to avoid retry spam
+					}
+				}).detach();
+			}
+		}
 		
 		newCache.push_back(cached);
 		
@@ -189,6 +224,16 @@ void NameTags::onUpdate()
 		cachedLocalLastX = player.getLastPosX();
 		cachedLocalLastY = player.getLastPosY();
 		cachedLocalLastZ = player.getLastPosZ();
+		
+		// Apply resolved Mojang names to cached players
+		for (auto& cp : cachedPlayers) {
+			if (!cp.uuid.empty()) {
+				auto it = mojangCache.find(cp.uuid);
+				if (it != mojangCache.end() && it->second.lookupDone && !it->second.realName.empty()) {
+					cp.mojangName = it->second.realName;
+				}
+			}
+		}
 	}
 }
 
@@ -275,7 +320,7 @@ void NameTags::onRender()
 		);
 		
 		if (onScreen) {
-			renderPlayerTag(draw, screenPos.x, screenPos.y, p.name.c_str(), p.distance, p.health, p.maxHealth);
+			renderPlayerTag(draw, screenPos.x, screenPos.y, p.getDisplayName().c_str(), p.distance, p.health, p.maxHealth);
 			renderedCount++;
 		}
 	}
