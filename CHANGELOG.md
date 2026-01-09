@@ -9,6 +9,14 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/).
 ## [Unreleased]
 
 ### Added
+- **Desktop Loader UI**: Replaced console-based loader with Premium ImGui window
+  - **Premium Aesthetic**: "SaaS quality" design with Inter font, #0B0B0D dark theme, and radial gradients
+  - **Visual Depth**: soft shadows, 12px rounded corners, and subtle borders (#1E1E22)
+  - **Micro-interactions**: Entrance fade+scale animation, hover lift on buttons, smooth focus transitions
+  - **Components**: Gradient orange buttons (#FF7A18 -> #FF9F1C), custom input fields with glow effects
+  - **Performance**: 5 UI states with real-time feedback, 60 FPS OpenGL rendering
+  - **Experience**: Login flow, auto-injection, and silent license verification
+  - **Window**: Frameless 420x520 popup style with custom close button
 - **Custom Protection System - Phase 1**: Multi-layer obfuscation and anti-tamper for loader
   - **Compile-time String Obfuscation** (`obfuscate.hpp`): XOR encryption with per-build unique keys from `__TIME__`
   - **Enhanced Anti-Debug** (`antidbg.hpp`): RDTSC timing traps, hardware breakpoint detection, debugger window detection

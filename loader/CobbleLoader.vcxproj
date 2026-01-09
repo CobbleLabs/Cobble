@@ -46,11 +46,12 @@
       <PreprocessorDefinitions>_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp20</LanguageStandard>
-      <AdditionalIncludeDirectories>$(ProjectDir)src;$(ProjectDir)src\core;$(ProjectDir)src\security;$(ProjectDir)src\license;$(ProjectDir)res;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(ProjectDir)src;$(ProjectDir)src\core;$(ProjectDir)src\security;$(ProjectDir)src\license;$(ProjectDir)src\ui;$(ProjectDir)res;$(ProjectDir)..\infra\ext\imgui;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
-      <SubSystem>Console</SubSystem>
+      <SubSystem>Windows</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
+      <AdditionalDependencies>opengl32.lib;gdi32.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
@@ -64,7 +65,7 @@
       <PreprocessorDefinitions>NDEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp20</LanguageStandard>
-      <AdditionalIncludeDirectories>$(ProjectDir)src;$(ProjectDir)src\core;$(ProjectDir)src\security;$(ProjectDir)src\license;$(ProjectDir)res;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(ProjectDir)src;$(ProjectDir)src\core;$(ProjectDir)src\security;$(ProjectDir)src\license;$(ProjectDir)src\ui;$(ProjectDir)res;$(ProjectDir)..\infra\ext\imgui;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <!-- Obfuscation optimizations -->
       <Optimization>MaxSpeed</Optimization>
       <InlineFunctionExpansion>AnySuitable</InlineFunctionExpansion>
@@ -73,12 +74,13 @@
       <EnableFiberSafeOptimizations>true</EnableFiberSafeOptimizations>
     </ClCompile>
     <Link>
-      <SubSystem>Console</SubSystem>
+      <SubSystem>Windows</SubSystem>
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <OptimizeReferences>true</OptimizeReferences>
       <GenerateDebugInformation>false</GenerateDebugInformation>
       <!-- Strip all symbols -->
       <AdditionalOptions>/PDBALTPATH:none %(AdditionalOptions)</AdditionalOptions>
+      <AdditionalDependencies>opengl32.lib;gdi32.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <!-- Source Files -->
@@ -89,6 +91,14 @@
     <ClCompile Include="src\security\security.cpp" />
     <ClCompile Include="src\license\license.cpp" />
     <ClCompile Include="src\license\hwid.cpp" />
+    <ClCompile Include="src\ui\loader_window.cpp" />
+    <!-- ImGui Sources -->
+    <ClCompile Include="..\infra\ext\imgui\imgui.cpp" />
+    <ClCompile Include="..\infra\ext\imgui\imgui_draw.cpp" />
+    <ClCompile Include="..\infra\ext\imgui\imgui_widgets.cpp" />
+    <ClCompile Include="..\infra\ext\imgui\imgui_tables.cpp" />
+    <ClCompile Include="..\infra\ext\imgui\imgui_impl_win32.cpp" />
+    <ClCompile Include="..\infra\ext\imgui\imgui_impl_opengl2.cpp" />
   </ItemGroup>
   <!-- Header Files -->
   <ItemGroup>
@@ -105,6 +115,7 @@
     <ClInclude Include="src\security\antidbg.hpp" />
     <ClInclude Include="src\security\integrity.hpp" />
     <ClInclude Include="src\security\integrity_gen.hpp" />
+    <ClInclude Include="src\ui\loader_window.hpp" />
   </ItemGroup>
   <!-- Resources -->
   <ItemGroup>
