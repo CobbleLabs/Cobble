@@ -91,6 +91,7 @@
     <ClCompile Include="src\sdk\core\minecraft.cpp" />
     <ClCompile Include="src\sdk\player\player.cpp" />
     <ClCompile Include="src\sdk\network\network_probe.cpp" />
+    <ClCompile Include="src\sdk\network\lunar_packet_listener.cpp" />
     <ClCompile Include="src\sdk\jni\jni_cache.cpp" />
     <ClCompile Include="src\sdk\mc\input.cpp" />
     <ClCompile Include="src\sdk\mc\world.cpp" />
@@ -152,6 +153,7 @@
     <ClInclude Include="src\sdk\player\player.h" />
     <ClInclude Include="src\sdk\player\render_data.h" />
     <ClInclude Include="src\sdk\network\network_probe.hpp" />
+    <ClInclude Include="src\sdk\network\lunar_packet_listener.hpp" />
     <ClInclude Include="src\sdk\jni\jni_cache.h" />
     <ClInclude Include="src\module\module.h" />
     <ClInclude Include="src\module\module_manager.h" />

@@ -63,10 +63,10 @@ void probeMCPNames() {
         bool found = tryLoadClass(classNames[i], cls);
         
         if (found) {
-            //log_ok("[MCP] FOUND: %s", classNames[i]);
+            log_ok("[MCP] FOUND: %s", classNames[i]);
             Java::Env->DeleteLocalRef(cls);
         } else {
-            //log_debug("[MCP] not found: %s", classNames[i]);
+            log_debug("[MCP] not found: %s", classNames[i]);
         }
     }
 }
@@ -75,7 +75,7 @@ void probeMCPNames() {
 // METHOD 2: Enumerate fields of EntityPlayerSP to find sendQueue
 // ============================================================================
 void probePlayerFields() {
-    //log_debug("=== PROBE 2: EntityPlayerSP Fields ===");
+    log_debug("=== PROBE 2: EntityPlayerSP Fields ===");
     
     if (!Java::tiEnv) {
         //log_warn("[Fields] JVMTI not available - skipping field enumeration");
@@ -85,7 +85,7 @@ void probePlayerFields() {
     // Try to get EntityPlayerSP
     jclass entityPlayerSP = nullptr;
     if (!tryLoadClass("net.minecraft.client.entity.EntityPlayerSP", entityPlayerSP)) {
-        //log_warn("[Fields] EntityPlayerSP not found by MCP name");
+        log_warn("[Fields] EntityPlayerSP not found by MCP name");
         return;
     }
     
@@ -101,7 +101,7 @@ void probePlayerFields() {
         return;
     }
     
-    //log_debug("[Fields] EntityPlayerSP has %d fields", fieldCount);
+    log_debug("[Fields] EntityPlayerSP has %d fields", fieldCount);
     
     for (int i = 0; i < fieldCount; i++) {
         char* name = nullptr;
@@ -113,12 +113,12 @@ void probePlayerFields() {
         if (sig) {
             // Print all fields with non-primitive types
             if (sig[0] == 'L') {
-                //log_debug("[Fields] %s -> %s", name ? name : "?", sig);
+                log_debug("[Fields] %s -> %s", name ? name : "?", sig);
                 
                 // Highlight potential network handler fields
                 if (strstr(sig, "Net") || strstr(sig, "Handler") || 
                     strstr(sig, "network") || strstr(sig, "Connection")) {
-                    //log_ok("[Fields] POTENTIAL NETWORK HANDLER: %s -> %s", name, sig);
+                    log_ok("[Fields] POTENTIAL NETWORK HANDLER: %s -> %s", name, sig);
                 }
             }
         }

@@ -35,6 +35,10 @@ void flushQueue();  // Send all queued packets
 void clearQueue();  // Discard queued packets
 void Tick();  // Drive hybrid queue (continuous movement stream)
 
+// Debug packet logging - logs all intercepted packets to console
+void setDebugPacketLogging(bool enabled);
+bool isDebugPacketLogging();
+
 // Debug info
 void printDebugInfo();
 
