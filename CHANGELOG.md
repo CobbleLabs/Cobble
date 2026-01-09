@@ -16,6 +16,10 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/).
   - Critical strings (server URLs, paths) now encrypted and not visible in binary
   - Crash silently on tamper detection to appear as normal bugs
   - Zero performance overhead (compile-time encryption, on-demand decryption)
+- **NameTags Mojang API Resolution**: Resolve real player names on servers with obfuscated GameProfiles
+  - Async lookup via `http::lookupMojangName()` using player UUID
+  - Results cached per-session in `mojangCache` to avoid redundant API calls
+  - Falls back to server-provided name if Mojang lookup fails
 
 ### Changed
 - **Visual Team Resolver v4**: Complete sampling overhaul for stable detection

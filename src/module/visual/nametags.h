@@ -4,19 +4,28 @@
 #include "../../jni/java.h"
 #include <vector>
 #include <mutex>
+#include <map>
+#include <string>
 
 // Forward declare
 struct ImDrawList;
 
 // Cached player data - stores world positions for interpolation
 struct CachedPlayer {
-	std::string name;
+	std::string name;        // Display name (may be obfuscated)
+	std::string uuid;        // Player UUID for Mojang lookup
+	std::string mojangName;  // Real name from Mojang API (empty if not resolved)
 	double posX = 0, posY = 0, posZ = 0;           // Current position
 	double lastPosX = 0, lastPosY = 0, lastPosZ = 0; // Last tick position
 	float distance = 0;
 	float health = 20.0f;
 	float maxHealth = 20.0f;
 	bool valid = false;
+	
+	// Get display name (prefers Mojang real name if available)
+	const std::string& getDisplayName() const {
+		return !mojangName.empty() ? mojangName : name;
+	}
 };
 
 class NameTags : public Module
@@ -54,6 +63,15 @@ private:
 	
 	// World change detection
 	jobject lastWorldRef = nullptr;
+	
+	// Mojang API name resolution cache (persists across cache updates)
+	// Maps UUID -> real Mojang name
+	struct MojangEntry {
+		std::string realName;
+		bool lookupDone = false;
+		bool lookupQueued = false;
+	};
+	std::map<std::string, MojangEntry> mojangCache;
 	void checkWorldChange();
 	
 	void renderPlayerTag(ImDrawList* draw, float screenX, float screenY, const char* name, float distance, float health, float maxHealth);
