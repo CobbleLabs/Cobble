@@ -67,16 +67,21 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         MessageBoxA(nullptr, "Failed to initialize UI", "Cobble Loader", MB_ICONERROR);
         return 1;
     }
-    
+
     LoaderUI::SetState(LoaderUI::State::INITIALIZING);
     LoaderUI::SetMessage("Initializing...");
-    
+
+    auto renderFrame = []() -> bool {
+        bool keepRunning = LoaderUI::Render();
+        std::this_thread::yield();
+        return keepRunning;
+    };
+
     for (int i = 0; i < 10; i++) {
-        if (!LoaderUI::Render()) {
+        if (!renderFrame()) {
             LoaderUI::Shutdown();
             return 0;
         }
-        Sleep(16);
     }
     
     // Integrity Check
@@ -84,7 +89,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     HRSRC hRes = FindResource(hModule, MAKEINTRESOURCE(IDR_COBBLE_DLL), RT_RCDATA);
     if (!hRes) {
         LoaderUI::SetError("Corruption detected");
-        while (LoaderUI::Render()) Sleep(16);
+        while (renderFrame());
         LoaderUI::Shutdown();
         return 1;
     }
@@ -94,10 +99,10 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     DWORD dllSize = SizeofResource(hModule, hRes);
     
 #if DLL_HASH_ENABLED
-    if (dllSize != DLL_EXPECTED_SIZE || 
+    if (dllSize != DLL_EXPECTED_SIZE ||
         !Hash::VerifyChunked(dllData, dllSize, DLL_HASH_CHUNK1, DLL_HASH_CHUNK2, DLL_HASH_CHUNK3, DLL_HASH_CHUNK4)) {
         LoaderUI::SetError("Integrity check failed");
-        while (LoaderUI::Render()) Sleep(16);
+        while (renderFrame());
         LoaderUI::Shutdown();
         return 1;
     }
@@ -115,21 +120,21 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     
     if (!licenseValid && License::RequiresLogin()) {
         LoaderUI::SetState(LoaderUI::State::LOGIN_REQUIRED);
-        
-        while (LoaderUI::Render()) {
+
+        while (renderFrame()) {
             if (LoaderUI::IsLoginButtonPressed()) {
                 std::string username = LoaderUI::GetUsername();
                 std::string password = LoaderUI::GetPassword();
                 LoaderUI::ClearLoginButton();
-                
+
                 if (username.empty() || password.empty()) {
                     LoaderUI::SetError("Username and password required");
                     continue;
                 }
-                
+
                 LoaderUI::SetState(LoaderUI::State::AUTHENTICATING);
-                LoaderUI::Render();
-                
+                renderFrame();
+
                 if (License::LoginWithCredentials(getLicenseServerPrimary().c_str(), username, password)) {
                     licenseValid = true;
                     LoaderUI::SetState(LoaderUI::State::LICENSE_VALID);
@@ -139,9 +144,8 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
                     LoaderUI::SetError(License::GetLastError());
                 }
             }
-            Sleep(16);
         }
-        
+
         if (!licenseValid) {
             LoaderUI::Shutdown();
             return 0;
@@ -150,7 +154,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     
     if (!licenseValid) {
         LoaderUI::SetError(License::GetLastError());
-        while (LoaderUI::Render()) Sleep(16);
+        while (renderFrame());
         LoaderUI::Shutdown();
         return 1;
     }
@@ -162,34 +166,37 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     }
     
     LoaderUI::SetMessage("Waiting for Minecraft...");
-    
+
     ProcessInfo lunar;
+    auto nextScan = std::chrono::steady_clock::now();
     while (true) {
-        if (!LoaderUI::Render()) {
+        if (!renderFrame()) {
             LoaderUI::Shutdown();
             return 0;
         }
-        
-        lunar = findLunarClient();
-        if (lunar.pid != 0) break;
-        
-        Sleep(100);
+
+        auto now = std::chrono::steady_clock::now();
+        if (now >= nextScan) {
+            lunar = findLunarClient();
+            if (lunar.pid != 0) break;
+            nextScan = now + std::chrono::milliseconds(100);
+        }
     }
     
     if (isDllInjected(lunar.pid, L"Cobble.dll")) {
         LoaderUI::SetError("Already injected");
-        while (LoaderUI::Render()) Sleep(16);
+        while (renderFrame());
         LoaderUI::Shutdown();
         return 0;
     }
-    
+
     if (g_SecurityViolation) {
         LoaderUI::Shutdown();
         return 1;
     }
-    
+
     LoaderUI::SetMessage("Injecting...");
-    LoaderUI::Render();
+    renderFrame();
     
     wchar_t tempPath[MAX_PATH];
     GetTempPathW(MAX_PATH, tempPath);
@@ -202,7 +209,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     HANDLE hFile = CreateFileW(dllTempPath.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
     if (hFile == INVALID_HANDLE_VALUE) {
         LoaderUI::SetError("Write error");
-        while (LoaderUI::Render()) Sleep(16);
+        while (renderFrame());
         LoaderUI::Shutdown();
         return 1;
     }
@@ -214,7 +221,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     if (!injectDllLoadLibrary(lunar.pid, dllTempPath)) {
         LoaderUI::SetError("Injection failed\nTry running as Administrator");
         DeleteFileW(dllTempPath.c_str());
-        while (LoaderUI::Render()) Sleep(16);
+        while (renderFrame());
         LoaderUI::Shutdown();
         return 1;
     }
@@ -222,12 +229,11 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     Sleep(500);
     DeleteFileW(dllTempPath.c_str());
     
-    LoaderUI::SetMessage("Active");
-    
+    LoaderUI::SetState(LoaderUI::State::INJECTING_SUCCESS);
+
     auto startTime = std::chrono::steady_clock::now();
     while (std::chrono::steady_clock::now() - startTime < std::chrono::milliseconds(1500)) {
-        if (!LoaderUI::Render()) break;
-        Sleep(16);
+        if (!renderFrame()) break;
     }
     
     LoaderUI::Shutdown();

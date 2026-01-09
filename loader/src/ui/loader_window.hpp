@@ -7,7 +7,8 @@ namespace LoaderUI {
         WAITING_MINECRAFT, // "No Minecraft found"
         LOGIN_REQUIRED,    // Username/password inputs
         AUTHENTICATING,    // "Authenticating..." spinner
-        LICENSE_VALID,     // Show license info + "Injecting..."
+        LICENSE_VALID,     // Show license info + "Waiting for Minecraft..."
+        INJECTING_SUCCESS, // Injection succeeded - show success message
         ERROR_STATE        // Red error message
     };
 

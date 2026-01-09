@@ -25,6 +25,7 @@
 #include "sdk/player/render_data.h"
 #include "sdk/network/network_probe.hpp"
 #include "jni/packet_interceptor.hpp"
+#include "sdk/network/lunar_packet_listener.hpp"
 
 
 // Signature for loader detection (cleared on shutdown for re-injection support)
@@ -124,6 +125,14 @@ void cobble::context::initialize(HMODULE hModule)
 		log_warn("PacketInterceptor failed - Blink will use network-level blocking (may timeout)");
 	}
 
+	// Initialize LunarPacketListener for Lunar Client API packet interception
+	log_raw("Initializing LunarPacketListener...");
+	if (LunarPacketListener::Init()) {
+		log_ok("LunarPacketListener initialized - Lunar nametag packets will be logged");
+	} else {
+		log_warn("LunarPacketListener failed - Lunar API not available or not on Lunar Client");
+	}
+
 	// Create Named Mutex for Injection Detection
 	DWORD pid = GetCurrentProcessId();
 	std::wstring mutexName = L"Global\\Cobble_Instance_" + std::to_wstring(pid);
@@ -215,6 +224,7 @@ void cobble::context::shutdown()
 	if (nameTags) nameTags->setEnabled(false);
 	if (esp) esp->setEnabled(false);
 	
+	LunarPacketListener::Shutdown();
 	PacketInterceptor::Shutdown();
 	WinsockHooks::Shutdown();
 	

@@ -28,6 +28,12 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/).
   - Async lookup via `http::lookupMojangName()` using player UUID
   - Results cached per-session in `mojangCache` to avoid redundant API calls
   - Falls back to server-provided name if Mojang lookup fails
+- **Apollo Packet Interception**: Intercept Lunar Client Apollo API packets for non-visual team detection
+  - Hooking `NetHandlerPlayClient.handleCustomPayload` via JVMTI bytecode injection
+  - Parsing `lunar:apollo` channel protobuf packets (manual parser, no libprotobuf dependency)
+  - **UpdateTeamMembersMessage**: Extracts teammate UUIDs from Apollo Teams API (fixed64 UUID fields)
+  - **OverrideNametagMessage**: Extracts player UUID + color from nametag JSON (§2=GREEN teammate, §c=RED enemy)
+  - **S3EPacketTeams**: Filters Minecraft scoreboard team packets (CREATE, ADD_PLAYERS, REMOVE_PLAYERS)
 
 ### Changed
 - **Visual Team Resolver v4**: Complete sampling overhaul for stable detection
