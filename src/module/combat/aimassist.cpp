@@ -1276,8 +1276,6 @@ void AimAssist::onRenderMenu()
 		},
 		"Options", [this, &currentMode]() {
 			ui::Checkbox("Always Aim", &settings.alwaysAim);
-			ui::Checkbox("Horizontal Only", &settings.horizontalOnly);
-			ui::Checkbox("Lock Aim", &settings.lockAim);
 			ui::Checkbox("Break Blocks", &settings.breakBlocks);
 			ui::Checkbox("Weapon Only", &settings.weaponOnly);
 			ui::Checkbox("Aim Closest Point", &settings.aimAtClosestPoint);

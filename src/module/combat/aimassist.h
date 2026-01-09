@@ -63,7 +63,7 @@ public:
 	};
 
 	struct Settings {
-		bool horizontalOnly = false;
+		bool horizontalOnly = true;
 		bool invisibles = false;
 		bool alwaysAim = false;
 		bool breakBlocks = false;
