@@ -23,6 +23,7 @@
 #include "src/security/antidbg.hpp"
 #include "src/security/integrity.hpp"
 #include "src/security/integrity_gen.hpp"
+#include "src/security/advanced_security.hpp"
 
 // Server configuration (obfuscated)
 inline std::string getServerPrimary() { return OBFS("api.cobble.vip"); }
@@ -49,6 +50,15 @@ DWORD WINAPI SecurityThread2(LPVOID lpParam) {
     return 0;
 }
 
+DWORD WINAPI SecurityThread3(LPVOID lpParam) {
+    while (!g_SecurityViolation) {
+        if (AdvancedSecurity::hasKernelDebugger()) { g_SecurityViolation = true; break; }
+        if (AdvancedSecurity::hasSyscallHooks()) { g_SecurityViolation = true; break; }
+        Sleep(1000);
+    }
+    return 0;
+}
+
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow) {
     // Security checks
     if (Security::IsBeingDebugged()) return 1;
@@ -57,10 +67,15 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     AntiDebug::calibrate();
     if (AntiDebug::isDebugged()) return 1;
     
+    // Advanced security checks (VM, kernel debugger, syscall hooks)
+    if (AdvancedSecurity::isCompromised()) return 1;
+    
     HANDLE hThread1 = CreateThread(NULL, 0, SecurityThread1, NULL, 0, NULL);
     HANDLE hThread2 = CreateThread(NULL, 0, SecurityThread2, NULL, 0, NULL);
+    HANDLE hThread3 = CreateThread(NULL, 0, SecurityThread3, NULL, 0, NULL);
     if (hThread1) CloseHandle(hThread1);
     if (hThread2) CloseHandle(hThread2);
+    if (hThread3) CloseHandle(hThread3);
     
     // UI Init
     if (!LoaderUI::Init()) {
