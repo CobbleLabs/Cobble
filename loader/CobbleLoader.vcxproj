@@ -115,6 +115,7 @@
     <ClInclude Include="src\security\antidbg.hpp" />
     <ClInclude Include="src\security\integrity.hpp" />
     <ClInclude Include="src\security\integrity_gen.hpp" />
+    <ClInclude Include="src\security\advanced_security.hpp" />
     <ClInclude Include="src\ui\loader_window.hpp" />
   </ItemGroup>
   <!-- Resources -->
