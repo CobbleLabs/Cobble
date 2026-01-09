@@ -29,13 +29,38 @@ const LIFETIME_FEATURES = [
 type PaymentState = "idle" | "processing" | "success" | "error";
 
 export default function PurchasePage() {
-    const { user, refreshUser } = useAuth();
+    const { user, refreshUser, isAuthenticated, isLoading } = useAuth();
     const [paymentState, setPaymentState] = useState<PaymentState>("idle");
     const [activatingPlan, setActivatingPlan] = useState<string | null>(null);
 
     const hasLicense = user?.license && user.license.plan !== "none";
     const hasMonthly = user?.license?.plan === "monthly";
     const hasLifetime = user?.license?.plan === "lifetime";
+
+    // Must be authenticated to purchase
+    if (!isLoading && !isAuthenticated) {
+        return (
+            <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="max-w-2xl mx-auto text-center py-12"
+            >
+                <div className="w-20 h-20 rounded-full bg-[var(--accent-primary)]/10 flex items-center justify-center mx-auto mb-6">
+                    <Shield className="w-10 h-10 text-[var(--accent-primary)]" />
+                </div>
+                <Heading className="text-3xl mb-4">Login Required</Heading>
+                <Text className="text-lg mb-6">
+                    Please log in to purchase a license.
+                </Text>
+                <a
+                    href="/login"
+                    className="inline-flex items-center gap-2 px-6 py-3 rounded-xl bg-[var(--accent-primary)] text-white font-semibold hover:bg-[var(--accent-primary)]/90 transition-colors"
+                >
+                    Go to Login
+                </a>
+            </motion.div>
+        );
+    }
 
     const handlePaymentSuccess = async (orderId: string, planType: "monthly" | "lifetime") => {
         setPaymentState("processing");
