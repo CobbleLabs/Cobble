@@ -448,12 +448,18 @@ bool FriendsManager::isTeammate(const std::string& playerUUID, ChatColor playerC
 
 void FriendsManager::addLunarTeammate(const std::string& uuid) {
 	std::lock_guard<std::mutex> lock(mutex_);
-	lunarTeammates_.insert(uuid);
+	auto result = lunarTeammates_.insert(uuid);
+	if (result.second) {
+		log_debug("[Apollo] Registered Lunar teammate: %s", uuid.c_str());
+	}
 }
 
 void FriendsManager::clearLunarTeammates() {
 	std::lock_guard<std::mutex> lock(mutex_);
-	lunarTeammates_.clear();
+	if (!lunarTeammates_.empty()) {
+		log_debug("[Apollo] Cleared %zu Lunar teammates", lunarTeammates_.size());
+		lunarTeammates_.clear();
+	}
 }
 
 bool FriendsManager::isLunarTeammate(const std::string& uuid) const {
@@ -465,6 +471,16 @@ bool FriendsManager::isLunarTeammate(const std::string& uuid) const {
 void FriendsManager::setApolloNametagColor(const std::string& uuid, const std::string& color) {
 	if (uuid.empty()) return;
 	std::lock_guard<std::mutex> lock(mutex_);
+	auto it = apolloNametags_.find(uuid);
+	bool isNew = (it == apolloNametags_.end());
+	bool isTeammate = (color == "GREEN" || color == "DARK_GREEN");
+	
+	// Only log if new entry or color changed
+	if (isNew || it->second != color) {
+		if (isTeammate) {
+			log_debug("[Apollo] Nametag TEAMMATE registered: %s -> %s", uuid.substr(0, 8).c_str(), color.c_str());
+		}
+	}
 	apolloNametags_[uuid] = color;
 }
 
@@ -491,6 +507,23 @@ void FriendsManager::clearApolloNametags() {
 		apolloNametags_.clear();
 	}
 }
+
+size_t FriendsManager::getApolloNametagCount() const {
+	std::lock_guard<std::mutex> lock(mutex_);
+	return apolloNametags_.size();
+}
+
+size_t FriendsManager::getApolloTeammateCount() const {
+	std::lock_guard<std::mutex> lock(mutex_);
+	size_t count = 0;
+	for (const auto& pair : apolloNametags_) {
+		if (pair.second == "GREEN" || pair.second == "DARK_GREEN") {
+			count++;
+		}
+	}
+	return count;
+}
+
 // ============================================================
 // Visual Friends - Auto-detected teammates
 // ============================================================

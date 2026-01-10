@@ -1933,8 +1933,10 @@ static void JNICALL nativeOnReceive(JNIEnv* env, jclass, jobject packet) {
                                         }
                                         
                                         // Register teammates with FriendsManager
-                                        if (!teammateUuids.empty() && friendsManager) {
-                                            friendsManager->clearLunarTeammates();
+                                        // Use set-based synchronization to avoid clear/re-add spam
+                                        if (friendsManager) {
+                                            // Build new UUID set from packet
+                                            std::set<std::string> newTeammates;
                                             for (size_t i = 0; i < teammateUuids.size(); i++) {
                                                 char uuidStr[64];
                                                 uint64_t hi = teammateUuids[i].first;
@@ -1946,7 +1948,21 @@ static void JNICALL nativeOnReceive(JNIEnv* env, jclass, jobject packet) {
                                                          (uint16_t)hi,
                                                          (uint16_t)(lo >> 48),
                                                          (unsigned long long)(lo & 0xFFFFFFFFFFFFULL));
-                                                friendsManager->addLunarTeammate(uuidStr);
+                                                newTeammates.insert(uuidStr);
+                                            }
+                                            
+                                            // Sync: only add new teammates (don't clear existing)
+                                            // This prevents spam when server sends periodic identical updates
+                                            for (const auto& uuid : newTeammates) {
+                                                friendsManager->addLunarTeammate(uuid);
+                                            }
+                                            
+                                            // Only log when teammate count changes significantly
+                                            static size_t lastTeammateCount = 0;
+                                            size_t currentCount = newTeammates.size();
+                                            if (currentCount != lastTeammateCount) {
+                                                log_ok("[Apollo] Team synced: %d teammate(s)", (int)currentCount);
+                                                lastTeammateCount = currentCount;
                                             }
                                         }
                                     }

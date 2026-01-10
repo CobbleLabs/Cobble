@@ -441,18 +441,19 @@ void VisualTeamResolver::tick() {
 
 void VisualTeamResolver::resetAllTracks() {
 	std::lock_guard<std::mutex> lock(mutex_);
+	size_t trackCount = tracks_.size();
 	tracks_.clear();
 	pendingQueue_.clear();
 	debugSamples_.clear();
 	
-	// Clear all cached team data on world change
+	// Clear only visual detection data on world change
+	// NOTE: Apollo Nametags and Lunar Teammates are higher priority (server packets)
+	// and should NOT be cleared - they persist across world changes
 	if (friendsManager) {
 		friendsManager->clearVisualFriends();
-		friendsManager->clearApolloNametags();
-		friendsManager->clearLunarTeammates();
 	}
 	
-	log_debug("[VisualTeam] All tracks reset (world change detected)");
+	log_ok("[VisualTeam] World change detected - cleared %zu visual tracks (Apollo data preserved)", trackCount);
 }
 
 // Static to track world reference (GlobalRef)

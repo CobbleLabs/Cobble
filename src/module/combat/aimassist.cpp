@@ -4,12 +4,17 @@
 #include "../../util/logger.hpp"
 #include "../../util/friends_manager.h"
 #include "../../util/visual_team_resolver.h"
+#include "../../util/http.hpp"
 #include "../../ui/menu/menu.h"
 #include "../../ui/widgets/widgets.hpp"
 #include "../../sdk/player/player.h"
 #include <array>
 #include <algorithm>
 #include <cmath>
+#include <unordered_set>
+#include <unordered_map>
+#include <thread>
+#include <mutex>
 
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
@@ -20,6 +25,69 @@
 #include <Windows.h>
 
 AimAssist* aimAssist = nullptr;
+
+// ============================================================
+// DEBUG ONLY - REMOVE IN PROD - Mojang Name Cache - resolves UUIDs to real player names
+// ============================================================
+struct MojangCacheEntry {
+	std::string realName;
+	bool lookupQueued = false;
+	bool lookupDone = false;
+};
+
+static std::unordered_map<std::string, MojangCacheEntry> s_mojangCache;
+static std::mutex s_mojangCacheMutex;
+
+// Get real name for UUID, returns empty if not yet resolved
+static std::string getMojangName(const std::string& uuid) {
+	std::lock_guard<std::mutex> lock(s_mojangCacheMutex);
+	auto it = s_mojangCache.find(uuid);
+	if (it != s_mojangCache.end() && it->second.lookupDone) {
+		return it->second.realName;
+	}
+	return "";
+}
+
+// Queue async Mojang lookup for UUID
+static void queueMojangLookup(const std::string& uuid) {
+	if (uuid.empty()) return;
+	
+	{
+		std::lock_guard<std::mutex> lock(s_mojangCacheMutex);
+		auto& entry = s_mojangCache[uuid];
+		if (entry.lookupQueued || entry.lookupDone) return;
+		entry.lookupQueued = true;
+	}
+	
+	std::string uuidCopy = uuid;
+	std::thread([uuidCopy]() {
+		std::string realName = http::lookupMojangName(uuidCopy);
+		{
+			std::lock_guard<std::mutex> lock(s_mojangCacheMutex);
+			auto& e = s_mojangCache[uuidCopy];
+			e.realName = realName;
+			e.lookupDone = true;
+		}
+	}).detach();
+}
+
+// Get display name: prefer Mojang name, fallback to server name
+static std::string getDisplayName(const std::string& uuid, const std::string& serverName) {
+	std::string mojangName = getMojangName(uuid);
+	if (!mojangName.empty()) {
+		return mojangName;
+	}
+	// Queue lookup for next time
+	queueMojangLookup(uuid);
+	// Return UUID prefix if server name looks obfuscated (contains weird chars)
+	bool looksObfuscated = serverName.find("Ambassator") != std::string::npos ||
+	                       serverName.find("ACHCTL") != std::string::npos ||
+	                       serverName.length() < 3;
+	if (looksObfuscated && !uuid.empty()) {
+		return uuid.substr(0, 8) + "...";
+	}
+	return serverName;
+}
 
 // Weapon item IDs
 namespace ItemIds {
@@ -693,13 +761,13 @@ bool AimAssist::findTarget(double& targetX, double& targetY, double& targetZ)
 				colorRefreshTimerDbg.Start();
 			}
 			// Debug logging disabled - uncomment to debug team color parsing
-			log_debug("[Teams] %s | pColor=%d lColor=%d | auto=%d manual=%d mColor=%d | apply=%d",
-				p.name.c_str(),
-				p.teamColor, localTeamColorDbg,
-				friendsManager->teams.matchOwnNametag ? 1 : 0,
-				friendsManager->teams.manualColorEnabled ? 1 : 0,
-				static_cast<int>(friendsManager->teams.manualColor),
-				friendsManager->applyToCombat ? 1 : 0);
+			//log_debug("[Teams] %s | pColor=%d lColor=%d | auto=%d manual=%d mColor=%d | apply=%d",
+			//	p.name.c_str(),
+			//	p.teamColor, localTeamColorDbg,
+			//	friendsManager->teams.matchOwnNametag ? 1 : 0,
+			//	friendsManager->teams.manualColorEnabled ? 1 : 0,
+			//	static_cast<int>(friendsManager->teams.manualColor),
+			//	friendsManager->applyToCombat ? 1 : 0);
 			colorDebugCounter = 0;
 		}
 
@@ -712,27 +780,31 @@ bool AimAssist::findTarget(double& targetX, double& targetY, double& targetZ)
 		// 5. Visual Resolver (visualTeamResolver->isFriendly)
 		if (friendsManager) {
 			// Priority 1: Apollo Teams (most reliable - explicit team packets)
-			bool isApolloTeam = !p.uuid.empty() && friendsManager->isLunarTeammate(p.uuid);
-			if (isApolloTeam) {
-				static Timer apolloTeamDebugTimer;
-				if (apolloTeamDebugTimer.Elapsed<>() > 2000) {
-					log_debug("[AimAssist] Skipping %s (Apollo Team)", p.name.c_str());
-					apolloTeamDebugTimer.Start();
-				}
-				continue;
+		bool isApolloTeam = !p.uuid.empty() && friendsManager->isLunarTeammate(p.uuid);
+		if (isApolloTeam) {
+			// Log once per player when first detected as Apollo teammate
+			static std::unordered_set<std::string> loggedApolloTeammates;
+			if (loggedApolloTeammates.find(p.uuid) == loggedApolloTeammates.end()) {
+				std::string displayName = getDisplayName(p.uuid, p.name);
+				log_ok("[AimAssist] Ignoring %s (Apollo Team)", displayName.c_str());
+				loggedApolloTeammates.insert(p.uuid);
 			}
-			
-			// Priority 2: Apollo Nametags (GREEN or DARK_GREEN = teammate)
-			bool isApolloNametag = !p.uuid.empty() && friendsManager->isApolloTeammate(p.uuid);
-			if (isApolloNametag) {
-				static Timer apolloNametagDebugTimer;
-				if (apolloNametagDebugTimer.Elapsed<>() > 2000) {
-					std::string color = friendsManager->getApolloNametagColor(p.uuid);
-					log_debug("[AimAssist] Skipping %s (Apollo Nametag: %s)", p.name.c_str(), color.c_str());
-					apolloNametagDebugTimer.Start();
-				}
-				continue;
+			continue;
+		}
+		
+		// Priority 2: Apollo Nametags (GREEN or DARK_GREEN = teammate)
+		bool isApolloNametag = !p.uuid.empty() && friendsManager->isApolloTeammate(p.uuid);
+		if (isApolloNametag) {
+			// Log once per player when first detected via Apollo nametag
+			static std::unordered_set<std::string> loggedApolloNametags;
+			if (loggedApolloNametags.find(p.uuid) == loggedApolloNametags.end()) {
+				std::string color = friendsManager->getApolloNametagColor(p.uuid);
+				std::string displayName = getDisplayName(p.uuid, p.name);
+				log_ok("[AimAssist] Ignoring %s (Apollo Nametag: %s)", displayName.c_str(), color.c_str());
+				loggedApolloNametags.insert(p.uuid);
 			}
+			continue;
+		}
 			
 			// Priority 3: Manual Friends
 			bool isFriendByUUID = !p.uuid.empty() && friendsManager->isFriendByUUID(p.uuid);
@@ -837,9 +909,9 @@ bool AimAssist::findTarget(double& targetX, double& targetY, double& targetZ)
 		// Debug: Log target info (rate-limited)
 		static Timer debugLogTimer;
 		if (debugLogTimer.Elapsed<>() > 500) { // Log every 500ms
-			log_debug("[AimAssist] Target: %s | UUID: %s | HP: %.1f | Dist: %.1fm | Team: %d",
-				closestPlayer.name.c_str(),
-				closestPlayer.uuid.empty() ? "N/A" : closestPlayer.uuid.substr(0, 8).c_str(),
+			std::string targetDisplayName = getDisplayName(closestPlayer.uuid, closestPlayer.name);
+			log_debug("[AimAssist] Target: %s | HP: %.1f | Dist: %.1fm | Team: %d",
+				targetDisplayName.c_str(),
 				closestPlayer.health,
 				std::sqrt((closestPlayer.posX - localX) * (closestPlayer.posX - localX) + 
 						  (closestPlayer.posY - localY) * (closestPlayer.posY - localY) + 
@@ -1390,11 +1462,6 @@ void AimAssist::onRenderMenu()
 			ui::Checkbox("Weapon Only", &settings.weaponOnly);
 			ui::Checkbox("Aim Closest Point", &settings.aimAtClosestPoint);
 			ui::Checkbox("Target Invisibles", &settings.invisibles);
-			
-			// Visual team detection (pixel-based fallback)
-			if (visualTeamResolver) {
-				ui::Checkbox("Ignore teammates (visual)", &visualTeamResolver->enabled);
-			}
 			
 			ImGui::Spacing();
 			if (ImGui::Combo("Target Mode", &currentMode, targetModes, IM_ARRAYSIZE(targetModes)))

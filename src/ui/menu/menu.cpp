@@ -181,35 +181,11 @@ static void renderSettingsPage()
 				ImGui::Separator();
 				ImGui::Spacing();
 				
-				// Auto team color - detect your nametag color
-				bool autoWasEnabled = friendsManager->teams.matchOwnNametag;
-				ui::Checkbox("Auto Team Color", &friendsManager->teams.matchOwnNametag);
-				if (friendsManager->teams.matchOwnNametag && !autoWasEnabled) {
-					// Just enabled Auto -> disable Manual
-					friendsManager->teams.manualColorEnabled = false;
-				}
-				
-				// Manual color picker (mutually exclusive with Auto)
-				bool manualWasEnabled = friendsManager->teams.manualColorEnabled;
-				ui::Checkbox("Manual Color", &friendsManager->teams.manualColorEnabled);
-				if (friendsManager->teams.manualColorEnabled && !manualWasEnabled) {
-					// Just enabled Manual -> disable Auto
-					friendsManager->teams.matchOwnNametag = false;
-				}
-				if (friendsManager->teams.manualColorEnabled) {
-					static const char* colorNames[] = {
-						"Black", "Dark Blue", "Dark Green", "Dark Aqua",
-						"Dark Red", "Dark Purple", "Gold", "Gray",
-						"Dark Gray", "Blue", "Green", "Aqua",
-						"Red", "Light Purple", "Yellow", "White"
-					};
-					int colorIdx = static_cast<int>(friendsManager->teams.manualColor);
-					if (colorIdx < 0 || colorIdx > 15) colorIdx = 10; // Default Green
-					ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
-					if (ImGui::Combo("##teamcolor", &colorIdx, colorNames, 16)) {
-						friendsManager->teams.manualColor = static_cast<ChatColor>(colorIdx);
-					}
-				}
+				// Auto Detect - enables all team detection (Apollo, Scoreboard, etc.)
+				ui::Checkbox("Auto Detect", &friendsManager->teams.enabled);
+				ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetColorU32(ImGuiCol_TextDisabled));
+				ImGui::TextWrapped("Automatically detect teammates via Apollo/Scoreboard");
+				ImGui::PopStyleColor();
 				
 				ImGui::Spacing();
 				ImGui::Separator();

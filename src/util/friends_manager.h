@@ -118,6 +118,8 @@ public:
 	bool isApolloTeammate(const std::string& uuid) const;  // GREEN or DARK_GREEN
 	std::string getApolloNametagColor(const std::string& uuid) const;
 	void clearApolloNametags();
+	size_t getApolloNametagCount() const;  // Debug: total nametags cached
+	size_t getApolloTeammateCount() const; // Debug: count of GREEN/DARK_GREEN
 	
 	// ============================================================
 	// Visual Friends - Auto-detected teammates (cleared on world change)
