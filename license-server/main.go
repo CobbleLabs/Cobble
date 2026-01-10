@@ -69,6 +69,9 @@ func main() {
 	mux.HandleFunc("/api/verify", middleware.RateLimit(handlers.Verify))
 	mux.HandleFunc("/api/register", middleware.RateLimit(handlers.Register)) // Legacy
 
+	// DLL validation endpoint (called by DLL at startup)
+	mux.HandleFunc("/api/dll/validate", middleware.RateLimit(handlers.ValidateDLL))
+
 	// Public dashboard data
 	mux.HandleFunc("/api/announcements", handlers.GetAnnouncements)
 	mux.HandleFunc("/api/changelogs", handlers.GetChangelogs)

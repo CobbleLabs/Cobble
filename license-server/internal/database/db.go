@@ -2,6 +2,7 @@ package database
 
 import (
 	"crypto/rand"
+	"crypto/subtle"
 	"database/sql"
 	"encoding/hex"
 	"fmt"
@@ -307,6 +308,25 @@ func runMigrations() error {
 			return err
 		}
 		DB.Exec("INSERT INTO schema_migrations (version) VALUES (12)")
+	}
+
+	// Migration 13: Injection secrets for DLL validation
+	if currentVersion < 13 {
+		logger.Info("MIGRATE", "013: Injection secrets", nil)
+		_, err := DB.Exec(`
+			CREATE TABLE IF NOT EXISTS injection_secrets (
+				id SERIAL PRIMARY KEY,
+				hwid VARCHAR(64) NOT NULL UNIQUE,
+				secret VARCHAR(128) NOT NULL,
+				created_at TIMESTAMP DEFAULT NOW(),
+				expires_at TIMESTAMP NOT NULL
+			);
+			CREATE INDEX IF NOT EXISTS idx_injection_secrets_hwid ON injection_secrets(hwid);
+		`)
+		if err != nil {
+			return err
+		}
+		DB.Exec("INSERT INTO schema_migrations (version) VALUES (13)")
 	}
 
 	// Load MIN_VERSION from database
@@ -715,4 +735,59 @@ func UpdateLicense(licenseID int, plan string, expiresAt *time.Time) error {
 		WHERE id = $1
 	`, licenseID, plan, expiresAt)
 	return err
+}
+
+// ============================================
+// Injection secret helpers (for DLL validation)
+// ============================================
+
+// StoreInjectionSecret stores an injection secret for DLL validation
+// Secret expires in 5 minutes - DLL must validate within this window
+func StoreInjectionSecret(hwid, secret string) {
+	expiresAt := time.Now().Add(5 * time.Minute)
+
+	// Delete any existing secret for this HWID
+	DB.Exec("DELETE FROM injection_secrets WHERE hwid = $1", hwid)
+
+	// Insert new secret
+	DB.Exec(`
+		INSERT INTO injection_secrets (hwid, secret, expires_at)
+		VALUES ($1, $2, $3)
+	`, hwid, secret, expiresAt)
+}
+
+// ValidateInjectionSecret checks if a secret is valid for the given HWID
+// Returns true if valid and not expired, also deletes the secret after use (one-time)
+func ValidateInjectionSecret(hwid, secret string) bool {
+	if hwid == "" || secret == "" {
+		return false
+	}
+
+	var storedSecret string
+	var expiresAt time.Time
+	err := DB.QueryRow(`
+		SELECT secret, expires_at FROM injection_secrets
+		WHERE hwid = $1
+	`, hwid).Scan(&storedSecret, &expiresAt)
+
+	if err != nil {
+		return false
+	}
+
+	// Check expiration and purge expired rows
+	if time.Now().After(expiresAt) {
+		DB.Exec("DELETE FROM injection_secrets WHERE hwid = $1", hwid)
+		return false
+	}
+
+	// Constant-time comparison to prevent timing attacks
+	if subtle.ConstantTimeCompare([]byte(storedSecret), []byte(secret)) != 1 {
+		return false
+	}
+
+	// Delete after successful validation (one-time use)
+	DB.Exec("DELETE FROM injection_secrets WHERE hwid = $1", hwid)
+
+	logger.Info("INJECTION", "Secret validated", logger.Fields{"hwid": hwid[:8] + "..."})
+	return true
 }

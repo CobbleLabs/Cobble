@@ -35,6 +35,7 @@ static bool g_RequiresLogin = false;
 static std::string g_MinVersion;
 static std::string g_Username;
 static std::string g_SessionToken;
+static std::string g_InjectionSecret;
 static int g_DaysRemaining = -1;
 
 std::string UrlEncode(const std::string& value) {
@@ -111,6 +112,10 @@ int GetDaysRemaining() {
 
 std::string GetSessionToken() {
     return g_SessionToken;
+}
+
+std::string GetInjectionSecret() {
+    return g_InjectionSecret;
 }
 
 bool Verify(const std::string& serverUrl) {
@@ -338,6 +343,7 @@ bool Verify(const std::string& serverUrl) {
         g_Username = payload.get_string("username", "");
         g_DaysRemaining = payload.get_int("days_remaining", -1);
         g_SessionToken = payload.get_string("session_token", "");
+        g_InjectionSecret = payload.get_string("injection_secret", "");
         return true;
     }
     
@@ -558,6 +564,7 @@ bool LoginWithCredentials(const std::string& serverUrl,
         g_Username = payload.get_string("username", username);
         g_DaysRemaining = payload.get_int("days_remaining", -1);
         g_SessionToken = payload.get_string("session_token", "");
+        g_InjectionSecret = payload.get_string("injection_secret", "");
         return true;
     }
     

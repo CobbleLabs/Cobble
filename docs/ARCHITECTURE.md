@@ -50,8 +50,9 @@ Cobble is an injectable ghost client for Lunar Client (Minecraft), composed of t
 | `inject.cpp` | LoadLibrary injection into javaw.exe |
 | `process.cpp` | Minecraft/Lunar process detection |
 | `security.cpp` | Anti-debug, anti-VM, anti-attach |
-| `license.cpp` | HTTPS license verification with failover |
+| `license.cpp` | HTTPS license verification, injection secret retrieval |
 | `hwid.cpp` | SHA256(CPU + Disk + MAC) generation |
+| `main.cpp` | Creates `InjectionData` shared memory for DLL validation |
 
 ### Client DLL (`src/`)
 
@@ -61,6 +62,8 @@ Cobble is an injectable ghost client for Lunar Client (Minecraft), composed of t
 | `sdk/` | Minecraft wrappers (player, world, inventory) |
 | `module/` | Feature modules (combat, visual, utility) |
 | `ui/` | ImGui overlay, menu, widgets, HUD |
+| `util/session_validator.hpp` | Validates injection secret from loader shared memory |
+| `util/loader_verify.hpp` | Detects manual mapping / LoadLibrary injection |
 
 ### Packet Interceptor (JVMTI Bytecode Path)
 
@@ -94,46 +97,45 @@ Overlay reinit is guarded to avoid rapid context churn.
 | Component | Responsibility |
 |-----------|----------------|
 | `handlers/auth.go` | JWT auth (register, login, refresh, logout, me) |
-| `handlers/verify.go` | HWID verification with signed responses |
-| `handlers/loader.go` | Loader login (username+password → HWID bind) |
+| `handlers/verify.go` | HWID verification, generates `injection_secret` |
+| `handlers/loader.go` | Loader login, generates `injection_secret` |
+| `handlers/injection.go` | `/api/dll/validate` - DLL validates its secret |
 | `handlers/profile.go` | User profile, password change, HWID reset |
 | `handlers/dashboard.go` | Announcements, changelogs, downloads |
 | `handlers/admin.go` | User/license CRUD, announcements, logs |
 | `middleware/` | CORS, JWT auth, API key auth, rate limiting |
-| `database/` | PostgreSQL persistence |
+| `database/db.go` | PostgreSQL + `injection_secrets` table |
 
-#### Loader Authentication Flow (v2)
+#### Loader Authentication Flow (v3 - With Injection Secret)
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
-│                    FIRST RUN (No stored HWID)                            │
+│                    LICENSE VERIFICATION                                  │
 ├─────────────────────────────────────────────────────────────────────────┤
-│  1. Loader prompts: "Username:" + "Password:"                           │
-│  2. POST /api/loader/login { username, password, hwid }                 │
-│  3. Server:                                                             │
-│     ├── Verify credentials                                              │
-│     ├── Check if user has license                                       │
-│     ├── Check HWID slots (max 2 devices)                                │
-│     ├── Bind HWID to license                                            │
-│     └── Return signed response { valid, nonce, expires, plan }          │
-│  4. Loader stores HWID → %APPDATA%/Cobble/hwid.dat                     │
+│  1. POST /api/verify or /api/loader/login                               │
+│  2. Server generates 32-byte injection_secret (stored in DB, 5min TTL) │
+│  3. Server returns signed response:                                     │
+│     { valid, nonce, expires, username, session_token, injection_secret }│
+│  4. Loader verifies Ed25519 signature                                   │
+│  5. Loader stores injection_secret for handshake                        │
 └─────────────────────────────────────────────────────────────────────────┘
 
 ┌─────────────────────────────────────────────────────────────────────────┐
-│                    SUBSEQUENT RUNS (HWID exists)                         │
+│                    INJECTION WITH HANDSHAKE                              │
 ├─────────────────────────────────────────────────────────────────────────┤
-│  1. Loader reads stored HWID                                            │
-│  2. POST /api/verify { hwid, version, nonce }                           │
-│  3. Server signs response with Ed25519 private key                      │
-│  4. Loader verifies signature with hardcoded public key                 │
-│  5. Check nonce matches (anti-replay)                                   │
-│  6. Check expiry timestamp                                              │
-│  7. If valid → inject DLL                                               │
+│  1. Loader creates shared memory: "Local\CobbleInjection"              │
+│  2. Writes InjectionData struct:                                        │
+│     { signature, secret, username, hwid, timestamp, expiresIn }         │
+│  3. Loader injects DLL via SecureManualMap                              │
+│  4. DLL reads shared memory in SessionValidator::ValidateInjection()    │
+│  5. DLL verifies: signature == "COBBLE_INJ_V1", not expired            │
+│  6. If invalid → DLL crashes silently (no hints to crackers)           │
+│  7. If valid → DLL continues initialization                             │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
 
-> **C++ Developer Note**: Update loader to use `/api/loader/login` for first run.
-> Prompt username+password when no hwid.dat exists. Store HWID on success.
+> **Security Note**: Extracted DLLs no longer work because they require a
+> fresh `injection_secret` from the server, passed via loader shared memory.
 
 ### Config System (`src/config/`)
 
@@ -240,19 +242,31 @@ CobbleLoader.exe
     │
     ├─[3] License Verification
     │     ├── HWID::Generate()
-    │     ├── License::Verify(Primary) → 4s timeout
+    │     ├── License::Verify(Primary) → returns injection_secret
     │     └── Fallback to secondary server if needed
     │
     ├─[4] Process Detection
     │     └── findLunarClient() → javaw.exe with "Lunar"
     │
-    └─[5] LoadLibrary Injection
-          ├── Write DLL to temp file
-          ├── CreateRemoteThread(LoadLibraryW)
-          └── Delete temp file
+    ├─[5] Create Injection Handshake
+    │     ├── Create shared memory "Local\CobbleInjection"
+    │     └── Write InjectionData { signature, secret, hwid, timestamp }
+    │
+    └─[6] SecureManualMap Injection
+          ├── Decrypt payload (AES-256-CBC)
+          ├── Map DLL into target process
+          └── SecureZeroMemory(decryptedDll)
 
 Cobble.dll (DllMain)
     └── CreateThread → cobble::context::initialize()
+                           │
+                           ├── LoaderVerify::verifyOrDie()  // Anti-LoadLibrary
+                           │
+                           ├── SessionValidator::ValidateInjection()  // NEW
+                           │     ├── Read shared memory "Local\CobbleInjection"
+                           │     ├── Verify signature == "COBBLE_INJ_V1"
+                           │     ├── Check timestamp not expired (5 minutes)
+                           │     └── If invalid → silent crash (memset + ExitProcess)
                            │
                            ├── c_logger::initialize()
                            ├── Java::Init()
@@ -260,16 +274,10 @@ Cobble.dll (DllMain)
                            │
                            ├── Dynamic Module Allocation
                            │     ├── moduleManager = new ModuleManager()
-                           │     ├── autoClicker = new AutoClicker()
                            │     └── ... (all modules)
                            │
                            ├── moduleManager->registerModule(*)
-                           │
                            ├── ConfigManager::get().init()
-                           │     ├── Load local config.json
-                           │     ├── Apply to modules
-                           │     └── Async fetch server config
-                           │
                            ├── Overlay::Init()
                            │
                            └── Main loop (1ms tick)
@@ -278,7 +286,7 @@ Cobble.dll (DllMain)
                                  └── moduleManager->update()
 
 cobble::context::shutdown()
-    ├── ConfigManager::get().shutdown()  // Save config
+    ├── ConfigManager::get().shutdown()
     ├── Disable all modules
     ├── Overlay::Shutdown()
     ├── Java::Kill()
@@ -400,13 +408,32 @@ Overlay::Render()
 | Anti-Debug | PEB.BeingDebugged, NtQueryInformationProcess, hardware breakpoints |
 | Anti-Attach | DbgBreakPoint patch, DbgUiRemoteBreakin patch |
 | Anti-VM | Registry keys, VM files, ACPI tables, process names |
-| Injection | LoadLibrary (no persistent RWX memory) |
-| Integrity | SHA256 hash verification before inject |
+| Injection | SecureManualMap (no LoadLibrary, no persistent RWX) |
+| Payload Encryption | AES-256-CBC with obfuscated key derivation |
+| Handshake | Writes injection_secret to shared memory for DLL |
+
+### DLL Security
+
+| Layer | Implementation |
+|-------|----------------|
+| Loader Verify | Checks if in PEB module list (fails if LoadLibrary used) |
+| Session Validator | Reads shared memory, validates injection_secret |
+| Expiry Check | Secret must be < 5 minutes old |
+| Silent Fail | Corrupts own memory + ExitProcess on failure |
+| Integrity Check | FNV-1a hash of .text section (periodic) |
 
 ### HWID Generation
 
 ```
 HWID = SHA256(CPU_ID + DISK_SERIAL + MAC_ADDRESS)
+```
+
+### Injection Secret Flow
+
+```
+Server generates secret → Loader receives → Shared memory → DLL validates
+     │                                                           │
+     └── Stored in DB (5 min TTL) ─────── Can validate via /api/dll/validate
 ```
 
 ### License Server Protection
@@ -415,6 +442,7 @@ HWID = SHA256(CPU_ID + DISK_SERIAL + MAC_ADDRESS)
 - HWID abuse detection (3+ unique HWIDs = ban)
 - X-Forwarded-For trust with validation
 - Admin endpoints require API key
+- Injection secrets expire after 5 minutes
 
 ---
 

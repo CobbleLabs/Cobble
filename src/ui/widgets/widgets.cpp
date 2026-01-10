@@ -973,7 +973,10 @@ void ui::subtab(int num, int tab_num) {
     auto window = ImGui::GetCurrentWindow();
     auto id = window->GetID(name);
     
-    ImRect bb{ window->DC.CursorPos, window->DC.CursorPos + name_size };
+    // Larger subtab row with proper padding
+    float rowHeight = s(20);
+    float availWidth = window->Size.x - GetCursorPosX();
+    ImRect bb{ window->DC.CursorPos, window->DC.CursorPos + ImVec2(availWidth, rowHeight) };
     ItemAdd(bb, id);
     ItemSize(bb);
     
@@ -992,13 +995,26 @@ void ui::subtab(int num, int tab_num) {
     obj.anim = animate(obj.anim, 0.f, 1.f, selected);
     obj.hover = animate(obj.hover, 0.f, 1.f, hovered);
     
+    // Hover background
+    if (obj.hover > 0.01f && !selected) {
+        window->DrawList->AddRectFilled(
+            bb.Min,
+            bb.Max,
+            GetColor(ImGuiCol_FrameBgHovered, obj.hover * 0.3f),
+            s(4)
+        );
+    }
+    
+    // Center text vertically
+    float textY = bb.GetCenter().y - name_size.y / 2;
+    
     if (isLocked) {
         // Grayed out look for locked modules
         ImU32 grayColor = IM_COL32(100, 100, 100, 150);
-        window->DrawList->AddText(bb.Min, grayColor, name, FindRenderedTextEnd(name));
+        window->DrawList->AddText(ImVec2(bb.Min.x, textY), grayColor, name, FindRenderedTextEnd(name));
     } else {
         obj.col = col_anim(col_anim(GetColor(ImGuiCol_TextDisabled), GetColor(ImGuiCol_Text), obj.hover), GetSchemeColor(), obj.anim);
-        window->DrawList->AddText(bb.Min, obj.col, name, FindRenderedTextEnd(name));
+        window->DrawList->AddText(ImVec2(bb.Min.x, textY), obj.col, name, FindRenderedTextEnd(name));
     }
 }
 

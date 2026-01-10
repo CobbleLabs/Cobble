@@ -16,15 +16,16 @@ import (
 
 // SignedVerifyPayload is the payload that gets signed
 type SignedVerifyPayload struct {
-	HWID          string `json:"hwid"`
-	Nonce         string `json:"nonce"`
-	IssuedAt      int64  `json:"issued_at"`
-	ExpiresAt     int64  `json:"expires_at"`
-	Valid         bool   `json:"valid"`
-	Username      string `json:"username,omitempty"`
-	DaysRemaining int    `json:"days_remaining,omitempty"`
-	SessionToken  string `json:"session_token,omitempty"`
-	Message       string `json:"message,omitempty"`
+	HWID            string `json:"hwid"`
+	Nonce           string `json:"nonce"`
+	IssuedAt        int64  `json:"issued_at"`
+	ExpiresAt       int64  `json:"expires_at"`
+	Valid           bool   `json:"valid"`
+	Username        string `json:"username,omitempty"`
+	DaysRemaining   int    `json:"days_remaining,omitempty"`
+	SessionToken    string `json:"session_token,omitempty"`
+	InjectionSecret string `json:"injection_secret,omitempty"` // 32 bytes hex, DLL needs this to operate
+	Message         string `json:"message,omitempty"`
 }
 
 // SignedVerifyResponse is the API response with signed payload
@@ -156,16 +157,22 @@ func sendSignedSuccess(w http.ResponseWriter, hwid, nonce, username string, days
 	// Generate session token for cloud sync
 	sessionToken := database.CreateSessionToken(hwid, username)
 
+	// Generate injection secret - DLL needs this to operate
+	// 32 bytes = 64 hex chars, stored temporarily for DLL validation
+	injectionSecret := helpers.GenerateSecureRandom(32)
+	database.StoreInjectionSecret(hwid, injectionSecret)
+
 	payload := SignedVerifyPayload{
-		HWID:          hwid,
-		Nonce:         nonce,
-		IssuedAt:      now,
-		ExpiresAt:     now + 60, // 60 second validity
-		Valid:         true,
-		Username:      username,
-		DaysRemaining: daysRemaining,
-		SessionToken:  sessionToken,
-		Message:       "Welcome, " + username,
+		HWID:            hwid,
+		Nonce:           nonce,
+		IssuedAt:        now,
+		ExpiresAt:       now + 60, // 60 second validity
+		Valid:           true,
+		Username:        username,
+		DaysRemaining:   daysRemaining,
+		SessionToken:    sessionToken,
+		InjectionSecret: injectionSecret,
+		Message:         "Welcome, " + username,
 	}
 	sendSignedResponse(w, payload)
 }

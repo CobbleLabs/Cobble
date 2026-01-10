@@ -151,16 +151,21 @@ func sendLoaderSuccess(w http.ResponseWriter, hwid, nonce, username string, days
 	now := time.Now().Unix()
 	sessionToken := database.CreateSessionToken(hwid, username)
 
+	// Generate injection secret - DLL needs this to operate
+	injectionSecret := helpers.GenerateSecureRandom(32)
+	database.StoreInjectionSecret(hwid, injectionSecret)
+
 	payload := SignedVerifyPayload{
-		HWID:          hwid,
-		Nonce:         nonce,
-		IssuedAt:      now,
-		ExpiresAt:     now + 60,
-		Valid:         true,
-		Username:      username,
-		DaysRemaining: daysRemaining,
-		SessionToken:  sessionToken,
-		Message:       "Welcome, " + username,
+		HWID:            hwid,
+		Nonce:           nonce,
+		IssuedAt:        now,
+		ExpiresAt:       now + 60,
+		Valid:           true,
+		Username:        username,
+		DaysRemaining:   daysRemaining,
+		SessionToken:    sessionToken,
+		InjectionSecret: injectionSecret,
+		Message:         "Welcome, " + username,
 	}
 	sendSignedResponse(w, payload)
 }

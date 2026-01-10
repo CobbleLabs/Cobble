@@ -23,4 +23,5 @@ namespace License {
     std::string GetUsername();
     int GetDaysRemaining();
     std::string GetSessionToken();
+    std::string GetInjectionSecret();  // Secret for DLL validation
 }

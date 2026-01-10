@@ -9,6 +9,14 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/).
 ## [Unreleased]
 
 ### Security
+- **Phase 1 Security Hardening: Server-Gated DLL Execution**
+  - **Injection Secret**: Server now generates unique 32-byte `injection_secret` per login/verify
+  - **Shared Memory Handshake**: Loader writes `InjectionData` struct to `Local\CobbleInjection` shared memory
+  - **DLL Validation Gate**: DLL refuses to run without valid injection secret from loader
+  - **5-Minute Expiry**: Secrets expire after 5 minutes, preventing replay attacks
+  - **New Endpoint**: `/api/dll/validate` for DLL to validate its secret with server
+  - **Database Migration 13**: `injection_secrets` table for temporary secret storage
+  - **Impact**: Extracted/dumped DLLs no longer work - they require a fresh server-issued secret
 - **Anti-Crack: Encrypted DLL Payload**: DLL embebido ahora encriptado con AES-256-CBC
   - El DLL ya no puede extraerse de los recursos del loader
   - Herramienta de build `encrypt_payload.ps1` para encriptar antes de compilar

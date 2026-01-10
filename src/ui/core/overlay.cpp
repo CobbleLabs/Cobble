@@ -14,6 +14,8 @@
 
 // Embedded font data
 #include "bytes.hpp"
+#include "fonts/inter_bold.hpp"
+#include "fonts/inter_regular.hpp"
 
 #include <gl/GL.h>
 #include <mutex>
@@ -84,9 +86,12 @@ namespace {
 		io.WantCaptureMouse = false;
 		io.WantCaptureKeyboard = false;
 		
+
+
 		ImFontConfig fontConfig;
 		fontConfig.OversampleH = 3;
 		fontConfig.OversampleV = 3;
+		fontConfig.FontDataOwnedByAtlas = false; // Important: we own the data in static memory
 		
 		static const ImWchar icon_ranges[] = { ICON_MIN_FA, ICON_MAX_FA, 0 };
 		ImFontConfig icons_config;
@@ -95,26 +100,23 @@ namespace {
 		icons_config.FontDataOwnedByAtlas = false;
 		icons_config.GlyphMinAdvanceX = 16.0f;
 		
-		const char* boldFontPath = "C:\\Windows\\Fonts\\segoeuib.ttf";
+		// 0: Bold 18px + FontAwesome (Main Interface)
+		io.Fonts->AddFontFromMemoryTTF((void*)inter_bold_ttf_data, inter_bold_ttf_size, 18.0f, &fontConfig);
 		
-		// 0: Bold 18px + FontAwesome
-		if (io.Fonts->AddFontFromFileTTF(boldFontPath, 18.0f, &fontConfig) == nullptr) {
-			io.Fonts->AddFontDefault();
-		}
 		icons_config.GlyphMinAdvanceX = 18.0f;
 		io.Fonts->AddFontFromMemoryTTF((void*)font_awesome_bin, sizeof(font_awesome_bin), 18.0f, &icons_config, icon_ranges);
 		
-		// 1: Bold 18px
-		io.Fonts->AddFontFromFileTTF(boldFontPath, 18.0f, &fontConfig);
+		// 1: Regular 18px (Secondary Text)
+		io.Fonts->AddFontFromMemoryTTF((void*)inter_bold_ttf_data, inter_bold_ttf_size, 18.0f, &fontConfig);
 		
-		// 2: Bold 22px
-		io.Fonts->AddFontFromFileTTF(boldFontPath, 22.0f, &fontConfig);
+		// 2: Bold 22px (Headers)
+		io.Fonts->AddFontFromMemoryTTF((void*)inter_bold_ttf_data, inter_bold_ttf_size, 22.0f, &fontConfig);
 		
-		// 3: Bold 22px
-		io.Fonts->AddFontFromFileTTF(boldFontPath, 22.0f, &fontConfig);
+		// 3: Regular 22px
+		io.Fonts->AddFontFromMemoryTTF((void*)inter_bold_ttf_data, inter_bold_ttf_size, 22.0f, &fontConfig);
 		
-		// 4: Notifications
-		Overlay::notificationFont = io.Fonts->AddFontFromFileTTF(boldFontPath, 18.0f, &fontConfig);
+		// 4: Notifications (Bold 18px)
+		Overlay::notificationFont = io.Fonts->AddFontFromMemoryTTF((void*)inter_bold_ttf_data, inter_bold_ttf_size, 18.0f, &fontConfig);
 		
 		defaultFont = io.Fonts->Fonts[0];
 		

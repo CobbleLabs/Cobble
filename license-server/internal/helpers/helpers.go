@@ -1,12 +1,23 @@
 package helpers
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"net"
 	"net/http"
 	"strconv"
 	"strings"
 )
+
+// GenerateSecureRandom generates n cryptographically secure random bytes as hex string
+func GenerateSecureRandom(n int) string {
+	bytes := make([]byte, n)
+	if _, err := rand.Read(bytes); err != nil {
+		return ""
+	}
+	return hex.EncodeToString(bytes)
+}
 
 // JSONResponse writes a JSON response
 func JSONResponse(w http.ResponseWriter, status int, data interface{}) {

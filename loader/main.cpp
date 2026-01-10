@@ -3,6 +3,7 @@
 #include <filesystem>
 #include <thread>
 #include <chrono>
+#include <ctime>
 
 #include "process.h"
 #include "inject.h"
@@ -33,6 +34,17 @@ inline std::string getLicenseServerPrimary() { return OBFS("https://api.cobble.v
 
 #define SERVER_PORT_HTTPS 443
 #define LICENSE_CHECK_ENABLED true
+
+// Shared memory structure for DLL validation
+// This is passed from loader to DLL via named shared memory
+struct InjectionData {
+    char signature[16];      // "COBBLE_INJ_V1" - magic signature
+    char secret[65];         // 64 hex chars + null (injection_secret from server)
+    char username[64];       // Username from license
+    char hwid[65];           // HWID for server validation
+    uint32_t timestamp;      // Unix timestamp when created
+    uint32_t expiresIn;      // Seconds until expiry (5 minutes)
+};
 
 std::atomic<bool> g_SecurityViolation(false);
 
@@ -245,10 +257,61 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     LoaderUI::SetMessage("Injecting...");
     renderFrame();
     
+    // Create shared memory with injection data BEFORE injection
+    // The DLL will read this to validate it was loaded by the legitimate loader
+    HANDLE hMapFile = nullptr;
+    {
+        InjectionData injData = {};
+        memcpy(injData.signature, "COBBLE_INJ_V1\0\0\0", 16);
+        
+        std::string secret = License::GetInjectionSecret();
+        std::string username = License::GetUsername();
+        std::string hwid = HWID::Generate();
+        
+        strncpy_s(injData.secret, secret.c_str(), 64);
+        strncpy_s(injData.username, username.c_str(), 63);
+        strncpy_s(injData.hwid, hwid.c_str(), 64);
+        injData.timestamp = (uint32_t)time(nullptr);
+        injData.expiresIn = 300; // 5 minutes to init
+        
+        // Create security attributes that allow cross-process access
+        // Without this, Minecraft can't read the shared memory
+        SECURITY_ATTRIBUTES sa = {};
+        sa.nLength = sizeof(SECURITY_ATTRIBUTES);
+        sa.bInheritHandle = FALSE;
+        
+        SECURITY_DESCRIPTOR sd = {};
+        InitializeSecurityDescriptor(&sd, SECURITY_DESCRIPTOR_REVISION);
+        SetSecurityDescriptorDacl(&sd, TRUE, NULL, FALSE); // NULL DACL = all access
+        sa.lpSecurityDescriptor = &sd;
+        
+        // Create named shared memory (visible to target process)
+        hMapFile = CreateFileMappingW(
+            INVALID_HANDLE_VALUE,
+            &sa,  // Use our permissive security attributes
+            PAGE_READWRITE,
+            0,
+            sizeof(InjectionData),
+            L"Local\\CobbleInjection"
+        );
+        
+        if (hMapFile) {
+            void* pBuf = MapViewOfFile(hMapFile, FILE_MAP_WRITE, 0, 0, sizeof(InjectionData));
+            if (pBuf) {
+                memcpy(pBuf, &injData, sizeof(InjectionData));
+                UnmapViewOfFile(pBuf);
+            }
+        }
+        
+        // Zero secret from local memory
+        SecureZeroMemory(&injData, sizeof(injData));
+    }
+    
     // Use Secure Manual Mapping with shared memory sections
     // No WriteProcessMemory, no disk write, uses NT syscalls
     // NO FALLBACK - insecure methods are worse than failing
     if (!SecureMapper::SecureManualMap(lunar.pid, dllData, dllSize)) {
+        if (hMapFile) CloseHandle(hMapFile);
         LoaderUI::SetError("Launch failed");
         while (renderFrame());
         LoaderUI::Shutdown();
@@ -262,6 +325,9 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 
     // Let the UI complete the full inject + success animation; the UI will close itself.
     while (renderFrame());
+
+    // Clean up shared memory handle (data persists until DLL reads it)
+    if (hMapFile) CloseHandle(hMapFile);
 
     LoaderUI::Shutdown();
     return 0;

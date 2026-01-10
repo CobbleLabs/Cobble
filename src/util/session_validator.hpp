@@ -1,0 +1,271 @@
+#pragma once
+
+#include <Windows.h>
+#include <wincrypt.h>
+#include <string>
+#include <ctime>
+#include <atomic>
+#include <vector>
+
+#pragma comment(lib, "crypt32.lib")
+
+#include "http.hpp"
+#include "json.hpp"
+// Reuse loader tweetnacl implementation for Ed25519 verification
+#include "../loader/src/update/tweetnacl.h"
+
+// ============================================================================
+// SESSION VALIDATOR
+// Validates that the DLL was loaded by the legitimate Cobble loader with a
+// valid server-issued injection secret. This is the PRIMARY security gate.
+// ============================================================================
+
+namespace SessionValidator {
+
+// This struct MUST match the InjectionData struct in loader/main.cpp
+struct InjectionData {
+    char signature[16];      // "COBBLE_INJ_V1" - magic signature
+    char secret[65];         // 64 hex chars + null (injection_secret from server)
+    char username[64];       // Username from license
+    char hwid[65];           // HWID for server validation
+    uint32_t timestamp;      // Unix timestamp when created
+    uint32_t expiresIn;      // Seconds until expiry (5 minutes)
+};
+
+// Cached session data (set after successful validation)
+inline std::string g_Username;
+inline std::string g_InjectionSecret;
+inline std::string g_HWID;
+inline std::atomic<bool> g_SessionValid{false};
+
+// Read injection data from shared memory
+// Returns true if data was successfully read and signature is valid
+inline bool ReadInjectionData(InjectionData* outData) {
+	if (!outData) return false;
+
+	// Open the shared memory created by the loader
+	HANDLE hMapFile = OpenFileMappingW(
+		FILE_MAP_ALL_ACCESS,
+		FALSE,
+		L"Local\\CobbleInjection"
+	);
+
+	if (!hMapFile) {
+        // No shared memory = not loaded by legitimate loader
+        return false;
+    }
+    
+	void* pBuf = MapViewOfFile(hMapFile, FILE_MAP_ALL_ACCESS, 0, 0, sizeof(InjectionData));
+	if (!pBuf) {
+		CloseHandle(hMapFile);
+		return false;
+	}
+
+	// Copy data
+	memcpy(outData, pBuf, sizeof(InjectionData));
+
+	// Zero sensitive data in shared memory to reduce exposure window
+	SecureZeroMemory(pBuf, sizeof(InjectionData));
+
+	// Cleanup
+	UnmapViewOfFile(pBuf);
+	CloseHandle(hMapFile);
+
+	return true;
+}
+
+// Validate the injection secret at DLL startup
+// This MUST be called before any other initialization
+// Returns true if validation passed, false if DLL should refuse to run
+inline bool ValidateInjection() {
+	InjectionData data = {};
+
+	// Read from shared memory
+	if (!ReadInjectionData(&data)) {
+        // No shared memory = manual injection attempt
+        return false;
+    }
+    
+    // Verify magic signature
+    if (memcmp(data.signature, "COBBLE_INJ_V1", 13) != 0) {
+        // Invalid signature = tampered or fake shared memory
+        return false;
+    }
+    
+    // Check timestamp (must be within expiry window)
+    uint32_t now = (uint32_t)time(nullptr);
+    if (now > data.timestamp + data.expiresIn) {
+        // Expired = replay attack attempt
+        return false;
+    }
+    
+    // Verify we have a secret
+    if (data.secret[0] == '\0') {
+        // No secret = incomplete handshake
+        return false;
+    }
+    
+	// Cache the validated data
+	g_Username = data.username;
+	g_InjectionSecret = data.secret;
+	g_HWID = data.hwid;
+	g_SessionValid = true;
+    
+    // Clear sensitive data from stack
+    SecureZeroMemory(&data, sizeof(data));
+    
+    return true;
+}
+
+// Get validated username (empty if not validated)
+inline std::string GetUsername() {
+    return g_SessionValid ? g_Username : "";
+}
+
+// Get injection secret for server validation
+inline std::string GetInjectionSecret() {
+    return g_SessionValid ? g_InjectionSecret : "";
+}
+
+// Get HWID for server calls
+inline std::string GetHWID() {
+    return g_SessionValid ? g_HWID : "";
+}
+
+// Check if session is currently valid
+inline bool IsSessionValid() {
+    return g_SessionValid;
+}
+
+// Invalidate the session (e.g., server returned invalid)
+inline void InvalidateSession() {
+	g_SessionValid = false;
+	g_Username.clear();
+	g_InjectionSecret.clear();
+	g_HWID.clear();
+}
+
+// Generate hex nonce using Windows CSPRNG
+inline std::string GenerateNonce() {
+	HCRYPTPROV hProv = 0;
+	if (!CryptAcquireContextW(&hProv, nullptr, nullptr, PROV_RSA_FULL, CRYPT_VERIFYCONTEXT)) {
+		return "";
+	}
+
+	uint8_t bytes[16] = { 0 };
+	if (!CryptGenRandom(hProv, sizeof(bytes), bytes)) {
+		CryptReleaseContext(hProv, 0);
+		return "";
+	}
+	CryptReleaseContext(hProv, 0);
+
+	char buf[33] = { 0 };
+	for (int i = 0; i < 16; i++) {
+		sprintf_s(buf + (i * 2), 3, "%02x", bytes[i]);
+	}
+	return std::string(buf, 32);
+}
+
+// Base64 decode helper (uses WinCrypt)
+inline std::vector<uint8_t> Base64Decode(const std::string& input) {
+	DWORD outLen = 0;
+	if (!CryptStringToBinaryA(input.c_str(), (DWORD)input.length(), CRYPT_STRING_BASE64, nullptr, &outLen, nullptr, nullptr)) {
+		return {};
+	}
+
+	std::vector<uint8_t> output(outLen);
+	if (!CryptStringToBinaryA(input.c_str(), (DWORD)input.length(), CRYPT_STRING_BASE64, output.data(), &outLen, nullptr, nullptr)) {
+		return {};
+	}
+	output.resize(outLen);
+	return output;
+}
+
+// Server public key (same as loader/license verification)
+constexpr uint8_t LICENSE_PUBLIC_KEY[32] = {
+	0xd2, 0xb8, 0x41, 0x41, 0x05, 0x22, 0xdb, 0x99,
+	0xe7, 0x86, 0xf4, 0x60, 0x1a, 0xb2, 0x04, 0x61,
+	0x0f, 0xdb, 0x14, 0x75, 0x0e, 0x93, 0xbb, 0xb5,
+	0xa1, 0x85, 0xc9, 0xd7, 0x23, 0x33, 0x7d, 0x79
+};
+
+// Validate injection secret with backend; requires prior local validation
+inline bool ValidateWithServer() {
+	if (!g_SessionValid) return false;
+
+	std::string nonce = GenerateNonce();
+	if (nonce.empty()) {
+		return false;
+	}
+
+	std::string body = "hwid=" + http::urlencode(g_HWID) +
+		"&secret=" + http::urlencode(g_InjectionSecret) +
+		"&nonce=" + http::urlencode(nonce);
+
+	// HTTPS only
+	auto response = http::post(L"api.cobble.vip", 443, L"/api/dll/validate", body, true);
+	if (!response.success) {
+		InvalidateSession();
+		return false;
+	}
+
+	json::Value root;
+	if (!json::Parser::parse(response.body, root)) {
+		InvalidateSession();
+		return false;
+	}
+
+	std::string payloadB64 = root["payload_b64"].as_string("");
+	std::string sigB64 = root["sig_b64"].as_string("");
+
+	if (payloadB64.empty() || sigB64.empty()) {
+		InvalidateSession();
+		return false;
+	}
+
+	auto payloadBytes = Base64Decode(payloadB64);
+	auto sigBytes = Base64Decode(sigB64);
+
+	if (payloadBytes.empty() || sigBytes.size() != 64) {
+		InvalidateSession();
+		return false;
+	}
+
+	// Verify signature
+	if (!tweetnacl::verify(sigBytes.data(), payloadBytes.data(), payloadBytes.size(), LICENSE_PUBLIC_KEY)) {
+		InvalidateSession();
+		return false;
+	}
+
+	json::Value payloadJson;
+	if (!json::Parser::parse(std::string(payloadBytes.begin(), payloadBytes.end()), payloadJson)) {
+		InvalidateSession();
+		return false;
+	}
+
+	// Validate nonce and expiry
+	if (payloadJson["nonce"].as_string("") != nonce) {
+		InvalidateSession();
+		return false;
+	}
+
+	uint32_t issuedAt = static_cast<uint32_t>(payloadJson["issued_at"].as_int(0));
+	uint32_t expiresAt = static_cast<uint32_t>(payloadJson["expires_at"].as_int(0));
+	uint32_t now = static_cast<uint32_t>(time(nullptr));
+	if (now < issuedAt || now > expiresAt) {
+		InvalidateSession();
+		return false;
+	}
+
+	if (!payloadJson["valid"].as_bool(false)) {
+		InvalidateSession();
+		return false;
+	}
+
+	return true;
+}
+
+// TODO: Add HeartbeatCheck() that validates with server periodically
+// This will be implemented in Phase 4
+
+} // namespace SessionValidator

@@ -417,13 +417,37 @@ void Menu::Render() {
 				ImGui::Dummy({ 0, ui::s(6) });
 				
 				ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, { 1, 1 });
+				
+				// Main tabs (Combat, Visuals, Movement) - all except Settings
 				ImGui::BeginGroup();
 				{
-					for (size_t i = 0; i < ui::tabs.size(); ++i) {
+					for (size_t i = 0; i < ui::tabs.size() - 1; ++i) {
 						ui::tab((int)i);
 					}
 				}
 				ImGui::EndGroup();
+				
+				// Settings tab pinned to bottom
+				float settingsHeight = ui::s(38);
+				float availableSpace = ImGui::GetWindowHeight() - ImGui::GetCursorPosY() - settingsHeight - ui::s(10);
+				
+				// Push to bottom
+				if (availableSpace > 0) {
+					ImGui::Dummy({ 0, availableSpace });
+				}
+				
+				// Subtle separator above Settings
+				ImGui::GetWindowDrawList()->AddLine(
+					{ ImGui::GetWindowPos().x + ui::s(15), ImGui::GetWindowPos().y + ImGui::GetCursorPosY() },
+					{ ImGui::GetWindowPos().x + ImGui::GetWindowWidth() - ui::s(15), ImGui::GetWindowPos().y + ImGui::GetCursorPosY() },
+					ui::GetColor(ImGuiCol_Border, 0.5f)
+				);
+				
+				ImGui::Dummy({ 0, ui::s(4) });
+				
+				// Render Settings tab
+				ui::tab((int)(ui::tabs.size() - 1));
+				
 				ImGui::PopStyleVar();
 			}
 			ImGui::EndChild();
