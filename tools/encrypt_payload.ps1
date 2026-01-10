@@ -1,13 +1,9 @@
 # ============================================================================
 # ENCRYPT DLL PAYLOAD
 # Encrypts Cobble.dll with AES-256-CBC before embedding in loader
-# Run this before building the loader
+# Server key REQUIRED - no legacy fallback
 #
-# SECURITY MODES:
-#   Default (no -PayloadKey): Uses compiled-in key derivation (legacy/insecure)
-#   With -PayloadKey: Uses server key directly (secure - Phase 2)
-#
-# For secure builds, pass the same key configured in server's PAYLOAD_KEY env var:
+# Usage:
 #   .\encrypt_payload.ps1 -InputDll Cobble.dll -PayloadKey $env:PAYLOAD_KEY
 # ============================================================================
 
@@ -15,31 +11,14 @@ param(
     [Parameter(Mandatory=$true)]
     [string]$InputDll,
     
+    [Parameter(Mandatory=$true)]
+    [string]$PayloadKey,  # 64 hex chars - REQUIRED
+    
     [Parameter(Mandatory=$false)]
     [string]$OutputFile = "",
     
-    [Parameter(Mandatory=$false)]
-    [string]$PayloadKey = "",  # 64 hex chars if using server key
-    
     [switch]$Quiet
 )
-
-# Legacy key derivation (matches payload_crypto.hpp DeriveKey())
-# INSECURE: This can be extracted from the binary
-$PAYLOAD_KEY_SEED = @(
-    0x4C, 0x6F, 0x61, 0x64, 0x65, 0x72, 0x4B, 0x65,
-    0x79, 0x32, 0x30, 0x32, 0x36, 0x43, 0x6F, 0x62,
-    0x62, 0x6C, 0x65, 0x53, 0x65, 0x63, 0x75, 0x72,
-    0x65, 0x50, 0x61, 0x79, 0x6C, 0x6F, 0x61, 0x64
-)
-
-function Derive-LegacyKey {
-    $key = New-Object byte[] 32
-    for ($i = 0; $i -lt 32; $i++) {
-        $key[$i] = $PAYLOAD_KEY_SEED[$i] -bxor (($i * 0x37) -band 0xFF) -bxor 0xAB
-    }
-    return $key
-}
 
 function Parse-HexKey {
     param([string]$HexKey)
@@ -97,6 +76,14 @@ if (-not (Test-Path $InputDll)) {
     exit 1
 }
 
+# Parse and validate key - REQUIRED
+$key = Parse-HexKey -HexKey $PayloadKey
+if ($null -eq $key) {
+    Write-Host "Error: PayloadKey must be exactly 64 hex characters (32 bytes)" -ForegroundColor Red
+    Write-Host "Generate with: openssl rand -hex 32" -ForegroundColor Yellow
+    exit 1
+}
+
 # Read DLL
 $dllData = [System.IO.File]::ReadAllBytes($InputDll)
 $originalSize = $dllData.Length
@@ -104,37 +91,13 @@ $originalSize = $dllData.Length
 if (-not $Quiet) {
     Write-Host "Input DLL: $InputDll" -ForegroundColor Cyan
     Write-Host "Original size: $originalSize bytes" -ForegroundColor Cyan
+    Write-Host "Key source: SERVER KEY (secure)" -ForegroundColor Green
 }
 
 # Validate PE
 if ($dllData[0] -ne 0x4D -or $dllData[1] -ne 0x5A) {
     Write-Host "Error: Invalid PE file (no MZ header)" -ForegroundColor Red
     exit 1
-}
-
-# Derive key - prefer external key if provided
-$key = $null
-$keySource = ""
-
-if (-not [string]::IsNullOrEmpty($PayloadKey)) {
-    # Use server-provided key (secure)
-    $key = Parse-HexKey -HexKey $PayloadKey
-    if ($null -eq $key) {
-        Write-Host "Error: PayloadKey must be 64 hex characters (32 bytes)" -ForegroundColor Red
-        exit 1
-    }
-    $keySource = "SERVER KEY (secure)"
-} else {
-    # Fallback to legacy derived key (insecure - can be extracted from binary)
-    $key = Derive-LegacyKey
-    $keySource = "LEGACY DERIVED KEY (insecure!)"
-    if (-not $Quiet) {
-        Write-Host "WARNING: Using legacy key derivation. Pass -PayloadKey for secure builds." -ForegroundColor Yellow
-    }
-}
-
-if (-not $Quiet) {
-    Write-Host "Key source: $keySource" -ForegroundColor $(if ($keySource -like "*insecure*") { "Yellow" } else { "Green" })
 }
 
 # Encrypt

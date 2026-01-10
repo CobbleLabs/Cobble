@@ -200,30 +200,32 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         return 1;
     }
     
-    // Try to fetch payload key from server
+    // Try to fetch payload key from server - REQUIRED
     LoaderUI::SetMessage("Initializing...");
     renderFrame();
     
     std::string payloadKey;
-    if (License::FetchPayloadKey(getLicenseServerPrimary().c_str())) {
-        payloadKey = License::GetPayloadKey();
+    if (!License::FetchPayloadKey(getLicenseServerPrimary().c_str())) {
+        LoaderUI::SetError("Server connection failed");
+        while (renderFrame());
+        LoaderUI::Shutdown();
+        return 1;
+    }
+    payloadKey = License::GetPayloadKey();
+    
+    if (payloadKey.empty() || payloadKey.length() != 64) {
+        LoaderUI::SetError("Key fetch failed");
+        while (renderFrame());
+        LoaderUI::Shutdown();
+        return 1;
     }
     
-    // Decrypt payload
-    if (!payloadKey.empty()) {
-        // Use server-provided key (secure path)
-        decryptedDll = PayloadCrypto::DecryptPayloadWithKey(encryptedData, encryptedSize, payloadKey);
-    } else {
-        // Fallback to compiled key (legacy/offline compatibility)
-        decryptedDll = PayloadCrypto::DecryptPayload(encryptedData, encryptedSize);
-    }
+    // Decrypt payload with server key - no fallback
+    decryptedDll = PayloadCrypto::DecryptPayloadWithKey(encryptedData, encryptedSize, payloadKey);
     
-    // Zero key from memory
+    // Zero key from memory immediately
     SecureZeroMemory(&payloadKey[0], payloadKey.size());
     
-#else
-    // No license check, use compiled key
-    decryptedDll = PayloadCrypto::DecryptPayload(encryptedData, encryptedSize);
 #endif
     
     if (decryptedDll.empty() || !PayloadCrypto::ValidatePE(decryptedDll)) {

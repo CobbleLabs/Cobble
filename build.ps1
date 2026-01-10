@@ -113,27 +113,18 @@ if (-not (Test-Path $resDir)) {
     New-Item -ItemType Directory -Path $resDir -Force | Out-Null
 }
 
-# Run encryption script - pass PAYLOAD_KEY if set in environment
-$encryptArgs = @{
-    InputDll = $DLLOutput
-    OutputFile = $EncryptedOutput
-    Quiet = $true
-}
-
-if ($env:PAYLOAD_KEY) {
-    $encryptArgs.PayloadKey = $env:PAYLOAD_KEY
-    Write-Host "  Using PAYLOAD_KEY from environment (secure)" -ForegroundColor Green
-} elseif ($Release -or $PrepareRelease) {
-    # Release builds MUST use server key - fail closed
-    Write-Fail "PAYLOAD_KEY not set! Release builds require secure encryption."
+# Run encryption script - PAYLOAD_KEY is REQUIRED
+if (-not $env:PAYLOAD_KEY) {
+    Write-Fail "PAYLOAD_KEY not set! All builds require secure encryption."
     Write-Host "  Set: `$env:PAYLOAD_KEY = '<64-char-hex-key>'" -ForegroundColor Yellow
+    Write-Host "  Generate with: openssl rand -hex 32" -ForegroundColor Yellow
     Write-Host "  See: SECURITY.md for details" -ForegroundColor Yellow
     exit 1
-} else {
-    Write-Host "  Using legacy key derivation (DEBUG BUILD ONLY)" -ForegroundColor Yellow
 }
 
-& "$RepoRoot\tools\encrypt_payload.ps1" @encryptArgs
+Write-Host "  Using PAYLOAD_KEY from environment (secure)" -ForegroundColor Green
+
+& "$RepoRoot\tools\encrypt_payload.ps1" -InputDll $DLLOutput -OutputFile $EncryptedOutput -PayloadKey $env:PAYLOAD_KEY -Quiet
 
 if (-not (Test-Path $EncryptedOutput)) {
     Write-Fail "Failed to encrypt DLL payload!"
