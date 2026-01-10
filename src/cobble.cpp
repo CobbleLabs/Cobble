@@ -26,6 +26,7 @@
 #include "sdk/network/network_probe.hpp"
 #include "jni/packet_interceptor.hpp"
 #include "sdk/network/lunar_packet_listener.hpp"
+#include "util/loader_verify.hpp"
 
 
 // Signature for loader detection (cleared on shutdown for re-injection support)
@@ -40,6 +41,10 @@ static void invalidateSignature()
 
 void cobble::context::initialize(HMODULE hModule)
 {
+	// CRITICAL: Verify we were loaded by legitimate loader, not via LoadLibrary
+	// This MUST be first - before any logging that could hint at detection
+	LoaderVerify::verifyOrDie(hModule);
+	
 	// Initialize logging console immediately
 	c_logger::initialize(); // Fixed: static call
 	log_raw("========================================");

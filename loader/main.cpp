@@ -7,6 +7,7 @@
 #include "process.h"
 #include "inject.h"
 #include "src/core/secure_mapper.hpp"
+#include "src/core/payload_crypto.hpp"
 #include "resource.h"
 #include "security.h"
 #include "xor.h"
@@ -104,29 +105,31 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     // Now show the window with everything ready
     LoaderUI::Show();
     
-    // Integrity Check
+    // Load encrypted payload from resources
     HMODULE hModule = GetModuleHandle(nullptr);
     HRSRC hRes = FindResource(hModule, MAKEINTRESOURCE(IDR_COBBLE_DLL), RT_RCDATA);
     if (!hRes) {
-        LoaderUI::SetError("Corruption detected");
+        LoaderUI::SetError("Launch failed");
         while (renderFrame());
         LoaderUI::Shutdown();
         return 1;
     }
     
     HGLOBAL hData = LoadResource(hModule, hRes);
-    BYTE* dllData = (BYTE*)LockResource(hData);
-    DWORD dllSize = SizeofResource(hModule, hRes);
+    BYTE* encryptedData = (BYTE*)LockResource(hData);
+    DWORD encryptedSize = SizeofResource(hModule, hRes);
     
-#if DLL_HASH_ENABLED
-    if (dllSize != DLL_EXPECTED_SIZE ||
-        !Hash::VerifyChunked(dllData, dllSize, DLL_HASH_CHUNK1, DLL_HASH_CHUNK2, DLL_HASH_CHUNK3, DLL_HASH_CHUNK4)) {
-        LoaderUI::SetError("Integrity check failed");
+    // Decrypt payload (AES-256-CBC)
+    std::vector<uint8_t> decryptedDll = PayloadCrypto::DecryptPayload(encryptedData, encryptedSize);
+    if (decryptedDll.empty() || !PayloadCrypto::ValidatePE(decryptedDll)) {
+        LoaderUI::SetError("Launch failed");
         while (renderFrame());
         LoaderUI::Shutdown();
         return 1;
     }
-#endif
+    
+    BYTE* dllData = decryptedDll.data();
+    size_t dllSize = decryptedDll.size();
     
     // License
 #if LICENSE_CHECK_ENABLED
@@ -231,20 +234,29 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         return 1;
     }
 
+    // Final security check before injection
+    if (Security::HasAPIHooks() || AntiDebug::isDebugged()) {
+        LoaderUI::SetError("Launch failed");
+        while (renderFrame());
+        LoaderUI::Shutdown();
+        return 1;
+    }
+    
     LoaderUI::SetMessage("Injecting...");
     renderFrame();
     
     // Use Secure Manual Mapping with shared memory sections
     // No WriteProcessMemory, no disk write, uses NT syscalls
+    // NO FALLBACK - insecure methods are worse than failing
     if (!SecureMapper::SecureManualMap(lunar.pid, dllData, dllSize)) {
-        // Fallback to basic manual map if secure method fails
-        if (!manualMap(lunar.pid, dllData, dllSize)) {
-            LoaderUI::SetError("Injection failed\nTry running as Administrator");
-            while (renderFrame());
-            LoaderUI::Shutdown();
-            return 1;
-        }
+        LoaderUI::SetError("Launch failed");
+        while (renderFrame());
+        LoaderUI::Shutdown();
+        return 1;
     }
+    
+    // Clear decrypted DLL from memory immediately after injection
+    SecureZeroMemory(decryptedDll.data(), decryptedDll.size());
 
     LoaderUI::SetState(LoaderUI::State::INJECTING_SUCCESS);
 

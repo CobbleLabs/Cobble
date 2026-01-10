@@ -102,7 +102,29 @@ if (-not $SkipDLL) {
     Write-Success "Cobble.dll built successfully"
 }
 
-# Step 2: Calculate DLL hash and metadata
+# Step 2: Encrypt DLL payload
+Write-Step "Encrypting DLL payload (AES-256-CBC)..."
+
+$EncryptedOutput = "$RepoRoot\loader\res\Cobble.enc"
+
+# Ensure the res directory exists
+$resDir = Split-Path $EncryptedOutput -Parent
+if (-not (Test-Path $resDir)) {
+    New-Item -ItemType Directory -Path $resDir -Force | Out-Null
+}
+
+# Run encryption script
+& "$RepoRoot\tools\encrypt_payload.ps1" -InputDll $DLLOutput -OutputFile $EncryptedOutput -Quiet
+
+if (-not (Test-Path $EncryptedOutput)) {
+    Write-Fail "Failed to encrypt DLL payload!"
+    exit 1
+}
+
+$encryptedSize = Get-FileSize $EncryptedOutput
+Write-Success "Encrypted payload: $EncryptedOutput ($encryptedSize bytes)"
+
+# Step 3: Calculate DLL hash and metadata
 Write-Step "Calculating DLL hash..."
 
 if (-not (Test-Path $DLLOutput)) {
@@ -118,7 +140,7 @@ Write-Success "Hash: $dllHash"
 Write-Success "Size: $dllSize bytes"
 Write-Success "Timestamp: $buildTimestamp"
 
-# Step 3: Generate hash header
+# Step 4: Generate hash header
 Write-Step "Generating dll_hash.h..."
 
 $hashHeaderContent = @"
@@ -141,7 +163,7 @@ $hashHeaderContent = @"
 $hashHeaderContent | Out-File -FilePath $HashHeader -Encoding UTF8
 Write-Success "Generated $HashHeader"
 
-# Step 4: Build Loader (First Pass - for hash calculation)
+# Step 5: Build Loader (First Pass - for hash calculation)
 Write-Step "Building CobbleLoader.exe (Pass 1 - for hashing)..."
 
 $msbuildArgs = @(
@@ -166,7 +188,7 @@ if (-not (Test-Path $LoaderOutput)) {
 
 Write-Success "CobbleLoader.exe (Pass 1) built successfully"
 
-# Step 5: Calculate Loader Integrity Hashes
+# Step 6: Calculate Loader Integrity Hashes
 Write-Step "Calculating loader integrity hashes..."
 
 $loaderBytes = [System.IO.File]::ReadAllBytes($LoaderOutput)
@@ -195,7 +217,7 @@ Write-Success "Chunk 1 Hash: $hash1"
 Write-Success "Chunk 2 Hash: $hash2"
 Write-Success "Chunk 3 Hash: $hash3"
 
-# Step 6: Generate integrity_gen.hpp with real hashes
+# Step 7: Generate integrity_gen.hpp with real hashes
 Write-Step "Generating integrity_gen.hpp..."
 
 $integrityHeader = "$RepoRoot\loader\src\security\integrity_gen.hpp"
@@ -229,7 +251,7 @@ namespace integrity_data {
 $integrityContent | Out-File -FilePath $integrityHeader -Encoding UTF8
 Write-Success "Generated $integrityHeader"
 
-# Step 7: Build Loader (Second Pass - with real hashes)
+# Step 8: Build Loader (Second Pass - with real hashes)
 Write-Step "Building CobbleLoader.exe (Pass 2 - with integrity hashes)..."
 
 & $MSBuild @msbuildArgs
