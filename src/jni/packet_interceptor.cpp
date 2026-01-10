@@ -1,3 +1,6 @@
+// WARNING: JVMTI + bytecode patching zone.
+// Touch only if strictly necessary. Easy to break.
+
 #include "packet_interceptor.hpp"
 #include "../util/logger.hpp"
 #include "../sdk/core/minecraft.h"
@@ -1778,9 +1781,9 @@ static void JNICALL nativeOnReceive(JNIEnv* env, jclass, jobject packet) {
 								}
 							}
 
-                            // Log if we found a nametag message
-                            if (!typeUrl.empty()) {     
-                                static std::atomic<int> teamCount{0};
+							// Log if we found a nametag message
+							if (!typeUrl.empty()) {
+								static std::atomic<int> teamCount{0};
 
 								// Detect and parse Team messages
 								if (typeUrl.find("UpdateTeamMembers") != std::string::npos) {
@@ -2023,160 +2026,193 @@ static void JNICALL nativeOnReceive(JNIEnv* env, jclass, jobject packet) {
 											std::string preview = jsonLines[0];
 											if (preview.length() > 80) preview = preview.substr(0, 80) + "...";
 											if (preview != lastJsonPreview) {
-												log_debug("[Apollo]   JSON[0]: %s", preview.c_str());
+												//log_debug("[Apollo]   JSON[0]: %s", preview.c_str());
 												lastJsonPreview = preview;
 												jsonPreviewCount++;
 											}
 										}
 
-        // Detect color from JSON lines (prefer explicit Adventure color, fallback to format codes)
-        std::string detectedColor = "unknown";
+										// Detect color from JSON lines (prefer explicit Adventure color, fallback to format codes)
+										std::string detectedColor = "unknown";
 
-        // Try explicit Adventure color field: "color":"#RRGGBB"
-        if (!jsonLines.empty()) {
-            const std::string& firstLine = jsonLines[0];
-            const std::string colorKey = "\"color\":\"#";
-            size_t cPos = firstLine.find(colorKey);
-            if (cPos != std::string::npos && cPos + colorKey.size() + 6 <= firstLine.size()) {
-                std::string hex = firstLine.substr(cPos + colorKey.size(), 6);
-                for (auto& ch : hex) ch = (char)std::toupper((unsigned char)ch);
+										// Try explicit Adventure color field: "color":"#RRGGBB"
+										if (!jsonLines.empty()) {
+											const std::string& firstLine = jsonLines[0];
+											const std::string colorKey = "\"color\":\"#";
+											size_t cPos = firstLine.find(colorKey);
+											if (cPos != std::string::npos && cPos + colorKey.size() + 6 <= firstLine.size()) {
+												std::string hex = firstLine.substr(cPos + colorKey.size(), 6);
+												for (auto& ch : hex) ch = (char)std::toupper((unsigned char)ch);
 
-                static const std::unordered_map<std::string, std::string> kHexToColor = {
-                    // Vanilla chat/motd palette
-                    {"000000", "BLACK"},
-                    {"0000AA", "DARK_BLUE"},
-                    {"00AA00", "DARK_GREEN"},
-                    {"00AAAA", "DARK_AQUA"},
-                    {"AA0000", "DARK_RED"},
-                    {"AA00AA", "DARK_PURPLE"},
-                    {"FFAA00", "GOLD"},
-                    {"AAAAAA", "GRAY"},
-                    {"555555", "DARK_GRAY"},
-                    {"5555FF", "BLUE"},
-                    {"55FF55", "GREEN"},
-                    {"55FFFF", "AQUA"},
-                    {"FF5555", "RED"},
-                    {"FF55FF", "LIGHT_PURPLE"},
-                    {"FFFF55", "YELLOW"},
-                    {"FFFFFF", "WHITE"},
-                    // Extra hex observed in Apollo nametags
-                    {"55FF5F", "GREEN"},       // bright green
-                    {"FF5551", "RED"},         // bright red variant
-                    {"AA0003", "DARK_RED"},
-                    {"FF55FA", "LIGHT_PURPLE"},
-                    {"AA00AC", "DARK_PURPLE"},
-                    {"00AAAC", "DARK_AQUA"},
-                    {"5555FE", "BLUE"},
-                    {"FFFFFA", "WHITE"},
-                    {"AAAAAC", "GRAY"},
-                    {"55FFFA", "AQUA"},
-                    {"FFAA02", "GOLD"},
-                };
+												static const std::unordered_map<std::string, std::string> kHexToColor = {
+													// Vanilla chat/motd palette
+													{"000000", "BLACK"},
+													{"0000AA", "DARK_BLUE"},
+													{"00AA00", "DARK_GREEN"},
+													{"00AAAA", "DARK_AQUA"},
+													{"AA0000", "DARK_RED"},
+													{"AA00AA", "DARK_PURPLE"},
+													{"FFAA00", "GOLD"},
+													{"AAAAAA", "GRAY"},
+													{"555555", "DARK_GRAY"},
+													{"5555FF", "BLUE"},
+													{"55FF55", "GREEN"},
+													{"55FFFF", "AQUA"},
+													{"FF5555", "RED"},
+													{"FF55FF", "LIGHT_PURPLE"},
+													{"FFFF55", "YELLOW"},
+													{"FFFFFF", "WHITE"},
+													// Extra hex observed in Apollo nametags
+													{"55FF5F", "GREEN"},       // bright green
+													{"FF5551", "RED"},         // bright red variant
+													{"AA0003", "DARK_RED"},
+													{"FF55FA", "LIGHT_PURPLE"},
+													{"AA00AC", "DARK_PURPLE"},
+													{"00AAAC", "DARK_AQUA"},
+													{"5555FE", "BLUE"},
+													{"FFFFFA", "WHITE"},
+													{"AAAAAC", "GRAY"},
+													{"55FFFA", "AQUA"},
+													{"FFAA02", "GOLD"},
+												};
 
-                auto it = kHexToColor.find(hex);
-                if (it != kHexToColor.end()) {
-                    detectedColor = it->second;
-                }
-            }
-        }
-
-        // Fallback: Minecraft format codes (§X) - only if Adventure color wasn't found
-        if (detectedColor == "unknown") {
-        for (const auto& line : jsonLines) {
-            size_t pos = line.find("\xc2" "\xa7");
-            while (pos != std::string::npos && pos + 2 < line.size()) {
-                char code = (char)std::tolower((unsigned char)line[pos + 2]);
-                switch (code) {
-                    case '0': detectedColor = "BLACK"; break;
-                    case '1': detectedColor = "DARK_BLUE"; break;
-                    case '2': detectedColor = "DARK_GREEN"; break;
-                    case '3': detectedColor = "DARK_AQUA"; break;
-                    case '4': detectedColor = "DARK_RED"; break;
-                    case '5': detectedColor = "DARK_PURPLE"; break;
-                    case '6': detectedColor = "GOLD"; break;
-                    case '7': detectedColor = "GRAY"; break;
-                    case '8': detectedColor = "DARK_GRAY"; break;
-                    case '9': detectedColor = "BLUE"; break;
-                    case 'a': detectedColor = "GREEN"; break;
-                    case 'b': detectedColor = "AQUA"; break;
-                    case 'c': detectedColor = "RED"; break;
-                    case 'd': detectedColor = "LIGHT_PURPLE"; break;
-                    case 'e': detectedColor = "YELLOW"; break;
-                    case 'f': detectedColor = "WHITE"; break;
-                    default: break;
-                }
-                if (detectedColor != "unknown") break;
-                pos = line.find("\xc2" "\xa7", pos + 3);
-            }
-            if (detectedColor != "unknown") break;
-        }
-        } // end fallback if
-
-        // If still unknown, log a limited preview to diagnose color mapping
-        if (detectedColor == "unknown" && !jsonLines.empty()) {
-            static std::unordered_set<std::string> unknownLogged;
-            std::string preview = jsonLines[0];
-            if (preview.length() > 80) preview = preview.substr(0, 80) + "...";
-            if (unknownLogged.size() < 20 && unknownLogged.find(preview) == unknownLogged.end()) {
-                char uuidStr[64];
-                snprintf(uuidStr, sizeof(uuidStr),
-                    "%08x-%04x-%04x-%04x-%012llx",
-                    (uint32_t)(uuidHigh >> 32),
-                    (uint16_t)(uuidHigh >> 16),
-                    (uint16_t)uuidHigh,
-                    (uint16_t)(uuidLow >> 48),
-                    (unsigned long long)(uuidLow & 0xFFFFFFFFFFFFULL));
-                log_debug("[Apollo] Nametag unknown color: UUID=%s JSON[0]=%s", uuidStr, preview.c_str());
-                unknownLogged.insert(preview);
-            }
-        }
-
-        // Log the parsed nametag with color
-								if ((uuidHigh != 0 || uuidLow != 0) && !jsonLines.empty()) {
-									// Extract player name from first JSON line
-									std::string playerName = "?";
-									const std::string& firstLine = jsonLines[0];
-									size_t textPos = firstLine.find("\"text\":\"");
-									if (textPos != std::string::npos) {
-										size_t startPos = textPos + 8;
-										size_t endPos = firstLine.find("\"", startPos);
-										if (endPos != std::string::npos) {
-											playerName = firstLine.substr(startPos, endPos - startPos);
-											// Strip Minecraft color codes from the extracted name
-											std::string clean;
-											for (size_t i = 0; i < playerName.size(); ++i) {
-												unsigned char c = (unsigned char)playerName[i];
-												if (c == 0xC2 && i + 2 < playerName.size() && (unsigned char)playerName[i+1] == 0xA7) {
-													i += 2;
-												} else if (c != 0xC2 && c != 0xA7) {
-													clean += playerName[i];
+												auto it = kHexToColor.find(hex);
+												if (it != kHexToColor.end()) {
+													detectedColor = it->second;
 												}
 											}
-											if (!clean.empty()) playerName = clean;
 										}
-									}
 
-									static std::unordered_map<std::string, std::string> lastNametagColor;
-									std::string uuidKey = std::to_string(uuidHigh) + ":" + std::to_string(uuidLow);
-									auto itColor = lastNametagColor.find(uuidKey);
-									bool shouldLog = (itColor == lastNametagColor.end()) || (itColor->second != detectedColor);
-									if (shouldLog) {
-										lastNametagColor[uuidKey] = detectedColor;
-										log_ok("[Apollo] Nametag: \"%s\" -> %s", playerName.c_str(), detectedColor.c_str());
+										// Fallback: Minecraft format codes (B'X) - only if Adventure color wasn't found
+										if (detectedColor == "unknown") {
+											for (const auto& line : jsonLines) {
+												size_t pos = line.find("\xc2" "\xa7");
+												while (pos != std::string::npos && pos + 2 < line.size()) {
+													char code = (char)std::tolower((unsigned char)line[pos + 2]);
+													switch (code) {
+													case '0':
+														detectedColor = "BLACK";
+														break;
+													case '1':
+														detectedColor = "DARK_BLUE";
+														break;
+													case '2':
+														detectedColor = "DARK_GREEN";
+														break;
+													case '3':
+														detectedColor = "DARK_AQUA";
+														break;
+													case '4':
+														detectedColor = "DARK_RED";
+														break;
+													case '5':
+														detectedColor = "DARK_PURPLE";
+														break;
+													case '6':
+														detectedColor = "GOLD";
+														break;
+													case '7':
+														detectedColor = "GRAY";
+														break;
+													case '8':
+														detectedColor = "DARK_GRAY";
+														break;
+													case '9':
+														detectedColor = "BLUE";
+														break;
+													case 'a':
+														detectedColor = "GREEN";
+														break;
+													case 'b':
+														detectedColor = "AQUA";
+														break;
+													case 'c':
+														detectedColor = "RED";
+														break;
+													case 'd':
+														detectedColor = "LIGHT_PURPLE";
+														break;
+													case 'e':
+														detectedColor = "YELLOW";
+														break;
+													case 'f':
+														detectedColor = "WHITE";
+														break;
+													default:
+														break;
+													}
+													if (detectedColor != "unknown") break;
+													pos = line.find("\xc2" "\xa7", pos + 3);
+												}
+												if (detectedColor != "unknown") break;
+											}
+										} // end fallback if
+
+										// If still unknown, log a limited preview to diagnose color mapping
+										if (detectedColor == "unknown" && !jsonLines.empty()) {
+											static std::unordered_set<std::string> unknownLogged;
+											std::string preview = jsonLines[0];
+											if (preview.length() > 80) preview = preview.substr(0, 80) + "...";
+											if (unknownLogged.size() < 20 && unknownLogged.find(preview) == unknownLogged.end()) {
+												char uuidStr[64];
+												snprintf(uuidStr, sizeof(uuidStr),
+												         "%08x-%04x-%04x-%04x-%012llx",
+												         (uint32_t)(uuidHigh >> 32),
+												         (uint16_t)(uuidHigh >> 16),
+												         (uint16_t)uuidHigh,
+												         (uint16_t)(uuidLow >> 48),
+												         (unsigned long long)(uuidLow & 0xFFFFFFFFFFFFULL));
+												log_debug("[Apollo] Nametag unknown color: UUID=%s JSON[0]=%s", uuidStr, preview.c_str());
+												unknownLogged.insert(preview);
+											}
+										}
+
+										// Log the parsed nametag with color
+										if ((uuidHigh != 0 || uuidLow != 0) && !jsonLines.empty()) {
+											// Extract player name from first JSON line
+											std::string playerName = "?";
+											const std::string& firstLine = jsonLines[0];
+											size_t textPos = firstLine.find("\"text\":\"");
+											if (textPos != std::string::npos) {
+												size_t startPos = textPos + 8;
+												size_t endPos = firstLine.find("\"", startPos);
+												if (endPos != std::string::npos) {
+													playerName = firstLine.substr(startPos, endPos - startPos);
+													// Strip Minecraft color codes from the extracted name
+													std::string clean;
+													for (size_t i = 0; i < playerName.size(); ++i) {
+														unsigned char c = (unsigned char)playerName[i];
+														if (c == 0xC2 && i + 2 < playerName.size() && (unsigned char)playerName[i+1] == 0xA7) {
+															i += 2;
+														} else if (c != 0xC2 && c != 0xA7) {
+															clean += playerName[i];
+														}
+													}
+													if (!clean.empty()) playerName = clean;
+												}
+											}
+
+											static std::unordered_map<std::string, std::string> lastNametagColor;
+											std::string uuidKey = std::to_string(uuidHigh) + ":" + std::to_string(uuidLow);
+											auto itColor = lastNametagColor.find(uuidKey);
+											bool shouldLog = (itColor == lastNametagColor.end()) || (itColor->second != detectedColor);
+											if (shouldLog) {
+												lastNametagColor[uuidKey] = detectedColor;
+												log_ok("[Apollo] Nametag: \"%s\" -> %s", playerName.c_str(), detectedColor.c_str());
+											}
+										}
 									}
 								}
 							}
 						}
+						if (byteArray && bytes) {
+							env->ReleaseByteArrayElements(byteArray, bytes, JNI_ABORT);
+						}
+						if (packetBuffer) {
+							env->DeleteLocalRef(packetBuffer);
+						}
+						if (env->ExceptionCheck()) env->ExceptionClear();
 					}
-				}
-					if (byteArray && bytes) {
-						env->ReleaseByteArrayElements(byteArray, bytes, JNI_ABORT);
-					}
-					if (packetBuffer) {
-						env->DeleteLocalRef(packetBuffer);
-					}
-					if (env->ExceptionCheck()) env->ExceptionClear();
-				}
 					env->ReleaseStringUTFChars(channelStr, channel);
 				}
 				env->DeleteLocalRef(channelStr);
