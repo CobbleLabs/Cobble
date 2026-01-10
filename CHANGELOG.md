@@ -24,6 +24,12 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/).
   - **Secure Build**: `.\tools\encrypt_payload.ps1 -PayloadKey $env:PAYLOAD_KEY` for production builds
   - **Backwards Compatible**: Falls back to legacy key if server key unavailable
   - **Impact**: DLL extraction script (decrypt_dll_demo.py) no longer works with secure builds
+- **Phase 3 Security Hardening: Signed Handshake Verification**
+  - **Server-Signed Handshake**: Server signs handshake data with Ed25519 private key
+  - **Signature Format**: `COBBLE_HANDSHAKE|username|hwid|timestamp|injection_secret`
+  - **DLL Verification**: DLL verifies signature using embedded public key
+  - **Fake Loader Protection**: Even with shared memory access, cannot forge valid signatures
+  - **Impact**: Creating a fake loader that writes to shared memory no longer bypasses security
 - **Anti-Crack: Encrypted DLL Payload**: DLL embebido ahora encriptado con AES-256-CBC
   - El DLL ya no puede extraerse de los recursos del loader
   - Herramienta de build `encrypt_payload.ps1` para encriptar antes de compilar

@@ -27,5 +27,7 @@ namespace License {
     int GetDaysRemaining();
     std::string GetSessionToken();
     std::string GetInjectionSecret();
-    std::string GetPayloadKey();  // AES-256 key for DLL decryption
+    std::string GetPayloadKey();        // AES-256 key for DLL decryption
+    std::string GetHandshakeSig();      // Ed25519 signature (base64) for DLL verification
+    int64_t GetHandshakeTimestamp();    // Timestamp of handshake
 }

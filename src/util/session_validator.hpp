@@ -11,8 +11,7 @@
 
 #include "http.hpp"
 #include "json.hpp"
-// Reuse loader tweetnacl implementation for Ed25519 verification
-#include "../loader/src/update/tweetnacl.h"
+#include "tweetnacl.h"  // Ed25519 verification
 
 // ============================================================================
 // SESSION VALIDATOR
@@ -24,18 +23,26 @@ namespace SessionValidator {
 
 // This struct MUST match the InjectionData struct in loader/main.cpp
 struct InjectionData {
-    char signature[16];      // "COBBLE_INJ_V1" - magic signature
-    char secret[65];         // 64 hex chars + null (injection_secret from server)
-    char username[64];       // Username from license
-    char hwid[65];           // HWID for server validation
-    uint32_t timestamp;      // Unix timestamp when created
-    uint32_t expiresIn;      // Seconds until expiry (5 minutes)
+    char signature[16];       // "COBBLE_INJ_V1" - magic signature
+    char secret[65];          // 64 hex chars + null (injection_secret from server)
+    char username[64];        // Username from license
+    char hwid[65];            // HWID for server validation
+    uint32_t timestamp;       // Unix timestamp when created
+    uint32_t expiresIn;       // Seconds until expiry (5 minutes)
+    char handshakeSig[128];   // Base64 Ed25519 signature from server
+};
+
+// Same Ed25519 public key as loader (for signature verification)
+constexpr uint8_t COBBLE_PUBLIC_KEY[32] = {
+    0xd2, 0xb8, 0x41, 0x41, 0x05, 0x22, 0xdb, 0x99, 0xe7, 0x86, 0xf4, 0x60, 0x1a, 0xb2, 0x04, 0x61, 
+    0x0f, 0xdb, 0x14, 0x75, 0x0e, 0x93, 0xbb, 0xb5, 0xa1, 0x85, 0xc9, 0xd7, 0x23, 0x7d, 0x79, 0xac
 };
 
 // Cached session data (set after successful validation)
 inline std::string g_Username;
 inline std::string g_InjectionSecret;
 inline std::string g_HWID;
+inline std::string g_HandshakeSig;  // For server-side validation
 inline std::atomic<bool> g_SessionValid{false};
 
 // Read injection data from shared memory
@@ -105,10 +112,38 @@ inline bool ValidateInjection() {
         return false;
     }
     
+    // Phase 3: Verify handshake signature if present
+    // Format: "COBBLE_HANDSHAKE|username|hwid|timestamp|injection_secret"
+    if (data.handshakeSig[0] != '\0') {
+        // Decode base64 signature
+        DWORD sigLen = 0;
+        CryptStringToBinaryA(data.handshakeSig, 0, CRYPT_STRING_BASE64, nullptr, &sigLen, nullptr, nullptr);
+        
+        if (sigLen == 64) {  // Ed25519 signatures are 64 bytes
+            std::vector<uint8_t> sigBytes(sigLen);
+            CryptStringToBinaryA(data.handshakeSig, 0, CRYPT_STRING_BASE64, sigBytes.data(), &sigLen, nullptr, nullptr);
+            
+            // Reconstruct handshake data that was signed
+            char handshakeData[512];
+            snprintf(handshakeData, sizeof(handshakeData), "COBBLE_HANDSHAKE|%s|%s|%u|%s",
+                     data.username, data.hwid, data.timestamp, data.secret);
+            
+            // Verify Ed25519 signature
+            if (!tweetnacl::verify(sigBytes.data(), 
+                                   (const uint8_t*)handshakeData, 
+                                   strlen(handshakeData), 
+                                   COBBLE_PUBLIC_KEY)) {
+                // Invalid signature = fake loader or tampered data
+                return false;
+            }
+        }
+    }
+    
 	// Cache the validated data
 	g_Username = data.username;
 	g_InjectionSecret = data.secret;
 	g_HWID = data.hwid;
+    g_HandshakeSig = data.handshakeSig;
 	g_SessionValid = true;
     
     // Clear sensitive data from stack

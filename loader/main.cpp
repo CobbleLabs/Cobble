@@ -38,12 +38,13 @@ inline std::string getLicenseServerPrimary() { return OBFS("https://api.cobble.v
 // Shared memory structure for DLL validation
 // This is passed from loader to DLL via named shared memory
 struct InjectionData {
-    char signature[16];      // "COBBLE_INJ_V1" - magic signature
-    char secret[65];         // 64 hex chars + null (injection_secret from server)
-    char username[64];       // Username from license
-    char hwid[65];           // HWID for server validation
-    uint32_t timestamp;      // Unix timestamp when created
-    uint32_t expiresIn;      // Seconds until expiry (5 minutes)
+    char signature[16];       // "COBBLE_INJ_V1" - magic signature
+    char secret[65];          // 64 hex chars + null (injection_secret from server)
+    char username[64];        // Username from license
+    char hwid[65];            // HWID for server validation
+    uint32_t timestamp;       // Unix timestamp when created
+    uint32_t expiresIn;       // Seconds until expiry (5 minutes)
+    char handshakeSig[128];   // Base64 Ed25519 signature from server
 };
 
 std::atomic<bool> g_SecurityViolation(false);
@@ -299,6 +300,10 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         strncpy_s(injData.hwid, hwid.c_str(), 64);
         injData.timestamp = (uint32_t)time(nullptr);
         injData.expiresIn = 300; // 5 minutes to init
+        
+        // Copy handshake signature from server (for DLL to verify)
+        std::string handshakeSig = License::GetHandshakeSig();
+        strncpy_s(injData.handshakeSig, handshakeSig.c_str(), 127);
         
         // Create security attributes that allow cross-process access
         // Without this, Minecraft can't read the shared memory

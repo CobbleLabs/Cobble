@@ -1,7 +1,9 @@
 package handlers
 
 import (
+	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -155,6 +157,15 @@ func sendLoaderSuccess(w http.ResponseWriter, hwid, nonce, username string, days
 	injectionSecret := helpers.GenerateSecureRandom(32)
 	database.StoreInjectionSecret(hwid, injectionSecret)
 
+	// Generate handshake signature - DLL verifies this to ensure loader is legit
+	// Format: "COBBLE_HANDSHAKE|username|hwid|timestamp|injection_secret"
+	handshakeData := fmt.Sprintf("COBBLE_HANDSHAKE|%s|%s|%d|%s", username, hwid, now, injectionSecret)
+	handshakeSig := helpers.Sign([]byte(handshakeData))
+	handshakeSigB64 := ""
+	if handshakeSig != nil {
+		handshakeSigB64 = base64.StdEncoding.EncodeToString(handshakeSig)
+	}
+
 	payload := SignedVerifyPayload{
 		HWID:            hwid,
 		Nonce:           nonce,
@@ -165,6 +176,7 @@ func sendLoaderSuccess(w http.ResponseWriter, hwid, nonce, username string, days
 		DaysRemaining:   daysRemaining,
 		SessionToken:    sessionToken,
 		InjectionSecret: injectionSecret,
+		HandshakeSig:    handshakeSigB64,
 		Message:         "Welcome, " + username,
 	}
 	sendSignedResponse(w, payload)
