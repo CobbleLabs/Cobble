@@ -8,6 +8,27 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/).
 
 ## [Unreleased]
 
+### Security
+- **Anti-Crack: Encrypted DLL Payload**: DLL embebido ahora encriptado con AES-256-CBC
+  - El DLL ya no puede extraerse de los recursos del loader
+  - Herramienta de build `encrypt_payload.ps1` para encriptar antes de compilar
+  - Desencriptación en runtime con key derivada (obfuscada)
+  - Elimina el vector de ataque "extraer DLL y usar LoadLibrary"
+- **Anti-Crack: Loader Verification**: El DLL ahora verifica que fue cargado por el loader legítimo
+  - Detecta si el módulo está en la lista PEB (LoadLibrary) vs manual mapped
+  - Verifica características de memoria (MEM_IMAGE vs MEM_MAPPED)
+  - Silent crash si se detecta carga via LoadLibrary (sin mensajes de error)
+  - Previene uso del DLL extraído/dumpeado
+- **Removed Insecure Fallback**: Eliminado fallback a `WriteProcessMemory`/`CreateRemoteThread`
+  - Si `SecureManualMap` falla, ahora aborta en vez de usar métodos detectables
+  - Los métodos Win32 estándar son fácilmente hookeables por AV/AC
+- **Pre-Injection Security Check**: Verificación de hooks y debugger justo antes de inyectar
+  - No solo al inicio del loader, también inmediatamente antes de inyección
+  - Previene attach de debugger después de pasar checks iniciales
+- **Memory Cleanup**: El DLL desencriptado se borra de memoria inmediatamente después de inyectar
+  - `SecureZeroMemory()` aplicado al buffer de DLL post-inyección
+
+
 ### Changed
 - **Loader Login Flow Optimization**: Detección de Minecraft en background durante login
   - Polling cada 200ms mientras el usuario escribe credenciales
