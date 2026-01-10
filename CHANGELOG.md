@@ -30,6 +30,13 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/).
   - **DLL Verification**: DLL verifies signature using embedded public key
   - **Fake Loader Protection**: Even with shared memory access, cannot forge valid signatures
   - **Impact**: Creating a fake loader that writes to shared memory no longer bypasses security
+- **Phase 4 Security Hardening: Runtime Heartbeat**
+  - **Server Endpoint**: New `/api/heartbeat` validates session every 2-3 minutes
+  - **DLL Thread**: Background thread sends periodic heartbeats with session token
+  - **Kill Switch**: If heartbeat fails (ban/expired/revoked), DLL terminates immediately
+  - **Jitter**: Random 0-60s added to interval to prevent timing analysis
+  - **Fail Closed**: 3 consecutive failures = automatic termination
+  - **Impact**: Global kill switch - stop server = all clients die in ~3 minutes
 - **Anti-Crack: Encrypted DLL Payload**: DLL embebido ahora encriptado con AES-256-CBC
   - El DLL ya no puede extraerse de los recursos del loader
   - Herramienta de build `encrypt_payload.ps1` para encriptar antes de compilar

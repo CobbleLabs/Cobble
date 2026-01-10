@@ -184,7 +184,6 @@ static void renderSettingsPage()
 				// Auto Detect - enables all team detection (Apollo, Scoreboard, etc.)
 				ui::Checkbox("Auto Detect", &friendsManager->teams.enabled);
 				ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetColorU32(ImGuiCol_TextDisabled));
-				ImGui::TextWrapped("Automatically detect teammates via Apollo/Scoreboard");
 				ImGui::PopStyleColor();
 				
 				ImGui::Spacing();
@@ -200,7 +199,6 @@ static void renderSettingsPage()
 				ImGui::Spacing();
 				
 				ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetColorU32(ImGuiCol_TextDisabled));
-				ImGui::TextWrapped("Teammates ignored by combat");
 				ImGui::PopStyleColor();
 			}
 		}

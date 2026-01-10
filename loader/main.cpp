@@ -45,6 +45,7 @@ struct InjectionData {
     uint32_t timestamp;       // Unix timestamp when created
     uint32_t expiresIn;       // Seconds until expiry (5 minutes)
     char handshakeSig[128];   // Base64 Ed25519 signature from server
+    char sessionToken[128];   // Session token for heartbeat (Phase 4)
 };
 
 std::atomic<bool> g_SecurityViolation(false);
@@ -307,6 +308,10 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         // Copy handshake signature from server (for DLL to verify)
         std::string handshakeSig = License::GetHandshakeSig();
         strncpy_s(injData.handshakeSig, handshakeSig.c_str(), 127);
+        
+        // Copy session token for DLL heartbeat (Phase 4)
+        std::string sessionToken = License::GetSessionToken();
+        strncpy_s(injData.sessionToken, sessionToken.c_str(), 127);
         
         // Create security attributes that allow cross-process access
         // Without this, Minecraft can't read the shared memory

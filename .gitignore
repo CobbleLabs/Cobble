@@ -30,7 +30,6 @@ out/
 *.dll
 *.exe
 *.lib
-loader/src/util/dll_hash.h
 
 # =========================
 # Temp / OS

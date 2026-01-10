@@ -75,6 +75,9 @@ func main() {
 	// Payload key endpoint (loader fetches AES key after license verification)
 	mux.HandleFunc("/api/loader/payload-key", middleware.RateLimit(handlers.GetPayloadKey))
 
+	// Heartbeat endpoint (DLL calls every 2-3 min for runtime validation)
+	mux.HandleFunc("/api/heartbeat", middleware.RateLimit(handlers.Heartbeat))
+
 	// Public dashboard data
 	mux.HandleFunc("/api/announcements", handlers.GetAnnouncements)
 	mux.HandleFunc("/api/changelogs", handlers.GetChangelogs)

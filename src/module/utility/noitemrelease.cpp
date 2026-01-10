@@ -209,9 +209,6 @@ void NoItemRelease::onRenderMenu()
 			ImGui::TextWrapped("Consumable: Food, potions, blocks");
 			ImGui::TextWrapped("Sword: Swords only (blocking)");
 			ImGui::TextWrapped("All: All items (except bow/fishing rod)");
-			ImGui::Spacing();
-			ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.2f, 1.0f), "Note:");
-			ImGui::TextWrapped("Allows you to release right-click while server thinks you're still using the item.");
 		}
 	);
 }

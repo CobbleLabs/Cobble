@@ -59,7 +59,9 @@ void cobble::context::initialize(HMODULE hModule)
 		return;
 	}
 	
-	// TODO Phase 4: ValidateWithServer() for online verification
+	// Phase 4: Start heartbeat thread for runtime validation
+	// Session token was cached from shared memory during ValidateInjection()
+	SessionValidator::StartHeartbeatThread("");
 
     // Initialize logging console immediately
     c_logger::initialize(); // Fixed: static call

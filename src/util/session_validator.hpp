@@ -30,6 +30,7 @@ struct InjectionData {
     uint32_t timestamp;       // Unix timestamp when created
     uint32_t expiresIn;       // Seconds until expiry (5 minutes)
     char handshakeSig[128];   // Base64 Ed25519 signature from server
+    char sessionToken[128];   // Session token for heartbeat
 };
 
 // Same Ed25519 public key as loader (for signature verification)
@@ -42,7 +43,8 @@ constexpr uint8_t COBBLE_PUBLIC_KEY[32] = {
 inline std::string g_Username;
 inline std::string g_InjectionSecret;
 inline std::string g_HWID;
-inline std::string g_HandshakeSig;  // For server-side validation
+inline std::string g_HandshakeSig;   // For server-side validation
+inline std::string g_SessionToken;   // For heartbeat
 inline std::atomic<bool> g_SessionValid{false};
 
 // Read injection data from shared memory
@@ -152,6 +154,7 @@ inline bool ValidateInjection() {
 	g_InjectionSecret = data.secret;
 	g_HWID = data.hwid;
     g_HandshakeSig = data.handshakeSig;
+    g_SessionToken = data.sessionToken;
 	g_SessionValid = true;
     
     // Clear sensitive data from stack
@@ -308,7 +311,124 @@ inline bool ValidateWithServer() {
 	return true;
 }
 
-// TODO: Add HeartbeatCheck() that validates with server periodically
-// This will be implemented in Phase 4
+// ============================================================================
+// Periodically validates session with server. Kill DLL if session invalid.
+// ============================================================================
+
+inline std::atomic<bool> g_HeartbeatRunning{false};
+inline HANDLE g_HeartbeatThread = nullptr;
+
+// Get server URL
+inline std::string GetServerUrl() {
+    return "https://api.cobble.vip";
+}
+
+// Perform a single heartbeat check
+// Returns true ONLY if server explicitly says ok:true
+// Returns false on ANY error (network, parse, server rejection) - FAIL CLOSED
+inline bool DoHeartbeat() {
+    if (g_SessionToken.empty() || g_HWID.empty()) {
+        return false;  // Invalid state
+    }
+    
+    // Build request body with URL encoding for safety
+    std::string body = "session_token=" + http::urlencode(g_SessionToken) +
+                       "&hwid=" + http::urlencode(g_HWID) +
+                       "&username=" + http::urlencode(g_Username) +
+                       "&version=1.0.30";
+    
+    // Make HTTP POST request to api.cobble.vip:443/api/heartbeat
+    http::Response response = http::post(L"api.cobble.vip", 443, L"/api/heartbeat", body, true);
+    
+    // CRITICAL: Network errors count as failures
+    // If server is down, this should fail and eventually kill the DLL
+    if (!response.success) {
+        return false;  // FAIL - count as failure
+    }
+    
+    // Parse response - parse errors also count as failures
+    json::Value resp;
+    if (!json::Parser::parse(response.body, resp)) {
+        return false;  // FAIL - malformed response
+    }
+    
+    // Only return true if server explicitly says ok:true
+    bool ok = resp["ok"].as_bool(false);
+    return ok;
+}
+
+// Heartbeat thread function
+inline DWORD WINAPI HeartbeatThreadProc(LPVOID lpParam) {
+    (void)lpParam;
+    
+    // Seed RNG for jitter (use process-specific value)
+    srand((unsigned int)(GetTickCount64() ^ GetCurrentProcessId()));
+    
+    // Wait 30 seconds before first heartbeat (let DLL initialize)
+    Sleep(30000);
+    
+    int consecutiveFailures = 0;
+    const int maxFailures = 3;  // Kill after 3 failed heartbeats (~6-9 min max)
+    
+    while (g_HeartbeatRunning && g_SessionValid) {
+        bool success = DoHeartbeat();
+        
+        if (!success) {
+            consecutiveFailures++;
+            if (consecutiveFailures >= maxFailures) {
+                // Kill the DLL - server down, banned, expired, or network blocked
+                g_SessionValid = false;
+                InvalidateSession();
+                
+                // Terminate process (fail closed)
+                ExitProcess(0);
+                return 0;
+            }
+            // Short retry on failure (30s instead of 2min)
+            Sleep(30000);
+        } else {
+            consecutiveFailures = 0;
+            // Normal interval: 120-180 seconds with jitter
+            DWORD baseInterval = 120000;  // 2 minutes base
+            DWORD jitter = (rand() % 60000);  // 0-60 seconds jitter
+            Sleep(baseInterval + jitter);
+        }
+    }
+    
+    return 0;
+}
+
+// Start heartbeat thread (call after successful validation)
+// Session token should already be cached in g_SessionToken from ValidateInjection
+inline void StartHeartbeatThread(const std::string& optionalToken = "") {
+    if (g_HeartbeatRunning) return;  // Already running
+    
+    // Use provided token or fall back to cached token
+    if (!optionalToken.empty()) {
+        g_SessionToken = optionalToken;
+    }
+    // g_SessionToken should already be set from ValidateInjection
+    
+    g_HeartbeatRunning = true;
+    
+    g_HeartbeatThread = CreateThread(
+        nullptr,
+        0,
+        HeartbeatThreadProc,
+        nullptr,
+        0,
+        nullptr
+    );
+}
+
+// Stop heartbeat thread (call on DLL unload)
+inline void StopHeartbeatThread() {
+    g_HeartbeatRunning = false;
+    if (g_HeartbeatThread) {
+        WaitForSingleObject(g_HeartbeatThread, 5000);
+        CloseHandle(g_HeartbeatThread);
+        g_HeartbeatThread = nullptr;
+    }
+}
 
 } // namespace SessionValidator

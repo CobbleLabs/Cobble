@@ -162,17 +162,37 @@ $env:PAYLOAD_KEY = "<same-key>"
 
 ---
 
-### Phase 4: Runtime Server Validation (Planned)
+### Phase 4: Runtime Server Validation ✅
 
 **Problem**: Once the DLL passes initial validation, it runs indefinitely without re-checking with server.
 
-**Solution**: Periodic heartbeat to server during runtime.
+**Solution**: Background heartbeat thread pings server every 2-3 minutes.
 
-- DLL sends heartbeat every N minutes
-- Server can revoke sessions (ban user, expire license)
-- DLL kills itself if heartbeat fails
+```
+┌─────────────┐      Every 2-3 min      ┌─────────────┐
+│     DLL     │ ──────────────────────► │   Server    │
+│  Heartbeat  │       POST /heartbeat   │   Checks:   │
+│   Thread    │ ◄────────────────────── │   - banned? │
+└──────┬──────┘      {ok:true/false}    │   - expired?│
+       │                                │   - revoked?│
+       │ If ok:false                    └─────────────┘
+       ▼
+ ExitProcess(0)  ◄── Kill switch
+```
 
-**Status**: Not yet implemented.
+**Files Changed**:
+- `license-server/internal/handlers/heartbeat.go` - New `/api/heartbeat` endpoint
+- `license-server/internal/database/db.go` - `UpdateUserLastSeen()`
+- `src/util/session_validator.hpp` - Heartbeat thread implementation
+- `loader/main.cpp` - Pass `sessionToken` via shared memory
+
+**Configuration**:
+- Base interval: 120 seconds
+- Jitter: 0-60 seconds random
+- Max failures: 3 before kill
+- Initial delay: 30 seconds
+
+**Impact**: Global kill switch - stop server = all clients die. Ban user = instant termination.
 
 ---
 
@@ -192,7 +212,7 @@ $env:PAYLOAD_KEY = "<same-key>"
 | 1 | DLL Encryption (Server Key) | ✅ | Binary extraction |
 | 2 | Injection Secret | ✅ | DLL without legitimate loader |
 | 3 | Signed Handshake | ✅ | Fake loader with shared memory |
-| 4 | Runtime Heartbeat | ❌ Pending | Offline session replay |
+| 4 | Runtime Heartbeat | ✅ | Offline session replay, instant ban |
 | 5 | Certificate Pinning | ❌ Pending | MITM attacks |
 
 ---

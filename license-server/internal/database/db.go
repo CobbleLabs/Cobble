@@ -426,6 +426,11 @@ func GetUserByUsername(username string) (*UserRow, error) {
 	return &u, err
 }
 
+// UpdateUserLastSeen updates the user's last seen timestamp and IP
+func UpdateUserLastSeen(userID string, ip string) {
+	DB.Exec(`UPDATE users SET updated_at = NOW() WHERE id = $1`, userID)
+}
+
 // UserRow is the database row representation
 type UserRow struct {
 	ID                       string
