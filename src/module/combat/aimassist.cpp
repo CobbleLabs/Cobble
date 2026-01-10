@@ -704,7 +704,44 @@ bool AimAssist::findTarget(double& targetX, double& targetY, double& targetZ)
 		}
 
 		// Friends/Teams filter - skip friendly players (ALWAYS active)
+		// Priority order:
+		// 1. Apollo Teams (isLunarTeammate - from UpdateTeamMembersMessage)
+		// 2. Apollo Nametags (isApolloTeammate - GREEN/DARK_GREEN)
+		// 3. Manual Friends (isFriendByUUID/isFriendByName)
+		// 4. Scoreboard Teams (isTeammate - color matching)
+		// 5. Visual Resolver (visualTeamResolver->isFriendly)
 		if (friendsManager) {
+			// Priority 1: Apollo Teams (most reliable - explicit team packets)
+			bool isApolloTeam = !p.uuid.empty() && friendsManager->isLunarTeammate(p.uuid);
+			if (isApolloTeam) {
+				static Timer apolloTeamDebugTimer;
+				if (apolloTeamDebugTimer.Elapsed<>() > 2000) {
+					log_debug("[AimAssist] Skipping %s (Apollo Team)", p.name.c_str());
+					apolloTeamDebugTimer.Start();
+				}
+				continue;
+			}
+			
+			// Priority 2: Apollo Nametags (GREEN or DARK_GREEN = teammate)
+			bool isApolloNametag = !p.uuid.empty() && friendsManager->isApolloTeammate(p.uuid);
+			if (isApolloNametag) {
+				static Timer apolloNametagDebugTimer;
+				if (apolloNametagDebugTimer.Elapsed<>() > 2000) {
+					std::string color = friendsManager->getApolloNametagColor(p.uuid);
+					log_debug("[AimAssist] Skipping %s (Apollo Nametag: %s)", p.name.c_str(), color.c_str());
+					apolloNametagDebugTimer.Start();
+				}
+				continue;
+			}
+			
+			// Priority 3: Manual Friends
+			bool isFriendByUUID = !p.uuid.empty() && friendsManager->isFriendByUUID(p.uuid);
+			bool isFriendByName = friendsManager->isFriend(FriendsManager::stripColorCodes(p.name));
+			if (isFriendByUUID || isFriendByName) {
+				continue;
+			}
+			
+			// Priority 4: Scoreboard Teams (color matching)
 			// Get local player's team color for comparison (cached per scan)
 			static int localTeamColor = -1;
 			static Timer colorRefreshTimer;
@@ -715,24 +752,20 @@ bool AimAssist::findTarget(double& targetX, double& targetY, double& targetZ)
 			
 			ChatColor playerColor = static_cast<ChatColor>(p.teamColor);
 			ChatColor localColor = static_cast<ChatColor>(localTeamColor);
-			
-			// Use UUID for friend/team matching (reliable on servers with modified names)
-			bool isFriendByUUID = !p.uuid.empty() && friendsManager->isFriendByUUID(p.uuid);
-			bool isFriendByName = friendsManager->isFriend(FriendsManager::stripColorCodes(p.name));
-			bool isTeammate = friendsManager->isTeammate(p.uuid, playerColor, localColor);
-			
-			// Visual team detection fallback: if scoreboard says UNKNOWN, check visual cache
-			bool visualFriendly = false;
-			if (!isTeammate && playerColor == ChatColor::UNKNOWN && visualTeamResolver && visualTeamResolver->enabled) {
-				visualFriendly = visualTeamResolver->isFriendly(p.uuid);
-				// Queue for visual analysis (will be processed on render thread)
-				// Pass renderPos for camera-relative coordinate calculation
-				RenderPos renderPos = mc.getRenderPos();
-				visualTeamResolver->queueForAnalysis(p.uuid, p, renderPos);
+			bool isScoreboardTeammate = friendsManager->isTeammate(p.uuid, playerColor, localColor);
+			if (isScoreboardTeammate) {
+				continue;
 			}
 			
-			if (isFriendByUUID || isFriendByName || isTeammate || visualFriendly) {
-				continue;
+			// Priority 5: Visual Resolver (fallback when no other info available)
+			if (playerColor == ChatColor::UNKNOWN && visualTeamResolver && visualTeamResolver->enabled) {
+				bool visualFriendly = visualTeamResolver->isFriendly(p.uuid);
+				if (visualFriendly) {
+					continue;
+				}
+				// Queue for visual analysis (will be processed on render thread)
+				RenderPos renderPos = mc.getRenderPos();
+				visualTeamResolver->queueForAnalysis(p.uuid, p, renderPos);
 			}
 		}
 

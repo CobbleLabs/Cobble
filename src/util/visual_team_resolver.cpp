@@ -445,9 +445,11 @@ void VisualTeamResolver::resetAllTracks() {
 	pendingQueue_.clear();
 	debugSamples_.clear();
 	
-	// Clear visual friends on world change
+	// Clear all cached team data on world change
 	if (friendsManager) {
 		friendsManager->clearVisualFriends();
+		friendsManager->clearApolloNametags();
+		friendsManager->clearLunarTeammates();
 	}
 	
 	log_debug("[VisualTeam] All tracks reset (world change detected)");

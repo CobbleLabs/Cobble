@@ -113,6 +113,12 @@ public:
 	void clearLunarTeammates();
 	bool isLunarTeammate(const std::string& uuid) const;
 	
+	// Apollo Nametags: Store player nametag colors from OverrideNametagMessage
+	void setApolloNametagColor(const std::string& uuid, const std::string& color);
+	bool isApolloTeammate(const std::string& uuid) const;  // GREEN or DARK_GREEN
+	std::string getApolloNametagColor(const std::string& uuid) const;
+	void clearApolloNametags();
+	
 	// ============================================================
 	// Visual Friends - Auto-detected teammates (cleared on world change)
 	// ============================================================
@@ -180,6 +186,9 @@ private:
 	
 	// Lunar API teammates (UUIDs from UpdateTeamMembersMessage)
 	std::set<std::string> lunarTeammates_;
+	
+	// Apollo nametag colors (UUIDs from OverrideNametagMessage -> color string)
+	std::map<std::string, std::string> apolloNametags_;
 	
 	// Visual friends (auto-detected teammates, cleared on world change)
 	std::set<std::string> visualFriends_;

@@ -462,6 +462,35 @@ bool FriendsManager::isLunarTeammate(const std::string& uuid) const {
 	return lunarTeammates_.find(uuid) != lunarTeammates_.end();
 }
 
+void FriendsManager::setApolloNametagColor(const std::string& uuid, const std::string& color) {
+	if (uuid.empty()) return;
+	std::lock_guard<std::mutex> lock(mutex_);
+	apolloNametags_[uuid] = color;
+}
+
+bool FriendsManager::isApolloTeammate(const std::string& uuid) const {
+	if (uuid.empty()) return false;
+	std::lock_guard<std::mutex> lock(mutex_);
+	auto it = apolloNametags_.find(uuid);
+	if (it == apolloNametags_.end()) return false;
+	// GREEN or DARK_GREEN = teammate
+	return it->second == "GREEN" || it->second == "DARK_GREEN";
+}
+
+std::string FriendsManager::getApolloNametagColor(const std::string& uuid) const {
+	if (uuid.empty()) return "";
+	std::lock_guard<std::mutex> lock(mutex_);
+	auto it = apolloNametags_.find(uuid);
+	return (it != apolloNametags_.end()) ? it->second : "";
+}
+
+void FriendsManager::clearApolloNametags() {
+	std::lock_guard<std::mutex> lock(mutex_);
+	if (!apolloNametags_.empty()) {
+		log_debug("[Apollo] Cleared %zu nametag colors (world change)", apolloNametags_.size());
+		apolloNametags_.clear();
+	}
+}
 // ============================================================
 // Visual Friends - Auto-detected teammates
 // ============================================================
