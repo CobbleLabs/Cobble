@@ -40,6 +40,7 @@ type Config struct {
 	// Security
 	SecureCookies bool   // Set to true in production with HTTPS
 	CookieDomain  string // Domain for cookies (e.g., ".cobble.vip" for cross-subdomain)
+	PayloadKey    string // AES-256 key for DLL payload encryption (64 hex chars = 32 bytes)
 
 	// Email (Resend)
 	ResendAPIKey    string
@@ -88,6 +89,7 @@ func Load() *Config {
 		// Security (set SECURE_COOKIES=true in production)
 		SecureCookies: getEnvBool("SECURE_COOKIES", false),
 		CookieDomain:  getEnv("COOKIE_DOMAIN", ""), // e.g., ".cobble.vip"
+		PayloadKey:    getEnv("PAYLOAD_KEY", ""),   // AES-256 key (64 hex chars)
 
 		// Email (Resend)
 		ResendAPIKey:    getEnv("RESEND_API_KEY", ""),

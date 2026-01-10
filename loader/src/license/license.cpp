@@ -36,6 +36,7 @@ static std::string g_MinVersion;
 static std::string g_Username;
 static std::string g_SessionToken;
 static std::string g_InjectionSecret;
+static std::string g_PayloadKey;
 static int g_DaysRemaining = -1;
 
 std::string UrlEncode(const std::string& value) {
@@ -116,6 +117,158 @@ std::string GetSessionToken() {
 
 std::string GetInjectionSecret() {
     return g_InjectionSecret;
+}
+
+std::string GetPayloadKey() {
+    return g_PayloadKey;
+}
+
+// Fetch payload decryption key from server after successful login/verify
+bool FetchPayloadKey(const std::string& serverUrl) {
+    if (g_SessionToken.empty()) {
+        g_LastError = "No session token";
+        return false;
+    }
+    
+    std::string hwid = HWID::Generate();
+    if (hwid.empty()) {
+        g_LastError = "HWID generation failed";
+        return false;
+    }
+    
+    // Build URL
+    std::string url = serverUrl + _xor_("/api/loader/payload-key");
+    
+    // Build POST data
+    std::string postData = "hwid=" + UrlEncode(hwid) + 
+                          "&session_token=" + UrlEncode(g_SessionToken);
+    
+    // Initialize WinInet
+    HINTERNET hInternet = InternetOpenA(
+        _xor_("Mozilla/5.0"),
+        INTERNET_OPEN_TYPE_PRECONFIG,
+        NULL, NULL, 0
+    );
+    
+    if (!hInternet) {
+        g_LastError = "Network error";
+        return false;
+    }
+    
+    DWORD timeout = 5000;
+    InternetSetOptionA(hInternet, INTERNET_OPTION_CONNECT_TIMEOUT, &timeout, sizeof(timeout));
+    InternetSetOptionA(hInternet, INTERNET_OPTION_RECEIVE_TIMEOUT, &timeout, sizeof(timeout));
+    
+    // Parse URL
+    URL_COMPONENTSA urlComp = { 0 };
+    urlComp.dwStructSize = sizeof(urlComp);
+    
+    char hostName[256] = { 0 };
+    char urlPath[1024] = { 0 };
+    
+    urlComp.lpszHostName = hostName;
+    urlComp.dwHostNameLength = sizeof(hostName);
+    urlComp.lpszUrlPath = urlPath;
+    urlComp.dwUrlPathLength = sizeof(urlPath);
+    
+    if (!InternetCrackUrlA(url.c_str(), 0, 0, &urlComp)) {
+        InternetCloseHandle(hInternet);
+        g_LastError = "Invalid URL";
+        return false;
+    }
+    
+    DWORD flags = (urlComp.nScheme == INTERNET_SCHEME_HTTPS) ? INTERNET_FLAG_SECURE : 0;
+    
+    HINTERNET hConnect = InternetConnectA(
+        hInternet,
+        hostName,
+        urlComp.nPort,
+        NULL, NULL,
+        INTERNET_SERVICE_HTTP,
+        0, 0
+    );
+    
+    if (!hConnect) {
+        InternetCloseHandle(hInternet);
+        g_LastError = "Connection failed";
+        return false;
+    }
+    
+    HINTERNET hRequest = HttpOpenRequestA(
+        hConnect,
+        "POST",
+        urlPath,
+        NULL, NULL, NULL,
+        flags | INTERNET_FLAG_NO_CACHE_WRITE | INTERNET_FLAG_RELOAD,
+        0
+    );
+    
+    if (!hRequest) {
+        InternetCloseHandle(hConnect);
+        InternetCloseHandle(hInternet);
+        g_LastError = "Request failed";
+        return false;
+    }
+    
+    std::string headers = "Content-Type: application/x-www-form-urlencoded\r\n";
+    
+    BOOL result = HttpSendRequestA(
+        hRequest,
+        headers.c_str(),
+        (DWORD)headers.length(),
+        (LPVOID)postData.c_str(),
+        (DWORD)postData.length()
+    );
+    
+    if (!result) {
+        InternetCloseHandle(hRequest);
+        InternetCloseHandle(hConnect);
+        InternetCloseHandle(hInternet);
+        g_LastError = "Server error";
+        return false;
+    }
+    
+    DWORD statusCode = 0;
+    DWORD statusCodeSize = sizeof(statusCode);
+    HttpQueryInfoA(hRequest, HTTP_QUERY_STATUS_CODE | HTTP_QUERY_FLAG_NUMBER, 
+                   &statusCode, &statusCodeSize, NULL);
+    
+    if (statusCode != 200) {
+        InternetCloseHandle(hRequest);
+        InternetCloseHandle(hConnect);
+        InternetCloseHandle(hInternet);
+        g_LastError = "Key fetch failed";
+        return false;
+    }
+    
+    // Read response
+    char buffer[4096] = { 0 };
+    DWORD bytesRead = 0;
+    std::string response;
+    
+    while (InternetReadFile(hRequest, buffer, sizeof(buffer) - 1, &bytesRead) && bytesRead > 0) {
+        buffer[bytesRead] = '\0';
+        response += buffer;
+    }
+    
+    InternetCloseHandle(hRequest);
+    InternetCloseHandle(hConnect);
+    InternetCloseHandle(hInternet);
+    
+    // Parse JSON response: { "key": "..." }
+    json::Object json;
+    if (!json.parse(response)) {
+        g_LastError = "Invalid response";
+        return false;
+    }
+    
+    g_PayloadKey = json.get_string("key", "");
+    if (g_PayloadKey.empty() || g_PayloadKey.length() != 64) {
+        g_LastError = "Invalid key";
+        return false;
+    }
+    
+    return true;
 }
 
 bool Verify(const std::string& serverUrl) {

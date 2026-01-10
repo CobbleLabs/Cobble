@@ -72,6 +72,9 @@ func main() {
 	// DLL validation endpoint (called by DLL at startup)
 	mux.HandleFunc("/api/dll/validate", middleware.RateLimit(handlers.ValidateDLL))
 
+	// Payload key endpoint (loader fetches AES key after license verification)
+	mux.HandleFunc("/api/loader/payload-key", middleware.RateLimit(handlers.GetPayloadKey))
+
 	// Public dashboard data
 	mux.HandleFunc("/api/announcements", handlers.GetAnnouncements)
 	mux.HandleFunc("/api/changelogs", handlers.GetChangelogs)

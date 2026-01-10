@@ -44,7 +44,130 @@ struct PayloadHeader {
 constexpr uint8_t PAYLOAD_MAGIC[4] = { 'C', 'B', 'L', 'P' };
 constexpr uint32_t PAYLOAD_VERSION = 1;
 
-// Decrypt payload using Windows CryptoAPI
+// Convert hex string to bytes (64 hex chars -> 32 bytes)
+inline bool HexToBytes(const std::string& hex, uint8_t* out, size_t outLen) {
+    if (hex.length() != outLen * 2) return false;
+    for (size_t i = 0; i < outLen; i++) {
+        char high = hex[i * 2];
+        char low = hex[i * 2 + 1];
+        auto hexVal = [](char c) -> int {
+            if (c >= '0' && c <= '9') return c - '0';
+            if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+            if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+            return -1;
+        };
+        int hv = hexVal(high), lv = hexVal(low);
+        if (hv < 0 || lv < 0) return false;
+        out[i] = (uint8_t)((hv << 4) | lv);
+    }
+    return true;
+}
+
+// Decrypt payload using server-provided key (64 hex chars)
+// Returns empty vector on failure
+inline std::vector<uint8_t> DecryptPayloadWithKey(const uint8_t* encryptedData, size_t encryptedSize, const std::string& hexKey) {
+    if (!encryptedData || encryptedSize < sizeof(PayloadHeader) + 16) {
+        return {};
+    }
+    
+    // Parse hex key (64 chars -> 32 bytes)
+    uint8_t key[32];
+    if (hexKey.length() != 64 || !HexToBytes(hexKey, key, 32)) {
+        return {};
+    }
+    
+    // Parse header
+    const PayloadHeader* header = reinterpret_cast<const PayloadHeader*>(encryptedData);
+    
+    // Validate magic
+    if (memcmp(header->magic, PAYLOAD_MAGIC, 4) != 0) {
+        return {};
+    }
+    
+    // Validate version
+    if (header->version != PAYLOAD_VERSION) {
+        return {};
+    }
+    
+    // Validate sizes
+    if (header->encryptedSize > encryptedSize - sizeof(PayloadHeader)) {
+        return {};
+    }
+    
+    // Initialize crypto provider
+    HCRYPTPROV hProv = 0;
+    if (!CryptAcquireContextW(&hProv, nullptr, MS_ENH_RSA_AES_PROV_W, 
+                               PROV_RSA_AES, CRYPT_VERIFYCONTEXT)) {
+        return {};
+    }
+    
+    // Create key blob for AES-256
+    struct {
+        BLOBHEADER hdr;
+        DWORD keySize;
+        BYTE keyData[32];
+    } keyBlob;
+    
+    keyBlob.hdr.bType = PLAINTEXTKEYBLOB;
+    keyBlob.hdr.bVersion = CUR_BLOB_VERSION;
+    keyBlob.hdr.reserved = 0;
+    keyBlob.hdr.aiKeyAlg = CALG_AES_256;
+    keyBlob.keySize = 32;
+    memcpy(keyBlob.keyData, key, 32);
+    
+    // Zero the key from stack immediately
+    SecureZeroMemory(key, 32);
+    
+    // Import key
+    HCRYPTKEY hKey = 0;
+    if (!CryptImportKey(hProv, (BYTE*)&keyBlob, sizeof(keyBlob), 0, 0, &hKey)) {
+        CryptReleaseContext(hProv, 0);
+        SecureZeroMemory(&keyBlob, sizeof(keyBlob));
+        return {};
+    }
+    SecureZeroMemory(&keyBlob, sizeof(keyBlob));
+    
+    // Set IV
+    if (!CryptSetKeyParam(hKey, KP_IV, (BYTE*)header->iv, 0)) {
+        CryptDestroyKey(hKey);
+        CryptReleaseContext(hProv, 0);
+        return {};
+    }
+    
+    // Set CBC mode
+    DWORD mode = CRYPT_MODE_CBC;
+    if (!CryptSetKeyParam(hKey, KP_MODE, (BYTE*)&mode, 0)) {
+        CryptDestroyKey(hKey);
+        CryptReleaseContext(hProv, 0);
+        return {};
+    }
+    
+    // Decrypt
+    const uint8_t* ciphertext = encryptedData + sizeof(PayloadHeader);
+    std::vector<uint8_t> plaintext(header->encryptedSize);
+    memcpy(plaintext.data(), ciphertext, header->encryptedSize);
+    
+    DWORD decryptedLen = header->encryptedSize;
+    if (!CryptDecrypt(hKey, 0, TRUE, 0, plaintext.data(), &decryptedLen)) {
+        CryptDestroyKey(hKey);
+        CryptReleaseContext(hProv, 0);
+        return {};
+    }
+    
+    CryptDestroyKey(hKey);
+    CryptReleaseContext(hProv, 0);
+    
+    plaintext.resize(decryptedLen);
+    
+    // Verify size matches expected
+    if (decryptedLen != header->originalSize) {
+        return {};
+    }
+    
+    return plaintext;
+}
+
+// LEGACY: Decrypt payload using compiled-in key (for backwards compatibility)
 // Returns empty vector on failure
 inline std::vector<uint8_t> DecryptPayload(const uint8_t* encryptedData, size_t encryptedSize) {
     if (!encryptedData || encryptedSize < sizeof(PayloadHeader) + 16) {

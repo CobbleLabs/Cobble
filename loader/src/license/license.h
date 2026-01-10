@@ -16,6 +16,9 @@ namespace License {
     // Legacy registration (deprecated)
     bool Register(const std::string& serverUrl, const std::string& username);
     
+    // Fetch payload decryption key from server (requires valid session)
+    bool FetchPayloadKey(const std::string& serverUrl);
+    
     // Status getters
     std::string GetLastError();
     bool NeedsUpdate();
@@ -23,5 +26,6 @@ namespace License {
     std::string GetUsername();
     int GetDaysRemaining();
     std::string GetSessionToken();
-    std::string GetInjectionSecret();  // Secret for DLL validation
+    std::string GetInjectionSecret();
+    std::string GetPayloadKey();  // AES-256 key for DLL decryption
 }

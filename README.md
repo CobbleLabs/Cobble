@@ -63,6 +63,38 @@ npm run build
 pm2 start npm --name "cobble-web" -- start
 ```
 
+## Security Build (Production)
+
+For secure production builds, the DLL is encrypted with a server-side key:
+
+### 1. Generate key (once, on server):
+```bash
+openssl rand -hex 32
+# Save this key - it goes in both server .env AND build command
+```
+
+### 2. Configure server:
+```bash
+# Add to /opt/cobble/.env:
+PAYLOAD_KEY=<your-64-char-hex-key>
+
+systemctl restart cobble
+```
+
+### 3. Build with secure key:
+```powershell
+$env:PAYLOAD_KEY = "<your-64-char-hex-key>"
+.\build.ps1 -Release
+```
+
+Or encrypt manually:
+```powershell
+.\tools\encrypt_payload.ps1 -InputDll out\bin\Release\Cobble.dll -PayloadKey "<key>"
+```
+
+> **Without `-PayloadKey`**: Uses legacy hardcoded key (insecure, for dev only).  
+> **With `-PayloadKey`**: Key comes from server at runtime (secure).
+
 ## License
 
 Private

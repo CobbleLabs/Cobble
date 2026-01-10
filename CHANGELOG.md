@@ -17,6 +17,13 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/).
   - **New Endpoint**: `/api/dll/validate` for DLL to validate its secret with server
   - **Database Migration 13**: `injection_secrets` table for temporary secret storage
   - **Impact**: Extracted/dumped DLLs no longer work - they require a fresh server-issued secret
+- **Phase 2 Security Hardening: Server-Provided Payload Key**
+  - **Server Endpoint**: New `/api/loader/payload-key` returns AES-256 key after authentication
+  - **Runtime Key Fetch**: Loader fetches decryption key from server instead of using hardcoded derivation
+  - **Config**: `PAYLOAD_KEY` env var on server (same key used by `encrypt_payload.ps1 -PayloadKey`)
+  - **Secure Build**: `.\tools\encrypt_payload.ps1 -PayloadKey $env:PAYLOAD_KEY` for production builds
+  - **Backwards Compatible**: Falls back to legacy key if server key unavailable
+  - **Impact**: DLL extraction script (decrypt_dll_demo.py) no longer works with secure builds
 - **Anti-Crack: Encrypted DLL Payload**: DLL embebido ahora encriptado con AES-256-CBC
   - El DLL ya no puede extraerse de los recursos del loader
   - Herramienta de build `encrypt_payload.ps1` para encriptar antes de compilar

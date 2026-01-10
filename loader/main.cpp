@@ -131,38 +131,29 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     BYTE* encryptedData = (BYTE*)LockResource(hData);
     DWORD encryptedSize = SizeofResource(hModule, hRes);
     
-    // Decrypt payload (AES-256-CBC)
-    std::vector<uint8_t> decryptedDll = PayloadCrypto::DecryptPayload(encryptedData, encryptedSize);
-    if (decryptedDll.empty() || !PayloadCrypto::ValidatePE(decryptedDll)) {
-        LoaderUI::SetError("Launch failed");
-        while (renderFrame());
-        LoaderUI::Shutdown();
-        return 1;
-    }
+    // License check FIRST (before decryption to get server key)
+    std::vector<uint8_t> decryptedDll;
+    BYTE* dllData = nullptr;
+    size_t dllSize = 0;
     
-    BYTE* dllData = decryptedDll.data();
-    size_t dllSize = decryptedDll.size();
+    // Pre-declare lunar so we can detect MC during login
+    ProcessInfo lunar = {};
     
-    // License
 #if LICENSE_CHECK_ENABLED
     bool licenseValid = false;
     
     if (License::Verify(getLicenseServerPrimary().c_str())) {
         licenseValid = true;
         LoaderUI::SetState(LoaderUI::State::LICENSE_VALID);
-    }
-    
-    // Pre-declare lunar so we can detect MC during login
-    ProcessInfo lunar = {};
-
-    if (!licenseValid && License::RequiresLogin()) {
+    } else if (License::RequiresLogin()) {
+        // First time login flow...
         LoaderUI::SetState(LoaderUI::State::LOGIN_REQUIRED);
-
+        
         // Poll for Minecraft in background while user types credentials
         auto nextMcScan = std::chrono::steady_clock::now();
-
+        
         while (renderFrame()) {
-            // Check for Minecraft every 200ms while on login screen
+            // MC detection in background
             auto now = std::chrono::steady_clock::now();
             if (now >= nextMcScan) {
                 lunar = findLunarClient();
@@ -175,7 +166,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
                 LoaderUI::ClearLoginButton();
 
                 if (username.empty() || password.empty()) {
-                    LoaderUI::SetError("Username and password required");
+                    LoaderUI::SetError("Enter username and password");
                     continue;
                 }
 
@@ -207,7 +198,42 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         LoaderUI::Shutdown();
         return 1;
     }
+    
+    // Try to fetch payload key from server
+    LoaderUI::SetMessage("Initializing...");
+    renderFrame();
+    
+    std::string payloadKey;
+    if (License::FetchPayloadKey(getLicenseServerPrimary().c_str())) {
+        payloadKey = License::GetPayloadKey();
+    }
+    
+    // Decrypt payload
+    if (!payloadKey.empty()) {
+        // Use server-provided key (secure path)
+        decryptedDll = PayloadCrypto::DecryptPayloadWithKey(encryptedData, encryptedSize, payloadKey);
+    } else {
+        // Fallback to compiled key (legacy/offline compatibility)
+        decryptedDll = PayloadCrypto::DecryptPayload(encryptedData, encryptedSize);
+    }
+    
+    // Zero key from memory
+    SecureZeroMemory(&payloadKey[0], payloadKey.size());
+    
+#else
+    // No license check, use compiled key
+    decryptedDll = PayloadCrypto::DecryptPayload(encryptedData, encryptedSize);
 #endif
+    
+    if (decryptedDll.empty() || !PayloadCrypto::ValidatePE(decryptedDll)) {
+        LoaderUI::SetError("Launch failed");
+        while (renderFrame());
+        LoaderUI::Shutdown();
+        return 1;
+    }
+    
+    dllData = decryptedDll.data();
+    dllSize = decryptedDll.size();
     
     if (g_SecurityViolation) {
         LoaderUI::Shutdown();

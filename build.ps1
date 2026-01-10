@@ -113,8 +113,21 @@ if (-not (Test-Path $resDir)) {
     New-Item -ItemType Directory -Path $resDir -Force | Out-Null
 }
 
-# Run encryption script
-& "$RepoRoot\tools\encrypt_payload.ps1" -InputDll $DLLOutput -OutputFile $EncryptedOutput -Quiet
+# Run encryption script - pass PAYLOAD_KEY if set in environment
+$encryptArgs = @{
+    InputDll = $DLLOutput
+    OutputFile = $EncryptedOutput
+    Quiet = $true
+}
+
+if ($env:PAYLOAD_KEY) {
+    $encryptArgs.PayloadKey = $env:PAYLOAD_KEY
+    Write-Host "  Using PAYLOAD_KEY from environment (secure)" -ForegroundColor Green
+} else {
+    Write-Host "  Using legacy key derivation (set `$env:PAYLOAD_KEY for secure builds)" -ForegroundColor Yellow
+}
+
+& "$RepoRoot\tools\encrypt_payload.ps1" @encryptArgs
 
 if (-not (Test-Path $EncryptedOutput)) {
     Write-Fail "Failed to encrypt DLL payload!"
