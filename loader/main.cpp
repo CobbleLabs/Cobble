@@ -298,7 +298,8 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         strncpy_s(injData.secret, secret.c_str(), 64);
         strncpy_s(injData.username, username.c_str(), 63);
         strncpy_s(injData.hwid, hwid.c_str(), 64);
-        injData.timestamp = (uint32_t)time(nullptr);
+        // Use server's timestamp (issued_at) - MUST match what was signed
+        injData.timestamp = (uint32_t)License::GetHandshakeTimestamp();
         injData.expiresIn = 300; // 5 minutes to init
         
         // Copy handshake signature from server (for DLL to verify)

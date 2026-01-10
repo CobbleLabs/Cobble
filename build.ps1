@@ -123,8 +123,14 @@ $encryptArgs = @{
 if ($env:PAYLOAD_KEY) {
     $encryptArgs.PayloadKey = $env:PAYLOAD_KEY
     Write-Host "  Using PAYLOAD_KEY from environment (secure)" -ForegroundColor Green
+} elseif ($Release -or $PrepareRelease) {
+    # Release builds MUST use server key - fail closed
+    Write-Fail "PAYLOAD_KEY not set! Release builds require secure encryption."
+    Write-Host "  Set: `$env:PAYLOAD_KEY = '<64-char-hex-key>'" -ForegroundColor Yellow
+    Write-Host "  See: SECURITY.md for details" -ForegroundColor Yellow
+    exit 1
 } else {
-    Write-Host "  Using legacy key derivation (set `$env:PAYLOAD_KEY for secure builds)" -ForegroundColor Yellow
+    Write-Host "  Using legacy key derivation (DEBUG BUILD ONLY)" -ForegroundColor Yellow
 }
 
 & "$RepoRoot\tools\encrypt_payload.ps1" @encryptArgs

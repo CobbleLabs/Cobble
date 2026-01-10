@@ -112,31 +112,39 @@ inline bool ValidateInjection() {
         return false;
     }
     
-    // Phase 3: Verify handshake signature if present
-    // Format: "COBBLE_HANDSHAKE|username|hwid|timestamp|injection_secret"
-    if (data.handshakeSig[0] != '\0') {
-        // Decode base64 signature
-        DWORD sigLen = 0;
-        CryptStringToBinaryA(data.handshakeSig, 0, CRYPT_STRING_BASE64, nullptr, &sigLen, nullptr, nullptr);
-        
-        if (sigLen == 64) {  // Ed25519 signatures are 64 bytes
-            std::vector<uint8_t> sigBytes(sigLen);
-            CryptStringToBinaryA(data.handshakeSig, 0, CRYPT_STRING_BASE64, sigBytes.data(), &sigLen, nullptr, nullptr);
-            
-            // Reconstruct handshake data that was signed
-            char handshakeData[512];
-            snprintf(handshakeData, sizeof(handshakeData), "COBBLE_HANDSHAKE|%s|%s|%u|%s",
-                     data.username, data.hwid, data.timestamp, data.secret);
-            
-            // Verify Ed25519 signature
-            if (!tweetnacl::verify(sigBytes.data(), 
-                                   (const uint8_t*)handshakeData, 
-                                   strlen(handshakeData), 
-                                   COBBLE_PUBLIC_KEY)) {
-                // Invalid signature = fake loader or tampered data
-                return false;
-            }
-        }
+    // Phase 3: Verify handshake signature - MANDATORY
+    // Format MUST match server: "COBBLE_HANDSHAKE|username|hwid|timestamp|injection_secret"
+    // If signature is missing or invalid, FAIL CLOSED
+    if (data.handshakeSig[0] == '\0') {
+        // No signature = loader didn't get one from server (offline?) or fake loader
+        return false;
+    }
+    
+    // Decode base64 signature
+    DWORD sigLen = 0;
+    CryptStringToBinaryA(data.handshakeSig, 0, CRYPT_STRING_BASE64, nullptr, &sigLen, nullptr, nullptr);
+    
+    if (sigLen != 64) {
+        // Ed25519 signatures MUST be exactly 64 bytes
+        return false;
+    }
+    
+    std::vector<uint8_t> sigBytes(sigLen);
+    CryptStringToBinaryA(data.handshakeSig, 0, CRYPT_STRING_BASE64, sigBytes.data(), &sigLen, nullptr, nullptr);
+    
+    // Reconstruct handshake data that was signed
+    // Use %lld to match Go's %d for int64 (issued_at is int64 on server)
+    char handshakeData[512];
+    snprintf(handshakeData, sizeof(handshakeData), "COBBLE_HANDSHAKE|%s|%s|%lld|%s",
+             data.username, data.hwid, (long long)data.timestamp, data.secret);
+    
+    // Verify Ed25519 signature - MUST pass
+    if (!tweetnacl::verify(sigBytes.data(), 
+                           (const uint8_t*)handshakeData, 
+                           strlen(handshakeData), 
+                           COBBLE_PUBLIC_KEY)) {
+        // Invalid signature = fake loader, tampered data, or format mismatch
+        return false;
     }
     
 	// Cache the validated data
