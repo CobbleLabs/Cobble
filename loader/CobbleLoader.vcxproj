@@ -88,6 +88,7 @@
     <ClCompile Include="main.cpp" />
     <ClCompile Include="src\core\inject.cpp" />
     <ClCompile Include="src\core\process.cpp" />
+    <ClCompile Include="src\core\secure_mapper.cpp" />
     <ClCompile Include="src\security\security.cpp" />
     <ClCompile Include="src\license\license.cpp" />
     <ClCompile Include="src\license\hwid.cpp" />
@@ -104,6 +105,8 @@
   <ItemGroup>
     <ClInclude Include="src\core\inject.h" />
     <ClInclude Include="src\core\process.h" />
+    <ClInclude Include="src\core\syscalls.hpp" />
+    <ClInclude Include="src\core\secure_mapper.hpp" />
     <ClInclude Include="src\security\security.h" />
     <ClInclude Include="src\security\xor.h" />
     <ClInclude Include="src\license\license.h" />

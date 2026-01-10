@@ -6,6 +6,7 @@
 
 #include "process.h"
 #include "inject.h"
+#include "src/core/secure_mapper.hpp"
 #include "resource.h"
 #include "security.h"
 #include "xor.h"
@@ -233,36 +234,17 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     LoaderUI::SetMessage("Injecting...");
     renderFrame();
     
-    wchar_t tempPath[MAX_PATH];
-    GetTempPathW(MAX_PATH, tempPath);
-    DWORD tick = GetTickCount();
-    wchar_t uniqueName[64];
-    swprintf_s(uniqueName, L"u%08X.tmp", tick);
-    std::wstring dllTempPath = std::wstring(tempPath) + uniqueName;
-    
-    DeleteFileW(dllTempPath.c_str());
-    HANDLE hFile = CreateFileW(dllTempPath.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
-    if (hFile == INVALID_HANDLE_VALUE) {
-        LoaderUI::SetError("Write error");
-        while (renderFrame());
-        LoaderUI::Shutdown();
-        return 1;
+    // Use Secure Manual Mapping with shared memory sections
+    // No WriteProcessMemory, no disk write, uses NT syscalls
+    if (!SecureMapper::SecureManualMap(lunar.pid, dllData, dllSize)) {
+        // Fallback to basic manual map if secure method fails
+        if (!manualMap(lunar.pid, dllData, dllSize)) {
+            LoaderUI::SetError("Injection failed\nTry running as Administrator");
+            while (renderFrame());
+            LoaderUI::Shutdown();
+            return 1;
+        }
     }
-    
-    DWORD written;
-    WriteFile(hFile, dllData, dllSize, &written, nullptr);
-    CloseHandle(hFile);
-    
-    if (!injectDllLoadLibrary(lunar.pid, dllTempPath)) {
-        LoaderUI::SetError("Injection failed\nTry running as Administrator");
-        DeleteFileW(dllTempPath.c_str());
-        while (renderFrame());
-        LoaderUI::Shutdown();
-        return 1;
-    }
-    
-    Sleep(500);
-    DeleteFileW(dllTempPath.c_str());
 
     LoaderUI::SetState(LoaderUI::State::INJECTING_SUCCESS);
 
