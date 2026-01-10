@@ -8,6 +8,37 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/).
 
 ## [Unreleased]
 
+### Changed
+- **Loader Login Flow Optimization**: Detección de Minecraft en background durante login
+  - Polling cada 200ms mientras el usuario escribe credenciales
+  - Si Minecraft ya está abierto al hacer Sign In, salta directo a inyección
+  - Elimina el flash visual de "Waiting for Minecraft" cuando MC ya está corriendo
+- **AimAssist Anti-Detection v3**: Mejoras anti-detección
+  - **Floor Divisor Asymmetry**: Offsets asimétricos pre-GCD por eje (yaw bias +, pitch bias -)
+  - **Smoothing Variance Injection**: Ruido dinámico en smoothingStrength (35-100ms refresh)
+  - **Deviation Spike Injection**: Spikes periódicos (0.9-2.2s) que rompen consistencia
+  - **Anti-Rounded Values**: Micro-offset cuando clamp produce valores exactos (2.5, 3.0, etc.)
+  - **GCD Floor Divisor Fix**: Detecta cuando un eje es perfecto vs otro y añade offset
+- **Apollo Team Detection Integration**: Conexión completa con AimAssist
+  - `packet_interceptor.cpp`: Ahora registra teammates parseados de Apollo con `FriendsManager`
+  - Apollo Teams (`UpdateTeamMembersMessage`): UUIDs se registran via `addLunarTeammate()`
+  - Apollo Nametags (`OverrideNametagMessage`): Colores se registran via `setApolloNametagColor()`
+  - `aimassist.cpp`: Nueva prioridad de detección de teammates:
+    1. Apollo Teams (más confiable - paquetes explícitos)
+    2. Apollo Nametags (GREEN/DARK_GREEN = teammate)
+    3. Manual Friends (isFriendByUUID/isFriendByName)
+    4. Scoreboard Teams (color matching)
+    5. Visual Resolver (fallback)
+
+### Changed
+- **Loader UI Status Indicator**: Redesigned for a minimalist, premium aesthetic.
+  - **Minimalist Success State**: Replaced large glowing orange circle/burst with a sleek, self-drawing checkmark and "Active" text.
+  - **Refined Progress Bar**: Thinner (2px) injection bar with subtle gradients and removed "spark halo" for a cleaner look.
+  - **Smooth Window Exit**: Implemented hardware-accelerated window opacity fade-out using `SetLayeredWindowAttributes` for a seamless "premium" close animation, replacing the old abrupt black screen.
+  - **Smart Error State**: Hides login fields and shows a simplified "Close" button when "Already injected" status is detected, preventing confusion.
+  - **Flat Minimalist Buttons**: Removed "gamery" gradients, glow loops, and physical displacement. Buttons are now flat, sober, and use smooth color interpolation for hover/press states.
+  - Removed "Injection complete" text in favor of a more subtle "Done" state.
+
 ### Added
 - **Desktop Loader UI**: Replaced console-based loader with Premium ImGui window
   - **Premium Aesthetic**: "SaaS quality" design with Inter font, #0B0B0D dark theme, and radial gradients

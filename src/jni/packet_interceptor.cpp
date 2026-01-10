@@ -1,5 +1,9 @@
+// WARNING: JVMTI + bytecode patching zone.
+// Touch only if strictly necessary. Easy to break.
+
 #include "packet_interceptor.hpp"
 #include "../util/logger.hpp"
+#include "../util/friends_manager.h"
 #include "../sdk/core/minecraft.h"
 #include "../module/utility/noitemrelease.h"
 #include "../sdk/network/lunar_packet_listener.hpp"
@@ -12,6 +16,8 @@
 #include <atomic>
 #include <vector>
 #include <string>
+#include <unordered_map>
+#include <unordered_set>
 #include <chrono>
 
 // ============================================================================
@@ -276,70 +282,70 @@ static bool readConstantPool(Reader& r, uint16_t cp_count, std::vector<CpEntry>&
         cp[i].tag = tag;
 
         switch (tag) {
-            case 1: {
-                uint16_t len = r.ReadU2();
-                if (!r.ok) return false;
-                cpw.WriteU2(len);
-                const uint8_t* bytes = r.ReadBytes(len);
-                if (!r.ok) return false;
-                cpw.WriteBytes(bytes, len);
-                utf8[i] = std::string(reinterpret_cast<const char*>(bytes), len);
-                break;
+        case 1: {
+            uint16_t len = r.ReadU2();
+            if (!r.ok) return false;
+            cpw.WriteU2(len);
+            const uint8_t* bytes = r.ReadBytes(len);
+            if (!r.ok) return false;
+            cpw.WriteBytes(bytes, len);
+            utf8[i] = std::string(reinterpret_cast<const char*>(bytes), len);
+            break;
+        }
+        case 3:
+        case 4: {
+            const uint8_t* bytes = r.ReadBytes(4);
+            if (!r.ok) return false;
+            cpw.WriteBytes(bytes, 4);
+            break;
+        }
+        case 5:
+        case 6: {
+            const uint8_t* bytes = r.ReadBytes(8);
+            if (!r.ok) return false;
+            cpw.WriteBytes(bytes, 8);
+            if (i + 1 < cp_count) {
+                cp[i + 1].tag = 0;
             }
-            case 3:
-            case 4: {
-                const uint8_t* bytes = r.ReadBytes(4);
-                if (!r.ok) return false;
-                cpw.WriteBytes(bytes, 4);
-                break;
-            }
-            case 5:
-            case 6: {
-                const uint8_t* bytes = r.ReadBytes(8);
-                if (!r.ok) return false;
-                cpw.WriteBytes(bytes, 8);
-                if (i + 1 < cp_count) {
-                    cp[i + 1].tag = 0;
-                }
-                ++i;
-                break;
-            }
-            case 7:
-            case 8:
-            case 16:
-            case 19:
-            case 20: {
-                uint16_t a = r.ReadU2();
-                if (!r.ok) return false;
-                cpw.WriteU2(a);
-                cp[i].a = a;
-                break;
-            }
-            case 9:
-            case 10:
-            case 11:
-            case 12:
-            case 17:
-            case 18: {
-                uint16_t a = r.ReadU2();
-                uint16_t b = r.ReadU2();
-                if (!r.ok) return false;
-                cpw.WriteU2(a);
-                cpw.WriteU2(b);
-                cp[i].a = a;
-                cp[i].b = b;
-                break;
-            }
-            case 15: {
-                uint8_t kind = r.ReadU1();
-                uint16_t ref = r.ReadU2();
-                if (!r.ok) return false;
-                cpw.WriteU1(kind);
-                cpw.WriteU2(ref);
-                break;
-            }
-            default:
-                return false;
+            ++i;
+            break;
+        }
+        case 7:
+        case 8:
+        case 16:
+        case 19:
+        case 20: {
+            uint16_t a = r.ReadU2();
+            if (!r.ok) return false;
+            cpw.WriteU2(a);
+            cp[i].a = a;
+            break;
+        }
+        case 9:
+        case 10:
+        case 11:
+        case 12:
+        case 17:
+        case 18: {
+            uint16_t a = r.ReadU2();
+            uint16_t b = r.ReadU2();
+            if (!r.ok) return false;
+            cpw.WriteU2(a);
+            cpw.WriteU2(b);
+            cp[i].a = a;
+            cp[i].b = b;
+            break;
+        }
+        case 15: {
+            uint8_t kind = r.ReadU1();
+            uint16_t ref = r.ReadU2();
+            if (!r.ok) return false;
+            cpw.WriteU1(kind);
+            cpw.WriteU2(ref);
+            break;
+        }
+        default:
+            return false;
         }
     }
 
@@ -490,50 +496,50 @@ static bool patchStackMapTable(const uint8_t* data, size_t len, int shift, std::
         uint16_t delta_u16 = static_cast<uint16_t>(delta);
 
         switch (frame.kind) {
-            case StackMapFrame::SAME:
-                if (delta_u16 <= 63) {
-                    w.WriteU1(static_cast<uint8_t>(delta_u16));
-                } else {
-                    w.WriteU1(251);
-                    w.WriteU2(delta_u16);
-                }
-                break;
-            case StackMapFrame::SAME_LOCALS_1_STACK: {
-                if (frame.stack.size() != 1) return false;
-                if (delta_u16 <= 63) {
-                    w.WriteU1(static_cast<uint8_t>(64 + delta_u16));
-                } else {
-                    w.WriteU1(247);
-                    w.WriteU2(delta_u16);
-                }
-                writeVerificationTypeInfo(w, frame.stack[0]);
-                break;
+        case StackMapFrame::SAME:
+            if (delta_u16 <= 63) {
+                w.WriteU1(static_cast<uint8_t>(delta_u16));
+            } else {
+                w.WriteU1(251);
+                w.WriteU2(delta_u16);
             }
-            case StackMapFrame::CHOP:
-                if (frame.chop_k == 0 || frame.chop_k > 3) return false;
-                w.WriteU1(static_cast<uint8_t>(251 - frame.chop_k));
+            break;
+        case StackMapFrame::SAME_LOCALS_1_STACK: {
+            if (frame.stack.size() != 1) return false;
+            if (delta_u16 <= 63) {
+                w.WriteU1(static_cast<uint8_t>(64 + delta_u16));
+            } else {
+                w.WriteU1(247);
                 w.WriteU2(delta_u16);
-                break;
-            case StackMapFrame::APPEND:
-                if (frame.locals.empty() || frame.locals.size() > 3) return false;
-                w.WriteU1(static_cast<uint8_t>(251 + frame.locals.size()));
-                w.WriteU2(delta_u16);
-                for (const auto& info : frame.locals) {
-                    writeVerificationTypeInfo(w, info);
-                }
-                break;
-            case StackMapFrame::FULL:
-                w.WriteU1(255);
-                w.WriteU2(delta_u16);
-                w.WriteU2(static_cast<uint16_t>(frame.locals.size()));
-                for (const auto& info : frame.locals) {
-                    writeVerificationTypeInfo(w, info);
-                }
-                w.WriteU2(static_cast<uint16_t>(frame.stack.size()));
-                for (const auto& info : frame.stack) {
-                    writeVerificationTypeInfo(w, info);
-                }
-                break;
+            }
+            writeVerificationTypeInfo(w, frame.stack[0]);
+            break;
+        }
+        case StackMapFrame::CHOP:
+            if (frame.chop_k == 0 || frame.chop_k > 3) return false;
+            w.WriteU1(static_cast<uint8_t>(251 - frame.chop_k));
+            w.WriteU2(delta_u16);
+            break;
+        case StackMapFrame::APPEND:
+            if (frame.locals.empty() || frame.locals.size() > 3) return false;
+            w.WriteU1(static_cast<uint8_t>(251 + frame.locals.size()));
+            w.WriteU2(delta_u16);
+            for (const auto& info : frame.locals) {
+                writeVerificationTypeInfo(w, info);
+            }
+            break;
+        case StackMapFrame::FULL:
+            w.WriteU1(255);
+            w.WriteU2(delta_u16);
+            w.WriteU2(static_cast<uint16_t>(frame.locals.size()));
+            for (const auto& info : frame.locals) {
+                writeVerificationTypeInfo(w, info);
+            }
+            w.WriteU2(static_cast<uint16_t>(frame.stack.size()));
+            for (const auto& info : frame.stack) {
+                writeVerificationTypeInfo(w, info);
+            }
+            break;
         }
 
         prev_offset = frame.abs_offset;
@@ -600,8 +606,8 @@ static bool isAlreadyPatched(const uint8_t* code, size_t len, const std::vector<
 constexpr int kObserverPrefixLen = 4;
 
 static bool tryPatchCodeAttributeObserver(const uint8_t* data, size_t len, const std::vector<CpEntry>& cp,
-                                          const std::vector<std::string>& utf8, uint16_t hook_methodref,
-                                          int packet_slot, std::vector<uint8_t>& out) {
+        const std::vector<std::string>& utf8, uint16_t hook_methodref,
+        int packet_slot, std::vector<uint8_t>& out) {
     Reader r(data, len);
     uint16_t max_stack = r.ReadU2();
     uint16_t max_locals = r.ReadU2();
@@ -620,7 +626,9 @@ static bool tryPatchCodeAttributeObserver(const uint8_t* data, size_t len, const
     uint16_t ex_count = r.ReadU2();
     if (!r.ok) return false;
 
-    struct ExEntry { uint16_t start_pc, end_pc, handler_pc, catch_type; };
+    struct ExEntry {
+        uint16_t start_pc, end_pc, handler_pc, catch_type;
+    };
     std::vector<ExEntry> exceptions;
     exceptions.reserve(ex_count);
     for (uint16_t i = 0; i < ex_count; ++i) {
@@ -639,7 +647,7 @@ static bool tryPatchCodeAttributeObserver(const uint8_t* data, size_t len, const
     // Build new code: aload_X + invokestatic (void return) + original code
     std::vector<uint8_t> new_code;
     new_code.reserve(code_len + kObserverPrefixLen);
-    
+
     // aload instruction for the packet parameter
     if (packet_slot <= 3) {
         new_code.push_back(0x2a + packet_slot);  // aload_0..aload_3
@@ -647,12 +655,12 @@ static bool tryPatchCodeAttributeObserver(const uint8_t* data, size_t len, const
         new_code.push_back(0x19);  // aload
         new_code.push_back(static_cast<uint8_t>(packet_slot));
     }
-    
+
     // invokestatic to call the observer hook (void return, no control flow change)
     new_code.push_back(0xb8);
     new_code.push_back(static_cast<uint8_t>((hook_methodref >> 8) & 0xFF));
     new_code.push_back(static_cast<uint8_t>(hook_methodref & 0xFF));
-    
+
     // Original code continues as normal
     new_code.insert(new_code.end(), code, code + code_len);
 
@@ -696,7 +704,7 @@ static bool tryPatchCodeAttributeObserver(const uint8_t* data, size_t len, const
             if (!patchLineNumberTable(attr_data, attr_len, actual_prefix_len, patched)) return false;
             replaced = true;
         } else if (attr_name && (strcmp(attr_name, "LocalVariableTable") == 0 ||
-                                  strcmp(attr_name, "LocalVariableTypeTable") == 0)) {
+                                 strcmp(attr_name, "LocalVariableTypeTable") == 0)) {
             if (!patchLocalVariableTable(attr_data, attr_len, actual_prefix_len, patched)) return false;
             replaced = true;
         }
@@ -845,7 +853,7 @@ static int patchNetworkManagerClass(const uint8_t* data, size_t len, std::vector
 
     if (cp_count > 0xFFF3) return -1;  // Need room for 12 new entries (6 for each method)
     uint16_t base = cp_count;
-    
+
     // Entries for shouldSend (blocking hook)
     uint16_t idx_utf8_class = base;
     uint16_t idx_class = static_cast<uint16_t>(base + 1);
@@ -853,7 +861,7 @@ static int patchNetworkManagerClass(const uint8_t* data, size_t len, std::vector
     uint16_t idx_utf8_desc = static_cast<uint16_t>(base + 3);
     uint16_t idx_name_type = static_cast<uint16_t>(base + 4);
     uint16_t idx_methodref = static_cast<uint16_t>(base + 5);
-    
+
     // Entries for onReceive (observer hook) - shares class ref with shouldSend
     uint16_t idx_utf8_recv_name = static_cast<uint16_t>(base + 6);
     uint16_t idx_utf8_recv_desc = static_cast<uint16_t>(base + 7);
@@ -885,7 +893,7 @@ static int patchNetworkManagerClass(const uint8_t* data, size_t len, std::vector
     w.WriteU1(10);  // CONSTANT_Methodref
     w.WriteU2(idx_class);
     w.WriteU2(idx_name_type);
-    
+
     // onReceive entries (reuses idx_class)
     w.WriteU1(1);  // CONSTANT_Utf8
     w.WriteU2(static_cast<uint16_t>(strlen(kOnReceiveMethodName)));
@@ -964,13 +972,13 @@ static int patchNetworkManagerClass(const uint8_t* data, size_t len, std::vector
         if (m_name < utf8.size() && m_desc < utf8.size()) {
             const std::string& name = utf8[m_name];
             const std::string& desc = utf8[m_desc];
-            
+
             // Log all methods for debugging
             static bool loggedMethods = false;
             if (!loggedMethods && name.length() > 0) {
                 log_debug("[PacketInterceptor] NetworkManager method: %s %s", name.c_str(), desc.c_str());
             }
-            
+
             if (name == "sendPacket" && desc.size() >= 3 && desc.back() == 'V' && desc[desc.size() - 2] == ')') {
                 // Accept either full MCP name or obfuscated single-letter class name
                 if (desc.rfind("(Lnet/minecraft/network/Packet;", 0) == 0) {
@@ -985,7 +993,7 @@ static int patchNetworkManagerClass(const uint8_t* data, size_t len, std::vector
                     }
                 }
             }
-            
+
             // Detect channelRead0 for incoming packets (observer hook, non-destructive)
             // channelRead0 signature: (ChannelHandlerContext, Object) -> void
             // Packet is the SECOND parameter (slot 2 for instance method)
@@ -998,7 +1006,7 @@ static int patchNetworkManagerClass(const uint8_t* data, size_t len, std::vector
                     log_debug("[PacketInterceptor] Found channelRead0 for incoming: %s", desc.c_str());
                 }
             }
-            
+
             // Detect Lunar Client nametag handler methods
             // handleNametagsUpdate(LCPacketNametagsUpdate)V - packet is first param (slot 1)
             // handleOverrideNametags(LCPacketNametagsOverride)V - packet is first param (slot 1)
@@ -1007,18 +1015,18 @@ static int patchNetworkManagerClass(const uint8_t* data, size_t len, std::vector
                 if (desc.back() == 'V' && desc.find(';') != std::string::npos) {
                     is_incoming_target = true;
                     incoming_packet_slot = 1;  // First param for instance method
-                    log_debug("[PacketInterceptor] Found Lunar nametag handler: %s %s (access=0x%04X, attrs=%d)", 
-                             name.c_str(), desc.c_str(), m_access, m_attrs);
+                    log_debug("[PacketInterceptor] Found Lunar nametag handler: %s %s (access=0x%04X, attrs=%d)",
+                              name.c_str(), desc.c_str(), m_access, m_attrs);
                     // Check if method is abstract or native (no Code attribute)
                     bool isAbstract = (m_access & 0x0400) != 0;
                     bool isNative = (m_access & 0x0100) != 0;
                     if (isAbstract || isNative) {
-                        log_warn("[PacketInterceptor] %s is %s - no Code to patch. Need to find implementation class!", 
-                                name.c_str(), isAbstract ? "ABSTRACT" : "NATIVE");
+                        log_warn("[PacketInterceptor] %s is %s - no Code to patch. Need to find implementation class!",
+                                 name.c_str(), isAbstract ? "ABSTRACT" : "NATIVE");
                     }
                 }
             }
-            
+
             // Detect handleCustomPayload for incoming custom payloads (Lunar packets)
             // handleCustomPayload(S3FPacketCustomPayload packetIn) -> void
             // Packet is the first param (slot 1 for instance method)
@@ -1030,7 +1038,7 @@ static int patchNetworkManagerClass(const uint8_t* data, size_t len, std::vector
                     log_debug("[PacketInterceptor] Found handleCustomPayload: %s (access=0x%04X)", desc.c_str(), m_access);
                 }
             }
-            
+
             // Detect handleTeams for scoreboard team packets (S3EPacketTeams)
             // handleTeams(S3EPacketTeams packetIn) -> void
             if (name == kHandleTeams) {
@@ -1040,7 +1048,7 @@ static int patchNetworkManagerClass(const uint8_t* data, size_t len, std::vector
                     log_debug("[PacketInterceptor] Found handleTeams: %s (access=0x%04X)", desc.c_str(), m_access);
                 }
             }
-            
+
             // Mark that we've logged methods
             if (!loggedMethods && i == methods_count - 1) {
                 loggedMethods = true;
@@ -1062,10 +1070,10 @@ static int patchNetworkManagerClass(const uint8_t* data, size_t len, std::vector
 
             bool patched = false;
             std::vector<uint8_t> patched_attr;
-            
+
             // Patch outgoing packets (sendPacket) - blocking hook
             if (is_target && attr_name && strcmp(attr_name, "Code") == 0 &&
-                (m_access & (0x0100 | 0x0400)) == 0) {
+                    (m_access & (0x0100 | 0x0400)) == 0) {
                 bool is_static = (m_access & 0x0008) != 0;
                 if (tryPatchCodeAttribute(attr_data, attr_len, cp, utf8, idx_methodref, is_static, patched_attr)) {
                     w.WriteU2(name_index);
@@ -1075,14 +1083,14 @@ static int patchNetworkManagerClass(const uint8_t* data, size_t len, std::vector
                     ++patched_methods;
                 }
             }
-            
+
             // Patch incoming packets (channelRead0) - observer hook (non-blocking)
             if (!patched && is_incoming_target && attr_name && strcmp(attr_name, "Code") == 0 &&
-                (m_access & (0x0100 | 0x0400)) == 0) {
+                    (m_access & (0x0100 | 0x0400)) == 0) {
                 const std::string& method_name = (m_name < utf8.size()) ? utf8[m_name] : "";
                 log_debug("[PacketInterceptor] Attempting observer patch for: %s (slot=%d, methodref=%d)",
-                         method_name.c_str(), incoming_packet_slot, idx_recv_methodref);
-                         
+                          method_name.c_str(), incoming_packet_slot, idx_recv_methodref);
+
                 if (tryPatchCodeAttributeObserver(attr_data, attr_len, cp, utf8, idx_recv_methodref, incoming_packet_slot, patched_attr)) {
                     w.WriteU2(name_index);
                     w.WriteU4(static_cast<uint32_t>(patched_attr.size()));
@@ -1132,7 +1140,7 @@ static void JNICALL onClassFileLoadHook(jvmtiEnv* jvmti_env, JNIEnv* jni_env, jc
     (void)protection_domain;
 
     if (!name) return;
-    
+
     // Handle NetworkManager.sendPacket (outgoing packets)
     if (strcmp(name, kTargetClassSlash) == 0) {
         log_debug("[PacketInterceptor] onClassFileLoadHook triggered for NetworkManager");
@@ -1164,13 +1172,13 @@ static void JNICALL onClassFileLoadHook(jvmtiEnv* jvmti_env, JNIEnv* jni_env, jc
         }
         return;
     }
-    
+
     // Hook LCNetHandlerClient methods for Lunar nametag packet interception
     if (strcmp(name, kLunarNetHandlerSlash) == 0) {
         log_debug("[PacketInterceptor] LCNetHandlerClient loaded - patching nametag handlers");
         std::vector<uint8_t> patched;
         int patched_methods = patchNetworkManagerClass(class_data, static_cast<size_t>(class_data_len), patched);
-        
+
         // Even if patchNetworkManagerClass doesn't patch (different method names), we still try
         // The function will find methods matching handleNametagsUpdate pattern
         if (patched_methods > 0) {
@@ -1188,13 +1196,13 @@ static void JNICALL onClassFileLoadHook(jvmtiEnv* jvmti_env, JNIEnv* jni_env, jc
         }
         return;
     }
-    
+
     // Hook NetHandlerPlayClient.handleCustomPayload for incoming Lunar packets
     if (strcmp(name, kIncomingTargetClassSlash) == 0) {
         log_debug("[PacketInterceptor] NetHandlerPlayClient loaded - patching handleCustomPayload");
         std::vector<uint8_t> patched;
         int patched_methods = patchNetworkManagerClass(class_data, static_cast<size_t>(class_data_len), patched);
-        
+
         if (patched_methods > 0) {
             unsigned char* buffer = nullptr;
             jvmtiError err = jvmti_env->Allocate(static_cast<jint>(patched.size()), &buffer);
@@ -1209,7 +1217,7 @@ static void JNICALL onClassFileLoadHook(jvmtiEnv* jvmti_env, JNIEnv* jni_env, jc
         }
         return;
     }
-    
+
     // Debug: Log Lunar-related classes
     if (strstr(name, "lunar") != nullptr || strstr(name, "apollo") != nullptr) {
         //log_debug("[PacketInterceptor] Lunar class loaded: %s", name);
@@ -1422,40 +1430,40 @@ static size_t getDesiredQueueCount() {
 // ============================================================================
 static jobject getNetworkManager(JNIEnv* env) {
     //log_debug("[PacketInterceptor] Getting NetworkManager instance...");
-    
+
     // Path: thePlayer.sendQueue.netManager
     jobject player = mc.getPlayer();
     if (!player) {
         //log_warn("[PacketInterceptor] No player instance");
         return nullptr;
     }
-    
+
     // Get EntityPlayerSP class
     jclass cls_EntityPlayerSP = nullptr;
     if (!Java::AssignClass("net.minecraft.client.entity.EntityPlayerSP", cls_EntityPlayerSP)) {
         //log_err("[PacketInterceptor] Failed to get EntityPlayerSP class");
         return nullptr;
     }
-    
+
     // Get sendQueue field
-    jfieldID fid_sendQueue = env->GetFieldID(cls_EntityPlayerSP, "sendQueue", 
-        "Lnet/minecraft/client/network/NetHandlerPlayClient;");
+    jfieldID fid_sendQueue = env->GetFieldID(cls_EntityPlayerSP, "sendQueue",
+                             "Lnet/minecraft/client/network/NetHandlerPlayClient;");
     if (env->ExceptionCheck()) {
         env->ExceptionClear();
         //log_err("[PacketInterceptor] Failed to get sendQueue field");
         env->DeleteLocalRef(cls_EntityPlayerSP);
         return nullptr;
     }
-    
+
     jobject sendQueue = env->GetObjectField(player, fid_sendQueue);
     env->DeleteLocalRef(cls_EntityPlayerSP);
-    
+
     if (!sendQueue) {
         //log_warn("[PacketInterceptor] sendQueue is null");
         return nullptr;
     }
     //log_debug("[PacketInterceptor] Got sendQueue: %p", sendQueue);
-    
+
     // Get NetHandlerPlayClient class
     jclass cls_NetHandlerPlayClient = nullptr;
     if (!Java::AssignClass("net.minecraft.client.network.NetHandlerPlayClient", cls_NetHandlerPlayClient)) {
@@ -1463,10 +1471,10 @@ static jobject getNetworkManager(JNIEnv* env) {
         env->DeleteLocalRef(sendQueue);
         return nullptr;
     }
-    
+
     // Get netManager field
     jfieldID fid_netManager = env->GetFieldID(cls_NetHandlerPlayClient, "netManager",
-        "Lnet/minecraft/network/NetworkManager;");
+                              "Lnet/minecraft/network/NetworkManager;");
     if (env->ExceptionCheck()) {
         env->ExceptionClear();
         //log_err("[PacketInterceptor] Failed to get netManager field");
@@ -1474,17 +1482,17 @@ static jobject getNetworkManager(JNIEnv* env) {
         env->DeleteLocalRef(sendQueue);
         return nullptr;
     }
-    
+
     jobject netManager = env->GetObjectField(sendQueue, fid_netManager);
     env->DeleteLocalRef(cls_NetHandlerPlayClient);
     env->DeleteLocalRef(sendQueue);
-    
+
     if (netManager) {
         //log_ok("[PacketInterceptor] Got NetworkManager: %p", netManager);
     } else {
         //log_warn("[PacketInterceptor] netManager is null");
     }
-    
+
     return netManager;
 }
 
@@ -1500,7 +1508,7 @@ static bool cachePacketClasses(JNIEnv* env) {
         env->DeleteLocalRef(localRef);
         return globalRef;
     };
-    
+
     // NetworkManager
     jclass localClass = nullptr;
     if (!Java::AssignClass("net.minecraft.network.NetworkManager", localClass)) {
@@ -1513,7 +1521,7 @@ static bool cachePacketClasses(JNIEnv* env) {
         return false;
     }
     //log_ok("[PacketInterceptor] Cached NetworkManager class");
-    
+
     // Base Packet class
     localClass = nullptr;
     if (!Java::AssignClass("net.minecraft.network.Packet", localClass)) {
@@ -1526,7 +1534,7 @@ static bool cachePacketClasses(JNIEnv* env) {
         return false;
     }
     //log_ok("[PacketInterceptor] Cached Packet class");
-    
+
     // C03PacketPlayer (base for movement)
     localClass = nullptr;
     if (!Java::AssignClass("net.minecraft.network.play.client.C03PacketPlayer", localClass)) {
@@ -1537,7 +1545,7 @@ static bool cachePacketClasses(JNIEnv* env) {
         cls_C03PacketPlayer = makeGlobal(localClass);
         //log_ok("[PacketInterceptor] Cached C03PacketPlayer class");
     }
-    
+
     // C04PacketPlayerPosition (with position)
     localClass = nullptr;
     if (!Java::AssignClass("net.minecraft.network.play.client.C03PacketPlayer$C04PacketPlayerPosition", localClass)) {
@@ -1550,7 +1558,7 @@ static bool cachePacketClasses(JNIEnv* env) {
     if (cls_C04PacketPlayerPosition) {
         //log_ok("[PacketInterceptor] Cached C04PacketPlayerPosition class");
     }
-    
+
     // C05PacketPlayerLook (with rotation)
     localClass = nullptr;
     if (!Java::AssignClass("net.minecraft.network.play.client.C03PacketPlayer$C05PacketPlayerLook", localClass)) {
@@ -1562,7 +1570,7 @@ static bool cachePacketClasses(JNIEnv* env) {
     if (cls_C05PacketPlayerLook) {
         //log_ok("[PacketInterceptor] Cached C05PacketPlayerLook class");
     }
-    
+
     // C06PacketPlayerPosLook (position + rotation)
     localClass = nullptr;
     if (!Java::AssignClass("net.minecraft.network.play.client.C03PacketPlayer$C06PacketPlayerPosLook", localClass)) {
@@ -1574,14 +1582,14 @@ static bool cachePacketClasses(JNIEnv* env) {
     if (cls_C06PacketPlayerPosLook) {
         //log_ok("[PacketInterceptor] Cached C06PacketPlayerPosLook class");
     }
-    
+
     // Get sendPacket method
     mid_sendPacket = env->GetMethodID(cls_NetworkManager, "sendPacket",
-        "(Lnet/minecraft/network/Packet;)V");
+                                      "(Lnet/minecraft/network/Packet;)V");
     if (env->ExceptionCheck()) {
         env->ExceptionClear();
         //log_warn("[PacketInterceptor] sendPacket(Packet) not found directly, trying alternatives...");
-        
+
         // List methods to find correct signature
         if (Java::tiEnv) {
             jint methodCount = 0;
@@ -1612,7 +1620,7 @@ static bool cachePacketClasses(JNIEnv* env) {
     } else {
         //log_ok("[PacketInterceptor] Cached sendPacket method");
     }
-    
+
     return true;
 }
 
@@ -1623,16 +1631,21 @@ static jboolean JNICALL nativeShouldSend(JNIEnv* env, jclass, jobject packet) {
 // Native callback for incoming packets (observer only, void return)
 static void JNICALL nativeOnReceive(JNIEnv* env, jclass, jobject packet) {
     if (!packet) return;
-    
+
     // Cached JNI references for S3FPacketCustomPayload
     static jclass cls_S3FPacketCustomPayload = nullptr;
     static jmethodID mid_getChannelName = nullptr;
     static jmethodID mid_getBufferData = nullptr;
+    static jmethodID mid_getChannelName_legacy = nullptr;
+    static jmethodID mid_getPayloadBytes_legacy = nullptr;
     static jclass cls_PacketBuffer = nullptr;
     static jmethodID mid_readableBytes = nullptr;
     static jmethodID mid_readBytes = nullptr;
+    static jmethodID mid_array = nullptr;
+    static jmethodID mid_readerIndex = nullptr;
+    static bool useLegacyCustomPayload = false;
     static bool triedInit = false;
-    
+
     if (!triedInit) {
         triedInit = true;
         jclass local = env->FindClass("net/minecraft/network/play/server/S3FPacketCustomPayload");
@@ -1643,6 +1656,20 @@ static void JNICALL nativeOnReceive(JNIEnv* env, jclass, jobject packet) {
             mid_getBufferData = env->GetMethodID(cls_S3FPacketCustomPayload, "getBufferData", "()Lnet/minecraft/network/PacketBuffer;");
             if (env->ExceptionCheck()) {
                 env->ExceptionClear();
+                mid_getChannelName = nullptr;
+                mid_getBufferData = nullptr;
+            }
+        }
+        // 1.7.10 fallback: obfuscated methods returning byte[]
+        if (cls_S3FPacketCustomPayload && (!mid_getChannelName || !mid_getBufferData)) {
+            mid_getChannelName_legacy = env->GetMethodID(cls_S3FPacketCustomPayload, "func_149169_c", "()Ljava/lang/String;");
+            mid_getPayloadBytes_legacy = env->GetMethodID(cls_S3FPacketCustomPayload, "func_149168_d", "()[B");
+            if (env->ExceptionCheck()) {
+                env->ExceptionClear();
+                mid_getChannelName_legacy = nullptr;
+                mid_getPayloadBytes_legacy = nullptr;
+            } else if (mid_getChannelName_legacy && mid_getPayloadBytes_legacy) {
+                useLegacyCustomPayload = true;
             }
         }
         // PacketBuffer class for reading bytes
@@ -1655,410 +1682,568 @@ static void JNICALL nativeOnReceive(JNIEnv* env, jclass, jobject packet) {
             if (env->ExceptionCheck()) {
                 env->ExceptionClear();
             }
+            mid_array = env->GetMethodID(cls_PacketBuffer, "array", "()[B");
+            mid_readerIndex = env->GetMethodID(cls_PacketBuffer, "readerIndex", "()I");
+            if (env->ExceptionCheck()) {
+                env->ExceptionClear();
+                mid_array = nullptr;
+                mid_readerIndex = nullptr;
+            }
         }
         if (env->ExceptionCheck()) env->ExceptionClear();
     }
-    
+
     // If this is a CustomPayload packet, check for lunar:apollo channel
     if (cls_S3FPacketCustomPayload && env->IsInstanceOf(packet, cls_S3FPacketCustomPayload)) {
-        if (mid_getChannelName) {
-            jstring channelStr = (jstring)env->CallObjectMethod(packet, mid_getChannelName);
+        jmethodID channelMethod = mid_getChannelName ? mid_getChannelName : mid_getChannelName_legacy;
+        if (channelMethod) {
+            jstring channelStr = (jstring)env->CallObjectMethod(packet, channelMethod);
             if (channelStr) {
                 const char* channel = env->GetStringUTFChars(channelStr, nullptr);
                 if (channel) {
                     // Only process lunar:apollo packets
                     if (strcmp(channel, "lunar:apollo") == 0) {
-                        // Get the PacketBuffer
-                        if (mid_getBufferData) {
-                            jobject packetBuffer = env->CallObjectMethod(packet, mid_getBufferData);
-                            if (packetBuffer && !env->ExceptionCheck()) {
-                                // Get readable bytes count
-                                if (mid_readableBytes) {
-                                    jint readableBytes = env->CallIntMethod(packetBuffer, mid_readableBytes);
-                                    if (readableBytes > 0 && readableBytes < 65536) {
-                                        // Read bytes using Netty method - get as byte array
-                                        // Use array() method or iterate
-                                        jmethodID mid_array = env->GetMethodID(cls_PacketBuffer, "array", "()[B");
-                                        jmethodID mid_readerIndex = env->GetMethodID(cls_PacketBuffer, "readerIndex", "()I");
-                                        if (mid_array && mid_readerIndex && !env->ExceptionCheck()) {
-                                            jbyteArray byteArray = (jbyteArray)env->CallObjectMethod(packetBuffer, mid_array);
-                                            jint readerIdx = env->CallIntMethod(packetBuffer, mid_readerIndex);
-                                            if (byteArray && !env->ExceptionCheck()) {
-                                                jbyte* bytes = env->GetByteArrayElements(byteArray, nullptr);
-                                                jint arrayLen = env->GetArrayLength(byteArray);
-                                                if (bytes && readerIdx >= 0 && readerIdx + readableBytes <= arrayLen) {
-                                                    // Parse protobuf Any wrapper to get type_url
-                                                    // Protobuf wire format: field 1 (type_url) = tag 0x0A (field 1, wire type 2)
-                                                    // Field 2 (value) = tag 0x12 (field 2, wire type 2)
-                                                    const uint8_t* data = (const uint8_t*)(bytes + readerIdx);
-                                                    int len = readableBytes;
-                                                    
-                                                    // Simple protobuf Any parser
-                                                    std::string typeUrl;
-                                                    int pos = 0;
-                                                    while (pos < len) {
-                                                        if (pos >= len) break;
-                                                        uint8_t tag = data[pos++];
-                                                        int fieldNum = tag >> 3;
-                                                        int wireType = tag & 0x07;
-                                                        
-                                                        if (wireType == 2) { // Length-delimited
-                                                            // Read varint length
-                                                            int strLen = 0;
-                                                            int shift = 0;
-                                                            while (pos < len) {
-                                                                uint8_t b = data[pos++];
-                                                                strLen |= (b & 0x7F) << shift;
-                                                                shift += 7;
-                                                                if (!(b & 0x80)) break;
-                                                            }
-                                                            if (fieldNum == 1 && strLen > 0 && pos + strLen <= len) {
-                                                                // type_url field
-                                                                typeUrl = std::string((const char*)(data + pos), strLen);
-                                                            }
-                                                            pos += strLen;
-                                                        } else if (wireType == 0) { // Varint
-                                                            while (pos < len && (data[pos++] & 0x80));
-                                                        } else {
-                                                            break; // Unknown wire type
-                                                        }
-                                                    }
-                                                    
-                                                    // Log if we found a nametag message
-                                                    if (!typeUrl.empty()) {
-                                                        static std::atomic<int> apolloLogCount{0};
-                                                        static std::atomic<int> nametagCount{0};
-                                                        static std::atomic<int> teamCount{0};
-                                                        
-                                                        // Debug: log all Apollo packet types (first 50)
-                                                        if (apolloLogCount.load() < 50) {
-                                                            log_debug("[Apollo] type_url: %s", typeUrl.c_str());
-                                                            apolloLogCount++;
-                                                        }
-                                                        
-                                                        // Detect and parse Team messages
-                                                        if (typeUrl.find("UpdateTeamMembers") != std::string::npos) {
-                                                            // Parse value field (field 2) from Any wrapper
-                                                            const uint8_t* valueData = nullptr;
-                                                            int valueLen = 0;
-                                                            int parsePos = 0;
-                                                            while (parsePos < len) {
-                                                                uint8_t tag = data[parsePos++];
-                                                                int fieldNum = tag >> 3;
-                                                                int wireType = tag & 0x07;
-                                                                if (wireType == 2) {
-                                                                    int fLen = 0, shift = 0;
-                                                                    while (parsePos < len) {
-                                                                        uint8_t b = data[parsePos++];
-                                                                        fLen |= (b & 0x7F) << shift;
-                                                                        shift += 7;
-                                                                        if (!(b & 0x80)) break;
-                                                                    }
-                                                                    if (fieldNum == 2 && fLen > 0 && parsePos + fLen <= len) {
-                                                                        valueData = data + parsePos;
-                                                                        valueLen = fLen;
-                                                                    }
-                                                                    parsePos += fLen;
-                                                                } else if (wireType == 0) {
-                                                                    while (parsePos < len && (data[parsePos++] & 0x80));
-                                                                } else break;
-                                                            }
-                                                            
-                                                            // Parse UpdateTeamMembersMessage: field 1 = members (repeated TeamMember)
-                                                            if (valueData && valueLen > 0) {
-                                                                std::vector<std::pair<uint64_t, uint64_t>> teammateUuids;
-                                                                
-                                                                // Debug: log valueLen once
-                                                                static std::atomic<int> parseDebugCount{0};
-                                                                bool shouldDebug = parseDebugCount.load() < 3;
-                                                                if (shouldDebug) {
-                                                                    log_debug("[Apollo] Team value len: %d bytes", valueLen);
-                                                                }
-                                                                
-                                                                int memberCount = 0;
-                                                                int vPos = 0;
-                                                                while (vPos < valueLen) {
-                                                                    uint8_t vTag = valueData[vPos++];
-                                                                    int vFieldNum = vTag >> 3;
-                                                                    int vWireType = vTag & 0x07;
-                                                                    
-                                                                    if (vWireType == 2) { // Length-delimited
-                                                                        int vLen = 0, vShift = 0;
-                                                                        while (vPos < valueLen) {
-                                                                            uint8_t b = valueData[vPos++];
-                                                                            vLen |= (b & 0x7F) << vShift;
-                                                                            vShift += 7;
-                                                                            if (!(b & 0x80)) break;
-                                                                        }
-                                                                        if (vFieldNum == 1 && vLen > 0 && vPos + vLen <= valueLen) {
-                                                                            memberCount++;
-                                                                            // TeamMember message: field 1 = player_uuid
-                                                                            const uint8_t* memberData = valueData + vPos;
-                                                                            int mPos = 0;
-                                                                            uint64_t uuidHigh = 0, uuidLow = 0;
-                                                                            bool foundUuidField = false;
-                                                                            
-                                                                            // Debug: log first member's fields
-                                                                            if (memberCount == 1 && shouldDebug) {
-                                                                                log_debug("[Apollo]   Member1 len=%d, first bytes: %02x %02x %02x %02x %02x", 
-                                                                                    vLen, 
-                                                                                    vLen > 0 ? memberData[0] : 0,
-                                                                                    vLen > 1 ? memberData[1] : 0,
-                                                                                    vLen > 2 ? memberData[2] : 0,
-                                                                                    vLen > 3 ? memberData[3] : 0,
-                                                                                    vLen > 4 ? memberData[4] : 0);
-                                                                            }
-                                                                            while (mPos < vLen) {
-                                                                                uint8_t mTag = memberData[mPos++];
-                                                                                int mFieldNum = mTag >> 3;
-                                                                                int mWireType = mTag & 0x07;
-                                                                                if (mWireType == 2) {
-                                                                                    int mLen = 0, mShift = 0;
-                                                                                    while (mPos < vLen) {
-                                                                                        uint8_t b = memberData[mPos++];
-                                                                                        mLen |= (b & 0x7F) << mShift;
-                                                                                        mShift += 7;
-                                                                                        if (!(b & 0x80)) break;
-                                                                                    }
-                                                                                    if (mFieldNum == 1 && mLen > 0 && mPos + mLen <= vLen) {
-                                                                                        // player_uuid (Uuid proto) - uses fixed64 for high64/low64
-                                                                                        const uint8_t* uuidData = memberData + mPos;
-                                                                                        int uPos = 0;
-                                                                                        while (uPos < mLen) {
-                                                                                            uint8_t uTag = uuidData[uPos++];
-                                                                                            int uFieldNum = uTag >> 3;
-                                                                                            int uWireType = uTag & 0x07;
-                                                                                            
-                                                                                            if (uWireType == 1 && uPos + 8 <= mLen) {
-                                                                                                // Wire type 1 = fixed64 (8 bytes little-endian)
-                                                                                                uint64_t val = 0;
-                                                                                                for (int i = 0; i < 8; i++) {
-                                                                                                    val |= (uint64_t)uuidData[uPos + i] << (i * 8);
-                                                                                                }
-                                                                                                uPos += 8;
-                                                                                                if (uFieldNum == 1) uuidHigh = val;
-                                                                                                else if (uFieldNum == 2) uuidLow = val;
-                                                                                            } else if (uWireType == 0) {
-                                                                                                // Wire type 0 = varint (skip)
-                                                                                                while (uPos < mLen && (uuidData[uPos++] & 0x80));
-                                                                                            } else break;
-                                                                                        }
-                                                                                        if (uuidHigh != 0 || uuidLow != 0) {
-                                                                                            teammateUuids.push_back({uuidHigh, uuidLow});
-                                                                                        }
-                                                                                    }
-                                                                                    mPos += mLen;
-                                                                                } else if (mWireType == 0) {
-                                                                                    while (mPos < vLen && (memberData[mPos++] & 0x80));
-                                                                                } else break;
-                                                                            }
-                                                                        }
-                                                                        vPos += vLen;
-                                                                    } else if (vWireType == 0) {
-                                                                        while (vPos < valueLen && (valueData[vPos++] & 0x80));
-                                                                    } else break;
-                                                                }
-                                                                
-                                                                if (shouldDebug) {
-                                                                    log_debug("[Apollo] Team: found %d members, extracted %zu UUIDs", memberCount, teammateUuids.size());
-                                                                    parseDebugCount++;
-                                                                }
-                                                                
-                                                                // Log teammates found
-                                                                if (!teammateUuids.empty() && teamCount.load() < 5) {
-                                                                    log_ok("[Apollo] Team update: %zu teammates", teammateUuids.size());
-                                                                    for (size_t i = 0; i < std::min(teammateUuids.size(), (size_t)3); i++) {
-                                                                        char uuidStr[64];
-                                                                        uint64_t h = teammateUuids[i].first;
-                                                                        uint64_t l = teammateUuids[i].second;
-                                                                        snprintf(uuidStr, sizeof(uuidStr), 
-                                                                            "%08x-%04x-%04x-%04x-%012llx",
-                                                                            (uint32_t)(h >> 32), (uint16_t)(h >> 16),
-                                                                            (uint16_t)h, (uint16_t)(l >> 48),
-                                                                            (unsigned long long)(l & 0xFFFFFFFFFFFFULL));
-                                                                        log_debug("[Apollo]   Teammate[%zu]: %s", i, uuidStr);
-                                                                    }
-                                                                    teamCount++;
-                                                                }
-                                                            } else if (teamCount.load() < 2) {
-                                                                log_warn("[Apollo] Team: no value data (valueLen=%d)", valueLen);
-                                                            }
-                                                        }
-                                                        
-                                                        if (typeUrl.find("OverrideNametagMessage") != std::string::npos) {
-                                                            // Parse the value field (field 2) from Any wrapper
-                                                            const uint8_t* valueData = nullptr;
-                                                            int valueLen = 0;
-                                                            int parsePos = 0;
-                                                            while (parsePos < len) {
-                                                                uint8_t tag = data[parsePos++];
-                                                                int fieldNum = tag >> 3;
-                                                                int wireType = tag & 0x07;
-                                                                
-                                                                if (wireType == 2) {
-                                                                    int fLen = 0, shift = 0;
-                                                                    while (parsePos < len) {
-                                                                        uint8_t b = data[parsePos++];
-                                                                        fLen |= (b & 0x7F) << shift;
-                                                                        shift += 7;
-                                                                        if (!(b & 0x80)) break;
-                                                                    }
-                                                                    if (fieldNum == 2 && fLen > 0 && parsePos + fLen <= len) {
-                                                                        valueData = data + parsePos;
-                                                                        valueLen = fLen;
-                                                                    }
-                                                                    parsePos += fLen;
-                                                                } else if (wireType == 0) {
-                                                                    while (parsePos < len && (data[parsePos++] & 0x80));
-                                                                } else break;
-                                                            }
-                                                            
-                                                            // Parse OverrideNametagMessage: field 1 = player_uuid, field 2 = adventure_json_lines
-                                                            if (valueData && valueLen > 0) {
-                                                                uint64_t uuidHigh = 0, uuidLow = 0;
-                                                                std::vector<std::string> jsonLines;
-                                                                
-                                                                // Debug first nametag
-                                                                static std::atomic<int> nametagDebug{0};
-                                                                if (nametagDebug.load() < 3) {
-                                                                    log_debug("[Apollo] Nametag valueLen=%d, first bytes: %02x %02x %02x %02x %02x",
-                                                                        valueLen,
-                                                                        valueLen > 0 ? valueData[0] : 0,
-                                                                        valueLen > 1 ? valueData[1] : 0,
-                                                                        valueLen > 2 ? valueData[2] : 0,
-                                                                        valueLen > 3 ? valueData[3] : 0,
-                                                                        valueLen > 4 ? valueData[4] : 0);
-                                                                }
-                                                                
-                                                                int vPos = 0;
-                                                                int fieldCount = 0;
-                                                                while (vPos < valueLen) {
-                                                                    uint8_t vTag = valueData[vPos++];
-                                                                    int vFieldNum = vTag >> 3;
-                                                                    int vWireType = vTag & 0x07;
-                                                                    
-                                                                    // Debug: log first 5 fields
-                                                                    if (nametagDebug.load() < 3 && fieldCount < 5) {
-                                                                        log_debug("[Apollo]   Nametag field %d: tag=0x%02x (field=%d wire=%d) at pos=%d", 
-                                                                            fieldCount, vTag, vFieldNum, vWireType, vPos-1);
-                                                                    }
-                                                                    fieldCount++;
-                                                                    
-                                                                    if (vWireType == 2) { // Length-delimited
-                                                                        int vLen = 0, vShift = 0;
-                                                                        while (vPos < valueLen) {
-                                                                            uint8_t b = valueData[vPos++];
-                                                                            vLen |= (b & 0x7F) << vShift;
-                                                                            vShift += 7;
-                                                                            if (!(b & 0x80)) break;
-                                                                        }
-                                                                        if (vFieldNum == 1 && vLen > 0 && vPos + vLen <= valueLen) {
-                                                                            // player_uuid (Uuid message with fixed64 high64/low64)
-                                                                            const uint8_t* uuidData = valueData + vPos;
-                                                                            int uPos = 0;
-                                                                            while (uPos < vLen) {
-                                                                                uint8_t uTag = uuidData[uPos++];
-                                                                                int uFieldNum = uTag >> 3;
-                                                                                int uWireType = uTag & 0x07;
-                                                                                
-                                                                                if (uWireType == 1 && uPos + 8 <= vLen) {
-                                                                                    // Wire type 1 = fixed64 (8 bytes little-endian)
-                                                                                    uint64_t val = 0;
-                                                                                    for (int i = 0; i < 8; i++) {
-                                                                                        val |= (uint64_t)uuidData[uPos + i] << (i * 8);
-                                                                                    }
-                                                                                    uPos += 8;
-                                                                                    if (uFieldNum == 1) uuidHigh = val;
-                                                                                    else if (uFieldNum == 2) uuidLow = val;
-                                                                                } else if (uWireType == 0) {
-                                                                                    // Varint - skip
-                                                                                    while (uPos < vLen && (uuidData[uPos++] & 0x80));
-                                                                                } else break;
-                                                                            }
-                                                                        } else if (vFieldNum == 3 && vLen > 0 && vPos + vLen <= valueLen) {
-                                                                            // adventure_json_lines (repeated string) - field 3!
-                                                                            jsonLines.push_back(std::string((const char*)(valueData + vPos), vLen));
-                                                                        }
-                                                                        vPos += vLen;
-                                                                    } else if (vWireType == 0) {
-                                                                        while (vPos < valueLen && (valueData[vPos++] & 0x80));
-                                                                    } else break;
-                                                                }
-                                                                
-                                                                // Debug parsing results
-                                                                if (nametagDebug.load() < 3) {
-                                                                    log_debug("[Apollo] Nametag parsed: uuidHigh=%llx uuidLow=%llx lines=%zu",
-                                                                        (unsigned long long)uuidHigh, (unsigned long long)uuidLow, jsonLines.size());
-                                                                    nametagDebug++;
-                                                                }
-                                                                
-                                                                // Detect color from JSON lines
-                                                                std::string detectedColor = "unknown";
-                                                                
-                                                                // Debug: log first JSON line
-                                                                if (nametagDebug.load() < 5 && !jsonLines.empty()) {
-                                                                    std::string preview = jsonLines[0];
-                                                                    if (preview.length() > 80) preview = preview.substr(0, 80) + "...";
-                                                                    log_debug("[Apollo]   JSON[0]: %s", preview.c_str());
-                                                                }
-                                                                
-                                                                for (const auto& line : jsonLines) {
-                                                                    // Server uses Minecraft format codes: §2=dark green, §a=green, §c=red, etc
-                                                                    // § = UTF-8 C2 A7, then color code character
-                                                                    // §2 (dark green) or §a (green) = teammate
-                                                                    if (line.find("\xc2" "\xa7" "2") != std::string::npos ||
-                                                                        line.find("\xc2" "\xa7" "a") != std::string::npos) {
-                                                                        detectedColor = "GREEN";
-                                                                        break;
-                                                                    // §c (red) or §4 (dark red) = enemy
-                                                                    } else if (line.find("\xc2" "\xa7" "c") != std::string::npos ||
-                                                                               line.find("\xc2" "\xa7" "4") != std::string::npos) {
-                                                                        detectedColor = "RED";
-                                                                        break;
-                                                                    // §b (aqua) or §3 (dark aqua)
-                                                                    } else if (line.find("\xc2" "\xa7" "b") != std::string::npos ||
-                                                                               line.find("\xc2" "\xa7" "3") != std::string::npos) {
-                                                                        detectedColor = "AQUA";
-                                                                        break;
-                                                                    // §e (yellow) or §6 (gold)
-                                                                    } else if (line.find("\xc2" "\xa7" "e") != std::string::npos ||
-                                                                               line.find("\xc2" "\xa7" "6") != std::string::npos) {
-                                                                        detectedColor = "YELLOW";
-                                                                        break;
-                                                                    }
-                                                                }
-                                                                
-                                                                // Log the parsed nametag with color
-                                                                if ((uuidHigh != 0 || uuidLow != 0) && !jsonLines.empty()) {
-                                                                    if (nametagCount.load() < 10) {
-                                                                        // Format UUID
-                                                                        char uuidStr[64];
-                                                                        snprintf(uuidStr, sizeof(uuidStr), 
-                                                                            "%08x-%04x-%04x-%04x-%012llx",
-                                                                            (uint32_t)(uuidHigh >> 32),
-                                                                            (uint16_t)(uuidHigh >> 16),
-                                                                            (uint16_t)uuidHigh,
-                                                                            (uint16_t)(uuidLow >> 48),
-                                                                            (unsigned long long)(uuidLow & 0xFFFFFFFFFFFFULL));
-                                                                        
-                                                                        log_ok("[Apollo] Nametag: UUID=%s color=%s", uuidStr, detectedColor.c_str());
-                                                                        nametagCount++;
-                                                                    }
-                                                                }
-                                                            }
-                                                        }
-                                                    }
+                        jbyteArray byteArray = nullptr;
+                        jbyte* bytes = nullptr;
+                        const uint8_t* data = nullptr;
+                        int len = 0;
+                        jobject packetBuffer = nullptr;
+
+                        // 1.8+: PacketBuffer -> array() + readerIndex()
+                        if (mid_getBufferData && !useLegacyCustomPayload) {
+                            packetBuffer = env->CallObjectMethod(packet, mid_getBufferData);
+                            if (packetBuffer && !env->ExceptionCheck() && mid_readableBytes && mid_array && mid_readerIndex) {
+                                jint readableBytes = env->CallIntMethod(packetBuffer, mid_readableBytes);
+                                if (readableBytes > 0 && readableBytes < 65536) {
+                                    jint readerIdx = env->CallIntMethod(packetBuffer, mid_readerIndex);
+                                    if (!env->ExceptionCheck()) {
+                                        byteArray = (jbyteArray)env->CallObjectMethod(packetBuffer, mid_array);
+                                        if (byteArray && !env->ExceptionCheck()) {
+                                            jint arrayLen = env->GetArrayLength(byteArray);
+                                            if (readerIdx >= 0 && readerIdx + readableBytes <= arrayLen) {
+                                                bytes = env->GetByteArrayElements(byteArray, nullptr);
+                                                if (bytes) {
+                                                    data = (const uint8_t*)(bytes + readerIdx);
+                                                    len = readableBytes;
                                                 }
-                                                env->ReleaseByteArrayElements(byteArray, bytes, JNI_ABORT);
                                             }
                                         }
-                                        if (env->ExceptionCheck()) env->ExceptionClear();
                                     }
                                 }
-                                env->DeleteLocalRef(packetBuffer);
                             }
-                            if (env->ExceptionCheck()) env->ExceptionClear();
                         }
+
+                        // 1.7.10: byte[] payload via func_149168_d
+                        if (!data && mid_getPayloadBytes_legacy) {
+                            byteArray = (jbyteArray)env->CallObjectMethod(packet, mid_getPayloadBytes_legacy);
+                            if (byteArray && !env->ExceptionCheck()) {
+                                jint arrayLen = env->GetArrayLength(byteArray);
+                                if (arrayLen > 0 && arrayLen < 65536) {
+                                    bytes = env->GetByteArrayElements(byteArray, nullptr);
+                                    if (bytes) {
+                                        data = (const uint8_t*)bytes;
+                                        len = arrayLen;
+                                    }
+                                }
+                            }
+                        }
+
+                        if (data && len > 0) {
+                            // Parse protobuf Any wrapper to get type_url
+                            // Protobuf wire format: field 1 (type_url) = tag 0x0A (field 1, wire type 2)
+                            // Field 2 (value) = tag 0x12 (field 2, wire type 2)
+                            std::string typeUrl;
+                            int pos = 0;
+                            while (pos < len) {
+                                if (pos >= len) break;
+                                uint8_t tag = data[pos++];
+                                int fieldNum = tag >> 3;
+                                int wireType = tag & 0x07;
+
+                                if (wireType == 2) { // Length-delimited
+                                    // Read varint length
+                                    int strLen = 0;
+                                    int shift = 0;
+                                    while (pos < len) {
+                                        uint8_t b = data[pos++];
+                                        strLen |= (b & 0x7F) << shift;
+                                        shift += 7;
+                                        if (!(b & 0x80)) break;
+                                    }
+                                    if (fieldNum == 1 && strLen > 0 && pos + strLen <= len) {
+                                        // type_url field
+                                        typeUrl = std::string((const char*)(data + pos), strLen);
+                                    }
+                                    pos += strLen;
+                                } else if (wireType == 0) { // Varint
+                                    while (pos < len && (data[pos++] & 0x80));
+                                } else {
+                                    break; // Unknown wire type
+                                }
+                            }
+
+                            // Log if we found a nametag message
+                            if (!typeUrl.empty()) {
+                                static std::atomic<int> teamCount{0};
+
+                                // Detect and parse Team messages
+                                if (typeUrl.find("UpdateTeamMembers") != std::string::npos) {
+                                    // Parse value field (field 2) from Any wrapper
+                                    const uint8_t* valueData = nullptr;
+                                    int valueLen = 0;
+                                    int parsePos = 0;
+                                    while (parsePos < len) {
+                                        uint8_t tag = data[parsePos++];
+                                        int fieldNum = tag >> 3;
+                                        int wireType = tag & 0x07;
+                                        if (wireType == 2) {
+                                            int fLen = 0, shift = 0;
+                                            while (parsePos < len) {
+                                                uint8_t b = data[parsePos++];
+                                                fLen |= (b & 0x7F) << shift;
+                                                shift += 7;
+                                                if (!(b & 0x80)) break;
+                                            }
+                                            if (fieldNum == 2 && fLen > 0 && parsePos + fLen <= len) {
+                                                valueData = data + parsePos;
+                                                valueLen = fLen;
+                                            }
+                                            parsePos += fLen;
+                                        } else if (wireType == 0) {
+                                            while (parsePos < len && (data[parsePos++] & 0x80));
+                                        } else break;
+                                    }
+
+                                    // Parse UpdateTeamMembersMessage: field 1 = members (repeated TeamMember)
+                                    if (valueData && valueLen > 0) {
+                                        std::vector<std::pair<uint64_t, uint64_t>> teammateUuids;
+
+                                        // Debug: log valueLen once
+                                        static std::atomic<int> parseDebugCount{0};
+                                        bool shouldDebug = parseDebugCount.load() < 3;
+                                        if (shouldDebug) {
+                                            log_debug("[Apollo] Team value len: %d bytes", valueLen);
+                                        }
+
+                                        int memberCount = 0;
+                                        int vPos = 0;
+                                        while (vPos < valueLen) {
+                                            uint8_t vTag = valueData[vPos++];
+                                            int vFieldNum = vTag >> 3;
+                                            int vWireType = vTag & 0x07;
+
+                                            if (vWireType == 2) { // Length-delimited
+                                                int vLen = 0, vShift = 0;
+                                                while (vPos < valueLen) {
+                                                    uint8_t b = valueData[vPos++];
+                                                    vLen |= (b & 0x7F) << vShift;
+                                                    vShift += 7;
+                                                    if (!(b & 0x80)) break;
+                                                }
+                                                if (vFieldNum == 1 && vLen > 0 && vPos + vLen <= valueLen) {
+                                                    memberCount++;
+                                                    // TeamMember message: field 1 = player_uuid
+                                                    const uint8_t* memberData = valueData + vPos;
+                                                    int mPos = 0;
+                                                    uint64_t uuidHigh = 0, uuidLow = 0;
+
+                                                    // Debug: log first member's fields
+                                                    if (memberCount == 1 && shouldDebug) {
+                                                        log_debug("[Apollo]   Member1 len=%d, first bytes: %02x %02x %02x %02x %02x",
+                                                                  vLen,
+                                                                  vLen > 0 ? memberData[0] : 0,
+                                                                  vLen > 1 ? memberData[1] : 0,
+                                                                  vLen > 2 ? memberData[2] : 0,
+                                                                  vLen > 3 ? memberData[3] : 0,
+                                                                  vLen > 4 ? memberData[4] : 0);
+                                                    }
+                                                    while (mPos < vLen) {
+                                                        uint8_t mTag = memberData[mPos++];
+                                                        int mFieldNum = mTag >> 3;
+                                                        int mWireType = mTag & 0x07;
+                                                        if (mWireType == 2) {
+                                                            int mLen = 0, mShift = 0;
+                                                            while (mPos < vLen) {
+                                                                uint8_t b = memberData[mPos++];
+                                                                mLen |= (b & 0x7F) << mShift;
+                                                                mShift += 7;
+                                                                if (!(b & 0x80)) break;
+                                                            }
+                                                            if (mFieldNum == 1 && mLen > 0 && mPos + mLen <= vLen) {
+                                                                // player_uuid (Uuid proto) - uses fixed64 for high64/low64
+                                                                const uint8_t* uuidData = memberData + mPos;
+                                                                int uPos = 0;
+                                                                while (uPos < mLen) {
+                                                                    uint8_t uTag = uuidData[uPos++];
+                                                                    int uFieldNum = uTag >> 3;
+                                                                    int uWireType = uTag & 0x07;
+
+                                                                    if (uWireType == 1 && uPos + 8 <= mLen) {
+                                                                        // Wire type 1 = fixed64 (8 bytes little-endian)
+                                                                        uint64_t val = 0;
+                                                                        for (int i = 0; i < 8; i++) {
+                                                                            val |= (uint64_t)uuidData[uPos + i] << (i * 8);
+                                                                        }
+                                                                        uPos += 8;
+                                                                        if (uFieldNum == 1) uuidHigh = val;
+                                                                        else if (uFieldNum == 2) uuidLow = val;
+                                                                    } else if (uWireType == 0) {
+                                                                        // Wire type 0 = varint (skip)
+                                                                        while (uPos < mLen && (uuidData[uPos++] & 0x80));
+                                                                    } else break;
+                                                                }
+                                                                if (uuidHigh != 0 || uuidLow != 0) {
+                                                                    teammateUuids.push_back({uuidHigh, uuidLow});
+                                                                }
+                                                            }
+                                                            mPos += mLen;
+                                                        } else if (mWireType == 0) {
+                                                            while (mPos < vLen && (memberData[mPos++] & 0x80));
+                                                        } else break;
+                                                    }
+                                                }
+                                                vPos += vLen;
+                                            } else if (vWireType == 0) {
+                                                while (vPos < valueLen && (valueData[vPos++] & 0x80));
+                                            } else break;
+                                        }
+
+                                        if (shouldDebug) {
+                                            log_debug("[Apollo] Team: found %d members, extracted %zu UUIDs", memberCount, teammateUuids.size());
+                                            parseDebugCount++;
+                                        }
+
+                                        // Log team update once
+                                        if (!teammateUuids.empty() && teamCount.load() < 5) {
+                                            log_ok("[Apollo] Team update: %d teammates", (int)teammateUuids.size());
+                                            for (size_t i = 0; i < teammateUuids.size(); i++) {
+                                                char uuidStr[64];
+                                                uint64_t hi = teammateUuids[i].first;
+                                                uint64_t lo = teammateUuids[i].second;
+                                                snprintf(uuidStr, sizeof(uuidStr),
+                                                         "%08x-%04x-%04x-%04x-%012llx",
+                                                         (uint32_t)(hi >> 32),
+                                                         (uint16_t)(hi >> 16),
+                                                         (uint16_t)hi,
+                                                         (uint16_t)(lo >> 48),
+                                                         (unsigned long long)(lo & 0xFFFFFFFFFFFFULL));
+                                                log_debug("  Teammate[%d]: %s", (int)i, uuidStr);
+                                            }
+                                            teamCount++;
+                                        }
+                                        
+                                        // Register teammates with FriendsManager
+                                        if (!teammateUuids.empty() && friendsManager) {
+                                            friendsManager->clearLunarTeammates();
+                                            for (size_t i = 0; i < teammateUuids.size(); i++) {
+                                                char uuidStr[64];
+                                                uint64_t hi = teammateUuids[i].first;
+                                                uint64_t lo = teammateUuids[i].second;
+                                                snprintf(uuidStr, sizeof(uuidStr),
+                                                         "%08x-%04x-%04x-%04x-%012llx",
+                                                         (uint32_t)(hi >> 32),
+                                                         (uint16_t)(hi >> 16),
+                                                         (uint16_t)hi,
+                                                         (uint16_t)(lo >> 48),
+                                                         (unsigned long long)(lo & 0xFFFFFFFFFFFFULL));
+                                                friendsManager->addLunarTeammate(uuidStr);
+                                            }
+                                        }
+                                    }
+                                } else if (typeUrl.find("OverrideNametag") != std::string::npos) {
+                                    // Parse value field (field 2) from Any wrapper
+                                    const uint8_t* valueData = nullptr;
+                                    int valueLen = 0;
+                                    int parsePos = 0;
+                                    while (parsePos < len) {
+                                        uint8_t tag = data[parsePos++];
+                                        int fieldNum = tag >> 3;
+                                        int wireType = tag & 0x07;
+                                        if (wireType == 2) {
+                                            int fLen = 0, shift = 0;
+                                            while (parsePos < len) {
+                                                uint8_t b = data[parsePos++];
+                                                fLen |= (b & 0x7F) << shift;
+                                                shift += 7;
+                                                if (!(b & 0x80)) break;
+                                            }
+                                            if (fieldNum == 2 && fLen > 0 && parsePos + fLen <= len) {
+                                                valueData = data + parsePos;
+                                                valueLen = fLen;
+                                            }
+                                            parsePos += fLen;
+                                        } else if (wireType == 0) {
+                                            while (parsePos < len && (data[parsePos++] & 0x80));
+                                        } else break;
+                                    }
+
+                                    // Parse OverrideNametagMessage:
+                                    // field 1 = player_uuid (Uuid)
+                                    // field 3 = adventure_json_lines (repeated string)
+                                    if (valueData && valueLen > 0) {
+                                        uint64_t uuidHigh = 0, uuidLow = 0;
+                                        std::vector<std::string> jsonLines;
+
+                                        int vPos = 0;
+                                        int fieldCount = 0;
+                                        while (vPos < valueLen) {
+                                            uint8_t vTag = valueData[vPos++];
+                                            int vFieldNum = vTag >> 3;
+                                            int vWireType = vTag & 0x07;
+
+                                            if (vWireType == 2) {
+                                                int vLen = 0, vShift = 0;
+                                                while (vPos < valueLen) {
+                                                    uint8_t b = valueData[vPos++];
+                                                    vLen |= (b & 0x7F) << vShift;
+                                                    vShift += 7;
+                                                    if (!(b & 0x80)) break;
+                                                }
+                                                if (vFieldNum == 1 && vLen > 0 && vPos + vLen <= valueLen) {
+                                                    const uint8_t* uuidData = valueData + vPos;
+                                                    int uPos = 0;
+                                                    while (uPos < vLen) {
+                                                        uint8_t uTag = uuidData[uPos++];
+                                                        int uFieldNum = uTag >> 3;
+                                                        int uWireType = uTag & 0x07;
+
+                                                        if (uWireType == 1 && uPos + 8 <= vLen) {
+                                                            // Wire type 1 = fixed64
+                                                            uint64_t val = 0;
+                                                            for (int i = 0; i < 8; i++) {
+                                                                val |= (uint64_t)uuidData[uPos + i] << (i * 8);
+                                                            }
+                                                            uPos += 8;
+                                                            if (uFieldNum == 1) uuidHigh = val;
+                                                            else if (uFieldNum == 2) uuidLow = val;
+                                                        } else if (uWireType == 0) {
+                                                            while (uPos < vLen && (uuidData[uPos++] & 0x80));
+                                                        } else break;
+                                                    }
+                                                } else if (vFieldNum == 3 && vLen > 0 && vPos + vLen <= valueLen) {
+                                                    jsonLines.push_back(std::string((const char*)(valueData + vPos), vLen));
+                                                }
+                                                vPos += vLen;
+                                            } else if (vWireType == 0) {
+                                                while (vPos < valueLen && (valueData[vPos++] & 0x80));
+                                            } else break;
+                                            fieldCount++;
+                                        }
+
+                                        // Debug parsing results (limited)
+                                        static std::atomic<int> nametagDebug{0};
+                                        if (nametagDebug.load() < 3) {
+                                            log_debug("[Apollo] Nametag parsed: uuidHigh=%llx uuidLow=%llx lines=%zu",
+                                                      (unsigned long long)uuidHigh, (unsigned long long)uuidLow, jsonLines.size());
+                                            nametagDebug++;
+                                        }
+
+                                        // Debug: show a few distinct first-line previews
+                                        static std::atomic<int> jsonPreviewCount{0};
+                                        static std::string lastJsonPreview;
+                                        if (!jsonLines.empty() && jsonPreviewCount.load() < 10) {
+                                            std::string preview = jsonLines[0];
+                                            if (preview.length() > 80) preview = preview.substr(0, 80) + "...";
+                                            if (preview != lastJsonPreview) {
+                                                //log_debug("[Apollo]   JSON[0]: %s", preview.c_str());
+                                                lastJsonPreview = preview;
+                                                jsonPreviewCount++;
+                                            }
+                                        }
+
+                                        // Detect color from JSON lines (prefer explicit Adventure color, fallback to format codes)
+                                        std::string detectedColor = "unknown";
+
+                                        // Try explicit Adventure color field: "color":"#RRGGBB"
+                                        if (!jsonLines.empty()) {
+                                            const std::string& firstLine = jsonLines[0];
+                                            const std::string colorKey = "\"color\":\"#";
+                                            size_t cPos = firstLine.find(colorKey);
+                                            if (cPos != std::string::npos && cPos + colorKey.size() + 6 <= firstLine.size()) {
+                                                std::string hex = firstLine.substr(cPos + colorKey.size(), 6);
+                                                for (auto& ch : hex) ch = (char)std::toupper((unsigned char)ch);
+
+                                                static const std::unordered_map<std::string, std::string> kHexToColor = {
+                                                    // Vanilla chat/motd palette
+                                                    {"000000", "BLACK"},
+                                                    {"0000AA", "DARK_BLUE"},
+                                                    {"00AA00", "DARK_GREEN"},
+                                                    {"00AAAA", "DARK_AQUA"},
+                                                    {"AA0000", "DARK_RED"},
+                                                    {"AA00AA", "DARK_PURPLE"},
+                                                    {"FFAA00", "GOLD"},
+                                                    {"AAAAAA", "GRAY"},
+                                                    {"555555", "DARK_GRAY"},
+                                                    {"5555FF", "BLUE"},
+                                                    {"55FF55", "GREEN"},
+                                                    {"55FFFF", "AQUA"},
+                                                    {"FF5555", "RED"},
+                                                    {"FF55FF", "LIGHT_PURPLE"},
+                                                    {"FFFF55", "YELLOW"},
+                                                    {"FFFFFF", "WHITE"},
+                                                    // Extra hex observed in Apollo nametags
+                                                    {"55FF5F", "GREEN"},       // bright green
+                                                    {"FF5551", "RED"},         // bright red variant
+                                                    {"AA0003", "DARK_RED"},
+                                                    {"FF55FA", "LIGHT_PURPLE"},
+                                                    {"AA00AC", "DARK_PURPLE"},
+                                                    {"00AAAC", "DARK_AQUA"},
+                                                    {"5555FE", "BLUE"},
+                                                    {"FFFFFA", "WHITE"},
+                                                    {"AAAAAC", "GRAY"},
+                                                    {"55FFFA", "AQUA"},
+                                                    {"FFAA02", "GOLD"},
+                                                };
+
+                                                auto it = kHexToColor.find(hex);
+                                                if (it != kHexToColor.end()) {
+                                                    detectedColor = it->second;
+                                                }
+                                            }
+                                        }
+
+                                        // Fallback: Minecraft format codes (B'X) - only if Adventure color wasn't found
+                                        if (detectedColor == "unknown") {
+                                            for (const auto& line : jsonLines) {
+                                                size_t pos = line.find("\xc2" "\xa7");
+                                                while (pos != std::string::npos && pos + 2 < line.size()) {
+                                                    char code = (char)std::tolower((unsigned char)line[pos + 2]);
+                                                    switch (code) {
+                                                    case '0':
+                                                        detectedColor = "BLACK";
+                                                        break;
+                                                    case '1':
+                                                        detectedColor = "DARK_BLUE";
+                                                        break;
+                                                    case '2':
+                                                        detectedColor = "DARK_GREEN";
+                                                        break;
+                                                    case '3':
+                                                        detectedColor = "DARK_AQUA";
+                                                        break;
+                                                    case '4':
+                                                        detectedColor = "DARK_RED";
+                                                        break;
+                                                    case '5':
+                                                        detectedColor = "DARK_PURPLE";
+                                                        break;
+                                                    case '6':
+                                                        detectedColor = "GOLD";
+                                                        break;
+                                                    case '7':
+                                                        detectedColor = "GRAY";
+                                                        break;
+                                                    case '8':
+                                                        detectedColor = "DARK_GRAY";
+                                                        break;
+                                                    case '9':
+                                                        detectedColor = "BLUE";
+                                                        break;
+                                                    case 'a':
+                                                        detectedColor = "GREEN";
+                                                        break;
+                                                    case 'b':
+                                                        detectedColor = "AQUA";
+                                                        break;
+                                                    case 'c':
+                                                        detectedColor = "RED";
+                                                        break;
+                                                    case 'd':
+                                                        detectedColor = "LIGHT_PURPLE";
+                                                        break;
+                                                    case 'e':
+                                                        detectedColor = "YELLOW";
+                                                        break;
+                                                    case 'f':
+                                                        detectedColor = "WHITE";
+                                                        break;
+                                                    default:
+                                                        break;
+                                                    }
+                                                    if (detectedColor != "unknown") break;
+                                                    pos = line.find("\xc2" "\xa7", pos + 3);
+                                                }
+                                                if (detectedColor != "unknown") break;
+                                            }
+                                        } // end fallback if
+
+                                        // If still unknown, log a limited preview to diagnose color mapping
+                                        if (detectedColor == "unknown" && !jsonLines.empty()) {
+                                            static std::unordered_set<std::string> unknownLogged;
+                                            std::string preview = jsonLines[0];
+                                            if (preview.length() > 80) preview = preview.substr(0, 80) + "...";
+                                            if (unknownLogged.size() < 20 && unknownLogged.find(preview) == unknownLogged.end()) {
+                                                char uuidStr[64];
+                                                snprintf(uuidStr, sizeof(uuidStr),
+                                                         "%08x-%04x-%04x-%04x-%012llx",
+                                                         (uint32_t)(uuidHigh >> 32),
+                                                         (uint16_t)(uuidHigh >> 16),
+                                                         (uint16_t)uuidHigh,
+                                                         (uint16_t)(uuidLow >> 48),
+                                                         (unsigned long long)(uuidLow & 0xFFFFFFFFFFFFULL));
+                                                log_debug("[Apollo] Nametag unknown color: UUID=%s JSON[0]=%s", uuidStr, preview.c_str());
+                                                unknownLogged.insert(preview);
+                                            }
+                                        }
+
+                                        // Log the parsed nametag with color
+                                        if ((uuidHigh != 0 || uuidLow != 0) && !jsonLines.empty()) {
+                                            // Extract player name from first JSON line
+                                            std::string playerName = "?";
+                                            const std::string& firstLine = jsonLines[0];
+                                            size_t textPos = firstLine.find("\"text\":\"");
+                                            if (textPos != std::string::npos) {
+                                                size_t startPos = textPos + 8;
+                                                size_t endPos = firstLine.find("\"", startPos);
+                                                if (endPos != std::string::npos) {
+                                                    playerName = firstLine.substr(startPos, endPos - startPos);
+                                                    // Strip Minecraft color codes from the extracted name
+                                                    std::string clean;
+                                                    for (size_t i = 0; i < playerName.size(); ++i) {
+                                                        unsigned char c = (unsigned char)playerName[i];
+                                                        if (c == 0xC2 && i + 2 < playerName.size() && (unsigned char)playerName[i+1] == 0xA7) {
+                                                            i += 2;
+                                                        } else if (c != 0xC2 && c != 0xA7) {
+                                                            clean += playerName[i];
+                                                        }
+                                                    }
+                                                    if (!clean.empty()) playerName = clean;
+                                                }
+                                            }
+
+                                            static std::unordered_map<std::string, std::string> lastNametagColor;
+                                            std::string uuidKey = std::to_string(uuidHigh) + ":" + std::to_string(uuidLow);
+                                            auto itColor = lastNametagColor.find(uuidKey);
+                                            bool shouldLog = (itColor == lastNametagColor.end()) || (itColor->second != detectedColor);
+                                            if (shouldLog) {
+                                                lastNametagColor[uuidKey] = detectedColor;
+                                                log_ok("[Apollo] Nametag: \"%s\" -> %s", playerName.c_str(), detectedColor.c_str());
+                                            }
+                                            
+                                            // Register nametag color with FriendsManager for team detection
+                                            if (friendsManager && detectedColor != "unknown") {
+                                                char uuidStr[64];
+                                                snprintf(uuidStr, sizeof(uuidStr),
+                                                         "%08x-%04x-%04x-%04x-%012llx",
+                                                         (uint32_t)(uuidHigh >> 32),
+                                                         (uint16_t)(uuidHigh >> 16),
+                                                         (uint16_t)uuidHigh,
+                                                         (uint16_t)(uuidLow >> 48),
+                                                         (unsigned long long)(uuidLow & 0xFFFFFFFFFFFFULL));
+                                                friendsManager->setApolloNametagColor(uuidStr, detectedColor);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        if (byteArray && bytes) {
+                            env->ReleaseByteArrayElements(byteArray, bytes, JNI_ABORT);
+                        }
+                        if (packetBuffer) {
+                            env->DeleteLocalRef(packetBuffer);
+                        }
+                        if (env->ExceptionCheck()) env->ExceptionClear();
                     }
                     env->ReleaseStringUTFChars(channelStr, channel);
                 }
@@ -2066,14 +2251,13 @@ static void JNICALL nativeOnReceive(JNIEnv* env, jclass, jobject packet) {
             }
         }
     }
-    
     // Check for S3EPacketTeams (Minecraft scoreboard teams)
     static jclass cls_S3EPacketTeams = nullptr;
     static jmethodID mid_getAction = nullptr;
     static jmethodID mid_getName = nullptr;
     static jmethodID mid_getPlayers = nullptr;
     static bool triedTeamsInit = false;
-    
+
     if (!triedTeamsInit) {
         triedTeamsInit = true;
         jclass local = env->FindClass("net/minecraft/network/play/server/S3EPacketTeams");
@@ -2087,17 +2271,17 @@ static void JNICALL nativeOnReceive(JNIEnv* env, jclass, jobject packet) {
         }
         if (env->ExceptionCheck()) env->ExceptionClear();
     }
-    
+
     if (cls_S3EPacketTeams && env->IsInstanceOf(packet, cls_S3EPacketTeams)) {
         static std::atomic<int> teamPacketCount{0};
-        
+
         // Get action type: 0=create, 1=remove, 2=update, 3=add players, 4=remove players
         jint action = mid_getAction ? env->CallIntMethod(packet, mid_getAction) : -1;
-        
+
         // Get team name
         jstring nameStr = mid_getName ? (jstring)env->CallObjectMethod(packet, mid_getName) : nullptr;
         const char* teamName = nameStr ? env->GetStringUTFChars(nameStr, nullptr) : nullptr;
-        
+
         // Get players collection
         jobject playersCollection = mid_getPlayers ? env->CallObjectMethod(packet, mid_getPlayers) : nullptr;
         int playersCount = 0;
@@ -2110,33 +2294,45 @@ static void JNICALL nativeOnReceive(JNIEnv* env, jclass, jobject packet) {
             env->DeleteLocalRef(cls_Collection);
             env->DeleteLocalRef(playersCollection);
         }
-        
+
         // Only log meaningful team packets (not visual formatting)
         // Skip UPDATE with 0 players (these are scoreboard sidebar formatting)
         bool isRelevant = (action == 0 || action == 3 || action == 4 || playersCount > 0);
-        
+
         if (isRelevant && teamPacketCount.load() < 20) {
             const char* actionStr = "";
             switch(action) {
-                case 0: actionStr = "CREATE"; break;
-                case 1: actionStr = "REMOVE"; break;
-                case 2: actionStr = "UPDATE"; break;
-                case 3: actionStr = "ADD_PLAYERS"; break;
-                case 4: actionStr = "REMOVE_PLAYERS"; break;
-                default: actionStr = "UNKNOWN"; break;
+            case 0:
+                actionStr = "CREATE";
+                break;
+            case 1:
+                actionStr = "REMOVE";
+                break;
+            case 2:
+                actionStr = "UPDATE";
+                break;
+            case 3:
+                actionStr = "ADD_PLAYERS";
+                break;
+            case 4:
+                actionStr = "REMOVE_PLAYERS";
+                break;
+            default:
+                actionStr = "UNKNOWN";
+                break;
             }
-            
-            log_ok("[Scoreboard] Team packet: action=%s team='%s' players=%d", 
-                actionStr, teamName ? teamName : "?", playersCount);
-            
+
+            //log_ok("[Scoreboard] Team packet: action=%s team='%s' players=%d",
+            //       actionStr, teamName ? teamName : "?", playersCount);
+
             teamPacketCount++;
         }
-        
+
         if (teamName) env->ReleaseStringUTFChars(nameStr, teamName);
         if (nameStr) env->DeleteLocalRef(nameStr);
         if (env->ExceptionCheck()) env->ExceptionClear();
     }
-    
+
     // Process Lunar Client nametag packets (legacy path)
     if (LunarPacketListener::IsReady()) {
         LunarPacketListener::processIncomingPacket(env, packet);
@@ -2159,8 +2355,8 @@ static bool ensureHookClass(JNIEnv* env) {
             return false;
         }
         hook = env->DefineClass(kHookClassSlash, Java::ClassLoader,
-            reinterpret_cast<const jbyte*>(kPacketHookClassBytes),
-            static_cast<jint>(sizeof(kPacketHookClassBytes)));
+                                reinterpret_cast<const jbyte*>(kPacketHookClassBytes),
+                                static_cast<jint>(sizeof(kPacketHookClassBytes)));
         if (!hook) {
             if (env->ExceptionCheck()) {
                 env->ExceptionClear();
@@ -2179,12 +2375,12 @@ static bool ensureHookClass(JNIEnv* env) {
 
     // Register both native methods
     JNINativeMethod methods[2];
-    
+
     // shouldSend for outgoing packets (returns boolean for blocking)
     methods[0].name = const_cast<char*>(kHookMethodName);
     methods[0].signature = const_cast<char*>(kHookMethodDesc);
     methods[0].fnPtr = reinterpret_cast<void*>(&nativeShouldSend);
-    
+
     // onReceive for incoming packets (void, observer only)
     methods[1].name = const_cast<char*>(kOnReceiveMethodName);
     methods[1].signature = const_cast<char*>(kOnReceiveMethodDesc);
@@ -2243,7 +2439,7 @@ static bool installBytecodeHook(JNIEnv* env) {
         }
         log_warn("[PacketInterceptor] NetworkManager class not available for retransform");
     }
-    
+
     // Also retransform LCNetHandlerClient for Lunar nametag packet interception
     jclass lunarHandler = nullptr;
     if (Java::AssignClass("com.lunarclient.bukkitapi.nethandler.client.LCNetHandlerClient", lunarHandler)) {
@@ -2262,7 +2458,7 @@ static bool installBytecodeHook(JNIEnv* env) {
         // Not an error - Lunar classes may not be available on all clients
         log_debug("[PacketInterceptor] LCNetHandlerClient not available for retransform");
     }
-    
+
     // Retransform NetHandlerPlayClient for handleCustomPayload hook
     jclass netHandler = nullptr;
     if (Java::AssignClass(kIncomingTargetClassDot, netHandler)) {
@@ -2290,11 +2486,11 @@ static bool installMethodEntryHook() {
     jvmtiEventCallbacks callbacks;
     memset(&callbacks, 0, sizeof(callbacks));
     callbacks.MethodEntry = [](jvmtiEnv* jvmti_env, JNIEnv* jni_env,
-                               jthread thread, jmethodID method) {
+    jthread thread, jmethodID method) {
         // Hook should be active for Blink OR NoItemRelease
-        bool shouldIntercept = blinkActive.load() || 
-                              (::noItemRelease && ::noItemRelease->enabled && ::noItemRelease->wasUsingItem);
-        
+        bool shouldIntercept = blinkActive.load() ||
+                               (::noItemRelease && ::noItemRelease->enabled && ::noItemRelease->wasUsingItem);
+
         if (!shouldIntercept) return;
 
         char* methodName = nullptr;
@@ -2348,7 +2544,7 @@ static bool installMethodEntryHook() {
 // ============================================================================
 static bool isMovementPacket(JNIEnv* env, jobject packet) {
     if (!packet) return false;
-    
+
     // Check against cached classes
     if (cls_C03PacketPlayer && env->IsInstanceOf(packet, cls_C03PacketPlayer)) {
         return true;
@@ -2362,7 +2558,7 @@ static bool isMovementPacket(JNIEnv* env, jobject packet) {
     if (cls_C06PacketPlayerPosLook && env->IsInstanceOf(packet, cls_C06PacketPlayerPosLook)) {
         return true;
     }
-    
+
     // Fallback: check class name
     jclass packetClass = env->GetObjectClass(packet);
     if (packetClass) {
@@ -2378,7 +2574,7 @@ static bool isMovementPacket(JNIEnv* env, jobject packet) {
         }
         env->DeleteLocalRef(packetClass);
     }
-    
+
     return false;
 }
 
@@ -2387,13 +2583,13 @@ static bool isMovementPacket(JNIEnv* env, jobject packet) {
 // ============================================================================
 static const char* getPacketTypeName(JNIEnv* env, jobject packet) {
     if (!packet) return "null";
-    
+
     jclass packetClass = env->GetObjectClass(packet);
     if (!packetClass) return "unknown";
-    
+
     static char nameBuf[128];
     nameBuf[0] = '\0';
-    
+
     if (Java::tiEnv) {
         char* sig = nullptr;
         if (Java::tiEnv->GetClassSignature(packetClass, &sig, nullptr) == JVMTI_ERROR_NONE) {
@@ -2412,7 +2608,7 @@ static const char* getPacketTypeName(JNIEnv* env, jobject packet) {
             Java::tiEnv->Deallocate((unsigned char*)sig);
         }
     }
-    
+
     env->DeleteLocalRef(packetClass);
     return nameBuf;
 }
@@ -2423,18 +2619,18 @@ static const char* getPacketTypeName(JNIEnv* env, jobject packet) {
 
 bool Init() {
     log_debug("[PacketInterceptor] Initializing...");
-    
+
     if (!Java::Initialized) {
         //log_err("[PacketInterceptor] Java not initialized");
         return false;
     }
-    
+
     JNIEnv* env = Java::Env;
     if (!env) {
         //log_err("[PacketInterceptor] No JNIEnv");
         return false;
     }
-    
+
     jvmtiCapabilities caps;
     memset(&caps, 0, sizeof(caps));
     bool haveCaps = false;
@@ -2454,7 +2650,7 @@ bool Init() {
             //log_debug("  can_access_local_variables: %d", caps.can_access_local_variables);
         }
     }
-    
+
     // Cache packet classes
     if (!cachePacketClasses(env)) {
         //log_err("[PacketInterceptor] Failed to cache packet classes");
@@ -2462,7 +2658,7 @@ bool Init() {
     }
 
     cachePacketFields(env);
-    
+
     bool interceptReady = false;
     if (Java::tiEnv && haveCaps) {
         if (caps.can_generate_all_class_hook_events && caps.can_retransform_classes) {
@@ -2476,7 +2672,7 @@ bool Init() {
         }
 
         if (!interceptReady && caps.can_generate_method_entry_events &&
-            caps.can_force_early_return && caps.can_access_local_variables) {
+                caps.can_force_early_return && caps.can_access_local_variables) {
             if (installMethodEntryHook()) {
                 interceptReady = true;
             }
@@ -2486,7 +2682,7 @@ bool Init() {
             //log_warn("[PacketInterceptor] No usable JVMTI interception path available");
         }
     }
-    
+
     // Get NetworkManager instance
     networkManagerInstance = getNetworkManager(env);
     if (networkManagerInstance) {
@@ -2496,16 +2692,16 @@ bool Init() {
     } else {
         //log_warn("[PacketInterceptor] No NetworkManager yet - will try later");
     }
-    
+
     initialized = true;
     //log_ok("[PacketInterceptor] Initialized successfully");
-    
+
     return true;
 }
 
 void Shutdown() {
     //log_debug("[PacketInterceptor] Shutting down...");
-    
+
     blinkActive = false;
     hybridIntercept = false;
     hybridRelease = false;
@@ -2515,7 +2711,7 @@ void Shutdown() {
         haveLastSent = false;
         shadowInitialized = false;
     }
-    
+
     // Clear queue
     {
         std::lock_guard<std::mutex> lock(queueMutex);
@@ -2527,7 +2723,7 @@ void Shutdown() {
         }
         packetQueue.clear();
     }
-    
+
     // Release global refs
     JNIEnv* env = Java::Env;
     if (env) {
@@ -2553,7 +2749,7 @@ void Shutdown() {
     packetFieldsReady.store(false, std::memory_order_release);
     packetFieldsLogged = false;
     packetFieldsWarned = false;
-    
+
     initialized = false;
     //log_ok("[PacketInterceptor] Shutdown complete");
 }
@@ -2564,7 +2760,7 @@ bool IsReady() {
 
 void setBlinkActive(bool active) {
     bool wasActive = blinkActive.exchange(active);
-    
+
     if (active && !wasActive) {
         hybridIntercept = true;
         hybridRelease = false;
@@ -2592,7 +2788,7 @@ void setBlinkActive(bool active) {
             JNIEnv* env = Java::Env;
             if (env) cachePacketFields(env);
         }
-        
+
         // Ensure we have NetworkManager instance
         if (!networkManagerInstance) {
             JNIEnv* env = Java::Env;
@@ -2638,19 +2834,19 @@ void flushQueue() {
 
     int count = (int)toSend.size();
     //log_ok("[PacketInterceptor] Flushing %d queued packets...", count);
-    
+
     for (auto& qp : toSend) {
         //log_debug("[PacketInterceptor] Sending queued packet: %s", getPacketTypeName(env, qp.packet));
-        
+
         // Call sendPacket on NetworkManager
         env->CallVoidMethod(networkManagerInstance, mid_sendPacket, qp.packet);
-        
+
         if (env->ExceptionCheck()) {
             env->ExceptionDescribe();
             env->ExceptionClear();
             //log_err("[PacketInterceptor] Exception while sending queued packet");
         }
-        
+
         if (qp.hasPos) {
             std::lock_guard<std::mutex> lock(shadowMutex);
             lastSentPos = qp.pos;
@@ -2663,13 +2859,13 @@ void flushQueue() {
 
 void clearQueue() {
     std::lock_guard<std::mutex> lock(queueMutex);
-    
+
     JNIEnv* env = Java::Env;
     for (auto& qp : packetQueue) {
         if (env) env->DeleteGlobalRef(qp.packet);
     }
     packetQueue.clear();
-    
+
     //log_debug("[PacketInterceptor] Queue cleared");
 }
 
@@ -2801,7 +2997,7 @@ void Tick() {
                 env->DeleteGlobalRef(packetQueue[i].packet);
             }
             packetQueue.erase(packetQueue.begin(),
-                packetQueue.begin() + static_cast<std::vector<QueuedPacket>::difference_type>(sendIndex));
+                              packetQueue.begin() + static_cast<std::vector<QueuedPacket>::difference_type>(sendIndex));
         }
 
         if (!packetQueue.empty()) {
@@ -2851,14 +3047,14 @@ bool shouldSendPacket(JNIEnv* env, jobject packet) {
     // Debug logging for all intercepted packets
     if (debugPacketLogging.load()) {
         const char* pktName = getPacketTypeName(env, packet);
-       // log_debug("[PacketInterceptor] Intercepted: %s", pktName);
+        // log_debug("[PacketInterceptor] Intercepted: %s", pktName);
     }
-    
+
     // Check for Lunar Client nametag packets
     if (LunarPacketListener::IsReady()) {
         LunarPacketListener::processIncomingPacket(env, packet);
     }
-    
+
     // ===== NOITEMRELEASE PACKET BLOCKING =====
     // Check for C07PacketPlayerDigging with RELEASE_USE_ITEM action
     // This check MUST happen regardless of hybridIntercept state
@@ -2883,7 +3079,7 @@ bool shouldSendPacket(JNIEnv* env, jobject packet) {
                                     // Get the status field to check if it's RELEASE_USE_ITEM
                                     jfieldID statusField = env->GetFieldID(cls, "status", "Lnet/minecraft/network/play/client/C07PacketPlayerDigging$Action;");
                                     if (env->ExceptionCheck()) env->ExceptionClear();
-                                    
+
                                     if (statusField) {
                                         jobject statusObj = env->GetObjectField(packet, statusField);
                                         if (statusObj) {
@@ -2897,7 +3093,7 @@ bool shouldSendPacket(JNIEnv* env, jobject packet) {
                                                         if (statusStr) {
                                                             bool shouldBlock = (strcmp(statusStr, "RELEASE_USE_ITEM") == 0);
                                                             env->ReleaseStringUTFChars(enumName, statusStr);
-                                                            
+
                                                             // Clean up all references before returning
                                                             env->DeleteLocalRef(enumName);
                                                             env->DeleteLocalRef(statusCls);
@@ -2906,7 +3102,7 @@ bool shouldSendPacket(JNIEnv* env, jobject packet) {
                                                             env->DeleteLocalRef(jname);
                                                             env->DeleteLocalRef(clsCls);
                                                             env->DeleteLocalRef(cls);
-                                                            
+
                                                             if (shouldBlock) {
                                                                 return false;
                                                             }
@@ -2929,7 +3125,7 @@ bool shouldSendPacket(JNIEnv* env, jobject packet) {
                     }
                     env->DeleteLocalRef(clsCls);
                 }
-                skip_cleanup:  // Jump here if we already cleaned up references
+skip_cleanup:  // Jump here if we already cleaned up references
                 env->DeleteLocalRef(cls);
             }
             // Clear any potential exceptions from the check
@@ -2938,19 +3134,19 @@ bool shouldSendPacket(JNIEnv* env, jobject packet) {
             }
         }
     }
-    
+
     // ===== BLINK MOVEMENT PACKET LOGIC =====
     // Only process movement packets if Blink is active
     if (!hybridIntercept.load()) {
         return true;  // Passthrough for movement packets when Blink is off
     }
-    
+
     // Check if this is a movement packet (original Blink logic)
     if (!isMovementPacket(env, packet)) {
         // Not a movement packet - let it through
         return true;
     }
-    
+
     if (!packetFieldsReady.load()) {
         cachePacketFields(env);
     }
@@ -3051,14 +3247,14 @@ bool shouldSendPacket(JNIEnv* env, jobject packet) {
             packetQueue.erase(packetQueue.begin());
             //log_warn("[PacketInterceptor] Hybrid queue capped at %zu packets", kHybridMaxQueue);
         }
-        
+
         static int debugCounter = 0;
         if (++debugCounter % 20 == 0 || packetQueue.size() <= 3) {
-            //log_debug("[PacketInterceptor] Queued %s (total: %d)", 
-                getPacketTypeName(env, packet), (int)packetQueue.size();
+            //log_debug("[PacketInterceptor] Queued %s (total: %d)",
+            getPacketTypeName(env, packet), (int)packetQueue.size();
         }
     }
-    
+
     return false;  // Block this packet
 }
 
