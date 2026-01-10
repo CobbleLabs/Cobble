@@ -14,6 +14,7 @@ namespace LoaderUI {
 
     // Lifecycle
     bool Init();
+    void Show(); // Call after pre-rendering to show window
     void Shutdown();
     bool Render(); // Returns false if window closed
 

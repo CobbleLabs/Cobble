@@ -4,6 +4,7 @@
 #include "../../../infra/ext/imgui/imgui_impl_win32.h"
 #include "../../../infra/ext/imgui/imgui_impl_dx11.h"
 #include <Windows.h>
+#include <windowsx.h>
 #include <d3d11.h>
 #include <dxgi.h>
 #include <string>
@@ -58,6 +59,7 @@ namespace {
     const ImU32 COL_TEXT_DIM = IM_COL32(150, 150, 150, 255);
     const ImU32 COL_ERROR = IM_COL32(230, 80, 80, 255);
     const ImU32 COL_SUCCESS = IM_COL32(80, 200, 120, 255);
+    const ImU32 COL_SUCCESS_PREMIUM = IM_COL32(255, 180, 90, 255); // warm success tone that keeps brand heat
 
 
 
@@ -79,6 +81,7 @@ namespace {
     static float g_injectPulseTime = 0.0f;
     static bool g_focusUserRequested = false;
     static bool g_focusPassRequested = false;
+    static float g_injectTargetSpeed = 0.2f; // Variable speed for current session
     // Easing functions
     float easeOutCubic(float x) {
         return 1.0f - pow(1.0f - x, 3.0f);
@@ -95,6 +98,13 @@ namespace {
         float accel = (target - value) * stiffness;
         velocity = (velocity + accel * dt) * expf(-damping * dt);
         value += velocity * dt;
+        
+        // Clamp to valid range and kill velocity when settled to prevent oscillation
+        value = ImClamp(value, 0.0f, 1.0f);
+        if (fabsf(value - target) < 0.01f && fabsf(velocity) < 0.5f) {
+            value = target;
+            velocity = 0.0f;
+        }
     }
 
     ImFont* g_fontRegular = nullptr;
@@ -104,6 +114,31 @@ namespace {
     LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         if (ImGui_ImplWin32_WndProcHandler(hWnd, msg, wParam, lParam)) return true;
         switch (msg) {
+            case WM_NCHITTEST: {
+                // Allow dragging the window from edges (30px border margin)
+                RECT rect;
+                GetClientRect(hWnd, &rect);
+                POINT pt = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
+                ScreenToClient(hWnd, &pt);
+                
+                // Exclude window controls area (top-right corner: minimize and close buttons)
+                // Buttons are at x >= rect.right - 80 and y <= 40
+                bool inControlsArea = (pt.x >= rect.right - 80) && (pt.y <= 40);
+                if (inControlsArea) {
+                    break; // Let ImGui handle clicks on buttons
+                }
+                
+                const int borderWidth = 30;
+                bool onLeftEdge   = pt.x < borderWidth;
+                bool onRightEdge  = pt.x >= rect.right - borderWidth;
+                bool onTopEdge    = pt.y < borderWidth;
+                bool onBottomEdge = pt.y >= rect.bottom - borderWidth;
+                
+                if (onLeftEdge || onRightEdge || onTopEdge || onBottomEdge) {
+                    return HTCAPTION; // Allow dragging to move window
+                }
+                break;
+            }
             case WM_SIZE:
                 if (g_pd3dDevice && wParam != SIZE_MINIMIZED) {
                     if (g_mainRenderTargetView) { g_mainRenderTargetView->Release(); g_mainRenderTargetView = nullptr; }
@@ -242,9 +277,13 @@ namespace LoaderUI {
         ImGui_ImplWin32_Init(g_hwnd);
         ImGui_ImplDX11_Init(g_pd3dDevice, g_pd3dDeviceContext);
 
-        ShowWindow(g_hwnd, SW_SHOW);
+        // Don't show window yet - allow pre-rendering offscreen first
         g_initialized = true;
         return true;
+    }
+
+    void Show() {
+        if (g_hwnd) ShowWindow(g_hwnd, SW_SHOW);
     }
 
     void Shutdown() {
@@ -286,15 +325,22 @@ namespace LoaderUI {
     g_spinnerTime += dt; // Accumulate for spinner animation
     if (g_animStage == STAGE_INJECTING) {
         g_injectPulseTime += dt;
-        // Slow burn: ~5.5s to complete (1 / 5.5 ≈ 0.1818)
-        g_injectProgress = ImClamp(g_injectProgress + dt * 0.18f, 0.0f, 1.0f);
+        
+        // Organic speed variation with noise
+        // Base is g_injectTargetSpeed, plus slight sine wave fluctuation
+        float noise = sinf(g_injectPulseTime * 3.5f) * 0.03f;
+        float currentSpeed = g_injectTargetSpeed + noise;
+        
+        // If we are actually finished, ensure we don't stall at 100% too long, 
+        // but NEVER accelerate unnaturally. The user wants "weight".
+        // If we are NOT finished yet, clamp at 98% to wait for reality.
+        
+        float limit = (g_currentState == State::INJECTING_SUCCESS) ? 1.0f : 0.98f;
+        g_injectProgress = ImClamp(g_injectProgress + dt * currentSpeed, 0.0f, limit);
+        
     } else {
         g_injectPulseTime = 0.0f;
         if (g_animStage != STAGE_INJECTING) g_injectProgress = (g_animStage < STAGE_INJECTING) ? 0.0f : g_injectProgress;
-    }
-    if (g_currentState == State::INJECTING_SUCCESS && g_animStage == STAGE_INJECTING && g_injectProgress >= 0.999f && g_stageTime > 0.8f) {
-        g_animStage = STAGE_SUCCESS;
-        g_stageTime = 0.0f;
     }
     // Simple spinner phase - linear continuous rotation
     float spinnerPhase = fmodf(g_spinnerTime * 0.8f, 1.0f);
@@ -311,6 +357,10 @@ namespace LoaderUI {
             g_stageTime = 0.0f;
             g_injectProgress = 0.0f;
             g_injectPulseTime = 0.0f;
+            // Randomize speed: 4.0s to 6.0s duration
+            // Speed = 1/Duration. Range [0.166, 0.25]
+            float rnd = fmodf((float)ImGui::GetTime() * 13.0f, 1.0f);
+            g_injectTargetSpeed = 0.166f + rnd * (0.25f - 0.166f);
         }
     } else if (g_currentState == State::INJECTING_SUCCESS) {
         if (g_animStage < STAGE_INJECTING) {
@@ -318,9 +368,18 @@ namespace LoaderUI {
             g_stageTime = 0.0f;
             g_injectProgress = 0.0f;
             g_injectPulseTime = 0.0f;
+            // Randomize speed same as above
+            float rnd = fmodf((float)ImGui::GetTime() * 17.0f, 1.0f);
+            g_injectTargetSpeed = 0.166f + rnd * (0.25f - 0.166f);
         }
     } else if (g_currentState == State::LICENSE_VALID || g_currentState == State::WAITING_MINECRAFT) {
         if (g_animStage < STAGE_WAITING) { g_animStage = STAGE_WAITING; g_stageTime = 0; }
+    }
+    
+    // Check for completion AFTER state initialization to ensure proper animation
+    if (g_currentState == State::INJECTING_SUCCESS && g_animStage == STAGE_INJECTING && g_injectProgress >= 0.999f && g_stageTime > 0.8f) {
+        g_animStage = STAGE_SUCCESS;
+        g_stageTime = 0.0f;
     }
         
         // Update login time tracker - only when crossfade has started (formAlpha > 0)
@@ -342,8 +401,27 @@ namespace LoaderUI {
              spinnerAlpha = 0.0f;
              formAlpha = 1.0f;
         } else if (g_animStage == STAGE_EXIT) {
-            g_fadeAlpha = 1.0f - ImClamp(g_stageTime / 0.3f, 0.0f, 1.0f);
-            if (g_stageTime > 0.5f) { g_shouldClose = true; return false; }
+            // Hardware window fade-out
+            static bool s_exitStyleSet = false;
+            
+            float duration = 0.4f;
+            float t = ImClamp(g_stageTime / duration, 0.0f, 1.0f);
+            float alpha = 1.0f - easeOutCubic(t); // Non-linear fade for premium feel
+
+            if (!s_exitStyleSet) {
+                 SetWindowLong(g_hwnd, GWL_EXSTYLE, GetWindowLong(g_hwnd, GWL_EXSTYLE) | WS_EX_LAYERED);
+                 s_exitStyleSet = true;
+            }
+            
+            SetLayeredWindowAttributes(g_hwnd, 0, (BYTE)(255 * alpha), LWA_ALPHA);
+
+            if (g_stageTime > duration + 0.1f) { 
+                g_shouldClose = true; 
+                return false; 
+            }
+            
+            // Keep content opaque compliant with the window alpha
+            g_fadeAlpha = 1.0f;
             spinnerAlpha = 0.0f;
             formAlpha = 1.0f;
         } else {
@@ -466,221 +544,264 @@ namespace LoaderUI {
             
             float inputY = formY + formOffset;
             
-            ImGui::PushFont(g_fontRegular);
+            // Check if we serve a blocking error that shouldn't show login fields
+            bool showLoginFields = (g_errorMessage != "Already injected");
             
-            // ========== USERNAME INPUT ==========
-            // Floating label animation
-            float userHasText = (g_username[0] != 0) ? 1.0f : 0.0f;
-            float userFocus = g_userFocusAnim;
-            float userLabelT = easeOutCubic(ImMax(userHasText, userFocus));
+            if (showLoginFields) {
+                ImGui::PushFont(g_fontRegular);
+                
+                // ========== USERNAME INPUT ==========
+                // Floating label animation
+                float userHasText = (g_username[0] != 0) ? 1.0f : 0.0f;
+                float userFocus = g_userFocusAnim;
+                float userLabelT = easeOutCubic(ImMax(userHasText, userFocus));
 
-            // Label floats up and shrinks on focus/text
-            float userLabelY = inputY + 15 - userLabelT * 14.0f;
-            float userLabelScale = (1.0f - userLabelT * 0.15f) * (1.0f + g_userClickPulse * 0.08f);
+                // Label floats up and shrinks on focus/text
+                float userLabelY = inputY + 15 - userLabelT * 14.0f;
+                float userLabelScale = (1.0f - userLabelT * 0.15f) * (1.0f + g_userClickPulse * 0.08f);
 
-            ImVec2 userLabelSize = ImGui::CalcTextSize("Username");
-            ImVec2 userLabelSizeScaled = ImVec2(userLabelSize.x * userLabelScale, userLabelSize.y * userLabelScale);
-            ImVec2 userLabelMin(formX, userLabelY - 2.0f);
-            ImVec2 userLabelMax(userLabelMin.x + userLabelSizeScaled.x, userLabelMin.y + userLabelSizeScaled.y + 4.0f);
+                ImVec2 userLabelSize = ImGui::CalcTextSize("Username");
+                ImVec2 userLabelSizeScaled = ImVec2(userLabelSize.x * userLabelScale, userLabelSize.y * userLabelScale);
+                ImVec2 userLabelMin(formX, userLabelY - 2.0f);
+                ImVec2 userLabelMax(userLabelMin.x + userLabelSizeScaled.x, userLabelMin.y + userLabelSizeScaled.y + 4.0f);
 
-            ImGui::SetCursorPos(userLabelMin);
-            ImGui::InvisibleButton("##user_label", ImVec2(userLabelMax.x - userLabelMin.x, userLabelMax.y - userLabelMin.y));
-            bool userLabelClicked = ImGui::IsItemClicked();
-            bool userLabelHovered = ImGui::IsItemHovered();
-            if (userLabelClicked) {
-                g_userClickPulse = 1.0f;
-                g_focusUserRequested = true;
-                g_userFocusAnim = ImClamp(g_userFocusAnim + 0.35f, 0.0f, 1.0f);
-            }
+                ImGui::SetCursorPos(userLabelMin);
+                ImGui::InvisibleButton("##user_label", ImVec2(userLabelMax.x - userLabelMin.x, userLabelMax.y - userLabelMin.y));
+                bool userLabelClicked = ImGui::IsItemClicked();
+                bool userLabelHovered = ImGui::IsItemHovered();
+                if (userLabelClicked) {
+                    g_userClickPulse = 1.0f;
+                    g_focusUserRequested = true;
+                    g_userFocusAnim = ImClamp(g_userFocusAnim + 0.35f, 0.0f, 1.0f);
+                }
 
-            float userLabelAlpha = ImClamp(0.6f + 0.4f * userLabelT + 0.3f * g_userClickPulse + (userLabelHovered ? 0.1f : 0.0f), 0.0f, 1.1f);
-            ImU32 userLabelCol = IM_COL32(180, 180, 185, (int)(200 * inputsIn * userLabelAlpha));
+                float userLabelAlpha = ImClamp(0.6f + 0.4f * userLabelT + 0.3f * g_userClickPulse + (userLabelHovered ? 0.1f : 0.0f), 0.0f, 1.1f);
+                ImU32 userLabelCol = IM_COL32(180, 180, 185, (int)(200 * inputsIn * userLabelAlpha));
 
-            ImGui::SetWindowFontScale(userLabelScale);
-            dl->AddText(ImVec2(formX, userLabelY), userLabelCol, "Username");
-            ImGui::SetWindowFontScale(1.0f);
+                ImGui::SetWindowFontScale(userLabelScale);
+                dl->AddText(ImVec2(formX, userLabelY), userLabelCol, "Username");
+                ImGui::SetWindowFontScale(1.0f);
 
-            // Input field
-            ImGui::SetCursorPos(ImVec2(formX, inputY + 20));
-            if (g_focusUserRequested) {
-                ImGui::SetKeyboardFocusHere();
-                g_focusUserRequested = false;
-            }
-            ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0, 0));
-            ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0,0,0,0));
-            ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0,0,0,0));
+                // Input field
+                ImGui::SetCursorPos(ImVec2(formX, inputY + 20));
+                if (g_focusUserRequested) {
+                    ImGui::SetKeyboardFocusHere();
+                    g_focusUserRequested = false;
+                }
+                ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0, 0));
+                ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0,0,0,0));
+                ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0,0,0,0));
 
-            g_userTextAnim += ((g_username[0] != 0) ? 1.0f : -1.0f) * dt * 20.0f;
-            g_userTextAnim = ImClamp(g_userTextAnim, 0.0f, 1.0f);
+                g_userTextAnim += ((g_username[0] != 0) ? 1.0f : -1.0f) * dt * 20.0f;
+                g_userTextAnim = ImClamp(g_userTextAnim, 0.0f, 1.0f);
 
-            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 1.0f, 1.0f, inputsIn));
-            ImGui::PushItemWidth(formW);
-            ImGui::InputText("##user", g_username, 256);
+                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 1.0f, 1.0f, inputsIn));
+                ImGui::PushItemWidth(formW);
+                ImGui::InputText("##user", g_username, 256);
 
-            bool userActive = ImGui::IsItemActive() || ImGui::IsItemFocused();
-            g_userFocusAnim = smoothTo(g_userFocusAnim, userActive ? 1.0f : 0.0f, 14.0f, dt);
-            float userUnderlineTarget = (userActive || g_focusUserRequested) ? 1.0f : 0.0f;
-            springTo(userUnderlineTarget, dt, 120.0f, 12.0f, g_userUnderlineAnim, g_userUnderlineVel);
+                bool userActive = ImGui::IsItemActive() || ImGui::IsItemFocused();
+                g_userFocusAnim = smoothTo(g_userFocusAnim, userActive ? 1.0f : 0.0f, 14.0f, dt);
+                float userUnderlineTarget = (userActive || g_focusUserRequested) ? 1.0f : 0.0f;
+                springTo(userUnderlineTarget, dt, 120.0f, 12.0f, g_userUnderlineAnim, g_userUnderlineVel);
 
-            ImGui::PopItemWidth();
-            ImGui::PopStyleColor(3);
-            ImGui::PopStyleVar();
+                ImGui::PopItemWidth();
+                ImGui::PopStyleColor(3);
+                ImGui::PopStyleVar();
 
-            // Underline - grows from LEFT (not center) with direction
-            float lineY = inputY + 42;
-            float u = easeOutCubic(ImClamp(g_userUnderlineAnim + g_userClickPulse * 0.35f, 0.0f, 1.1f));
-            float underlineW = formW * u;
+                // Underline - grows from LEFT (not center) with direction
+                float lineY = inputY + 42;
+                float u = easeOutCubic(ImClamp(g_userUnderlineAnim + g_userClickPulse * 0.35f, 0.0f, 1.1f));
+                float underlineW = formW * u;
+                
+                // Grey baseline
+                dl->AddLine(ImVec2(formX, lineY), ImVec2(formX + formW, lineY), 
+                    IM_COL32(70, 70, 75, (int)(255 * inputsIn)), 1.0f);
+
+                // Orange active line (from left)
+                if (u > 0.01f) {
+                    dl->AddLine(ImVec2(formX, lineY), ImVec2(formX + underlineW, lineY), 
+                        IM_COL32(255, 122, 24, (int)(255 * inputsIn)), 
+                        1.0f + u);
+                }
+
+                // ========== PASSWORD INPUT ==========
+                float passY = inputY + 65;
+                
+                // Floating label for password
+                float passHasText = (g_password[0] != 0) ? 1.0f : 0.0f;
+                float passFocus = g_passFocusAnim;
+                float passLabelT = easeOutCubic(ImMax(passHasText, passFocus));
+
+                float passLabelY = passY + 15 - passLabelT * 14.0f;
+                float passLabelScale = (1.0f - passLabelT * 0.15f) * (1.0f + g_passClickPulse * 0.08f);
+
+                ImVec2 passLabelSize = ImGui::CalcTextSize("Password");
+                ImVec2 passLabelSizeScaled = ImVec2(passLabelSize.x * passLabelScale, passLabelSize.y * passLabelScale);
+                ImVec2 passLabelMin(formX, passLabelY - 2.0f);
+                ImVec2 passLabelMax(passLabelMin.x + passLabelSizeScaled.x, passLabelMin.y + passLabelSizeScaled.y + 4.0f);
+
+                ImGui::SetCursorPos(passLabelMin);
+                ImGui::InvisibleButton("##pass_label", ImVec2(passLabelMax.x - passLabelMin.x, passLabelMax.y - passLabelMin.y));
+                bool passLabelClicked = ImGui::IsItemClicked();
+                bool passLabelHovered = ImGui::IsItemHovered();
+                if (passLabelClicked) {
+                    g_passClickPulse = 1.0f;
+                    g_focusPassRequested = true;
+                    g_passFocusAnim = ImClamp(g_passFocusAnim + 0.35f, 0.0f, 1.0f);
+                }
+
+                float passLabelAlpha = ImClamp(0.6f + 0.4f * passLabelT + 0.3f * g_passClickPulse + (passLabelHovered ? 0.1f : 0.0f), 0.0f, 1.1f);
+                ImU32 passLabelCol = IM_COL32(180, 180, 185, (int)(200 * inputsIn * passLabelAlpha));
+
+                ImGui::SetWindowFontScale(passLabelScale);
+                dl->AddText(ImVec2(formX, passLabelY), passLabelCol, "Password");
+                ImGui::SetWindowFontScale(1.0f);
+
+                // Input field
+                ImGui::SetCursorPos(ImVec2(formX, passY + 20));
+                if (g_focusPassRequested) {
+                    ImGui::SetKeyboardFocusHere();
+                    g_focusPassRequested = false;
+                }
+                ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0, 0));
+                ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0,0,0,0));
+                ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0,0,0,0));
+
+                g_passTextAnim += ((g_password[0] != 0) ? 1.0f : -1.0f) * dt * 20.0f;
+                g_passTextAnim = ImClamp(g_passTextAnim, 0.0f, 1.0f);
+
+                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 1.0f, 1.0f, inputsIn));
+                ImGui::PushItemWidth(formW);
+                ImGui::InputText("##pass", g_password, 256, ImGuiInputTextFlags_Password);
+
+                bool passActive = ImGui::IsItemActive() || ImGui::IsItemFocused();
+                g_passFocusAnim = smoothTo(g_passFocusAnim, passActive ? 1.0f : 0.0f, 14.0f, dt);
+                float passUnderlineTarget = (passActive || g_focusPassRequested) ? 1.0f : 0.0f;
+                springTo(passUnderlineTarget, dt, 120.0f, 12.0f, g_passUnderlineAnim, g_passUnderlineVel);
+
+                ImGui::PopItemWidth();
+                ImGui::PopStyleColor(3);
+                ImGui::PopStyleVar();
+
+                // Password underline - same premium treatment
+                float lineY2 = passY + 42;
+                float u2 = easeOutCubic(ImClamp(g_passUnderlineAnim + g_passClickPulse * 0.35f, 0.0f, 1.1f));
+                float underlineW2 = formW * u2;
+                
+                // Grey baseline
+                dl->AddLine(ImVec2(formX, lineY2), ImVec2(formX + formW, lineY2), 
+                    IM_COL32(70, 70, 75, (int)(255 * inputsIn)), 1.0f);
+
+                // Orange active line (from left)
+                if (u2 > 0.01f) {
+                    dl->AddLine(ImVec2(formX, lineY2), ImVec2(formX + underlineW2, lineY2), 
+                        IM_COL32(255, 122, 24, (int)(255 * inputsIn)), 
+                        1.0f + u2);
+                }
+
+                ImGui::PopFont();
+            } // End showLoginFields
             
-            // Grey baseline
-            dl->AddLine(ImVec2(formX, lineY), ImVec2(formX + formW, lineY), 
-                IM_COL32(70, 70, 75, (int)(255 * inputsIn)), 1.0f);
-
-            // Orange active line (from left)
-            if (u > 0.01f) {
-                dl->AddLine(ImVec2(formX, lineY), ImVec2(formX + underlineW, lineY), 
-                    IM_COL32(255, 122, 24, (int)(255 * inputsIn)), 
-                    1.0f + u);
-            }
-
-            // ========== PASSWORD INPUT ==========
-            float passY = inputY + 65;
-            
-            // Floating label for password
-            float passHasText = (g_password[0] != 0) ? 1.0f : 0.0f;
-            float passFocus = g_passFocusAnim;
-            float passLabelT = easeOutCubic(ImMax(passHasText, passFocus));
-
-            float passLabelY = passY + 15 - passLabelT * 14.0f;
-            float passLabelScale = (1.0f - passLabelT * 0.15f) * (1.0f + g_passClickPulse * 0.08f);
-
-            ImVec2 passLabelSize = ImGui::CalcTextSize("Password");
-            ImVec2 passLabelSizeScaled = ImVec2(passLabelSize.x * passLabelScale, passLabelSize.y * passLabelScale);
-            ImVec2 passLabelMin(formX, passLabelY - 2.0f);
-            ImVec2 passLabelMax(passLabelMin.x + passLabelSizeScaled.x, passLabelMin.y + passLabelSizeScaled.y + 4.0f);
-
-            ImGui::SetCursorPos(passLabelMin);
-            ImGui::InvisibleButton("##pass_label", ImVec2(passLabelMax.x - passLabelMin.x, passLabelMax.y - passLabelMin.y));
-            bool passLabelClicked = ImGui::IsItemClicked();
-            bool passLabelHovered = ImGui::IsItemHovered();
-            if (passLabelClicked) {
-                g_passClickPulse = 1.0f;
-                g_focusPassRequested = true;
-                g_passFocusAnim = ImClamp(g_passFocusAnim + 0.35f, 0.0f, 1.0f);
-            }
-
-            float passLabelAlpha = ImClamp(0.6f + 0.4f * passLabelT + 0.3f * g_passClickPulse + (passLabelHovered ? 0.1f : 0.0f), 0.0f, 1.1f);
-            ImU32 passLabelCol = IM_COL32(180, 180, 185, (int)(200 * inputsIn * passLabelAlpha));
-
-            ImGui::SetWindowFontScale(passLabelScale);
-            dl->AddText(ImVec2(formX, passLabelY), passLabelCol, "Password");
-            ImGui::SetWindowFontScale(1.0f);
-
-            // Input field
-            ImGui::SetCursorPos(ImVec2(formX, passY + 20));
-            if (g_focusPassRequested) {
-                ImGui::SetKeyboardFocusHere();
-                g_focusPassRequested = false;
-            }
-            ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0, 0));
-            ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0,0,0,0));
-            ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0,0,0,0));
-
-            g_passTextAnim += ((g_password[0] != 0) ? 1.0f : -1.0f) * dt * 20.0f;
-            g_passTextAnim = ImClamp(g_passTextAnim, 0.0f, 1.0f);
-
-            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 1.0f, 1.0f, inputsIn));
-            ImGui::PushItemWidth(formW);
-            ImGui::InputText("##pass", g_password, 256, ImGuiInputTextFlags_Password);
-
-            bool passActive = ImGui::IsItemActive() || ImGui::IsItemFocused();
-            g_passFocusAnim = smoothTo(g_passFocusAnim, passActive ? 1.0f : 0.0f, 14.0f, dt);
-            float passUnderlineTarget = (passActive || g_focusPassRequested) ? 1.0f : 0.0f;
-            springTo(passUnderlineTarget, dt, 120.0f, 12.0f, g_passUnderlineAnim, g_passUnderlineVel);
-
-            ImGui::PopItemWidth();
-            ImGui::PopStyleColor(3);
-            ImGui::PopStyleVar();
-
-            // Password underline - same premium treatment
-            float lineY2 = passY + 42;
-            float u2 = easeOutCubic(ImClamp(g_passUnderlineAnim + g_passClickPulse * 0.35f, 0.0f, 1.1f));
-            float underlineW2 = formW * u2;
-            
-            // Grey baseline
-            dl->AddLine(ImVec2(formX, lineY2), ImVec2(formX + formW, lineY2), 
-                IM_COL32(70, 70, 75, (int)(255 * inputsIn)), 1.0f);
-
-            // Orange active line (from left)
-            if (u2 > 0.01f) {
-                dl->AddLine(ImVec2(formX, lineY2), ImVec2(formX + underlineW2, lineY2), 
-                    IM_COL32(255, 122, 24, (int)(255 * inputsIn)), 
-                    1.0f + u2);
-            }
-
-            ImGui::PopFont();
-            
-            // Error message
+            // Error message location
             // Dynamic layout for error and button
-            float currentY = passY + 55.0f; // Start below password line (adjusted for new spacing)
+            float currentY; 
+            float btnBaseY;
+            
+            if (showLoginFields) {
+                // Original positioning logic for error
+                 currentY = inputY + 65 + 55.0f; 
+                 // Button flows naturally after error - add extra space when error shown
+                 btnBaseY = currentY + (!g_errorMessage.empty() ? 35.0f : 10.0f);
+            } else {
+                // Centered error for 'Already injected'
+                // Header Ends at ~formY - 30.
+                // We want button at ~formY + 130.
+                // Midpoint ~formY + 50.
+                currentY = formY + 50.0f;
+                btnBaseY = formY + 130.0f;
+            }
             
             if (!g_errorMessage.empty()) {
                 ImGui::PushFont(g_fontRegular);
+                
+                float errScale = showLoginFields ? 1.0f : 1.2f; // Slightly larger for standalone error
+                if (errScale != 1.0f) ImGui::SetWindowFontScale(errScale);
+                
                 ImVec2 errSize = ImGui::CalcTextSize(g_errorMessage.c_str());
+                
+                // CalcTextSize ALREADY includes the font scale if SetWindowFontScale is active.
                 dl->AddText(ImVec2(centerX - errSize.x * 0.5f, currentY), COL_ERROR, g_errorMessage.c_str());
+                
+                if (errScale != 1.0f) ImGui::SetWindowFontScale(1.0f);
                 ImGui::PopFont();
-                currentY += 25.0f; // Push button down
             }
             
-            float btnBaseY = currentY + 10.0f;
 
-            // Login button with premium animation
+            // Button - Premium, solid, restful
             float btnAlpha = inputsIn;
-            float btnOffset = (1.0f - inputsIn) * 10.0f;
-            ImVec2 btnMin(formX, btnBaseY + btnOffset);
-            ImVec2 btnMax(formX + formW, btnBaseY + 44 + btnOffset);
+            float btnH = 46.0f;
+            float btnRadius = 4.0f;
+            
+            ImVec2 btnMin(formX, btnBaseY);
+            ImVec2 btnMax(formX + formW, btnBaseY + btnH);
             bool btnHovered = ImGui::IsMouseHoveringRect(btnMin, btnMax);
             
-            // Button Press Animation
+            // Press animation (sink)
             bool pressed = btnHovered && ImGui::IsMouseDown(0);
             g_buttonPressAnim += (pressed ? 1.0f : -1.0f) * dt * 12.0f;
             g_buttonPressAnim = ImClamp(g_buttonPressAnim, 0.0f, 1.0f);
 
-            float pressOffset = g_buttonPressAnim * 3.0f; // Sinks 3 pixels
-            btnMin.y += pressOffset;
-            btnMax.y += pressOffset;
-            
-            // Animated hover lift (cancelled by press)
+            // Hover animation (lift + brighten)
             static float hoverAnim = 0.0f;
-            hoverAnim += (btnHovered && !pressed ? 1.0f : -1.0f) * dt * 8.0f;
+            hoverAnim += (btnHovered ? 1.0f : -1.0f) * dt * 12.0f;
             hoverAnim = ImClamp(hoverAnim, 0.0f, 1.0f);
             
-            float lift = hoverAnim * 2.0f * (1.0f - g_buttonPressAnim); // No lift if pressing
-            btnMin.y -= lift; btnMax.y -= lift;
+            // Subtle lift on hover, sink on press
+            float lift = hoverAnim * 2.0f * (1.0f - g_buttonPressAnim);
+            float sink = g_buttonPressAnim * 1.5f;
+            btnMin.y = btnMin.y - lift + sink;
+            btnMax.y = btnMax.y - lift + sink;
             
-            // Button glow on hover
-            if (hoverAnim > 0.0f) {
-                dl->AddRectFilled(ImVec2(btnMin.x + 5, btnMax.y), ImVec2(btnMax.x - 5, btnMax.y + 8), 
-                    IM_COL32(255, 122, 24, (int)(40 * hoverAnim * btnAlpha)), 8.0f);
+            // Colors - muted orange, not screaming
+            ImVec4 colBase = ImVec4(200/255.f, 90/255.f, 25/255.f, btnAlpha);
+            ImVec4 colHover = ImVec4(220/255.f, 100/255.f, 30/255.f, btnAlpha);
+            ImVec4 colPress = ImVec4(170/255.f, 75/255.f, 20/255.f, btnAlpha);
+            
+            ImVec4 colFinal = ImLerp(colBase, colHover, hoverAnim);
+            colFinal = ImLerp(colFinal, colPress, g_buttonPressAnim);
+            
+            // Diffuse shadow - soft, not sharp
+            if (btnAlpha > 0.1f) {
+                float shadowAlpha = 25.0f * btnAlpha * (1.0f - g_buttonPressAnim * 0.5f);
+                dl->AddRectFilled(
+                    ImVec2(btnMin.x + 3, btnMin.y + 5), 
+                    ImVec2(btnMax.x - 3, btnMax.y + 7), 
+                    IM_COL32(0, 0, 0, (int)(shadowAlpha)), btnRadius);
+                dl->AddRectFilled(
+                    ImVec2(btnMin.x + 1, btnMin.y + 3), 
+                    ImVec2(btnMax.x - 1, btnMax.y + 5), 
+                    IM_COL32(0, 0, 0, (int)(shadowAlpha * 0.6f)), btnRadius);
             }
-            
-            // Button gradient
-            dl->AddRectFilledMultiColor(btnMin, btnMax, 
-                IM_COL32(235, 115, 25, (int)(255 * btnAlpha)), 
-                IM_COL32(255, 140, 40, (int)(255 * btnAlpha)), 
-                IM_COL32(255, 140, 40, (int)(255 * btnAlpha)), 
-                IM_COL32(235, 115, 25, (int)(255 * btnAlpha)));
-            dl->AddRect(btnMin, btnMax, IM_COL32(255, 255, 255, (int)(30 * btnAlpha)), 6.0f);
+
+            // Main button fill
+            dl->AddRectFilled(btnMin, btnMax, ImGui::ColorConvertFloat4ToU32(colFinal), btnRadius);
             
             // Button text
             ImGui::PushFont(g_fontRegular);
-            const char* btnText = "Sign In";
+            const char* btnText = showLoginFields ? "Sign In" : "Close";
             ImVec2 btnTextSize = ImGui::CalcTextSize(btnText);
             float btnTextX = btnMin.x + (btnMax.x - btnMin.x - btnTextSize.x) * 0.5f;
             float btnTextY = btnMin.y + (btnMax.y - btnMin.y - btnTextSize.y) * 0.5f;
             dl->AddText(ImVec2(btnTextX, btnTextY), IM_COL32(255, 255, 255, (int)(255 * btnAlpha)), btnText);
             ImGui::PopFont();
             
-            if (btnHovered && ImGui::IsMouseClicked(0)) g_loginButtonPressed = true;
+            if (btnHovered && ImGui::IsMouseClicked(0)) {
+                if (showLoginFields) {
+                     g_loginButtonPressed = true;
+                } else {
+                     g_shouldClose = true; // Just close if it's the Close button
+                }
+            }
             
             ImGui::PopStyleVar(); // End formAlpha
         }
@@ -726,58 +847,121 @@ namespace LoaderUI {
                 IM_COL32(200, 200, 200, 210), injText);
             ImGui::PopFont();
 
-            float barW = 360.0f;
-            float barH = 4.0f;
+            float barW = 300.0f;
+            float barH = 2.0f;
             float barX = centerX - barW * 0.5f;
-            float barY = formY + 40;
+            float barY = formY + 55; // Slightly lower for better spacing
 
-            float p = easeOutCubic(g_injectProgress);
-            float head = 12.0f;
-            float fillW = ImClamp(barW * p, 0.0f, barW);
+            // Smoother easing (Quad)
+            float p = g_injectProgress;
+            float visualP = 1.0f - (1.0f - p) * (1.0f - p);
+            float fillW = ImClamp(barW * visualP, 0.0f, barW);
 
-            ImU32 trackCol = IM_COL32(60, 60, 65, 160);
-            ImU32 fillCol = IM_COL32(255, 140, 40, 255);
-            ImU32 headCol = IM_COL32(255, 200, 140, 255);
+            // Track (very subtle)
+            dl->AddRectFilled(ImVec2(barX, barY), ImVec2(barX + barW, barY + barH), IM_COL32(255, 255, 255, 10), 0.0f);
 
-            dl->AddRectFilled(ImVec2(barX, barY), ImVec2(barX + barW, barY + barH), trackCol, 6.0f);
-            if (fillW > 1.5f) {
-                dl->AddRectFilled(ImVec2(barX, barY), ImVec2(barX + fillW, barY + barH), fillCol, 6.0f);
-                float headX0 = barX + fillW - head;
-                float headX1 = barX + fillW;
-                headX0 = ImClamp(headX0, barX, barX + barW);
-                dl->AddRectFilled(ImVec2(headX0, barY - 2.0f), ImVec2(headX1, barY + barH + 2.0f), headCol, 6.0f);
-            }
-
-            // Breathing sheen
-            float sheenT = 0.5f + 0.5f * sinf(g_injectPulseTime * 2.6f);
-            float sheenX = barX + fillW * 0.7f;
-            float sheenW = 46.0f;
-            if (fillW > 0.0f && fillW < barW) {
-                dl->AddRectFilled(
-                    ImVec2(sheenX, barY - 6.0f),
-                    ImVec2(sheenX + sheenW, barY + barH + 6.0f),
-                    IM_COL32(255, 255, 255, (int)(18 * sheenT)),
-                    8.0f);
+            if (fillW > 0.5f) {
+                // Clean Gradient Bar - minimal glow
+                dl->AddRectFilledMultiColor(
+                    ImVec2(barX, barY), 
+                    ImVec2(barX + fillW, barY + barH),
+                    IM_COL32(255, 100, 0, 180),   // Darker start
+                    IM_COL32(255, 160, 40, 255),  // Bright end
+                    IM_COL32(255, 160, 40, 255),
+                    IM_COL32(255, 100, 0, 180)
+                );
+                
+                // Minimal lead point - no massive halo
+                // Just a small bright dot at the tip
+                ImVec2 headPos(barX + fillW, barY + barH * 0.5f);
+                dl->AddCircleFilled(headPos, 1.5f, IM_COL32(255, 255, 255, 255));
+                
+                // Extremely subtle glow only around the tip
+                dl->AddCircleFilled(headPos, 6.0f, IM_COL32(255, 160, 40, 40));
             }
 
             ImGui::PushFont(g_fontRegular);
-            const char* subText = (g_injectProgress >= 0.999f) ? "Finishing..." : "Do not close this window";
+            const char* subText = (g_injectProgress >= 0.99f) ? "Finishing..." : "Do not close this window";
             ImVec2 subSize2 = ImGui::CalcTextSize(subText);
-            dl->AddText(ImVec2(centerX - subSize2.x * 0.5f, barY + 22), COL_TEXT_DIM, subText);
+            dl->AddText(ImVec2(centerX - subSize2.x * 0.5f, barY + 20), COL_TEXT_DIM, subText);
             ImGui::PopFont();
         }
         else if (g_animStage == STAGE_SUCCESS) {
-            float successAnim = easeOutBack(ImClamp(g_stageTime / 0.4f, 0.0f, 1.0f));
-            float successOffset = (1.0f - successAnim) * 20.0f;
+            // Minimalist Success: Sleek Checkmark, No Burst/Ring
+            float t = ImClamp(g_stageTime / 0.5f, 0.0f, 1.0f);
+            float ease = easeOutCubic(t);
+
+            // HIGHER position as requested (was +55)
+            float checkY = formY + 40.0f;
             
-            ImGui::PushFont(g_fontMedium);
-            const char* successText = "Injected Successfully";
-            ImVec2 successSize = ImGui::CalcTextSize(successText);
-            dl->AddText(ImVec2(centerX - successSize.x * 0.5f, formY + 60 - successOffset), 
-                IM_COL32(80, 200, 120, (int)(255 * successAnim)), successText);
-            ImGui::PopFont();
+            // Checkmark Geometry
+            ImVec2 center(centerX, checkY);
+            // LARGER scale as requested (was 1.0)
+            float scale = 1.5f; 
             
-            if (g_stageTime > 1.5f) { g_animStage = STAGE_EXIT; g_stageTime = 0; }
+            // Points for checkmark (centered visually)
+            ImVec2 p1(centerX - 9.0f * scale, checkY + 1.0f * scale);
+            ImVec2 p2(centerX - 2.0f * scale, checkY + 8.0f * scale);
+            ImVec2 p3(centerX + 10.0f * scale, checkY - 7.0f * scale);
+
+            // Animate stroke drawing
+            // Split into two segments: p1->p2 (35% of time), p2->p3 (65% of time)
+            float drawT = ease; // 0..1
+            
+            // Draw
+            float strokeWidth = 3.0f; // Slightly thicker for larger scale
+            ImU32 checkCol = IM_COL32(255, 255, 255, 255); // Pure white
+
+            if (drawT > 0.0f) {
+                float t1 = ImClamp(drawT / 0.35f, 0.0f, 1.0f);
+                if (t1 > 0.0f) {
+                    dl->AddLine(p1, ImLerp(p1, p2, t1), checkCol, strokeWidth);
+                }
+                
+                if (drawT > 0.35f) {
+                    float t2 = ImClamp((drawT - 0.35f) / 0.65f, 0.0f, 1.0f);
+                    dl->AddLine(p2, ImLerp(p2, p3, t2), checkCol, strokeWidth);
+                }
+            }
+
+            // Optional: Very subtle shadow for depth
+            if (drawT > 0.1f) {
+                ImU32 shadowCol = IM_COL32(0, 0, 0, 40);
+                ImVec2 off(0, 2);
+                 if (drawT > 0.0f) {
+                    float t1 = ImClamp(drawT / 0.35f, 0.0f, 1.0f);
+                    if (t1 > 0.0f) {
+                        ImVec2 s1(p1.x + off.x, p1.y + off.y);
+                        ImVec2 tVal = ImLerp(p1, p2, t1);
+                        ImVec2 s2(tVal.x + off.x, tVal.y + off.y);
+                        dl->AddLine(s1, s2, shadowCol, strokeWidth);
+                    }
+                    if (drawT > 0.35f) {
+                        float t2 = ImClamp((drawT - 0.35f) / 0.65f, 0.0f, 1.0f);
+                        ImVec2 s1(p2.x + off.x, p2.y + off.y);
+                        ImVec2 tVal = ImLerp(p2, p3, t2);
+                        ImVec2 s2(tVal.x + off.x, tVal.y + off.y);
+                        dl->AddLine(s1, s2, shadowCol, strokeWidth);
+                    }
+                }
+            }
+
+            // Minimal Text "Done"
+            // Fades in slightly after checkmark starts
+            float textAlpha = easeOutCubic(ImClamp((g_stageTime - 0.2f) / 0.5f, 0.0f, 1.0f));
+            if (textAlpha > 0.0f) {
+               ImGui::PushFont(g_fontMedium);
+               const char* successText = "Done"; // Changed from Active
+               ImVec2 successSize = ImGui::CalcTextSize(successText);
+               // Slight drift up
+               float driftY = (1.0f - textAlpha) * 5.0f;
+               // Adjust text Y position relative to larger checkmark
+               dl->AddText(ImVec2(centerX - successSize.x * 0.5f, checkY + 35.0f * scale + driftY - 15.0f), 
+                   IM_COL32(200, 200, 200, (int)(255 * textAlpha)), successText);
+               ImGui::PopFont();
+            }
+
+            if (g_stageTime > 2.2f) { g_animStage = STAGE_EXIT; g_stageTime = 0; }
         }
 
         ImGui::End();
@@ -811,11 +995,18 @@ namespace LoaderUI {
             g_stageTime = 0;
             g_injectProgress = 0.0f;
             g_injectPulseTime = 0.0f;
+            // Randomize speed: 4.0s to 6.0s duration
+            // Speed = 1/Duration. Range [0.166, 0.25]
+            float rnd = fmodf((float)ImGui::GetTime() * 13.0f, 1.0f);
+            g_injectTargetSpeed = 0.166f + rnd * (0.25f - 0.166f);
         } else if (state == State::INJECTING_SUCCESS) {
             g_animStage = STAGE_INJECTING;
             g_stageTime = 0;
             g_injectProgress = 0.0f;
             g_injectPulseTime = 0.0f;
+            // Randomize speed same as above
+            float rnd = fmodf((float)ImGui::GetTime() * 17.0f, 1.0f);
+            g_injectTargetSpeed = 0.166f + rnd * (0.25f - 0.166f);
         }
     }
     
