@@ -19,6 +19,16 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/).
   - **Deviation Spike Injection**: Spikes periódicos (0.9-2.2s) que rompen consistencia
   - **Anti-Rounded Values**: Micro-offset cuando clamp produce valores exactos (2.5, 3.0, etc.)
   - **GCD Floor Divisor Fix**: Detecta cuando un eje es perfecto vs otro y añade offset
+- **Apollo Team Detection Integration**: Conexión completa con AimAssist
+  - `packet_interceptor.cpp`: Ahora registra teammates parseados de Apollo con `FriendsManager`
+  - Apollo Teams (`UpdateTeamMembersMessage`): UUIDs se registran via `addLunarTeammate()`
+  - Apollo Nametags (`OverrideNametagMessage`): Colores se registran via `setApolloNametagColor()`
+  - `aimassist.cpp`: Nueva prioridad de detección de teammates:
+    1. Apollo Teams (más confiable - paquetes explícitos)
+    2. Apollo Nametags (GREEN/DARK_GREEN = teammate)
+    3. Manual Friends (isFriendByUUID/isFriendByName)
+    4. Scoreboard Teams (color matching)
+    5. Visual Resolver (fallback)
 
 ### Changed
 - **Loader UI Status Indicator**: Redesigned for a minimalist, premium aesthetic.
