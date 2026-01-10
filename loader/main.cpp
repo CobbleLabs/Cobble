@@ -92,12 +92,16 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         return keepRunning;
     };
 
+    // Pre-render frames offscreen to compile fonts/shaders before showing window
     for (int i = 0; i < 10; i++) {
         if (!renderFrame()) {
             LoaderUI::Shutdown();
             return 0;
         }
     }
+    
+    // Now show the window with everything ready
+    LoaderUI::Show();
     
     // Integrity Check
     HMODULE hModule = GetModuleHandle(nullptr);
@@ -130,13 +134,25 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     if (License::Verify(getLicenseServerPrimary().c_str())) {
         licenseValid = true;
         LoaderUI::SetState(LoaderUI::State::LICENSE_VALID);
-        LoaderUI::SetLicenseInfo("Premium", "Jan 15, 2026");
     }
     
+    // Pre-declare lunar so we can detect MC during login
+    ProcessInfo lunar = {};
+
     if (!licenseValid && License::RequiresLogin()) {
         LoaderUI::SetState(LoaderUI::State::LOGIN_REQUIRED);
 
+        // Poll for Minecraft in background while user types credentials
+        auto nextMcScan = std::chrono::steady_clock::now();
+
         while (renderFrame()) {
+            // Check for Minecraft every 200ms while on login screen
+            auto now = std::chrono::steady_clock::now();
+            if (now >= nextMcScan) {
+                lunar = findLunarClient();
+                nextMcScan = now + std::chrono::milliseconds(200);
+            }
+
             if (LoaderUI::IsLoginButtonPressed()) {
                 std::string username = LoaderUI::GetUsername();
                 std::string password = LoaderUI::GetPassword();
@@ -152,8 +168,10 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 
                 if (License::LoginWithCredentials(getLicenseServerPrimary().c_str(), username, password)) {
                     licenseValid = true;
-                    LoaderUI::SetState(LoaderUI::State::LICENSE_VALID);
-                    LoaderUI::SetLicenseInfo("Premium", "Jan 15, 2026");
+                    // If MC already detected, skip waiting stage entirely
+                    if (lunar.pid == 0) {
+                        LoaderUI::SetState(LoaderUI::State::LICENSE_VALID);
+                    }
                     break;
                 } else {
                     LoaderUI::SetError(License::GetLastError());
@@ -180,21 +198,23 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         return 1;
     }
     
-    LoaderUI::SetMessage("Waiting for Minecraft...");
+    // Only wait for Minecraft if not already detected during login
+    if (lunar.pid == 0) {
+        LoaderUI::SetMessage("Waiting for Minecraft...");
 
-    ProcessInfo lunar;
-    auto nextScan = std::chrono::steady_clock::now();
-    while (true) {
-        if (!renderFrame()) {
-            LoaderUI::Shutdown();
-            return 0;
-        }
+        auto nextScan = std::chrono::steady_clock::now();
+        while (true) {
+            if (!renderFrame()) {
+                LoaderUI::Shutdown();
+                return 0;
+            }
 
-        auto now = std::chrono::steady_clock::now();
-        if (now >= nextScan) {
-            lunar = findLunarClient();
-            if (lunar.pid != 0) break;
-            nextScan = now + std::chrono::milliseconds(100);
+            auto now = std::chrono::steady_clock::now();
+            if (now >= nextScan) {
+                lunar = findLunarClient();
+                if (lunar.pid != 0) break;
+                nextScan = now + std::chrono::milliseconds(100);
+            }
         }
     }
     
@@ -243,14 +263,12 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     
     Sleep(500);
     DeleteFileW(dllTempPath.c_str());
-    
+
     LoaderUI::SetState(LoaderUI::State::INJECTING_SUCCESS);
 
-    auto startTime = std::chrono::steady_clock::now();
-    while (std::chrono::steady_clock::now() - startTime < std::chrono::milliseconds(1500)) {
-        if (!renderFrame()) break;
-    }
-    
+    // Let the UI complete the full inject + success animation; the UI will close itself.
+    while (renderFrame());
+
     LoaderUI::Shutdown();
     return 0;
 }
