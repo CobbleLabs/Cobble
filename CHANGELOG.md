@@ -8,6 +8,18 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/).
 
 ## [Unreleased]
 
+### Added
+- **Reach Module Implementation**: Hitbox displacement with anti-detection measures
+  - **Hitbox Displacement**: Moves target bounding box toward player for extended reach
+  - **Hit Chance** (50-100%): Randomizes which swings get extended reach (breaks patterns)
+  - **Max Consecutive Hits** (1-5): Forces vanilla reach after N consecutive extended hits
+  - **Only Moving Targets**: Only extends reach on targets moving toward player
+  - **Minimal Extension**: Calculates exact extension needed, not full configured reach
+  - **Micro-Variance**: Adds ±0.02 random variance to each extension
+  - **Immediate Restoration**: Restores original hitbox on next update tick
+  - **Safe Defaults**: Range 3.0-3.2, 80% chance, max 3 consecutive, randomize ON
+  - Respects friends/teammates (Apollo, Lunar, manual friends list)
+
 ### Fixed
 - **Integrity Check Consolidation**: Unified to single SHA256-based system
   - **Removed**: `Integrity::Verify()` (FNV-1a) from main loop - was running every 30s
