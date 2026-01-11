@@ -1,7 +1,7 @@
 #include "autoclicker.h"
 #include "../../sdk/core/minecraft.h"
 #include "../../util/logger.hpp"
-#include "../../util/inventory_cache.h"
+#include "../../util/inventory/inventory_cache.h"
 #include "../../ui/menu/menu.h"
 #include "../../ui/core/overlay.h"
 #include "../../ui/widgets/widgets.hpp"

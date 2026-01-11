@@ -362,22 +362,31 @@ inline bool DoHeartbeat() {
                        "&version=1.0.30";
     
     // Make HTTP POST request to api.cobble.vip:443/api/heartbeat
+    log_debug("Sending heartbeat: %s", body.c_str());
     http::Response response = http::post(L"api.cobble.vip", 443, L"/api/heartbeat", body, true);
     
     // CRITICAL: Network errors count as failures
     // If server is down, this should fail and eventually kill the DLL
     if (!response.success) {
+        log_err("Heartbeat network fail: %d", response.statusCode);
         return false;  // FAIL - count as failure
     }
     
     // Parse response - parse errors also count as failures
     json::Value resp;
     if (!json::Parser::parse(response.body, resp)) {
+        log_err("Heartbeat JSON parse fail: %s", response.body.c_str());
         return false;  // FAIL - malformed response
     }
     
     // Only return true if server explicitly says ok:true
-    return resp["ok"].as_bool(false);
+    bool ok = resp["ok"].as_bool(false);
+    if (!ok) {
+        log_err("Heartbeat server rejected: %s", response.body.c_str());
+    } else {
+        log_ok("Heartbeat success");
+    }
+    return ok;
 }
 
 // Heartbeat thread function
@@ -397,14 +406,17 @@ inline DWORD WINAPI HeartbeatThreadProc(LPVOID lpParam) {
         // Anti-patch check: verify .text section hasn't been modified
         // Runs every heartbeat iteration (~2-3 min) - less frequent than main loop = less cache pollution
         // Consolidated here from main loop's Integrity::Verify() for single point of integrity checking
+        log_debug("Running integrity check...");
         DllIntegrity::Check();  // Crashes silently if patched
         
         bool success = DoHeartbeat();
         
         if (!success) {
             consecutiveFailures++;
+            log_warn("Heartbeat failed (attempt %d/%d)", consecutiveFailures, maxFailures);
             if (consecutiveFailures >= maxFailures) {
                 // Kill the DLL - server down, banned, expired, or network blocked
+                log_err("Maximum heartbeat failures reached. Terminating.");
                 g_SessionValid = false;
                 InvalidateSession();
                 

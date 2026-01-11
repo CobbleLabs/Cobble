@@ -3,6 +3,7 @@
 #include "../../jni/java.h"
 #include "../../util/logger.hpp"
 #include "../../util/team/friends_manager.h"
+
 #include "../../ui/menu/menu.h"
 #include "../../ui/widgets/widgets.hpp"
 #include "../../sdk/player/player.h"
@@ -648,33 +649,52 @@ bool AimAssist::findTarget(double& targetX, double& targetY, double& targetZ)
 		if (p.isInvisible && !settings.invisibles) continue;
 		if (p.isNPC) continue;  // Skip NPCs/bots
 
+		// Debug: Log parsed colors (every ~50 iterations) - BEFORE friend check
+		static int colorDebugCounter = 0;
+		if (++colorDebugCounter >= 50 && friendsManager) {
+			static int localTeamColorDbg = -1;
+			static Timer colorRefreshTimerDbg;
+			if (colorRefreshTimerDbg.Elapsed<>() > 1000) {
+				localTeamColorDbg = mc.getLocalPlayerTeamColor();
+				colorRefreshTimerDbg.Start();
+			}
+			// Debug logging disabled - uncomment to debug team color parsing
+			log_debug("[Teams] %s | pColor=%d lColor=%d | auto=%d manual=%d mColor=%d | apply=%d",
+				p.name.c_str(),
+				p.teamColor, localTeamColorDbg,
+				friendsManager->teams.matchOwnNametag ? 1 : 0,
+				friendsManager->teams.manualColorEnabled ? 1 : 0,
+				static_cast<int>(friendsManager->teams.manualColor),
+				friendsManager->applyToCombat ? 1 : 0);
+			colorDebugCounter = 0;
+		}
+
 		// Friends/Teams filter - skip friendly players (ALWAYS active)
 		// Priority order:
 		// 1. Apollo Teams (isLunarTeammate - from UpdateTeamMembersMessage)
 		// 2. Apollo Nametags (isApolloTeammate - GREEN/DARK_GREEN)
 		// 3. Manual Friends (isFriendByUUID/isFriendByName)
 		// 4. Scoreboard Teams (isTeammate - color matching)
-		// 5. Visual Resolver (visualTeamResolver->isFriendly)
 		if (friendsManager) {
 			// Priority 1: Apollo Teams (most reliable - explicit team packets)
-		bool isApolloTeam = !p.uuid.empty() && friendsManager->isLunarTeammate(p.uuid);
-		if (isApolloTeam) {
-			continue;
-		}
-		
-		// Priority 2: Apollo Nametags (GREEN or DARK_GREEN = teammate)
-		bool isApolloNametag = !p.uuid.empty() && friendsManager->isApolloTeammate(p.uuid);
-		if (isApolloNametag) {
-			continue;
-		}
-			
+			bool isApolloTeam = !p.uuid.empty() && friendsManager->isLunarTeammate(p.uuid);
+			if (isApolloTeam) {
+				continue;
+			}
+
+			// Priority 2: Apollo Nametags (GREEN or DARK_GREEN = teammate)
+			bool isApolloNametag = !p.uuid.empty() && friendsManager->isApolloTeammate(p.uuid);
+			if (isApolloNametag) {
+				continue;
+			}
+
 			// Priority 3: Manual Friends
 			bool isFriendByUUID = !p.uuid.empty() && friendsManager->isFriendByUUID(p.uuid);
 			bool isFriendByName = friendsManager->isFriend(FriendsManager::stripColorCodes(p.name));
 			if (isFriendByUUID || isFriendByName) {
 				continue;
 			}
-			
+
 			// Priority 4: Scoreboard Teams (color matching)
 			// Get local player's team color for comparison (cached per scan)
 			static int localTeamColor = -1;
@@ -683,7 +703,7 @@ bool AimAssist::findTarget(double& targetX, double& targetY, double& targetZ)
 				localTeamColor = mc.getLocalPlayerTeamColor();
 				colorRefreshTimer.Start();
 			}
-			
+
 			ChatColor playerColor = static_cast<ChatColor>(p.teamColor);
 			ChatColor localColor = static_cast<ChatColor>(localTeamColor);
 			bool isScoreboardTeammate = friendsManager->isTeammate(p.uuid, playerColor, localColor);
@@ -756,20 +776,6 @@ bool AimAssist::findTarget(double& targetX, double& targetY, double& targetZ)
 		float hitboxWidth = targetHitboxMaxX - targetHitboxMinX;
 		float hitboxHeight = targetHitboxMaxY - targetHitboxMinY;
 		targetHasHitbox = (hitboxWidth > 0.01f) && (hitboxHeight > 0.01f);
-		
-		// Debug: Log target info (rate-limited)
-		static Timer debugLogTimer;
-		if (debugLogTimer.Elapsed<>() > 500) { // Log every 500ms
-			log_debug("[AimAssist] Target: %s | UUID: %s | HP: %.1f | Dist: %.1fm | Team: %d",
-				closestPlayer.name.c_str(),
-				closestPlayer.uuid.empty() ? "N/A" : closestPlayer.uuid.substr(0, 8).c_str(),
-				closestPlayer.health,
-				std::sqrt((closestPlayer.posX - localX) * (closestPlayer.posX - localX) + 
-						  (closestPlayer.posY - localY) * (closestPlayer.posY - localY) + 
-						  (closestPlayer.posZ - localZ) * (closestPlayer.posZ - localZ)),
-				closestPlayer.teamColor);
-			debugLogTimer.Start();
-		}
 	} else {
 		targetHasHitbox = false;
 	}
@@ -1270,7 +1276,6 @@ void AimAssist::onRenderMenu()
 			ui::Checkbox("Weapon Only", &settings.weaponOnly);
 			ui::Checkbox("Aim Closest Point", &settings.aimAtClosestPoint);
 			ui::Checkbox("Target Invisibles", &settings.invisibles);
-			
 			ImGui::Spacing();
 			if (ImGui::Combo("Target Mode", &currentMode, targetModes, IM_ARRAYSIZE(targetModes)))
 			{
