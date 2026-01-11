@@ -1,6 +1,6 @@
 #include "inventory_hooks.h"
 #include "inventory_cache.h"
-#include "logger.hpp"
+#include "../logger.hpp"
 
 int InventoryHooks::getItemIdFromStack(JNIEnv* env, jobject itemStack)
 {

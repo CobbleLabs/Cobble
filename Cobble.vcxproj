@@ -126,10 +126,9 @@
     <!-- Utilities -->
     <ClCompile Include="src\util\math\math.cpp" />
     <ClCompile Include="src\util\math\worldToScreen.cpp" />
-    <ClCompile Include="src\util\friends_manager.cpp" />
-    <ClCompile Include="src\util\visual_team_resolver.cpp" />
-    <ClCompile Include="src\util\inventory_cache.cpp" />
-    <ClCompile Include="src\util\inventory_hooks.cpp" />
+    <ClCompile Include="src\util\team\friends_manager.cpp" />
+    <ClCompile Include="src\util\inventory\inventory_cache.cpp" />
+    <ClCompile Include="src\util\inventory\inventory_hooks.cpp" />
     <!-- External libraries -->
     <ClCompile Include="infra\ext\imgui\imgui.cpp" />
     <ClCompile Include="infra\ext\imgui\imgui_draw.cpp" />
@@ -179,11 +178,14 @@
     <ClInclude Include="src\ui\widgets\icons.hpp" />
     <!-- Config -->
     <ClInclude Include="src\config\config.hpp" />
-    <ClInclude Include="src\util\json.hpp" />
-    <ClInclude Include="src\util\http.hpp" />
+    <ClInclude Include="src\util\network\json.hpp" />
+    <ClInclude Include="src\util\network\http.hpp" />
     <ClInclude Include="src\util\hwid.hpp" />
-    <ClInclude Include="src\util\friends_manager.h" />
-    <ClInclude Include="src\util\visual_team_resolver.h" />
+    <ClInclude Include="src\util\team\friends_manager.h" />
+    <ClInclude Include="src\security\session_validator.hpp" />
+    <ClInclude Include="src\security\loader_verify.hpp" />
+    <ClInclude Include="src\security\dll_integrity.hpp" />
+    <ClInclude Include="src\security\tweetnacl.h" />
     <!-- External -->
     <ClInclude Include="infra\ext\jni\jni.h" />
     <ClInclude Include="infra\ext\jni\jni_md.h" />

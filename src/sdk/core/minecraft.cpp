@@ -4,8 +4,8 @@
 #include "minecraft.h"
 #include "../jni/jni_cache.h"
 #include "../../util/logger.hpp"
-#include "../../util/inventory_cache.h"
-#include "../../util/inventory_hooks.h"
+#include "../../util/inventory/inventory_cache.h"
+#include "../../util/inventory/inventory_hooks.h"
 
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX

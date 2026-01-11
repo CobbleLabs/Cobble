@@ -62,8 +62,50 @@ Cobble is an injectable ghost client for Lunar Client (Minecraft), composed of t
 | `sdk/` | Minecraft wrappers (player, world, inventory) |
 | `module/` | Feature modules (combat, visual, utility) |
 | `ui/` | ImGui overlay, menu, widgets, HUD |
-| `util/session_validator.hpp` | Validates injection secret from loader shared memory |
-| `util/loader_verify.hpp` | Detects manual mapping / LoadLibrary injection |
+| `config/` | Config persistence, server sync |
+| `security/` | All security components (integrity, validation, crypto) |
+| `util/` | Helpers organized by domain |
+
+#### Directory Structure
+
+```
+src/
+├── security/                 # Security & anti-tamper
+│   ├── dll_integrity.hpp     # SHA256 .text hash (active)
+│   ├── session_validator.hpp # Injection validation + heartbeat
+│   ├── loader_verify.hpp     # PEB module list check
+│   └── tweetnacl.h           # Ed25519 crypto
+│
+├── util/
+│   ├── math/                 # Vector, geometry, worldToScreen
+│   ├── network/              # HTTP client, JSON parser
+│   ├── inventory/            # Cache & hooks
+│   ├── team/                 # FriendsManager (Apollo + manual)
+│   ├── logger.hpp            # Logging utility
+│   └── hwid.hpp              # Hardware ID generation
+└── ...
+```
+
+#### Security Components
+
+| File | Responsibility |
+|------|----------------|
+| `security/dll_integrity.hpp` | SHA256 hash of .text section (anti-patch) |
+| `security/session_validator.hpp` | Validates injection secret + heartbeat thread |
+| `security/loader_verify.hpp` | Detects LoadLibrary injection (PEB check) |
+| `security/tweetnacl.h` | Ed25519 signature verification |
+
+> **Note**: Only `DllIntegrity::Check()` (SHA256) runs in the heartbeat thread
+> (every 2-3 minutes). Legacy FNV-1a system removed.
+
+#### Team Detection Systems
+
+| File | Responsibility | Status |
+|------|----------------|--------|
+| `util/team/friends_manager.h/.cpp` | Manual friends + Apollo nametag tracking | **Primary** |
+
+> **Note**: Apollo API provides reliable team detection via explicit server packets.
+> VisualTeamResolver was removed (caused false positives from particles/shaders).
 
 ### Packet Interceptor (JVMTI Bytecode Path)
 
@@ -390,12 +432,38 @@ Overlay::Render()
 | Context | Thread | Safety Notes |
 |---------|--------|--------------|
 | Loader main | Main thread | Security init, injection |
-| Heartbeat 1 | Background | Anti-debug monitoring |
-| Heartbeat 2 | Background | Anti-hook monitoring |
-| DLL main loop | JNI thread | Attached to JVM |
+| Loader heartbeat | Background | Anti-debug monitoring (loader side) |
+| DLL main loop | JNI thread | Attached to JVM, 1ms tick |
+| DLL heartbeat | Background | License validation every 2-3 min |
 | Overlay render | OpenGL thread | ImGui calls only here |
+| VisualTeamResolver scan | JNI thread | Runs every 20 ticks in main loop |
 
-**Critical:** Never call JNI from the OpenGL thread. Never call ImGui from the JNI thread.
+**Critical:**
+- Never call JNI from the OpenGL thread
+- Never call ImGui from the JNI thread
+- DLL heartbeat does NOT run integrity checks (causes timing issues)
+
+---
+
+## Apollo API Integration
+
+Cobble intercepts Lunar Client's Apollo API packets to detect team colors:
+
+```
+Player joins server
+    │
+    ├── Server sends S3FPacketCustomPayload (channel: "lunar:apollo")
+    │
+    └── PacketInterceptor::nativeOnReceive()
+            ├── Parse protobuf override_nametag_message
+            ├── Extract nametag color from adventure_component
+            └── FriendsManager::setApolloNametagColor(uuid, color)
+```
+
+**Detected Colors:**
+- `GREEN` / `DARK_GREEN` → Teammate (ignored by AimAssist)
+- `RED` → Enemy
+- Other colors → Neutral
 
 ---
 
@@ -420,7 +488,16 @@ Overlay::Render()
 | Session Validator | Reads shared memory, validates injection_secret |
 | Expiry Check | Secret must be < 5 minutes old |
 | Silent Fail | Corrupts own memory + ExitProcess on failure |
-| Integrity Check | FNV-1a hash of .text section (periodic) |
+
+### Integrity Check System
+
+| System | Algorithm | Location | Frequency |
+|--------|-----------|----------|-----------|
+| `DllIntegrity::Check()` | SHA256 | Heartbeat thread | Every 2-3 min |
+
+> **Design Decision**: Single integrity check in the heartbeat thread. SHA256 is
+> cryptographically stronger than the removed FNV-1a system. The 2-3 minute interval
+> provides sufficient anti-tamper protection with minimal CPU cache pollution.
 
 ### HWID Generation
 

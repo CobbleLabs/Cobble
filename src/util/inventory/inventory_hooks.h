@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../jni/java.h"
+#include "../../jni/java.h"
 
 // JVMTI-based inventory event hooks
 // Hooks Minecraft's inventory modification methods to track state changes

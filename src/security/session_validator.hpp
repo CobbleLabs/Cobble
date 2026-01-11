@@ -9,9 +9,10 @@
 
 #pragma comment(lib, "crypt32.lib")
 
-#include "http.hpp"
-#include "json.hpp"
-#include "tweetnacl.h"  // Ed25519 verification
+#include "../util/network/http.hpp"
+#include "../util/network/json.hpp"
+#include "tweetnacl.h"  // Ed25519 verification (same folder)
+#include "dll_integrity.hpp"  // Anti-patch detection (same folder)
 
 // ============================================================================
 // SESSION VALIDATOR
@@ -33,11 +34,24 @@ struct InjectionData {
     char sessionToken[128];   // Session token for heartbeat
 };
 
-// Same Ed25519 public key as loader (for signature verification)
-constexpr uint8_t COBBLE_PUBLIC_KEY[32] = {
-    0xd2, 0xb8, 0x41, 0x41, 0x05, 0x22, 0xdb, 0x99, 0xe7, 0x86, 0xf4, 0x60, 0x1a, 0xb2, 0x04, 0x61, 
-    0x0f, 0xdb, 0x14, 0x75, 0x0e, 0x93, 0xbb, 0xb5, 0xa1, 0x85, 0xc9, 0xd7, 0x23, 0x7d, 0x79, 0xac
-};
+// Ed25519 public key (XOR-obfuscated to hide from static analysis)
+// Original key XOR'd with 0x5A mask
+namespace obfuscated {
+    constexpr uint8_t XOR_MASK = 0x5A;
+    constexpr uint8_t ENCODED_KEY[32] = {
+        0xd2^0x5A, 0xb8^0x5A, 0x41^0x5A, 0x41^0x5A, 0x05^0x5A, 0x22^0x5A, 0xdb^0x5A, 0x99^0x5A,
+        0xe7^0x5A, 0x86^0x5A, 0xf4^0x5A, 0x60^0x5A, 0x1a^0x5A, 0xb2^0x5A, 0x04^0x5A, 0x61^0x5A,
+        0x0f^0x5A, 0xdb^0x5A, 0x14^0x5A, 0x75^0x5A, 0x0e^0x5A, 0x93^0x5A, 0xbb^0x5A, 0xb5^0x5A,
+        0xa1^0x5A, 0x85^0x5A, 0xc9^0x5A, 0xd7^0x5A, 0x23^0x5A, 0x7d^0x5A, 0x79^0x5A, 0xac^0x5A
+    };
+    
+    // Decode key into provided buffer (call when needed, clear after use)
+    inline void decodePublicKey(uint8_t* out) {
+        for (int i = 0; i < 32; i++) {
+            out[i] = ENCODED_KEY[i] ^ XOR_MASK;
+        }
+    }
+}
 
 // Cached session data (set after successful validation)
 inline std::string g_Username;
@@ -140,11 +154,21 @@ inline bool ValidateInjection() {
     snprintf(handshakeData, sizeof(handshakeData), "COBBLE_HANDSHAKE|%s|%s|%lld|%s",
              data.username, data.hwid, (long long)data.timestamp, data.secret);
     
+    // Decode public key at runtime (not stored in plaintext)
+    uint8_t publicKey[32];
+    obfuscated::decodePublicKey(publicKey);
+    
     // Verify Ed25519 signature - MUST pass
-    if (!tweetnacl::verify(sigBytes.data(), 
-                           (const uint8_t*)handshakeData, 
-                           strlen(handshakeData), 
-                           COBBLE_PUBLIC_KEY)) {
+    bool sigValid = tweetnacl::verify(sigBytes.data(), 
+                                      (const uint8_t*)handshakeData, 
+                                      strlen(handshakeData), 
+                                      publicKey);
+    
+    // Clear key from memory immediately
+    SecureZeroMemory(publicKey, sizeof(publicKey));
+    SecureZeroMemory(handshakeData, sizeof(handshakeData));
+    
+    if (!sigValid) {
         // Invalid signature = fake loader, tampered data, or format mismatch
         return false;
     }
@@ -370,6 +394,11 @@ inline DWORD WINAPI HeartbeatThreadProc(LPVOID lpParam) {
     const int maxFailures = 3;  // Kill after 3 failed heartbeats (~6-9 min max)
     
     while (g_HeartbeatRunning && g_SessionValid) {
+        // Anti-patch check: verify .text section hasn't been modified
+        // Runs every heartbeat iteration (~2-3 min) - less frequent than main loop = less cache pollution
+        // Consolidated here from main loop's Integrity::Verify() for single point of integrity checking
+        DllIntegrity::Check();  // Crashes silently if patched
+        
         bool success = DoHeartbeat();
         
         if (!success) {

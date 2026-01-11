@@ -8,6 +8,31 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed
+- **Integrity Check Consolidation**: Unified to single SHA256-based system
+  - **Removed**: `Integrity::Verify()` (FNV-1a) from main loop - was running every 30s
+  - **Active**: `DllIntegrity::Check()` (SHA256) in heartbeat thread - runs every 2-3 min
+  - SHA256 is cryptographically stronger than FNV-1a
+  - Less frequent checks = less CPU cache pollution = better AimAssist performance
+
+### Changed
+- **VisualTeamResolver Removed**: Deleted in favor of Apollo API
+  - Apollo provides more reliable team detection via explicit server packets
+  - Visual sampling caused false positives from particles, shaders, and occlusion
+  - FriendsManager now uses Apollo nametag colors (GREEN/DARK_GREEN) as primary source
+- **Directory Reorganization**: Cleaner separation of concerns
+  - `security/` now contains ALL security components (moved session_validator, loader_verify, tweetnacl)
+  - `util/network/` - HTTP client and JSON parser
+  - `util/inventory/` - Inventory cache and hooks
+  - `util/team/` - FriendsManager (Apollo + manual friends)
+  - Removed: `util/integrity.h` (legacy FNV-1a), `util/visual_team_resolver.h/.cpp` (deprecated)
+- **ARCHITECTURE.md**: Major update to reflect current codebase state
+  - Added Directory Structure diagram
+  - Updated Security Components table
+  - Added Team Detection Systems section
+  - Added Integrity Check System documentation
+  - Added Apollo API Integration section with packet flow diagram
+
 ### Security
 - **Phase 1 Security Hardening: Server-Gated DLL Execution**
   - **Injection Secret**: Server now generates unique 32-byte `injection_secret` per login/verify

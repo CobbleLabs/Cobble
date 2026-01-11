@@ -3,7 +3,7 @@
 
 #include "packet_interceptor.hpp"
 #include "../util/logger.hpp"
-#include "../util/friends_manager.h"
+#include "../util/team/friends_manager.h"
 #include "../sdk/core/minecraft.h"
 #include "../module/utility/noitemrelease.h"
 #include "../sdk/network/lunar_packet_listener.hpp"
@@ -2612,14 +2612,14 @@ static const char* getPacketTypeName(JNIEnv* env, jobject packet) {
             // Extract simple name from signature like "Lnet/minecraft/network/.../C03PacketPlayer;"
             const char* lastSlash = strrchr(sig, '/');
             if (lastSlash) {
-                strncpy(nameBuf, lastSlash + 1, sizeof(nameBuf) - 1);
+                strncpy_s(nameBuf, sizeof(nameBuf), lastSlash + 1, _TRUNCATE);
                 // Remove trailing semicolon
                 size_t len = strlen(nameBuf);
                 if (len > 0 && nameBuf[len-1] == ';') {
                     nameBuf[len-1] = '\0';
                 }
             } else {
-                strncpy(nameBuf, sig, sizeof(nameBuf) - 1);
+                strncpy_s(nameBuf, sizeof(nameBuf), sig, _TRUNCATE);
             }
             Java::tiEnv->Deallocate((unsigned char*)sig);
         }

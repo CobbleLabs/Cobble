@@ -5,8 +5,7 @@
 #include "../widgets/widgets.hpp"
 #include "../widgets/icons.hpp"
 #include "../../util/logger.hpp"
-#include "../../util/friends_manager.h"
-#include "../../util/visual_team_resolver.h"
+#include "../../util/team/friends_manager.h"
 #include "../../sdk/player/render_data.h"
 #include "../../sdk/core/minecraft.h"
 #include "../../module/module_manager.h"
@@ -371,12 +370,7 @@ namespace {
 				RenderData::screenHeight = newHeight;
 			}
 			
-			// Process visual team resolver on render thread (reads from game framebuffer)
-			// This uses the ORIGINAL GL context to read actual rendered pixels
-			if (visualTeamResolver && visualTeamResolver->enabled) {
-				visualTeamResolver->processRenderThread(RenderData::screenWidth, RenderData::screenHeight);
-				visualTeamResolver->tick();  // Clean stale cache entries
-			}
+			
 			
 			if (!wglMakeCurrent(Overlay::deviceContext, Overlay::overlayContext)) {
 				return originalSwapBuffers(hdc);
@@ -493,12 +487,4 @@ void Overlay::Render()
 	ArrayListRenderer::render();
 	NotificationManager::update();
 	NotificationManager::render();
-	
-	// Visual Team Resolver debug overlay
-	if (visualTeamResolver && visualTeamResolver->debugOverlay) {
-		ImDrawList* draw = ImGui::GetWindowDrawList();
-		if (draw) {
-			visualTeamResolver->renderDebugOverlay(draw);
-		}
-	}
 }

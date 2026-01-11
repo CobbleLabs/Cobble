@@ -5,7 +5,7 @@
 #include "../jni/jni_cache.h"
 #include "../jni/jstring_util.h"
 #include "../../util/logger.hpp"
-#include "../../util/friends_manager.h"
+#include "../../util/team/friends_manager.h"
 
 #include <cctype>
 #include <algorithm>

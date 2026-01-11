@@ -1,9 +1,9 @@
 #include "friends_manager.h"
-#include "logger.hpp"
-#include "http.hpp"
-#include "json.hpp"
-#include "../sdk/core/minecraft.h"
-#include "../ui/hud/notifications.h"
+#include "../logger.hpp"
+#include "../network/http.hpp"
+#include "../network/json.hpp"
+#include "../../sdk/core/minecraft.h"
+#include "../../ui/hud/notifications.h"
 #include <algorithm>
 #include <cctype>
 #include <chrono>

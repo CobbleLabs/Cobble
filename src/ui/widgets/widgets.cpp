@@ -394,7 +394,7 @@ bool ui::SliderFloat(const char* label, float* v, float v_min, float v_max, cons
         // Only close on Enter key press
         if (enterPressed) {
             float newVal = 0.0f;
-            if (sscanf(inputState.buffer, "%f", &newVal) == 1 && std::isfinite(newVal)) {
+            if (sscanf_s(inputState.buffer, "%f", &newVal) == 1 && std::isfinite(newVal)) {
                 *v = newVal;
                 MarkItemEdited(id);
             }
@@ -409,7 +409,7 @@ bool ui::SliderFloat(const char* label, float* v, float v_min, float v_max, cons
         // Close if clicked outside the input box
         if (IsMouseClicked(ImGuiMouseButton_Left) && !IsItemHovered()) {
             float newVal = 0.0f;
-            if (sscanf(inputState.buffer, "%f", &newVal) == 1 && std::isfinite(newVal)) {
+            if (sscanf_s(inputState.buffer, "%f", &newVal) == 1 && std::isfinite(newVal)) {
                 *v = newVal;
                 MarkItemEdited(id);
             }

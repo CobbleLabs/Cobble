@@ -9,8 +9,8 @@
 #include <Windows.h>
 #include <ShlObj.h>
 
-#include "../util/json.hpp"
-#include "../util/http.hpp"
+#include "../util/network/json.hpp"
+#include "../util/network/http.hpp"
 #include "../util/hwid.hpp"
 #include "../util/logger.hpp"
 

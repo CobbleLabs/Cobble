@@ -19,16 +19,14 @@
 #include "hooks/winsock_hooks.h"
 #include "ui/core/overlay.h"
 #include "ui/hud/notifications.h"
-#include "util/integrity.h"
-#include "util/friends_manager.h"
-#include "util/visual_team_resolver.h"
+#include "util/team/friends_manager.h"
 #include "sdk/player/render_data.h"
 #include "sdk/network/network_probe.hpp"
 #include "jni/packet_interceptor.hpp"
 #include "sdk/network/lunar_packet_listener.hpp"
-#include "util/loader_verify.hpp"
-#include "util/session_validator.hpp"
-
+#include "security/loader_verify.hpp"
+#include "security/session_validator.hpp"
+#include "security/dll_integrity.hpp"
 
 // Signature for loader detection (cleared on shutdown for re-injection support)
 volatile char COBBLE_SIGNATURE[] = "COBBLE_LOADED_V1";
@@ -43,13 +41,11 @@ static void invalidateSignature()
 void cobble::context::initialize(HMODULE hModule)
 {
     // CRITICAL: Verify we were loaded by legitimate loader, not via LoadLibrary
-    // This MUST be first - before any logging that could hint at detection
     LoaderVerify::verifyOrDie(hModule);
     
 	// CRITICAL: Validate injection secret from loader's shared memory
 	// Without this, the DLL refuses to run - this is the primary security gate
 	if (!SessionValidator::ValidateInjection()) {
-		// Silent fail - no hints to crackers
 		// Corrupt memory and exit to frustrate reverse engineering
 		DWORD oldProtect;
 		if (VirtualProtect(hModule, 0x1000, PAGE_READWRITE, &oldProtect)) {
@@ -59,12 +55,16 @@ void cobble::context::initialize(HMODULE hModule)
 		return;
 	}
 	
-	// Phase 4: Start heartbeat thread for runtime validation
+	// Initialize DLL integrity check (hash .text section for anti-patch detection)
+	// Must be done BEFORE any JIT/hooks that would modify code
+	DllIntegrity::Initialize(hModule);
+	
+	// Start heartbeat thread for runtime validation
 	// Session token was cached from shared memory during ValidateInjection()
 	SessionValidator::StartHeartbeatThread("");
 
     // Initialize logging console immediately
-    c_logger::initialize(); // Fixed: static call
+    c_logger::initialize();
     log_raw("========================================");
     log_ok("Cobble injected! Build: %s", __DATE__);
     log_debug("Module Handle: 0x%p", hModule);
@@ -108,7 +108,6 @@ void cobble::context::initialize(HMODULE hModule)
     tracers = new Tracers();
     blockESP = new BlockESP();
     friendsManager = new FriendsManager();
-    visualTeamResolver = new VisualTeamResolver();
     log_ok("Modules allocated");
 
     log_raw("Registering modules...");
@@ -132,7 +131,6 @@ void cobble::context::initialize(HMODULE hModule)
     log_raw("Initializing Config...");
     ConfigManager::get().init();
     
-    // Initialize WSA hooks for Blink packet blocking (fallback)
     log_raw("Initializing WSA hooks...");
     if (WinsockHooks::Init()) {
         log_ok("WSA hooks initialized");
@@ -143,17 +141,17 @@ void cobble::context::initialize(HMODULE hModule)
     // Initialize PacketInterceptor for Java-level packet filtering (primary)
     log_raw("Initializing PacketInterceptor...");
     if (PacketInterceptor::Init()) {
-        log_ok("PacketInterceptor initialized - Blink will use Java-level interception");
+        log_ok("PacketInterceptor initialized");
     } else {
-        log_warn("PacketInterceptor failed - Blink will use network-level blocking (may timeout)");
+        log_warn("PacketInterceptor failed");
     }
 
     // Initialize LunarPacketListener for Lunar Client API packet interception
     log_raw("Initializing LunarPacketListener...");
     if (LunarPacketListener::Init()) {
-        log_ok("LunarPacketListener initialized - Lunar nametag packets will be logged");
+        log_ok("LunarPacketListener initialized");
     } else {
-        log_warn("LunarPacketListener failed - Lunar API not available or not on Lunar Client");
+        log_warn("LunarPacketListener failed");
     }
 
     // Create Named Mutex for Injection Detection
@@ -168,15 +166,9 @@ void cobble::context::initialize(HMODULE hModule)
     
     int tickCount = 0;
     const int OVERLAY_INIT_DELAY = 1000;
-    const int INTEGRITY_CHECK_INTERVAL = 30000;
     bool overlayInitialized = false;
     bool notificationShown = false;
     
-    // Initialize self-integrity check (captures .text hash)
-    log_raw("Initializing Integrity Check...");
-    Integrity::Init(moduleHandle);
-    log_ok("Integrity Check initialized. Initial Hash: 0x%llX", Integrity::g_InitialTextHash);
-
     is_running = true;
     log_ok("Main loop starting...");
 
@@ -196,22 +188,9 @@ void cobble::context::initialize(HMODULE hModule)
         player.refresh();
         moduleManager->update();
         
-        // Update render data matrices (for ESP/VisualTeamResolver) - must be on main thread with JNI access
+        // Update render data matrices (for ESP) - must be on main thread with JNI access
         RenderData::Update();
         
-        // Background visual team scanning - pre-cache detection before AimAssist needs it
-        // Run every 20 ticks (~20ms) to minimize JNI overhead
-        if (visualTeamResolver && visualTeamResolver->enabled && tickCount % 20 == 0) {
-            visualTeamResolver->scanAllPlayers();
-        }
-        
-        // Periodic integrity check (silent exit if tampered)
-        if (tickCount % INTEGRITY_CHECK_INTERVAL == 0) {
-            if (!Integrity::Verify(moduleHandle)) {
-                is_running = false;  // Soft exit
-            }
-        }
-
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
 
@@ -268,7 +247,6 @@ void cobble::context::shutdown()
     if (nameTags) { delete nameTags; nameTags = nullptr; }
     if (esp) { delete esp; esp = nullptr; }
     if (friendsManager) { delete friendsManager; friendsManager = nullptr; }
-    if (visualTeamResolver) { delete visualTeamResolver; visualTeamResolver = nullptr; }
     
     if (moduleManager) { delete moduleManager; moduleManager = nullptr; }
     

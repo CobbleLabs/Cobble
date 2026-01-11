@@ -16,7 +16,7 @@ func handleModal(s *discordgo.Session, i *discordgo.InteractionCreate) {
 
 	if strings.HasPrefix(data.CustomID, "modal_") {
 		category := strings.TrimPrefix(data.CustomID, "modal_")
-		
+
 		if category == "close" {
 			handleCloseModal(s, i, data)
 		} else {
@@ -61,12 +61,12 @@ func handleTicketModal(s *discordgo.Session, i *discordgo.InteractionCreate, dat
 
 	// Create ticket channel
 	cfg := config.Get()
-	
+
 	// Determine category ID
 	var parentID string
 	var color int
 	var emoji string
-	
+
 	switch category {
 	case "bug":
 		parentID = cfg.CategoryBugID
@@ -84,7 +84,7 @@ func handleTicketModal(s *discordgo.Session, i *discordgo.InteractionCreate, dat
 
 	// Create channel with username instead of ID
 	channelName := fmt.Sprintf("ticket-%s-%s", category, username)
-	
+
 	channel, err := s.GuildChannelCreateComplex(cfg.GuildID, discordgo.GuildChannelCreateData{
 		Name:     channelName,
 		Type:     discordgo.ChannelTypeGuildText,
@@ -191,7 +191,7 @@ func handleCloseModal(s *discordgo.Session, i *discordgo.InteractionCreate, data
 	var ticketID int
 	var userID, username, category string
 	err := database.DB.QueryRow(
-		"SELECT id, user_id, username, category FROM tickets WHERE channel_id = ? AND status = 'open'",
+		"SELECT id, user_id, username, category FROM tickets WHERE channel_id = ? AND status IN ('open', 'claimed')",
 		channelID,
 	).Scan(&ticketID, &userID, &username, &category)
 

@@ -2,7 +2,7 @@
 #include "../../sdk/core/minecraft.h"
 #include "../../sdk/player/render_data.h"
 #include "../../util/logger.hpp"
-#include "../../util/http.hpp"
+#include "../../util/network/http.hpp"
 #include "../../util/math/worldToScreen.h"
 #include "../../ui/widgets/widgets.hpp"
 

@@ -1,5 +1,5 @@
 #include "inventory_cache.h"
-#include "logger.hpp"
+#include "../logger.hpp"
 
 // Static member initialization
 std::array<int, 9> InventoryCache::hotbarItems = {-1, -1, -1, -1, -1, -1, -1, -1, -1};

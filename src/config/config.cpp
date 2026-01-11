@@ -18,7 +18,7 @@
 #include "../ui/hud/arraylist.h"
 #include "../ui/hud/notifications.h"
 #include "../ui/menu/menu.h"
-#include "../util/friends_manager.h"
+#include "../util/team/friends_manager.h"
 
 using namespace ArrayListRenderer;
 

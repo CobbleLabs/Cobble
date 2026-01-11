@@ -2,19 +2,13 @@
 #include "../../sdk/core/minecraft.h"
 #include "../../jni/java.h"
 #include "../../util/logger.hpp"
-#include "../../util/friends_manager.h"
-#include "../../util/visual_team_resolver.h"
-#include "../../util/http.hpp"
+#include "../../util/team/friends_manager.h"
 #include "../../ui/menu/menu.h"
 #include "../../ui/widgets/widgets.hpp"
 #include "../../sdk/player/player.h"
 #include <array>
 #include <algorithm>
 #include <cmath>
-#include <unordered_set>
-#include <unordered_map>
-#include <thread>
-#include <mutex>
 
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
@@ -25,69 +19,6 @@
 #include <Windows.h>
 
 AimAssist* aimAssist = nullptr;
-
-// ============================================================
-// DEBUG ONLY - REMOVE IN PROD - Mojang Name Cache - resolves UUIDs to real player names
-// ============================================================
-struct MojangCacheEntry {
-	std::string realName;
-	bool lookupQueued = false;
-	bool lookupDone = false;
-};
-
-static std::unordered_map<std::string, MojangCacheEntry> s_mojangCache;
-static std::mutex s_mojangCacheMutex;
-
-// Get real name for UUID, returns empty if not yet resolved
-static std::string getMojangName(const std::string& uuid) {
-	std::lock_guard<std::mutex> lock(s_mojangCacheMutex);
-	auto it = s_mojangCache.find(uuid);
-	if (it != s_mojangCache.end() && it->second.lookupDone) {
-		return it->second.realName;
-	}
-	return "";
-}
-
-// Queue async Mojang lookup for UUID
-static void queueMojangLookup(const std::string& uuid) {
-	if (uuid.empty()) return;
-	
-	{
-		std::lock_guard<std::mutex> lock(s_mojangCacheMutex);
-		auto& entry = s_mojangCache[uuid];
-		if (entry.lookupQueued || entry.lookupDone) return;
-		entry.lookupQueued = true;
-	}
-	
-	std::string uuidCopy = uuid;
-	std::thread([uuidCopy]() {
-		std::string realName = http::lookupMojangName(uuidCopy);
-		{
-			std::lock_guard<std::mutex> lock(s_mojangCacheMutex);
-			auto& e = s_mojangCache[uuidCopy];
-			e.realName = realName;
-			e.lookupDone = true;
-		}
-	}).detach();
-}
-
-// Get display name: prefer Mojang name, fallback to server name
-static std::string getDisplayName(const std::string& uuid, const std::string& serverName) {
-	std::string mojangName = getMojangName(uuid);
-	if (!mojangName.empty()) {
-		return mojangName;
-	}
-	// Queue lookup for next time
-	queueMojangLookup(uuid);
-	// Return UUID prefix if server name looks obfuscated (contains weird chars)
-	bool looksObfuscated = serverName.find("Ambassator") != std::string::npos ||
-	                       serverName.find("ACHCTL") != std::string::npos ||
-	                       serverName.length() < 3;
-	if (looksObfuscated && !uuid.empty()) {
-		return uuid.substr(0, 8) + "...";
-	}
-	return serverName;
-}
 
 // Weapon item IDs
 namespace ItemIds {
@@ -152,20 +83,6 @@ struct NeuromotorState {
 	int ticksUntilCorrection = 0; // When to apply micro-correction
 	Timer stateRefreshTimer;
 	
-	// Anti-detection: asymmetric axis offsets (bypass floor divisor checks)
-	float yawGcdOffset = 0.0f;
-	float pitchGcdOffset = 0.0f;
-	
-	// Anti-detection: smoothing variance injection
-	float smoothingNoise = 0.0f;
-	Timer smoothingNoiseTimer;
-	
-	// Anti-detection: deviation spike injection
-	bool deviationSpikeActive = false;
-	Timer deviationSpikeTimer;
-	float nextSpikeDelay = 1200.0f;
-	float spikeMultiplier = 1.0f;
-	
 	void update(std::mt19937& rng, float speedSetting = 50.0f) {
 		auto randF = [&](float min, float max) {
 			std::uniform_real_distribution<float> d(min, max);
@@ -177,9 +94,12 @@ struct NeuromotorState {
 		};
 		
 		// Scale drift based on speed setting
+		// Low speed needs minimal drift (clean aim), high speed also needs clean aim
+		// Medium-low speeds (40-60) can have slightly more drift for human-like feel
+		// Formula creates bell curve peaking around speed 50
 		float speedNorm = speedSetting / 100.0f;
 		float bellCurve = std::exp(-std::pow((speedNorm - 0.5f) * 2.5f, 2.0f));
-		float speedScale = 0.15f + bellCurve * 0.45f;
+		float speedScale = 0.15f + bellCurve * 0.45f; // Range: 0.15 to 0.60
 		
 		// Brownian drift: small random walk that accumulates
 		float yawDriftStep = randF(-0.012f, 0.012f) * speedScale;
@@ -188,7 +108,7 @@ struct NeuromotorState {
 		driftYaw += yawDriftStep;
 		driftPitch += pitchDriftStep;
 		
-		// Decay drift slowly (mean-reverting)
+		// Decay drift slowly (mean-reverting) - faster decay at low speeds
 		float decayRate = std::lerp(0.85f, 0.94f, speedScale);
 		driftYaw *= decayRate;
 		driftPitch *= decayRate;
@@ -198,37 +118,14 @@ struct NeuromotorState {
 		driftYaw = std::clamp(driftYaw, -maxDrift, maxDrift);
 		driftPitch = std::clamp(driftPitch, -maxDrift * 0.8f, maxDrift * 0.8f);
 		
-		// Refresh overshoot tendency periodically
+		// Refresh overshoot tendency periodically (humans are inconsistent)
 		if (stateRefreshTimer.Elapsed<>() > randF(800.f, 2000.f)) {
+			// Overshoot closer to 1.0 at low speeds (more precise)
 			float overshootRange = std::lerp(0.02f, 0.08f, speedScale);
 			overshootFactor = 1.0f + randF(-overshootRange, overshootRange);
 			reactionJitter = randF(-15.f, 15.f) * speedScale;
 			ticksUntilCorrection = randI(3, 12);
-			
-			// Anti-detection: refresh asymmetric GCD offsets (different ranges per axis)
-			yawGcdOffset = randF(-0.018f, 0.025f);   // Slight positive bias
-			pitchGcdOffset = randF(-0.022f, 0.016f); // Slight negative bias
-			
 			stateRefreshTimer.Start();
-		}
-		
-		// Anti-detection: smoothing variance (refresh faster for more variance)
-		if (smoothingNoiseTimer.Elapsed<>() > randF(35.f, 100.f)) {
-			smoothingNoise = randF(-0.06f, 0.09f); // Subtle asymmetric noise
-			smoothingNoiseTimer.Start();
-		}
-		
-		// Anti-detection: deviation spike injection (mimics human focus lapses)
-		if (!deviationSpikeActive && deviationSpikeTimer.Elapsed<>() > nextSpikeDelay) {
-			deviationSpikeActive = true;
-			spikeMultiplier = randF(1.25f, 1.65f);
-			nextSpikeDelay = randF(60.f, 120.f); // Short spike duration
-			deviationSpikeTimer.Start();
-		} else if (deviationSpikeActive && deviationSpikeTimer.Elapsed<>() > nextSpikeDelay) {
-			deviationSpikeActive = false;
-			spikeMultiplier = 1.0f;
-			nextSpikeDelay = randF(900.f, 2200.f); // Long wait until next spike
-			deviationSpikeTimer.Start();
 		}
 	}
 };
@@ -751,26 +648,6 @@ bool AimAssist::findTarget(double& targetX, double& targetY, double& targetZ)
 		if (p.isInvisible && !settings.invisibles) continue;
 		if (p.isNPC) continue;  // Skip NPCs/bots
 
-		// Debug: Log parsed colors (every ~50 iterations) - BEFORE friend check
-		static int colorDebugCounter = 0;
-		if (++colorDebugCounter >= 50 && friendsManager) {
-			static int localTeamColorDbg = -1;
-			static Timer colorRefreshTimerDbg;
-			if (colorRefreshTimerDbg.Elapsed<>() > 1000) {
-				localTeamColorDbg = mc.getLocalPlayerTeamColor();
-				colorRefreshTimerDbg.Start();
-			}
-			// Debug logging disabled - uncomment to debug team color parsing
-			//log_debug("[Teams] %s | pColor=%d lColor=%d | auto=%d manual=%d mColor=%d | apply=%d",
-			//	p.name.c_str(),
-			//	p.teamColor, localTeamColorDbg,
-			//	friendsManager->teams.matchOwnNametag ? 1 : 0,
-			//	friendsManager->teams.manualColorEnabled ? 1 : 0,
-			//	static_cast<int>(friendsManager->teams.manualColor),
-			//	friendsManager->applyToCombat ? 1 : 0);
-			colorDebugCounter = 0;
-		}
-
 		// Friends/Teams filter - skip friendly players (ALWAYS active)
 		// Priority order:
 		// 1. Apollo Teams (isLunarTeammate - from UpdateTeamMembersMessage)
@@ -782,27 +659,12 @@ bool AimAssist::findTarget(double& targetX, double& targetY, double& targetZ)
 			// Priority 1: Apollo Teams (most reliable - explicit team packets)
 		bool isApolloTeam = !p.uuid.empty() && friendsManager->isLunarTeammate(p.uuid);
 		if (isApolloTeam) {
-			// Log once per player when first detected as Apollo teammate
-			static std::unordered_set<std::string> loggedApolloTeammates;
-			if (loggedApolloTeammates.find(p.uuid) == loggedApolloTeammates.end()) {
-				std::string displayName = getDisplayName(p.uuid, p.name);
-				log_ok("[AimAssist] Ignoring %s (Apollo Team)", displayName.c_str());
-				loggedApolloTeammates.insert(p.uuid);
-			}
 			continue;
 		}
 		
 		// Priority 2: Apollo Nametags (GREEN or DARK_GREEN = teammate)
 		bool isApolloNametag = !p.uuid.empty() && friendsManager->isApolloTeammate(p.uuid);
 		if (isApolloNametag) {
-			// Log once per player when first detected via Apollo nametag
-			static std::unordered_set<std::string> loggedApolloNametags;
-			if (loggedApolloNametags.find(p.uuid) == loggedApolloNametags.end()) {
-				std::string color = friendsManager->getApolloNametagColor(p.uuid);
-				std::string displayName = getDisplayName(p.uuid, p.name);
-				log_ok("[AimAssist] Ignoring %s (Apollo Nametag: %s)", displayName.c_str(), color.c_str());
-				loggedApolloNametags.insert(p.uuid);
-			}
 			continue;
 		}
 			
@@ -827,17 +689,6 @@ bool AimAssist::findTarget(double& targetX, double& targetY, double& targetZ)
 			bool isScoreboardTeammate = friendsManager->isTeammate(p.uuid, playerColor, localColor);
 			if (isScoreboardTeammate) {
 				continue;
-			}
-			
-			// Priority 5: Visual Resolver (fallback when no other info available)
-			if (playerColor == ChatColor::UNKNOWN && visualTeamResolver && visualTeamResolver->enabled) {
-				bool visualFriendly = visualTeamResolver->isFriendly(p.uuid);
-				if (visualFriendly) {
-					continue;
-				}
-				// Queue for visual analysis (will be processed on render thread)
-				RenderPos renderPos = mc.getRenderPos();
-				visualTeamResolver->queueForAnalysis(p.uuid, p, renderPos);
 			}
 		}
 
@@ -909,9 +760,9 @@ bool AimAssist::findTarget(double& targetX, double& targetY, double& targetZ)
 		// Debug: Log target info (rate-limited)
 		static Timer debugLogTimer;
 		if (debugLogTimer.Elapsed<>() > 500) { // Log every 500ms
-			std::string targetDisplayName = getDisplayName(closestPlayer.uuid, closestPlayer.name);
-			log_debug("[AimAssist] Target: %s | HP: %.1f | Dist: %.1fm | Team: %d",
-				targetDisplayName.c_str(),
+			log_debug("[AimAssist] Target: %s | UUID: %s | HP: %.1f | Dist: %.1fm | Team: %d",
+				closestPlayer.name.c_str(),
+				closestPlayer.uuid.empty() ? "N/A" : closestPlayer.uuid.substr(0, 8).c_str(),
 				closestPlayer.health,
 				std::sqrt((closestPlayer.posX - localX) * (closestPlayer.posX - localX) + 
 						  (closestPlayer.posY - localY) * (closestPlayer.posY - localY) + 
@@ -1063,17 +914,9 @@ void AimAssist::applyAimRand(float yawDiff, float pitchDiff, float speed)
 	}
 
 	float smoothingHuman = std::clamp(aimHumanizer, 0.92f, 1.08f);
-	
-	// Anti-detection: inject smoothing variance + deviation spikes
-	float baseSmoothing = (0.08f + alignment * 0.18f + (std::min(rawSpeedSetting, 360.0f) / 400.0f) * 0.12f) * smoothingHuman;
-	float smoothingWithNoise = baseSmoothing + g_neuroState.smoothingNoise;
-	
-	// Apply deviation spike (breaks Analytics C/D consistency detection)
-	if (g_neuroState.deviationSpikeActive) {
-		smoothingWithNoise *= g_neuroState.spikeMultiplier;
-	}
-	
-	float smoothingStrength = std::clamp(smoothingWithNoise, 0.05f, 0.42f);
+	float smoothingStrength = std::clamp(
+		(0.08f + alignment * 0.18f + (std::min(rawSpeedSetting, 360.0f) / 400.0f) * 0.12f) * smoothingHuman,
+		0.08f, 0.35f);
 	yawdiffSpeed = std::lerp(yawdiffSpeed, targetYawSpeed, smoothingStrength);
 	pitchdiffSpeed = std::lerp(pitchdiffSpeed, targetPitchSpeed, smoothingStrength);
 
@@ -1219,22 +1062,6 @@ void AimAssist::applyAimRand(float yawDiff, float pitchDiff, float speed)
 	float pitchDeltaStep = std::clamp(pitchDelta, -maxPitchStep, maxPitchStep);
 	bool yawStepClamped = std::abs(yawDeltaStep - yawDelta) > 1e-6f;
 	bool pitchStepClamped = std::abs(pitchDeltaStep - pitchDelta) > 1e-6f;
-	
-	// Anti-detection: prevent rounded values when clamping (AimAssistA detection)
-	// If clamp produced exact value like 2.5, 3.0 etc, add micro-offset
-	if (yawStepClamped) {
-		float yawFrac = std::abs(yawDeltaStep - std::round(yawDeltaStep));
-		if (yawFrac < 0.001f || std::abs(std::fmod(yawDeltaStep, 0.5f)) < 0.001f) {
-			yawDeltaStep += randFloat(0.007f, 0.018f) * (yawDeltaStep >= 0 ? 1.f : -1.f);
-		}
-	}
-	if (pitchStepClamped) {
-		float pitchFrac = std::abs(pitchDeltaStep - std::round(pitchDeltaStep));
-		if (pitchFrac < 0.001f || std::abs(std::fmod(pitchDeltaStep, 0.5f)) < 0.001f) {
-			pitchDeltaStep += randFloat(0.007f, 0.018f) * (pitchDeltaStep >= 0 ? 1.f : -1.f);
-		}
-	}
-	
 	yawDelta = yawDeltaStep;
 	pitchDelta = pitchDeltaStep;
 
@@ -1253,7 +1080,7 @@ void AimAssist::applyAimRand(float yawDiff, float pitchDiff, float speed)
 		debugLogTimer.Start();
 	}
 
-	// ========== ANTI-CHEAT BYPASS v3: GCD with Asymmetric Offsets ==========
+	// ========== ANTI-CHEAT BYPASS v2: GCD with Imperfection ==========
 	// Refresh GCD periodically
 	if (g_gcdRefreshTimer.Elapsed<>() > 500.0f) {
 		g_cachedGCD = calculateGCD(cachedMouseSensitivity);
@@ -1263,31 +1090,12 @@ void AimAssist::applyAimRand(float yawDiff, float pitchDiff, float speed)
 		g_cachedGCD = calculateGCD(cachedMouseSensitivity);
 	}
 
-	// Anti-detection: apply asymmetric pre-GCD offsets per axis
-	// This breaks floor divisor checks (AimC/H/I, AimAssistH/I)
-	float yawPreGcd = yawDelta + g_neuroState.yawGcdOffset;
-	float pitchPreGcd = pitchDelta + g_neuroState.pitchGcdOffset;
-	
-	// Apply GCD with occasional imperfection
-	yawDelta = applyGCDWithImperfection(yawPreGcd, g_cachedGCD, rng);
-	pitchDelta = applyGCDWithImperfection(pitchPreGcd, g_cachedGCD, rng);
-	
-	// Anti-detection: ensure floor divisor is never too perfect
-	// Breaks checks that detect (round(delta/gcd) - delta/gcd) < 1e-4
-	if (g_cachedGCD > 0.001f) {
-		float yawFloorDiv = std::abs(std::round(yawDelta / g_cachedGCD) - (yawDelta / g_cachedGCD));
-		float pitchFloorDiv = std::abs(std::round(pitchDelta / g_cachedGCD) - (pitchDelta / g_cachedGCD));
-		
-		// If yaw is too perfect but pitch isn't (or vice versa), add tiny offset
-		if (yawFloorDiv < 0.0008f && pitchFloorDiv > 0.01f && std::abs(yawDelta) > 0.02f) {
-			yawDelta += randFloat(0.003f, 0.009f) * (randFloat(0, 1) > 0.5f ? 1.f : -1.f);
-		}
-		if (pitchFloorDiv < 0.0008f && yawFloorDiv > 0.01f && std::abs(pitchDelta) > 0.02f) {
-			pitchDelta += randFloat(0.003f, 0.009f) * (randFloat(0, 1) > 0.5f ? 1.f : -1.f);
-		}
-	}
+	// Apply GCD with occasional imperfection (real hardware isn't perfect)
+	yawDelta = applyGCDWithImperfection(yawDelta, g_cachedGCD, rng);
+	pitchDelta = applyGCDWithImperfection(pitchDelta, g_cachedGCD, rng);
 
-	// ========== ANTI-CHEAT BYPASS v3: Brownian Drift ==========
+	// ========== ANTI-CHEAT BYPASS v2: Brownian Drift ==========
+	// Add accumulated drift instead of fixed-range variance (continuous, natural)
 	yawDelta += g_neuroState.driftYaw;
 	pitchDelta += settings.horizontalOnly ? 0.f : g_neuroState.driftPitch;
 
