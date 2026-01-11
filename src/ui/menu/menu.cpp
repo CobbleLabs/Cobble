@@ -330,6 +330,11 @@ static void renderPage()
 					ui::Checkbox("Sort by Length", &ArrayListRenderer::sortByLength);
 					ui::Checkbox("Show Info", &ArrayListRenderer::showInfo);
 					ui::SliderFloat("Size", &ArrayListRenderer::scale, 0.5f, 2.0f, "%.1fx");
+					
+					// Position/Anchor selector
+					const char* anchorItems[] = { "Top Right", "Top Left", "Bottom Right", "Bottom Left" };
+					ui::Combo("Position", &ArrayListRenderer::anchor, anchorItems, 4);
+					
 					if (ArrayListRenderer::rainbow) {
 						bool highSat = ArrayListRenderer::rainbowSaturation > 0.6f;
 						if (ui::Checkbox("High Saturation", &highSat)) {

@@ -58,6 +58,7 @@ void ConfigManager::applyConfig() {
         sortByLength = config_["hud"]["arrayListSortByLength"].as_bool(true);
         scale = config_["hud"]["arrayListScale"].as_float(1.0f);
         rainbowSaturation = config_["hud"]["arrayListSaturation"].as_float(0.7f);
+        anchor = config_["hud"]["arrayListAnchor"].as_int(0);
         NotificationManager::enabled = config_["hud"]["notifications"].as_bool(true);
     }
     
@@ -251,6 +252,7 @@ void ConfigManager::buildConfigFromModules() {
     config_["hud"]["arrayListSortByLength"] = sortByLength;
     config_["hud"]["arrayListScale"] = scale;
     config_["hud"]["arrayListSaturation"] = rainbowSaturation;
+    config_["hud"]["arrayListAnchor"] = anchor;
     config_["hud"]["notifications"] = NotificationManager::enabled;
     
     // Friends

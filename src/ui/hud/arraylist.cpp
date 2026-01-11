@@ -62,6 +62,7 @@ void ArrayListRenderer::render()
 	if (!enabled) return;
 	if (Menu::isOpen) return;
 	if (!player.isValid()) return;  // Hide in main menu
+	
 	// Build list of display entries (name + info)
 	struct DisplayEntry {
 		std::string name;
@@ -110,12 +111,27 @@ void ArrayListRenderer::render()
 	if (!draw) return;
 	
 	float screenWidth = static_cast<float>(RenderData::screenWidth);
+	float screenHeight = static_cast<float>(RenderData::screenHeight);
 	
 	// Styling values scaled
 	float padding = 10.0f * scale;
 	float barWidth = 3.0f * scale;
 	
-	float y = yOffset;
+	// Determine anchor position
+	bool anchorLeft = (anchor == 1 || anchor == 3);   // TopLeft or BottomLeft
+	bool anchorBottom = (anchor == 2 || anchor == 3); // BottomRight or BottomLeft
+	
+	// Calculate total height for bottom anchoring
+	float totalHeight = 0.0f;
+	if (anchorBottom) {
+		for (const auto& entry : entries) {
+			ImVec2 nameSize = arrayFont->CalcTextSizeA(fontSize, FLT_MAX, 0.0f, entry.name.c_str());
+			totalHeight += nameSize.y;
+		}
+	}
+	
+	// Starting Y position
+	float y = anchorBottom ? (screenHeight - yOffset - totalHeight) : yOffset;
 	int idx = 0;
 	
 	// Colors
@@ -154,21 +170,38 @@ void ArrayListRenderer::render()
 			}
 		}
 		
-		// Calculate positions - add extra padding on right when no color bar
-		float rightPadding = colorBar ? barWidth + 5.0f * scale : 8.0f * scale;
-		float itemWidth = totalWidth + padding + rightPadding;
-		float x = screenWidth - itemWidth;
+		// Calculate X position based on anchor
+		float edgePadding = colorBar ? barWidth + 5.0f * scale : 8.0f * scale;
+		float itemWidth = totalWidth + padding + edgePadding;
+		float x, rectX1, rectX2, textX, barX1, barX2;
+		
+		if (anchorLeft) {
+			// Left side
+			x = 0;
+			rectX1 = x;
+			rectX2 = x + itemWidth;
+			textX = x + (colorBar ? barWidth + padding * 0.5f : padding * 0.5f);
+			barX1 = x;
+			barX2 = x + barWidth;
+		} else {
+			// Right side (default)
+			x = screenWidth - itemWidth;
+			rectX1 = x;
+			rectX2 = screenWidth;
+			textX = x + padding * 0.5f;
+			barX1 = screenWidth - barWidth;
+			barX2 = screenWidth;
+		}
 		
 		// Background with rounded corners
 		draw->AddRectFilled(
-			ImVec2(x, y),
-			ImVec2(screenWidth, y + lineHeight),
+			ImVec2(rectX1, y),
+			ImVec2(rectX2, y + lineHeight),
 			bgColor,
 			4.0f * scale  // Rounded corners
 		);
 		
 		// Draw name with module color
-		float textX = x + padding * 0.5f;
 		draw->AddText(arrayFont, fontSize, ImVec2(textX, y), moduleColor, entry.name.c_str());
 		
 		// Draw info with gray color
@@ -176,11 +209,11 @@ void ArrayListRenderer::render()
 			draw->AddText(arrayFont, fontSize, ImVec2(textX + nameSize.x, y), infoColor, infoText.c_str());
 		}
 		
-		// Color bar on right edge
+		// Color bar on edge
 		if (colorBar) {
 			draw->AddRectFilled(
-				ImVec2(screenWidth - barWidth, y),
-				ImVec2(screenWidth, y + lineHeight),
+				ImVec2(barX1, y),
+				ImVec2(barX2, y + lineHeight),
 				moduleColor
 			);
 		}
@@ -189,4 +222,3 @@ void ArrayListRenderer::render()
 		idx++;
 	}
 }
-
