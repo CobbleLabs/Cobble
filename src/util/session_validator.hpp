@@ -328,7 +328,6 @@ inline std::string GetServerUrl() {
 // Returns false on ANY error (network, parse, server rejection) - FAIL CLOSED
 inline bool DoHeartbeat() {
     if (g_SessionToken.empty() || g_HWID.empty()) {
-        printf("[HEARTBEAT] DoHeartbeat: Token or HWID empty!\n");
         return false;  // Invalid state
     }
     
@@ -338,39 +337,28 @@ inline bool DoHeartbeat() {
                        "&username=" + http::urlencode(g_Username) +
                        "&version=1.0.30";
     
-    printf("[HEARTBEAT] POST body: %s\n", body.c_str());
-    
     // Make HTTP POST request to api.cobble.vip:443/api/heartbeat
     http::Response response = http::post(L"api.cobble.vip", 443, L"/api/heartbeat", body, true);
     
     // CRITICAL: Network errors count as failures
     // If server is down, this should fail and eventually kill the DLL
     if (!response.success) {
-        printf("[HEARTBEAT] Network failed! Status: %d, Error: %s\n", response.statusCode, response.error.c_str());
         return false;  // FAIL - count as failure
     }
-    
-    printf("[HEARTBEAT] Response: %s\n", response.body.c_str());
     
     // Parse response - parse errors also count as failures
     json::Value resp;
     if (!json::Parser::parse(response.body, resp)) {
-        printf("[HEARTBEAT] JSON parse failed!\n");
         return false;  // FAIL - malformed response
     }
     
     // Only return true if server explicitly says ok:true
-    bool ok = resp["ok"].as_bool(false);
-    printf("[HEARTBEAT] ok=%d\n", ok ? 1 : 0);
-    return ok;
+    return resp["ok"].as_bool(false);
 }
 
 // Heartbeat thread function
 inline DWORD WINAPI HeartbeatThreadProc(LPVOID lpParam) {
     (void)lpParam;
-    
-    // DEBUG: Log heartbeat thread start
-    printf("[HEARTBEAT] Thread started, waiting 30s...\n");
     
     // Seed RNG for jitter (use process-specific value)
     srand((unsigned int)(GetTickCount64() ^ GetCurrentProcessId()));
@@ -378,22 +366,16 @@ inline DWORD WINAPI HeartbeatThreadProc(LPVOID lpParam) {
     // Wait 30 seconds before first heartbeat (let DLL initialize)
     Sleep(30000);
     
-    printf("[HEARTBEAT] Starting heartbeat loop. Token: %s\n", g_SessionToken.empty() ? "EMPTY!" : "OK");
-    printf("[HEARTBEAT] HWID: %s, User: %s\n", g_HWID.c_str(), g_Username.c_str());
-    
     int consecutiveFailures = 0;
     const int maxFailures = 3;  // Kill after 3 failed heartbeats (~6-9 min max)
     
     while (g_HeartbeatRunning && g_SessionValid) {
-        printf("[HEARTBEAT] Sending heartbeat #%d...\n", consecutiveFailures + 1);
         bool success = DoHeartbeat();
         
         if (!success) {
             consecutiveFailures++;
-            printf("[HEARTBEAT] FAILED! (%d/%d)\n", consecutiveFailures, maxFailures);
             if (consecutiveFailures >= maxFailures) {
                 // Kill the DLL - server down, banned, expired, or network blocked
-                printf("[HEARTBEAT] Max failures reached, killing process!\n");
                 g_SessionValid = false;
                 InvalidateSession();
                 
@@ -404,7 +386,6 @@ inline DWORD WINAPI HeartbeatThreadProc(LPVOID lpParam) {
             // Short retry on failure (30s instead of 2min)
             Sleep(30000);
         } else {
-            printf("[HEARTBEAT] SUCCESS! Resetting failures.\n");
             consecutiveFailures = 0;
             // Normal interval: 120-180 seconds with jitter
             DWORD baseInterval = 120000;  // 2 minutes base
@@ -413,7 +394,6 @@ inline DWORD WINAPI HeartbeatThreadProc(LPVOID lpParam) {
         }
     }
     
-    printf("[HEARTBEAT] Thread exiting (running=%d, valid=%d)\n", g_HeartbeatRunning.load(), g_SessionValid.load());
     return 0;
 }
 
