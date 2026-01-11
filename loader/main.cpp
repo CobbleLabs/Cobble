@@ -45,7 +45,7 @@ struct InjectionData {
     uint32_t timestamp;       // Unix timestamp when created
     uint32_t expiresIn;       // Seconds until expiry (5 minutes)
     char handshakeSig[128];   // Base64 Ed25519 signature from server
-    char sessionToken[128];   // Session token for heartbeat (Phase 4)
+    char sessionToken[128];   // Session token for heartbeat
 };
 
 std::atomic<bool> g_SecurityViolation(false);
@@ -118,6 +118,64 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     
     // Now show the window with everything ready
     LoaderUI::Show();
+    
+    // ==========================================================================
+    // AUTO-UPDATER: Check for updates before proceeding
+    // ==========================================================================
+    LoaderUI::SetMessage("Checking for updates...");
+    renderFrame();
+    
+    auto updateResult = Updater::Check(COBBLE_VERSION, getServerPrimary(), SERVER_PORT_HTTPS);
+    
+    if (updateResult.success && updateResult.mandatory) {
+        // Mandatory update required - must download and restart
+        LoaderUI::SetMessage("Downloading update...");
+        renderFrame();
+        
+        // Get HWID for authenticated download
+        std::string hwid = HWID::Generate();
+        
+        // Create temp directory for download
+        std::string tempDir = Updater::getTempDownloadDir();
+        std::string newLoaderPath = tempDir + "\\CobbleLoader.exe";
+        
+        // Download new loader
+        std::string downloadUrl = "https://" + getServerPrimary() + "/api/update/loader";
+        
+        bool downloadSuccess = Updater::downloadAndVerify(
+            downloadUrl,
+            newLoaderPath,
+            updateResult.manifest.loader.sha256,
+            updateResult.manifest.loader.size,
+            hwid,
+            nullptr
+        );
+        
+        if (downloadSuccess) {
+            // Spawn the new loader to replace us
+            std::string selfPath = Updater::getSelfPath();
+            if (Updater::spawnStub(selfPath, newLoaderPath)) {
+                // Exit so the new loader can replace us
+                LoaderUI::Shutdown();
+                return 0;
+            }
+        }
+        
+        // Download failed - cleanup and show error
+        Updater::cleanupTempDir(tempDir);
+        LoaderUI::SetError("Update failed - please try again");
+        while (renderFrame());
+        LoaderUI::Shutdown();
+        return 1;
+    }
+    
+    // Optional update available - show notification but don't block
+    if (updateResult.success && updateResult.updateAvailable && !updateResult.mandatory) {
+        std::string msg = "Update v" + updateResult.manifest.version + " available";
+        LoaderUI::SetMessage(msg);
+        renderFrame();
+        Sleep(1500);  // Brief pause to show the message
+    }
     
     // Load encrypted payload from resources
     HMODULE hModule = GetModuleHandle(nullptr);
