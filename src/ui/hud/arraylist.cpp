@@ -2,6 +2,7 @@
 #include "../core/overlay.h"
 #include "../menu/menu.h"
 #include "../../sdk/core/minecraft.h"
+#include "../../sdk/player/player.h"
 #include "../../sdk/player/render_data.h"
 #include "../../module/module_manager.h"
 #include "../../util/team/friends_manager.h"
@@ -60,8 +61,7 @@ void ArrayListRenderer::render()
 {
 	if (!enabled) return;
 	if (Menu::isOpen) return;
-	if (mc.getWorld() == nullptr) return; // Hide in title screen / main menu
-	
+	if (!player.isValid()) return;  // Hide in main menu
 	// Build list of display entries (name + info)
 	struct DisplayEntry {
 		std::string name;
