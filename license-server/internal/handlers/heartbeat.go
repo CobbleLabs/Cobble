@@ -2,7 +2,9 @@ package handlers
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
+	"net/url"
 
 	"license-server/internal/config"
 	"license-server/internal/database"
@@ -35,14 +37,26 @@ func Heartbeat(w http.ResponseWriter, r *http.Request) {
 
 	clientIP := helpers.GetClientIP(r)
 
-	// Parse request
+	// Read body once (so we can try multiple parse methods)
+	bodyBytes, err := io.ReadAll(r.Body)
+	if err != nil {
+		helpers.JSONResponse(w, http.StatusOK, HeartbeatResponse{OK: false, Reason: "invalid_request"})
+		return
+	}
+	bodyString := string(bodyBytes)
+
+	// Parse request - try JSON first, then URL-encoded form
 	var req HeartbeatRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		// Try form values as fallback
-		req.SessionToken = r.FormValue("session_token")
-		req.HWID = r.FormValue("hwid")
-		req.Username = r.FormValue("username")
-		req.Version = r.FormValue("version")
+	if err := json.Unmarshal(bodyBytes, &req); err != nil {
+		// JSON failed - try URL-encoded form parsing
+		// Format: session_token=xxx&hwid=xxx&username=xxx&version=xxx
+		values, parseErr := url.ParseQuery(bodyString)
+		if parseErr == nil {
+			req.SessionToken = values.Get("session_token")
+			req.HWID = values.Get("hwid")
+			req.Username = values.Get("username")
+			req.Version = values.Get("version")
+		}
 	}
 
 	// Validate required fields
@@ -114,8 +128,8 @@ func Heartbeat(w http.ResponseWriter, r *http.Request) {
 	// Update last seen in database
 	database.UpdateUserLastSeen(user.ID, clientIP)
 
-	// Log successful heartbeat at debug level
-	logger.Debug("HEARTBEAT", "OK", logger.Fields{
+	// Log successful heartbeat
+	logger.Info("HEARTBEAT", "OK", logger.Fields{
 		"user": username,
 	})
 
