@@ -30,6 +30,7 @@ public:
 	void onUpdate() override;
 	void onRender() override;
 	void onRenderMenu() override;
+	std::string getDisplayInfo() override;
 
 	struct Settings {
 		bool box = true;

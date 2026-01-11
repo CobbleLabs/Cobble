@@ -38,6 +38,7 @@ public:
 	void onUpdate() override;
 	void onRender() override;
 	void onRenderMenu() override;
+	std::string getDisplayInfo() override;
 
 	struct Settings {
 		float range = 64.0f;

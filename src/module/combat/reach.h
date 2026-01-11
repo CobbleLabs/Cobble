@@ -11,6 +11,7 @@ public:
 	void onDisable() override;
 	void onUpdate() override;
 	void onRenderMenu() override;
+	std::string getDisplayInfo() override;
 
 	struct Settings {
 		float distance = 3.0f;        // Reach distance (vanilla is 3.0)

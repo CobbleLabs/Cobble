@@ -463,3 +463,10 @@ void ESP::onRenderMenu()
 		settings.box = false;
 	}
 }
+
+std::string ESP::getDisplayInfo() {
+	if (settings.box3D) return "3D";
+	if (settings.box) return "2D";
+	return "";
+}
+

@@ -441,3 +441,10 @@ void NameTags::onRenderMenu()
 		}
 	);
 }
+
+std::string NameTags::getDisplayInfo() {
+	char buf[16];
+	snprintf(buf, sizeof(buf), "%.0fm", settings.range);
+	return buf;
+}
+

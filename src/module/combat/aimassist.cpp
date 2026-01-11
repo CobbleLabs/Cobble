@@ -1284,3 +1284,9 @@ void AimAssist::onRenderMenu()
 		}
 	);
 }
+
+std::string AimAssist::getDisplayInfo() {
+	char buf[16];
+	snprintf(buf, sizeof(buf), "%.0f", settings.speed);
+	return buf;
+}

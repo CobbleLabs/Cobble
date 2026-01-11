@@ -322,10 +322,23 @@ static void renderPage()
 			ui::two_column(
 				"Settings", []() {
 					ui::Checkbox("Enabled", &ArrayListRenderer::enabled);
+					ui::Checkbox("Rainbow", &ArrayListRenderer::rainbow);
+					ui::Checkbox("Color Bar", &ArrayListRenderer::colorBar);
+					ui::Checkbox("Background", &ArrayListRenderer::showBackground);
 				},
 				"Options", []() {
-					ui::Checkbox("Background", &ArrayListRenderer::showBackground);
 					ui::Checkbox("Sort by Length", &ArrayListRenderer::sortByLength);
+					ui::Checkbox("Show Info", &ArrayListRenderer::showInfo);
+					ui::SliderFloat("Size", &ArrayListRenderer::scale, 0.5f, 2.0f, "%.1fx");
+					if (ArrayListRenderer::rainbow) {
+						bool highSat = ArrayListRenderer::rainbowSaturation > 0.6f;
+						if (ui::Checkbox("High Saturation", &highSat)) {
+							ArrayListRenderer::rainbowSaturation = highSat ? 0.8f : 0.4f;
+						}
+					}
+					if (!ArrayListRenderer::rainbow) {
+						ui::color("Color", ArrayListRenderer::color);
+					}
 				}
 			);
 		}

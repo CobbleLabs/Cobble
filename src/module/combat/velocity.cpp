@@ -417,3 +417,14 @@ void Velocity::onRenderMenu()
 		}
 	);
 }
+
+std::string Velocity::getDisplayInfo() {
+	switch (settings.mode) {
+		case Mode::Regular: return "Regular";
+		case Mode::Jump: return "Jump";
+		case Mode::Reduce: return "Reduce";
+		case Mode::Ignore: return "Ignore";
+		default: return "";
+	}
+}
+

@@ -51,6 +51,13 @@ void ConfigManager::applyConfig() {
     // Apply HUD settings
     if (config_.has("hud")) {
         enabled = config_["hud"]["arrayList"].as_bool(true);
+        rainbow = config_["hud"]["arrayListRainbow"].as_bool(true);
+        colorBar = config_["hud"]["arrayListColorBar"].as_bool(true);
+        showBackground = config_["hud"]["arrayListBackground"].as_bool(true);
+        showInfo = config_["hud"]["arrayListShowInfo"].as_bool(true);
+        sortByLength = config_["hud"]["arrayListSortByLength"].as_bool(true);
+        scale = config_["hud"]["arrayListScale"].as_float(1.0f);
+        rainbowSaturation = config_["hud"]["arrayListSaturation"].as_float(0.7f);
         NotificationManager::enabled = config_["hud"]["notifications"].as_bool(true);
     }
     
@@ -237,6 +244,13 @@ void ConfigManager::buildConfigFromModules() {
     
     // HUD
     config_["hud"]["arrayList"] = enabled;
+    config_["hud"]["arrayListRainbow"] = rainbow;
+    config_["hud"]["arrayListColorBar"] = colorBar;
+    config_["hud"]["arrayListBackground"] = showBackground;
+    config_["hud"]["arrayListShowInfo"] = showInfo;
+    config_["hud"]["arrayListSortByLength"] = sortByLength;
+    config_["hud"]["arrayListScale"] = scale;
+    config_["hud"]["arrayListSaturation"] = rainbowSaturation;
     config_["hud"]["notifications"] = NotificationManager::enabled;
     
     // Friends

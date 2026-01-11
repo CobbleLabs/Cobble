@@ -530,3 +530,8 @@ void AutoClicker::onRenderMenu()
 		}
 	);
 }
+
+std::string AutoClicker::getDisplayInfo() {
+	return settings.stableCPS ? "Stable" : "Normal";
+}
+

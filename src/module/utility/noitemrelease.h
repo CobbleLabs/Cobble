@@ -16,6 +16,7 @@ public:
 	void onDisable() override;
 	void onUpdate() override;
 	void onRenderMenu() override;
+	std::string getDisplayInfo() override;
 
 	// Settings
 	struct {

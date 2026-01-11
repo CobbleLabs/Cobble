@@ -13,6 +13,7 @@ public:
 	void onDisable() override;
 	void onUpdate() override;
 	void onRenderMenu() override;
+	std::string getDisplayInfo() override;
 
 	struct Settings {
 		float minCPS = 14.0f;
@@ -38,38 +39,38 @@ public:
 
 private:
 	std::chrono::steady_clock::time_point lastClick;
-        std::chrono::steady_clock::time_point nextEventTime;  // For stable CPS absolute timing
-        std::chrono::steady_clock::time_point nextStableClickTime;  // Stable mode timeline
-        double stableIntervalMs = 0.0;  // Fixed interval for stable mode
-        std::chrono::steady_clock::duration stableInterval =
-                std::chrono::steady_clock::duration::zero();  // Precomputed stable interval
-        int nextDelayMs = 100;
-        std::mt19937 rng;
+	std::chrono::steady_clock::time_point nextEventTime;
+	std::chrono::steady_clock::time_point nextStableClickTime;
+	double stableIntervalMs = 0.0;
+	std::chrono::steady_clock::duration stableInterval =
+		std::chrono::steady_clock::duration::zero();
+	int nextDelayMs = 100;
+	std::mt19937 rng;
 	
 	// Dynamic delay anti-detection system
 	int clicksSinceRangeChange = 0;
 	int clicksUntilRangeChange = 50;
-	float currentDelayMin = 25.0f;  // Base delay range (ms)
+	float currentDelayMin = 25.0f;
 	float currentDelayMax = 70.0f;
 	
-	// Alternating click pattern (more realistic - clicks have duration)
-	bool lastClickWasDown = false;  // false = last was UP, next is DOWN
+	// Alternating click pattern
+	bool lastClickWasDown = false;
 	
-	// Block breaking state (edge detection)
-	bool wasBreakingBlock = false;  // true = currently holding click on block
+	// Block breaking state
+	bool wasBreakingBlock = false;
 	
-	// Session fatigue (speed varies over time)
+	// Session fatigue
 	std::chrono::steady_clock::time_point sessionStart;
-	float fatigueMultiplier = 1.0f;      // 1.0 = normal, >1.0 = slower (tired)
+	float fatigueMultiplier = 1.0f;
 	int clicksSinceLastFatigueUpdate = 0;
 	
-	// Burst mode (accelerate/decelerate in clusters)
+	// Burst mode
 	bool inBurst = false;
 	int burstClicksRemaining = 0;
-	float burstSpeedMultiplier = 1.0f;   // <1.0 = faster, >1.0 = slower
+	float burstSpeedMultiplier = 1.0f;
 	
 	// Non-uniform jitter
-	int currentJitterMode = 0;  // 0=none, 1=small, 2=medium, 3=large
+	int currentJitterMode = 0;
 	int jitterModeClicksRemaining = 0;
 
 public:
@@ -92,7 +93,6 @@ public:
 	int getHeldItemId();
 	
 private:
-	// Delay accumulator for precise stable CPS timing
 	float delayAccumulator = 0.0f;
 };
 

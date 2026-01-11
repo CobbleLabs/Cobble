@@ -37,6 +37,10 @@ struct Module
 	// Called to render this module's settings in the menu
 	// Each module implements its own UI using ui:: widgets
 	virtual void onRenderMenu() {}
+	
+	// Returns extra info to display in ArrayList (e.g., "Normal 17.0 cps")
+	// Override in modules that want to show status info
+	virtual std::string getDisplayInfo() { return ""; }
 
 	void toggle()
 	{

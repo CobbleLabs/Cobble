@@ -212,3 +212,13 @@ void NoItemRelease::onRenderMenu()
 		}
 	);
 }
+
+std::string NoItemRelease::getDisplayInfo() {
+	switch (settings.mode) {
+		case ItemReleaseMode::CONSUMABLE: return "Consumable";
+		case ItemReleaseMode::SWORD: return "Sword";
+		case ItemReleaseMode::ALL: return "All";
+		default: return "";
+	}
+}
+

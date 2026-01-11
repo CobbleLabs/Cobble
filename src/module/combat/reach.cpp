@@ -99,3 +99,14 @@ void Reach::onRenderMenu()
 		}
 	);
 }
+
+std::string Reach::getDisplayInfo() {
+	char buf[16];
+	if (settings.randomize) {
+		snprintf(buf, sizeof(buf), "%.1f-%.1f", settings.minDistance, settings.maxDistance);
+	} else {
+		snprintf(buf, sizeof(buf), "%.1f", settings.distance);
+	}
+	return buf;
+}
+
