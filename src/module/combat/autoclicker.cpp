@@ -136,7 +136,13 @@ void AutoClicker::onUpdate()
 	if (inInventory && !settings.workInInventory) return;
 	
 	// Weapon-only check (skip in inventory)
-	if (settings.weaponOnly && !inInventory && !isHoldingWeapon()) return;
+	if (settings.weaponOnly && !inInventory && !isHoldingWeapon()) {
+		// Reset stable timeline to prevent burst when switching to weapon
+		if (settings.stableCPS) {
+			nextStableClickTime = std::chrono::steady_clock::now();
+		}
+		return;
+	}
 	
 	// Break blocks - edge detection state machine
 	// Only transition on state CHANGE, not every frame
