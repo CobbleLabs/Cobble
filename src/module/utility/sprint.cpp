@@ -3,6 +3,11 @@
 #include "../../ui/menu/menu.h"
 #include "../../ui/widgets/widgets.hpp"
 
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <Windows.h>
+
 Sprint* sprint = nullptr;
 
 Sprint::Sprint() : Module("Sprint")
@@ -28,8 +33,10 @@ void Sprint::onUpdate()
 	if (mc.isInGui()) return;
 	if (!player.isValid()) return;
 
-	// Auto-sprint when moving forward and not already sprinting
-	if (!player.isSprinting()) {
+	// Only sprint when actually moving forward
+	bool isMovingForward = (GetAsyncKeyState('W') & 0x8000) != 0;
+	
+	if (isMovingForward && !player.isSprinting()) {
 		player.setSprinting(true);
 	}
 }
