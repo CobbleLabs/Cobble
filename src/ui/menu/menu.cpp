@@ -11,13 +11,13 @@
 #include "../../module/module_manager.h"
 #include "../../module/combat/autoclicker.h"
 #include "../../module/combat/aimassist.h"
-#include "../../module/combat/autorefill.h"
+#include "../../module/utility/autorefill.h"
 #include "../../module/combat/velocity.h"
 #include "../../module/combat/reach.h"
 #include "../../module/combat/blink.h"
 #include "../../module/combat/criticals.h"
 #include "../../module/combat/hitselect.h"
-#include "../../module/utility/nojumpdelay.h"
+#include "../../module/movement/nojumpdelay.h"
 #include "../../module/utility/noitemrelease.h"
 #include "../../module/utility/bridgeassist.h"
 #include "../../module/utility/sprint.h"
@@ -37,22 +37,22 @@
 
 // Module lookup by tab and subtab index
 // Returns the module that corresponds to the current subtab
+// MUST MATCH the order in ui::tabs defined in widgets.cpp!
 Module* getModuleForSubtab(int tabIdx, int subtabIdx)
 {
-	// Combat Tab (0)
+	// Combat Tab (0): AutoClicker, AimAssist, Velocity, Reach, Blink, Criticals, HitSelect
 	if (tabIdx == 0) {
 		switch (subtabIdx) {
 			case 0: return autoClicker;
 			case 1: return aimAssist;
-			case 2: return autoRefill;
-			case 3: return velocity;
-			case 4: return reach;
-			case 5: return blink;
-			case 6: return criticals;
-			case 7: return hitSelect;
+			case 2: return velocity;
+			case 3: return reach;
+			case 4: return blink;
+			case 5: return criticals;
+			case 6: return hitSelect;
 		}
 	}
-	// Visuals Tab (1)
+	// Visuals Tab (1): NameTags, ESP, Tracers, BlockESP, Trajectories, ArrayList, Notifications
 	else if (tabIdx == 1) {
 		switch (subtabIdx) {
 			case 0: return nameTags;
@@ -64,18 +64,19 @@ Module* getModuleForSubtab(int tabIdx, int subtabIdx)
 			case 6: return nullptr; // Notifications - special handling
 		}
 	}
-	// Movement Tab (2)
+	// Movement Tab (2): Sprint, Timer, NoJumpDelay
 	else if (tabIdx == 2) {
 		switch (subtabIdx) {
 			case 0: return sprint;
 			case 1: return timerModule;
+			case 2: return noJumpDelay;
 		}
 	}
-	// Utility Tab (3)
+	// Utility Tab (3): AutoRefill, FastPlace, NoItemRelease, BridgeAssist, AutoTool
 	else if (tabIdx == 3) {
 		switch (subtabIdx) {
-			case 0: return fastPlace;
-			case 1: return noJumpDelay;
+			case 0: return autoRefill;
+			case 1: return fastPlace;
 			case 2: return noItemRelease;
 			case 3: return bridgeAssist;
 			case 4: return autoTool;

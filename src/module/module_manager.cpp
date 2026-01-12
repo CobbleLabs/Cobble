@@ -2,7 +2,7 @@
 #include "../sdk/core/minecraft.h"
 #include "../jni/packet_interceptor.hpp"
 #include "../ui/menu/menu.h"
-#include "combat/autorefill.h"
+#include "utility/autorefill.h"
 
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
