@@ -201,24 +201,20 @@ void Reach::onUpdate()
 	// Update reach value with randomization
 	updateReach();
 	
-	// Only extend reach if target is between vanilla reach and our reach
-	// Tighter window: don't extend if too far (more obvious) or already in range (not needed)
-	float maxEffectiveReach = currentReach + 0.3f;  // Smaller buffer than before
-	if (closestDist <= VANILLA_REACH || closestDist > maxEffectiveReach) {
+	// Skip if target is beyond our reach range
+	if (closestDist > currentReach + 0.5f) {
 		env->DeleteLocalRef(target->instance);
 		return;
 	}
 	
-	// Calculate exact extension needed (just enough to hit, not more)
-	// This is key: extend ONLY what's needed, not the full reach
-	float neededExtension = closestDist - VANILLA_REACH + 0.05f;  // Small buffer for server-side variance
-	float maxExtension = currentReach - VANILLA_REACH;
-	float reachExtension = (neededExtension < maxExtension) ? neededExtension : maxExtension;
+	// Calculate extension needed to ensure hit
+	// We extend the hitbox toward the player to make it easier to hit
+	float reachExtension = currentReach - VANILLA_REACH;
+	if (reachExtension < 0.1f) reachExtension = 0.1f;
 	
 	// Add micro-variance to the extension (breaks exact patterns)
 	std::uniform_real_distribution<float> varianceDist(-0.02f, 0.02f);
 	reachExtension += varianceDist(rng);
-	if (reachExtension < 0.02f) reachExtension = 0.02f;  // Minimum extension
 	
 	// Calculate horizontal distance and angle to target
 	float horizDist = hypotf((float)(localX - target->posX), (float)(localZ - target->posZ));
@@ -284,10 +280,10 @@ void Reach::onRenderMenu()
 			ImGui::Spacing();
 			ui::Checkbox("Randomize", &settings.randomize);
 			if (settings.randomize) {
-				ui::SliderFloat("Min Distance", &settings.minDistance, 3.0f, 3.5f, "%.2f");
-				ui::SliderFloat("Max Distance", &settings.maxDistance, 3.0f, 3.5f, "%.2f");
+					ui::SliderFloat("Min Distance", &settings.minDistance, 3.0f, 6.0f, "%.2f", true);
+				ui::SliderFloat("Max Distance", &settings.maxDistance, 3.0f, 6.0f, "%.2f", true);
 			} else {
-				ui::SliderFloat("Distance", &settings.distance, 3.0f, 3.5f, "%.2f");
+				ui::SliderFloat("Distance", &settings.distance, 3.0f, 6.0f, "%.2f", true);
 			}
 		},
 		"Anti-Detection", [this]() {

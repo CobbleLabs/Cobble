@@ -116,6 +116,7 @@
     <ClCompile Include="src\module\visual\esp.cpp" />
     <ClCompile Include="src\module\visual\tracers.cpp" />
     <ClCompile Include="src\module\visual\blockesp.cpp" />
+    <ClCompile Include="src\module\visual\trajectories.cpp" />
     <!-- UI structure -->
     <ClCompile Include="src\ui\core\overlay.cpp" />
     <ClCompile Include="src\ui\menu\menu.cpp" />

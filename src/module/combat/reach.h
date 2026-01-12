@@ -20,18 +20,18 @@ public:
 	std::string getDisplayInfo() override;
 
 	struct Settings {
-		float distance = 3.0f;        // Reach distance (vanilla is 3.0)
+		float distance = 3.5f;        // Reach distance (vanilla is 3.0)
 		float minDistance = 3.0f;     // Min reach for randomization
-		float maxDistance = 3.2f;     // Max reach for randomization (lower default for safety)
-		bool randomize = true;        // Use random reach within range (default ON for anti-detection)
-		bool weaponsOnly = true;      // Only apply when holding weapon
+		float maxDistance = 3.5f;     // Max reach for randomization
+		bool randomize = false;       // Use random reach within range
+		bool weaponsOnly = false;     // Only apply when holding weapon
 		bool sprintingOnly = false;   // Only apply while sprinting
 		bool movingOnly = false;      // Only apply while moving forward
 		
 		// Anti-detection settings
-		int hitChance = 80;           // Chance (%) to apply reach on each swing (breaks patterns)
-		bool onlyMovingTargets = true;// Only extend reach on targets moving toward player
-		int maxConsecutiveHits = 3;   // Max consecutive extended hits before forcing vanilla
+		int hitChance = 100;          // Chance (%) to apply reach on each swing (breaks patterns)
+		bool onlyMovingTargets = false;// Only extend reach on targets moving toward player
+		int maxConsecutiveHits = 10;  // Max consecutive extended hits before forcing vanilla
 	} settings;
 
 private:

@@ -17,6 +17,7 @@
 #include "module/visual/esp.h"
 #include "module/visual/tracers.h"
 #include "module/visual/blockesp.h"
+#include "module/visual/trajectories.h"
 
 #include "hooks/winsock_hooks.h"
 #include "ui/core/overlay.h"
@@ -111,6 +112,7 @@ void cobble::context::initialize(HMODULE hModule)
     esp = new ESP();
     tracers = new Tracers();
     blockESP = new BlockESP();
+    trajectories = new Trajectories();
     friendsManager = new FriendsManager();
     log_ok("Modules allocated");
 
@@ -131,6 +133,7 @@ void cobble::context::initialize(HMODULE hModule)
     moduleManager->registerModule(esp);
     moduleManager->registerModule(tracers);
     moduleManager->registerModule(blockESP);
+    moduleManager->registerModule(trajectories);
     log_ok("Modules registered");
     
     // Initialize config (loads local, applies to modules, async fetch from server)
@@ -233,6 +236,9 @@ void cobble::context::shutdown()
     if (timerModule) timerModule->setEnabled(false);
     if (nameTags) nameTags->setEnabled(false);
     if (esp) esp->setEnabled(false);
+    if (tracers) tracers->setEnabled(false);
+    if (blockESP) blockESP->setEnabled(false);
+    if (trajectories) trajectories->setEnabled(false);
     
     LunarPacketListener::Shutdown();
     PacketInterceptor::Shutdown();
@@ -256,6 +262,9 @@ void cobble::context::shutdown()
     if (timerModule) { delete timerModule; timerModule = nullptr; }
     if (nameTags) { delete nameTags; nameTags = nullptr; }
     if (esp) { delete esp; esp = nullptr; }
+    if (tracers) { delete tracers; tracers = nullptr; }
+    if (blockESP) { delete blockESP; blockESP = nullptr; }
+    if (trajectories) { delete trajectories; trajectories = nullptr; }
     if (friendsManager) { delete friendsManager; friendsManager = nullptr; }
     
     if (moduleManager) { delete moduleManager; moduleManager = nullptr; }

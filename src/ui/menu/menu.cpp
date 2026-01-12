@@ -25,6 +25,7 @@
 #include "../../module/visual/esp.h"
 #include "../../module/visual/tracers.h"
 #include "../../module/visual/blockesp.h"
+#include "../../module/visual/trajectories.h"
 #include "../../cobble.hpp"
 #include "../../sdk/core/minecraft.h"
 
@@ -53,8 +54,9 @@ Module* getModuleForSubtab(int tabIdx, int subtabIdx)
 			case 1: return esp;
 			case 2: return tracers;
 			case 3: return blockESP;
-			case 4: return nullptr; // ArrayList - special handling
-			case 5: return nullptr; // Notifications - special handling
+			case 4: return trajectories;
+			case 5: return nullptr; // ArrayList - special handling
+			case 6: return nullptr; // Notifications - special handling
 		}
 	}
 	// Utility Tab (2)
@@ -321,7 +323,7 @@ static void renderPage()
 	// Special pages (ArrayList, Notifications) - no Module, render inline
 	else if (ui::cur_tab == 1) {
 		// Visuals tab
-		if (tab.cur_subtab == 4) {
+		if (tab.cur_subtab == 5) {
 			// ArrayList settings
 			ui::two_column(
 				"Settings", []() {
@@ -351,7 +353,7 @@ static void renderPage()
 				}
 			);
 		}
-		else if (tab.cur_subtab == 5) {
+		else if (tab.cur_subtab == 6) {
 			// Notifications settings
 			ui::section("Settings", []() {
 				ui::Checkbox("Enabled", &NotificationManager::enabled);
