@@ -566,6 +566,13 @@ bool Init()
         }
     }
     
+    // MovingObjectType enum (nested class of MovingObjectPosition)
+    CACHE_CLASS(cls_MovingObjectType, "net.minecraft.util.MovingObjectPosition$MovingObjectType");
+    if (cls_MovingObjectType) {
+        TRY_STATIC_FIELD(fid_ENTITY, cls_MovingObjectType, "ENTITY", "Lnet/minecraft/util/MovingObjectPosition$MovingObjectType;");
+        TRY_STATIC_FIELD(fid_BLOCK, cls_MovingObjectType, "BLOCK", "Lnet/minecraft/util/MovingObjectPosition$MovingObjectType;");
+    }
+    
     // =========================================================================
     // World class IDs
     // =========================================================================

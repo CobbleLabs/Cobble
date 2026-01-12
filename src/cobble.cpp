@@ -8,6 +8,7 @@
 #include "module/combat/reach.h"
 #include "module/combat/blink.h"
 #include "module/combat/criticals.h"
+#include "module/combat/hitselect.h"
 #include "module/utility/nojumpdelay.h"
 #include "module/utility/noitemrelease.h"
 #include "module/utility/bridgeassist.h"
@@ -105,6 +106,7 @@ void cobble::context::initialize(HMODULE hModule)
     reach = new Reach();
     blink = new Blink();
     criticals = new Criticals();
+    hitSelect = new HitSelect();
     noJumpDelay = new NoJumpDelay();
     noItemRelease = new NoItemRelease();
     bridgeAssist = new BridgeAssist();
@@ -128,6 +130,7 @@ void cobble::context::initialize(HMODULE hModule)
     moduleManager->registerModule(reach);
     moduleManager->registerModule(blink);
     moduleManager->registerModule(criticals);
+    moduleManager->registerModule(hitSelect);
     moduleManager->registerModule(noJumpDelay);
     moduleManager->registerModule(noItemRelease);
     moduleManager->registerModule(bridgeAssist);
@@ -235,6 +238,7 @@ void cobble::context::shutdown()
     if (reach) reach->setEnabled(false);
     if (blink) blink->setEnabled(false);
     if (criticals) criticals->setEnabled(false);
+    if (hitSelect) hitSelect->setEnabled(false);
     if (noJumpDelay) noJumpDelay->setEnabled(false);
     if (noItemRelease) noItemRelease->setEnabled(false);
     if (bridgeAssist) bridgeAssist->setEnabled(false);
@@ -263,6 +267,7 @@ void cobble::context::shutdown()
     if (reach) { delete reach; reach = nullptr; }
     if (blink) { delete blink; blink = nullptr; }
     if (criticals) { delete criticals; criticals = nullptr; }
+    if (hitSelect) { delete hitSelect; hitSelect = nullptr; }
     if (noJumpDelay) { delete noJumpDelay; noJumpDelay = nullptr; }
     if (noItemRelease) { delete noItemRelease; noItemRelease = nullptr; }
     if (bridgeAssist) { delete bridgeAssist; bridgeAssist = nullptr; }

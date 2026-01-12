@@ -4,6 +4,7 @@
 #include "../../ui/menu/menu.h"
 #include "../../ui/core/overlay.h"
 #include "../../ui/widgets/widgets.hpp"
+#include "hitselect.h"
 
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
@@ -213,6 +214,12 @@ void AutoClicker::onUpdate()
                                 SendMessage(hwnd, WM_RBUTTONDOWN, MK_RBUTTON, 0);
                                 SendMessage(hwnd, WM_RBUTTONUP, 0, 0);
                         } else {
+                                // Check HitSelect before attacking
+                                if (hitSelect && hitSelect->enabled && !hitSelect->shouldAllowClick()) {
+                                        // HitSelect blocked this click, but still advance timeline
+                                        nextStableClickTime += stableInterval;
+                                        continue;
+                                }
                                 SendMessage(hwnd, WM_LBUTTONDOWN, MK_LBUTTON, 0);
                                 SendMessage(hwnd, WM_LBUTTONUP, 0, 0);
                         }
@@ -264,7 +271,13 @@ void AutoClicker::onUpdate()
 				lastClickWasDown = true;
 			}
 		} else {
-			// Normal left click
+			// Normal left click - check HitSelect first
+			if (hitSelect && hitSelect->enabled && !hitSelect->shouldAllowClick()) {
+				// HitSelect blocked this click
+				lastClick = now;
+				calculateNextDelay();
+				return;
+			}
 			doClick();
 		}
 	}

@@ -8,6 +8,7 @@
 #include "../module/combat/reach.h"
 #include "../module/combat/blink.h"
 #include "../module/combat/criticals.h"
+#include "../module/combat/hitselect.h"
 #include "../module/utility/nojumpdelay.h"
 #include "../module/utility/bridgeassist.h"
 #include "../module/utility/sprint.h"
@@ -217,6 +218,16 @@ void ConfigManager::applyConfig() {
                 s.weaponOnly = data["weaponOnly"].as_bool(s.weaponOnly);
                 s.lookingAtPlayer = data["lookingAtPlayer"].as_bool(s.lookingAtPlayer);
                 s.movingOnly = data["movingOnly"].as_bool(s.movingOnly);
+            }
+            else if (name == "HitSelect" && hitSelect) {
+                auto& s = hitSelect->settings;
+                s.mode = static_cast<HitSelect::Mode>(data["mode"].as_int(static_cast<int>(s.mode)));
+                s.pauseDurationMs = data["pauseDurationMs"].as_int(s.pauseDurationMs);
+                s.cancelRate = data["cancelRate"].as_float(s.cancelRate);
+                s.missedSwingsRate = data["missedSwingsRate"].as_float(s.missedSwingsRate);
+                s.fakeSwing = data["fakeSwing"].as_bool(s.fakeSwing);
+                s.weaponOnly = data["weaponOnly"].as_bool(s.weaponOnly);
+                s.targetingPlayerOnly = data["targetingPlayerOnly"].as_bool(s.targetingPlayerOnly);
             }
             else if (name == "AutoRefill" && autoRefill) {
                 auto& s = autoRefill->settings;
@@ -428,6 +439,16 @@ void ConfigManager::buildConfigFromModules() {
             config_["modules"][name]["weaponOnly"] = s.weaponOnly;
             config_["modules"][name]["lookingAtPlayer"] = s.lookingAtPlayer;
             config_["modules"][name]["movingOnly"] = s.movingOnly;
+        }
+        else if (name == "HitSelect" && hitSelect) {
+            const auto& s = hitSelect->settings;
+            config_["modules"][name]["mode"] = static_cast<int>(s.mode);
+            config_["modules"][name]["pauseDurationMs"] = s.pauseDurationMs;
+            config_["modules"][name]["cancelRate"] = s.cancelRate;
+            config_["modules"][name]["missedSwingsRate"] = s.missedSwingsRate;
+            config_["modules"][name]["fakeSwing"] = s.fakeSwing;
+            config_["modules"][name]["weaponOnly"] = s.weaponOnly;
+            config_["modules"][name]["targetingPlayerOnly"] = s.targetingPlayerOnly;
         }
         else if (name == "AutoRefill" && autoRefill) {
             const auto& s = autoRefill->settings;
