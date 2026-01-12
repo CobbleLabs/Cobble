@@ -5,7 +5,7 @@
 #include "../../sdk/player/player.h"
 #include "../../sdk/player/render_data.h"
 #include "../../module/module_manager.h"
-#include "../../module/combat/autorefill.h"
+#include "../../module/utility/autorefill.h"
 #include "../../util/team/friends_manager.h"
 #include "../../../infra/ext/imgui/imgui.h"
 #include "../widgets/widgets.hpp"

@@ -101,7 +101,7 @@
     <ClCompile Include="src\module\module_manager.cpp" />
     <ClCompile Include="src\module\combat\autoclicker.cpp" />
     <ClCompile Include="src\module\combat\aimassist.cpp" />
-    <ClCompile Include="src\module\combat\autorefill.cpp" />
+    <ClCompile Include="src\module\utility\autorefill.cpp" />
     <ClCompile Include="src\module\combat\velocity.cpp" />
     <ClCompile Include="src\module\combat\reach.cpp" />
     <ClCompile Include="src\module\combat\blink.cpp" />
@@ -109,7 +109,7 @@
     <ClCompile Include="src\module\combat\hitselect.cpp" />
     <ClCompile Include="src\module\combat\hitbox.cpp" />
     <ClCompile Include="src\hooks\winsock_hooks.cpp" />
-    <ClCompile Include="src\module\utility\nojumpdelay.cpp" />
+    <ClCompile Include="src\module\movement\nojumpdelay.cpp" />
     <ClCompile Include="src\module\utility\noitemrelease.cpp" />
     <ClCompile Include="src\module\utility\bridgeassist.cpp" />
     <ClCompile Include="src\module\utility\sprint.cpp" />
@@ -164,7 +164,7 @@
     <ClInclude Include="src\module\module_manager.h" />
     <ClInclude Include="src\module\combat\autoclicker.h" />
     <ClInclude Include="src\module\combat\aimassist.h" />
-    <ClInclude Include="src\module\combat\autorefill.h" />
+    <ClInclude Include="src\module\utility\autorefill.h" />
     <ClInclude Include="src\module\combat\velocity.h" />
     <ClInclude Include="src\module\combat\reach.h" />
     <ClInclude Include="src\module\combat\blink.h" />
@@ -172,7 +172,7 @@
     <ClInclude Include="src\module\combat\hitselect.h" />
     <ClInclude Include="src\module\combat\hitbox.h" />
     <ClInclude Include="src\hooks\winsock_hooks.h" />
-    <ClInclude Include="src\module\utility\nojumpdelay.h" />
+    <ClInclude Include="src\module\movement\nojumpdelay.h" />
     <ClInclude Include="src\module\utility\bridgeassist.h" />
     <ClInclude Include="src\module\utility\sprint.h" />
     <ClInclude Include="src\module\utility\fastplace.h" />
