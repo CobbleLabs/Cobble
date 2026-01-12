@@ -20,18 +20,18 @@ public:
 	std::string getDisplayInfo() override;
 
 	struct Settings {
-		float distance = 3.1f;        // Reach distance (vanilla is 3.0)
-		float minDistance = 3.0f;     // Min reach for randomization
-		float maxDistance = 3.1f;     // Max reach for randomization
-		bool randomize = false;       // Use random reach within range
+		float distance = 3.1f;        // Reach distance (fixed mode)
+		float minDistance = 3.0f;     // Min reach (interval mode)
+		float maxDistance = 3.2f;     // Max reach (interval mode)
+		bool intervalMode = false;    // Use random reach between min/max
 		bool weaponsOnly = false;     // Only apply when holding weapon
 		bool sprintingOnly = false;   // Only apply while sprinting
 		bool movingOnly = false;      // Only apply while moving forward
 		
 		// Anti-detection
-		int hitChance = 100;          // Chance (%) to apply reach (randomization)
-		int maxConsecutiveHits = 3;   // Max consecutive extended hits
-		bool onlyMovingTargets = true;// Only extend on targets moving toward us
+		int hitChance = 100;          // Chance (%) to apply reach (0=never, 100=always)
+		int maxConsecutiveHits = 0;   // Max consecutive extended hits (0=disabled)
+		bool onlyMovingTargets = false;// Only extend on targets moving toward us
 	} settings;
 
 private:
@@ -39,16 +39,21 @@ private:
 	int consecutiveExtendedHits = 0;
 	ULONGLONG lastHitTime = 0;
 	
-	struct OriginalHitbox {
-		double minX = 0, maxX = 0, minY = 0, maxY = 0, minZ = 0, maxZ = 0;
-		jobject entityRef = nullptr;
-		bool valid = false;
-	} originalHitbox;
+	// Click state tracking (to evaluate hit chance once per click, not per frame)
+	bool wasClickHeld = false;
+	bool currentClickAllowed = false;
+	
+	// Entity override state
+	struct OverrideState {
+		jobject originalEntityHit = nullptr;
+		jobject originalTypeOfHit = nullptr;
+		bool needsRestore = false;
+	} overrideState;
 	
 	bool isHoldingWeapon();
 	void updateReach();
 	bool shouldApplyThisSwing();
-	void restoreHitbox(JNIEnv* env);
+	void restoreEntityHit(JNIEnv* env);
 };
 
 extern Reach* reach;

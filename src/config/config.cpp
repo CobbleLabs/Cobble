@@ -200,7 +200,7 @@ void ConfigManager::applyConfig() {
                 s.distance = data["distance"].as_float(s.distance);
                 s.minDistance = data["minDistance"].as_float(s.minDistance);
                 s.maxDistance = data["maxDistance"].as_float(s.maxDistance);
-                s.randomize = data["randomize"].as_bool(s.randomize);
+                s.intervalMode = data["intervalMode"].as_bool(s.intervalMode);
                 s.weaponsOnly = data["weaponsOnly"].as_bool(s.weaponsOnly);
                 s.sprintingOnly = data["sprintingOnly"].as_bool(s.sprintingOnly);
                 s.movingOnly = data["movingOnly"].as_bool(s.movingOnly);
@@ -424,7 +424,7 @@ void ConfigManager::buildConfigFromModules() {
             config_["modules"][name]["distance"] = s.distance;
             config_["modules"][name]["minDistance"] = s.minDistance;
             config_["modules"][name]["maxDistance"] = s.maxDistance;
-            config_["modules"][name]["randomize"] = s.randomize;
+            config_["modules"][name]["intervalMode"] = s.intervalMode;
             config_["modules"][name]["weaponsOnly"] = s.weaponsOnly;
             config_["modules"][name]["sprintingOnly"] = s.sprintingOnly;
             config_["modules"][name]["movingOnly"] = s.movingOnly;
