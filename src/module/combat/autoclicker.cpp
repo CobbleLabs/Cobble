@@ -134,6 +134,12 @@ void AutoClicker::onUpdate()
 	// If in inventory, check the workInInventory setting
 	if (inInventory && !settings.workInInventory) return;
 	
+	// In inventory, autoclick only works when Shift is held
+	// Without Shift, user can do normal single clicks
+	if (inInventory && !(GetAsyncKeyState(VK_SHIFT) & 0x8000)) {
+		return;  // No autoclick without Shift in inventory
+	}
+	
 	// Weapon-only check (skip in inventory)
 	if (settings.weaponOnly && !inInventory && !isHoldingWeapon()) {
 		// Resync stable mode timeline to prevent burst when weapon is equipped
