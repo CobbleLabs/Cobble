@@ -212,6 +212,7 @@ void ConfigManager::applyConfig() {
                 s.refillSoup = data["refillSoup"].as_bool(s.refillSoup);
                 s.refillPotions = data["refillPotions"].as_bool(s.refillPotions);
                 s.speed = data["speed"].as_int(s.speed);
+                s.onInventoryOpen = data["onInventoryOpen"].as_bool(s.onInventoryOpen);
             }
             else if (name == "BlockESP" && blockESP) {
                 auto& s = blockESP->settings;
@@ -393,6 +394,7 @@ void ConfigManager::buildConfigFromModules() {
             config_["modules"][name]["refillSoup"] = s.refillSoup;
             config_["modules"][name]["refillPotions"] = s.refillPotions;
             config_["modules"][name]["speed"] = s.speed;
+            config_["modules"][name]["onInventoryOpen"] = s.onInventoryOpen;
         }
         else if (name == "BlockESP" && blockESP) {
             const auto& s = blockESP->settings;

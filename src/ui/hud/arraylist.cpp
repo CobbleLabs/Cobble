@@ -5,6 +5,7 @@
 #include "../../sdk/player/player.h"
 #include "../../sdk/player/render_data.h"
 #include "../../module/module_manager.h"
+#include "../../module/combat/autorefill.h"
 #include "../../util/team/friends_manager.h"
 #include "../../../infra/ext/imgui/imgui.h"
 #include "../widgets/widgets.hpp"
@@ -80,6 +81,16 @@ void ArrayListRenderer::render()
 			}
 			entries.push_back(entry);
 		}
+	}
+	
+	// Special case: Show AutoRefill when onInventoryOpen is enabled (passive mode)
+	if (autoRefill && !autoRefill->enabled && autoRefill->settings.onInventoryOpen) {
+		DisplayEntry entry;
+		entry.name = autoRefill->name;
+		if (showInfo) {
+			entry.info = autoRefill->getDisplayInfo();
+		}
+		entries.push_back(entry);
 	}
 	
 	// Add "Teams" entry if Auto Detect is enabled

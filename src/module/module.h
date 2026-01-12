@@ -41,11 +41,17 @@ struct Module
 	// Returns extra info to display in ArrayList (e.g., "Normal 17.0 cps")
 	// Override in modules that want to show status info
 	virtual std::string getDisplayInfo() { return ""; }
+	
+	// Check if module can be toggled (override to block toggle in certain states)
+	virtual bool canToggle() { return true; }
 
 	void toggle()
 	{
 		// Don't allow toggling locked modules unless unlocked
 		if (locked && !experimentalUnlocked) return;
+		
+		// Check if module allows toggle in current state
+		if (!canToggle()) return;
 		
 		enabled = !enabled;
 		if (enabled)
