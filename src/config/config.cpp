@@ -10,6 +10,7 @@
 #include "../module/utility/nojumpdelay.h"
 #include "../module/utility/bridgeassist.h"
 #include "../module/utility/sprint.h"
+#include "../module/utility/fastplace.h"
 #include "../module/utility/noitemrelease.h"
 #include "../module/visual/nametags.h"
 #include "../module/visual/esp.h"
@@ -240,6 +241,9 @@ void ConfigManager::applyConfig() {
             else if (name == "NoItemRelease" && noItemRelease) {
                 noItemRelease->settings.mode = static_cast<ItemReleaseMode>(data["mode"].as_int(static_cast<int>(noItemRelease->settings.mode)));
             }
+            else if (name == "FastPlace" && fastPlace) {
+                fastPlace->settings.blocksOnly = data["blocksOnly"].as_bool(fastPlace->settings.blocksOnly);
+            }
             
             break;
         }
@@ -421,6 +425,9 @@ void ConfigManager::buildConfigFromModules() {
         }
         else if (name == "NoItemRelease" && noItemRelease) {
             config_["modules"][name]["mode"] = static_cast<int>(noItemRelease->settings.mode);
+        }
+        else if (name == "FastPlace" && fastPlace) {
+            config_["modules"][name]["blocksOnly"] = fastPlace->settings.blocksOnly;
         }
     }
 }

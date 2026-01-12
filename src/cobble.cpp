@@ -11,6 +11,7 @@
 #include "module/utility/noitemrelease.h"
 #include "module/utility/bridgeassist.h"
 #include "module/utility/sprint.h"
+#include "module/utility/fastplace.h"
 #include "module/visual/nametags.h"
 #include "module/visual/esp.h"
 #include "module/visual/tracers.h"
@@ -103,6 +104,7 @@ void cobble::context::initialize(HMODULE hModule)
     noItemRelease = new NoItemRelease();
     bridgeAssist = new BridgeAssist();
     sprint = new Sprint();
+    fastPlace = new FastPlace();
     nameTags = new NameTags();
     esp = new ESP();
     tracers = new Tracers();
@@ -121,6 +123,7 @@ void cobble::context::initialize(HMODULE hModule)
     moduleManager->registerModule(noItemRelease);
     moduleManager->registerModule(bridgeAssist);
     moduleManager->registerModule(sprint);
+    moduleManager->registerModule(fastPlace);
     moduleManager->registerModule(nameTags);
     moduleManager->registerModule(esp);
     moduleManager->registerModule(tracers);
@@ -223,6 +226,7 @@ void cobble::context::shutdown()
     if (noItemRelease) noItemRelease->setEnabled(false);
     if (bridgeAssist) bridgeAssist->setEnabled(false);
     if (sprint) sprint->setEnabled(false);
+    if (fastPlace) fastPlace->setEnabled(false);
     if (nameTags) nameTags->setEnabled(false);
     if (esp) esp->setEnabled(false);
     
@@ -244,6 +248,7 @@ void cobble::context::shutdown()
     if (noItemRelease) { delete noItemRelease; noItemRelease = nullptr; }
     if (bridgeAssist) { delete bridgeAssist; bridgeAssist = nullptr; }
     if (sprint) { delete sprint; sprint = nullptr; }
+    if (fastPlace) { delete fastPlace; fastPlace = nullptr; }
     if (nameTags) { delete nameTags; nameTags = nullptr; }
     if (esp) { delete esp; esp = nullptr; }
     if (friendsManager) { delete friendsManager; friendsManager = nullptr; }
