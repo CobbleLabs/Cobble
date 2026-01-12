@@ -105,6 +105,7 @@
     <ClCompile Include="src\module\combat\velocity.cpp" />
     <ClCompile Include="src\module\combat\reach.cpp" />
     <ClCompile Include="src\module\combat\blink.cpp" />
+    <ClCompile Include="src\module\combat\criticals.cpp" />
     <ClCompile Include="src\hooks\winsock_hooks.cpp" />
     <ClCompile Include="src\module\utility\nojumpdelay.cpp" />
     <ClCompile Include="src\module\utility\noitemrelease.cpp" />
@@ -165,6 +166,7 @@
     <ClInclude Include="src\module\combat\velocity.h" />
     <ClInclude Include="src\module\combat\reach.h" />
     <ClInclude Include="src\module\combat\blink.h" />
+    <ClInclude Include="src\module\combat\criticals.h" />
     <ClInclude Include="src\hooks\winsock_hooks.h" />
     <ClInclude Include="src\module\utility\nojumpdelay.h" />
     <ClInclude Include="src\module\utility\bridgeassist.h" />

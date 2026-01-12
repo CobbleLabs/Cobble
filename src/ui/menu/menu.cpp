@@ -15,6 +15,7 @@
 #include "../../module/combat/velocity.h"
 #include "../../module/combat/reach.h"
 #include "../../module/combat/blink.h"
+#include "../../module/combat/criticals.h"
 #include "../../module/utility/nojumpdelay.h"
 #include "../../module/utility/noitemrelease.h"
 #include "../../module/utility/bridgeassist.h"
@@ -46,6 +47,7 @@ Module* getModuleForSubtab(int tabIdx, int subtabIdx)
 			case 3: return velocity;
 			case 4: return reach;
 			case 5: return blink;
+			case 6: return criticals;
 		}
 	}
 	// Visuals Tab (1)

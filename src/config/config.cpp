@@ -7,6 +7,7 @@
 #include "../module/combat/velocity.h"
 #include "../module/combat/reach.h"
 #include "../module/combat/blink.h"
+#include "../module/combat/criticals.h"
 #include "../module/utility/nojumpdelay.h"
 #include "../module/utility/bridgeassist.h"
 #include "../module/utility/sprint.h"
@@ -208,6 +209,14 @@ void ConfigManager::applyConfig() {
                 s.maxDuration = data["maxDuration"].as_float(s.maxDuration);
                 s.disableOnAttack = data["disableOnAttack"].as_bool(s.disableOnAttack);
                 s.showDebug = data["showDebug"].as_bool(s.showDebug);
+            }
+            else if (name == "Criticals" && criticals) {
+                auto& s = criticals->settings;
+                s.duration = data["duration"].as_int(s.duration);
+                s.mousePressed = data["mousePressed"].as_bool(s.mousePressed);
+                s.weaponOnly = data["weaponOnly"].as_bool(s.weaponOnly);
+                s.lookingAtPlayer = data["lookingAtPlayer"].as_bool(s.lookingAtPlayer);
+                s.movingOnly = data["movingOnly"].as_bool(s.movingOnly);
             }
             else if (name == "AutoRefill" && autoRefill) {
                 auto& s = autoRefill->settings;
@@ -411,6 +420,14 @@ void ConfigManager::buildConfigFromModules() {
             config_["modules"][name]["maxDuration"] = s.maxDuration;
             config_["modules"][name]["disableOnAttack"] = s.disableOnAttack;
             config_["modules"][name]["showDebug"] = s.showDebug;
+        }
+        else if (name == "Criticals" && criticals) {
+            const auto& s = criticals->settings;
+            config_["modules"][name]["duration"] = s.duration;
+            config_["modules"][name]["mousePressed"] = s.mousePressed;
+            config_["modules"][name]["weaponOnly"] = s.weaponOnly;
+            config_["modules"][name]["lookingAtPlayer"] = s.lookingAtPlayer;
+            config_["modules"][name]["movingOnly"] = s.movingOnly;
         }
         else if (name == "AutoRefill" && autoRefill) {
             const auto& s = autoRefill->settings;
