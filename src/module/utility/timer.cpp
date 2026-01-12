@@ -116,10 +116,6 @@ void TimerMod::onRenderMenu()
 		"Conditions", [this]() {
 			ui::Checkbox("Mouse Pressed", &settings.mousePressed);
 			ui::Checkbox("Weapon Only", &settings.weaponOnly);
-			ImGui::Spacing();
-			ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetColorU32(ImGuiCol_TextDisabled));
-			ImGui::TextWrapped("Modifies game tick speed. Ctrl+Click to type exact value.");
-			ImGui::PopStyleColor();
 		}
 	);
 }

@@ -57,10 +57,6 @@ void FastPlace::onRenderMenu()
 		},
 		"Options", [this]() {
 			ui::Checkbox("Blocks Only", &settings.blocksOnly);
-			ImGui::Spacing();
-			ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetColorU32(ImGuiCol_TextDisabled));
-			ImGui::TextWrapped("Removes right-click delay for faster block placement.");
-			ImGui::PopStyleColor();
 		}
 	);
 }
