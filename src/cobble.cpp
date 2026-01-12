@@ -1,84 +1,82 @@
 #include "cobble.hpp"
 #include "config/config.hpp"
-#include "module/module_manager.h"
-#include "module/combat/autoclicker.h"
 #include "module/combat/aimassist.h"
-#include "module/utility/autorefill.h"
-#include "module/combat/velocity.h"
-#include "module/combat/reach.h"
+#include "module/combat/autoclicker.h"
 #include "module/combat/blink.h"
 #include "module/combat/criticals.h"
-#include "module/combat/hitselect.h"
 #include "module/combat/hitbox.h"
+#include "module/combat/hitselect.h"
+#include "module/combat/reach.h"
+#include "module/combat/velocity.h"
+#include "module/module_manager.h"
 #include "module/movement/nojumpdelay.h"
-#include "module/utility/noitemrelease.h"
-#include "module/utility/bridgeassist.h"
 #include "module/movement/sprint.h"
-#include "module/utility/fastplace.h"
 #include "module/movement/timer.h"
+#include "module/utility/autorefill.h"
 #include "module/utility/autotool.h"
-#include "module/visual/nametags.h"
-#include "module/visual/esp.h"
-#include "module/visual/tracers.h"
+#include "module/utility/bridgeassist.h"
+#include "module/utility/fastplace.h"
+#include "module/utility/noitemrelease.h"
 #include "module/visual/blockesp.h"
+#include "module/visual/esp.h"
+#include "module/visual/nametags.h"
+#include "module/visual/tracers.h"
 #include "module/visual/trajectories.h"
 
 #include "hooks/winsock_hooks.h"
+#include "jni/packet_interceptor.hpp"
+#include "sdk/network/lunar_packet_listener.hpp"
+#include "sdk/network/network_probe.hpp"
+#include "sdk/player/render_data.h"
+#include "security/dll_integrity.hpp"
+#include "security/loader_verify.hpp"
+#include "security/session_validator.hpp"
 #include "ui/core/overlay.h"
 #include "ui/hud/notifications.h"
 #include "util/team/friends_manager.h"
-#include "sdk/player/render_data.h"
-#include "sdk/network/network_probe.hpp"
-#include "jni/packet_interceptor.hpp"
-#include "sdk/network/lunar_packet_listener.hpp"
-#include "security/loader_verify.hpp"
-#include "security/session_validator.hpp"
-#include "security/dll_integrity.hpp"
 
 // Signature for loader detection (cleared on shutdown for re-injection support)
 volatile char COBBLE_SIGNATURE[] = "COBBLE_LOADED_V1";
 
-static void invalidateSignature()
-{
+static void invalidateSignature() {
     for (int i = 0; i < 16; i++) {
         COBBLE_SIGNATURE[i] = '\0';
     }
 }
 
-void cobble::context::initialize(HMODULE hModule)
-{
+void cobble::context::initialize(HMODULE hModule) {
     // CRITICAL: Verify we were loaded by legitimate loader, not via LoadLibrary
     LoaderVerify::verifyOrDie(hModule);
-    
-	// CRITICAL: Validate injection secret from loader's shared memory
-	// Without this, the DLL refuses to run - this is the primary security gate
-	if (!SessionValidator::ValidateInjection()) {
-		// Corrupt memory and exit to frustrate reverse engineering
-		DWORD oldProtect;
-		if (VirtualProtect(hModule, 0x1000, PAGE_READWRITE, &oldProtect)) {
-			memset(hModule, 0xCC, 0x1000);
-		}
-		ExitProcess(0);
-		return;
-	}
-	
-	// Initialize DLL integrity check (hash .text section for anti-patch detection)
-	// Must be done BEFORE any JIT/hooks that would modify code
-	DllIntegrity::Initialize(hModule);
-	
-	// Start heartbeat thread for runtime validation
-	// Session token was cached from shared memory during ValidateInjection()
-	SessionValidator::StartHeartbeatThread("");
+
+    // CRITICAL: Validate injection secret from loader's shared memory
+    // Without this, the DLL refuses to run - this is the primary security gate
+    if (!SessionValidator::ValidateInjection()) {
+        // Corrupt memory and exit to frustrate reverse engineering
+        DWORD oldProtect;
+        if (VirtualProtect(hModule, 0x1000, PAGE_READWRITE, &oldProtect)) {
+            memset(hModule, 0xCC, 0x1000);
+        }
+        ExitProcess(0);
+        return;
+    }
+
+    // Initialize DLL integrity check (hash .text section for anti-patch detection)
+    // Must be done BEFORE any JIT/hooks that would modify code
+    DllIntegrity::Initialize(hModule);
+
+    // Start heartbeat thread for runtime validation
+    // Session token was cached from shared memory during ValidateInjection()
+    SessionValidator::StartHeartbeatThread("");
 
     // Initialize logging console immediately
     c_logger::initialize();
     log_raw("========================================");
     log_ok("Cobble injected! Build: %s", __DATE__);
     log_debug("Module Handle: 0x%p", hModule);
-    
+
     (void)COBBLE_SIGNATURE[0];
     moduleHandle = hModule;
-    
+
     log_raw("Initializing Java...");
     Java::Init();
     if (!Java::Initialized) {
@@ -95,7 +93,6 @@ void cobble::context::initialize(HMODULE hModule)
     // Run NetworkManager discovery probe (debug only)
     log_raw("Running NetworkManager probe...");
     NetworkProbe::run();
-
 
     log_raw("Allocating modules...");
     // Dynamically allocate modules to avoid static initialization order issues
@@ -147,11 +144,11 @@ void cobble::context::initialize(HMODULE hModule)
     moduleManager->registerModule(blockESP);
     moduleManager->registerModule(trajectories);
     log_ok("Modules registered");
-    
+
     // Initialize config (loads local, applies to modules, async fetch from server)
     log_raw("Initializing Config...");
     ConfigManager::get().init();
-    
+
     log_raw("Initializing WSA hooks...");
     if (WinsockHooks::Init()) {
         log_ok("WSA hooks initialized");
@@ -184,34 +181,33 @@ void cobble::context::initialize(HMODULE hModule)
     } else {
         log_ok("Created instance mutex: %ls", mutexName.c_str());
     }
-    
+
     int tickCount = 0;
     const int OVERLAY_INIT_DELAY = 1000;
     bool overlayInitialized = false;
     bool notificationShown = false;
-    
+
     is_running = true;
     log_ok("Main loop starting...");
 
-    while (is_running)
-    {
+    while (is_running) {
         if (!overlayInitialized && tickCount >= OVERLAY_INIT_DELAY) {
             Overlay::Init();
             overlayInitialized = true;
         }
-        
+
         if (overlayInitialized && !notificationShown && tickCount >= OVERLAY_INIT_DELAY + 100) {
             NotificationManager::addSystem("Cobble loaded");
             notificationShown = true;
         }
-        
+
         tickCount++;
         player.refresh();
         moduleManager->update();
-        
+
         // Update render data matrices (for ESP) - must be on main thread with JNI access
         RenderData::Update();
-        
+
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
 
@@ -220,78 +216,167 @@ void cobble::context::initialize(HMODULE hModule)
     ExitThread(0);
 }
 
-void cobble::context::shutdown()
-{
+void cobble::context::shutdown() {
     // Stop heartbeat thread FIRST - before any other cleanup
     // This prevents crashes from the thread accessing freed resources
     SessionValidator::StopHeartbeatThread();
-    
+
     invalidateSignature();
-    
+
     if (hInstanceMutex) {
         ReleaseMutex(hInstanceMutex);
         CloseHandle(hInstanceMutex);
         hInstanceMutex = nullptr;
         log_raw("Released instance mutex");
     }
-    
+
     // Save config before shutdown
     ConfigManager::get().shutdown();
-    
-    if (autoClicker) autoClicker->setEnabled(false);
-    if (aimAssist) aimAssist->setEnabled(false);
-    if (autoRefill) autoRefill->setEnabled(false);
-    if (velocity) velocity->setEnabled(false);
-    if (reach) reach->setEnabled(false);
-    if (blink) blink->setEnabled(false);
-    if (criticals) criticals->setEnabled(false);
-    if (hitSelect) hitSelect->setEnabled(false);
-    if (hitbox) hitbox->setEnabled(false);
-    if (noJumpDelay) noJumpDelay->setEnabled(false);
-    if (noItemRelease) noItemRelease->setEnabled(false);
-    if (bridgeAssist) bridgeAssist->setEnabled(false);
-    if (sprint) sprint->setEnabled(false);
-    if (fastPlace) fastPlace->setEnabled(false);
-    if (timerModule) timerModule->setEnabled(false);
-    if (autoTool) autoTool->setEnabled(false);
-    if (nameTags) nameTags->setEnabled(false);
-    if (esp) esp->setEnabled(false);
-    if (tracers) tracers->setEnabled(false);
-    if (blockESP) blockESP->setEnabled(false);
-    if (trajectories) trajectories->setEnabled(false);
-    
+
+    if (autoClicker)
+        autoClicker->setEnabled(false);
+    if (aimAssist)
+        aimAssist->setEnabled(false);
+    if (autoRefill)
+        autoRefill->setEnabled(false);
+    if (velocity)
+        velocity->setEnabled(false);
+    if (reach)
+        reach->setEnabled(false);
+    if (blink)
+        blink->setEnabled(false);
+    if (criticals)
+        criticals->setEnabled(false);
+    if (hitSelect)
+        hitSelect->setEnabled(false);
+    if (hitbox)
+        hitbox->setEnabled(false);
+    if (noJumpDelay)
+        noJumpDelay->setEnabled(false);
+    if (noItemRelease)
+        noItemRelease->setEnabled(false);
+    if (bridgeAssist)
+        bridgeAssist->setEnabled(false);
+    if (sprint)
+        sprint->setEnabled(false);
+    if (fastPlace)
+        fastPlace->setEnabled(false);
+    if (timerModule)
+        timerModule->setEnabled(false);
+    if (autoTool)
+        autoTool->setEnabled(false);
+    if (nameTags)
+        nameTags->setEnabled(false);
+    if (esp)
+        esp->setEnabled(false);
+    if (tracers)
+        tracers->setEnabled(false);
+    if (blockESP)
+        blockESP->setEnabled(false);
+    if (trajectories)
+        trajectories->setEnabled(false);
+
     LunarPacketListener::Shutdown();
     PacketInterceptor::Shutdown();
     WinsockHooks::Shutdown();
-    
+
     Overlay::Shutdown();
     Java::Kill();
 
     // Clean up modules
-    if (autoClicker) { delete autoClicker; autoClicker = nullptr; }
-    if (aimAssist) { delete aimAssist; aimAssist = nullptr; }
-    if (autoRefill) { delete autoRefill; autoRefill = nullptr; }
-    if (velocity) { delete velocity; velocity = nullptr; }
-    if (reach) { delete reach; reach = nullptr; }
-    if (blink) { delete blink; blink = nullptr; }
-    if (criticals) { delete criticals; criticals = nullptr; }
-    if (hitSelect) { delete hitSelect; hitSelect = nullptr; }
-    if (hitbox) { delete hitbox; hitbox = nullptr; }
-    if (noJumpDelay) { delete noJumpDelay; noJumpDelay = nullptr; }
-    if (noItemRelease) { delete noItemRelease; noItemRelease = nullptr; }
-    if (bridgeAssist) { delete bridgeAssist; bridgeAssist = nullptr; }
-    if (sprint) { delete sprint; sprint = nullptr; }
-    if (fastPlace) { delete fastPlace; fastPlace = nullptr; }
-    if (timerModule) { delete timerModule; timerModule = nullptr; }
-    if (autoTool) { delete autoTool; autoTool = nullptr; }
-    if (nameTags) { delete nameTags; nameTags = nullptr; }
-    if (esp) { delete esp; esp = nullptr; }
-    if (tracers) { delete tracers; tracers = nullptr; }
-    if (blockESP) { delete blockESP; blockESP = nullptr; }
-    if (trajectories) { delete trajectories; trajectories = nullptr; }
-    if (friendsManager) { delete friendsManager; friendsManager = nullptr; }
-    
-    if (moduleManager) { delete moduleManager; moduleManager = nullptr; }
-    
+    if (autoClicker) {
+        delete autoClicker;
+        autoClicker = nullptr;
+    }
+    if (aimAssist) {
+        delete aimAssist;
+        aimAssist = nullptr;
+    }
+    if (autoRefill) {
+        delete autoRefill;
+        autoRefill = nullptr;
+    }
+    if (velocity) {
+        delete velocity;
+        velocity = nullptr;
+    }
+    if (reach) {
+        delete reach;
+        reach = nullptr;
+    }
+    if (blink) {
+        delete blink;
+        blink = nullptr;
+    }
+    if (criticals) {
+        delete criticals;
+        criticals = nullptr;
+    }
+    if (hitSelect) {
+        delete hitSelect;
+        hitSelect = nullptr;
+    }
+    if (hitbox) {
+        delete hitbox;
+        hitbox = nullptr;
+    }
+    if (noJumpDelay) {
+        delete noJumpDelay;
+        noJumpDelay = nullptr;
+    }
+    if (noItemRelease) {
+        delete noItemRelease;
+        noItemRelease = nullptr;
+    }
+    if (bridgeAssist) {
+        delete bridgeAssist;
+        bridgeAssist = nullptr;
+    }
+    if (sprint) {
+        delete sprint;
+        sprint = nullptr;
+    }
+    if (fastPlace) {
+        delete fastPlace;
+        fastPlace = nullptr;
+    }
+    if (timerModule) {
+        delete timerModule;
+        timerModule = nullptr;
+    }
+    if (autoTool) {
+        delete autoTool;
+        autoTool = nullptr;
+    }
+    if (nameTags) {
+        delete nameTags;
+        nameTags = nullptr;
+    }
+    if (esp) {
+        delete esp;
+        esp = nullptr;
+    }
+    if (tracers) {
+        delete tracers;
+        tracers = nullptr;
+    }
+    if (blockESP) {
+        delete blockESP;
+        blockESP = nullptr;
+    }
+    if (trajectories) {
+        delete trajectories;
+        trajectories = nullptr;
+    }
+    if (friendsManager) {
+        delete friendsManager;
+        friendsManager = nullptr;
+    }
+
+    if (moduleManager) {
+        delete moduleManager;
+        moduleManager = nullptr;
+    }
+
     c_logger::shutdown();
 }

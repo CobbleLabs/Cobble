@@ -1,8 +1,8 @@
 #pragma once
-#include <Windows.h>
 #include <Psapi.h>
-#include <cstdint>
+#include <Windows.h>
 #include <atomic>
+#include <cstdint>
 
 // DLL Self-Integrity Check
 // Detects if critical code has been patched in memory
@@ -27,16 +27,19 @@ inline uint32_t hashMemory(const uint8_t* data, size_t size) {
 
 // Find .text section of our DLL
 inline bool findTextSection(HMODULE hModule) {
-    if (!hModule) return false;
-    
+    if (!hModule)
+        return false;
+
     // Get DOS header
     PIMAGE_DOS_HEADER dosHeader = (PIMAGE_DOS_HEADER)hModule;
-    if (dosHeader->e_magic != IMAGE_DOS_SIGNATURE) return false;
-    
+    if (dosHeader->e_magic != IMAGE_DOS_SIGNATURE)
+        return false;
+
     // Get NT header
     PIMAGE_NT_HEADERS ntHeaders = (PIMAGE_NT_HEADERS)((uintptr_t)hModule + dosHeader->e_lfanew);
-    if (ntHeaders->Signature != IMAGE_NT_SIGNATURE) return false;
-    
+    if (ntHeaders->Signature != IMAGE_NT_SIGNATURE)
+        return false;
+
     // Find .text section
     PIMAGE_SECTION_HEADER section = IMAGE_FIRST_SECTION(ntHeaders);
     for (WORD i = 0; i < ntHeaders->FileHeader.NumberOfSections; i++, section++) {
@@ -46,22 +49,23 @@ inline bool findTextSection(HMODULE hModule) {
             return true;
         }
     }
-    
+
     return false;
 }
 
 // Initialize integrity check - call once at DLL startup
 inline bool Initialize(HMODULE hModule) {
-    if (g_Initialized) return true;
-    
+    if (g_Initialized)
+        return true;
+
     if (!findTextSection(hModule)) {
         return false;
     }
-    
+
     // Compute and store initial hash
     g_ExpectedHash = hashMemory((const uint8_t*)g_TextBase, g_TextSize);
     g_Initialized = true;
-    
+
     return true;
 }
 
@@ -71,7 +75,7 @@ inline bool Verify() {
     if (!g_Initialized || g_TextBase == 0 || g_TextSize == 0) {
         return false;  // Not initialized = fail closed
     }
-    
+
     uint32_t currentHash = hashMemory((const uint8_t*)g_TextBase, g_TextSize);
     return (currentHash == g_ExpectedHash);
 }
@@ -90,4 +94,4 @@ inline void Check() {
     }
 }
 
-} // namespace DllIntegrity
+}  // namespace DllIntegrity

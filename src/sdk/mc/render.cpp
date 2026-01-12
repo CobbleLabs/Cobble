@@ -1,26 +1,29 @@
 // Render-related functions for Minecraft SDK
 // Handles render position, partial ticks, mouse sensitivity, and targeting info
 
+#include "../../util/logger.hpp"
 #include "../core/minecraft.h"
 #include "../jni/jni_cache.h"
 #include "../jni/jstring_util.h"
-#include "../../util/logger.hpp"
 
 // =============================================================================
 // getMouseSensitivity - Get player's mouse sensitivity setting
 // =============================================================================
 
-float Minecraft::getMouseSensitivity()
-{
-    if (!isValid()) return 0.5f; // Default
+float Minecraft::getMouseSensitivity() {
+    if (!isValid())
+        return 0.5f;  // Default
 
     JNIEnv* env = Java::GetEnv();
-    if (!env) return 0.5f;
+    if (!env)
+        return 0.5f;
 
-    if (!JniCache::fid_gameSettings) return 0.5f;
-    
+    if (!JniCache::fid_gameSettings)
+        return 0.5f;
+
     jobject gameSettings = env->GetObjectField(instance, JniCache::fid_gameSettings);
-    if (!gameSettings) return 0.5f;
+    if (!gameSettings)
+        return 0.5f;
 
     float sensitivity = 0.5f;
     if (JniCache::fid_mouseSensitivity) {
@@ -35,17 +38,20 @@ float Minecraft::getMouseSensitivity()
 // isTargetingBlock - Check if crosshair is aimed at a block
 // =============================================================================
 
-bool Minecraft::isTargetingBlock()
-{
-    if (!isValid()) return false;
+bool Minecraft::isTargetingBlock() {
+    if (!isValid())
+        return false;
 
     JNIEnv* env = Java::GetEnv();
-    if (!env) return false;
+    if (!env)
+        return false;
 
-    if (!JniCache::fid_objectMouseOver) return false;
-    
+    if (!JniCache::fid_objectMouseOver)
+        return false;
+
     jobject mouseOver = env->GetObjectField(instance, JniCache::fid_objectMouseOver);
-    if (!mouseOver) return false;
+    if (!mouseOver)
+        return false;
 
     if (!JniCache::fid_typeOfHit) {
         env->DeleteLocalRef(mouseOver);
@@ -55,7 +61,8 @@ bool Minecraft::isTargetingBlock()
     jobject typeOfHit = env->GetObjectField(mouseOver, JniCache::fid_typeOfHit);
     env->DeleteLocalRef(mouseOver);
 
-    if (!typeOfHit) return false;
+    if (!typeOfHit)
+        return false;
 
     // Compare with BLOCK enum constant
     bool result = false;
@@ -64,7 +71,8 @@ bool Minecraft::isTargetingBlock()
         if (typeClass) {
             jobject blockEnum = env->GetStaticObjectField(typeClass, JniCache::fid_BLOCK);
             result = env->IsSameObject(typeOfHit, blockEnum);
-            if (blockEnum) env->DeleteLocalRef(blockEnum);
+            if (blockEnum)
+                env->DeleteLocalRef(blockEnum);
             env->DeleteLocalRef(typeClass);
         }
     }
@@ -77,22 +85,25 @@ bool Minecraft::isTargetingBlock()
 // getTargetedBlockPos - Get block position from game's objectMouseOver
 // =============================================================================
 
-Minecraft::Vec3 Minecraft::getTargetedBlockPos()
-{
+Minecraft::Vec3 Minecraft::getTargetedBlockPos() {
     Vec3 result(-1.0f, -1.0f, -1.0f);  // Invalid position marker
-    
-    if (!isValid()) return result;
+
+    if (!isValid())
+        return result;
 
     JNIEnv* env = Java::GetEnv();
-    if (!env) return result;
+    if (!env)
+        return result;
 
-    if (!JniCache::fid_objectMouseOver) return result;
-    
+    if (!JniCache::fid_objectMouseOver)
+        return result;
+
     jobject mouseOver = env->GetObjectField(instance, JniCache::fid_objectMouseOver);
-    if (!mouseOver) return result;
-    
+    if (!mouseOver)
+        return result;
+
     bool gotPosition = false;
-    
+
     // Method 1: 1.8.x - getBlockPos() -> BlockPos
     if (JniCache::mid_getBlockPos && JniCache::mid_getX && JniCache::mid_getY && JniCache::mid_getZ) {
         jobject blockPosObj = env->CallObjectMethod(mouseOver, JniCache::mid_getBlockPos);
@@ -105,7 +116,7 @@ Minecraft::Vec3 Minecraft::getTargetedBlockPos()
         }
         env->ExceptionClear();
     }
-    
+
     // Method 2: 1.7.10 - direct blockX/blockY/blockZ fields
     if (!gotPosition && JniCache::fid_blockX && JniCache::fid_blockY && JniCache::fid_blockZ) {
         result.x = (float)env->GetIntField(mouseOver, JniCache::fid_blockX);
@@ -113,7 +124,7 @@ Minecraft::Vec3 Minecraft::getTargetedBlockPos()
         result.z = (float)env->GetIntField(mouseOver, JniCache::fid_blockZ);
         gotPosition = true;
     }
-    
+
     env->DeleteLocalRef(mouseOver);
     return result;
 }
@@ -122,17 +133,20 @@ Minecraft::Vec3 Minecraft::getTargetedBlockPos()
 // isTargetingEntity - Check if crosshair is aimed at an entity
 // =============================================================================
 
-bool Minecraft::isTargetingEntity()
-{
-    if (!isValid()) return false;
+bool Minecraft::isTargetingEntity() {
+    if (!isValid())
+        return false;
 
     JNIEnv* env = Java::GetEnv();
-    if (!env) return false;
+    if (!env)
+        return false;
 
-    if (!JniCache::fid_objectMouseOver) return false;
-    
+    if (!JniCache::fid_objectMouseOver)
+        return false;
+
     jobject mouseOver = env->GetObjectField(instance, JniCache::fid_objectMouseOver);
-    if (!mouseOver) return false;
+    if (!mouseOver)
+        return false;
 
     if (!JniCache::fid_typeOfHit) {
         env->DeleteLocalRef(mouseOver);
@@ -142,7 +156,8 @@ bool Minecraft::isTargetingEntity()
     jobject typeOfHit = env->GetObjectField(mouseOver, JniCache::fid_typeOfHit);
     env->DeleteLocalRef(mouseOver);
 
-    if (!typeOfHit) return false;
+    if (!typeOfHit)
+        return false;
 
     // Compare with ENTITY enum constant
     bool result = false;
@@ -151,7 +166,8 @@ bool Minecraft::isTargetingEntity()
         if (typeClass) {
             jobject entityEnum = env->GetStaticObjectField(typeClass, JniCache::fid_ENTITY);
             result = env->IsSameObject(typeOfHit, entityEnum);
-            if (entityEnum) env->DeleteLocalRef(entityEnum);
+            if (entityEnum)
+                env->DeleteLocalRef(entityEnum);
             env->DeleteLocalRef(typeClass);
         }
     }
@@ -164,17 +180,20 @@ bool Minecraft::isTargetingEntity()
 // getTargetedEntityHurtTime - Get hurtTime of entity being looked at
 // =============================================================================
 
-int Minecraft::getTargetedEntityHurtTime()
-{
-    if (!isValid()) return 0;
+int Minecraft::getTargetedEntityHurtTime() {
+    if (!isValid())
+        return 0;
 
     JNIEnv* env = Java::GetEnv();
-    if (!env) return 0;
+    if (!env)
+        return 0;
 
-    if (!JniCache::fid_objectMouseOver) return 0;
-    
+    if (!JniCache::fid_objectMouseOver)
+        return 0;
+
     jobject mouseOver = env->GetObjectField(instance, JniCache::fid_objectMouseOver);
-    if (!mouseOver) return 0;
+    if (!mouseOver)
+        return 0;
 
     if (!JniCache::fid_entityHit) {
         env->DeleteLocalRef(mouseOver);
@@ -184,7 +203,8 @@ int Minecraft::getTargetedEntityHurtTime()
     jobject entityHit = env->GetObjectField(mouseOver, JniCache::fid_entityHit);
     env->DeleteLocalRef(mouseOver);
 
-    if (!entityHit) return 0;
+    if (!entityHit)
+        return 0;
 
     // Check if it's a living entity
     if (!JniCache::cls_EntityLivingBase || !env->IsInstanceOf(entityHit, JniCache::cls_EntityLivingBase)) {
@@ -205,18 +225,21 @@ int Minecraft::getTargetedEntityHurtTime()
 // getTargetedPlayerInfo - Get info (UUID, name) of player being looked at
 // =============================================================================
 
-PlayerInfo Minecraft::getTargetedPlayerInfo()
-{
+PlayerInfo Minecraft::getTargetedPlayerInfo() {
     PlayerInfo result;
-    if (!isValid()) return result;
+    if (!isValid())
+        return result;
 
     JNIEnv* env = Java::GetEnv();
-    if (!env) return result;
+    if (!env)
+        return result;
 
-    if (!JniCache::fid_objectMouseOver) return result;
-    
+    if (!JniCache::fid_objectMouseOver)
+        return result;
+
     jobject mouseOver = env->GetObjectField(instance, JniCache::fid_objectMouseOver);
-    if (!mouseOver) return result;
+    if (!mouseOver)
+        return result;
 
     if (!JniCache::fid_entityHit) {
         env->DeleteLocalRef(mouseOver);
@@ -226,7 +249,8 @@ PlayerInfo Minecraft::getTargetedPlayerInfo()
     jobject entityHit = env->GetObjectField(mouseOver, JniCache::fid_entityHit);
     env->DeleteLocalRef(mouseOver);
 
-    if (!entityHit) return result;
+    if (!entityHit)
+        return result;
 
     // Check if it's a player entity
     if (!JniCache::cls_EntityPlayer || !env->IsInstanceOf(entityHit, JniCache::cls_EntityPlayer)) {
@@ -271,8 +295,8 @@ PlayerInfo Minecraft::getTargetedPlayerInfo()
         }
     }
 
-    log_debug("[getTargetedPlayerInfo] uuid=%s, profileName=%s, name=%s", 
-        result.uuid.c_str(), result.profileName.c_str(), result.name.c_str());
+    log_debug("[getTargetedPlayerInfo] uuid=%s, profileName=%s, name=%s", result.uuid.c_str(),
+              result.profileName.c_str(), result.name.c_str());
 
     env->DeleteLocalRef(entityHit);
     return result;
@@ -282,21 +306,20 @@ PlayerInfo Minecraft::getTargetedPlayerInfo()
 // getRenderPos - Get camera render position for WorldToScreen
 // =============================================================================
 
-RenderPos Minecraft::getRenderPos()
-{
+RenderPos Minecraft::getRenderPos() {
     RenderPos result;
-    if (!isValid()) return result;
+    if (!isValid())
+        return result;
 
     JNIEnv* env = Java::GetEnv();
-    if (!env) return result;
+    if (!env)
+        return result;
 
     bool is_1_7_10 = (Java::Version == MinecraftVersion::MC_1_7_10);
 
     if (is_1_7_10) {
         // 1.7.10: RenderManager uses STATIC fields
-        if (JniCache::cls_RenderManager && 
-            JniCache::fid_renderPosX_static && 
-            JniCache::fid_renderPosY_static && 
+        if (JniCache::cls_RenderManager && JniCache::fid_renderPosX_static && JniCache::fid_renderPosY_static &&
             JniCache::fid_renderPosZ_static) {
             result.x = env->GetStaticDoubleField(JniCache::cls_RenderManager, JniCache::fid_renderPosX_static);
             result.y = env->GetStaticDoubleField(JniCache::cls_RenderManager, JniCache::fid_renderPosY_static);
@@ -304,10 +327,12 @@ RenderPos Minecraft::getRenderPos()
         }
     } else {
         // 1.8.x: RenderManager uses INSTANCE fields
-        if (!JniCache::fid_renderManager) return result;
-        
+        if (!JniCache::fid_renderManager)
+            return result;
+
         jobject renderManager = env->GetObjectField(instance, JniCache::fid_renderManager);
-        if (!renderManager) return result;
+        if (!renderManager)
+            return result;
 
         if (JniCache::fid_renderPosX && JniCache::fid_renderPosY && JniCache::fid_renderPosZ) {
             result.x = env->GetDoubleField(renderManager, JniCache::fid_renderPosX);
@@ -325,17 +350,20 @@ RenderPos Minecraft::getRenderPos()
 // getPartialTicks - Get render interpolation value
 // =============================================================================
 
-float Minecraft::getPartialTicks()
-{
-    if (!isValid()) return 0.0f;
+float Minecraft::getPartialTicks() {
+    if (!isValid())
+        return 0.0f;
 
     JNIEnv* env = Java::GetEnv();
-    if (!env) return 0.0f;
+    if (!env)
+        return 0.0f;
 
-    if (!JniCache::fid_timer) return 0.0f;
-    
+    if (!JniCache::fid_timer)
+        return 0.0f;
+
     jobject timer = env->GetObjectField(instance, JniCache::fid_timer);
-    if (!timer) return 0.0f;
+    if (!timer)
+        return 0.0f;
 
     float result = 0.0f;
     if (JniCache::fid_renderPartialTicks) {

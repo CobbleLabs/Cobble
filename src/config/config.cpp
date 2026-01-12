@@ -1,23 +1,23 @@
 #include "config.hpp"
-#include "../module/module_manager.h"
-#include "../module/module.h"
-#include "../module/combat/autoclicker.h"
 #include "../module/combat/aimassist.h"
-#include "../module/utility/autorefill.h"
-#include "../module/combat/velocity.h"
-#include "../module/combat/reach.h"
+#include "../module/combat/autoclicker.h"
 #include "../module/combat/blink.h"
 #include "../module/combat/criticals.h"
-#include "../module/combat/hitselect.h"
 #include "../module/combat/hitbox.h"
+#include "../module/combat/hitselect.h"
+#include "../module/combat/reach.h"
+#include "../module/combat/velocity.h"
+#include "../module/module.h"
+#include "../module/module_manager.h"
 #include "../module/movement/nojumpdelay.h"
-#include "../module/utility/bridgeassist.h"
 #include "../module/movement/sprint.h"
+#include "../module/utility/autorefill.h"
+#include "../module/utility/bridgeassist.h"
 #include "../module/utility/fastplace.h"
 #include "../module/utility/noitemrelease.h"
-#include "../module/visual/nametags.h"
-#include "../module/visual/esp.h"
 #include "../module/visual/blockesp.h"
+#include "../module/visual/esp.h"
+#include "../module/visual/nametags.h"
 #include "../module/visual/tracers.h"
 #include "../module/visual/trajectories.h"
 #include "../ui/hud/arraylist.h"
@@ -30,29 +30,30 @@ using namespace ArrayListRenderer;
 // Apply default config (used when no config file exists)
 void ConfigManager::applyDefaults() {
     std::lock_guard<std::mutex> lock(configMutex_);
-    
+
     config_["version"] = CONFIG_VERSION;
-    
+
     // Settings
     config_["settings"]["cloudSync"] = false;
-    
+
     // HUD
     config_["hud"]["arrayList"] = true;
     config_["hud"]["notifications"] = true;
-    
+
     // Default module configs (all disabled with default keybinds)
 }
 
 // Apply loaded config to modules
 void ConfigManager::applyConfig() {
-    if (!moduleManager) return;
-    
+    if (!moduleManager)
+        return;
+
     // Apply settings
     if (config_.has("settings")) {
         syncEnabled_ = config_["settings"]["cloudSync"].as_bool(false);
-        Menu::menuKey = config_["settings"]["menuKey"].as_int(0x2D); // VK_INSERT
+        Menu::menuKey = config_["settings"]["menuKey"].as_int(0x2D);  // VK_INSERT
     }
-    
+
     // Apply HUD settings
     if (config_.has("hud")) {
         enabled = config_["hud"]["arrayList"].as_bool(true);
@@ -66,7 +67,7 @@ void ConfigManager::applyConfig() {
         anchor = config_["hud"]["arrayListAnchor"].as_int(0);
         NotificationManager::enabled = config_["hud"]["notifications"].as_bool(true);
     }
-    
+
     // Apply friends settings
     if (config_.has("friends") && friendsManager) {
         // Load friends list (comma-separated)
@@ -77,11 +78,13 @@ void ConfigManager::applyConfig() {
                 size_t start = 0, end;
                 while ((end = friendsList.find(',', start)) != std::string::npos) {
                     std::string name = friendsList.substr(start, end - start);
-                    if (!name.empty()) friendsManager->addFriend(name);
+                    if (!name.empty())
+                        friendsManager->addFriend(name);
                     start = end + 1;
                 }
                 std::string last = friendsList.substr(start);
-                if (!last.empty()) friendsManager->addFriend(last);
+                if (!last.empty())
+                    friendsManager->addFriend(last);
             }
         }
         // Load team settings
@@ -90,29 +93,31 @@ void ConfigManager::applyConfig() {
         friendsManager->applyToVisual = config_["friends"]["applyToVisual"].as_bool(false);
         // Quick-add settings
         friendsManager->quickAddEnabled = config_["friends"]["quickAddEnabled"].as_bool(true);
-        friendsManager->quickAddKey = config_["friends"]["quickAddKey"].as_int(0x04); // VK_MBUTTON
+        friendsManager->quickAddKey = config_["friends"]["quickAddKey"].as_int(0x04);  // VK_MBUTTON
     }
-    
+
     // Apply module configs
-    if (!config_.has("modules")) return;
-    
+    if (!config_.has("modules"))
+        return;
+
     const auto& modules = config_["modules"].object();
-    
+
     for (const auto& kv : modules) {
         const std::string& name = kv.first;
         const json::Value& data = kv.second;
-        
+
         // Find module by name
         for (auto* mod : moduleManager->getModules()) {
-            if (std::string(mod->name) != name) continue;
-            
+            if (std::string(mod->name) != name)
+                continue;
+
             // Apply base settings
             mod->keybind = data["keybind"].as_int(0);
             bool shouldEnable = data["enabled"].as_bool(false);
             if (shouldEnable != mod->enabled && mod->isAccessible()) {
                 mod->setEnabled(shouldEnable);
             }
-            
+
             // Apply module-specific settings
             if (name == "AutoClicker" && autoClicker) {
                 auto& s = autoClicker->settings;
@@ -126,21 +131,20 @@ void ConfigManager::applyConfig() {
                 s.dropChance = data["dropChance"].as_float(s.dropChance);
                 s.spikeChance = data["spikeChance"].as_float(s.spikeChance);
                 s.attackingOnly = data["attackingOnly"].as_bool(s.attackingOnly);
-            }
-            else if (name == "AimAssist" && aimAssist) {
+            } else if (name == "AimAssist" && aimAssist) {
                 auto& s = aimAssist->settings;
                 s.speed = data["speed"].as_float(s.speed);
                 s.fov = data["fov"].as_int(s.fov);
                 s.distance = data["distance"].as_float(s.distance);
                 s.reactionTime = data["reactionTime"].as_int(s.reactionTime);
-                s.targetMode = static_cast<AimAssist::TargetMode>(data["targetMode"].as_int(static_cast<int>(s.targetMode)));
+                s.targetMode =
+                    static_cast<AimAssist::TargetMode>(data["targetMode"].as_int(static_cast<int>(s.targetMode)));
                 s.breakBlocks = data["breakBlocks"].as_bool(s.breakBlocks);
                 s.weaponOnly = data["weaponOnly"].as_bool(s.weaponOnly);
                 s.aimAtClosestPoint = data["aimAtClosestPoint"].as_bool(s.aimAtClosestPoint);
                 s.alwaysAim = data["alwaysAim"].as_bool(s.alwaysAim);
                 s.invisibles = data["invisibles"].as_bool(s.invisibles);
-            }
-            else if (name == "Velocity" && velocity) {
+            } else if (name == "Velocity" && velocity) {
                 auto& s = velocity->settings;
                 s.mode = static_cast<Velocity::Mode>(data["mode"].as_int(static_cast<int>(s.mode)));
                 s.horizontal = data["horizontal"].as_float(s.horizontal);
@@ -150,7 +154,8 @@ void ConfigManager::applyConfig() {
                 s.reduceDelay = data["reduceDelay"].as_int(s.reduceDelay);
                 s.jumpChance = data["jumpChance"].as_float(s.jumpChance);
                 s.allowDoubleClicks = data["allowDoubleClicks"].as_bool(s.allowDoubleClicks);
-                s.verticalMode = static_cast<Velocity::VerticalMode>(data["verticalMode"].as_int(static_cast<int>(s.verticalMode)));
+                s.verticalMode =
+                    static_cast<Velocity::VerticalMode>(data["verticalMode"].as_int(static_cast<int>(s.verticalMode)));
                 s.onlyLookingAtPlayer = data["onlyLookingAtPlayer"].as_bool(s.onlyLookingAtPlayer);
                 s.onlyMousePressed = data["onlyMousePressed"].as_bool(s.onlyMousePressed);
                 s.onlyMovingForward = data["onlyMovingForward"].as_bool(s.onlyMovingForward);
@@ -159,16 +164,14 @@ void ConfigManager::applyConfig() {
                 s.percentageVariance = data["percentageVariance"].as_float(s.percentageVariance);
                 s.tickSpread = data["tickSpread"].as_int(s.tickSpread);
                 s.microDelayMs = data["microDelayMs"].as_int(s.microDelayMs);
-            }
-            else if (name == "NameTags" && nameTags) {
+            } else if (name == "NameTags" && nameTags) {
                 auto& s = nameTags->settings;
                 s.range = data["range"].as_float(s.range);
                 s.scale = data["scale"].as_float(s.scale);
                 s.background = data["background"].as_bool(s.background);
                 s.showHealth = data["showHealth"].as_bool(s.showHealth);
                 s.showDistance = data["showDistance"].as_bool(s.showDistance);
-            }
-            else if (name == "ESP" && esp) {
+            } else if (name == "ESP" && esp) {
                 auto& s = esp->settings;
                 s.box = data["box"].as_bool(s.box);
                 s.box3D = data["box3D"].as_bool(s.box3D);
@@ -190,13 +193,11 @@ void ConfigManager::applyConfig() {
                     s.enemyColor[2] = data["enemyColor"]["b"].as_float(s.enemyColor[2]);
                     s.enemyColor[3] = data["enemyColor"]["a"].as_float(s.enemyColor[3]);
                 }
-            }
-            else if (name == "Bridge Assist" && bridgeAssist) {
+            } else if (name == "Bridge Assist" && bridgeAssist) {
                 auto& s = bridgeAssist->settings;
                 s.onlyLookingDown = data["onlyLookingDown"].as_bool(s.onlyLookingDown);
                 s.onlyWhenSneaking = data["onlyWhenSneaking"].as_bool(s.onlyWhenSneaking);
-            }
-            else if (name == "Reach" && reach) {
+            } else if (name == "Reach" && reach) {
                 auto& s = reach->settings;
                 s.distance = data["distance"].as_float(s.distance);
                 s.minDistance = data["minDistance"].as_float(s.minDistance);
@@ -208,22 +209,19 @@ void ConfigManager::applyConfig() {
                 s.hitChance = data["hitChance"].as_int(s.hitChance);
                 s.maxConsecutiveHits = data["maxConsecutiveHits"].as_int(s.maxConsecutiveHits);
                 s.onlyMovingTargets = data["onlyMovingTargets"].as_bool(s.onlyMovingTargets);
-            }
-            else if (name == "Blink" && blink) {
+            } else if (name == "Blink" && blink) {
                 auto& s = blink->settings;
                 s.maxDuration = data["maxDuration"].as_float(s.maxDuration);
                 s.disableOnAttack = data["disableOnAttack"].as_bool(s.disableOnAttack);
                 s.showDebug = data["showDebug"].as_bool(s.showDebug);
-            }
-            else if (name == "Criticals" && criticals) {
+            } else if (name == "Criticals" && criticals) {
                 auto& s = criticals->settings;
                 s.duration = data["duration"].as_int(s.duration);
                 s.mousePressed = data["mousePressed"].as_bool(s.mousePressed);
                 s.weaponOnly = data["weaponOnly"].as_bool(s.weaponOnly);
                 s.lookingAtPlayer = data["lookingAtPlayer"].as_bool(s.lookingAtPlayer);
                 s.movingOnly = data["movingOnly"].as_bool(s.movingOnly);
-            }
-            else if (name == "HitSelect" && hitSelect) {
+            } else if (name == "HitSelect" && hitSelect) {
                 auto& s = hitSelect->settings;
                 s.mode = static_cast<HitSelect::Mode>(data["mode"].as_int(static_cast<int>(s.mode)));
                 s.pauseDurationMs = data["pauseDurationMs"].as_int(s.pauseDurationMs);
@@ -232,8 +230,7 @@ void ConfigManager::applyConfig() {
                 s.fakeSwing = data["fakeSwing"].as_bool(s.fakeSwing);
                 s.weaponOnly = data["weaponOnly"].as_bool(s.weaponOnly);
                 s.targetingPlayerOnly = data["targetingPlayerOnly"].as_bool(s.targetingPlayerOnly);
-            }
-            else if (name == "Hitbox" && hitbox) {
+            } else if (name == "Hitbox" && hitbox) {
                 auto& s = hitbox->settings;
                 s.expansion = data["expansion"].as_float(s.expansion);
                 s.showHitbox = data["showHitbox"].as_bool(s.showHitbox);
@@ -244,15 +241,13 @@ void ConfigManager::applyConfig() {
                     s.hitboxColor[2] = data["hitboxColor"]["b"].as_float(s.hitboxColor[2]);
                     s.hitboxColor[3] = data["hitboxColor"]["a"].as_float(s.hitboxColor[3]);
                 }
-            }
-            else if (name == "AutoRefill" && autoRefill) {
+            } else if (name == "AutoRefill" && autoRefill) {
                 auto& s = autoRefill->settings;
                 s.refillSoup = data["refillSoup"].as_bool(s.refillSoup);
                 s.refillPotions = data["refillPotions"].as_bool(s.refillPotions);
                 s.speed = data["speed"].as_int(s.speed);
                 s.onInventoryOpen = data["onInventoryOpen"].as_bool(s.onInventoryOpen);
-            }
-            else if (name == "BlockESP" && blockESP) {
+            } else if (name == "BlockESP" && blockESP) {
                 auto& s = blockESP->settings;
                 s.drawDiamond = data["drawDiamond"].as_bool(s.drawDiamond);
                 s.drawEmerald = data["drawEmerald"].as_bool(s.drawEmerald);
@@ -265,8 +260,7 @@ void ConfigManager::applyConfig() {
                 s.range = data["range"].as_float(s.range);
                 s.opacity = data["opacity"].as_int(s.opacity);
                 s.fadeWithDistance = data["fadeWithDistance"].as_bool(s.fadeWithDistance);
-            }
-            else if (name == "Tracers" && tracers) {
+            } else if (name == "Tracers" && tracers) {
                 auto& s = tracers->settings;
                 s.colorByDistance = data["colorByDistance"].as_bool(s.colorByDistance);
                 s.colorByHealth = data["colorByHealth"].as_bool(s.colorByHealth);
@@ -274,8 +268,7 @@ void ConfigManager::applyConfig() {
                 s.thickness = data["thickness"].as_float(s.thickness);
                 s.range = data["range"].as_float(s.range);
                 s.lineFrom = data["lineFrom"].as_int(s.lineFrom);
-            }
-            else if (name == "Trajectories" && trajectories) {
+            } else if (name == "Trajectories" && trajectories) {
                 auto& s = trajectories->settings;
                 s.thickness = data["thickness"].as_float(s.thickness);
                 if (data.has("lineColor")) {
@@ -293,14 +286,13 @@ void ConfigManager::applyConfig() {
                 s.showPotionPoison = data["showPotionPoison"].as_bool(s.showPotionPoison);
                 s.showPotionSlowness = data["showPotionSlowness"].as_bool(s.showPotionSlowness);
                 s.showExpBottle = data["showExpBottle"].as_bool(s.showExpBottle);
-            }
-            else if (name == "NoItemRelease" && noItemRelease) {
-                noItemRelease->settings.mode = static_cast<ItemReleaseMode>(data["mode"].as_int(static_cast<int>(noItemRelease->settings.mode)));
-            }
-            else if (name == "FastPlace" && fastPlace) {
+            } else if (name == "NoItemRelease" && noItemRelease) {
+                noItemRelease->settings.mode =
+                    static_cast<ItemReleaseMode>(data["mode"].as_int(static_cast<int>(noItemRelease->settings.mode)));
+            } else if (name == "FastPlace" && fastPlace) {
                 fastPlace->settings.blocksOnly = data["blocksOnly"].as_bool(fastPlace->settings.blocksOnly);
             }
-            
+
             break;
         }
     }
@@ -308,16 +300,17 @@ void ConfigManager::applyConfig() {
 
 // Build config from current module state
 void ConfigManager::buildConfigFromModules() {
-    if (!moduleManager) return;
-    
+    if (!moduleManager)
+        return;
+
     std::lock_guard<std::mutex> lock(configMutex_);
-    
+
     config_["version"] = CONFIG_VERSION;
-        
+
     // Settings
     config_["settings"]["cloudSync"] = syncEnabled_;
     config_["settings"]["menuKey"] = Menu::menuKey;
-    
+
     // HUD
     config_["hud"]["arrayList"] = enabled;
     config_["hud"]["arrayListRainbow"] = rainbow;
@@ -329,13 +322,14 @@ void ConfigManager::buildConfigFromModules() {
     config_["hud"]["arrayListSaturation"] = rainbowSaturation;
     config_["hud"]["arrayListAnchor"] = anchor;
     config_["hud"]["notifications"] = NotificationManager::enabled;
-    
+
     // Friends
     if (friendsManager) {
         auto friends = friendsManager->getFriendNames();  // Legacy: save names for config
         std::string friendsList;
         for (size_t i = 0; i < friends.size(); ++i) {
-            if (i > 0) friendsList += ",";
+            if (i > 0)
+                friendsList += ",";
             friendsList += friends[i];
         }
         config_["friends"]["list"] = friendsList;
@@ -346,14 +340,14 @@ void ConfigManager::buildConfigFromModules() {
         config_["friends"]["quickAddEnabled"] = friendsManager->quickAddEnabled;
         config_["friends"]["quickAddKey"] = friendsManager->quickAddKey;
     }
-    
+
     // Build modules config
     for (auto* mod : moduleManager->getModules()) {
         std::string name = mod->name;
-        
+
         config_["modules"][name]["enabled"] = mod->enabled;
         config_["modules"][name]["keybind"] = mod->keybind;
-        
+
         // Module-specific settings
         if (name == "AutoClicker" && autoClicker) {
             const auto& s = autoClicker->settings;
@@ -367,8 +361,7 @@ void ConfigManager::buildConfigFromModules() {
             config_["modules"][name]["dropChance"] = s.dropChance;
             config_["modules"][name]["spikeChance"] = s.spikeChance;
             config_["modules"][name]["attackingOnly"] = s.attackingOnly;
-        }
-        else if (name == "AimAssist" && aimAssist) {
+        } else if (name == "AimAssist" && aimAssist) {
             const auto& s = aimAssist->settings;
             config_["modules"][name]["speed"] = s.speed;
             config_["modules"][name]["fov"] = s.fov;
@@ -380,8 +373,7 @@ void ConfigManager::buildConfigFromModules() {
             config_["modules"][name]["aimAtClosestPoint"] = s.aimAtClosestPoint;
             config_["modules"][name]["alwaysAim"] = s.alwaysAim;
             config_["modules"][name]["invisibles"] = s.invisibles;
-        }
-        else if (name == "Velocity" && velocity) {
+        } else if (name == "Velocity" && velocity) {
             const auto& s = velocity->settings;
             config_["modules"][name]["mode"] = static_cast<int>(s.mode);
             config_["modules"][name]["horizontal"] = s.horizontal;
@@ -400,16 +392,14 @@ void ConfigManager::buildConfigFromModules() {
             config_["modules"][name]["percentageVariance"] = s.percentageVariance;
             config_["modules"][name]["tickSpread"] = s.tickSpread;
             config_["modules"][name]["microDelayMs"] = s.microDelayMs;
-        }
-        else if (name == "NameTags" && nameTags) {
+        } else if (name == "NameTags" && nameTags) {
             const auto& s = nameTags->settings;
             config_["modules"][name]["range"] = s.range;
             config_["modules"][name]["scale"] = s.scale;
             config_["modules"][name]["background"] = s.background;
             config_["modules"][name]["showHealth"] = s.showHealth;
             config_["modules"][name]["showDistance"] = s.showDistance;
-        }
-        else if (name == "ESP" && esp) {
+        } else if (name == "ESP" && esp) {
             const auto& s = esp->settings;
             config_["modules"][name]["box"] = s.box;
             config_["modules"][name]["box3D"] = s.box3D;
@@ -427,13 +417,11 @@ void ConfigManager::buildConfigFromModules() {
             config_["modules"][name]["enemyColor"]["g"] = s.enemyColor[1];
             config_["modules"][name]["enemyColor"]["b"] = s.enemyColor[2];
             config_["modules"][name]["enemyColor"]["a"] = s.enemyColor[3];
-        }
-        else if (name == "Bridge Assist" && bridgeAssist) {
+        } else if (name == "Bridge Assist" && bridgeAssist) {
             const auto& s = bridgeAssist->settings;
             config_["modules"][name]["onlyLookingDown"] = s.onlyLookingDown;
             config_["modules"][name]["onlyWhenSneaking"] = s.onlyWhenSneaking;
-        }
-        else if (name == "Reach" && reach) {
+        } else if (name == "Reach" && reach) {
             const auto& s = reach->settings;
             config_["modules"][name]["distance"] = s.distance;
             config_["modules"][name]["minDistance"] = s.minDistance;
@@ -445,22 +433,19 @@ void ConfigManager::buildConfigFromModules() {
             config_["modules"][name]["hitChance"] = s.hitChance;
             config_["modules"][name]["maxConsecutiveHits"] = s.maxConsecutiveHits;
             config_["modules"][name]["onlyMovingTargets"] = s.onlyMovingTargets;
-        }
-        else if (name == "Blink" && blink) {
+        } else if (name == "Blink" && blink) {
             const auto& s = blink->settings;
             config_["modules"][name]["maxDuration"] = s.maxDuration;
             config_["modules"][name]["disableOnAttack"] = s.disableOnAttack;
             config_["modules"][name]["showDebug"] = s.showDebug;
-        }
-        else if (name == "Criticals" && criticals) {
+        } else if (name == "Criticals" && criticals) {
             const auto& s = criticals->settings;
             config_["modules"][name]["duration"] = s.duration;
             config_["modules"][name]["mousePressed"] = s.mousePressed;
             config_["modules"][name]["weaponOnly"] = s.weaponOnly;
             config_["modules"][name]["lookingAtPlayer"] = s.lookingAtPlayer;
             config_["modules"][name]["movingOnly"] = s.movingOnly;
-        }
-        else if (name == "HitSelect" && hitSelect) {
+        } else if (name == "HitSelect" && hitSelect) {
             const auto& s = hitSelect->settings;
             config_["modules"][name]["mode"] = static_cast<int>(s.mode);
             config_["modules"][name]["pauseDurationMs"] = s.pauseDurationMs;
@@ -469,8 +454,7 @@ void ConfigManager::buildConfigFromModules() {
             config_["modules"][name]["fakeSwing"] = s.fakeSwing;
             config_["modules"][name]["weaponOnly"] = s.weaponOnly;
             config_["modules"][name]["targetingPlayerOnly"] = s.targetingPlayerOnly;
-        }
-        else if (name == "Hitbox" && hitbox) {
+        } else if (name == "Hitbox" && hitbox) {
             const auto& s = hitbox->settings;
             config_["modules"][name]["expansion"] = s.expansion;
             config_["modules"][name]["showHitbox"] = s.showHitbox;
@@ -479,15 +463,13 @@ void ConfigManager::buildConfigFromModules() {
             config_["modules"][name]["hitboxColor"]["g"] = s.hitboxColor[1];
             config_["modules"][name]["hitboxColor"]["b"] = s.hitboxColor[2];
             config_["modules"][name]["hitboxColor"]["a"] = s.hitboxColor[3];
-        }
-        else if (name == "AutoRefill" && autoRefill) {
+        } else if (name == "AutoRefill" && autoRefill) {
             const auto& s = autoRefill->settings;
             config_["modules"][name]["refillSoup"] = s.refillSoup;
             config_["modules"][name]["refillPotions"] = s.refillPotions;
             config_["modules"][name]["speed"] = s.speed;
             config_["modules"][name]["onInventoryOpen"] = s.onInventoryOpen;
-        }
-        else if (name == "BlockESP" && blockESP) {
+        } else if (name == "BlockESP" && blockESP) {
             const auto& s = blockESP->settings;
             config_["modules"][name]["drawDiamond"] = s.drawDiamond;
             config_["modules"][name]["drawEmerald"] = s.drawEmerald;
@@ -500,8 +482,7 @@ void ConfigManager::buildConfigFromModules() {
             config_["modules"][name]["range"] = s.range;
             config_["modules"][name]["opacity"] = s.opacity;
             config_["modules"][name]["fadeWithDistance"] = s.fadeWithDistance;
-        }
-        else if (name == "Tracers" && tracers) {
+        } else if (name == "Tracers" && tracers) {
             const auto& s = tracers->settings;
             config_["modules"][name]["colorByDistance"] = s.colorByDistance;
             config_["modules"][name]["colorByHealth"] = s.colorByHealth;
@@ -509,8 +490,7 @@ void ConfigManager::buildConfigFromModules() {
             config_["modules"][name]["thickness"] = s.thickness;
             config_["modules"][name]["range"] = s.range;
             config_["modules"][name]["lineFrom"] = s.lineFrom;
-        }
-        else if (name == "Trajectories" && trajectories) {
+        } else if (name == "Trajectories" && trajectories) {
             const auto& s = trajectories->settings;
             config_["modules"][name]["thickness"] = s.thickness;
             config_["modules"][name]["lineColor"]["r"] = s.lineColor[0];
@@ -526,11 +506,9 @@ void ConfigManager::buildConfigFromModules() {
             config_["modules"][name]["showPotionPoison"] = s.showPotionPoison;
             config_["modules"][name]["showPotionSlowness"] = s.showPotionSlowness;
             config_["modules"][name]["showExpBottle"] = s.showExpBottle;
-        }
-        else if (name == "NoItemRelease" && noItemRelease) {
+        } else if (name == "NoItemRelease" && noItemRelease) {
             config_["modules"][name]["mode"] = static_cast<int>(noItemRelease->settings.mode);
-        }
-        else if (name == "FastPlace" && fastPlace) {
+        } else if (name == "FastPlace" && fastPlace) {
             config_["modules"][name]["blocksOnly"] = fastPlace->settings.blocksOnly;
         }
     }
@@ -539,9 +517,9 @@ void ConfigManager::buildConfigFromModules() {
 // Migrate config from older version
 void ConfigManager::migrateConfig(int fromVersion) {
     std::lock_guard<std::mutex> lock(configMutex_);
-    
+
     // Add migrations here as needed
     // if (fromVersion < 2) { ... }
-    
+
     config_["version"] = CONFIG_VERSION;
 }

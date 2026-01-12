@@ -1,8 +1,8 @@
 #pragma once
 
+#include <functional>
 #include <string>
 #include <vector>
-#include <functional>
 #include "../../jni/java.h"
 
 // ============================================================================
@@ -35,7 +35,8 @@ struct NametagEntry {
 };
 
 using NametagUpdateCallback = std::function<void(const std::vector<NametagEntry>& entries)>;
-using NametagOverrideCallback = std::function<void(const std::string& playerUuid, const std::vector<std::string>& lines)>;
+using NametagOverrideCallback =
+    std::function<void(const std::string& playerUuid, const std::vector<std::string>& lines)>;
 
 // Register callbacks
 void onNametagUpdate(NametagUpdateCallback callback);
@@ -51,4 +52,4 @@ bool processIncomingPacket(JNIEnv* env, jobject packet);
 jclass getNametagsUpdateClass();
 jclass getNametagsOverrideClass();
 
-} // namespace LunarPacketListener
+}  // namespace LunarPacketListener

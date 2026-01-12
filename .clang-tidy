@@ -1,0 +1,47 @@
+# Cobble - clang-tidy configuration
+# Run: clang-tidy src/**/*.cpp -- -std=c++17
+
+# Checks enabled - balanced for JNI/hooks project
+Checks: >
+  -*,
+  bugprone-*,
+  performance-*,
+  modernize-*,
+  readability-identifier-naming,
+  readability-redundant-*,
+  -modernize-use-trailing-return-type,
+  -modernize-avoid-c-arrays,
+  -bugprone-easily-swappable-parameters,
+  -performance-no-int-to-ptr
+
+# Don't treat warnings as errors (JNI code has many valid exceptions)
+WarningsAsErrors: ''
+
+# Header filter - only check our code, not system/JNI headers
+HeaderFilterRegex: '(src|loader/src)/.*\.(h|hpp)$'
+
+# Format fixes
+FormatStyle: file
+
+CheckOptions:
+  # Naming conventions (relaxed for JNI compatibility)
+  - key: readability-identifier-naming.ClassCase
+    value: CamelCase
+  - key: readability-identifier-naming.FunctionCase
+    value: camelBack
+  - key: readability-identifier-naming.VariableCase
+    value: camelBack
+  - key: readability-identifier-naming.ConstantCase
+    value: UPPER_CASE
+  - key: readability-identifier-naming.GlobalConstantCase
+    value: UPPER_CASE
+  - key: readability-identifier-naming.ParameterCase
+    value: camelBack
+  
+  # Allow JNI-style prefixes (jint, jclass, etc)
+  - key: readability-identifier-naming.TypedefIgnoredRegexp
+    value: '^j[a-z]+'
+  
+  # Performance tuning
+  - key: performance-unnecessary-value-param.AllowedTypes
+    value: 'jstring;jclass;jobject;jmethodID;jfieldID'

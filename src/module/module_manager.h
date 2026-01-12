@@ -1,40 +1,37 @@
 #pragma once
 
-#include "module.h"
-#include <vector>
 #include <Windows.h>
+#include <vector>
+#include "module.h"
 
 // Handles keybinds and update loop for all registered modules
-class ModuleManager
-{
+class ModuleManager {
 public:
-	void registerModule(Module* mod);
-	void update();
-	void onRender();  // Called from overlay for visual modules
-	void checkKeybinds();
-	void broadcastModuleState(Module* mod);  // Send state to web UI
-	
-	const std::vector<Module*>& getModules() const { return modules; }
+    void registerModule(Module* mod);
+    void update();
+    void onRender();  // Called from overlay for visual modules
+    void checkKeybinds();
+    void broadcastModuleState(Module* mod);  // Send state to web UI
 
-	template<typename T>
-	T* get()
-	{
-		for (auto* mod : modules)
-		{
-			if (auto* casted = dynamic_cast<T*>(mod))
-				return casted;
-		}
-		return nullptr;
-	}
+    const std::vector<Module*>& getModules() const { return modules; }
+
+    template <typename T>
+    T* get() {
+        for (auto* mod : modules) {
+            if (auto* casted = dynamic_cast<T*>(mod))
+                return casted;
+        }
+        return nullptr;
+    }
 
 private:
-	std::vector<Module*> modules;
-	
-	// Keybind state tracking to detect key press (not hold)
-	bool keyStates[256] = { false };
-	
-	// Check if Minecraft window is focused
-	bool isMinecraftFocused();
+    std::vector<Module*> modules;
+
+    // Keybind state tracking to detect key press (not hold)
+    bool keyStates[256] = {false};
+
+    // Check if Minecraft window is focused
+    bool isMinecraftFocused();
 };
 
 extern ModuleManager* moduleManager;

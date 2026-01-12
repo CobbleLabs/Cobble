@@ -1,25 +1,27 @@
 // World-related functions for Minecraft SDK
 // Handles block queries and raytrace operations
 
+#include "../../util/logger.hpp"
 #include "../core/minecraft.h"
 #include "../jni/jni_cache.h"
-#include "../../util/logger.hpp"
 
 // =============================================================================
 // getBlockId - Get block ID at world coordinates
 // =============================================================================
 
-int Minecraft::getBlockId(int x, int y, int z)
-{
-    if (!isValid()) return 0;
-    
+int Minecraft::getBlockId(int x, int y, int z) {
+    if (!isValid())
+        return 0;
+
     // 1.7.10: World.getBlock(int, int, int) -> Block
     if (Java::Version == MinecraftVersion::MC_1_7_10) {
         JNIEnv* env = Java::GetEnv();
-        if (!env) return 0;
+        if (!env)
+            return 0;
 
         jobject world = getWorld();
-        if (!world) return 0;
+        if (!world)
+            return 0;
 
         int blockId = 0;
 
@@ -40,10 +42,12 @@ int Minecraft::getBlockId(int x, int y, int z)
     }
 
     JNIEnv* env = Java::GetEnv();
-    if (!env) return 0;
+    if (!env)
+        return 0;
 
     jobject world = getWorld();
-    if (!world) return 0;
+    if (!world)
+        return 0;
 
     int blockId = 0;
 
@@ -107,17 +111,20 @@ int Minecraft::getBlockId(int x, int y, int z)
 // rayTraceBlocks - Cast a ray and find block hit position
 // =============================================================================
 
-Minecraft::RAYTRACE_BLOCKS_RESULT Minecraft::rayTraceBlocks(Vec3 from, Vec3 direction, Vec3& result, bool stopOnLiquid)
-{
-    result = { -1.5f, -1.5f, -1.5f }; // Default error value
-    
-    if (!isValid()) return RAYTRACE_BLOCKS_RESULT::RAYTRACE_ERROR;
+Minecraft::RAYTRACE_BLOCKS_RESULT Minecraft::rayTraceBlocks(Vec3 from, Vec3 direction, Vec3& result,
+                                                            bool stopOnLiquid) {
+    result = {-1.5f, -1.5f, -1.5f};  // Default error value
+
+    if (!isValid())
+        return RAYTRACE_BLOCKS_RESULT::RAYTRACE_ERROR;
 
     JNIEnv* env = Java::GetEnv();
-    if (!env) return RAYTRACE_BLOCKS_RESULT::RAYTRACE_ERROR;
+    if (!env)
+        return RAYTRACE_BLOCKS_RESULT::RAYTRACE_ERROR;
 
     jobject world = getWorld();
-    if (!world) return RAYTRACE_BLOCKS_RESULT::RAYTRACE_ERROR;
+    if (!world)
+        return RAYTRACE_BLOCKS_RESULT::RAYTRACE_ERROR;
 
     // Create Vec3 objects for from and direction
     if (!JniCache::cls_Vec3 || !JniCache::mid_vec3Init) {
@@ -125,15 +132,15 @@ Minecraft::RAYTRACE_BLOCKS_RESULT Minecraft::rayTraceBlocks(Vec3 from, Vec3 dire
         return RAYTRACE_BLOCKS_RESULT::RAYTRACE_ERROR;
     }
 
-    jobject fromObj = env->NewObject(JniCache::cls_Vec3, JniCache::mid_vec3Init, 
-        (double)from.x, (double)from.y, (double)from.z);
+    jobject fromObj =
+        env->NewObject(JniCache::cls_Vec3, JniCache::mid_vec3Init, (double)from.x, (double)from.y, (double)from.z);
     if (!fromObj) {
         env->DeleteLocalRef(world);
         return RAYTRACE_BLOCKS_RESULT::RAYTRACE_ERROR;
     }
 
-    jobject directionObj = env->NewObject(JniCache::cls_Vec3, JniCache::mid_vec3Init, 
-        (double)direction.x, (double)direction.y, (double)direction.z);
+    jobject directionObj = env->NewObject(JniCache::cls_Vec3, JniCache::mid_vec3Init, (double)direction.x,
+                                          (double)direction.y, (double)direction.z);
     if (!directionObj) {
         env->DeleteLocalRef(fromObj);
         env->DeleteLocalRef(world);
@@ -162,7 +169,7 @@ Minecraft::RAYTRACE_BLOCKS_RESULT Minecraft::rayTraceBlocks(Vec3 from, Vec3 dire
 
     // Extract block position from MovingObjectPosition
     bool gotPosition = false;
-    
+
     // Method 1: 1.8.x - getBlockPos() -> BlockPos
     if (JniCache::mid_getBlockPos && JniCache::mid_getX && JniCache::mid_getY && JniCache::mid_getZ) {
         jobject blockPosObj = env->CallObjectMethod(mop, JniCache::mid_getBlockPos);
@@ -174,7 +181,7 @@ Minecraft::RAYTRACE_BLOCKS_RESULT Minecraft::rayTraceBlocks(Vec3 from, Vec3 dire
             gotPosition = true;
         }
     }
-    
+
     // Method 2: 1.7.10 - direct blockX/blockY/blockZ fields
     if (!gotPosition && JniCache::fid_blockX && JniCache::fid_blockY && JniCache::fid_blockZ) {
         result.x = (float)env->GetIntField(mop, JniCache::fid_blockX);
@@ -188,6 +195,6 @@ Minecraft::RAYTRACE_BLOCKS_RESULT Minecraft::rayTraceBlocks(Vec3 from, Vec3 dire
     if (gotPosition) {
         return RAYTRACE_BLOCKS_RESULT::HIT;
     }
-    
+
     return RAYTRACE_BLOCKS_RESULT::RAYTRACE_ERROR;
 }

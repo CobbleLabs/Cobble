@@ -2,8 +2,8 @@
 #include <string>
 
 namespace HWID {
-    std::string Generate();
-    std::string GetCPUID();
-    std::string GetDiskSerial();
-    std::string GetMACAddress();
-}
+std::string Generate();
+std::string GetCPUID();
+std::string GetDiskSerial();
+std::string GetMACAddress();
+}  // namespace HWID

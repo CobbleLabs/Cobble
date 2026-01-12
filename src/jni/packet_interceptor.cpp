@@ -2,23 +2,23 @@
 // Touch only if strictly necessary. Easy to break.
 
 #include "packet_interceptor.hpp"
-#include "../util/logger.hpp"
-#include "../util/team/friends_manager.h"
-#include "../sdk/core/minecraft.h"
-#include "../module/utility/noitemrelease.h"
-#include "../sdk/network/lunar_packet_listener.hpp"
 #include <algorithm>
+#include <atomic>
+#include <chrono>
+#include <cmath>
 #include <cstdint>
 #include <cstring>
-#include <cmath>
 #include <deque>
 #include <mutex>
-#include <atomic>
-#include <vector>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
-#include <chrono>
+#include <vector>
+#include "../module/utility/noitemrelease.h"
+#include "../sdk/core/minecraft.h"
+#include "../sdk/network/lunar_packet_listener.hpp"
+#include "../util/logger.hpp"
+#include "../util/team/friends_manager.h"
 
 // ============================================================================
 // PacketInterceptor Implementation
@@ -43,7 +43,7 @@ constexpr int kPrefixLen = 8;
 constexpr const char* kIncomingTargetClassSlash = "net/minecraft/client/network/NetHandlerPlayClient";
 constexpr const char* kIncomingTargetClassDot = "net.minecraft.client.network.NetHandlerPlayClient";
 constexpr const char* kHandleCustomPayload = "handleCustomPayload";  // S3FPacketCustomPayload
-constexpr const char* kHandleTeams = "handleTeams";  // S3EPacketTeams (scoreboard teams)
+constexpr const char* kHandleTeams = "handleTeams";                  // S3EPacketTeams (scoreboard teams)
 constexpr const char* kIncomingHookClassSlash = "com/cobble/agent/PluginMsgHook";
 constexpr const char* kIncomingHookClassDot = "com.cobble.agent.PluginMsgHook";
 constexpr const char* kIncomingHookMethodName = "onPluginMessage";
@@ -80,13 +80,12 @@ static const unsigned char kPacketHookClassBytes[] = {
     0x00, 0x0e,
     // Constant pool entries:
     // #1 = Utf8 "com/cobble/agent/PacketHook"
-    0x01, 0x00, 0x1b, 0x63, 0x6f, 0x6d, 0x2f, 0x63, 0x6f, 0x62, 0x62, 0x6c, 0x65, 0x2f, 0x61, 0x67,
-    0x65, 0x6e, 0x74, 0x2f, 0x50, 0x61, 0x63, 0x6b, 0x65, 0x74, 0x48, 0x6f, 0x6f, 0x6b,
+    0x01, 0x00, 0x1b, 0x63, 0x6f, 0x6d, 0x2f, 0x63, 0x6f, 0x62, 0x62, 0x6c, 0x65, 0x2f, 0x61, 0x67, 0x65, 0x6e, 0x74,
+    0x2f, 0x50, 0x61, 0x63, 0x6b, 0x65, 0x74, 0x48, 0x6f, 0x6f, 0x6b,
     // #2 = Class -> #1
     0x07, 0x00, 0x01,
     // #3 = Utf8 "java/lang/Object"
-    0x01, 0x00, 0x10, 0x6a, 0x61, 0x76, 0x61, 0x2f, 0x6c, 0x61, 0x6e, 0x67, 0x2f, 0x4f, 0x62, 0x6a,
-    0x65, 0x63, 0x74,
+    0x01, 0x00, 0x10, 0x6a, 0x61, 0x76, 0x61, 0x2f, 0x6c, 0x61, 0x6e, 0x67, 0x2f, 0x4f, 0x62, 0x6a, 0x65, 0x63, 0x74,
     // #4 = Class -> #3
     0x07, 0x00, 0x03,
     // #5 = Utf8 "<init>"
@@ -103,13 +102,13 @@ static const unsigned char kPacketHookClassBytes[] = {
     // #10 = Utf8 "shouldSend"
     0x01, 0x00, 0x0a, 0x73, 0x68, 0x6f, 0x75, 0x6c, 0x64, 0x53, 0x65, 0x6e, 0x64,
     // #11 = Utf8 "(Ljava/lang/Object;)Z"
-    0x01, 0x00, 0x15, 0x28, 0x4c, 0x6a, 0x61, 0x76, 0x61, 0x2f, 0x6c, 0x61, 0x6e, 0x67, 0x2f, 0x4f,
-    0x62, 0x6a, 0x65, 0x63, 0x74, 0x3b, 0x29, 0x5a,
+    0x01, 0x00, 0x15, 0x28, 0x4c, 0x6a, 0x61, 0x76, 0x61, 0x2f, 0x6c, 0x61, 0x6e, 0x67, 0x2f, 0x4f, 0x62, 0x6a, 0x65,
+    0x63, 0x74, 0x3b, 0x29, 0x5a,
     // #12 = Utf8 "onReceive"
     0x01, 0x00, 0x09, 0x6f, 0x6e, 0x52, 0x65, 0x63, 0x65, 0x69, 0x76, 0x65,
     // #13 = Utf8 "(Ljava/lang/Object;)V"
-    0x01, 0x00, 0x15, 0x28, 0x4c, 0x6a, 0x61, 0x76, 0x61, 0x2f, 0x6c, 0x61, 0x6e, 0x67, 0x2f, 0x4f,
-    0x62, 0x6a, 0x65, 0x63, 0x74, 0x3b, 0x29, 0x56,
+    0x01, 0x00, 0x15, 0x28, 0x4c, 0x6a, 0x61, 0x76, 0x61, 0x2f, 0x6c, 0x61, 0x6e, 0x67, 0x2f, 0x4f, 0x62, 0x6a, 0x65,
+    0x63, 0x74, 0x3b, 0x29, 0x56,
     // Access flags (public) = 0x0031 (ACC_PUBLIC | ACC_SUPER)
     0x00, 0x31,
     // This class = #2
@@ -127,16 +126,16 @@ static const unsigned char kPacketHookClassBytes[] = {
     // Attributes count = 1
     0x00, 0x01,
     // Code attribute
-    0x00, 0x09, // name index -> #9 "Code"
-    0x00, 0x00, 0x00, 0x11, // length = 17
-    0x00, 0x01, // max_stack = 1
-    0x00, 0x01, // max_locals = 1
-    0x00, 0x00, 0x00, 0x05, // code_length = 5
-    0x2a, // aload_0
-    0xb7, 0x00, 0x08, // invokespecial #8 (Object.<init>)
-    0xb1, // return
-    0x00, 0x00, // exception table length = 0
-    0x00, 0x00, // attributes count = 0
+    0x00, 0x09,              // name index -> #9 "Code"
+    0x00, 0x00, 0x00, 0x11,  // length = 17
+    0x00, 0x01,              // max_stack = 1
+    0x00, 0x01,              // max_locals = 1
+    0x00, 0x00, 0x00, 0x05,  // code_length = 5
+    0x2a,                    // aload_0
+    0xb7, 0x00, 0x08,        // invokespecial #8 (Object.<init>)
+    0xb1,                    // return
+    0x00, 0x00,              // exception table length = 0
+    0x00, 0x00,              // attributes count = 0
     // Method 2: shouldSend(Object)Z - native (ACC_PUBLIC | ACC_STATIC | ACC_NATIVE = 0x0109)
     0x01, 0x09, 0x00, 0x0a, 0x00, 0x0b,
     // Attributes count = 0
@@ -146,8 +145,7 @@ static const unsigned char kPacketHookClassBytes[] = {
     // Attributes count = 0
     0x00, 0x00,
     // Class attributes count = 0
-    0x00, 0x00
-};
+    0x00, 0x00};
 
 struct Reader {
     const uint8_t* data;
@@ -209,9 +207,7 @@ struct Reader {
 struct Writer {
     std::vector<uint8_t> out;
 
-    void WriteU1(uint8_t v) {
-        out.push_back(v);
-    }
+    void WriteU1(uint8_t v) { out.push_back(v); }
 
     void WriteU2(uint16_t v) {
         out.push_back(static_cast<uint8_t>((v >> 8) & 0xFF));
@@ -226,7 +222,8 @@ struct Writer {
     }
 
     void WriteBytes(const uint8_t* src, size_t count) {
-        if (count == 0) return;
+        if (count == 0)
+            return;
         out.insert(out.end(), src, src + count);
     }
 };
@@ -252,10 +249,12 @@ struct StackMapFrame {
 
 static bool readVerificationTypeInfo(Reader& r, VerificationTypeInfo& info) {
     info.tag = r.ReadU1();
-    if (!r.ok) return false;
+    if (!r.ok)
+        return false;
     if (info.tag == 7 || info.tag == 8) {
         info.extra = r.ReadU2();
-        if (!r.ok) return false;
+        if (!r.ok)
+            return false;
     } else {
         info.extra = 0;
     }
@@ -269,83 +268,91 @@ static void writeVerificationTypeInfo(Writer& w, const VerificationTypeInfo& inf
     }
 }
 
-static bool readConstantPool(Reader& r, uint16_t cp_count, std::vector<CpEntry>& cp,
-                             std::vector<std::string>& utf8, std::vector<uint8_t>& raw) {
+static bool readConstantPool(Reader& r, uint16_t cp_count, std::vector<CpEntry>& cp, std::vector<std::string>& utf8,
+                             std::vector<uint8_t>& raw) {
     cp.assign(cp_count, CpEntry());
     utf8.assign(cp_count, std::string());
     Writer cpw;
 
     for (uint16_t i = 1; i < cp_count; ++i) {
         uint8_t tag = r.ReadU1();
-        if (!r.ok) return false;
+        if (!r.ok)
+            return false;
         cpw.WriteU1(tag);
         cp[i].tag = tag;
 
         switch (tag) {
-        case 1: {
-            uint16_t len = r.ReadU2();
-            if (!r.ok) return false;
-            cpw.WriteU2(len);
-            const uint8_t* bytes = r.ReadBytes(len);
-            if (!r.ok) return false;
-            cpw.WriteBytes(bytes, len);
-            utf8[i] = std::string(reinterpret_cast<const char*>(bytes), len);
-            break;
-        }
-        case 3:
-        case 4: {
-            const uint8_t* bytes = r.ReadBytes(4);
-            if (!r.ok) return false;
-            cpw.WriteBytes(bytes, 4);
-            break;
-        }
-        case 5:
-        case 6: {
-            const uint8_t* bytes = r.ReadBytes(8);
-            if (!r.ok) return false;
-            cpw.WriteBytes(bytes, 8);
-            if (i + 1 < cp_count) {
-                cp[i + 1].tag = 0;
+            case 1: {
+                uint16_t len = r.ReadU2();
+                if (!r.ok)
+                    return false;
+                cpw.WriteU2(len);
+                const uint8_t* bytes = r.ReadBytes(len);
+                if (!r.ok)
+                    return false;
+                cpw.WriteBytes(bytes, len);
+                utf8[i] = std::string(reinterpret_cast<const char*>(bytes), len);
+                break;
             }
-            ++i;
-            break;
-        }
-        case 7:
-        case 8:
-        case 16:
-        case 19:
-        case 20: {
-            uint16_t a = r.ReadU2();
-            if (!r.ok) return false;
-            cpw.WriteU2(a);
-            cp[i].a = a;
-            break;
-        }
-        case 9:
-        case 10:
-        case 11:
-        case 12:
-        case 17:
-        case 18: {
-            uint16_t a = r.ReadU2();
-            uint16_t b = r.ReadU2();
-            if (!r.ok) return false;
-            cpw.WriteU2(a);
-            cpw.WriteU2(b);
-            cp[i].a = a;
-            cp[i].b = b;
-            break;
-        }
-        case 15: {
-            uint8_t kind = r.ReadU1();
-            uint16_t ref = r.ReadU2();
-            if (!r.ok) return false;
-            cpw.WriteU1(kind);
-            cpw.WriteU2(ref);
-            break;
-        }
-        default:
-            return false;
+            case 3:
+            case 4: {
+                const uint8_t* bytes = r.ReadBytes(4);
+                if (!r.ok)
+                    return false;
+                cpw.WriteBytes(bytes, 4);
+                break;
+            }
+            case 5:
+            case 6: {
+                const uint8_t* bytes = r.ReadBytes(8);
+                if (!r.ok)
+                    return false;
+                cpw.WriteBytes(bytes, 8);
+                if (i + 1 < cp_count) {
+                    cp[i + 1].tag = 0;
+                }
+                ++i;
+                break;
+            }
+            case 7:
+            case 8:
+            case 16:
+            case 19:
+            case 20: {
+                uint16_t a = r.ReadU2();
+                if (!r.ok)
+                    return false;
+                cpw.WriteU2(a);
+                cp[i].a = a;
+                break;
+            }
+            case 9:
+            case 10:
+            case 11:
+            case 12:
+            case 17:
+            case 18: {
+                uint16_t a = r.ReadU2();
+                uint16_t b = r.ReadU2();
+                if (!r.ok)
+                    return false;
+                cpw.WriteU2(a);
+                cpw.WriteU2(b);
+                cp[i].a = a;
+                cp[i].b = b;
+                break;
+            }
+            case 15: {
+                uint8_t kind = r.ReadU1();
+                uint16_t ref = r.ReadU2();
+                if (!r.ok)
+                    return false;
+                cpw.WriteU1(kind);
+                cpw.WriteU2(ref);
+                break;
+            }
+            default:
+                return false;
         }
     }
 
@@ -353,22 +360,28 @@ static bool readConstantPool(Reader& r, uint16_t cp_count, std::vector<CpEntry>&
     return true;
 }
 
-static bool resolveMethodRef(const std::vector<CpEntry>& cp, const std::vector<std::string>& utf8,
-                             uint16_t index, std::string& className, std::string& methodName,
-                             std::string& methodDesc) {
-    if (index == 0 || index >= cp.size()) return false;
+static bool resolveMethodRef(const std::vector<CpEntry>& cp, const std::vector<std::string>& utf8, uint16_t index,
+                             std::string& className, std::string& methodName, std::string& methodDesc) {
+    if (index == 0 || index >= cp.size())
+        return false;
     const CpEntry& ref = cp[index];
-    if (ref.tag != 10 && ref.tag != 11) return false;
-    if (ref.a == 0 || ref.a >= cp.size()) return false;
-    if (ref.b == 0 || ref.b >= cp.size()) return false;
+    if (ref.tag != 10 && ref.tag != 11)
+        return false;
+    if (ref.a == 0 || ref.a >= cp.size())
+        return false;
+    if (ref.b == 0 || ref.b >= cp.size())
+        return false;
 
     const CpEntry& cls = cp[ref.a];
-    if (cls.tag != 7 || cls.a == 0 || cls.a >= utf8.size()) return false;
+    if (cls.tag != 7 || cls.a == 0 || cls.a >= utf8.size())
+        return false;
     className = utf8[cls.a];
 
     const CpEntry& nt = cp[ref.b];
-    if (nt.tag != 12 || nt.a == 0 || nt.b == 0) return false;
-    if (nt.a >= utf8.size() || nt.b >= utf8.size()) return false;
+    if (nt.tag != 12 || nt.a == 0 || nt.b == 0)
+        return false;
+    if (nt.a >= utf8.size() || nt.b >= utf8.size())
+        return false;
     methodName = utf8[nt.a];
     methodDesc = utf8[nt.b];
     return true;
@@ -378,13 +391,15 @@ static bool isHookMethodRef(const std::vector<CpEntry>& cp, const std::vector<st
     std::string cls;
     std::string name;
     std::string desc;
-    if (!resolveMethodRef(cp, utf8, index, cls, name, desc)) return false;
+    if (!resolveMethodRef(cp, utf8, index, cls, name, desc))
+        return false;
     return cls == kHookClassSlash && name == kHookMethodName && desc == kHookMethodDesc;
 }
 
 static bool parseStackMapTable(Reader& r, std::vector<StackMapFrame>& frames) {
     uint16_t count = r.ReadU2();
-    if (!r.ok) return false;
+    if (!r.ok)
+        return false;
 
     int prev_offset = -1;
     frames.clear();
@@ -392,7 +407,8 @@ static bool parseStackMapTable(Reader& r, std::vector<StackMapFrame>& frames) {
 
     for (uint16_t i = 0; i < count; ++i) {
         uint8_t frame_type = r.ReadU1();
-        if (!r.ok) return false;
+        if (!r.ok)
+            return false;
 
         StackMapFrame frame;
         uint16_t offset_delta = 0;
@@ -404,13 +420,15 @@ static bool parseStackMapTable(Reader& r, std::vector<StackMapFrame>& frames) {
             frame.kind = StackMapFrame::SAME_LOCALS_1_STACK;
             offset_delta = frame_type - 64;
             VerificationTypeInfo info;
-            if (!readVerificationTypeInfo(r, info)) return false;
+            if (!readVerificationTypeInfo(r, info))
+                return false;
             frame.stack.push_back(info);
         } else if (frame_type == 247) {
             frame.kind = StackMapFrame::SAME_LOCALS_1_STACK;
             offset_delta = r.ReadU2();
             VerificationTypeInfo info;
-            if (!readVerificationTypeInfo(r, info)) return false;
+            if (!readVerificationTypeInfo(r, info))
+                return false;
             frame.stack.push_back(info);
         } else if (frame_type >= 248 && frame_type <= 250) {
             frame.kind = StackMapFrame::CHOP;
@@ -425,7 +443,8 @@ static bool parseStackMapTable(Reader& r, std::vector<StackMapFrame>& frames) {
             offset_delta = r.ReadU2();
             for (uint8_t l = 0; l < locals_to_add; ++l) {
                 VerificationTypeInfo info;
-                if (!readVerificationTypeInfo(r, info)) return false;
+                if (!readVerificationTypeInfo(r, info))
+                    return false;
                 frame.locals.push_back(info);
             }
         } else if (frame_type == 255) {
@@ -434,13 +453,15 @@ static bool parseStackMapTable(Reader& r, std::vector<StackMapFrame>& frames) {
             uint16_t locals_count = r.ReadU2();
             for (uint16_t l = 0; l < locals_count; ++l) {
                 VerificationTypeInfo info;
-                if (!readVerificationTypeInfo(r, info)) return false;
+                if (!readVerificationTypeInfo(r, info))
+                    return false;
                 frame.locals.push_back(info);
             }
             uint16_t stack_count = r.ReadU2();
             for (uint16_t s = 0; s < stack_count; ++s) {
                 VerificationTypeInfo info;
-                if (!readVerificationTypeInfo(r, info)) return false;
+                if (!readVerificationTypeInfo(r, info))
+                    return false;
                 frame.stack.push_back(info);
             }
         } else {
@@ -458,7 +479,8 @@ static bool parseStackMapTable(Reader& r, std::vector<StackMapFrame>& frames) {
 static bool patchStackMapTable(const uint8_t* data, size_t len, int shift, std::vector<uint8_t>& out) {
     Reader r(data, len);
     std::vector<StackMapFrame> frames;
-    if (!parseStackMapTable(r, frames) || !r.ok) return false;
+    if (!parseStackMapTable(r, frames) || !r.ok)
+        return false;
 
     bool has_zero = !frames.empty() && frames[0].abs_offset == 0;
     std::vector<StackMapFrame> patched;
@@ -492,54 +514,58 @@ static bool patchStackMapTable(const uint8_t* data, size_t len, int shift, std::
     int prev_offset = -1;
     for (const auto& frame : patched) {
         int delta = frame.abs_offset - prev_offset - 1;
-        if (delta < 0 || delta > 0xFFFF) return false;
+        if (delta < 0 || delta > 0xFFFF)
+            return false;
         uint16_t delta_u16 = static_cast<uint16_t>(delta);
 
         switch (frame.kind) {
-        case StackMapFrame::SAME:
-            if (delta_u16 <= 63) {
-                w.WriteU1(static_cast<uint8_t>(delta_u16));
-            } else {
-                w.WriteU1(251);
+            case StackMapFrame::SAME:
+                if (delta_u16 <= 63) {
+                    w.WriteU1(static_cast<uint8_t>(delta_u16));
+                } else {
+                    w.WriteU1(251);
+                    w.WriteU2(delta_u16);
+                }
+                break;
+            case StackMapFrame::SAME_LOCALS_1_STACK: {
+                if (frame.stack.size() != 1)
+                    return false;
+                if (delta_u16 <= 63) {
+                    w.WriteU1(static_cast<uint8_t>(64 + delta_u16));
+                } else {
+                    w.WriteU1(247);
+                    w.WriteU2(delta_u16);
+                }
+                writeVerificationTypeInfo(w, frame.stack[0]);
+                break;
+            }
+            case StackMapFrame::CHOP:
+                if (frame.chop_k == 0 || frame.chop_k > 3)
+                    return false;
+                w.WriteU1(static_cast<uint8_t>(251 - frame.chop_k));
                 w.WriteU2(delta_u16);
-            }
-            break;
-        case StackMapFrame::SAME_LOCALS_1_STACK: {
-            if (frame.stack.size() != 1) return false;
-            if (delta_u16 <= 63) {
-                w.WriteU1(static_cast<uint8_t>(64 + delta_u16));
-            } else {
-                w.WriteU1(247);
+                break;
+            case StackMapFrame::APPEND:
+                if (frame.locals.empty() || frame.locals.size() > 3)
+                    return false;
+                w.WriteU1(static_cast<uint8_t>(251 + frame.locals.size()));
                 w.WriteU2(delta_u16);
-            }
-            writeVerificationTypeInfo(w, frame.stack[0]);
-            break;
-        }
-        case StackMapFrame::CHOP:
-            if (frame.chop_k == 0 || frame.chop_k > 3) return false;
-            w.WriteU1(static_cast<uint8_t>(251 - frame.chop_k));
-            w.WriteU2(delta_u16);
-            break;
-        case StackMapFrame::APPEND:
-            if (frame.locals.empty() || frame.locals.size() > 3) return false;
-            w.WriteU1(static_cast<uint8_t>(251 + frame.locals.size()));
-            w.WriteU2(delta_u16);
-            for (const auto& info : frame.locals) {
-                writeVerificationTypeInfo(w, info);
-            }
-            break;
-        case StackMapFrame::FULL:
-            w.WriteU1(255);
-            w.WriteU2(delta_u16);
-            w.WriteU2(static_cast<uint16_t>(frame.locals.size()));
-            for (const auto& info : frame.locals) {
-                writeVerificationTypeInfo(w, info);
-            }
-            w.WriteU2(static_cast<uint16_t>(frame.stack.size()));
-            for (const auto& info : frame.stack) {
-                writeVerificationTypeInfo(w, info);
-            }
-            break;
+                for (const auto& info : frame.locals) {
+                    writeVerificationTypeInfo(w, info);
+                }
+                break;
+            case StackMapFrame::FULL:
+                w.WriteU1(255);
+                w.WriteU2(delta_u16);
+                w.WriteU2(static_cast<uint16_t>(frame.locals.size()));
+                for (const auto& info : frame.locals) {
+                    writeVerificationTypeInfo(w, info);
+                }
+                w.WriteU2(static_cast<uint16_t>(frame.stack.size()));
+                for (const auto& info : frame.stack) {
+                    writeVerificationTypeInfo(w, info);
+                }
+                break;
         }
 
         prev_offset = frame.abs_offset;
@@ -553,12 +579,14 @@ static bool patchLineNumberTable(const uint8_t* data, size_t len, int shift, std
     Reader r(data, len);
     Writer w;
     uint16_t count = r.ReadU2();
-    if (!r.ok) return false;
+    if (!r.ok)
+        return false;
     w.WriteU2(count);
     for (uint16_t i = 0; i < count; ++i) {
         uint16_t start_pc = r.ReadU2();
         uint16_t line = r.ReadU2();
-        if (!r.ok) return false;
+        if (!r.ok)
+            return false;
         w.WriteU2(static_cast<uint16_t>(start_pc + shift));
         w.WriteU2(line);
     }
@@ -570,7 +598,8 @@ static bool patchLocalVariableTable(const uint8_t* data, size_t len, int shift, 
     Reader r(data, len);
     Writer w;
     uint16_t count = r.ReadU2();
-    if (!r.ok) return false;
+    if (!r.ok)
+        return false;
     w.WriteU2(count);
     for (uint16_t i = 0; i < count; ++i) {
         uint16_t start_pc = r.ReadU2();
@@ -578,7 +607,8 @@ static bool patchLocalVariableTable(const uint8_t* data, size_t len, int shift, 
         uint16_t name_index = r.ReadU2();
         uint16_t desc_index = r.ReadU2();
         uint16_t slot = r.ReadU2();
-        if (!r.ok) return false;
+        if (!r.ok)
+            return false;
         w.WriteU2(static_cast<uint16_t>(start_pc + shift));
         w.WriteU2(length);
         w.WriteU2(name_index);
@@ -591,11 +621,15 @@ static bool patchLocalVariableTable(const uint8_t* data, size_t len, int shift, 
 
 static bool isAlreadyPatched(const uint8_t* code, size_t len, const std::vector<CpEntry>& cp,
                              const std::vector<std::string>& utf8) {
-    if (len < static_cast<size_t>(kPrefixLen)) return false;
+    if (len < static_cast<size_t>(kPrefixLen))
+        return false;
     uint8_t aload = code[0];
-    if (aload != 0x2a && aload != 0x2b) return false;
-    if (code[1] != 0xb8) return false;
-    if (code[4] != 0x9a || code[7] != 0xb1) return false;
+    if (aload != 0x2a && aload != 0x2b)
+        return false;
+    if (code[1] != 0xb8)
+        return false;
+    if (code[4] != 0x9a || code[7] != 0xb1)
+        return false;
     uint16_t method_ref = static_cast<uint16_t>((code[2] << 8) | code[3]);
     return isHookMethodRef(cp, utf8, method_ref);
 }
@@ -606,14 +640,15 @@ static bool isAlreadyPatched(const uint8_t* code, size_t len, const std::vector<
 constexpr int kObserverPrefixLen = 4;
 
 static bool tryPatchCodeAttributeObserver(const uint8_t* data, size_t len, const std::vector<CpEntry>& cp,
-        const std::vector<std::string>& utf8, uint16_t hook_methodref,
-        int packet_slot, std::vector<uint8_t>& out) {
+                                          const std::vector<std::string>& utf8, uint16_t hook_methodref,
+                                          int packet_slot, std::vector<uint8_t>& out) {
     Reader r(data, len);
     uint16_t max_stack = r.ReadU2();
     uint16_t max_locals = r.ReadU2();
     uint32_t code_len = r.ReadU4();
     const uint8_t* code = r.ReadBytes(code_len);
-    if (!r.ok) return false;
+    if (!r.ok)
+        return false;
 
     // Check if already patched
     if (code_len >= 4 && code[1] == 0xb8) {
@@ -624,7 +659,8 @@ static bool tryPatchCodeAttributeObserver(const uint8_t* data, size_t len, const
     }
 
     uint16_t ex_count = r.ReadU2();
-    if (!r.ok) return false;
+    if (!r.ok)
+        return false;
 
     struct ExEntry {
         uint16_t start_pc, end_pc, handler_pc, catch_type;
@@ -637,12 +673,14 @@ static bool tryPatchCodeAttributeObserver(const uint8_t* data, size_t len, const
         entry.end_pc = r.ReadU2();
         entry.handler_pc = r.ReadU2();
         entry.catch_type = r.ReadU2();
-        if (!r.ok) return false;
+        if (!r.ok)
+            return false;
         exceptions.push_back(entry);
     }
 
     uint16_t attrs_count = r.ReadU2();
-    if (!r.ok) return false;
+    if (!r.ok)
+        return false;
 
     // Build new code: aload_X + invokestatic (void return) + original code
     std::vector<uint8_t> new_code;
@@ -684,9 +722,11 @@ static bool tryPatchCodeAttributeObserver(const uint8_t* data, size_t len, const
     for (uint16_t i = 0; i < attrs_count; ++i) {
         uint16_t name_index = r.ReadU2();
         uint32_t attr_len = r.ReadU4();
-        if (!r.ok) return false;
+        if (!r.ok)
+            return false;
         Reader sub = r.Slice(attr_len);
-        if (!r.ok) return false;
+        if (!r.ok)
+            return false;
         const uint8_t* attr_data = sub.data;
 
         const char* attr_name = nullptr;
@@ -698,14 +738,17 @@ static bool tryPatchCodeAttributeObserver(const uint8_t* data, size_t len, const
         bool replaced = false;
 
         if (attr_name && strcmp(attr_name, "StackMapTable") == 0) {
-            if (!patchStackMapTable(attr_data, attr_len, actual_prefix_len, patched)) return false;
+            if (!patchStackMapTable(attr_data, attr_len, actual_prefix_len, patched))
+                return false;
             replaced = true;
         } else if (attr_name && strcmp(attr_name, "LineNumberTable") == 0) {
-            if (!patchLineNumberTable(attr_data, attr_len, actual_prefix_len, patched)) return false;
+            if (!patchLineNumberTable(attr_data, attr_len, actual_prefix_len, patched))
+                return false;
             replaced = true;
-        } else if (attr_name && (strcmp(attr_name, "LocalVariableTable") == 0 ||
-                                 strcmp(attr_name, "LocalVariableTypeTable") == 0)) {
-            if (!patchLocalVariableTable(attr_data, attr_len, actual_prefix_len, patched)) return false;
+        } else if (attr_name &&
+                   (strcmp(attr_name, "LocalVariableTable") == 0 || strcmp(attr_name, "LocalVariableTypeTable") == 0)) {
+            if (!patchLocalVariableTable(attr_data, attr_len, actual_prefix_len, patched))
+                return false;
             replaced = true;
         }
 
@@ -719,27 +762,30 @@ static bool tryPatchCodeAttributeObserver(const uint8_t* data, size_t len, const
         }
     }
 
-    if (!r.ok) return false;
+    if (!r.ok)
+        return false;
     out = std::move(w.out);
     return true;
 }
 
 static bool tryPatchCodeAttribute(const uint8_t* data, size_t len, const std::vector<CpEntry>& cp,
-                                  const std::vector<std::string>& utf8, uint16_t hook_methodref,
-                                  bool is_static, std::vector<uint8_t>& out) {
+                                  const std::vector<std::string>& utf8, uint16_t hook_methodref, bool is_static,
+                                  std::vector<uint8_t>& out) {
     Reader r(data, len);
     uint16_t max_stack = r.ReadU2();
     uint16_t max_locals = r.ReadU2();
     uint32_t code_len = r.ReadU4();
     const uint8_t* code = r.ReadBytes(code_len);
-    if (!r.ok) return false;
+    if (!r.ok)
+        return false;
 
     if (isAlreadyPatched(code, code_len, cp, utf8)) {
         return false;
     }
 
     uint16_t ex_count = r.ReadU2();
-    if (!r.ok) return false;
+    if (!r.ok)
+        return false;
 
     struct ExEntry {
         uint16_t start_pc;
@@ -755,12 +801,14 @@ static bool tryPatchCodeAttribute(const uint8_t* data, size_t len, const std::ve
         entry.end_pc = r.ReadU2();
         entry.handler_pc = r.ReadU2();
         entry.catch_type = r.ReadU2();
-        if (!r.ok) return false;
+        if (!r.ok)
+            return false;
         exceptions.push_back(entry);
     }
 
     uint16_t attrs_count = r.ReadU2();
-    if (!r.ok) return false;
+    if (!r.ok)
+        return false;
 
     uint8_t aload = is_static ? 0x2a : 0x2b;
     std::vector<uint8_t> new_code;
@@ -794,9 +842,11 @@ static bool tryPatchCodeAttribute(const uint8_t* data, size_t len, const std::ve
     for (uint16_t i = 0; i < attrs_count; ++i) {
         uint16_t name_index = r.ReadU2();
         uint32_t attr_len = r.ReadU4();
-        if (!r.ok) return false;
+        if (!r.ok)
+            return false;
         Reader sub = r.Slice(attr_len);
-        if (!r.ok) return false;
+        if (!r.ok)
+            return false;
         const uint8_t* attr_data = sub.data;
 
         const char* attr_name = nullptr;
@@ -808,16 +858,20 @@ static bool tryPatchCodeAttribute(const uint8_t* data, size_t len, const std::ve
         bool replaced = false;
 
         if (attr_name && strcmp(attr_name, "StackMapTable") == 0) {
-            if (!patchStackMapTable(attr_data, attr_len, kPrefixLen, patched)) return false;
+            if (!patchStackMapTable(attr_data, attr_len, kPrefixLen, patched))
+                return false;
             replaced = true;
         } else if (attr_name && strcmp(attr_name, "LineNumberTable") == 0) {
-            if (!patchLineNumberTable(attr_data, attr_len, kPrefixLen, patched)) return false;
+            if (!patchLineNumberTable(attr_data, attr_len, kPrefixLen, patched))
+                return false;
             replaced = true;
         } else if (attr_name && strcmp(attr_name, "LocalVariableTable") == 0) {
-            if (!patchLocalVariableTable(attr_data, attr_len, kPrefixLen, patched)) return false;
+            if (!patchLocalVariableTable(attr_data, attr_len, kPrefixLen, patched))
+                return false;
             replaced = true;
         } else if (attr_name && strcmp(attr_name, "LocalVariableTypeTable") == 0) {
-            if (!patchLocalVariableTable(attr_data, attr_len, kPrefixLen, patched)) return false;
+            if (!patchLocalVariableTable(attr_data, attr_len, kPrefixLen, patched))
+                return false;
             replaced = true;
         }
 
@@ -831,7 +885,8 @@ static bool tryPatchCodeAttribute(const uint8_t* data, size_t len, const std::ve
         }
     }
 
-    if (!r.ok) return false;
+    if (!r.ok)
+        return false;
     out = std::move(w.out);
     return true;
 }
@@ -839,19 +894,23 @@ static bool tryPatchCodeAttribute(const uint8_t* data, size_t len, const std::ve
 static int patchNetworkManagerClass(const uint8_t* data, size_t len, std::vector<uint8_t>& out) {
     Reader r(data, len);
     uint32_t magic = r.ReadU4();
-    if (!r.ok || magic != 0xCAFEBABE) return -1;
+    if (!r.ok || magic != 0xCAFEBABE)
+        return -1;
 
     uint16_t minor = r.ReadU2();
     uint16_t major = r.ReadU2();
     uint16_t cp_count = r.ReadU2();
-    if (!r.ok || cp_count == 0) return -1;
+    if (!r.ok || cp_count == 0)
+        return -1;
 
     std::vector<CpEntry> cp;
     std::vector<std::string> utf8;
     std::vector<uint8_t> cp_raw;
-    if (!readConstantPool(r, cp_count, cp, utf8, cp_raw)) return -1;
+    if (!readConstantPool(r, cp_count, cp, utf8, cp_raw))
+        return -1;
 
-    if (cp_count > 0xFFF3) return -1;  // Need room for 12 new entries (6 for each method)
+    if (cp_count > 0xFFF3)
+        return -1;  // Need room for 12 new entries (6 for each method)
     uint16_t base = cp_count;
 
     // Entries for shouldSend (blocking hook)
@@ -911,29 +970,34 @@ static int patchNetworkManagerClass(const uint8_t* data, size_t len, std::vector
     uint16_t access_flags = r.ReadU2();
     uint16_t this_class = r.ReadU2();
     uint16_t super_class = r.ReadU2();
-    if (!r.ok) return -1;
+    if (!r.ok)
+        return -1;
     w.WriteU2(access_flags);
     w.WriteU2(this_class);
     w.WriteU2(super_class);
 
     uint16_t interfaces_count = r.ReadU2();
-    if (!r.ok) return -1;
+    if (!r.ok)
+        return -1;
     w.WriteU2(interfaces_count);
     for (uint16_t i = 0; i < interfaces_count; ++i) {
         uint16_t idx = r.ReadU2();
-        if (!r.ok) return -1;
+        if (!r.ok)
+            return -1;
         w.WriteU2(idx);
     }
 
     uint16_t fields_count = r.ReadU2();
-    if (!r.ok) return -1;
+    if (!r.ok)
+        return -1;
     w.WriteU2(fields_count);
     for (uint16_t i = 0; i < fields_count; ++i) {
         uint16_t f_access = r.ReadU2();
         uint16_t f_name = r.ReadU2();
         uint16_t f_desc = r.ReadU2();
         uint16_t f_attrs = r.ReadU2();
-        if (!r.ok) return -1;
+        if (!r.ok)
+            return -1;
         w.WriteU2(f_access);
         w.WriteU2(f_name);
         w.WriteU2(f_desc);
@@ -941,9 +1005,11 @@ static int patchNetworkManagerClass(const uint8_t* data, size_t len, std::vector
         for (uint16_t a = 0; a < f_attrs; ++a) {
             uint16_t name_index = r.ReadU2();
             uint32_t attr_len = r.ReadU4();
-            if (!r.ok) return -1;
+            if (!r.ok)
+                return -1;
             const uint8_t* bytes = r.ReadBytes(attr_len);
-            if (!r.ok) return -1;
+            if (!r.ok)
+                return -1;
             w.WriteU2(name_index);
             w.WriteU4(attr_len);
             w.WriteBytes(bytes, attr_len);
@@ -951,7 +1017,8 @@ static int patchNetworkManagerClass(const uint8_t* data, size_t len, std::vector
     }
 
     uint16_t methods_count = r.ReadU2();
-    if (!r.ok) return -1;
+    if (!r.ok)
+        return -1;
     w.WriteU2(methods_count);
 
     int patched_methods = 0;
@@ -960,7 +1027,8 @@ static int patchNetworkManagerClass(const uint8_t* data, size_t len, std::vector
         uint16_t m_name = r.ReadU2();
         uint16_t m_desc = r.ReadU2();
         uint16_t m_attrs = r.ReadU2();
-        if (!r.ok) return -1;
+        if (!r.ok)
+            return -1;
         w.WriteU2(m_access);
         w.WriteU2(m_name);
         w.WriteU2(m_desc);
@@ -979,7 +1047,8 @@ static int patchNetworkManagerClass(const uint8_t* data, size_t len, std::vector
                 log_debug("[PacketInterceptor] NetworkManager method: %s %s", name.c_str(), desc.c_str());
             }
 
-            if ((name == "sendPacket" || name == "scheduleOutboundPacket") && desc.size() >= 3 && desc.back() == 'V' && desc[desc.size() - 2] == ')') {
+            if ((name == "sendPacket" || name == "scheduleOutboundPacket") && desc.size() >= 3 && desc.back() == 'V' &&
+                desc[desc.size() - 2] == ')') {
                 // Accept either full MCP name or obfuscated single-letter class name
                 if (desc.rfind("(Lnet/minecraft/network/Packet;", 0) == 0) {
                     is_target = true;
@@ -989,7 +1058,8 @@ static int patchNetworkManagerClass(const uint8_t* data, size_t len, std::vector
                     std::string paramClass = desc.substr(2, desc.find(';') - 2);
                     if (paramClass.find('/') == std::string::npos || paramClass.find("Packet") != std::string::npos) {
                         is_target = true;
-                        log_debug("[PacketInterceptor] Found %s with obfuscated signature: %s", name.c_str(), desc.c_str());
+                        log_debug("[PacketInterceptor] Found %s with obfuscated signature: %s", name.c_str(),
+                                  desc.c_str());
                     }
                 }
             }
@@ -1035,7 +1105,8 @@ static int patchNetworkManagerClass(const uint8_t* data, size_t len, std::vector
                 if (desc.back() == 'V' && desc.find(';') != std::string::npos) {
                     is_incoming_target = true;
                     incoming_packet_slot = 1;  // First param for instance method
-                    log_debug("[PacketInterceptor] Found handleCustomPayload: %s (access=0x%04X)", desc.c_str(), m_access);
+                    log_debug("[PacketInterceptor] Found handleCustomPayload: %s (access=0x%04X)", desc.c_str(),
+                              m_access);
                 }
             }
 
@@ -1058,9 +1129,11 @@ static int patchNetworkManagerClass(const uint8_t* data, size_t len, std::vector
         for (uint16_t a = 0; a < m_attrs; ++a) {
             uint16_t name_index = r.ReadU2();
             uint32_t attr_len = r.ReadU4();
-            if (!r.ok) return -1;
+            if (!r.ok)
+                return -1;
             Reader attr_reader = r.Slice(attr_len);
-            if (!r.ok) return -1;
+            if (!r.ok)
+                return -1;
             const uint8_t* attr_data = attr_reader.data;
 
             const char* attr_name = nullptr;
@@ -1072,8 +1145,7 @@ static int patchNetworkManagerClass(const uint8_t* data, size_t len, std::vector
             std::vector<uint8_t> patched_attr;
 
             // Patch outgoing packets (sendPacket) - blocking hook
-            if (is_target && attr_name && strcmp(attr_name, "Code") == 0 &&
-                    (m_access & (0x0100 | 0x0400)) == 0) {
+            if (is_target && attr_name && strcmp(attr_name, "Code") == 0 && (m_access & (0x0100 | 0x0400)) == 0) {
                 bool is_static = (m_access & 0x0008) != 0;
                 if (tryPatchCodeAttribute(attr_data, attr_len, cp, utf8, idx_methodref, is_static, patched_attr)) {
                     w.WriteU2(name_index);
@@ -1086,12 +1158,13 @@ static int patchNetworkManagerClass(const uint8_t* data, size_t len, std::vector
 
             // Patch incoming packets (channelRead0) - observer hook (non-blocking)
             if (!patched && is_incoming_target && attr_name && strcmp(attr_name, "Code") == 0 &&
-                    (m_access & (0x0100 | 0x0400)) == 0) {
+                (m_access & (0x0100 | 0x0400)) == 0) {
                 const std::string& method_name = (m_name < utf8.size()) ? utf8[m_name] : "";
                 log_debug("[PacketInterceptor] Attempting observer patch for: %s (slot=%d, methodref=%d)",
                           method_name.c_str(), incoming_packet_slot, idx_recv_methodref);
 
-                if (tryPatchCodeAttributeObserver(attr_data, attr_len, cp, utf8, idx_recv_methodref, incoming_packet_slot, patched_attr)) {
+                if (tryPatchCodeAttributeObserver(attr_data, attr_len, cp, utf8, idx_recv_methodref,
+                                                  incoming_packet_slot, patched_attr)) {
                     w.WriteU2(name_index);
                     w.WriteU4(static_cast<uint32_t>(patched_attr.size()));
                     w.WriteBytes(patched_attr.data(), patched_attr.size());
@@ -1112,34 +1185,39 @@ static int patchNetworkManagerClass(const uint8_t* data, size_t len, std::vector
     }
 
     uint16_t class_attrs = r.ReadU2();
-    if (!r.ok) return -1;
+    if (!r.ok)
+        return -1;
     w.WriteU2(class_attrs);
     for (uint16_t i = 0; i < class_attrs; ++i) {
         uint16_t name_index = r.ReadU2();
         uint32_t attr_len = r.ReadU4();
-        if (!r.ok) return -1;
+        if (!r.ok)
+            return -1;
         const uint8_t* bytes = r.ReadBytes(attr_len);
-        if (!r.ok) return -1;
+        if (!r.ok)
+            return -1;
         w.WriteU2(name_index);
         w.WriteU4(attr_len);
         w.WriteBytes(bytes, attr_len);
     }
 
-    if (patched_methods == 0) return 0;
+    if (patched_methods == 0)
+        return 0;
     out = std::move(w.out);
     return patched_methods;
 }
 
 static void JNICALL onClassFileLoadHook(jvmtiEnv* jvmti_env, JNIEnv* jni_env, jclass class_being_redefined,
                                         jobject loader, const char* name, jobject protection_domain,
-                                        jint class_data_len, const unsigned char* class_data,
-                                        jint* new_class_data_len, unsigned char** new_class_data) {
+                                        jint class_data_len, const unsigned char* class_data, jint* new_class_data_len,
+                                        unsigned char** new_class_data) {
     (void)jni_env;
     (void)class_being_redefined;
     (void)loader;
     (void)protection_domain;
 
-    if (!name) return;
+    if (!name)
+        return;
 
     // Handle NetworkManager.sendPacket (outgoing packets)
     if (strcmp(name, kTargetClassSlash) == 0) {
@@ -1188,7 +1266,8 @@ static void JNICALL onClassFileLoadHook(jvmtiEnv* jvmti_env, JNIEnv* jni_env, jc
                 memcpy(buffer, patched.data(), patched.size());
                 *new_class_data_len = static_cast<jint>(patched.size());
                 *new_class_data = buffer;
-                log_ok("[PacketInterceptor] Patched LCNetHandlerClient nametag handlers (%d method(s))", patched_methods);
+                log_ok("[PacketInterceptor] Patched LCNetHandlerClient nametag handlers (%d method(s))",
+                       patched_methods);
             }
         } else {
             // Try patching with observer hook for the specific methods
@@ -1210,7 +1289,8 @@ static void JNICALL onClassFileLoadHook(jvmtiEnv* jvmti_env, JNIEnv* jni_env, jc
                 memcpy(buffer, patched.data(), patched.size());
                 *new_class_data_len = static_cast<jint>(patched.size());
                 *new_class_data = buffer;
-                log_ok("[PacketInterceptor] Patched NetHandlerPlayClient.handleCustomPayload (%d method(s))", patched_methods);
+                log_ok("[PacketInterceptor] Patched NetHandlerPlayClient.handleCustomPayload (%d method(s))",
+                       patched_methods);
             }
         } else {
             log_debug("[PacketInterceptor] NetHandlerPlayClient: no methods patched");
@@ -1220,11 +1300,11 @@ static void JNICALL onClassFileLoadHook(jvmtiEnv* jvmti_env, JNIEnv* jni_env, jc
 
     // Debug: Log Lunar-related classes
     if (strstr(name, "lunar") != nullptr || strstr(name, "apollo") != nullptr) {
-        //log_debug("[PacketInterceptor] Lunar class loaded: %s", name);
+        // log_debug("[PacketInterceptor] Lunar class loaded: %s", name);
     }
 }
 
-} // namespace
+}  // namespace
 
 namespace PacketInterceptor {
 
@@ -1304,19 +1384,22 @@ static jfieldID getFieldIDSafe(JNIEnv* env, jclass cls, const char* name, const 
 static jfieldID findFieldByNames(JNIEnv* env, jclass cls, const char* const* names, const char* sig) {
     for (int i = 0; names[i] != nullptr; ++i) {
         jfieldID fid = getFieldIDSafe(env, cls, names[i], sig);
-        if (fid) return fid;
+        if (fid)
+            return fid;
     }
     return nullptr;
 }
 
 static bool cachePacketFields(JNIEnv* env) {
     std::lock_guard<std::mutex> lock(packetFieldMutex);
-    if (packetFieldsReady.load()) return true;
-    if (!cls_C03PacketPlayer) return false;
+    if (packetFieldsReady.load())
+        return true;
+    if (!cls_C03PacketPlayer)
+        return false;
 
-    const char* xNames[] = { "x", "field_149479_a", nullptr };
-    const char* yNames[] = { "y", "field_149477_b", nullptr };
-    const char* zNames[] = { "z", "field_149478_c", nullptr };
+    const char* xNames[] = {"x", "field_149479_a", nullptr};
+    const char* yNames[] = {"y", "field_149477_b", nullptr};
+    const char* zNames[] = {"z", "field_149478_c", nullptr};
 
     fid_pkt_x = findFieldByNames(env, cls_C03PacketPlayer, xNames, "D");
     fid_pkt_y = findFieldByNames(env, cls_C03PacketPlayer, yNames, "D");
@@ -1336,8 +1419,10 @@ static bool cachePacketFields(JNIEnv* env) {
                 if (sig && sig[0] == 'D') {
                     doubles.push_back(fields[i]);
                 }
-                if (name) Java::tiEnv->Deallocate((unsigned char*)name);
-                if (sig) Java::tiEnv->Deallocate((unsigned char*)sig);
+                if (name)
+                    Java::tiEnv->Deallocate((unsigned char*)name);
+                if (sig)
+                    Java::tiEnv->Deallocate((unsigned char*)sig);
             }
 
             if (doubles.size() >= 3) {
@@ -1354,11 +1439,11 @@ static bool cachePacketFields(JNIEnv* env) {
     packetFieldsReady.store((fid_pkt_x && fid_pkt_y && fid_pkt_z), std::memory_order_release);
     if (packetFieldsReady.load()) {
         if (!packetFieldsLogged) {
-            //log_ok("[PacketInterceptor] Cached packet position fields for hybrid Blink");
+            // log_ok("[PacketInterceptor] Cached packet position fields for hybrid Blink");
             packetFieldsLogged = true;
         }
     } else if (!packetFieldsWarned) {
-        //log_warn("[PacketInterceptor] Failed to cache packet fields - hybrid skip disabled");
+        // log_warn("[PacketInterceptor] Failed to cache packet fields - hybrid skip disabled");
         packetFieldsWarned = true;
     }
 
@@ -1366,7 +1451,8 @@ static bool cachePacketFields(JNIEnv* env) {
 }
 
 static bool readPacketPos(JNIEnv* env, jobject packet, PacketPos& out) {
-    if (!packetFieldsReady.load() || !packet) return false;
+    if (!packetFieldsReady.load() || !packet)
+        return false;
     out.x = env->GetDoubleField(packet, fid_pkt_x);
     out.y = env->GetDoubleField(packet, fid_pkt_y);
     out.z = env->GetDoubleField(packet, fid_pkt_z);
@@ -1399,14 +1485,17 @@ static PacketPos stepToward(const PacketPos& from, const PacketPos& to, double m
     out.z += dz;
 
     double dy = to.y - from.y;
-    if (dy > maxStepY) dy = maxStepY;
-    if (dy < -maxStepY) dy = -maxStepY;
+    if (dy > maxStepY)
+        dy = maxStepY;
+    if (dy < -maxStepY)
+        dy = -maxStepY;
     out.y += dy;
     return out;
 }
 
 static void writePacketPos(JNIEnv* env, jobject packet, const PacketPos& pos) {
-    if (!packetFieldsReady.load()) return;
+    if (!packetFieldsReady.load())
+        return;
     env->SetDoubleField(packet, fid_pkt_x, pos.x);
     env->SetDoubleField(packet, fid_pkt_y, pos.y);
     env->SetDoubleField(packet, fid_pkt_z, pos.z);
@@ -1429,28 +1518,28 @@ static size_t getDesiredQueueCount() {
 // Helper: Get NetworkManager instance from player
 // ============================================================================
 static jobject getNetworkManager(JNIEnv* env) {
-    //log_debug("[PacketInterceptor] Getting NetworkManager instance...");
+    // log_debug("[PacketInterceptor] Getting NetworkManager instance...");
 
     // Path: thePlayer.sendQueue.netManager
     jobject player = mc.getPlayer();
     if (!player) {
-        //log_warn("[PacketInterceptor] No player instance");
+        // log_warn("[PacketInterceptor] No player instance");
         return nullptr;
     }
 
     // Get EntityPlayerSP class
     jclass cls_EntityPlayerSP = nullptr;
     if (!Java::AssignClass("net.minecraft.client.entity.EntityPlayerSP", cls_EntityPlayerSP)) {
-        //log_err("[PacketInterceptor] Failed to get EntityPlayerSP class");
+        // log_err("[PacketInterceptor] Failed to get EntityPlayerSP class");
         return nullptr;
     }
 
     // Get sendQueue field
-    jfieldID fid_sendQueue = env->GetFieldID(cls_EntityPlayerSP, "sendQueue",
-                             "Lnet/minecraft/client/network/NetHandlerPlayClient;");
+    jfieldID fid_sendQueue =
+        env->GetFieldID(cls_EntityPlayerSP, "sendQueue", "Lnet/minecraft/client/network/NetHandlerPlayClient;");
     if (env->ExceptionCheck()) {
         env->ExceptionClear();
-        //log_err("[PacketInterceptor] Failed to get sendQueue field");
+        // log_err("[PacketInterceptor] Failed to get sendQueue field");
         env->DeleteLocalRef(cls_EntityPlayerSP);
         return nullptr;
     }
@@ -1459,25 +1548,25 @@ static jobject getNetworkManager(JNIEnv* env) {
     env->DeleteLocalRef(cls_EntityPlayerSP);
 
     if (!sendQueue) {
-        //log_warn("[PacketInterceptor] sendQueue is null");
+        // log_warn("[PacketInterceptor] sendQueue is null");
         return nullptr;
     }
-    //log_debug("[PacketInterceptor] Got sendQueue: %p", sendQueue);
+    // log_debug("[PacketInterceptor] Got sendQueue: %p", sendQueue);
 
     // Get NetHandlerPlayClient class
     jclass cls_NetHandlerPlayClient = nullptr;
     if (!Java::AssignClass("net.minecraft.client.network.NetHandlerPlayClient", cls_NetHandlerPlayClient)) {
-        //log_err("[PacketInterceptor] Failed to get NetHandlerPlayClient class");
+        // log_err("[PacketInterceptor] Failed to get NetHandlerPlayClient class");
         env->DeleteLocalRef(sendQueue);
         return nullptr;
     }
 
     // Get netManager field
-    jfieldID fid_netManager = env->GetFieldID(cls_NetHandlerPlayClient, "netManager",
-                              "Lnet/minecraft/network/NetworkManager;");
+    jfieldID fid_netManager =
+        env->GetFieldID(cls_NetHandlerPlayClient, "netManager", "Lnet/minecraft/network/NetworkManager;");
     if (env->ExceptionCheck()) {
         env->ExceptionClear();
-        //log_err("[PacketInterceptor] Failed to get netManager field");
+        // log_err("[PacketInterceptor] Failed to get netManager field");
         env->DeleteLocalRef(cls_NetHandlerPlayClient);
         env->DeleteLocalRef(sendQueue);
         return nullptr;
@@ -1488,9 +1577,9 @@ static jobject getNetworkManager(JNIEnv* env) {
     env->DeleteLocalRef(sendQueue);
 
     if (netManager) {
-        //log_ok("[PacketInterceptor] Got NetworkManager: %p", netManager);
+        // log_ok("[PacketInterceptor] Got NetworkManager: %p", netManager);
     } else {
-        //log_warn("[PacketInterceptor] netManager is null");
+        // log_warn("[PacketInterceptor] netManager is null");
     }
 
     return netManager;
@@ -1500,10 +1589,11 @@ static jobject getNetworkManager(JNIEnv* env) {
 // Initialize packet classes cache
 // ============================================================================
 static bool cachePacketClasses(JNIEnv* env) {
-    //log_debug("[PacketInterceptor] Caching packet classes...");
+    // log_debug("[PacketInterceptor] Caching packet classes...");
 
     auto makeGlobal = [env](jclass localRef) -> jclass {
-        if (!localRef) return nullptr;
+        if (!localRef)
+            return nullptr;
         jclass globalRef = (jclass)env->NewGlobalRef(localRef);
         env->DeleteLocalRef(localRef);
         return globalRef;
@@ -1512,38 +1602,38 @@ static bool cachePacketClasses(JNIEnv* env) {
     // NetworkManager
     jclass localClass = nullptr;
     if (!Java::AssignClass("net.minecraft.network.NetworkManager", localClass)) {
-        //log_err("[PacketInterceptor] Failed to cache NetworkManager class");
+        // log_err("[PacketInterceptor] Failed to cache NetworkManager class");
         return false;
     }
     cls_NetworkManager = makeGlobal(localClass);
     if (!cls_NetworkManager) {
-        //log_err("[PacketInterceptor] Failed to create global ref for NetworkManager");
+        // log_err("[PacketInterceptor] Failed to create global ref for NetworkManager");
         return false;
     }
-    //log_ok("[PacketInterceptor] Cached NetworkManager class");
+    // log_ok("[PacketInterceptor] Cached NetworkManager class");
 
     // Base Packet class
     localClass = nullptr;
     if (!Java::AssignClass("net.minecraft.network.Packet", localClass)) {
-        //log_err("[PacketInterceptor] Failed to cache Packet class");
+        // log_err("[PacketInterceptor] Failed to cache Packet class");
         return false;
     }
     cls_Packet = makeGlobal(localClass);
     if (!cls_Packet) {
-        //log_err("[PacketInterceptor] Failed to create global ref for Packet");
+        // log_err("[PacketInterceptor] Failed to create global ref for Packet");
         return false;
     }
-    //log_ok("[PacketInterceptor] Cached Packet class");
+    // log_ok("[PacketInterceptor] Cached Packet class");
 
     // C03PacketPlayer (base for movement)
     localClass = nullptr;
     if (!Java::AssignClass("net.minecraft.network.play.client.C03PacketPlayer", localClass)) {
-        //log_warn("[PacketInterceptor] Failed to cache C03PacketPlayer - trying alternative names");
-        // Try without full package
+        // log_warn("[PacketInterceptor] Failed to cache C03PacketPlayer - trying alternative names");
+        //  Try without full package
         cls_C03PacketPlayer = nullptr;
     } else {
         cls_C03PacketPlayer = makeGlobal(localClass);
-        //log_ok("[PacketInterceptor] Cached C03PacketPlayer class");
+        // log_ok("[PacketInterceptor] Cached C03PacketPlayer class");
     }
 
     // C04PacketPlayerPosition (with position)
@@ -1556,7 +1646,7 @@ static bool cachePacketClasses(JNIEnv* env) {
         cls_C04PacketPlayerPosition = makeGlobal(localClass);
     }
     if (cls_C04PacketPlayerPosition) {
-        //log_ok("[PacketInterceptor] Cached C04PacketPlayerPosition class");
+        // log_ok("[PacketInterceptor] Cached C04PacketPlayerPosition class");
     }
 
     // C05PacketPlayerLook (with rotation)
@@ -1568,7 +1658,7 @@ static bool cachePacketClasses(JNIEnv* env) {
         cls_C05PacketPlayerLook = makeGlobal(localClass);
     }
     if (cls_C05PacketPlayerLook) {
-        //log_ok("[PacketInterceptor] Cached C05PacketPlayerLook class");
+        // log_ok("[PacketInterceptor] Cached C05PacketPlayerLook class");
     }
 
     // C06PacketPlayerPosLook (position + rotation)
@@ -1580,15 +1670,14 @@ static bool cachePacketClasses(JNIEnv* env) {
         cls_C06PacketPlayerPosLook = makeGlobal(localClass);
     }
     if (cls_C06PacketPlayerPosLook) {
-        //log_ok("[PacketInterceptor] Cached C06PacketPlayerPosLook class");
+        // log_ok("[PacketInterceptor] Cached C06PacketPlayerPosLook class");
     }
 
     // Get sendPacket method
-    mid_sendPacket = env->GetMethodID(cls_NetworkManager, "sendPacket",
-                                      "(Lnet/minecraft/network/Packet;)V");
+    mid_sendPacket = env->GetMethodID(cls_NetworkManager, "sendPacket", "(Lnet/minecraft/network/Packet;)V");
     if (env->ExceptionCheck()) {
         env->ExceptionClear();
-        //log_warn("[PacketInterceptor] sendPacket(Packet) not found directly, trying alternatives...");
+        // log_warn("[PacketInterceptor] sendPacket(Packet) not found directly, trying alternatives...");
 
         // List methods to find correct signature
         if (Java::tiEnv) {
@@ -1600,25 +1689,29 @@ static bool cachePacketClasses(JNIEnv* env) {
                     char* sig = nullptr;
                     Java::tiEnv->GetMethodName(methods[i], &name, &sig, nullptr);
                     if (name && strcmp(name, "sendPacket") == 0) {
-                        //log_debug("[PacketInterceptor] Found sendPacket variant: %s", sig);
-                        // Try to get it with this signature
+                        // log_debug("[PacketInterceptor] Found sendPacket variant: %s", sig);
+                        //  Try to get it with this signature
                         mid_sendPacket = env->GetMethodID(cls_NetworkManager, "sendPacket", sig);
                         if (!env->ExceptionCheck() && mid_sendPacket) {
-                            //log_ok("[PacketInterceptor] Using sendPacket%s", sig);
-                            if (name) Java::tiEnv->Deallocate((unsigned char*)name);
-                            if (sig) Java::tiEnv->Deallocate((unsigned char*)sig);
+                            // log_ok("[PacketInterceptor] Using sendPacket%s", sig);
+                            if (name)
+                                Java::tiEnv->Deallocate((unsigned char*)name);
+                            if (sig)
+                                Java::tiEnv->Deallocate((unsigned char*)sig);
                             break;
                         }
                         env->ExceptionClear();
                     }
-                    if (name) Java::tiEnv->Deallocate((unsigned char*)name);
-                    if (sig) Java::tiEnv->Deallocate((unsigned char*)sig);
+                    if (name)
+                        Java::tiEnv->Deallocate((unsigned char*)name);
+                    if (sig)
+                        Java::tiEnv->Deallocate((unsigned char*)sig);
                 }
                 Java::tiEnv->Deallocate((unsigned char*)methods);
             }
         }
     } else {
-        //log_ok("[PacketInterceptor] Cached sendPacket method");
+        // log_ok("[PacketInterceptor] Cached sendPacket method");
     }
 
     return true;
@@ -1630,7 +1723,8 @@ static jboolean JNICALL nativeShouldSend(JNIEnv* env, jclass, jobject packet) {
 
 // Native callback for incoming packets (observer only, void return)
 static void JNICALL nativeOnReceive(JNIEnv* env, jclass, jobject packet) {
-    if (!packet) return;
+    if (!packet)
+        return;
 
     // Cached JNI references for S3FPacketCustomPayload
     static jclass cls_S3FPacketCustomPayload = nullptr;
@@ -1653,7 +1747,8 @@ static void JNICALL nativeOnReceive(JNIEnv* env, jclass, jobject packet) {
             cls_S3FPacketCustomPayload = (jclass)env->NewGlobalRef(local);
             env->DeleteLocalRef(local);
             mid_getChannelName = env->GetMethodID(cls_S3FPacketCustomPayload, "getChannelName", "()Ljava/lang/String;");
-            mid_getBufferData = env->GetMethodID(cls_S3FPacketCustomPayload, "getBufferData", "()Lnet/minecraft/network/PacketBuffer;");
+            mid_getBufferData =
+                env->GetMethodID(cls_S3FPacketCustomPayload, "getBufferData", "()Lnet/minecraft/network/PacketBuffer;");
             if (env->ExceptionCheck()) {
                 env->ExceptionClear();
                 mid_getChannelName = nullptr;
@@ -1662,7 +1757,8 @@ static void JNICALL nativeOnReceive(JNIEnv* env, jclass, jobject packet) {
         }
         // 1.7.10 fallback: obfuscated methods returning byte[]
         if (cls_S3FPacketCustomPayload && (!mid_getChannelName || !mid_getBufferData)) {
-            mid_getChannelName_legacy = env->GetMethodID(cls_S3FPacketCustomPayload, "func_149169_c", "()Ljava/lang/String;");
+            mid_getChannelName_legacy =
+                env->GetMethodID(cls_S3FPacketCustomPayload, "func_149169_c", "()Ljava/lang/String;");
             mid_getPayloadBytes_legacy = env->GetMethodID(cls_S3FPacketCustomPayload, "func_149168_d", "()[B");
             if (env->ExceptionCheck()) {
                 env->ExceptionClear();
@@ -1690,7 +1786,8 @@ static void JNICALL nativeOnReceive(JNIEnv* env, jclass, jobject packet) {
                 mid_readerIndex = nullptr;
             }
         }
-        if (env->ExceptionCheck()) env->ExceptionClear();
+        if (env->ExceptionCheck())
+            env->ExceptionClear();
     }
 
     // If this is a CustomPayload packet, check for lunar:apollo channel
@@ -1712,7 +1809,8 @@ static void JNICALL nativeOnReceive(JNIEnv* env, jclass, jobject packet) {
                         // 1.8+: PacketBuffer -> array() + readerIndex()
                         if (mid_getBufferData && !useLegacyCustomPayload) {
                             packetBuffer = env->CallObjectMethod(packet, mid_getBufferData);
-                            if (packetBuffer && !env->ExceptionCheck() && mid_readableBytes && mid_array && mid_readerIndex) {
+                            if (packetBuffer && !env->ExceptionCheck() && mid_readableBytes && mid_array &&
+                                mid_readerIndex) {
                                 jint readableBytes = env->CallIntMethod(packetBuffer, mid_readableBytes);
                                 if (readableBytes > 0 && readableBytes < 65536) {
                                     jint readerIdx = env->CallIntMethod(packetBuffer, mid_readerIndex);
@@ -1755,12 +1853,13 @@ static void JNICALL nativeOnReceive(JNIEnv* env, jclass, jobject packet) {
                             std::string typeUrl;
                             int pos = 0;
                             while (pos < len) {
-                                if (pos >= len) break;
+                                if (pos >= len)
+                                    break;
                                 uint8_t tag = data[pos++];
                                 int fieldNum = tag >> 3;
                                 int wireType = tag & 0x07;
 
-                                if (wireType == 2) { // Length-delimited
+                                if (wireType == 2) {  // Length-delimited
                                     // Read varint length
                                     int strLen = 0;
                                     int shift = 0;
@@ -1768,17 +1867,19 @@ static void JNICALL nativeOnReceive(JNIEnv* env, jclass, jobject packet) {
                                         uint8_t b = data[pos++];
                                         strLen |= (b & 0x7F) << shift;
                                         shift += 7;
-                                        if (!(b & 0x80)) break;
+                                        if (!(b & 0x80))
+                                            break;
                                     }
                                     if (fieldNum == 1 && strLen > 0 && pos + strLen <= len) {
                                         // type_url field
                                         typeUrl = std::string((const char*)(data + pos), strLen);
                                     }
                                     pos += strLen;
-                                } else if (wireType == 0) { // Varint
-                                    while (pos < len && (data[pos++] & 0x80));
+                                } else if (wireType == 0) {  // Varint
+                                    while (pos < len && (data[pos++] & 0x80))
+                                        ;
                                 } else {
-                                    break; // Unknown wire type
+                                    break;  // Unknown wire type
                                 }
                             }
 
@@ -1802,7 +1903,8 @@ static void JNICALL nativeOnReceive(JNIEnv* env, jclass, jobject packet) {
                                                 uint8_t b = data[parsePos++];
                                                 fLen |= (b & 0x7F) << shift;
                                                 shift += 7;
-                                                if (!(b & 0x80)) break;
+                                                if (!(b & 0x80))
+                                                    break;
                                             }
                                             if (fieldNum == 2 && fLen > 0 && parsePos + fLen <= len) {
                                                 valueData = data + parsePos;
@@ -1810,8 +1912,10 @@ static void JNICALL nativeOnReceive(JNIEnv* env, jclass, jobject packet) {
                                             }
                                             parsePos += fLen;
                                         } else if (wireType == 0) {
-                                            while (parsePos < len && (data[parsePos++] & 0x80));
-                                        } else break;
+                                            while (parsePos < len && (data[parsePos++] & 0x80))
+                                                ;
+                                        } else
+                                            break;
                                     }
 
                                     // Parse UpdateTeamMembersMessage: field 1 = members (repeated TeamMember)
@@ -1832,13 +1936,14 @@ static void JNICALL nativeOnReceive(JNIEnv* env, jclass, jobject packet) {
                                             int vFieldNum = vTag >> 3;
                                             int vWireType = vTag & 0x07;
 
-                                            if (vWireType == 2) { // Length-delimited
+                                            if (vWireType == 2) {  // Length-delimited
                                                 int vLen = 0, vShift = 0;
                                                 while (vPos < valueLen) {
                                                     uint8_t b = valueData[vPos++];
                                                     vLen |= (b & 0x7F) << vShift;
                                                     vShift += 7;
-                                                    if (!(b & 0x80)) break;
+                                                    if (!(b & 0x80))
+                                                        break;
                                                 }
                                                 if (vFieldNum == 1 && vLen > 0 && vPos + vLen <= valueLen) {
                                                     memberCount++;
@@ -1849,13 +1954,12 @@ static void JNICALL nativeOnReceive(JNIEnv* env, jclass, jobject packet) {
 
                                                     // Debug: log first member's fields
                                                     if (memberCount == 1 && shouldDebug) {
-                                                        log_debug("[Apollo]   Member1 len=%d, first bytes: %02x %02x %02x %02x %02x",
-                                                                  vLen,
-                                                                  vLen > 0 ? memberData[0] : 0,
-                                                                  vLen > 1 ? memberData[1] : 0,
-                                                                  vLen > 2 ? memberData[2] : 0,
-                                                                  vLen > 3 ? memberData[3] : 0,
-                                                                  vLen > 4 ? memberData[4] : 0);
+                                                        log_debug(
+                                                            "[Apollo]   Member1 len=%d, first bytes: %02x %02x %02x "
+                                                            "%02x %02x",
+                                                            vLen, vLen > 0 ? memberData[0] : 0,
+                                                            vLen > 1 ? memberData[1] : 0, vLen > 2 ? memberData[2] : 0,
+                                                            vLen > 3 ? memberData[3] : 0, vLen > 4 ? memberData[4] : 0);
                                                     }
                                                     while (mPos < vLen) {
                                                         uint8_t mTag = memberData[mPos++];
@@ -1867,10 +1971,12 @@ static void JNICALL nativeOnReceive(JNIEnv* env, jclass, jobject packet) {
                                                                 uint8_t b = memberData[mPos++];
                                                                 mLen |= (b & 0x7F) << mShift;
                                                                 mShift += 7;
-                                                                if (!(b & 0x80)) break;
+                                                                if (!(b & 0x80))
+                                                                    break;
                                                             }
                                                             if (mFieldNum == 1 && mLen > 0 && mPos + mLen <= vLen) {
-                                                                // player_uuid (Uuid proto) - uses fixed64 for high64/low64
+                                                                // player_uuid (Uuid proto) - uses fixed64 for
+                                                                // high64/low64
                                                                 const uint8_t* uuidData = memberData + mPos;
                                                                 int uPos = 0;
                                                                 while (uPos < mLen) {
@@ -1882,15 +1988,20 @@ static void JNICALL nativeOnReceive(JNIEnv* env, jclass, jobject packet) {
                                                                         // Wire type 1 = fixed64 (8 bytes little-endian)
                                                                         uint64_t val = 0;
                                                                         for (int i = 0; i < 8; i++) {
-                                                                            val |= (uint64_t)uuidData[uPos + i] << (i * 8);
+                                                                            val |= (uint64_t)uuidData[uPos + i]
+                                                                                   << (i * 8);
                                                                         }
                                                                         uPos += 8;
-                                                                        if (uFieldNum == 1) uuidHigh = val;
-                                                                        else if (uFieldNum == 2) uuidLow = val;
+                                                                        if (uFieldNum == 1)
+                                                                            uuidHigh = val;
+                                                                        else if (uFieldNum == 2)
+                                                                            uuidLow = val;
                                                                     } else if (uWireType == 0) {
                                                                         // Wire type 0 = varint (skip)
-                                                                        while (uPos < mLen && (uuidData[uPos++] & 0x80));
-                                                                    } else break;
+                                                                        while (uPos < mLen && (uuidData[uPos++] & 0x80))
+                                                                            ;
+                                                                    } else
+                                                                        break;
                                                                 }
                                                                 if (uuidHigh != 0 || uuidLow != 0) {
                                                                     teammateUuids.push_back({uuidHigh, uuidLow});
@@ -1898,18 +2009,23 @@ static void JNICALL nativeOnReceive(JNIEnv* env, jclass, jobject packet) {
                                                             }
                                                             mPos += mLen;
                                                         } else if (mWireType == 0) {
-                                                            while (mPos < vLen && (memberData[mPos++] & 0x80));
-                                                        } else break;
+                                                            while (mPos < vLen && (memberData[mPos++] & 0x80))
+                                                                ;
+                                                        } else
+                                                            break;
                                                     }
                                                 }
                                                 vPos += vLen;
                                             } else if (vWireType == 0) {
-                                                while (vPos < valueLen && (valueData[vPos++] & 0x80));
-                                            } else break;
+                                                while (vPos < valueLen && (valueData[vPos++] & 0x80))
+                                                    ;
+                                            } else
+                                                break;
                                         }
 
                                         if (shouldDebug) {
-                                            log_debug("[Apollo] Team: found %d members, extracted %zu UUIDs", memberCount, teammateUuids.size());
+                                            log_debug("[Apollo] Team: found %d members, extracted %zu UUIDs",
+                                                      memberCount, teammateUuids.size());
                                             parseDebugCount++;
                                         }
 
@@ -1920,18 +2036,15 @@ static void JNICALL nativeOnReceive(JNIEnv* env, jclass, jobject packet) {
                                                 char uuidStr[64];
                                                 uint64_t hi = teammateUuids[i].first;
                                                 uint64_t lo = teammateUuids[i].second;
-                                                snprintf(uuidStr, sizeof(uuidStr),
-                                                         "%08x-%04x-%04x-%04x-%012llx",
-                                                         (uint32_t)(hi >> 32),
-                                                         (uint16_t)(hi >> 16),
-                                                         (uint16_t)hi,
+                                                snprintf(uuidStr, sizeof(uuidStr), "%08x-%04x-%04x-%04x-%012llx",
+                                                         (uint32_t)(hi >> 32), (uint16_t)(hi >> 16), (uint16_t)hi,
                                                          (uint16_t)(lo >> 48),
                                                          (unsigned long long)(lo & 0xFFFFFFFFFFFFULL));
                                                 log_debug("  Teammate[%d]: %s", (int)i, uuidStr);
                                             }
                                             teamCount++;
                                         }
-                                        
+
                                         // Register teammates with FriendsManager
                                         // Use set-based synchronization to avoid clear/re-add spam
                                         if (friendsManager) {
@@ -1941,22 +2054,19 @@ static void JNICALL nativeOnReceive(JNIEnv* env, jclass, jobject packet) {
                                                 char uuidStr[64];
                                                 uint64_t hi = teammateUuids[i].first;
                                                 uint64_t lo = teammateUuids[i].second;
-                                                snprintf(uuidStr, sizeof(uuidStr),
-                                                         "%08x-%04x-%04x-%04x-%012llx",
-                                                         (uint32_t)(hi >> 32),
-                                                         (uint16_t)(hi >> 16),
-                                                         (uint16_t)hi,
+                                                snprintf(uuidStr, sizeof(uuidStr), "%08x-%04x-%04x-%04x-%012llx",
+                                                         (uint32_t)(hi >> 32), (uint16_t)(hi >> 16), (uint16_t)hi,
                                                          (uint16_t)(lo >> 48),
                                                          (unsigned long long)(lo & 0xFFFFFFFFFFFFULL));
                                                 newTeammates.insert(uuidStr);
                                             }
-                                            
+
                                             // Sync: only add new teammates (don't clear existing)
                                             // This prevents spam when server sends periodic identical updates
                                             for (const auto& uuid : newTeammates) {
                                                 friendsManager->addLunarTeammate(uuid);
                                             }
-                                            
+
                                             // Only log when teammate count changes significantly
                                             static size_t lastTeammateCount = 0;
                                             size_t currentCount = newTeammates.size();
@@ -1981,7 +2091,8 @@ static void JNICALL nativeOnReceive(JNIEnv* env, jclass, jobject packet) {
                                                 uint8_t b = data[parsePos++];
                                                 fLen |= (b & 0x7F) << shift;
                                                 shift += 7;
-                                                if (!(b & 0x80)) break;
+                                                if (!(b & 0x80))
+                                                    break;
                                             }
                                             if (fieldNum == 2 && fLen > 0 && parsePos + fLen <= len) {
                                                 valueData = data + parsePos;
@@ -1989,8 +2100,10 @@ static void JNICALL nativeOnReceive(JNIEnv* env, jclass, jobject packet) {
                                             }
                                             parsePos += fLen;
                                         } else if (wireType == 0) {
-                                            while (parsePos < len && (data[parsePos++] & 0x80));
-                                        } else break;
+                                            while (parsePos < len && (data[parsePos++] & 0x80))
+                                                ;
+                                        } else
+                                            break;
                                     }
 
                                     // Parse OverrideNametagMessage:
@@ -2013,7 +2126,8 @@ static void JNICALL nativeOnReceive(JNIEnv* env, jclass, jobject packet) {
                                                     uint8_t b = valueData[vPos++];
                                                     vLen |= (b & 0x7F) << vShift;
                                                     vShift += 7;
-                                                    if (!(b & 0x80)) break;
+                                                    if (!(b & 0x80))
+                                                        break;
                                                 }
                                                 if (vFieldNum == 1 && vLen > 0 && vPos + vLen <= valueLen) {
                                                     const uint8_t* uuidData = valueData + vPos;
@@ -2030,19 +2144,26 @@ static void JNICALL nativeOnReceive(JNIEnv* env, jclass, jobject packet) {
                                                                 val |= (uint64_t)uuidData[uPos + i] << (i * 8);
                                                             }
                                                             uPos += 8;
-                                                            if (uFieldNum == 1) uuidHigh = val;
-                                                            else if (uFieldNum == 2) uuidLow = val;
+                                                            if (uFieldNum == 1)
+                                                                uuidHigh = val;
+                                                            else if (uFieldNum == 2)
+                                                                uuidLow = val;
                                                         } else if (uWireType == 0) {
-                                                            while (uPos < vLen && (uuidData[uPos++] & 0x80));
-                                                        } else break;
+                                                            while (uPos < vLen && (uuidData[uPos++] & 0x80))
+                                                                ;
+                                                        } else
+                                                            break;
                                                     }
                                                 } else if (vFieldNum == 3 && vLen > 0 && vPos + vLen <= valueLen) {
-                                                    jsonLines.push_back(std::string((const char*)(valueData + vPos), vLen));
+                                                    jsonLines.push_back(
+                                                        std::string((const char*)(valueData + vPos), vLen));
                                                 }
                                                 vPos += vLen;
                                             } else if (vWireType == 0) {
-                                                while (vPos < valueLen && (valueData[vPos++] & 0x80));
-                                            } else break;
+                                                while (vPos < valueLen && (valueData[vPos++] & 0x80))
+                                                    ;
+                                            } else
+                                                break;
                                             fieldCount++;
                                         }
 
@@ -2050,7 +2171,8 @@ static void JNICALL nativeOnReceive(JNIEnv* env, jclass, jobject packet) {
                                         static std::atomic<int> nametagDebug{0};
                                         if (nametagDebug.load() < 3) {
                                             log_debug("[Apollo] Nametag parsed: uuidHigh=%llx uuidLow=%llx lines=%zu",
-                                                      (unsigned long long)uuidHigh, (unsigned long long)uuidLow, jsonLines.size());
+                                                      (unsigned long long)uuidHigh, (unsigned long long)uuidLow,
+                                                      jsonLines.size());
                                             nametagDebug++;
                                         }
 
@@ -2059,15 +2181,17 @@ static void JNICALL nativeOnReceive(JNIEnv* env, jclass, jobject packet) {
                                         static std::string lastJsonPreview;
                                         if (!jsonLines.empty() && jsonPreviewCount.load() < 10) {
                                             std::string preview = jsonLines[0];
-                                            if (preview.length() > 80) preview = preview.substr(0, 80) + "...";
+                                            if (preview.length() > 80)
+                                                preview = preview.substr(0, 80) + "...";
                                             if (preview != lastJsonPreview) {
-                                                //log_debug("[Apollo]   JSON[0]: %s", preview.c_str());
+                                                // log_debug("[Apollo]   JSON[0]: %s", preview.c_str());
                                                 lastJsonPreview = preview;
                                                 jsonPreviewCount++;
                                             }
                                         }
 
-                                        // Detect color from JSON lines (prefer explicit Adventure color, fallback to format codes)
+                                        // Detect color from JSON lines (prefer explicit Adventure color, fallback to
+                                        // format codes)
                                         std::string detectedColor = "unknown";
 
                                         // Try explicit Adventure color field: "color":"#RRGGBB"
@@ -2075,41 +2199,44 @@ static void JNICALL nativeOnReceive(JNIEnv* env, jclass, jobject packet) {
                                             const std::string& firstLine = jsonLines[0];
                                             const std::string colorKey = "\"color\":\"#";
                                             size_t cPos = firstLine.find(colorKey);
-                                            if (cPos != std::string::npos && cPos + colorKey.size() + 6 <= firstLine.size()) {
+                                            if (cPos != std::string::npos &&
+                                                cPos + colorKey.size() + 6 <= firstLine.size()) {
                                                 std::string hex = firstLine.substr(cPos + colorKey.size(), 6);
-                                                for (auto& ch : hex) ch = (char)std::toupper((unsigned char)ch);
+                                                for (auto& ch : hex)
+                                                    ch = (char)std::toupper((unsigned char)ch);
 
-                                                static const std::unordered_map<std::string, std::string> kHexToColor = {
-                                                    // Vanilla chat/motd palette
-                                                    {"000000", "BLACK"},
-                                                    {"0000AA", "DARK_BLUE"},
-                                                    {"00AA00", "DARK_GREEN"},
-                                                    {"00AAAA", "DARK_AQUA"},
-                                                    {"AA0000", "DARK_RED"},
-                                                    {"AA00AA", "DARK_PURPLE"},
-                                                    {"FFAA00", "GOLD"},
-                                                    {"AAAAAA", "GRAY"},
-                                                    {"555555", "DARK_GRAY"},
-                                                    {"5555FF", "BLUE"},
-                                                    {"55FF55", "GREEN"},
-                                                    {"55FFFF", "AQUA"},
-                                                    {"FF5555", "RED"},
-                                                    {"FF55FF", "LIGHT_PURPLE"},
-                                                    {"FFFF55", "YELLOW"},
-                                                    {"FFFFFF", "WHITE"},
-                                                    // Extra hex observed in Apollo nametags
-                                                    {"55FF5F", "GREEN"},       // bright green
-                                                    {"FF5551", "RED"},         // bright red variant
-                                                    {"AA0003", "DARK_RED"},
-                                                    {"FF55FA", "LIGHT_PURPLE"},
-                                                    {"AA00AC", "DARK_PURPLE"},
-                                                    {"00AAAC", "DARK_AQUA"},
-                                                    {"5555FE", "BLUE"},
-                                                    {"FFFFFA", "WHITE"},
-                                                    {"AAAAAC", "GRAY"},
-                                                    {"55FFFA", "AQUA"},
-                                                    {"FFAA02", "GOLD"},
-                                                };
+                                                static const std::unordered_map<std::string, std::string> kHexToColor =
+                                                    {
+                                                        // Vanilla chat/motd palette
+                                                        {"000000", "BLACK"},
+                                                        {"0000AA", "DARK_BLUE"},
+                                                        {"00AA00", "DARK_GREEN"},
+                                                        {"00AAAA", "DARK_AQUA"},
+                                                        {"AA0000", "DARK_RED"},
+                                                        {"AA00AA", "DARK_PURPLE"},
+                                                        {"FFAA00", "GOLD"},
+                                                        {"AAAAAA", "GRAY"},
+                                                        {"555555", "DARK_GRAY"},
+                                                        {"5555FF", "BLUE"},
+                                                        {"55FF55", "GREEN"},
+                                                        {"55FFFF", "AQUA"},
+                                                        {"FF5555", "RED"},
+                                                        {"FF55FF", "LIGHT_PURPLE"},
+                                                        {"FFFF55", "YELLOW"},
+                                                        {"FFFFFF", "WHITE"},
+                                                        // Extra hex observed in Apollo nametags
+                                                        {"55FF5F", "GREEN"},  // bright green
+                                                        {"FF5551", "RED"},    // bright red variant
+                                                        {"AA0003", "DARK_RED"},
+                                                        {"FF55FA", "LIGHT_PURPLE"},
+                                                        {"AA00AC", "DARK_PURPLE"},
+                                                        {"00AAAC", "DARK_AQUA"},
+                                                        {"5555FE", "BLUE"},
+                                                        {"FFFFFA", "WHITE"},
+                                                        {"AAAAAC", "GRAY"},
+                                                        {"55FFFA", "AQUA"},
+                                                        {"FFAA02", "GOLD"},
+                                                    };
 
                                                 auto it = kHexToColor.find(hex);
                                                 if (it != kHexToColor.end()) {
@@ -2121,83 +2248,90 @@ static void JNICALL nativeOnReceive(JNIEnv* env, jclass, jobject packet) {
                                         // Fallback: Minecraft format codes (B'X) - only if Adventure color wasn't found
                                         if (detectedColor == "unknown") {
                                             for (const auto& line : jsonLines) {
-                                                size_t pos = line.find("\xc2" "\xa7");
+                                                size_t pos = line.find(
+                                                    "\xc2"
+                                                    "\xa7");
                                                 while (pos != std::string::npos && pos + 2 < line.size()) {
                                                     char code = (char)std::tolower((unsigned char)line[pos + 2]);
                                                     switch (code) {
-                                                    case '0':
-                                                        detectedColor = "BLACK";
-                                                        break;
-                                                    case '1':
-                                                        detectedColor = "DARK_BLUE";
-                                                        break;
-                                                    case '2':
-                                                        detectedColor = "DARK_GREEN";
-                                                        break;
-                                                    case '3':
-                                                        detectedColor = "DARK_AQUA";
-                                                        break;
-                                                    case '4':
-                                                        detectedColor = "DARK_RED";
-                                                        break;
-                                                    case '5':
-                                                        detectedColor = "DARK_PURPLE";
-                                                        break;
-                                                    case '6':
-                                                        detectedColor = "GOLD";
-                                                        break;
-                                                    case '7':
-                                                        detectedColor = "GRAY";
-                                                        break;
-                                                    case '8':
-                                                        detectedColor = "DARK_GRAY";
-                                                        break;
-                                                    case '9':
-                                                        detectedColor = "BLUE";
-                                                        break;
-                                                    case 'a':
-                                                        detectedColor = "GREEN";
-                                                        break;
-                                                    case 'b':
-                                                        detectedColor = "AQUA";
-                                                        break;
-                                                    case 'c':
-                                                        detectedColor = "RED";
-                                                        break;
-                                                    case 'd':
-                                                        detectedColor = "LIGHT_PURPLE";
-                                                        break;
-                                                    case 'e':
-                                                        detectedColor = "YELLOW";
-                                                        break;
-                                                    case 'f':
-                                                        detectedColor = "WHITE";
-                                                        break;
-                                                    default:
-                                                        break;
+                                                        case '0':
+                                                            detectedColor = "BLACK";
+                                                            break;
+                                                        case '1':
+                                                            detectedColor = "DARK_BLUE";
+                                                            break;
+                                                        case '2':
+                                                            detectedColor = "DARK_GREEN";
+                                                            break;
+                                                        case '3':
+                                                            detectedColor = "DARK_AQUA";
+                                                            break;
+                                                        case '4':
+                                                            detectedColor = "DARK_RED";
+                                                            break;
+                                                        case '5':
+                                                            detectedColor = "DARK_PURPLE";
+                                                            break;
+                                                        case '6':
+                                                            detectedColor = "GOLD";
+                                                            break;
+                                                        case '7':
+                                                            detectedColor = "GRAY";
+                                                            break;
+                                                        case '8':
+                                                            detectedColor = "DARK_GRAY";
+                                                            break;
+                                                        case '9':
+                                                            detectedColor = "BLUE";
+                                                            break;
+                                                        case 'a':
+                                                            detectedColor = "GREEN";
+                                                            break;
+                                                        case 'b':
+                                                            detectedColor = "AQUA";
+                                                            break;
+                                                        case 'c':
+                                                            detectedColor = "RED";
+                                                            break;
+                                                        case 'd':
+                                                            detectedColor = "LIGHT_PURPLE";
+                                                            break;
+                                                        case 'e':
+                                                            detectedColor = "YELLOW";
+                                                            break;
+                                                        case 'f':
+                                                            detectedColor = "WHITE";
+                                                            break;
+                                                        default:
+                                                            break;
                                                     }
-                                                    if (detectedColor != "unknown") break;
-                                                    pos = line.find("\xc2" "\xa7", pos + 3);
+                                                    if (detectedColor != "unknown")
+                                                        break;
+                                                    pos = line.find(
+                                                        "\xc2"
+                                                        "\xa7",
+                                                        pos + 3);
                                                 }
-                                                if (detectedColor != "unknown") break;
+                                                if (detectedColor != "unknown")
+                                                    break;
                                             }
-                                        } // end fallback if
+                                        }  // end fallback if
 
                                         // If still unknown, log a limited preview to diagnose color mapping
                                         if (detectedColor == "unknown" && !jsonLines.empty()) {
                                             static std::unordered_set<std::string> unknownLogged;
                                             std::string preview = jsonLines[0];
-                                            if (preview.length() > 80) preview = preview.substr(0, 80) + "...";
-                                            if (unknownLogged.size() < 20 && unknownLogged.find(preview) == unknownLogged.end()) {
+                                            if (preview.length() > 80)
+                                                preview = preview.substr(0, 80) + "...";
+                                            if (unknownLogged.size() < 20 &&
+                                                unknownLogged.find(preview) == unknownLogged.end()) {
                                                 char uuidStr[64];
-                                                snprintf(uuidStr, sizeof(uuidStr),
-                                                         "%08x-%04x-%04x-%04x-%012llx",
-                                                         (uint32_t)(uuidHigh >> 32),
-                                                         (uint16_t)(uuidHigh >> 16),
-                                                         (uint16_t)uuidHigh,
-                                                         (uint16_t)(uuidLow >> 48),
+                                                snprintf(uuidStr, sizeof(uuidStr), "%08x-%04x-%04x-%04x-%012llx",
+                                                         (uint32_t)(uuidHigh >> 32), (uint16_t)(uuidHigh >> 16),
+                                                         (uint16_t)uuidHigh, (uint16_t)(uuidLow >> 48),
                                                          (unsigned long long)(uuidLow & 0xFFFFFFFFFFFFULL));
-                                                log_debug("[Apollo] Nametag unknown color: UUID=%s JSON[0]=%s", uuidStr, preview.c_str());
+                                                log_debug("[Apollo] Nametag unknown color: UUID=%s JSON[0]=%s", uuidStr,
+                                                          preview.c_str());
                                                 unknownLogged.insert(preview);
                                             }
                                         }
@@ -2217,34 +2351,36 @@ static void JNICALL nativeOnReceive(JNIEnv* env, jclass, jobject packet) {
                                                     std::string clean;
                                                     for (size_t i = 0; i < playerName.size(); ++i) {
                                                         unsigned char c = (unsigned char)playerName[i];
-                                                        if (c == 0xC2 && i + 2 < playerName.size() && (unsigned char)playerName[i+1] == 0xA7) {
+                                                        if (c == 0xC2 && i + 2 < playerName.size() &&
+                                                            (unsigned char)playerName[i + 1] == 0xA7) {
                                                             i += 2;
                                                         } else if (c != 0xC2 && c != 0xA7) {
                                                             clean += playerName[i];
                                                         }
                                                     }
-                                                    if (!clean.empty()) playerName = clean;
+                                                    if (!clean.empty())
+                                                        playerName = clean;
                                                 }
                                             }
 
                                             static std::unordered_map<std::string, std::string> lastNametagColor;
-                                            std::string uuidKey = std::to_string(uuidHigh) + ":" + std::to_string(uuidLow);
+                                            std::string uuidKey =
+                                                std::to_string(uuidHigh) + ":" + std::to_string(uuidLow);
                                             auto itColor = lastNametagColor.find(uuidKey);
-                                            bool shouldLog = (itColor == lastNametagColor.end()) || (itColor->second != detectedColor);
+                                            bool shouldLog = (itColor == lastNametagColor.end()) ||
+                                                             (itColor->second != detectedColor);
                                             if (shouldLog) {
                                                 lastNametagColor[uuidKey] = detectedColor;
-                                                log_ok("[Apollo] Nametag: \"%s\" -> %s", playerName.c_str(), detectedColor.c_str());
+                                                log_ok("[Apollo] Nametag: \"%s\" -> %s", playerName.c_str(),
+                                                       detectedColor.c_str());
                                             }
-                                            
+
                                             // Register nametag color with FriendsManager for team detection
                                             if (friendsManager && detectedColor != "unknown") {
                                                 char uuidStr[64];
-                                                snprintf(uuidStr, sizeof(uuidStr),
-                                                         "%08x-%04x-%04x-%04x-%012llx",
-                                                         (uint32_t)(uuidHigh >> 32),
-                                                         (uint16_t)(uuidHigh >> 16),
-                                                         (uint16_t)uuidHigh,
-                                                         (uint16_t)(uuidLow >> 48),
+                                                snprintf(uuidStr, sizeof(uuidStr), "%08x-%04x-%04x-%04x-%012llx",
+                                                         (uint32_t)(uuidHigh >> 32), (uint16_t)(uuidHigh >> 16),
+                                                         (uint16_t)uuidHigh, (uint16_t)(uuidLow >> 48),
                                                          (unsigned long long)(uuidLow & 0xFFFFFFFFFFFFULL));
                                                 friendsManager->setApolloNametagColor(uuidStr, detectedColor);
                                             }
@@ -2259,7 +2395,8 @@ static void JNICALL nativeOnReceive(JNIEnv* env, jclass, jobject packet) {
                         if (packetBuffer) {
                             env->DeleteLocalRef(packetBuffer);
                         }
-                        if (env->ExceptionCheck()) env->ExceptionClear();
+                        if (env->ExceptionCheck())
+                            env->ExceptionClear();
                     }
                     env->ReleaseStringUTFChars(channelStr, channel);
                 }
@@ -2283,9 +2420,11 @@ static void JNICALL nativeOnReceive(JNIEnv* env, jclass, jobject packet) {
             mid_getAction = env->GetMethodID(cls_S3EPacketTeams, "getAction", "()I");
             mid_getName = env->GetMethodID(cls_S3EPacketTeams, "getName", "()Ljava/lang/String;");
             mid_getPlayers = env->GetMethodID(cls_S3EPacketTeams, "getPlayers", "()Ljava/util/Collection;");
-            if (env->ExceptionCheck()) env->ExceptionClear();
+            if (env->ExceptionCheck())
+                env->ExceptionClear();
         }
-        if (env->ExceptionCheck()) env->ExceptionClear();
+        if (env->ExceptionCheck())
+            env->ExceptionClear();
     }
 
     if (cls_S3EPacketTeams && env->IsInstanceOf(packet, cls_S3EPacketTeams)) {
@@ -2317,36 +2456,39 @@ static void JNICALL nativeOnReceive(JNIEnv* env, jclass, jobject packet) {
 
         if (isRelevant && teamPacketCount.load() < 20) {
             const char* actionStr = "";
-            switch(action) {
-            case 0:
-                actionStr = "CREATE";
-                break;
-            case 1:
-                actionStr = "REMOVE";
-                break;
-            case 2:
-                actionStr = "UPDATE";
-                break;
-            case 3:
-                actionStr = "ADD_PLAYERS";
-                break;
-            case 4:
-                actionStr = "REMOVE_PLAYERS";
-                break;
-            default:
-                actionStr = "UNKNOWN";
-                break;
+            switch (action) {
+                case 0:
+                    actionStr = "CREATE";
+                    break;
+                case 1:
+                    actionStr = "REMOVE";
+                    break;
+                case 2:
+                    actionStr = "UPDATE";
+                    break;
+                case 3:
+                    actionStr = "ADD_PLAYERS";
+                    break;
+                case 4:
+                    actionStr = "REMOVE_PLAYERS";
+                    break;
+                default:
+                    actionStr = "UNKNOWN";
+                    break;
             }
 
-            //log_ok("[Scoreboard] Team packet: action=%s team='%s' players=%d",
-            //       actionStr, teamName ? teamName : "?", playersCount);
+            // log_ok("[Scoreboard] Team packet: action=%s team='%s' players=%d",
+            //        actionStr, teamName ? teamName : "?", playersCount);
 
             teamPacketCount++;
         }
 
-        if (teamName) env->ReleaseStringUTFChars(nameStr, teamName);
-        if (nameStr) env->DeleteLocalRef(nameStr);
-        if (env->ExceptionCheck()) env->ExceptionClear();
+        if (teamName)
+            env->ReleaseStringUTFChars(nameStr, teamName);
+        if (nameStr)
+            env->DeleteLocalRef(nameStr);
+        if (env->ExceptionCheck())
+            env->ExceptionClear();
     }
 
     // Process Lunar Client nametag packets (legacy path)
@@ -2356,7 +2498,8 @@ static void JNICALL nativeOnReceive(JNIEnv* env, jclass, jobject packet) {
 }
 
 static bool ensureHookClass(JNIEnv* env) {
-    if (cls_PacketHook) return true;
+    if (cls_PacketHook)
+        return true;
 
     jclass hook = nullptr;
     if (!Java::AssignClass(kHookClassDot, hook)) {
@@ -2367,12 +2510,12 @@ static bool ensureHookClass(JNIEnv* env) {
 
     if (!hook) {
         if (!Java::ClassLoader) {
-            //log_err("[PacketInterceptor] No classloader available for PacketHook");
+            // log_err("[PacketInterceptor] No classloader available for PacketHook");
             return false;
         }
-        hook = env->DefineClass(kHookClassSlash, Java::ClassLoader,
-                                reinterpret_cast<const jbyte*>(kPacketHookClassBytes),
-                                static_cast<jint>(sizeof(kPacketHookClassBytes)));
+        hook =
+            env->DefineClass(kHookClassSlash, Java::ClassLoader, reinterpret_cast<const jbyte*>(kPacketHookClassBytes),
+                             static_cast<jint>(sizeof(kPacketHookClassBytes)));
         if (!hook) {
             if (env->ExceptionCheck()) {
                 env->ExceptionClear();
@@ -2383,7 +2526,7 @@ static bool ensureHookClass(JNIEnv* env) {
                 }
             }
             if (!hook) {
-                //log_err("[PacketInterceptor] Failed to define PacketHook class");
+                // log_err("[PacketInterceptor] Failed to define PacketHook class");
                 return false;
             }
         }
@@ -2418,8 +2561,10 @@ static bool ensureHookClass(JNIEnv* env) {
 }
 
 static bool installBytecodeHook(JNIEnv* env) {
-    if (bytecodeHookInstalled.load()) return true;
-    if (!Java::tiEnv) return false;
+    if (bytecodeHookInstalled.load())
+        return true;
+    if (!Java::tiEnv)
+        return false;
 
     jvmtiEventCallbacks callbacks;
     memset(&callbacks, 0, sizeof(callbacks));
@@ -2427,13 +2572,13 @@ static bool installBytecodeHook(JNIEnv* env) {
 
     jvmtiError err = Java::tiEnv->SetEventCallbacks(&callbacks, sizeof(callbacks));
     if (err != JVMTI_ERROR_NONE) {
-        //log_warn("[PacketInterceptor] Failed to set JVMTI class hook callbacks: %d", err);
+        // log_warn("[PacketInterceptor] Failed to set JVMTI class hook callbacks: %d", err);
         return false;
     }
 
     err = Java::tiEnv->SetEventNotificationMode(JVMTI_ENABLE, JVMTI_EVENT_CLASS_FILE_LOAD_HOOK, nullptr);
     if (err != JVMTI_ERROR_NONE) {
-        //log_warn("[PacketInterceptor] Failed to enable class hook events: %d", err);
+        // log_warn("[PacketInterceptor] Failed to enable class hook events: %d", err);
         return false;
     }
 
@@ -2441,7 +2586,7 @@ static bool installBytecodeHook(JNIEnv* env) {
 
     jclass nm = nullptr;
     if (Java::AssignClass(kTargetClassDot, nm)) {
-        jclass classes[1] = { nm };
+        jclass classes[1] = {nm};
         err = Java::tiEnv->RetransformClasses(1, classes);
         if (err == JVMTI_ERROR_NONE) {
             log_ok("[PacketInterceptor] Retransform requested for NetworkManager");
@@ -2459,7 +2604,7 @@ static bool installBytecodeHook(JNIEnv* env) {
     // Also retransform LCNetHandlerClient for Lunar nametag packet interception
     jclass lunarHandler = nullptr;
     if (Java::AssignClass("com.lunarclient.bukkitapi.nethandler.client.LCNetHandlerClient", lunarHandler)) {
-        jclass classes[1] = { lunarHandler };
+        jclass classes[1] = {lunarHandler};
         err = Java::tiEnv->RetransformClasses(1, classes);
         if (err == JVMTI_ERROR_NONE) {
             log_ok("[PacketInterceptor] Retransform requested for LCNetHandlerClient");
@@ -2478,7 +2623,7 @@ static bool installBytecodeHook(JNIEnv* env) {
     // Retransform NetHandlerPlayClient for handleCustomPayload hook
     jclass netHandler = nullptr;
     if (Java::AssignClass(kIncomingTargetClassDot, netHandler)) {
-        jclass classes[1] = { netHandler };
+        jclass classes[1] = {netHandler};
         err = Java::tiEnv->RetransformClasses(1, classes);
         if (err == JVMTI_ERROR_NONE) {
             log_ok("[PacketInterceptor] Retransform requested for NetHandlerPlayClient");
@@ -2497,17 +2642,18 @@ static bool installBytecodeHook(JNIEnv* env) {
 }
 
 static bool installMethodEntryHook() {
-    if (!Java::tiEnv) return false;
+    if (!Java::tiEnv)
+        return false;
 
     jvmtiEventCallbacks callbacks;
     memset(&callbacks, 0, sizeof(callbacks));
-    callbacks.MethodEntry = [](jvmtiEnv* jvmti_env, JNIEnv* jni_env,
-    jthread thread, jmethodID method) {
+    callbacks.MethodEntry = [](jvmtiEnv* jvmti_env, JNIEnv* jni_env, jthread thread, jmethodID method) {
         // Hook should be active for Blink OR NoItemRelease
-        bool shouldIntercept = blinkActive.load() ||
-                               (::noItemRelease && ::noItemRelease->enabled && ::noItemRelease->wasUsingItem);
+        bool shouldIntercept =
+            blinkActive.load() || (::noItemRelease && ::noItemRelease->enabled && ::noItemRelease->wasUsingItem);
 
-        if (!shouldIntercept) return;
+        if (!shouldIntercept)
+            return;
 
         char* methodName = nullptr;
         jvmti_env->GetMethodName(method, &methodName, nullptr, nullptr);
@@ -2526,32 +2672,34 @@ static bool installMethodEntryHook() {
 
                     if (packet && !shouldSendPacket(jni_env, packet)) {
                         jvmti_env->ForceEarlyReturnVoid(thread);
-                        //log_debug("[PacketInterceptor] Blocked sendPacket via ForceEarlyReturn");
+                        // log_debug("[PacketInterceptor] Blocked sendPacket via ForceEarlyReturn");
                     }
                     if (packet) {
                         jni_env->DeleteLocalRef(packet);
                     }
                 }
-                if (classSig) jvmti_env->Deallocate((unsigned char*)classSig);
+                if (classSig)
+                    jvmti_env->Deallocate((unsigned char*)classSig);
                 jni_env->DeleteLocalRef(declaringClass);
             }
         }
-        if (methodName) jvmti_env->Deallocate((unsigned char*)methodName);
+        if (methodName)
+            jvmti_env->Deallocate((unsigned char*)methodName);
     };
 
     jvmtiError err = Java::tiEnv->SetEventCallbacks(&callbacks, sizeof(callbacks));
     if (err != JVMTI_ERROR_NONE) {
-        //log_warn("[PacketInterceptor] Failed to set JVMTI callbacks: %d", err);
+        // log_warn("[PacketInterceptor] Failed to set JVMTI callbacks: %d", err);
         return false;
     }
 
     err = Java::tiEnv->SetEventNotificationMode(JVMTI_ENABLE, JVMTI_EVENT_METHOD_ENTRY, nullptr);
     if (err == JVMTI_ERROR_NONE) {
-        //log_ok("[PacketInterceptor] JVMTI Method Entry hook installed");
+        // log_ok("[PacketInterceptor] JVMTI Method Entry hook installed");
         return true;
     }
 
-    //log_warn("[PacketInterceptor] Failed to enable method entry events: %d", err);
+    // log_warn("[PacketInterceptor] Failed to enable method entry events: %d", err);
     return false;
 }
 
@@ -2559,7 +2707,8 @@ static bool installMethodEntryHook() {
 // Check if packet is a movement packet (C03PacketPlayer or subclass)
 // ============================================================================
 static bool isMovementPacket(JNIEnv* env, jobject packet) {
-    if (!packet) return false;
+    if (!packet)
+        return false;
 
     // Check against cached classes
     if (cls_C03PacketPlayer && env->IsInstanceOf(packet, cls_C03PacketPlayer)) {
@@ -2580,10 +2729,9 @@ static bool isMovementPacket(JNIEnv* env, jobject packet) {
     if (packetClass) {
         char* sig = nullptr;
         if (Java::tiEnv && Java::tiEnv->GetClassSignature(packetClass, &sig, nullptr) == JVMTI_ERROR_NONE) {
-            bool isMovement = (strstr(sig, "C03PacketPlayer") != nullptr) ||
-                              (strstr(sig, "C04PacketPlayerPosition") != nullptr) ||
-                              (strstr(sig, "C05PacketPlayerLook") != nullptr) ||
-                              (strstr(sig, "C06PacketPlayerPosLook") != nullptr);
+            bool isMovement =
+                (strstr(sig, "C03PacketPlayer") != nullptr) || (strstr(sig, "C04PacketPlayerPosition") != nullptr) ||
+                (strstr(sig, "C05PacketPlayerLook") != nullptr) || (strstr(sig, "C06PacketPlayerPosLook") != nullptr);
             Java::tiEnv->Deallocate((unsigned char*)sig);
             env->DeleteLocalRef(packetClass);
             return isMovement;
@@ -2598,10 +2746,12 @@ static bool isMovementPacket(JNIEnv* env, jobject packet) {
 // Get packet type name for debugging
 // ============================================================================
 static const char* getPacketTypeName(JNIEnv* env, jobject packet) {
-    if (!packet) return "null";
+    if (!packet)
+        return "null";
 
     jclass packetClass = env->GetObjectClass(packet);
-    if (!packetClass) return "unknown";
+    if (!packetClass)
+        return "unknown";
 
     static char nameBuf[128];
     nameBuf[0] = '\0';
@@ -2615,8 +2765,8 @@ static const char* getPacketTypeName(JNIEnv* env, jobject packet) {
                 strncpy_s(nameBuf, sizeof(nameBuf), lastSlash + 1, _TRUNCATE);
                 // Remove trailing semicolon
                 size_t len = strlen(nameBuf);
-                if (len > 0 && nameBuf[len-1] == ';') {
-                    nameBuf[len-1] = '\0';
+                if (len > 0 && nameBuf[len - 1] == ';') {
+                    nameBuf[len - 1] = '\0';
                 }
             } else {
                 strncpy_s(nameBuf, sizeof(nameBuf), sig, _TRUNCATE);
@@ -2637,13 +2787,13 @@ bool Init() {
     log_debug("[PacketInterceptor] Initializing...");
 
     if (!Java::Initialized) {
-        //log_err("[PacketInterceptor] Java not initialized");
+        // log_err("[PacketInterceptor] Java not initialized");
         return false;
     }
 
     JNIEnv* env = Java::Env;
     if (!env) {
-        //log_err("[PacketInterceptor] No JNIEnv");
+        // log_err("[PacketInterceptor] No JNIEnv");
         return false;
     }
 
@@ -2652,24 +2802,24 @@ bool Init() {
     bool haveCaps = false;
 
     if (!Java::tiEnv) {
-        //log_warn("[PacketInterceptor] JVMTI not available - limited functionality");
+        // log_warn("[PacketInterceptor] JVMTI not available - limited functionality");
     } else {
-        //log_ok("[PacketInterceptor] JVMTI available");
+        // log_ok("[PacketInterceptor] JVMTI available");
         if (Java::tiEnv->GetCapabilities(&caps) == JVMTI_ERROR_NONE) {
             haveCaps = true;
-            //log_debug("[PacketInterceptor] JVMTI Capabilities:");
-            //log_debug("  can_retransform_classes: %d", caps.can_retransform_classes);
-            //log_debug("  can_redefine_classes: %d", caps.can_redefine_classes);
-            //log_debug("  can_generate_all_class_hook_events: %d", caps.can_generate_all_class_hook_events);
-            //log_debug("  can_generate_method_entry_events: %d", caps.can_generate_method_entry_events);
-            //log_debug("  can_force_early_return: %d", caps.can_force_early_return);
-            //log_debug("  can_access_local_variables: %d", caps.can_access_local_variables);
+            // log_debug("[PacketInterceptor] JVMTI Capabilities:");
+            // log_debug("  can_retransform_classes: %d", caps.can_retransform_classes);
+            // log_debug("  can_redefine_classes: %d", caps.can_redefine_classes);
+            // log_debug("  can_generate_all_class_hook_events: %d", caps.can_generate_all_class_hook_events);
+            // log_debug("  can_generate_method_entry_events: %d", caps.can_generate_method_entry_events);
+            // log_debug("  can_force_early_return: %d", caps.can_force_early_return);
+            // log_debug("  can_access_local_variables: %d", caps.can_access_local_variables);
         }
     }
 
     // Cache packet classes
     if (!cachePacketClasses(env)) {
-        //log_err("[PacketInterceptor] Failed to cache packet classes");
+        // log_err("[PacketInterceptor] Failed to cache packet classes");
         return false;
     }
 
@@ -2681,21 +2831,21 @@ bool Init() {
             if (ensureHookClass(env) && installBytecodeHook(env)) {
                 interceptReady = true;
             } else {
-                //log_warn("[PacketInterceptor] Bytecode hook setup failed");
+                // log_warn("[PacketInterceptor] Bytecode hook setup failed");
             }
         } else {
-            //log_warn("[PacketInterceptor] Class hook capabilities unavailable");
+            // log_warn("[PacketInterceptor] Class hook capabilities unavailable");
         }
 
-        if (!interceptReady && caps.can_generate_method_entry_events &&
-                caps.can_force_early_return && caps.can_access_local_variables) {
+        if (!interceptReady && caps.can_generate_method_entry_events && caps.can_force_early_return &&
+            caps.can_access_local_variables) {
             if (installMethodEntryHook()) {
                 interceptReady = true;
             }
         }
 
         if (!interceptReady) {
-            //log_warn("[PacketInterceptor] No usable JVMTI interception path available");
+            // log_warn("[PacketInterceptor] No usable JVMTI interception path available");
         }
     }
 
@@ -2704,19 +2854,19 @@ bool Init() {
     if (networkManagerInstance) {
         // Create global ref
         networkManagerInstance = env->NewGlobalRef(networkManagerInstance);
-        //log_ok("[PacketInterceptor] Cached NetworkManager instance as GlobalRef");
+        // log_ok("[PacketInterceptor] Cached NetworkManager instance as GlobalRef");
     } else {
-        //log_warn("[PacketInterceptor] No NetworkManager yet - will try later");
+        // log_warn("[PacketInterceptor] No NetworkManager yet - will try later");
     }
 
     initialized = true;
-    //log_ok("[PacketInterceptor] Initialized successfully");
+    // log_ok("[PacketInterceptor] Initialized successfully");
 
     return true;
 }
 
 void Shutdown() {
-    //log_debug("[PacketInterceptor] Shutting down...");
+    // log_debug("[PacketInterceptor] Shutting down...");
 
     blinkActive = false;
     hybridIntercept = false;
@@ -2751,12 +2901,18 @@ void Shutdown() {
             env->DeleteGlobalRef(cls_PacketHook);
             cls_PacketHook = nullptr;
         }
-        if (cls_NetworkManager) env->DeleteGlobalRef(cls_NetworkManager);
-        if (cls_Packet) env->DeleteGlobalRef(cls_Packet);
-        if (cls_C03PacketPlayer) env->DeleteGlobalRef(cls_C03PacketPlayer);
-        if (cls_C04PacketPlayerPosition) env->DeleteGlobalRef(cls_C04PacketPlayerPosition);
-        if (cls_C05PacketPlayerLook) env->DeleteGlobalRef(cls_C05PacketPlayerLook);
-        if (cls_C06PacketPlayerPosLook) env->DeleteGlobalRef(cls_C06PacketPlayerPosLook);
+        if (cls_NetworkManager)
+            env->DeleteGlobalRef(cls_NetworkManager);
+        if (cls_Packet)
+            env->DeleteGlobalRef(cls_Packet);
+        if (cls_C03PacketPlayer)
+            env->DeleteGlobalRef(cls_C03PacketPlayer);
+        if (cls_C04PacketPlayerPosition)
+            env->DeleteGlobalRef(cls_C04PacketPlayerPosition);
+        if (cls_C05PacketPlayerLook)
+            env->DeleteGlobalRef(cls_C05PacketPlayerLook);
+        if (cls_C06PacketPlayerPosLook)
+            env->DeleteGlobalRef(cls_C06PacketPlayerPosLook);
     }
 
     fid_pkt_x = nullptr;
@@ -2767,7 +2923,7 @@ void Shutdown() {
     packetFieldsWarned = false;
 
     initialized = false;
-    //log_ok("[PacketInterceptor] Shutdown complete");
+    // log_ok("[PacketInterceptor] Shutdown complete");
 }
 
 bool IsReady() {
@@ -2798,11 +2954,12 @@ void setBlinkActive(bool active) {
             }
         }
 
-        //log_ok("[PacketInterceptor] Hybrid Blink ACTIVATED - delay %d ticks", kHybridDelayTicks);
+        // log_ok("[PacketInterceptor] Hybrid Blink ACTIVATED - delay %d ticks", kHybridDelayTicks);
 
         if (!packetFieldsReady.load()) {
             JNIEnv* env = Java::Env;
-            if (env) cachePacketFields(env);
+            if (env)
+                cachePacketFields(env);
         }
 
         // Ensure we have NetworkManager instance
@@ -2812,13 +2969,13 @@ void setBlinkActive(bool active) {
                 jobject nm = getNetworkManager(env);
                 if (nm) {
                     networkManagerInstance = env->NewGlobalRef(nm);
-                    //log_ok("[PacketInterceptor] Late-cached NetworkManager instance");
+                    // log_ok("[PacketInterceptor] Late-cached NetworkManager instance");
                 }
             }
         }
     } else if (!active && wasActive) {
         hybridRelease = true;
-        //log_ok("[PacketInterceptor] Hybrid Blink DEACTIVATED - releasing (queue: %zu)", getDesiredQueueCount());
+        // log_ok("[PacketInterceptor] Hybrid Blink DEACTIVATED - releasing (queue: %zu)", getDesiredQueueCount());
     }
 }
 
@@ -2834,7 +2991,7 @@ int getQueuedCount() {
 void flushQueue() {
     JNIEnv* env = Java::Env;
     if (!env || !networkManagerInstance || !mid_sendPacket) {
-        //log_err("[PacketInterceptor] Cannot flush - missing dependencies");
+        // log_err("[PacketInterceptor] Cannot flush - missing dependencies");
         return;
     }
 
@@ -2842,17 +2999,17 @@ void flushQueue() {
     {
         std::lock_guard<std::mutex> lock(queueMutex);
         if (packetQueue.empty()) {
-            //log_debug("[PacketInterceptor] Nothing to flush");
+            // log_debug("[PacketInterceptor] Nothing to flush");
             return;
         }
         toSend.swap(packetQueue);
     }
 
     int count = (int)toSend.size();
-    //log_ok("[PacketInterceptor] Flushing %d queued packets...", count);
+    // log_ok("[PacketInterceptor] Flushing %d queued packets...", count);
 
     for (auto& qp : toSend) {
-        //log_debug("[PacketInterceptor] Sending queued packet: %s", getPacketTypeName(env, qp.packet));
+        // log_debug("[PacketInterceptor] Sending queued packet: %s", getPacketTypeName(env, qp.packet));
 
         // Call sendPacket on NetworkManager
         env->CallVoidMethod(networkManagerInstance, mid_sendPacket, qp.packet);
@@ -2860,7 +3017,7 @@ void flushQueue() {
         if (env->ExceptionCheck()) {
             env->ExceptionDescribe();
             env->ExceptionClear();
-            //log_err("[PacketInterceptor] Exception while sending queued packet");
+            // log_err("[PacketInterceptor] Exception while sending queued packet");
         }
 
         if (qp.hasPos) {
@@ -2870,7 +3027,7 @@ void flushQueue() {
         }
         env->DeleteGlobalRef(qp.packet);
     }
-    //log_ok("[PacketInterceptor] Flush complete - sent %d packets", count);
+    // log_ok("[PacketInterceptor] Flush complete - sent %d packets", count);
 }
 
 void clearQueue() {
@@ -2878,11 +3035,12 @@ void clearQueue() {
 
     JNIEnv* env = Java::Env;
     for (auto& qp : packetQueue) {
-        if (env) env->DeleteGlobalRef(qp.packet);
+        if (env)
+            env->DeleteGlobalRef(qp.packet);
     }
     packetQueue.clear();
 
-    //log_debug("[PacketInterceptor] Queue cleared");
+    // log_debug("[PacketInterceptor] Queue cleared");
 }
 
 void setDebugPacketLogging(bool enabled) {
@@ -2895,22 +3053,23 @@ bool isDebugPacketLogging() {
 }
 
 void printDebugInfo() {
-    //log_debug("=== PacketInterceptor Debug ===");
-    //log_debug("  Initialized: %s", initialized.load() ? "YES" : "NO");
-    //log_debug("  Blink Active: %s", blinkActive.load() ? "YES" : "NO");
-    //log_debug("  Hybrid Intercept: %s", hybridIntercept.load() ? "YES" : "NO");
-    //log_debug("  Hybrid Release: %s", hybridRelease.load() ? "YES" : "NO");
-    //log_debug("  Queued Packets: %d", getQueuedCount());
-    //log_debug("  Desired Queue: %zu", getDesiredQueueCount());
-    //log_debug("  Packet Fields Ready: %s", packetFieldsReady.load() ? "YES" : "NO");
-    //log_debug("  NetworkManager: %p", networkManagerInstance);
-    //log_debug("  sendPacket method: %p", mid_sendPacket);
-    //log_debug("  C03PacketPlayer class: %p", cls_C03PacketPlayer);
+    // log_debug("=== PacketInterceptor Debug ===");
+    // log_debug("  Initialized: %s", initialized.load() ? "YES" : "NO");
+    // log_debug("  Blink Active: %s", blinkActive.load() ? "YES" : "NO");
+    // log_debug("  Hybrid Intercept: %s", hybridIntercept.load() ? "YES" : "NO");
+    // log_debug("  Hybrid Release: %s", hybridRelease.load() ? "YES" : "NO");
+    // log_debug("  Queued Packets: %d", getQueuedCount());
+    // log_debug("  Desired Queue: %zu", getDesiredQueueCount());
+    // log_debug("  Packet Fields Ready: %s", packetFieldsReady.load() ? "YES" : "NO");
+    // log_debug("  NetworkManager: %p", networkManagerInstance);
+    // log_debug("  sendPacket method: %p", mid_sendPacket);
+    // log_debug("  C03PacketPlayer class: %p", cls_C03PacketPlayer);
 }
 
 bool getLastSentPosition(double& x, double& y, double& z) {
     std::lock_guard<std::mutex> lock(shadowMutex);
-    if (!haveLastSent) return false;
+    if (!haveLastSent)
+        return false;
     x = lastSentPos.x;
     y = lastSentPos.y;
     z = lastSentPos.z;
@@ -2918,7 +3077,8 @@ bool getLastSentPosition(double& x, double& y, double& z) {
 }
 
 void Tick() {
-    if (!hybridIntercept.load()) return;
+    if (!hybridIntercept.load())
+        return;
 
     if (packetFieldsReady.load()) {
         if (hybridRelease.load() && player.isValid()) {
@@ -2942,22 +3102,24 @@ void Tick() {
                 clearDesiredQueue();
                 hybridRelease = false;
                 hybridIntercept = false;
-                //log_ok("[PacketInterceptor] Hybrid release complete - caught up to client");
+                // log_ok("[PacketInterceptor] Hybrid release complete - caught up to client");
             }
         }
         return;
     }
 
     JNIEnv* env = Java::Env;
-    if (!env) return;
+    if (!env)
+        return;
     if (!networkManagerInstance) {
         jobject nm = getNetworkManager(env);
         if (nm) {
             networkManagerInstance = env->NewGlobalRef(nm);
-            //log_ok("[PacketInterceptor] Late-cached NetworkManager instance");
+            // log_ok("[PacketInterceptor] Late-cached NetworkManager instance");
         }
     }
-    if (!networkManagerInstance || !mid_sendPacket) return;
+    if (!networkManagerInstance || !mid_sendPacket)
+        return;
     if (!packetFieldsReady.load()) {
         cachePacketFields(env);
     }
@@ -2973,7 +3135,8 @@ void Tick() {
     {
         std::lock_guard<std::mutex> lock(shadowMutex);
         haveLast = haveLastSent;
-        if (haveLast) lastPos = lastSentPos;
+        if (haveLast)
+            lastPos = lastSentPos;
     }
 
     QueuedPacket toSend{};
@@ -3008,7 +3171,7 @@ void Tick() {
         }
 
         if (sendIndex > 0) {
-            //log_debug("[PacketInterceptor] Hybrid skip %zu packet(s) to catch up", sendIndex);
+            // log_debug("[PacketInterceptor] Hybrid skip %zu packet(s) to catch up", sendIndex);
             for (size_t i = 0; i < sendIndex; ++i) {
                 env->DeleteGlobalRef(packetQueue[i].packet);
             }
@@ -3024,14 +3187,15 @@ void Tick() {
         }
     }
 
-    if (!haveSend) return;
+    if (!haveSend)
+        return;
     lastHybridSend = now;
 
     env->CallVoidMethod(networkManagerInstance, mid_sendPacket, toSend.packet);
     if (env->ExceptionCheck()) {
         env->ExceptionDescribe();
         env->ExceptionClear();
-        //log_err("[PacketInterceptor] Exception while sending hybrid packet");
+        // log_err("[PacketInterceptor] Exception while sending hybrid packet");
     }
 
     if (!toSend.hasPos && packetFieldsReady.load()) {
@@ -3053,10 +3217,9 @@ void Tick() {
         if (packetQueue.empty()) {
             hybridRelease = false;
             hybridIntercept = false;
-            //log_ok("[PacketInterceptor] Hybrid release complete - passthrough restored");
+            // log_ok("[PacketInterceptor] Hybrid release complete - passthrough restored");
         }
     }
-
 }
 
 bool shouldSendPacket(JNIEnv* env, jobject packet) {
@@ -3093,22 +3256,28 @@ bool shouldSendPacket(JNIEnv* env, jobject packet) {
                                 // Check if it's C07PacketPlayerDigging
                                 if (strstr(cstr, "C07PacketPlayerDigging") != nullptr) {
                                     bool shouldBlock = false;
-                                    
+
                                     // Try 1.8.9+ method first: enum Action field
-                                    jfieldID statusField = env->GetFieldID(cls, "status", "Lnet/minecraft/network/play/client/C07PacketPlayerDigging$Action;");
-                                    if (env->ExceptionCheck()) env->ExceptionClear();
-                                    
+                                    jfieldID statusField = env->GetFieldID(
+                                        cls, "status",
+                                        "Lnet/minecraft/network/play/client/C07PacketPlayerDigging$Action;");
+                                    if (env->ExceptionCheck())
+                                        env->ExceptionClear();
+
                                     if (statusField) {
                                         // 1.8.9+ path: enum field
                                         jobject statusObj = env->GetObjectField(packet, statusField);
                                         if (statusObj) {
                                             jclass statusCls = env->GetObjectClass(statusObj);
                                             if (statusCls) {
-                                                jmethodID nameMethod = env->GetMethodID(statusCls, "name", "()Ljava/lang/String;");
+                                                jmethodID nameMethod =
+                                                    env->GetMethodID(statusCls, "name", "()Ljava/lang/String;");
                                                 if (nameMethod) {
-                                                    jstring enumName = (jstring)env->CallObjectMethod(statusObj, nameMethod);
+                                                    jstring enumName =
+                                                        (jstring)env->CallObjectMethod(statusObj, nameMethod);
                                                     if (enumName) {
-                                                        const char* statusStr = env->GetStringUTFChars(enumName, nullptr);
+                                                        const char* statusStr =
+                                                            env->GetStringUTFChars(enumName, nullptr);
                                                         if (statusStr) {
                                                             shouldBlock = (strcmp(statusStr, "RELEASE_USE_ITEM") == 0);
                                                             env->ReleaseStringUTFChars(enumName, statusStr);
@@ -3125,27 +3294,29 @@ bool shouldSendPacket(JNIEnv* env, jobject packet) {
                                         // In 1.7.10, the field is obfuscated as 'field_149508_e', not 'status'
                                         // Value 5 = RELEASE_USE_ITEM
                                         jfieldID intStatusField = env->GetFieldID(cls, "field_149508_e", "I");
-                                        if (env->ExceptionCheck()) env->ExceptionClear();
-                                        
+                                        if (env->ExceptionCheck())
+                                            env->ExceptionClear();
+
                                         // Fallback: try 'status' in case it's deobfuscated
                                         if (!intStatusField) {
                                             intStatusField = env->GetFieldID(cls, "status", "I");
-                                            if (env->ExceptionCheck()) env->ExceptionClear();
+                                            if (env->ExceptionCheck())
+                                                env->ExceptionClear();
                                         }
-                                        
+
                                         if (intStatusField) {
                                             jint statusValue = env->GetIntField(packet, intStatusField);
                                             // 5 = RELEASE_USE_ITEM in 1.7.10
                                             shouldBlock = (statusValue == 5);
                                         }
                                     }
-                                    
+
                                     // Clean up and return if we should block
                                     env->ReleaseStringUTFChars(jname, cstr);
                                     env->DeleteLocalRef(jname);
                                     env->DeleteLocalRef(clsCls);
                                     env->DeleteLocalRef(cls);
-                                    
+
                                     if (shouldBlock) {
                                         return false;
                                     }
@@ -3158,7 +3329,7 @@ bool shouldSendPacket(JNIEnv* env, jobject packet) {
                     }
                     env->DeleteLocalRef(clsCls);
                 }
-skip_cleanup:  // Jump here if we already cleaned up references
+            skip_cleanup:  // Jump here if we already cleaned up references
                 env->DeleteLocalRef(cls);
             }
             // Clear any potential exceptions from the check
@@ -3251,7 +3422,7 @@ skip_cleanup:  // Jump here if we already cleaned up references
                 clearDesiredQueue();
                 hybridRelease = false;
                 hybridIntercept = false;
-                //log_ok("[PacketInterceptor] Hybrid release complete - caught up to client");
+                // log_ok("[PacketInterceptor] Hybrid release complete - caught up to client");
             }
         }
 
@@ -3278,12 +3449,12 @@ skip_cleanup:  // Jump here if we already cleaned up references
         if (packetQueue.size() > kHybridMaxQueue) {
             env->DeleteGlobalRef(packetQueue.front().packet);
             packetQueue.erase(packetQueue.begin());
-            //log_warn("[PacketInterceptor] Hybrid queue capped at %zu packets", kHybridMaxQueue);
+            // log_warn("[PacketInterceptor] Hybrid queue capped at %zu packets", kHybridMaxQueue);
         }
 
         static int debugCounter = 0;
         if (++debugCounter % 20 == 0 || packetQueue.size() <= 3) {
-            //log_debug("[PacketInterceptor] Queued %s (total: %d)",
+            // log_debug("[PacketInterceptor] Queued %s (total: %d)",
             getPacketTypeName(env, packet), (int)packetQueue.size();
         }
     }
@@ -3291,4 +3462,4 @@ skip_cleanup:  // Jump here if we already cleaned up references
     return false;  // Block this packet
 }
 
-} // namespace PacketInterceptor
+}  // namespace PacketInterceptor

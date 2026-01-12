@@ -2,15 +2,14 @@
 
 #include "../module.h"
 
-class NoJumpDelay : public Module
-{
+class NoJumpDelay : public Module {
 public:
-	NoJumpDelay();
+    NoJumpDelay();
 
-	void onEnable() override;
-	void onDisable() override;
-	void onUpdate() override;
-	void onRenderMenu() override;
+    void onEnable() override;
+    void onDisable() override;
+    void onUpdate() override;
+    void onRenderMenu() override;
 };
 
 extern NoJumpDelay* noJumpDelay;

@@ -1,9 +1,9 @@
 #pragma once
 
-#include "java.h"
-#include <vector>
-#include <mutex>
 #include <atomic>
+#include <mutex>
+#include <vector>
+#include "java.h"
 
 // ============================================================================
 // PacketInterceptor - JVMTI-based packet filtering for Blink
@@ -33,7 +33,7 @@ bool isBlinkActive();
 int getQueuedCount();
 void flushQueue();  // Send all queued packets
 void clearQueue();  // Discard queued packets
-void Tick();  // Drive hybrid queue (continuous movement stream)
+void Tick();        // Drive hybrid queue (continuous movement stream)
 
 // Debug packet logging - logs all intercepted packets to console
 void setDebugPacketLogging(bool enabled);
@@ -49,4 +49,4 @@ bool getLastSentPosition(double& x, double& y, double& z);
 // Returns true if packet should be sent, false to block
 bool shouldSendPacket(JNIEnv* env, jobject packet);
 
-} // namespace PacketInterceptor
+}  // namespace PacketInterceptor

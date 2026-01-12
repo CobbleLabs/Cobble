@@ -2,15 +2,14 @@
 
 #include "../module.h"
 
-class Sprint : public Module
-{
+class Sprint : public Module {
 public:
-	Sprint();
+    Sprint();
 
-	void onEnable() override;
-	void onDisable() override;
-	void onUpdate() override;
-	void onRenderMenu() override;
+    void onEnable() override;
+    void onDisable() override;
+    void onUpdate() override;
+    void onRenderMenu() override;
 };
 
 extern Sprint* sprint;

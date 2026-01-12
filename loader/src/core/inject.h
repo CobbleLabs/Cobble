@@ -9,9 +9,9 @@ using f_GetProcAddress = UINT_PTR(WINAPI*)(HINSTANCE hModule, const char* lpProc
 using f_DllMain = BOOL(WINAPI*)(void* hDll, DWORD dwReason, void* pReserved);
 
 struct MANUAL_MAPPING_DATA {
-	f_LoadLibraryA pLoadLibraryA;
-	f_GetProcAddress pGetProcAddress;
-	HINSTANCE hMod;
+    f_LoadLibraryA pLoadLibraryA;
+    f_GetProcAddress pGetProcAddress;
+    HINSTANCE hMod;
 };
 
 // Inject DLL into target process using Manual Mapping (from Disk)
@@ -28,4 +28,3 @@ bool isDllInjected(DWORD pid, const std::wstring& dllName);
 
 // Eject DLL from target process
 bool ejectDll(DWORD pid, const std::wstring& dllName);
-

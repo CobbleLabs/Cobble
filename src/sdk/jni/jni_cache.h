@@ -13,8 +13,8 @@ namespace JniCache {
 // Core classes
 extern jclass cls_Minecraft;
 extern jclass cls_WorldClient;
-extern jclass cls_EntityPlayerSP;    // 1.8.x local player
-extern jclass cls_EntityClientPlayerMP; // 1.7.10 local player
+extern jclass cls_EntityPlayerSP;        // 1.8.x local player
+extern jclass cls_EntityClientPlayerMP;  // 1.7.10 local player
 
 // Entity hierarchy
 extern jclass cls_Entity;
@@ -31,7 +31,7 @@ extern jclass cls_MouseHelper;
 extern jclass cls_RenderManager;
 extern jclass cls_MovingObjectPosition;
 extern jclass cls_MovingObjectType;
-extern jclass cls_BlockPos;          // 1.8.x only
+extern jclass cls_BlockPos;  // 1.8.x only
 extern jclass cls_Vec3;
 extern jclass cls_Block;
 extern jclass cls_IBlockState;
@@ -317,4 +317,4 @@ void Cleanup();
 // Check if cache is initialized
 bool IsInitialized();
 
-} // namespace JniCache
+}  // namespace JniCache

@@ -2,19 +2,18 @@
 
 #include "../module.h"
 
-class FastPlace : public Module
-{
+class FastPlace : public Module {
 public:
-	FastPlace();
+    FastPlace();
 
-	void onEnable() override;
-	void onDisable() override;
-	void onUpdate() override;
-	void onRenderMenu() override;
+    void onEnable() override;
+    void onDisable() override;
+    void onUpdate() override;
+    void onRenderMenu() override;
 
-	struct Settings {
-		bool blocksOnly = true; // Only for blocks, not items
-	} settings;
+    struct Settings {
+        bool blocksOnly = true;  // Only for blocks, not items
+    } settings;
 };
 
 extern FastPlace* fastPlace;

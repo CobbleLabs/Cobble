@@ -61,60 +61,29 @@ struct PS_ATTRIBUTE_LIST {
 };
 
 // Function pointer types for NT syscalls
-using NtCreateSection_t = int32_t(__stdcall*)(
-    void** SectionHandle,
-    uint32_t DesiredAccess,
-    OBJECT_ATTRIBUTES* ObjectAttributes,
-    LARGE_INTEGER* MaximumSize,
-    uint32_t SectionPageProtection,
-    uint32_t AllocationAttributes,
-    void* FileHandle
-);
+using NtCreateSection_t = int32_t(__stdcall*)(void** SectionHandle, uint32_t DesiredAccess,
+                                              OBJECT_ATTRIBUTES* ObjectAttributes, LARGE_INTEGER* MaximumSize,
+                                              uint32_t SectionPageProtection, uint32_t AllocationAttributes,
+                                              void* FileHandle);
 
-using NtMapViewOfSection_t = int32_t(__stdcall*)(
-    void* SectionHandle,
-    void* ProcessHandle,
-    void** BaseAddress,
-    size_t ZeroBits,
-    size_t CommitSize,
-    LARGE_INTEGER* SectionOffset,
-    size_t* ViewSize,
-    uint32_t InheritDisposition,
-    uint32_t AllocationType,
-    uint32_t Win32Protect
-);
+using NtMapViewOfSection_t = int32_t(__stdcall*)(void* SectionHandle, void* ProcessHandle, void** BaseAddress,
+                                                 size_t ZeroBits, size_t CommitSize, LARGE_INTEGER* SectionOffset,
+                                                 size_t* ViewSize, uint32_t InheritDisposition, uint32_t AllocationType,
+                                                 uint32_t Win32Protect);
 
-using NtUnmapViewOfSection_t = int32_t(__stdcall*)(
-    void* ProcessHandle,
-    void* BaseAddress
-);
+using NtUnmapViewOfSection_t = int32_t(__stdcall*)(void* ProcessHandle, void* BaseAddress);
 
 using NtClose_t = int32_t(__stdcall*)(void* Handle);
 
-using NtCreateThreadEx_t = int32_t(__stdcall*)(
-    void** ThreadHandle,
-    uint32_t DesiredAccess,
-    OBJECT_ATTRIBUTES* ObjectAttributes,
-    void* ProcessHandle,
-    void* StartRoutine,
-    void* Argument,
-    uint32_t CreateFlags,
-    size_t ZeroBits,
-    size_t StackSize,
-    size_t MaximumStackSize,
-    PS_ATTRIBUTE_LIST* AttributeList
-);
+using NtCreateThreadEx_t = int32_t(__stdcall*)(void** ThreadHandle, uint32_t DesiredAccess,
+                                               OBJECT_ATTRIBUTES* ObjectAttributes, void* ProcessHandle,
+                                               void* StartRoutine, void* Argument, uint32_t CreateFlags,
+                                               size_t ZeroBits, size_t StackSize, size_t MaximumStackSize,
+                                               PS_ATTRIBUTE_LIST* AttributeList);
 
-using NtWaitForSingleObject_t = int32_t(__stdcall*)(
-    void* Handle,
-    uint8_t Alertable,
-    LARGE_INTEGER* Timeout
-);
+using NtWaitForSingleObject_t = int32_t(__stdcall*)(void* Handle, uint8_t Alertable, LARGE_INTEGER* Timeout);
 
-using RtlInitUnicodeString_t = void(__stdcall*)(
-    UNICODE_STRING* DestinationString,
-    const wchar_t* SourceString
-);
+using RtlInitUnicodeString_t = void(__stdcall*)(UNICODE_STRING* DestinationString, const wchar_t* SourceString);
 
 // Syscall wrapper class
 class Syscalls {
@@ -132,10 +101,12 @@ public:
     RtlInitUnicodeString_t RtlInitUnicodeString = nullptr;
 
     bool Initialize() {
-        if (m_initialized) return true;
+        if (m_initialized)
+            return true;
 
         m_ntdll = GetModuleHandleW(L"ntdll.dll");
-        if (!m_ntdll) return false;
+        if (!m_ntdll)
+            return false;
 
         NtCreateSection = (NtCreateSection_t)GetProcAddress(m_ntdll, "NtCreateSection");
         NtMapViewOfSection = (NtMapViewOfSection_t)GetProcAddress(m_ntdll, "NtMapViewOfSection");
@@ -145,9 +116,9 @@ public:
         NtWaitForSingleObject = (NtWaitForSingleObject_t)GetProcAddress(m_ntdll, "NtWaitForSingleObject");
         RtlInitUnicodeString = (RtlInitUnicodeString_t)GetProcAddress(m_ntdll, "RtlInitUnicodeString");
 
-        m_initialized = NtCreateSection && NtMapViewOfSection && NtUnmapViewOfSection &&
-                        NtClose && NtCreateThreadEx && NtWaitForSingleObject;
-        
+        m_initialized = NtCreateSection && NtMapViewOfSection && NtUnmapViewOfSection && NtClose && NtCreateThreadEx &&
+                        NtWaitForSingleObject;
+
         return m_initialized;
     }
 
@@ -157,4 +128,4 @@ public:
 // Global syscall instance
 inline Syscalls g_Syscalls;
 
-} // namespace nt
+}  // namespace nt
