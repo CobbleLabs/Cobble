@@ -71,6 +71,7 @@ private:
 		float gravity;        // Gravity per tick
 		float initialSpeed;   // Initial velocity multiplier
 		float drag;           // Air resistance (multiply velocity each tick)
+		float upwardAngle = 0.0f;  // Degrees to add to pitch (for potions)
 	};
 	
 	ProjectileType getProjectileType(int itemId, float bowCharge = 1.0f);

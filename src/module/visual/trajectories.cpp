@@ -137,9 +137,10 @@ Trajectories::ProjectileType Trajectories::getProjectileType(int itemId, float b
 			break;
 			
 		case ITEM_SPLASH_POTION:
-			// Potion has different arc - thrown slower, drops faster
-			type.gravity = 0.05f;
-			type.initialSpeed = 0.5f;
+			// Splash potion physics - adjusted to match actual Minecraft throw distance
+			// Pots fly farther than other throwables
+			type.gravity = 0.04f;       // Lower gravity = longer arc
+			type.initialSpeed = 0.6f;   // Higher speed = lands farther
 			type.drag = 0.99f;
 			break;
 			
@@ -220,7 +221,7 @@ void Trajectories::simulateTrajectory()
 	// Get projectile physics (pass bow charge for arrows)
 	ProjectileType physics = getProjectileType(heldItemId, cachedBowCharge);
 	
-	// Get player eye position
+	// Get player eye position for trajectory simulation
 	float eyeHeight = player.isSneaking() ? 1.54f : 1.62f;
 	double startX = player.getPosX();
 	double startY = player.getPosY() + eyeHeight;
@@ -229,6 +230,10 @@ void Trajectories::simulateTrajectory()
 	// Use player's current look direction (this IS the crosshair direction)
 	float yaw = player.getYaw();
 	float pitch = player.getPitch();
+	
+	// Apply upward angle offset for items like potions (makes arc more curved)
+	// Subtracting from pitch makes projectile go more upward (negative pitch = looking up)
+	pitch -= physics.upwardAngle;
 	
 	// Convert degrees to radians
 	float yawRad = yaw * 0.017453292f;   // PI / 180
@@ -422,8 +427,7 @@ void Trajectories::onRender()
 	double interpX = prevX + (localX - prevX) * partialTicks;
 	double interpY = prevY + (localY - prevY) * partialTicks;
 	double interpZ = prevZ + (localZ - prevZ) * partialTicks;
-	
-	// Eye height - use cached sneaking state (thread-safe)
+	// Use eye height for world position calculation
 	eyeHeight = isSneaking ? 1.54f : 1.62f;
 	
 	// Get line color
@@ -448,6 +452,7 @@ void Trajectories::onRender()
 	Vector2 lastValidScreen;
 	bool hasLastValid = false;
 	
+	// Add trajectory points starting from index 1 (skip origin)
 	for (size_t i = 1; i < localTrajectory.size(); i++) {
 		const auto& point = localTrajectory[i];
 		if (!point.valid) continue;
