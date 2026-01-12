@@ -278,20 +278,21 @@ void ConfigManager::applyConfig() {
             else if (name == "Trajectories" && trajectories) {
                 auto& s = trajectories->settings;
                 s.thickness = data["thickness"].as_float(s.thickness);
-                s.circleRadius = data["circleRadius"].as_float(s.circleRadius);
-                s.circleThickness = data["circleThickness"].as_float(s.circleThickness);
                 if (data.has("lineColor")) {
                     s.lineColor[0] = data["lineColor"]["r"].as_float(s.lineColor[0]);
                     s.lineColor[1] = data["lineColor"]["g"].as_float(s.lineColor[1]);
                     s.lineColor[2] = data["lineColor"]["b"].as_float(s.lineColor[2]);
                     s.lineColor[3] = data["lineColor"]["a"].as_float(s.lineColor[3]);
                 }
-                if (data.has("circleColor")) {
-                    s.circleColor[0] = data["circleColor"]["r"].as_float(s.circleColor[0]);
-                    s.circleColor[1] = data["circleColor"]["g"].as_float(s.circleColor[1]);
-                    s.circleColor[2] = data["circleColor"]["b"].as_float(s.circleColor[2]);
-                    s.circleColor[3] = data["circleColor"]["a"].as_float(s.circleColor[3]);
-                }
+                // Projectile toggles
+                s.showBow = data["showBow"].as_bool(s.showBow);
+                s.showEnderPearl = data["showEnderPearl"].as_bool(s.showEnderPearl);
+                s.showEgg = data["showEgg"].as_bool(s.showEgg);
+                s.showSnowball = data["showSnowball"].as_bool(s.showSnowball);
+                s.showPotionHealing = data["showPotionHealing"].as_bool(s.showPotionHealing);
+                s.showPotionPoison = data["showPotionPoison"].as_bool(s.showPotionPoison);
+                s.showPotionSlowness = data["showPotionSlowness"].as_bool(s.showPotionSlowness);
+                s.showExpBottle = data["showExpBottle"].as_bool(s.showExpBottle);
             }
             else if (name == "NoItemRelease" && noItemRelease) {
                 noItemRelease->settings.mode = static_cast<ItemReleaseMode>(data["mode"].as_int(static_cast<int>(noItemRelease->settings.mode)));
@@ -512,16 +513,19 @@ void ConfigManager::buildConfigFromModules() {
         else if (name == "Trajectories" && trajectories) {
             const auto& s = trajectories->settings;
             config_["modules"][name]["thickness"] = s.thickness;
-            config_["modules"][name]["circleRadius"] = s.circleRadius;
-            config_["modules"][name]["circleThickness"] = s.circleThickness;
             config_["modules"][name]["lineColor"]["r"] = s.lineColor[0];
             config_["modules"][name]["lineColor"]["g"] = s.lineColor[1];
             config_["modules"][name]["lineColor"]["b"] = s.lineColor[2];
             config_["modules"][name]["lineColor"]["a"] = s.lineColor[3];
-            config_["modules"][name]["circleColor"]["r"] = s.circleColor[0];
-            config_["modules"][name]["circleColor"]["g"] = s.circleColor[1];
-            config_["modules"][name]["circleColor"]["b"] = s.circleColor[2];
-            config_["modules"][name]["circleColor"]["a"] = s.circleColor[3];
+            // Projectile toggles
+            config_["modules"][name]["showBow"] = s.showBow;
+            config_["modules"][name]["showEnderPearl"] = s.showEnderPearl;
+            config_["modules"][name]["showEgg"] = s.showEgg;
+            config_["modules"][name]["showSnowball"] = s.showSnowball;
+            config_["modules"][name]["showPotionHealing"] = s.showPotionHealing;
+            config_["modules"][name]["showPotionPoison"] = s.showPotionPoison;
+            config_["modules"][name]["showPotionSlowness"] = s.showPotionSlowness;
+            config_["modules"][name]["showExpBottle"] = s.showExpBottle;
         }
         else if (name == "NoItemRelease" && noItemRelease) {
             config_["modules"][name]["mode"] = static_cast<int>(noItemRelease->settings.mode);
