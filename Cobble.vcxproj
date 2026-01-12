@@ -112,6 +112,7 @@
     <ClCompile Include="src\module\utility\sprint.cpp" />
     <ClCompile Include="src\module\utility\fastplace.cpp" />
     <ClCompile Include="src\module\utility\timer.cpp" />
+    <ClCompile Include="src\module\utility\autotool.cpp" />
     <ClCompile Include="src\module\visual\nametags.cpp" />
     <ClCompile Include="src\module\visual\esp.cpp" />
     <ClCompile Include="src\module\visual\tracers.cpp" />
@@ -170,6 +171,7 @@
     <ClInclude Include="src\module\utility\sprint.h" />
     <ClInclude Include="src\module\utility\fastplace.h" />
     <ClInclude Include="src\module\utility\timer.h" />
+    <ClInclude Include="src\module\utility\autotool.h" />
     <ClInclude Include="src\module\visual\nametags.h" />
     <ClInclude Include="src\module\visual\esp.h" />
     <!-- UI -->
