@@ -170,7 +170,21 @@ void ConfigManager::applyConfig() {
                 s.filled = data["filled"].as_bool(s.filled);
                 s.outline = data["outline"].as_bool(s.outline);
                 s.healthBar = data["healthBar"].as_bool(s.healthBar);
+                s.teamColors = data["teamColors"].as_bool(s.teamColors);
                 s.range = data["range"].as_float(s.range);
+                // Load color arrays
+                if (data.has("friendColor")) {
+                    s.friendColor[0] = data["friendColor"]["r"].as_float(s.friendColor[0]);
+                    s.friendColor[1] = data["friendColor"]["g"].as_float(s.friendColor[1]);
+                    s.friendColor[2] = data["friendColor"]["b"].as_float(s.friendColor[2]);
+                    s.friendColor[3] = data["friendColor"]["a"].as_float(s.friendColor[3]);
+                }
+                if (data.has("enemyColor")) {
+                    s.enemyColor[0] = data["enemyColor"]["r"].as_float(s.enemyColor[0]);
+                    s.enemyColor[1] = data["enemyColor"]["g"].as_float(s.enemyColor[1]);
+                    s.enemyColor[2] = data["enemyColor"]["b"].as_float(s.enemyColor[2]);
+                    s.enemyColor[3] = data["enemyColor"]["a"].as_float(s.enemyColor[3]);
+                }
             }
             else if (name == "Bridge Assist" && bridgeAssist) {
                 auto& s = bridgeAssist->settings;
@@ -341,7 +355,17 @@ void ConfigManager::buildConfigFromModules() {
             config_["modules"][name]["filled"] = s.filled;
             config_["modules"][name]["outline"] = s.outline;
             config_["modules"][name]["healthBar"] = s.healthBar;
+            config_["modules"][name]["teamColors"] = s.teamColors;
             config_["modules"][name]["range"] = s.range;
+            // Save color arrays
+            config_["modules"][name]["friendColor"]["r"] = s.friendColor[0];
+            config_["modules"][name]["friendColor"]["g"] = s.friendColor[1];
+            config_["modules"][name]["friendColor"]["b"] = s.friendColor[2];
+            config_["modules"][name]["friendColor"]["a"] = s.friendColor[3];
+            config_["modules"][name]["enemyColor"]["r"] = s.enemyColor[0];
+            config_["modules"][name]["enemyColor"]["g"] = s.enemyColor[1];
+            config_["modules"][name]["enemyColor"]["b"] = s.enemyColor[2];
+            config_["modules"][name]["enemyColor"]["a"] = s.enemyColor[3];
         }
         else if (name == "Bridge Assist" && bridgeAssist) {
             const auto& s = bridgeAssist->settings;

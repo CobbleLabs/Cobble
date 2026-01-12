@@ -3,6 +3,7 @@
 #include "../../sdk/player/render_data.h"
 #include "../../util/logger.hpp"
 #include "../../util/math/worldToScreen.h"
+#include "../../util/team/friends_manager.h"
 #include "../../ui/widgets/widgets.hpp"
 #include "../../../infra/ext/imgui/imgui.h"
 #include <cmath>
@@ -114,6 +115,7 @@ void ESP::onUpdate()
 		
 		EspPlayer cached;
 		cached.name = p.name;
+		cached.uuid = p.uuid;  // For team/friend detection
 		cached.posX = p.posX;
 		cached.posY = p.posY;
 		cached.posZ = p.posZ;
@@ -344,14 +346,33 @@ void ESP::onRender()
 		renderZ = localLastZ + (localZ - localLastZ) * partialTicks;
 	}
 	
-	// Prepare colors once
-	auto boxCol = ImGui::ColorConvertFloat4ToU32(ImVec4(settings.boxColor[0], settings.boxColor[1], settings.boxColor[2], settings.boxColor[3]));
-	auto fillCol = ImGui::ColorConvertFloat4ToU32(ImVec4(settings.filledColor[0], settings.filledColor[1], settings.filledColor[2], settings.filledColor[3]));
+	// Prepare static colors (outline doesn't change)
 	auto outlineCol = ImGui::ColorConvertFloat4ToU32(ImVec4(settings.outlineColor[0], settings.outlineColor[1], settings.outlineColor[2], settings.outlineColor[3]));
 	
 	for (const auto& p : localCache)
 	{
 		if (!p.valid) continue;
+		
+		// Determine box color based on team/friend status
+		ImU32 boxCol, fillCol;
+		if (settings.teamColors && friendsManager && !p.uuid.empty()) {
+			// Use FriendsManager to check if this player is friend/teammate
+			bool isFriendOrTeam = friendsManager->shouldIgnoreByUUID(p.uuid, ChatColor::UNKNOWN, ChatColor::UNKNOWN);
+			
+			if (isFriendOrTeam) {
+				// Friend/Teammate = Green
+				boxCol = ImGui::ColorConvertFloat4ToU32(ImVec4(settings.friendColor[0], settings.friendColor[1], settings.friendColor[2], settings.friendColor[3]));
+				fillCol = ImGui::ColorConvertFloat4ToU32(ImVec4(settings.friendColor[0], settings.friendColor[1], settings.friendColor[2], settings.filledColor[3]));
+			} else {
+				// Enemy = Red
+				boxCol = ImGui::ColorConvertFloat4ToU32(ImVec4(settings.enemyColor[0], settings.enemyColor[1], settings.enemyColor[2], settings.enemyColor[3]));
+				fillCol = ImGui::ColorConvertFloat4ToU32(ImVec4(settings.enemyColor[0], settings.enemyColor[1], settings.enemyColor[2], settings.filledColor[3]));
+			}
+		} else {
+			// Team colors disabled or no UUID - use default colors
+			boxCol = ImGui::ColorConvertFloat4ToU32(ImVec4(settings.boxColor[0], settings.boxColor[1], settings.boxColor[2], settings.boxColor[3]));
+			fillCol = ImGui::ColorConvertFloat4ToU32(ImVec4(settings.filledColor[0], settings.filledColor[1], settings.filledColor[2], settings.filledColor[3]));
+		}
 		
 		// Interpolate entity position
 		float interpX = (float)(p.lastPosX + (p.posX - p.lastPosX) * partialTicks);
@@ -446,10 +467,16 @@ void ESP::onRenderMenu()
 			ui::Checkbox("Filled", &settings.filled);
 			ui::Checkbox("Outline", &settings.outline);
 			ui::Checkbox("Health Bar", &settings.healthBar);
+			ui::Checkbox("Team Colors", &settings.teamColors);
 			ui::SliderFloat("Range", &settings.range, 16.0f, 256.0f, "%.0fm");
 		},
 		"Colors", [this]() {
-			ui::color("Box Color", settings.boxColor);
+			if (settings.teamColors) {
+				ui::color("Friend Color", settings.friendColor);
+				ui::color("Enemy Color", settings.enemyColor);
+			} else {
+				ui::color("Box Color", settings.boxColor);
+			}
 			ui::color("Fill Color", settings.filledColor);
 			ui::color("Outline Color", settings.outlineColor);
 		}
