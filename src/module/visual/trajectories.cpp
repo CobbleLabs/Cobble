@@ -95,13 +95,49 @@ bool Trajectories::isThrowableItem(int itemId)
 {
 	switch (itemId) {
 		case ITEM_ENDER_PEARL:
+			return settings.showEnderPearl;
 		case ITEM_EGG:
+			return settings.showEgg;
 		case ITEM_SNOWBALL:
+			return settings.showSnowball;
 		case ITEM_BOW:
+			return settings.showBow;
 		case ITEM_SPLASH_POTION:
+			{
+				// Check specific potion type based on metadata
+				int potionMeta = player.getHeldItemDamage();
+				
+				// Minecraft 1.8 splash potion metadata:
+				// The metadata value directly encodes the potion type
+				// Common splash potion metadata values:
+				// - Healing: 16389, 16421 (& 0x3F gives 5 or 21)
+				// - Healing II: 16421 (& 0x3F gives 21)
+				// - Poison: 16388, 16420 (& 0x3F gives 4 or 20)
+				// - Slowness: 16394, 16426 (& 0x3F gives 10 or 26)
+				
+				int effectId = potionMeta & 0x3F;  // Lower 6 bits contain effect info
+				
+				// Healing potions: effect IDs 5, 6, 21, 22 (Instant Health I/II variants)
+				bool isHealing = (effectId == 5 || effectId == 6 || effectId == 21 || effectId == 22 ||
+				                  effectId == 37 || effectId == 38);
+				
+				// Poison potions: effect IDs 4, 20, 36 (Poison variants)
+				bool isPoison = (effectId == 4 || effectId == 20 || effectId == 36 || effectId == 52);
+				
+				// Slowness potions: effect IDs 2, 10, 18, 26, 34, 42 (Slowness variants)
+				bool isSlowness = (effectId == 2 || effectId == 10 || effectId == 18 || 
+				                   effectId == 26 || effectId == 34 || effectId == 42);
+				
+				if (isHealing && settings.showPotionHealing) return true;
+				if (isPoison && settings.showPotionPoison) return true;
+				if (isSlowness && settings.showPotionSlowness) return true;
+				
+				return false;
+			}
 		case ITEM_FISHING_ROD:
+			return false;  // Not commonly used, disabled
 		case ITEM_EXP_BOTTLE:
-			return true;
+			return settings.showExpBottle;
 		default:
 			return false;
 	}
@@ -137,11 +173,13 @@ Trajectories::ProjectileType Trajectories::getProjectileType(int itemId, float b
 			break;
 			
 		case ITEM_SPLASH_POTION:
-			// Splash potion physics - adjusted to match actual Minecraft throw distance
-			// Pots fly farther than other throwables
-			type.gravity = 0.04f;       // Lower gravity = longer arc
-			type.initialSpeed = 0.6f;   // Higher speed = lands farther
+			// Splash potion physics - accurate Minecraft values
+			// EntityPotion uses 0.4 velocity multiplier with extra upward boost
+			// Gravity: 0.05 blocks/tick², Drag: 0.99 per tick
+			type.gravity = 0.05f;        // Same as arrows/most entities
+			type.initialSpeed = 0.4f;    // Potion throw speed multiplier
 			type.drag = 0.99f;
+			type.upwardAngle = 20.0f;    // Positive = goes more upward (pitch - 20)
 			break;
 			
 		case ITEM_FISHING_ROD:
@@ -250,20 +288,33 @@ void Trajectories::simulateTrajectory()
 	float vy = dirY * physics.initialSpeed;
 	float vz = dirZ * physics.initialSpeed;
 	
+	// Calculate right-hand offset (perpendicular to look direction in XZ plane)
+	// This simulates the projectile coming from the player's right hand
+	float rightOffsetAmount = 0.4f;  // Lateral offset in blocks (to the right)
+	float forwardOffset = 1.5f;       // Forward offset in blocks (line starts further away)
+	
+	// Right vector is perpendicular to look direction (negated for right side)
+	float rightX = -cosf(yawRad) * rightOffsetAmount;
+	float rightZ = -sinf(yawRad) * rightOffsetAmount;
+	
+	// Forward vector (same as look direction in XZ plane)
+	float forwardX = dirX * forwardOffset;
+	float forwardZ = dirZ * forwardOffset;
+	
 	// Simulate trajectory with many points for smooth curve
 	// Store points RELATIVE to eye position for smooth rendering
 	std::vector<TrajectoryPoint> newTrajectory;
 	
-	// Start position relative to eye (0,0,0)
-	double relPosX = 0;
-	double relPosY = 0;
-	double relPosZ = 0;
+	// Start position with right-hand offset + forward offset
+	double relPosX = rightX + forwardX;
+	double relPosY = -0.1 + (dirY * forwardOffset);  // Slightly below eye + forward pitch offset
+	double relPosZ = rightZ + forwardZ;
 	
-	// Add starting point (at eye position = 0,0,0 relative)
+	// Add starting point
 	TrajectoryPoint start;
-	start.relX = 0;
-	start.relY = 0;
-	start.relZ = 0;
+	start.relX = (float)relPosX;
+	start.relY = (float)relPosY;
+	start.relZ = (float)relPosZ;
 	start.valid = true;
 	newTrajectory.push_back(start);
 	
@@ -273,26 +324,36 @@ void Trajectories::simulateTrajectory()
 		double prevRelY = relPosY;
 		double prevRelZ = relPosZ;
 		
-		// Apply velocity to relative position
-		relPosX += vx;
-		relPosY += vy;
-		relPosZ += vz;
+		// Smooth trajectory: add multiple sub-steps per tick for smoother curve
+		const int subSteps = 4;
+		double subVx = vx / subSteps;
+		double subVy = vy / subSteps;
+		double subVz = vz / subSteps;
+		double subGravity = physics.gravity / subSteps;
 		
-		// Apply gravity (affects Y velocity)
+		for (int sub = 0; sub < subSteps; sub++) {
+			// Apply sub-step velocity
+			relPosX += subVx;
+			relPosY += subVy;
+			relPosZ += subVz;
+			
+			// Apply sub-step gravity
+			subVy -= subGravity;
+			
+			// Add intermediate point for smoother curve
+			TrajectoryPoint subPoint;
+			subPoint.relX = (float)relPosX;
+			subPoint.relY = (float)relPosY;
+			subPoint.relZ = (float)relPosZ;
+			subPoint.valid = true;
+			newTrajectory.push_back(subPoint);
+		}
+		
+		// Update actual velocity for next tick (apply full tick physics)
 		vy -= physics.gravity;
-		
-		// Apply air resistance (drag)
 		vx *= physics.drag;
 		vy *= physics.drag;
 		vz *= physics.drag;
-		
-		// Add point to trajectory (relative coordinates)
-		TrajectoryPoint point;
-		point.relX = (float)relPosX;
-		point.relY = (float)relPosY;
-		point.relZ = (float)relPosZ;
-		point.valid = true;
-		newTrajectory.push_back(point);
 		
 		// Check for block collision using raytrace (need absolute coords for raytrace)
 		double absFromX = startX + prevRelX;
@@ -438,22 +499,16 @@ void Trajectories::onRender()
 		settings.lineColor[3]
 	));
 	
-	// Get screen center (crosshair position)
-	float screenCenterX = RenderData::screenWidth / 2.0f;
-	float screenCenterY = RenderData::screenHeight / 2.0f;
+	// Get screen center (for reference, not used for starting point)
+	// float screenCenterX = RenderData::screenWidth / 2.0f;
+	// float screenCenterY = RenderData::screenHeight / 2.0f;
 	
 	// Collect screen points for polyline rendering (smoother than individual segments)
 	std::vector<ImVec2> polylinePoints;
-	polylinePoints.reserve(localTrajectory.size() + 1);
+	polylinePoints.reserve(localTrajectory.size());
 	
-	// Start from crosshair (screen center)
-	polylinePoints.push_back(ImVec2(screenCenterX, screenCenterY));
-	
-	Vector2 lastValidScreen;
-	bool hasLastValid = false;
-	
-	// Add trajectory points starting from index 1 (skip origin)
-	for (size_t i = 1; i < localTrajectory.size(); i++) {
+	// Add ALL trajectory points - the 3D physics naturally creates the parabola
+	for (size_t i = 0; i < localTrajectory.size(); i++) {
 		const auto& point = localTrajectory[i];
 		if (!point.valid) continue;
 		
@@ -474,9 +529,8 @@ void Trajectories::onRender()
 		                                              RenderData::screenWidth, RenderData::screenHeight, screenPos);
 		
 		if (visible) {
+			// Use natural 3D projection - no artificial offsets
 			polylinePoints.push_back(ImVec2(screenPos.x, screenPos.y));
-			lastValidScreen = screenPos;
-			hasLastValid = true;
 		}
 	}
 	
@@ -484,23 +538,6 @@ void Trajectories::onRender()
 	if (polylinePoints.size() >= 2) {
 		draw->AddPolyline(polylinePoints.data(), (int)polylinePoints.size(), lineColor, 
 		                  ImDrawFlags_None, settings.thickness);
-	}
-	
-	// Draw circle at the landing point (last point of trajectory)
-	if (hasLastValid) {
-		ImU32 circleColor = ImGui::ColorConvertFloat4ToU32(ImVec4(
-			settings.circleColor[0],
-			settings.circleColor[1],
-			settings.circleColor[2],
-			settings.circleColor[3]
-		));
-		draw->AddCircle(
-			ImVec2(lastValidScreen.x, lastValidScreen.y),
-			settings.circleRadius,
-			circleColor,
-			32,  // Increased segments for smoother circle
-			settings.circleThickness
-		);
 	}
 }
 
@@ -510,15 +547,21 @@ void Trajectories::onRenderMenu()
 		"General", [this]() {
 			ui::CheckboxBind("Enabled", &enabled, &keybind);
 			ui::SliderFloat("Line Thickness", &settings.thickness, 1.0f, 5.0f, "%.1f");
-			ui::SliderFloat("Circle Radius", &settings.circleRadius, 5.0f, 50.0f, "%.0f");
-			ui::SliderFloat("Circle Thickness", &settings.circleThickness, 1.0f, 5.0f, "%.1f");
-		},
-		"Colors", [this]() {
+			
+			ImGui::Spacing();
 			ImGui::Text("Line Color");
 			ImGui::ColorEdit4("##linecolor", settings.lineColor, ImGuiColorEditFlags_NoInputs | ImGuiColorEditFlags_AlphaBar);
-			ImGui::Spacing();
-			ImGui::Text("Circle Color");
-			ImGui::ColorEdit4("##circlecolor", settings.circleColor, ImGuiColorEditFlags_NoInputs | ImGuiColorEditFlags_AlphaBar);
+		},
+		"Projectiles", [this]() {
+			ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(8, 2));
+			ImGui::Checkbox("Bow", &settings.showBow);
+			ImGui::Checkbox("Ender Pearl", &settings.showEnderPearl);
+			ImGui::Checkbox("Egg", &settings.showEgg);
+			ImGui::Checkbox("Snowball", &settings.showSnowball);
+			ImGui::Checkbox("Healing II", &settings.showPotionHealing);
+			ImGui::Checkbox("Poison", &settings.showPotionPoison);
+			ImGui::Checkbox("Slowness", &settings.showPotionSlowness);
+			ImGui::PopStyleVar();
 		}
 	);
 }

@@ -57,6 +57,7 @@ struct LocalPlayer
 
 	// Inventory (for weapon detection)
 	int getHeldItemId();
+	int getHeldItemDamage();  // Get metadata/damage value of held item (for potion types)
 	int getItemInSlot(int slot);  // Get item ID in specific hotbar/inventory slot (0-35)
 	int getCurrentSlot();         // Get current hotbar slot (0-8)
 	void setCurrentSlot(int slot); // Set current hotbar slot (0-8)

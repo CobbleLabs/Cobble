@@ -27,10 +27,17 @@ public:
 
 	struct Settings {
 		float lineColor[4] = { 1.0f, 1.0f, 1.0f, 1.0f };  // White default
-		float circleColor[4] = { 1.0f, 1.0f, 1.0f, 1.0f };  // White default (separate from line)
 		float thickness = 2.0f;
-		float circleRadius = 25.0f;
-		float circleThickness = 2.0f;
+		
+		// Projectile toggles
+		bool showBow = true;
+		bool showEnderPearl = true;
+		bool showEgg = true;
+		bool showSnowball = true;
+		bool showPotionHealing = true;
+		bool showPotionPoison = true;
+		bool showPotionSlowness = true;
+		bool showExpBottle = true;
 	} settings;
 
 private:

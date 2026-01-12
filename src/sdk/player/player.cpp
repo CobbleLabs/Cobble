@@ -372,6 +372,72 @@ cleanup:
 	return result;
 }
 
+int LocalPlayer::getHeldItemDamage()
+{
+	if (!isValid()) return -1;
+
+	// Chain: player.inventory.getCurrentItem().getMetadata()
+	
+	// Get EntityPlayer class for inventory field
+	jclass playerCls = nullptr;
+	if (!Java::AssignClass("net.minecraft.entity.player.EntityPlayer", playerCls)) return -1;
+
+	// Get InventoryPlayer class
+	jclass inventoryCls = nullptr;
+	if (!Java::AssignClass("net.minecraft.entity.player.InventoryPlayer", inventoryCls)) {
+		Java::Env->DeleteLocalRef(playerCls);
+		return -1;
+	}
+
+	// Get ItemStack class
+	jclass itemStackCls = nullptr;
+	if (!Java::AssignClass("net.minecraft.item.ItemStack", itemStackCls)) {
+		Java::Env->DeleteLocalRef(playerCls);
+		Java::Env->DeleteLocalRef(inventoryCls);
+		return -1;
+	}
+
+	int result = -1;
+
+	// player.inventory field
+	jfieldID fid_inventory = Java::Env->GetFieldID(playerCls, "inventory", "Lnet/minecraft/entity/player/InventoryPlayer;");
+	if (!fid_inventory) goto cleanup_damage;
+
+	{
+		jobject inventory = Java::Env->GetObjectField(instance, fid_inventory);
+		if (!inventory) goto cleanup_damage;
+
+		// inventory.getCurrentItem()
+		jmethodID mid_getCurrentItem = Java::Env->GetMethodID(inventoryCls, "getCurrentItem", "()Lnet/minecraft/item/ItemStack;");
+		if (!mid_getCurrentItem) {
+			Java::Env->DeleteLocalRef(inventory);
+			goto cleanup_damage;
+		}
+
+		jobject itemStack = Java::Env->CallObjectMethod(inventory, mid_getCurrentItem);
+		Java::Env->DeleteLocalRef(inventory);
+
+		if (!itemStack) goto cleanup_damage; // Empty hand
+
+		// itemStack.getMetadata() - returns the damage/metadata value
+		jmethodID mid_getMetadata = Java::Env->GetMethodID(itemStackCls, "getMetadata", "()I");
+		if (!mid_getMetadata) {
+			Java::Env->DeleteLocalRef(itemStack);
+			goto cleanup_damage;
+		}
+
+		result = Java::Env->CallIntMethod(itemStack, mid_getMetadata);
+		Java::Env->DeleteLocalRef(itemStack);
+	}
+
+cleanup_damage:
+	Java::Env->DeleteLocalRef(playerCls);
+	Java::Env->DeleteLocalRef(inventoryCls);
+	Java::Env->DeleteLocalRef(itemStackCls);
+
+	return result;
+}
+
 int LocalPlayer::getItemInSlot(int slot)
 {
 	if (!isValid()) return -1;
