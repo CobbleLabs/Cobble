@@ -60,18 +60,13 @@ Module* getModuleForSubtab(int tabIdx, int subtabIdx)
 	else if (tabIdx == 2) {
 		switch (subtabIdx) {
 			case 0: return fastPlace;
+			case 1: return sprint;
+			case 2: return noJumpDelay;
+			case 3: return noItemRelease;
+			case 4: return bridgeAssist;
 		}
 	}
-	// Movement Tab (3)
-	else if (tabIdx == 3) {
-		switch (subtabIdx) {
-			case 0: return sprint;
-			case 1: return noJumpDelay;
-			case 2: return noItemRelease;
-			case 3: return bridgeAssist;
-		}
-	}
-	// Settings Tab (4) - no module, handled specially
+	// Settings Tab (3) - no module, handled specially
 	
 	return nullptr;
 }
@@ -246,7 +241,7 @@ static void renderPage()
 	auto& tab = ui::tabs[ui::cur_tab];
 	
 	// Settings tab (no subtabs)
-	if (ui::cur_tab == 4) {
+	if (ui::cur_tab == 3) {
 		renderSettingsPage();
 		return;
 	}
