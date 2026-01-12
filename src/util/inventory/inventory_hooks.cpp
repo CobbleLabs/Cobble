@@ -1,5 +1,4 @@
 #include "inventory_hooks.h"
-#include "inventory_cache.h"
 #include "../logger.hpp"
 
 int InventoryHooks::getItemIdFromStack(JNIEnv* env, jobject itemStack)
@@ -93,14 +92,15 @@ bool InventoryHooks::install()
 					jvmtiError stackErr = jvmti_env->GetLocalObject(thread, 0, 2, &itemStack);
 					
 					if (slotErr == JVMTI_ERROR_NONE && stackErr == JVMTI_ERROR_NONE) {
-						// Get item ID from stack
-						int itemId = -1;
-						if (itemStack) {
-							itemId = InventoryHooks::getItemIdFromStack(jni_env, itemStack);
-						}
-						
-						// Update cache
-						InventoryCache::onSlotChanged(slot, itemId);
+							// Get item ID from stack
+							int itemId = -1;
+							if (itemStack) {
+								itemId = InventoryHooks::getItemIdFromStack(jni_env, itemStack);
+							}
+							
+							// Cache removed - hooks disabled for now
+							// InventoryCache::onSlotChanged(slot, itemId);
+							(void)itemId;  // Suppress unused warning
 						
 						if (itemStack) {
 							jni_env->DeleteLocalRef(itemStack);

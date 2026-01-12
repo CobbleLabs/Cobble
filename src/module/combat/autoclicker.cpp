@@ -1,7 +1,6 @@
 #include "autoclicker.h"
 #include "../../sdk/core/minecraft.h"
 #include "../../util/logger.hpp"
-#include "../../util/inventory/inventory_cache.h"
 #include "../../ui/menu/menu.h"
 #include "../../ui/core/overlay.h"
 #include "../../ui/widgets/widgets.hpp"
@@ -199,9 +198,18 @@ void AutoClicker::onUpdate()
                 // Click completo - SendMessage para timing exacto, compensando frames lentos
                 static auto startTime = std::chrono::steady_clock::now();       
                 static int clickCount = 0;
+                
+                // Check if we should use right-click (inventory + shift = right click to avoid bounce)
+                bool useRightClick = inInventory && (GetAsyncKeyState(VK_SHIFT) & 0x8000);
+                
                 do {
-                        SendMessage(hwnd, WM_LBUTTONDOWN, MK_LBUTTON, 0);
-                        SendMessage(hwnd, WM_LBUTTONUP, 0, 0);
+                        if (useRightClick) {
+                                SendMessage(hwnd, WM_RBUTTONDOWN, MK_RBUTTON, 0);
+                                SendMessage(hwnd, WM_RBUTTONUP, 0, 0);
+                        } else {
+                                SendMessage(hwnd, WM_LBUTTONDOWN, MK_LBUTTON, 0);
+                                SendMessage(hwnd, WM_LBUTTONUP, 0, 0);
+                        }
                         clickCount++;
                         nextStableClickTime += stableInterval;
                 } while (now >= nextStableClickTime);
@@ -235,7 +243,25 @@ void AutoClicker::onUpdate()
 	}
 	
 	// Perform click (random mode)
-	doClick();
+	// Check if we should use right-click (inventory + shift = right click to avoid bounce)
+	bool useRightClick = inInventory && (GetAsyncKeyState(VK_SHIFT) & 0x8000);
+	
+	HWND clickHwnd = GetForegroundWindow();
+	if (clickHwnd) {
+		if (useRightClick) {
+			// Right click for inventory mode
+			if (lastClickWasDown) {
+				PostMessage(clickHwnd, WM_RBUTTONUP, 0, 0);
+				lastClickWasDown = false;
+			} else {
+				PostMessage(clickHwnd, WM_RBUTTONDOWN, MK_RBUTTON, 0);
+				lastClickWasDown = true;
+			}
+		} else {
+			// Normal left click
+			doClick();
+		}
+	}
 	lastClick = now;
 	lastAutoClick = now;
 	

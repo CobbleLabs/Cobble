@@ -127,7 +127,6 @@
     <ClCompile Include="src\util\math\math.cpp" />
     <ClCompile Include="src\util\math\worldToScreen.cpp" />
     <ClCompile Include="src\util\team\friends_manager.cpp" />
-    <ClCompile Include="src\util\inventory\inventory_cache.cpp" />
     <ClCompile Include="src\util\inventory\inventory_hooks.cpp" />
     <!-- External libraries -->
     <ClCompile Include="infra\ext\imgui\imgui.cpp" />

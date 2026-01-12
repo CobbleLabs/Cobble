@@ -4,7 +4,6 @@
 #include "minecraft.h"
 #include "../jni/jni_cache.h"
 #include "../../util/logger.hpp"
-#include "../../util/inventory/inventory_cache.h"
 #include "../../util/inventory/inventory_hooks.h"
 
 #define WIN32_LEAN_AND_MEAN
@@ -82,8 +81,7 @@ void SDK_Init()
 	// Initialize player (will lazy-load fields on first refresh)
 	player.refresh();
 	
-	// Initialize inventory tracking system
-	InventoryCache::init();
+	// Initialize inventory hooks for potion detection
 	if (!InventoryHooks::install()) {
 		log_warn("[SDK] Inventory hooks installation failed - potion detection disabled");
 	}
