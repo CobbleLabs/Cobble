@@ -137,3 +137,15 @@ void Minecraft::setLeftClickCounter(int value)
 	if (!isValid() || !fid_leftClickCounter) return;
 	Java::Env->SetIntField(instance, fid_leftClickCounter, value);
 }
+
+void Minecraft::setTimerSpeed(float speed)
+{
+	if (!isValid()) return;
+	if (!JniCache::fid_timer || !JniCache::fid_timerSpeed) return;
+	
+	jobject timer = Java::Env->GetObjectField(instance, JniCache::fid_timer);
+	if (!timer) return;
+	
+	Java::Env->SetFloatField(timer, JniCache::fid_timerSpeed, speed);
+	Java::Env->DeleteLocalRef(timer);
+}

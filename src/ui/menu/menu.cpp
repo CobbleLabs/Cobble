@@ -20,6 +20,7 @@
 #include "../../module/utility/bridgeassist.h"
 #include "../../module/utility/sprint.h"
 #include "../../module/utility/fastplace.h"
+#include "../../module/utility/timer.h"
 #include "../../module/visual/nametags.h"
 #include "../../module/visual/esp.h"
 #include "../../module/visual/tracers.h"
@@ -59,11 +60,12 @@ Module* getModuleForSubtab(int tabIdx, int subtabIdx)
 	// Utility Tab (2)
 	else if (tabIdx == 2) {
 		switch (subtabIdx) {
-			case 0: return fastPlace;
-			case 1: return sprint;
-			case 2: return noJumpDelay;
-			case 3: return noItemRelease;
-			case 4: return bridgeAssist;
+			case 0: return timerModule;
+			case 1: return fastPlace;
+			case 2: return sprint;
+			case 3: return noJumpDelay;
+			case 4: return noItemRelease;
+			case 5: return bridgeAssist;
 		}
 	}
 	// Settings Tab (3) - no module, handled specially

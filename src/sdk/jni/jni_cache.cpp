@@ -137,6 +137,7 @@ jfieldID fid_renderPosZ = nullptr;
 
 // Timer IDs
 jfieldID fid_renderPartialTicks = nullptr;
+jfieldID fid_timerSpeed = nullptr;
 
 // MovingObjectPosition IDs
 jfieldID fid_typeOfHit = nullptr;
@@ -534,6 +535,13 @@ bool Init()
         if (!fid_renderPartialTicks) {
             // SRG/obfuscated fallback
             TRY_FIELD(fid_renderPartialTicks, cls_Timer, "field_74281_c", "F");
+        }
+        
+        // timerSpeed controls game tick speed (default 1.0)
+        TRY_FIELD(fid_timerSpeed, cls_Timer, "timerSpeed", "F");
+        if (!fid_timerSpeed) {
+            // SRG/obfuscated fallback
+            TRY_FIELD(fid_timerSpeed, cls_Timer, "field_74278_d", "F");
         }
     }
     

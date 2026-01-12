@@ -203,6 +203,7 @@ extern jfieldID fid_renderPosZ;
 
 // Timer instance fields
 extern jfieldID fid_renderPartialTicks;
+extern jfieldID fid_timerSpeed;
 
 // =============================================================================
 // MovingObjectPosition class IDs
