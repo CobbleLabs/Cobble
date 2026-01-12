@@ -154,6 +154,7 @@ jfieldID fid_ENTITY = nullptr;
 // World IDs
 jfieldID fid_playerEntities = nullptr;
 jmethodID mid_getBlockState = nullptr;
+jmethodID mid_getBlockWorld = nullptr;  // 1.7.10: World.getBlock(int,int,int)
 jmethodID mid_rayTraceBlocks = nullptr;
 
 // BlockPos IDs
@@ -565,6 +566,22 @@ bool Init()
             }
         }
     }
+
+    // =========================================================================
+    // MovingObjectType class IDs
+    // =========================================================================
+    
+    CACHE_CLASS(cls_MovingObjectType, "net.minecraft.util.MovingObjectPosition$MovingObjectType");
+    if (cls_MovingObjectType) {
+        TRY_STATIC_FIELD(fid_BLOCK, cls_MovingObjectType, "BLOCK", "Lnet/minecraft/util/MovingObjectPosition$MovingObjectType;");
+        TRY_STATIC_FIELD(fid_ENTITY, cls_MovingObjectType, "ENTITY", "Lnet/minecraft/util/MovingObjectPosition$MovingObjectType;");
+        
+        if (!fid_BLOCK) { 
+            // Obfuscated fallback (field_76322_a = MISS, field_76323_b = BLOCK, field_76321_c = ENTITY)
+            TRY_STATIC_FIELD(fid_BLOCK, cls_MovingObjectType, "field_76323_b", "Lnet/minecraft/util/MovingObjectPosition$MovingObjectType;");
+            TRY_STATIC_FIELD(fid_ENTITY, cls_MovingObjectType, "field_76321_c", "Lnet/minecraft/util/MovingObjectPosition$MovingObjectType;");
+        }
+    }
     
     // MovingObjectType enum (nested class of MovingObjectPosition)
     CACHE_CLASS(cls_MovingObjectType, "net.minecraft.util.MovingObjectPosition$MovingObjectType");
@@ -582,6 +599,12 @@ bool Init()
         
         if (!is_1_7_10) {
             TRY_METHOD(mid_getBlockState, cls_WorldClient, "getBlockState", "(Lnet/minecraft/util/BlockPos;)Lnet/minecraft/block/state/IBlockState;");
+        } else {
+            // 1.7.10: World.getBlock(int x, int y, int z) -> Block
+            TRY_METHOD(mid_getBlockWorld, cls_WorldClient, "getBlock", "(III)Lnet/minecraft/block/Block;");
+            if (!mid_getBlockWorld) {
+                TRY_METHOD(mid_getBlockWorld, cls_WorldClient, "func_147439_a", "(III)Lnet/minecraft/block/Block;");
+            }
         }
         
         // rayTraceBlocks has multiple signatures

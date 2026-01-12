@@ -13,9 +13,9 @@
 #include "module/utility/nojumpdelay.h"
 #include "module/utility/noitemrelease.h"
 #include "module/utility/bridgeassist.h"
-#include "module/utility/sprint.h"
+#include "module/movement/sprint.h"
 #include "module/utility/fastplace.h"
-#include "module/utility/timer.h"
+#include "module/movement/timer.h"
 #include "module/utility/autotool.h"
 #include "module/visual/nametags.h"
 #include "module/visual/esp.h"
@@ -222,6 +222,10 @@ void cobble::context::initialize(HMODULE hModule)
 
 void cobble::context::shutdown()
 {
+    // Stop heartbeat thread FIRST - before any other cleanup
+    // This prevents crashes from the thread accessing freed resources
+    SessionValidator::StopHeartbeatThread();
+    
     invalidateSignature();
     
     if (hInstanceMutex) {

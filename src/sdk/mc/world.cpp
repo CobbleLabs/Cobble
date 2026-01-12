@@ -6,17 +6,37 @@
 #include "../../util/logger.hpp"
 
 // =============================================================================
-// getBlockId - Get block ID at world coordinates (1.8.x only)
+// getBlockId - Get block ID at world coordinates
 // =============================================================================
 
 int Minecraft::getBlockId(int x, int y, int z)
 {
     if (!isValid()) return 0;
     
-    // 1.7.10 doesn't use BlockPos, would need different implementation
+    // 1.7.10: World.getBlock(int, int, int) -> Block
     if (Java::Version == MinecraftVersion::MC_1_7_10) {
-        // TODO: Implement 1.7.10 version using world.getBlock(x,y,z)
-        return 0;
+        JNIEnv* env = Java::GetEnv();
+        if (!env) return 0;
+
+        jobject world = getWorld();
+        if (!world) return 0;
+
+        int blockId = 0;
+
+        // World.getBlock(int, int, int) -> Block
+        if (JniCache::mid_getBlockWorld) {
+            jobject block = env->CallObjectMethod(world, JniCache::mid_getBlockWorld, x, y, z);
+            if (block) {
+                // Block.getIdFromBlock(Block) -> int
+                if (JniCache::cls_Block && JniCache::mid_getIdFromBlock) {
+                    blockId = env->CallStaticIntMethod(JniCache::cls_Block, JniCache::mid_getIdFromBlock, block);
+                }
+                env->DeleteLocalRef(block);
+            }
+        }
+
+        env->DeleteLocalRef(world);
+        return blockId;
     }
 
     JNIEnv* env = Java::GetEnv();

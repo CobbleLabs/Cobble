@@ -101,8 +101,7 @@ AutoTool::ToolType AutoTool::getBestToolForBlock(int blockId)
 		case 168: // Prismarine
 		case 169: // Sea Lantern
 		case 173: // Coal Block
-			if (settings.pickaxeForStone) return ToolType::PICKAXE;
-			break;
+			return ToolType::PICKAXE;
 	}
 	
 	// Wood-type blocks -> Axe
@@ -151,8 +150,7 @@ AutoTool::ToolType AutoTool::getBestToolForBlock(int blockId)
 		case 190: // Jungle Fence
 		case 191: // Dark Oak Fence
 		case 192: // Acacia Fence
-			if (settings.axeForWood) return ToolType::AXE;
-			break;
+			return ToolType::AXE;
 	}
 	
 	// Dirt-type blocks -> Shovel
@@ -171,8 +169,7 @@ AutoTool::ToolType AutoTool::getBestToolForBlock(int blockId)
 		case 159: // Stained Clay
 		case 172: // Hardened Clay
 		case 179: // Red Sandstone
-			if (settings.shovelForDirt) return ToolType::SHOVEL;
-			break;
+			return ToolType::SHOVEL;
 	}
 	
 	return ToolType::NONE;
@@ -228,37 +225,11 @@ void AutoTool::onUpdate()
 	bool targetingBlock = mc.isTargetingBlock();
 	
 	if (isLeftClickHeld && targetingBlock) {
-		// Get player look position to find the targeted block
-		float yaw = player.getYaw();
-		float pitch = player.getPitch();
+		// Get block position directly from game's objectMouseOver
+		Minecraft::Vec3 hitPos = mc.getTargetedBlockPos();
 		
-		// Calculate look direction
-		float yawRad = yaw * 3.14159f / 180.0f;
-		float pitchRad = pitch * 3.14159f / 180.0f;
-		
-		float lookX = -sinf(yawRad) * cosf(pitchRad);
-		float lookY = -sinf(pitchRad);
-		float lookZ = cosf(yawRad) * cosf(pitchRad);
-		
-		// Raycast from player eye position
-		float eyeHeight = 1.62f;
-		Minecraft::Vec3 from(
-			(float)player.getPosX(),
-			(float)player.getPosY() + eyeHeight,
-			(float)player.getPosZ()
-		);
-		
-		// Ray endpoint (4 blocks reach is standard)
-		Minecraft::Vec3 to(
-			from.x + lookX * 4.5f,
-			from.y + lookY * 4.5f,
-			from.z + lookZ * 4.5f
-		);
-		
-		Minecraft::Vec3 hitPos;
-		auto result = mc.rayTraceBlocks(from, to, hitPos, false);
-		
-		if (result == Minecraft::RAYTRACE_BLOCKS_RESULT::HIT) {
+		// Valid position check (Y should be between 0 and 256 for valid blocks)
+		if (hitPos.y >= 0 && hitPos.y < 256) {
 			int blockId = mc.getBlockId((int)hitPos.x, (int)hitPos.y, (int)hitPos.z);
 			
 			if (blockId > 0) {
@@ -306,9 +277,6 @@ void AutoTool::onRenderMenu()
 			ui::CheckboxBind("Enabled", &enabled, &keybind);
 		},
 		"Options", [this]() {
-			ui::Checkbox("Pickaxe for Stone/Ores", &settings.pickaxeForStone);
-			ui::Checkbox("Axe for Wood/Logs", &settings.axeForWood);
-			ui::Checkbox("Shovel for Dirt/Sand", &settings.shovelForDirt);
 			ui::Checkbox("Switch Back After Mining", &settings.switchBack);
 		}
 	);

@@ -654,6 +654,7 @@ func SaveMinVersion(version string) {
 
 // CreateSessionToken generates a new session token for the given HWID/username
 // Returns the token string. Token expires in 24 hours.
+// Old tokens for this HWID get a 2-minute grace period instead of immediate deletion.
 func CreateSessionToken(hwid, username string) string {
 	// Generate 32 random bytes -> 64 hex chars
 	bytes := make([]byte, 32)
@@ -663,8 +664,11 @@ func CreateSessionToken(hwid, username string) string {
 	}
 	token := hex.EncodeToString(bytes)
 
-	// Delete any existing token for this HWID
-	DB.Exec("DELETE FROM session_tokens WHERE hwid = $1", hwid)
+	// Grace period: Instead of deleting old tokens, give them 2 minutes to expire
+	// This allows existing DLL sessions to gracefully terminate
+	DB.Exec(`UPDATE session_tokens 
+			 SET expires_at = LEAST(expires_at, NOW() + INTERVAL '2 minutes')
+			 WHERE hwid = $1`, hwid)
 
 	// Insert new token with 24 hour expiry
 	expiresAt := time.Now().Add(24 * time.Hour)
@@ -679,6 +683,41 @@ func CreateSessionToken(hwid, username string) string {
 
 	logger.Info("TOKEN", "Created session token", logger.Fields{"user": username})
 	return token
+}
+
+// RotateSessionToken atomically rotates a token
+// Only one concurrent heartbeat can succeed - others get empty string
+// Returns the new token, or empty string if token was already rotated/expired
+func RotateSessionToken(hwid, oldToken, username string) string {
+	// Generate new token
+	bytes := make([]byte, 32)
+	if _, err := rand.Read(bytes); err != nil {
+		logger.Error("TOKEN", "Failed to generate random bytes for rotation", logger.Fields{"error": err.Error()})
+		return ""
+	}
+	newToken := hex.EncodeToString(bytes)
+	expiresAt := time.Now().Add(24 * time.Hour)
+
+	// ATOMIC: Update old token to new value in single query
+	// Only succeeds if old token exists and hasn't expired yet
+	// This prevents race conditions - only first heartbeat wins
+	var updatedID string
+	err := DB.QueryRow(`
+		UPDATE session_tokens 
+		SET token = $1, expires_at = $2
+		WHERE token = $3 AND hwid = $4 AND expires_at > NOW()
+		RETURNING id
+	`, newToken, expiresAt, oldToken, hwid).Scan(&updatedID)
+
+	if err != nil {
+		// Token already rotated by concurrent request, or expired
+		// This is not an error - client should use their current token
+		logger.Debug("TOKEN", "Rotation skipped (already rotated)", logger.Fields{"user": username})
+		return ""
+	}
+
+	logger.Debug("TOKEN", "Rotated token", logger.Fields{"user": username})
+	return newToken
 }
 
 // ValidateSessionToken checks if a token is valid for the given HWID
@@ -710,6 +749,17 @@ func ValidateSessionToken(hwid, token string) (string, bool) {
 	}
 
 	return username, true
+}
+
+// CleanupExpiredTokens removes expired tokens (call periodically)
+func CleanupExpiredTokens() {
+	result, _ := DB.Exec("DELETE FROM session_tokens WHERE expires_at < NOW()")
+	if result != nil {
+		deleted, _ := result.RowsAffected()
+		if deleted > 0 {
+			logger.Debug("TOKEN", "Cleaned up expired tokens", logger.Fields{"count": deleted})
+		}
+	}
 }
 
 // ============================================

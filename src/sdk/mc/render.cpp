@@ -74,6 +74,51 @@ bool Minecraft::isTargetingBlock()
 }
 
 // =============================================================================
+// getTargetedBlockPos - Get block position from game's objectMouseOver
+// =============================================================================
+
+Minecraft::Vec3 Minecraft::getTargetedBlockPos()
+{
+    Vec3 result(-1.0f, -1.0f, -1.0f);  // Invalid position marker
+    
+    if (!isValid()) return result;
+
+    JNIEnv* env = Java::GetEnv();
+    if (!env) return result;
+
+    if (!JniCache::fid_objectMouseOver) return result;
+    
+    jobject mouseOver = env->GetObjectField(instance, JniCache::fid_objectMouseOver);
+    if (!mouseOver) return result;
+    
+    bool gotPosition = false;
+    
+    // Method 1: 1.8.x - getBlockPos() -> BlockPos
+    if (JniCache::mid_getBlockPos && JniCache::mid_getX && JniCache::mid_getY && JniCache::mid_getZ) {
+        jobject blockPosObj = env->CallObjectMethod(mouseOver, JniCache::mid_getBlockPos);
+        if (blockPosObj) {
+            result.x = (float)env->CallIntMethod(blockPosObj, JniCache::mid_getX);
+            result.y = (float)env->CallIntMethod(blockPosObj, JniCache::mid_getY);
+            result.z = (float)env->CallIntMethod(blockPosObj, JniCache::mid_getZ);
+            env->DeleteLocalRef(blockPosObj);
+            gotPosition = true;
+        }
+        env->ExceptionClear();
+    }
+    
+    // Method 2: 1.7.10 - direct blockX/blockY/blockZ fields
+    if (!gotPosition && JniCache::fid_blockX && JniCache::fid_blockY && JniCache::fid_blockZ) {
+        result.x = (float)env->GetIntField(mouseOver, JniCache::fid_blockX);
+        result.y = (float)env->GetIntField(mouseOver, JniCache::fid_blockY);
+        result.z = (float)env->GetIntField(mouseOver, JniCache::fid_blockZ);
+        gotPosition = true;
+    }
+    
+    env->DeleteLocalRef(mouseOver);
+    return result;
+}
+
+// =============================================================================
 // isTargetingEntity - Check if crosshair is aimed at an entity
 // =============================================================================
 

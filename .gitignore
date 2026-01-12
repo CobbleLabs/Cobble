@@ -61,3 +61,10 @@ website.zip
 
 # Large archives
 *.rar
+
+# =========================
+# Auto-generated
+# =========================
+loader/res/Cobble.enc
+loader/src/security/integrity_gen.hpp
+loader/src/util/dll_hash.h

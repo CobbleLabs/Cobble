@@ -12,7 +12,7 @@
 #include "../module/combat/hitbox.h"
 #include "../module/utility/nojumpdelay.h"
 #include "../module/utility/bridgeassist.h"
-#include "../module/utility/sprint.h"
+#include "../module/movement/sprint.h"
 #include "../module/utility/fastplace.h"
 #include "../module/utility/noitemrelease.h"
 #include "../module/visual/nametags.h"

@@ -385,6 +385,14 @@ inline bool DoHeartbeat() {
         log_err("Heartbeat server rejected: %s", response.body.c_str());
     } else {
         log_ok("Heartbeat success");
+        
+        // TOKEN ROTATION: Server sends new token on each successful heartbeat
+        // This prevents replay attacks - stolen tokens become useless after one use
+        std::string newToken = resp["new_token"].as_string("");
+        if (!newToken.empty()) {
+            g_SessionToken = newToken;
+            log_debug("Token rotated");
+        }
     }
     return ok;
 }

@@ -229,6 +229,7 @@ extern jfieldID fid_ENTITY;
 
 extern jfieldID fid_playerEntities;
 extern jmethodID mid_getBlockState;
+extern jmethodID mid_getBlockWorld;  // 1.7.10: World.getBlock(int,int,int) -> Block
 extern jmethodID mid_rayTraceBlocks;
 
 // =============================================================================

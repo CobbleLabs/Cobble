@@ -11,9 +11,6 @@ public:
 	void onRenderMenu() override;
 
 	struct Settings {
-		bool pickaxeForStone = true;   // Use pickaxe for stone/ores
-		bool axeForWood = true;        // Use axe for wood/logs
-		bool shovelForDirt = true;     // Use shovel for dirt/sand/gravel
 		bool switchBack = true;        // Switch back to previous slot when not mining
 	} settings;
 

@@ -289,7 +289,7 @@ if systemctl is-active --quiet cobble; then
     echo -e "${GREEN}╚════════════════════════════════════════════╝${NC}"
     echo ""
     echo -e "Config:   ${YELLOW}$INSTALL_DIR/.env${NC}"
-    echo -e "Database: ${YELLOW}PostgreSQL (see DATABASE_URL)${NC}"
+    echo -e "Database: ${YELLOW}PostgreSQL${NC}"
     
     if [ -n "$DISCORD_TOKEN" ]; then
         echo -e "Discord:  ${GREEN}Enabled${NC}"

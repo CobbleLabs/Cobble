@@ -160,6 +160,9 @@ struct Minecraft
 	// @param stopOnLiquid whether the ray should stop on liquid blocks
 
 	RAYTRACE_BLOCKS_RESULT rayTraceBlocks(Vec3 from, Vec3 direction, Vec3& result, bool stopOnLiquid = false);
+	
+	// Get block position from game's objectMouseOver (more reliable than custom raycast)
+	Vec3 getTargetedBlockPos();
 
 	// Input control (JNI)
 	void setKeyBindState(int keyCode, bool pressed);

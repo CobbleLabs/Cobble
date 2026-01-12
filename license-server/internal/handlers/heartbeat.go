@@ -23,8 +23,9 @@ type HeartbeatRequest struct {
 
 // HeartbeatResponse is the response payload
 type HeartbeatResponse struct {
-	OK     bool   `json:"ok"`
-	Reason string `json:"reason,omitempty"` // ban, expired, revoked, version_outdated, invalid_session
+	OK       bool   `json:"ok"`
+	Reason   string `json:"reason,omitempty"`   // ban, expired, revoked, version_outdated, invalid_session
+	NewToken string `json:"new_token,omitempty"` // Rotated token - DLL should use this for next heartbeat
 }
 
 // Heartbeat handles POST /api/heartbeat - runtime session validation
@@ -128,12 +129,16 @@ func Heartbeat(w http.ResponseWriter, r *http.Request) {
 	// Update last seen in database
 	database.UpdateUserLastSeen(user.ID, clientIP)
 
+	// TOKEN ROTATION: Generate new token, mark old one for expiry
+	// This prevents replay attacks - stolen tokens become useless after one heartbeat
+	newToken := database.RotateSessionToken(req.HWID, req.SessionToken, username)
+
 	// Log successful heartbeat
 	logger.Info("HEARTBEAT", "OK", logger.Fields{
 		"user": username,
 	})
 
-	helpers.JSONResponse(w, http.StatusOK, HeartbeatResponse{OK: true})
+	helpers.JSONResponse(w, http.StatusOK, HeartbeatResponse{OK: true, NewToken: newToken})
 }
 
 func truncate(s string, maxLen int) string {

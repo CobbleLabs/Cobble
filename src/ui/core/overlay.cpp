@@ -462,20 +462,44 @@ void Overlay::Shutdown()
 {
 	shutdownRequested = true;
 	
-	std::this_thread::sleep_for(std::chrono::milliseconds(100));
+	// Wait for any in-flight SwapBuffers calls to complete
+	std::this_thread::sleep_for(std::chrono::milliseconds(200));
 	
-	if (hookInstalled) {
-		MH_DisableHook(MH_ALL_HOOKS);
-		MH_RemoveHook(MH_ALL_HOOKS);
-		MH_Uninitialize();
-		hookInstalled = false;
-	}
-	
+	// Restore window procedure FIRST to stop input interception
 	if (originalWndProc && (lastWindow || gameWindow)) {
-		SetWindowLongPtrA(lastWindow ? lastWindow : gameWindow, GWLP_WNDPROC, (LONG_PTR)originalWndProc);
+		HWND targetWnd = lastWindow ? lastWindow : gameWindow;
+		if (IsWindow(targetWnd)) {
+			SetWindowLongPtrA(targetWnd, GWLP_WNDPROC, (LONG_PTR)originalWndProc);
+		}
 		originalWndProc = nullptr;
 		lastWindow = nullptr;
 	}
+	
+	// Disable hooks before ImGui cleanup
+	if (hookInstalled) {
+		MH_DisableHook(MH_ALL_HOOKS);
+		hookInstalled = false;
+	}
+	
+	// Wait for hook to be fully disabled
+	std::this_thread::sleep_for(std::chrono::milliseconds(50));
+	
+	// Clean up ImGui AFTER hooks are disabled
+	if (initialized && overlayContext) {
+		// Try to make our context current for cleanup
+		if (deviceContext && wglMakeCurrent(deviceContext, overlayContext)) {
+			ImGui_ImplOpenGL2_Shutdown();
+			ImGui_ImplWin32_Shutdown();
+			ImGui::DestroyContext();
+			wglMakeCurrent(nullptr, nullptr);
+		}
+		wglDeleteContext(overlayContext);
+		overlayContext = nullptr;
+	}
+	
+	// Now remove hooks and uninitialize MinHook
+	MH_RemoveHook(MH_ALL_HOOKS);
+	MH_Uninitialize();
 	
 	initialized = false;
 	initStarted = false;

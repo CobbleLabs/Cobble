@@ -1,5 +1,6 @@
 #include "player.h"
 #include "../core/minecraft.h"
+#include "../jni/jni_cache.h"
 #include "../../util/logger.hpp"
 
 LocalPlayer player;
@@ -467,17 +468,15 @@ int LocalPlayer::getItemInSlot(int slot)
 		return -1;
 	}
 	
-	// Get player.inventory field
-	jfieldID fid_inventory = Java::Env->GetFieldID(cls, "inventory", "Lnet/minecraft/entity/player/InventoryPlayer;");
-	if (!fid_inventory || Java::Env->ExceptionCheck()) {
-		Java::Env->ExceptionClear();
+	// Get player.inventory field - use JniCache which is already initialized
+	if (!JniCache::fid_inventory) {
 		Java::Env->DeleteLocalRef(inventoryCls);
 		Java::Env->DeleteLocalRef(itemStackCls);
 		Java::Env->DeleteLocalRef(itemCls);
 		return -1;
 	}
 	
-	jobject inventory = Java::Env->GetObjectField(instance, fid_inventory);
+	jobject inventory = Java::Env->GetObjectField(instance, JniCache::fid_inventory);
 	if (!inventory || Java::Env->ExceptionCheck()) {
 		Java::Env->ExceptionClear();
 		Java::Env->DeleteLocalRef(inventoryCls);
@@ -623,15 +622,13 @@ int LocalPlayer::getCurrentSlot()
 		return 0;
 	}
 	
-	// Get player.inventory field
-	jfieldID fid_inventory = Java::Env->GetFieldID(cls, "inventory", "Lnet/minecraft/entity/player/InventoryPlayer;");
-	if (!fid_inventory || Java::Env->ExceptionCheck()) {
-		Java::Env->ExceptionClear();
+	// Get player.inventory using JniCache (already initialized for both versions)
+	if (!JniCache::fid_inventory) {
 		Java::Env->DeleteLocalRef(inventoryCls);
 		return 0;
 	}
 	
-	jobject inventory = Java::Env->GetObjectField(instance, fid_inventory);
+	jobject inventory = Java::Env->GetObjectField(instance, JniCache::fid_inventory);
 	if (!inventory || Java::Env->ExceptionCheck()) {
 		Java::Env->ExceptionClear();
 		Java::Env->DeleteLocalRef(inventoryCls);
@@ -667,15 +664,13 @@ void LocalPlayer::setCurrentSlot(int slot)
 		return;
 	}
 	
-	// Get player.inventory field
-	jfieldID fid_inventory = Java::Env->GetFieldID(cls, "inventory", "Lnet/minecraft/entity/player/InventoryPlayer;");
-	if (!fid_inventory || Java::Env->ExceptionCheck()) {
-		Java::Env->ExceptionClear();
+	// Get player.inventory using JniCache (already initialized for both versions)
+	if (!JniCache::fid_inventory) {
 		Java::Env->DeleteLocalRef(inventoryCls);
 		return;
 	}
 	
-	jobject inventory = Java::Env->GetObjectField(instance, fid_inventory);
+	jobject inventory = Java::Env->GetObjectField(instance, JniCache::fid_inventory);
 	if (!inventory || Java::Env->ExceptionCheck()) {
 		Java::Env->ExceptionClear();
 		Java::Env->DeleteLocalRef(inventoryCls);
