@@ -25,7 +25,6 @@ static constexpr float RAD_TO_DEG = 180.0f / PI;
 Reach::Reach() : Module("Reach")
 {
 	keybind = 0;
-	locked = true;
 }
 
 void Reach::onEnable()

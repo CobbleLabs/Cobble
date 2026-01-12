@@ -463,7 +463,7 @@ void Overlay::Shutdown()
 	shutdownRequested = true;
 	
 	// Wait for any in-flight SwapBuffers calls to complete
-	std::this_thread::sleep_for(std::chrono::milliseconds(200));
+	std::this_thread::sleep_for(std::chrono::milliseconds(50));
 	
 	// Restore window procedure FIRST to stop input interception
 	if (originalWndProc && (lastWindow || gameWindow)) {
@@ -482,7 +482,7 @@ void Overlay::Shutdown()
 	}
 	
 	// Wait for hook to be fully disabled
-	std::this_thread::sleep_for(std::chrono::milliseconds(50));
+	std::this_thread::sleep_for(std::chrono::milliseconds(16));
 	
 	// Clean up ImGui AFTER hooks are disabled
 	if (initialized && overlayContext) {

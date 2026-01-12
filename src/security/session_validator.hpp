@@ -473,7 +473,7 @@ inline void StartHeartbeatThread(const std::string& optionalToken = "") {
 inline void StopHeartbeatThread() {
     g_HeartbeatRunning = false;
     if (g_HeartbeatThread) {
-        WaitForSingleObject(g_HeartbeatThread, 5000);
+        WaitForSingleObject(g_HeartbeatThread, 500);
         CloseHandle(g_HeartbeatThread);
         g_HeartbeatThread = nullptr;
     }
