@@ -9,6 +9,7 @@
 #include "../module/combat/blink.h"
 #include "../module/combat/criticals.h"
 #include "../module/combat/hitselect.h"
+#include "../module/combat/hitbox.h"
 #include "../module/utility/nojumpdelay.h"
 #include "../module/utility/bridgeassist.h"
 #include "../module/utility/sprint.h"
@@ -231,6 +232,18 @@ void ConfigManager::applyConfig() {
                 s.fakeSwing = data["fakeSwing"].as_bool(s.fakeSwing);
                 s.weaponOnly = data["weaponOnly"].as_bool(s.weaponOnly);
                 s.targetingPlayerOnly = data["targetingPlayerOnly"].as_bool(s.targetingPlayerOnly);
+            }
+            else if (name == "Hitbox" && hitbox) {
+                auto& s = hitbox->settings;
+                s.expansion = data["expansion"].as_float(s.expansion);
+                s.showHitbox = data["showHitbox"].as_bool(s.showHitbox);
+                s.filled = data["filled"].as_bool(s.filled);
+                if (data.has("hitboxColor")) {
+                    s.hitboxColor[0] = data["hitboxColor"]["r"].as_float(s.hitboxColor[0]);
+                    s.hitboxColor[1] = data["hitboxColor"]["g"].as_float(s.hitboxColor[1]);
+                    s.hitboxColor[2] = data["hitboxColor"]["b"].as_float(s.hitboxColor[2]);
+                    s.hitboxColor[3] = data["hitboxColor"]["a"].as_float(s.hitboxColor[3]);
+                }
             }
             else if (name == "AutoRefill" && autoRefill) {
                 auto& s = autoRefill->settings;
@@ -455,6 +468,16 @@ void ConfigManager::buildConfigFromModules() {
             config_["modules"][name]["fakeSwing"] = s.fakeSwing;
             config_["modules"][name]["weaponOnly"] = s.weaponOnly;
             config_["modules"][name]["targetingPlayerOnly"] = s.targetingPlayerOnly;
+        }
+        else if (name == "Hitbox" && hitbox) {
+            const auto& s = hitbox->settings;
+            config_["modules"][name]["expansion"] = s.expansion;
+            config_["modules"][name]["showHitbox"] = s.showHitbox;
+            config_["modules"][name]["filled"] = s.filled;
+            config_["modules"][name]["hitboxColor"]["r"] = s.hitboxColor[0];
+            config_["modules"][name]["hitboxColor"]["g"] = s.hitboxColor[1];
+            config_["modules"][name]["hitboxColor"]["b"] = s.hitboxColor[2];
+            config_["modules"][name]["hitboxColor"]["a"] = s.hitboxColor[3];
         }
         else if (name == "AutoRefill" && autoRefill) {
             const auto& s = autoRefill->settings;

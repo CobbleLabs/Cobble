@@ -17,6 +17,7 @@
 #include "../../module/combat/blink.h"
 #include "../../module/combat/criticals.h"
 #include "../../module/combat/hitselect.h"
+#include "../../module/combat/hitbox.h"
 #include "../../module/utility/nojumpdelay.h"
 #include "../../module/utility/noitemrelease.h"
 #include "../../module/utility/bridgeassist.h"
@@ -50,6 +51,7 @@ Module* getModuleForSubtab(int tabIdx, int subtabIdx)
 			case 5: return blink;
 			case 6: return criticals;
 			case 7: return hitSelect;
+			case 8: return hitbox;
 		}
 	}
 	// Visuals Tab (1)
