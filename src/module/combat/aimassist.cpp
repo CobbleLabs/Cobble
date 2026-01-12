@@ -481,9 +481,11 @@ void AimAssist::onUpdate()
 	double aimTargetY = targetY;
 	double aimTargetZ = targetZ;
 
-	if (!targetHasHitbox && Java::Version == MinecraftVersion::MC_1_7_10)
+	// When hitbox is unavailable (common with invisible players), aim at eye height
+	// Eye height is ~1.62 blocks above foot position (1.54 when sneaking)
+	if (!targetHasHitbox)
 	{
-		aimTargetY += 1.6;
+		aimTargetY += 1.62;
 	}
 
 	double aimX, aimY, aimZ;

@@ -12,6 +12,7 @@ struct ImDrawList;
 // Cached player data for rendering
 struct EspPlayer {
 	std::string name;
+	std::string uuid;  // For team/friend detection
 	double posX = 0, posY = 0, posZ = 0;           // Current position
 	double lastPosX = 0, lastPosY = 0, lastPosZ = 0; // Last tick position
 	float distance = 0;
@@ -38,10 +39,13 @@ public:
 		bool filled = true;
 		bool outline = true;
 		bool healthBar = true;
+		bool teamColors = true;  // Use different colors for friends/enemies
 		
 		float boxColor[4] = { 1.0f, 0.0f, 0.0f, 1.0f }; // Red default
 		float filledColor[4] = { 1.0f, 0.0f, 0.0f, 0.15f }; // Transparent red
-		float outlineColor[4] = { 0.0f, 0.0f, 0.0f, 0.4f }; // Black outline
+		float outlineColor[4] = { 0.0f, 0.0f, 0.0f, 1.0f }; // Black outline (opaque)
+		float friendColor[4] = { 0.0f, 1.0f, 0.0f, 1.0f }; // Green for friends/teammates
+		float enemyColor[4] = { 1.0f, 0.0f, 0.0f, 1.0f };  // Red for enemies
 		
 		float range = 128.0f;
 	} settings;
