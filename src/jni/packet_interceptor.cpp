@@ -979,17 +979,17 @@ static int patchNetworkManagerClass(const uint8_t* data, size_t len, std::vector
                 log_debug("[PacketInterceptor] NetworkManager method: %s %s", name.c_str(), desc.c_str());
             }
 
-            if (name == "sendPacket" && desc.size() >= 3 && desc.back() == 'V' && desc[desc.size() - 2] == ')') {
+            if ((name == "sendPacket" || name == "scheduleOutboundPacket") && desc.size() >= 3 && desc.back() == 'V' && desc[desc.size() - 2] == ')') {
                 // Accept either full MCP name or obfuscated single-letter class name
                 if (desc.rfind("(Lnet/minecraft/network/Packet;", 0) == 0) {
                     is_target = true;
-                    log_debug("[PacketInterceptor] Found sendPacket with MCP signature: %s", desc.c_str());
+                    log_debug("[PacketInterceptor] Found %s with MCP signature: %s", name.c_str(), desc.c_str());
                 } else if (desc[0] == '(' && desc[1] == 'L' && desc.find(';') != std::string::npos) {
                     // Obfuscated: (Lej;)V or similar - any class that takes one object param and returns void
                     std::string paramClass = desc.substr(2, desc.find(';') - 2);
                     if (paramClass.find('/') == std::string::npos || paramClass.find("Packet") != std::string::npos) {
                         is_target = true;
-                        log_debug("[PacketInterceptor] Found sendPacket with obfuscated signature: %s", desc.c_str());
+                        log_debug("[PacketInterceptor] Found %s with obfuscated signature: %s", name.c_str(), desc.c_str());
                     }
                 }
             }
@@ -3092,11 +3092,14 @@ bool shouldSendPacket(JNIEnv* env, jobject packet) {
                             if (cstr) {
                                 // Check if it's C07PacketPlayerDigging
                                 if (strstr(cstr, "C07PacketPlayerDigging") != nullptr) {
-                                    // Get the status field to check if it's RELEASE_USE_ITEM
+                                    bool shouldBlock = false;
+                                    
+                                    // Try 1.8.9+ method first: enum Action field
                                     jfieldID statusField = env->GetFieldID(cls, "status", "Lnet/minecraft/network/play/client/C07PacketPlayerDigging$Action;");
                                     if (env->ExceptionCheck()) env->ExceptionClear();
-
+                                    
                                     if (statusField) {
+                                        // 1.8.9+ path: enum field
                                         jobject statusObj = env->GetObjectField(packet, statusField);
                                         if (statusObj) {
                                             jclass statusCls = env->GetObjectClass(statusObj);
@@ -3107,32 +3110,46 @@ bool shouldSendPacket(JNIEnv* env, jobject packet) {
                                                     if (enumName) {
                                                         const char* statusStr = env->GetStringUTFChars(enumName, nullptr);
                                                         if (statusStr) {
-                                                            bool shouldBlock = (strcmp(statusStr, "RELEASE_USE_ITEM") == 0);
+                                                            shouldBlock = (strcmp(statusStr, "RELEASE_USE_ITEM") == 0);
                                                             env->ReleaseStringUTFChars(enumName, statusStr);
-
-                                                            // Clean up all references before returning
-                                                            env->DeleteLocalRef(enumName);
-                                                            env->DeleteLocalRef(statusCls);
-                                                            env->DeleteLocalRef(statusObj);
-                                                            env->ReleaseStringUTFChars(jname, cstr);
-                                                            env->DeleteLocalRef(jname);
-                                                            env->DeleteLocalRef(clsCls);
-                                                            env->DeleteLocalRef(cls);
-
-                                                            if (shouldBlock) {
-                                                                return false;
-                                                            }
-                                                            // Don't continue processing, we already cleaned up
-                                                            goto skip_cleanup;
                                                         }
+                                                        env->DeleteLocalRef(enumName);
                                                     }
-                                                    if (enumName) env->DeleteLocalRef(enumName);
                                                 }
                                                 env->DeleteLocalRef(statusCls);
                                             }
                                             env->DeleteLocalRef(statusObj);
                                         }
+                                    } else {
+                                        // 1.7.10 path: int field
+                                        // In 1.7.10, the field is obfuscated as 'field_149508_e', not 'status'
+                                        // Value 5 = RELEASE_USE_ITEM
+                                        jfieldID intStatusField = env->GetFieldID(cls, "field_149508_e", "I");
+                                        if (env->ExceptionCheck()) env->ExceptionClear();
+                                        
+                                        // Fallback: try 'status' in case it's deobfuscated
+                                        if (!intStatusField) {
+                                            intStatusField = env->GetFieldID(cls, "status", "I");
+                                            if (env->ExceptionCheck()) env->ExceptionClear();
+                                        }
+                                        
+                                        if (intStatusField) {
+                                            jint statusValue = env->GetIntField(packet, intStatusField);
+                                            // 5 = RELEASE_USE_ITEM in 1.7.10
+                                            shouldBlock = (statusValue == 5);
+                                        }
                                     }
+                                    
+                                    // Clean up and return if we should block
+                                    env->ReleaseStringUTFChars(jname, cstr);
+                                    env->DeleteLocalRef(jname);
+                                    env->DeleteLocalRef(clsCls);
+                                    env->DeleteLocalRef(cls);
+                                    
+                                    if (shouldBlock) {
+                                        return false;
+                                    }
+                                    goto skip_cleanup;
                                 }
                                 env->ReleaseStringUTFChars(jname, cstr);
                             }

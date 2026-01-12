@@ -19,6 +19,7 @@
 #include "../../module/utility/noitemrelease.h"
 #include "../../module/utility/bridgeassist.h"
 #include "../../module/utility/sprint.h"
+#include "../../module/utility/fastplace.h"
 #include "../../module/visual/nametags.h"
 #include "../../module/visual/esp.h"
 #include "../../module/visual/tracers.h"
@@ -55,8 +56,14 @@ Module* getModuleForSubtab(int tabIdx, int subtabIdx)
 			case 5: return nullptr; // Notifications - special handling
 		}
 	}
-	// Movement Tab (2)
+	// Utility Tab (2)
 	else if (tabIdx == 2) {
+		switch (subtabIdx) {
+			case 0: return fastPlace;
+		}
+	}
+	// Movement Tab (3)
+	else if (tabIdx == 3) {
 		switch (subtabIdx) {
 			case 0: return sprint;
 			case 1: return noJumpDelay;
@@ -64,7 +71,7 @@ Module* getModuleForSubtab(int tabIdx, int subtabIdx)
 			case 3: return bridgeAssist;
 		}
 	}
-	// Settings Tab (3) - no module, handled specially
+	// Settings Tab (4) - no module, handled specially
 	
 	return nullptr;
 }
@@ -239,7 +246,7 @@ static void renderPage()
 	auto& tab = ui::tabs[ui::cur_tab];
 	
 	// Settings tab (no subtabs)
-	if (ui::cur_tab == 3) {
+	if (ui::cur_tab == 4) {
 		renderSettingsPage();
 		return;
 	}

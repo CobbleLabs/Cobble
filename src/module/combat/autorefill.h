@@ -22,6 +22,8 @@ public:
 	void onDisable() override;
 	void onUpdate() override;
 	void onRenderMenu() override;
+	std::string getDisplayInfo() override;
+	bool canToggle() override;
 
 	struct Settings {
 		// Items to refill
@@ -30,6 +32,9 @@ public:
 		
 		// Speed: delay between item moves (ms)
 		int speed = 80;
+		
+		// On Inventory Open: trigger refill when user opens inventory manually
+		bool onInventoryOpen = false;
 	} settings;
 
 private:
@@ -50,8 +55,11 @@ private:
 	};
 	std::vector<RefillTask> pendingRefills;
 	
+	// Track inventory state for onInventoryOpen mode
+	bool wasInventoryOpen = false;
+	
 	void scanForRefills();
-	void finishRefill();
+	void finishRefill(bool fromOnInventoryOpen = false);
 	
 	// Internal delays
 	static constexpr int DELAY_AFTER_OPEN = 150;

@@ -2,6 +2,7 @@
 #include "../sdk/core/minecraft.h"
 #include "../jni/packet_interceptor.hpp"
 #include "../ui/menu/menu.h"
+#include "combat/autorefill.h"
 
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
@@ -45,6 +46,11 @@ void ModuleManager::update()
 	{
 		if (mod->enabled)
 			mod->onUpdate();
+	}
+	
+	// AutoRefill passive mode: always update when onInventoryOpen is enabled
+	if (autoRefill && !autoRefill->enabled && autoRefill->settings.onInventoryOpen) {
+		autoRefill->onUpdate();
 	}
 }
 

@@ -10,6 +10,7 @@
 #include "../module/utility/nojumpdelay.h"
 #include "../module/utility/bridgeassist.h"
 #include "../module/utility/sprint.h"
+#include "../module/utility/fastplace.h"
 #include "../module/utility/noitemrelease.h"
 #include "../module/visual/nametags.h"
 #include "../module/visual/esp.h"
@@ -212,6 +213,7 @@ void ConfigManager::applyConfig() {
                 s.refillSoup = data["refillSoup"].as_bool(s.refillSoup);
                 s.refillPotions = data["refillPotions"].as_bool(s.refillPotions);
                 s.speed = data["speed"].as_int(s.speed);
+                s.onInventoryOpen = data["onInventoryOpen"].as_bool(s.onInventoryOpen);
             }
             else if (name == "BlockESP" && blockESP) {
                 auto& s = blockESP->settings;
@@ -238,6 +240,9 @@ void ConfigManager::applyConfig() {
             }
             else if (name == "NoItemRelease" && noItemRelease) {
                 noItemRelease->settings.mode = static_cast<ItemReleaseMode>(data["mode"].as_int(static_cast<int>(noItemRelease->settings.mode)));
+            }
+            else if (name == "FastPlace" && fastPlace) {
+                fastPlace->settings.blocksOnly = data["blocksOnly"].as_bool(fastPlace->settings.blocksOnly);
             }
             
             break;
@@ -393,6 +398,7 @@ void ConfigManager::buildConfigFromModules() {
             config_["modules"][name]["refillSoup"] = s.refillSoup;
             config_["modules"][name]["refillPotions"] = s.refillPotions;
             config_["modules"][name]["speed"] = s.speed;
+            config_["modules"][name]["onInventoryOpen"] = s.onInventoryOpen;
         }
         else if (name == "BlockESP" && blockESP) {
             const auto& s = blockESP->settings;
@@ -419,6 +425,9 @@ void ConfigManager::buildConfigFromModules() {
         }
         else if (name == "NoItemRelease" && noItemRelease) {
             config_["modules"][name]["mode"] = static_cast<int>(noItemRelease->settings.mode);
+        }
+        else if (name == "FastPlace" && fastPlace) {
+            config_["modules"][name]["blocksOnly"] = fastPlace->settings.blocksOnly;
         }
     }
 }

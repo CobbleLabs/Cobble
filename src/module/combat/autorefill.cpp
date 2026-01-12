@@ -30,8 +30,15 @@ AutoRefill::AutoRefill() : Module("AutoRefill")
 	keybind = 0;  // No default keybind
 }
 
+bool AutoRefill::canToggle()
+{
+	// Block toggle when in passive mode (onInventoryOpen)
+	return !settings.onInventoryOpen;
+}
+
 void AutoRefill::onEnable()
 {
+	// Manual mode: one-shot refill
 	if (mc.isInGui()) {
 		enabled = false;
 		return;
@@ -55,20 +62,44 @@ void AutoRefill::onDisable()
 	pendingRefills.clear();
 }
 
-void AutoRefill::finishRefill()
+void AutoRefill::finishRefill(bool fromOnInventoryOpen)
 {
-	if (mc.isInventoryOpen()) {
+	// Only close inventory if not in onInventoryOpen mode
+	if (!fromOnInventoryOpen && mc.isInventoryOpen()) {
 		sendKey(VK_ESCAPE);
 	}
 	
 	state = State::Idle;
 	pendingRefills.clear();
-	enabled = false;
+	
+	// Don't disable module in onInventoryOpen mode (stays active to detect next inventory open)
+	if (!settings.onInventoryOpen) {
+		enabled = false;
+	}
 }
 
 void AutoRefill::onUpdate()
 {
 	if (!player.isValid()) return;
+	
+	// onInventoryOpen mode: always monitor for inventory open (passive mode)
+	if (settings.onInventoryOpen && state == State::Idle) {
+		bool inventoryOpen = mc.isInventoryOpen();
+		
+		if (inventoryOpen && !wasInventoryOpen) {
+			// User just opened inventory - start refilling
+			scanForRefills();
+			
+			if (!pendingRefills.empty()) {
+				state = State::Refilling;
+				stateStartTime = std::chrono::steady_clock::now();
+				lastMoveTime = stateStartTime - std::chrono::milliseconds(settings.speed);
+			}
+		}
+		
+		wasInventoryOpen = inventoryOpen;
+	}
+	
 	if (state == State::Idle) return;
 	
 	auto now = std::chrono::steady_clock::now();
@@ -93,7 +124,7 @@ void AutoRefill::onUpdate()
 			if (elapsed < DELAY_AFTER_OPEN) return;
 			
 			if (!mc.isInventoryOpen()) {
-				finishRefill();
+				finishRefill(settings.onInventoryOpen);
 				return;
 			}
 			
@@ -125,7 +156,7 @@ void AutoRefill::onUpdate()
 					return;
 				}
 				
-				finishRefill();
+				finishRefill(settings.onInventoryOpen);
 			}
 			break;
 		}
@@ -189,12 +220,19 @@ void AutoRefill::onRenderMenu()
 			ui::Binder("Keybind", &keybind);
 			ImGui::Spacing();
 			int speed = settings.speed;
-			if (ui::SliderInt("Speed (ms)", &speed, 50, 200, "%d"))
+			if (ui::SliderInt("Speed (ms)", &speed, 20, 200, "%d"))
 				settings.speed = speed;
+			ImGui::Spacing();
+			ui::Checkbox("On Inventory Open", &settings.onInventoryOpen);
 		},
 		"Filters", [this]() {
 			ui::Checkbox("Refill Soup", &settings.refillSoup);
 			ui::Checkbox("Refill Potions", &settings.refillPotions);
 		}
 	);
+}
+
+std::string AutoRefill::getDisplayInfo()
+{
+	return settings.onInventoryOpen ? "Inv Open" : "Manual";
 }
