@@ -542,6 +542,97 @@ int LocalPlayer::getItemInSlot(int slot)
 }
 
 // ============================================================================
+// Hotbar Slot Control - For AutoTool module
+// Gets/sets the currently selected hotbar slot (0-8)
+// ============================================================================
+
+int LocalPlayer::getCurrentSlot()
+{
+	if (!isValid()) return 0;
+	
+	// Get InventoryPlayer class
+	jclass inventoryCls = nullptr;
+	if (!Java::AssignClass("net.minecraft.entity.player.InventoryPlayer", inventoryCls)) {
+		if (Java::Env->ExceptionCheck()) Java::Env->ExceptionClear();
+		return 0;
+	}
+	
+	// Get player.inventory field
+	jfieldID fid_inventory = Java::Env->GetFieldID(cls, "inventory", "Lnet/minecraft/entity/player/InventoryPlayer;");
+	if (!fid_inventory || Java::Env->ExceptionCheck()) {
+		Java::Env->ExceptionClear();
+		Java::Env->DeleteLocalRef(inventoryCls);
+		return 0;
+	}
+	
+	jobject inventory = Java::Env->GetObjectField(instance, fid_inventory);
+	if (!inventory || Java::Env->ExceptionCheck()) {
+		Java::Env->ExceptionClear();
+		Java::Env->DeleteLocalRef(inventoryCls);
+		return 0;
+	}
+	
+	// Get currentItem field from inventory
+	jfieldID fid_currentItem = Java::Env->GetFieldID(inventoryCls, "currentItem", "I");
+	if (!fid_currentItem || Java::Env->ExceptionCheck()) {
+		Java::Env->ExceptionClear();
+		Java::Env->DeleteLocalRef(inventory);
+		Java::Env->DeleteLocalRef(inventoryCls);
+		return 0;
+	}
+	
+	int currentSlot = Java::Env->GetIntField(inventory, fid_currentItem);
+	
+	Java::Env->DeleteLocalRef(inventory);
+	Java::Env->DeleteLocalRef(inventoryCls);
+	
+	return currentSlot;
+}
+
+void LocalPlayer::setCurrentSlot(int slot)
+{
+	if (!isValid()) return;
+	if (slot < 0 || slot > 8) return;  // Valid hotbar slots: 0-8
+	
+	// Get InventoryPlayer class
+	jclass inventoryCls = nullptr;
+	if (!Java::AssignClass("net.minecraft.entity.player.InventoryPlayer", inventoryCls)) {
+		if (Java::Env->ExceptionCheck()) Java::Env->ExceptionClear();
+		return;
+	}
+	
+	// Get player.inventory field
+	jfieldID fid_inventory = Java::Env->GetFieldID(cls, "inventory", "Lnet/minecraft/entity/player/InventoryPlayer;");
+	if (!fid_inventory || Java::Env->ExceptionCheck()) {
+		Java::Env->ExceptionClear();
+		Java::Env->DeleteLocalRef(inventoryCls);
+		return;
+	}
+	
+	jobject inventory = Java::Env->GetObjectField(instance, fid_inventory);
+	if (!inventory || Java::Env->ExceptionCheck()) {
+		Java::Env->ExceptionClear();
+		Java::Env->DeleteLocalRef(inventoryCls);
+		return;
+	}
+	
+	// Get currentItem field from inventory
+	jfieldID fid_currentItem = Java::Env->GetFieldID(inventoryCls, "currentItem", "I");
+	if (!fid_currentItem || Java::Env->ExceptionCheck()) {
+		Java::Env->ExceptionClear();
+		Java::Env->DeleteLocalRef(inventory);
+		Java::Env->DeleteLocalRef(inventoryCls);
+		return;
+	}
+	
+	// Set the current slot
+	Java::Env->SetIntField(inventory, fid_currentItem, slot);
+	
+	Java::Env->DeleteLocalRef(inventory);
+	Java::Env->DeleteLocalRef(inventoryCls);
+}
+
+// ============================================================================
 // Blink - lastReportedPos manipulation
 // These fields control when Minecraft sends C03PacketPlayer
 // By keeping lastReportedPos = currentPos, no movement packets are sent

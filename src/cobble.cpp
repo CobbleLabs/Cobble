@@ -13,6 +13,7 @@
 #include "module/utility/sprint.h"
 #include "module/utility/fastplace.h"
 #include "module/utility/timer.h"
+#include "module/utility/autotool.h"
 #include "module/visual/nametags.h"
 #include "module/visual/esp.h"
 #include "module/visual/tracers.h"
@@ -107,6 +108,7 @@ void cobble::context::initialize(HMODULE hModule)
     sprint = new Sprint();
     fastPlace = new FastPlace();
     timerModule = new TimerMod();
+    autoTool = new AutoTool();
     nameTags = new NameTags();
     esp = new ESP();
     tracers = new Tracers();
@@ -127,6 +129,7 @@ void cobble::context::initialize(HMODULE hModule)
     moduleManager->registerModule(sprint);
     moduleManager->registerModule(fastPlace);
     moduleManager->registerModule(timerModule);
+    moduleManager->registerModule(autoTool);
     moduleManager->registerModule(nameTags);
     moduleManager->registerModule(esp);
     moduleManager->registerModule(tracers);
@@ -231,6 +234,7 @@ void cobble::context::shutdown()
     if (sprint) sprint->setEnabled(false);
     if (fastPlace) fastPlace->setEnabled(false);
     if (timerModule) timerModule->setEnabled(false);
+    if (autoTool) autoTool->setEnabled(false);
     if (nameTags) nameTags->setEnabled(false);
     if (esp) esp->setEnabled(false);
     
@@ -254,6 +258,7 @@ void cobble::context::shutdown()
     if (sprint) { delete sprint; sprint = nullptr; }
     if (fastPlace) { delete fastPlace; fastPlace = nullptr; }
     if (timerModule) { delete timerModule; timerModule = nullptr; }
+    if (autoTool) { delete autoTool; autoTool = nullptr; }
     if (nameTags) { delete nameTags; nameTags = nullptr; }
     if (esp) { delete esp; esp = nullptr; }
     if (friendsManager) { delete friendsManager; friendsManager = nullptr; }
