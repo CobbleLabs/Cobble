@@ -20,8 +20,6 @@ static std::mt19937 rng(std::random_device{}());
 static constexpr float PI = 3.14159265358979323846f;
 static constexpr float VANILLA_REACH = 3.0f;
 static constexpr float PLAYER_WIDTH = 0.6f;
-static constexpr ULONGLONG SWING_DEBOUNCE_MS = 50;    // Minimum ms between reach applications
-static constexpr ULONGLONG HIT_RESET_MS = 2000;       // Reset consecutive hits after 2s without hitting
 
 Reach::Reach() : Module("Reach")
 {
@@ -34,13 +32,11 @@ void Reach::onEnable()
 	updateReach();
 	consecutiveExtendedHits = 0;
 	lastHitTime = 0;
-	lastSwingTime = 0;
 	originalHitbox.valid = false;
 }
 
 void Reach::onDisable()
 {
-	// Restore any modified hitbox on disable
 	JNIEnv* env = Java::GetEnv();
 	if (env) {
 		restoreHitbox(env);
@@ -51,8 +47,6 @@ void Reach::onDisable()
 bool Reach::isHoldingWeapon()
 {
 	int itemId = player.getHeldItemId();
-	// Swords: 268 (wood), 272 (stone), 267 (iron), 276 (diamond), 283 (gold)
-	// Axes: 271, 275, 258, 279, 286
 	return (itemId == 268 || itemId == 272 || itemId == 267 || itemId == 276 || itemId == 283 ||
 			itemId == 271 || itemId == 275 || itemId == 258 || itemId == 279 || itemId == 286);
 }
@@ -69,7 +63,6 @@ void Reach::updateReach()
 
 bool Reach::shouldApplyThisSwing()
 {
-	// Random chance to skip (breaks detection patterns)
 	std::uniform_int_distribution<int> chanceDist(1, 100);
 	return chanceDist(rng) <= settings.hitChance;
 }
@@ -83,12 +76,16 @@ void Reach::restoreHitbox(JNIEnv* env)
 		if (aabb) {
 			if (JniCache::fid_aabb_minX) env->SetDoubleField(aabb, JniCache::fid_aabb_minX, originalHitbox.minX);
 			if (JniCache::fid_aabb_maxX) env->SetDoubleField(aabb, JniCache::fid_aabb_maxX, originalHitbox.maxX);
+			if (JniCache::fid_aabb_minY) env->SetDoubleField(aabb, JniCache::fid_aabb_minY, originalHitbox.minY);
+			if (JniCache::fid_aabb_maxY) env->SetDoubleField(aabb, JniCache::fid_aabb_maxY, originalHitbox.maxY);
 			if (JniCache::fid_aabb_minZ) env->SetDoubleField(aabb, JniCache::fid_aabb_minZ, originalHitbox.minZ);
 			if (JniCache::fid_aabb_maxZ) env->SetDoubleField(aabb, JniCache::fid_aabb_maxZ, originalHitbox.maxZ);
 			env->DeleteLocalRef(aabb);
 		}
+		env->DeleteLocalRef(originalHitbox.entityRef);
 	}
 	
+	originalHitbox.entityRef = nullptr;
 	originalHitbox.valid = false;
 }
 
@@ -102,7 +99,7 @@ void Reach::onUpdate()
 	JNIEnv* env = Java::GetEnv();
 	if (!env) return;
 	
-	// Restore previous hitbox modification (important: do this early)
+	// Always restore previous hitbox first
 	restoreHitbox(env);
 	
 	// Check conditions
@@ -110,26 +107,23 @@ void Reach::onUpdate()
 	if (settings.sprintingOnly && !player.isSprinting()) return;
 	if (settings.movingOnly && !(GetAsyncKeyState('W') & 0x8000)) return;
 	
-	// Only process when left clicking
+	// Only when attacking (left click held)
 	if (!(GetAsyncKeyState(VK_LBUTTON) & 0x8000)) return;
 	
-	// Debounce rapid swings
 	ULONGLONG now = GetTickCount64();
-	if (now - lastSwingTime < SWING_DEBOUNCE_MS) return;
-	lastSwingTime = now;
 	
-	// Reset consecutive hit counter if too much time passed
-	if (now - lastHitTime > HIT_RESET_MS) {
+	// Reset consecutive hits after timeout
+	if (now - lastHitTime > 2000) {
 		consecutiveExtendedHits = 0;
 	}
 	
-	// Force vanilla reach after too many consecutive extended hits (anti-pattern)
+	// Force vanilla after too many consecutive extended hits
 	if (consecutiveExtendedHits >= settings.maxConsecutiveHits) {
-		consecutiveExtendedHits = 0;  // Reset for next cycle
-		return;  // Skip this hit - use vanilla reach
+		consecutiveExtendedHits = 0;
+		return;
 	}
 	
-	// Random chance to skip (breaks patterns)
+	// Random chance to skip (anti-pattern)
 	if (!shouldApplyThisSwing()) return;
 	
 	// Get player list
@@ -141,9 +135,12 @@ void Reach::onUpdate()
 	double localY = player.getPosY();
 	double localZ = player.getPosZ();
 	
-	// Find closest visible target within 6 blocks
+	// Update reach value
+	updateReach();
+	
+	// Find closest target within our reach range but beyond vanilla
 	PlayerInfo* target = nullptr;
-	float closestDist = 6.0f;
+	float closestDist = currentReach + 0.3f;
 	
 	for (auto& p : playerList) {
 		if (!p.instance) continue;
@@ -153,28 +150,9 @@ void Reach::onUpdate()
 		if (friendsManager && friendsManager->isApolloTeammate(p.uuid)) continue;
 		if (friendsManager && friendsManager->isLunarTeammate(p.uuid)) continue;
 		
-		// Skip invisible players
+		// Skip invisible/NPCs
 		if (p.isInvisible) continue;
-		
-		// Skip NPCs
 		if (p.isNPC) continue;
-		
-		// Check visibility
-		if (!mc.canEntityBeSeen(p.instance)) continue;
-		
-		// Only apply to targets moving toward player (more plausible hits)
-		if (settings.onlyMovingTargets) {
-			// Check if target is moving toward us by comparing last pos
-			double prevDx = localX - p.lastPosX;
-			double prevDz = localZ - p.lastPosZ;
-			double currDx = localX - p.posX;
-			double currDz = localZ - p.posZ;
-			float prevDist = sqrtf((float)(prevDx*prevDx + prevDz*prevDz));
-			float currDist = sqrtf((float)(currDx*currDx + currDz*currDz));
-			
-			// Skip if target is moving away (distance increasing)
-			if (currDist > prevDist + 0.01f) continue;
-		}
 		
 		// Calculate distance
 		double dx = localX - p.posX;
@@ -182,13 +160,27 @@ void Reach::onUpdate()
 		double dz = localZ - p.posZ;
 		float dist = sqrtf((float)(dx*dx + dy*dy + dz*dz));
 		
-		if (dist < closestDist) {
+		// Only extend for targets beyond vanilla but within our reach
+		if (dist > VANILLA_REACH && dist < closestDist) {
+			// Check if target is moving toward us (more legitimate hit)
+			if (settings.onlyMovingTargets) {
+				double prevDx = localX - p.lastPosX;
+				double prevDz = localZ - p.lastPosZ;
+				double currDx = localX - p.posX;
+				double currDz = localZ - p.posZ;
+				float prevDist = sqrtf((float)(prevDx*prevDx + prevDz*prevDz));
+				float currDist = sqrtf((float)(currDx*currDx + currDz*currDz));
+				
+				// Skip if moving away
+				if (currDist > prevDist + 0.01f) continue;
+			}
+			
 			closestDist = dist;
 			target = &p;
 		}
 	}
 	
-	// Cleanup local refs from player list (except target if we have one)
+	// Cleanup local refs
 	for (auto& p : playerList) {
 		if (p.instance && (&p != target)) {
 			env->DeleteLocalRef(p.instance);
@@ -198,78 +190,79 @@ void Reach::onUpdate()
 	
 	if (!target || !target->instance) return;
 	
-	// Update reach value with randomization
-	updateReach();
+	// Calculate minimal extension needed (just enough to hit)
+	float neededExtension = closestDist - VANILLA_REACH + 0.05f;
+	float maxExtension = currentReach - VANILLA_REACH;
+	float extension = (neededExtension < maxExtension) ? neededExtension : maxExtension;
 	
-	// Skip if target is beyond our reach range
-	if (closestDist > currentReach + 0.5f) {
+	// Add small random variance
+	std::uniform_real_distribution<float> varianceDist(-0.01f, 0.01f);
+	extension += varianceDist(rng);
+	if (extension < 0.02f) extension = 0.02f;
+	
+	// Direction from target to player (full 3D)
+	float dx = (float)(localX - target->posX);
+	float dy = (float)(localY - target->posY);
+	float dz = (float)(localZ - target->posZ);
+	float totalDist = sqrtf(dx*dx + dy*dy + dz*dz);
+	
+	if (totalDist < 0.01f) {
 		env->DeleteLocalRef(target->instance);
 		return;
 	}
 	
-	// Calculate extension needed to ensure hit
-	// We extend the hitbox toward the player to make it easier to hit
-	float reachExtension = currentReach - VANILLA_REACH;
-	if (reachExtension < 0.1f) reachExtension = 0.1f;
+	// Normalize direction (3D)
+	float dirX = dx / totalDist;
+	float dirY = dy / totalDist;
+	float dirZ = dz / totalDist;
 	
-	// Add micro-variance to the extension (breaks exact patterns)
-	std::uniform_real_distribution<float> varianceDist(-0.02f, 0.02f);
-	reachExtension += varianceDist(rng);
-	
-	// Calculate horizontal distance and angle to target
-	float horizDist = hypotf((float)(localX - target->posX), (float)(localZ - target->posZ));
-	if (horizDist < reachExtension) {
-		reachExtension = horizDist * 0.8f;  // Don't over-extend vertically close targets
-	}
-	
-	// Calculate angle from local player to target
-	float dx = (float)(target->posX - localX);
-	float dz = (float)(target->posZ - localZ);
-	float angle = -atan2f(dx, dz) * 180.0f / PI;
-	
-	// Calculate offset direction (toward player)
-	float offsetX = cosf((angle + 90.0f) * PI / 180.0f);
-	float offsetZ = sinf((angle + 90.0f) * PI / 180.0f);
-	
-	// New center position for hitbox (moved toward player)
-	float newCenterX = (float)target->posX - offsetX * reachExtension;
-	float newCenterZ = (float)target->posZ - offsetZ * reachExtension;
-	
-	// Calculate new bounding box
-	float halfWidth = PLAYER_WIDTH / 2.0f;
-	double newMinX = newCenterX - halfWidth;
-	double newMaxX = newCenterX + halfWidth;
-	double newMinZ = newCenterZ - halfWidth;
-	double newMaxZ = newCenterZ + halfWidth;
-	
-	// Get entity's bounding box and modify it
+	// Get and modify bounding box
 	if (JniCache::fid_boundingBox && JniCache::cls_AxisAlignedBB) {
 		jobject aabb = env->GetObjectField(target->instance, JniCache::fid_boundingBox);
 		if (aabb) {
-			// Save original values for restoration
+			// Save original
 			originalHitbox.minX = env->GetDoubleField(aabb, JniCache::fid_aabb_minX);
 			originalHitbox.maxX = env->GetDoubleField(aabb, JniCache::fid_aabb_maxX);
+			originalHitbox.minY = env->GetDoubleField(aabb, JniCache::fid_aabb_minY);
+			originalHitbox.maxY = env->GetDoubleField(aabb, JniCache::fid_aabb_maxY);
 			originalHitbox.minZ = env->GetDoubleField(aabb, JniCache::fid_aabb_minZ);
 			originalHitbox.maxZ = env->GetDoubleField(aabb, JniCache::fid_aabb_maxZ);
-			originalHitbox.entityRef = target->instance;  // Store ref for restoration
+			originalHitbox.entityRef = env->NewLocalRef(target->instance);
 			originalHitbox.valid = true;
 			
-			// Set new bounding box positions (only X and Z, keep Y intact)
+			// Extend toward player (all 3 axes)
+			double newMinX = originalHitbox.minX;
+			double newMaxX = originalHitbox.maxX;
+			double newMinY = originalHitbox.minY;
+			double newMaxY = originalHitbox.maxY;
+			double newMinZ = originalHitbox.minZ;
+			double newMaxZ = originalHitbox.maxZ;
+			
+			if (dirX > 0) newMaxX += extension * dirX;
+			else newMinX += extension * dirX;
+			
+			if (dirY > 0) newMaxY += extension * dirY;
+			else newMinY += extension * dirY;
+			
+			if (dirZ > 0) newMaxZ += extension * dirZ;
+			else newMinZ += extension * dirZ;
+			
+			// Apply all 6 sides
 			if (JniCache::fid_aabb_minX) env->SetDoubleField(aabb, JniCache::fid_aabb_minX, newMinX);
 			if (JniCache::fid_aabb_maxX) env->SetDoubleField(aabb, JniCache::fid_aabb_maxX, newMaxX);
+			if (JniCache::fid_aabb_minY) env->SetDoubleField(aabb, JniCache::fid_aabb_minY, newMinY);
+			if (JniCache::fid_aabb_maxY) env->SetDoubleField(aabb, JniCache::fid_aabb_maxY, newMaxY);
 			if (JniCache::fid_aabb_minZ) env->SetDoubleField(aabb, JniCache::fid_aabb_minZ, newMinZ);
 			if (JniCache::fid_aabb_maxZ) env->SetDoubleField(aabb, JniCache::fid_aabb_maxZ, newMaxZ);
 			
 			env->DeleteLocalRef(aabb);
 			
-			// Track consecutive extended hits
 			consecutiveExtendedHits++;
 			lastHitTime = now;
 		}
 	}
 	
-	// Don't delete target->instance here - we need it for restoration next tick
-	// The instance ref will be invalid next tick anyway (new player list)
+	env->DeleteLocalRef(target->instance);
 }
 
 void Reach::onRenderMenu()
@@ -280,15 +273,15 @@ void Reach::onRenderMenu()
 			ImGui::Spacing();
 			ui::Checkbox("Randomize", &settings.randomize);
 			if (settings.randomize) {
-					ui::SliderFloat("Min Distance", &settings.minDistance, 3.0f, 6.0f, "%.2f", true);
+				ui::SliderFloat("Min Distance", &settings.minDistance, 3.0f, 6.0f, "%.2f", true);
 				ui::SliderFloat("Max Distance", &settings.maxDistance, 3.0f, 6.0f, "%.2f", true);
 			} else {
 				ui::SliderFloat("Distance", &settings.distance, 3.0f, 6.0f, "%.2f", true);
 			}
 		},
 		"Anti-Detection", [this]() {
-			ui::SliderInt("Hit Chance", &settings.hitChance, 50, 100, "%d%%");
-			ui::SliderInt("Max Consecutive", &settings.maxConsecutiveHits, 1, 5, "%d");
+			ui::SliderInt("Randomization", &settings.hitChance, 0, 100, "%d%%");
+			ui::SliderInt("Max Consecutive", &settings.maxConsecutiveHits, 1, 10, "%d");
 			ui::Checkbox("Only Moving Targets", &settings.onlyMovingTargets);
 			ImGui::Spacing();
 			ui::Checkbox("Weapons Only", &settings.weaponsOnly);

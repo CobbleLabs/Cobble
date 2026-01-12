@@ -204,6 +204,9 @@ void ConfigManager::applyConfig() {
                 s.weaponsOnly = data["weaponsOnly"].as_bool(s.weaponsOnly);
                 s.sprintingOnly = data["sprintingOnly"].as_bool(s.sprintingOnly);
                 s.movingOnly = data["movingOnly"].as_bool(s.movingOnly);
+                s.hitChance = data["hitChance"].as_int(s.hitChance);
+                s.maxConsecutiveHits = data["maxConsecutiveHits"].as_int(s.maxConsecutiveHits);
+                s.onlyMovingTargets = data["onlyMovingTargets"].as_bool(s.onlyMovingTargets);
             }
             else if (name == "Blink" && blink) {
                 auto& s = blink->settings;
@@ -425,6 +428,9 @@ void ConfigManager::buildConfigFromModules() {
             config_["modules"][name]["weaponsOnly"] = s.weaponsOnly;
             config_["modules"][name]["sprintingOnly"] = s.sprintingOnly;
             config_["modules"][name]["movingOnly"] = s.movingOnly;
+            config_["modules"][name]["hitChance"] = s.hitChance;
+            config_["modules"][name]["maxConsecutiveHits"] = s.maxConsecutiveHits;
+            config_["modules"][name]["onlyMovingTargets"] = s.onlyMovingTargets;
         }
         else if (name == "Blink" && blink) {
             const auto& s = blink->settings;
