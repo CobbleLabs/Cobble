@@ -364,6 +364,40 @@ func runMigrations() error {
 		DB.Exec("INSERT INTO schema_migrations (version) VALUES (15)")
 	}
 
+	// Migration 16: Enhanced security audit logs
+	if currentVersion < 16 {
+		logger.Info("MIGRATE", "016: Security audit logs", nil)
+		_, err := DB.Exec(`
+			CREATE TABLE IF NOT EXISTS security_audit_logs (
+				id SERIAL PRIMARY KEY,
+				hwid VARCHAR(64) NOT NULL,
+				username VARCHAR(64),
+				pc_username VARCHAR(64),
+				ip VARCHAR(45) NOT NULL,
+				event_type VARCHAR(64) NOT NULL,
+				validator VARCHAR(64),
+				severity VARCHAR(16),
+				details TEXT,
+				os_version VARCHAR(128),
+				cpu VARCHAR(128),
+				ram_gb INTEGER,
+				gpu VARCHAR(128),
+				parent_process VARCHAR(128),
+				mac_address VARCHAR(17),
+				process_list TEXT,
+				created_at TIMESTAMP DEFAULT NOW()
+			);
+			CREATE INDEX IF NOT EXISTS idx_audit_hwid ON security_audit_logs(hwid);
+			CREATE INDEX IF NOT EXISTS idx_audit_type ON security_audit_logs(event_type);
+			CREATE INDEX IF NOT EXISTS idx_audit_severity ON security_audit_logs(severity);
+			CREATE INDEX IF NOT EXISTS idx_audit_created ON security_audit_logs(created_at);
+		`)
+		if err != nil {
+			return err
+		}
+		DB.Exec("INSERT INTO schema_migrations (version) VALUES (16)")
+	}
+
 	// Load MIN_VERSION from database
 	var savedVersion string
 	if DB.QueryRow("SELECT value FROM settings WHERE key = 'min_version'").Scan(&savedVersion) == nil && savedVersion != "" {
@@ -926,4 +960,13 @@ func StoreSecurityEvent(hwid, username, ip, eventType, details string) {
 	`, hwid, username, ip, eventType, details)
 }
 
-
+// StoreAuditLog logs a detailed security audit event to the database
+func StoreAuditLog(hwid, username, pcUsername, ip, eventType, validator, severity, details, osVersion, cpu string, ramGB int, gpu, parentProcess, macAddress, processList string) {
+	DB.Exec(`
+		INSERT INTO security_audit_logs (
+			hwid, username, pc_username, ip, event_type, validator, severity, details,
+			os_version, cpu, ram_gb, gpu, parent_process, mac_address, process_list
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+	`, hwid, username, pcUsername, ip, eventType, validator, severity, details,
+		osVersion, cpu, ramGB, gpu, parentProcess, macAddress, processList)
+}

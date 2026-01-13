@@ -87,6 +87,11 @@ inline void onCacheReady() {
     g_stateFlags = 0x1;  // Mark as initialized
 }
 
+// Mark state as corrupted - will trigger poison on next check
+inline void markCorrupted() {
+    g_stateFlags = 0xBAD;  // Special flag that triggers poison
+}
+
 // Sync timer - must be called periodically
 inline void syncTick() {
     uint64_t now = GetTickCount64();

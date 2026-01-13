@@ -81,6 +81,9 @@ func main() {
 	// Telemetry endpoint (honeypot reports from DLL)
 	mux.HandleFunc("/api/internal/telemetry", handlers.Telemetry)
 
+	// Audit endpoint (detailed security audit logs from DLL)
+	mux.HandleFunc("/api/internal/audit", handlers.Audit)
+
 	// Public dashboard data
 	mux.HandleFunc("/api/announcements", handlers.GetAnnouncements)
 	mux.HandleFunc("/api/changelogs", handlers.GetChangelogs)

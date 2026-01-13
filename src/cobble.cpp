@@ -32,6 +32,7 @@
 #include "security/loader_verify.hpp"
 #include "security/session_validator.hpp"
 #include "security/honeypot.hpp"
+#include "security/loader_validator.hpp"  // Phase 4: Multiple validators
 #include "ui/core/overlay.h"
 #include "ui/hud/notifications.h"
 #include "util/team/friends_manager.h"
@@ -71,6 +72,14 @@ void cobble::context::initialize(HMODULE hModule) {
     extern std::string g_Honeypot_Username;
     g_Honeypot_HWID = SessionValidator::g_HWID;
     g_Honeypot_Username = SessionValidator::g_Username;
+    
+    // Phase 4: Run multiple loader validators
+    // This validates shared memory, parent process, timing, modules
+    // Failures are reported to Discord and server
+    if (!LoaderValidator::RunStartupValidation()) {
+        // Validation failed - trigger JNI poison
+        sdk::internal::markCorrupted();
+    }
 
     // Initialize DLL integrity check (hash .text section for anti-patch detection)
     // Must be done BEFORE any JIT/hooks that would modify code
