@@ -114,7 +114,8 @@ void ESP::onUpdate() {
 
         EspPlayer cached;
         cached.name = p.name;
-        cached.uuid = p.uuid;  // For team/friend detection
+        cached.uuid = p.uuid;            // For team/friend detection
+        cached.teamColor = p.teamColor;  // Apollo/Lunar nametag color for teammate detection
         cached.posX = p.posX;
         cached.posY = p.posY;
         cached.posZ = p.posZ;
@@ -367,26 +368,59 @@ void ESP::onRender() {
             continue;
 
         // Determine box color based on team/friend status
+        // 1. Apollo Teams (isLunarTeammate)
+        // 2. Apollo Nametags (isApolloTeammate - GREEN/DARK_GREEN)
+        // 3. Manual Friends (isFriendByUUID/isFriend)
+        // 4. Scoreboard Teams (isTeammate - color matching)
         ImU32 boxCol, fillCol;
-        if (settings.teamColors && friendsManager && !p.uuid.empty()) {
-            // Use FriendsManager to check if this player is friend/teammate
-            bool isFriendOrTeam = friendsManager->shouldIgnoreByUUID(p.uuid, ChatColor::UNKNOWN, ChatColor::UNKNOWN);
+        bool isFriendOrTeam = false;
 
-            if (isFriendOrTeam) {
-                // Friend/Teammate = Green
-                boxCol = ImGui::ColorConvertFloat4ToU32(ImVec4(settings.friendColor[0], settings.friendColor[1],
-                                                               settings.friendColor[2], settings.friendColor[3]));
-                fillCol = ImGui::ColorConvertFloat4ToU32(ImVec4(settings.friendColor[0], settings.friendColor[1],
-                                                                settings.friendColor[2], settings.filledColor[3]));
-            } else {
-                // Enemy = Red
-                boxCol = ImGui::ColorConvertFloat4ToU32(ImVec4(settings.enemyColor[0], settings.enemyColor[1],
-                                                               settings.enemyColor[2], settings.enemyColor[3]));
-                fillCol = ImGui::ColorConvertFloat4ToU32(ImVec4(settings.enemyColor[0], settings.enemyColor[1],
-                                                                settings.enemyColor[2], settings.filledColor[3]));
+        if (settings.teamColors && friendsManager && !p.uuid.empty()) {
+            // Priority 1: Apollo Teams (most reliable - explicit team packets)
+            if (friendsManager->isLunarTeammate(p.uuid)) {
+                isFriendOrTeam = true;
             }
+            // Priority 2: Apollo Nametags (GREEN or DARK_GREEN = teammate)
+            else if (friendsManager->isApolloTeammate(p.uuid)) {
+                isFriendOrTeam = true;
+            }
+            // Priority 3: Manual Friends
+            else if (friendsManager->isFriendByUUID(p.uuid) ||
+                     friendsManager->isFriend(FriendsManager::stripColorCodes(p.name))) {
+                isFriendOrTeam = true;
+            }
+            // Priority 4: Scoreboard Teams (color matching)
+            else {
+                static int localTeamColor = -1;
+                static ULONGLONG lastColorRefresh = 0;
+                ULONGLONG now = GetTickCount64();
+                if (now - lastColorRefresh > 1000) {  // Refresh every second
+                    localTeamColor = mc.getLocalPlayerTeamColor();
+                    lastColorRefresh = now;
+                }
+
+                ChatColor playerColor = static_cast<ChatColor>(p.teamColor);
+                ChatColor localColor = static_cast<ChatColor>(localTeamColor);
+                if (friendsManager->isTeammate(p.uuid, playerColor, localColor)) {
+                    isFriendOrTeam = true;
+                }
+            }
+        }
+
+        if (isFriendOrTeam) {
+            // Friend/Teammate = Green
+            boxCol = ImGui::ColorConvertFloat4ToU32(ImVec4(settings.friendColor[0], settings.friendColor[1],
+                                                           settings.friendColor[2], settings.friendColor[3]));
+            fillCol = ImGui::ColorConvertFloat4ToU32(ImVec4(settings.friendColor[0], settings.friendColor[1],
+                                                            settings.friendColor[2], settings.filledColor[3]));
+        } else if (settings.teamColors) {
+            // Enemy = Red
+            boxCol = ImGui::ColorConvertFloat4ToU32(
+                ImVec4(settings.enemyColor[0], settings.enemyColor[1], settings.enemyColor[2], settings.enemyColor[3]));
+            fillCol = ImGui::ColorConvertFloat4ToU32(ImVec4(settings.enemyColor[0], settings.enemyColor[1],
+                                                            settings.enemyColor[2], settings.filledColor[3]));
         } else {
-            // Team colors disabled or no UUID - use default colors
+            // Team colors disabled - use default colors
             boxCol = ImGui::ColorConvertFloat4ToU32(
                 ImVec4(settings.boxColor[0], settings.boxColor[1], settings.boxColor[2], settings.boxColor[3]));
             fillCol = ImGui::ColorConvertFloat4ToU32(ImVec4(settings.filledColor[0], settings.filledColor[1],
