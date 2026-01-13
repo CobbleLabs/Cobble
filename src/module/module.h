@@ -2,6 +2,7 @@
 
 #include <string>
 #include "../ui/hud/notifications.h"
+#include "../util/state.hpp"
 
 struct Module {
     const char* name;
@@ -41,6 +42,12 @@ struct Module {
 
     // Check if module can be toggled (override to block toggle in certain states)
     virtual bool canToggle() { return true; }
+    
+    // Check if SDK state allows operation (called before onUpdate)
+    // Returns false if state is degraded - module should skip update
+    bool shouldUpdate() const {
+        return sdk::internal::isOperational();
+    }
 
     void toggle() {
         // Don't allow toggling locked modules unless unlocked
@@ -67,3 +74,4 @@ struct Module {
         toggle();
     }
 };
+

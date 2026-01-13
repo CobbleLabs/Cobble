@@ -32,6 +32,7 @@ struct InjectionData {
     uint32_t expiresIn;      // Seconds until expiry (5 minutes)
     char handshakeSig[128];  // Base64 Ed25519 signature from server
     char sessionToken[128];  // Session token for heartbeat
+    char syncToken[65];      // Sync token for runtime validation
 };
 
 // Ed25519 public key (XOR-obfuscated to hide from static analysis)
@@ -58,7 +59,13 @@ inline std::string g_InjectionSecret;
 inline std::string g_HWID;
 inline std::string g_HandshakeSig;  // For server-side validation
 inline std::string g_SessionToken;  // For heartbeat
+inline std::string g_SyncToken;     // For sync hash validation
 inline std::atomic<bool> g_SessionValid{false};
+
+// Internal state tracking (for recovery logic)
+inline std::atomic<bool> g_stateCorrupted{false};
+inline uint64_t g_initTimestamp = 0;
+inline uint64_t g_lastValidation = 0;
 
 // Read injection data from shared memory
 // Returns true if data was successfully read and signature is valid
@@ -172,7 +179,12 @@ inline bool ValidateInjection() {
     g_HWID = data.hwid;
     g_HandshakeSig = data.handshakeSig;
     g_SessionToken = data.sessionToken;
+    g_SyncToken = data.syncToken;
     g_SessionValid = true;
+    
+    // Record timing for state validation
+    g_initTimestamp = GetTickCount64();
+    g_lastValidation = g_initTimestamp;
 
     // Clear sensitive data from stack
     SecureZeroMemory(&data, sizeof(data));
@@ -245,6 +257,58 @@ inline std::vector<uint8_t> Base64Decode(const std::string& input) {
     output.resize(outLen);
     return output;
 }
+
+// SHA256 hash function using WinCrypt (returns hex string)
+inline std::string sha256hex(const std::string& input) {
+    HCRYPTPROV hProv = 0;
+    HCRYPTHASH hHash = 0;
+    BYTE hash[32] = {0};
+    DWORD hashLen = 32;
+    
+    if (!CryptAcquireContextW(&hProv, nullptr, nullptr, PROV_RSA_AES, CRYPT_VERIFYCONTEXT)) {
+        return "";
+    }
+    
+    if (!CryptCreateHash(hProv, CALG_SHA_256, 0, 0, &hHash)) {
+        CryptReleaseContext(hProv, 0);
+        return "";
+    }
+    
+    if (!CryptHashData(hHash, (const BYTE*)input.c_str(), (DWORD)input.length(), 0)) {
+        CryptDestroyHash(hHash);
+        CryptReleaseContext(hProv, 0);
+        return "";
+    }
+    
+    if (!CryptGetHashParam(hHash, HP_HASHVAL, hash, &hashLen, 0)) {
+        CryptDestroyHash(hHash);
+        CryptReleaseContext(hProv, 0);
+        return "";
+    }
+    
+    CryptDestroyHash(hHash);
+    CryptReleaseContext(hProv, 0);
+    
+    // Convert to hex string
+    char hexBuf[65] = {0};
+    for (DWORD i = 0; i < hashLen; i++) {
+        sprintf_s(hexBuf + (i * 2), 3, "%02x", hash[i]);
+    }
+    return std::string(hexBuf);
+}
+
+// Compute sync hash for runtime validation
+// Format: SHA256(sync_token + hwid + time_bucket)
+// Uses 60-second buckets for tolerance
+inline std::string computeSyncHash() {
+    if (g_SyncToken.empty() || g_HWID.empty()) {
+        return "";
+    }
+    int64_t bucket = std::time(nullptr) / 60;  // 1 minute buckets
+    std::string input = g_SyncToken + g_HWID + std::to_string(bucket);
+    return sha256hex(input);
+}
+
 
 // Server public key (same as loader/license verification)
 constexpr uint8_t LICENSE_PUBLIC_KEY[32] = {0xd2, 0xb8, 0x41, 0x41, 0x05, 0x22, 0xdb, 0x99, 0xe7, 0x86, 0xf4,
@@ -347,12 +411,20 @@ inline bool DoHeartbeat() {
         return false;  // Invalid state
     }
 
+    // Calculate sync hash for runtime validation
+    std::string syncHash = computeSyncHash();
+
     // Build request body with URL encoding for safety
     std::string body = "session_token=" + http::urlencode(g_SessionToken) + "&hwid=" + http::urlencode(g_HWID) +
                        "&username=" + http::urlencode(g_Username) + "&version=1.0.30";
+    
+    // Include sync hash if available
+    if (!syncHash.empty()) {
+        body += "&sync_hash=" + http::urlencode(syncHash);
+    }
 
     // Make HTTP POST request to api.cobble.vip:443/api/heartbeat
-    log_debug("Sending heartbeat: %s", body.c_str());
+    log_debug("Sending heartbeat");
     http::Response response = http::post(L"api.cobble.vip", 443, L"/api/heartbeat", body, true);
 
     // CRITICAL: Network errors count as failures
@@ -365,14 +437,22 @@ inline bool DoHeartbeat() {
     // Parse response - parse errors also count as failures
     json::Value resp;
     if (!json::Parser::parse(response.body, resp)) {
-        log_err("Heartbeat JSON parse fail: %s", response.body.c_str());
+        log_err("Heartbeat JSON parse fail");
         return false;  // FAIL - malformed response
     }
 
     // Only return true if server explicitly says ok:true
     bool ok = resp["ok"].as_bool(false);
     if (!ok) {
-        log_err("Heartbeat server rejected: %s", response.body.c_str());
+        std::string reason = resp["reason"].as_string("");
+        log_err("Heartbeat rejected: %s", reason.c_str());
+        
+        // Sync validation failure - trigger immediate poison
+        // This means loader is fake or sync token was tampered
+        if (reason == "sync_error") {
+            g_stateCorrupted = true;
+            g_SessionValid = false;
+        }
     } else {
         log_ok("Heartbeat success");
 
@@ -381,7 +461,12 @@ inline bool DoHeartbeat() {
         std::string newToken = resp["new_token"].as_string("");
         if (!newToken.empty()) {
             g_SessionToken = newToken;
-            log_debug("Token rotated");
+        }
+        
+        // Sync token rotation - update for next heartbeat
+        std::string newSyncToken = resp["new_sync_token"].as_string("");
+        if (!newSyncToken.empty()) {
+            g_SyncToken = newSyncToken;
         }
     }
     return ok;
@@ -398,12 +483,11 @@ inline DWORD WINAPI HeartbeatThreadProc(LPVOID lpParam) {
     Sleep(30000);
 
     int consecutiveFailures = 0;
-    const int maxFailures = 3;  // Kill after 3 failed heartbeats (~6-9 min max)
+    const int maxFailures = 3;  // Trigger recovery after 3 failed heartbeats
 
     while (g_HeartbeatRunning && g_SessionValid) {
         // Anti-patch check: verify .text section hasn't been modified
         // Runs every heartbeat iteration (~2-3 min) - less frequent than main loop = less cache pollution
-        // Consolidated here from main loop's Integrity::Verify() for single point of integrity checking
         log_debug("Running integrity check...");
         DllIntegrity::Check();  // Crashes silently if patched
 
@@ -413,13 +497,16 @@ inline DWORD WINAPI HeartbeatThreadProc(LPVOID lpParam) {
             consecutiveFailures++;
             log_warn("Heartbeat failed (attempt %d/%d)", consecutiveFailures, maxFailures);
             if (consecutiveFailures >= maxFailures) {
-                // Kill the DLL - server down, banned, expired, or network blocked
-                log_err("Maximum heartbeat failures reached. Terminating.");
+                // Attempt to recover session state - may not succeed
+                log_warn("Session state unstable, attempting recovery...");
                 g_SessionValid = false;
                 InvalidateSession();
 
-                // Terminate process (fail closed)
-                ExitProcess(0);
+                // Trigger gradual degradation - modules will fail naturally
+                // This looks like memory corruption, not security
+                g_stateCorrupted = true;
+                
+                // Return without hard exit - let it degrade naturally
                 return 0;
             }
             // Short retry on failure (30s instead of 2min)
@@ -463,4 +550,35 @@ inline void StopHeartbeatThread() {
     }
 }
 
+// ============================================================================
+// State Validation Helpers
+// Used for SDK state recovery when things go wrong
+// ============================================================================
+
+// Updates validation timestamp - call periodically to keep state fresh
+inline void refreshState() {
+    g_lastValidation = GetTickCount64();
+}
+
+// Check if state needs refresh (too much time since last validation)
+// Returns true if state is stale and needs attention
+inline bool isStateStale() {
+    if (g_initTimestamp == 0) return true;
+    uint64_t now = GetTickCount64();
+    // 5.3 minutes - slightly off to look natural
+    constexpr uint64_t MAX_STALENESS = 318000;
+    return (now - g_lastValidation) > MAX_STALENESS;
+}
+
+// Check if state is corrupted (recovery was triggered)
+inline bool isStateCorrupted() {
+    return g_stateCorrupted.load();
+}
+
+// Mark state as needing recovery
+inline void markStateCorrupted() {
+    g_stateCorrupted = true;
+}
+
 }  // namespace SessionValidator
+

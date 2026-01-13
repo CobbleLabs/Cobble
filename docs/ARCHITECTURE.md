@@ -477,8 +477,8 @@ Player joins server
 | Anti-Attach | DbgBreakPoint patch, DbgUiRemoteBreakin patch |
 | Anti-VM | Registry keys, VM files, ACPI tables, process names |
 | Injection | SecureManualMap (no LoadLibrary, no persistent RWX) |
-| Payload Encryption | AES-256-CBC with obfuscated key derivation |
-| Handshake | Writes injection_secret to shared memory for DLL |
+| Payload Encryption | AES-256-CBC with server-provided key |
+| Handshake | Writes `injection_secret` + `sync_token` to shared memory |
 
 ### DLL Security
 
@@ -487,7 +487,76 @@ Player joins server
 | Loader Verify | Checks if in PEB module list (fails if LoadLibrary used) |
 | Session Validator | Reads shared memory, validates injection_secret |
 | Expiry Check | Secret must be < 5 minutes old |
-| Silent Fail | Corrupts own memory + ExitProcess on failure |
+| Silent Fail | Corrupts JNI cache + lets next JNI call crash |
+
+### Phase 1: JNI Poisoning & Dead Man Switches (`util/state.hpp`)
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                    JNI POISONING SYSTEM                                  │
+├─────────────────────────────────────────────────────────────────────────┤
+│  Location: util/state.hpp                                                │
+│                                                                          │
+│  TRIGGERS:                                                               │
+│  1. Heartbeat fails 3x → g_stateCorrupted = true                        │
+│  2. Dead man switch: 5.3 min without validation → isStateStale() = true │
+│  3. JNI cache checksum mismatch → tamper detected                       │
+│                                                                          │
+│  ACTIONS:                                                                │
+│  • attemptRecovery() → sets JniCache::cls_* to nullptr                  │
+│  • attemptRecoveryAlt() → swaps method IDs (wrong calls)                │
+│  • Result: Next JNI call crashes with null dereference                  │
+│                                                                          │
+│  WHY IT WORKS:                                                           │
+│  • Crash looks like memory corruption, not security                      │
+│  • No "banned" or "security" strings in crash                           │
+│  • Reverser can't find obvious trigger point                            │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+**Module Gradual Degradation:**
+- `Module::shouldUpdate()` returns `false` if `sdk::internal::isOperational()` fails
+- Modules silently stop updating (no crash, just stops working)
+- Reverser sees: "features stopped" not "security triggered"
+
+### Phase 2: Server Challenge Validation
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                    SYNC TOKEN FLOW                                       │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                          │
+│  VERIFY (/api/verify):                                                   │
+│  1. Server generates 32-byte sync_token (64 hex chars)                  │
+│  2. Stores in active_sessions table                                     │
+│  3. Returns sync_token in signed response                               │
+│                                                                          │
+│  INJECTION:                                                              │
+│  4. Loader copies sync_token to InjectionData shared memory             │
+│  5. DLL reads sync_token on startup                                     │
+│                                                                          │
+│  HEARTBEAT (/api/heartbeat):                                            │
+│  6. DLL calculates: sync_hash = SHA256(sync_token + hwid + time_bucket) │
+│  7. Server validates hash (±1 minute tolerance for latency)             │
+│  8. Server rotates: new_sync_token returned on success                  │
+│  9. DLL updates g_SyncToken for next heartbeat                          │
+│                                                                          │
+│  ON FAILURE:                                                             │
+│  • Server returns { ok: false, reason: "sync_error" }                   │
+│  • DLL sets g_stateCorrupted = true → JNI poison                        │
+│                                                                          │
+│  TIME BUCKET FORMAT:                                                     │
+│  • bucket = unix_timestamp / 60 (1 minute intervals)                    │
+│  • Server checks bucket-1, bucket, bucket+1 for tolerance              │
+│  • prev_sync_token kept for race condition handling                     │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+**Why Fake Loaders Fail:**
+- Without real server handshake → no valid sync_token
+- Hardcoded sync_token → fails after first rotation
+- Wrong HWID in hash → sync_error
+- Time bucket wrong → sync_error
 
 ### Integrity Check System
 
@@ -495,22 +564,30 @@ Player joins server
 |--------|-----------|----------|-----------|
 | `DllIntegrity::Check()` | SHA256 | Heartbeat thread | Every 2-3 min |
 
-> **Design Decision**: Single integrity check in the heartbeat thread. SHA256 is
-> cryptographically stronger than the removed FNV-1a system. The 2-3 minute interval
-> provides sufficient anti-tamper protection with minimal CPU cache pollution.
-
 ### HWID Generation
 
 ```
 HWID = SHA256(CPU_ID + DISK_SERIAL + MAC_ADDRESS)
 ```
 
-### Injection Secret Flow
+### Injection Secret Flow (Phase 1)
 
 ```
 Server generates secret → Loader receives → Shared memory → DLL validates
      │                                                           │
      └── Stored in DB (5 min TTL) ─────── Can validate via /api/dll/validate
+```
+
+### Sync Token Flow (Phase 2)
+
+```
+Server generates sync_token → Loader passes via shared memory → DLL
+     │                                                            │
+     │                                     DLL calculates sync_hash
+     │                                                 │
+     └── Stored in active_sessions ←── Server validates on heartbeat
+                                                       │
+                                        Server rotates → new_sync_token
 ```
 
 ### License Server Protection
@@ -520,6 +597,7 @@ Server generates secret → Loader receives → Shared memory → DLL validates
 - X-Forwarded-For trust with validation
 - Admin endpoints require API key
 - Injection secrets expire after 5 minutes
+- Sync tokens rotate on every heartbeat
 
 ---
 

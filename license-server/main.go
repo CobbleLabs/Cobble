@@ -19,7 +19,7 @@ func main() {
 	cfg := config.Load()
 	logger.Init()
 
-	logger.Info("SERVER", "Cobble License Server v2.0 starting", nil)
+	logger.Info("SERVER", "Cobble License Server starting", nil)
 	logger.Info("CONFIG", "Settings loaded", logger.Fields{
 		"min_version":    cfg.MinVersion,
 		"max_hwid":       cfg.MaxHWIDCount,
@@ -77,6 +77,9 @@ func main() {
 
 	// Heartbeat endpoint (DLL calls every 2-3 min for runtime validation)
 	mux.HandleFunc("/api/heartbeat", middleware.RateLimit(handlers.Heartbeat))
+
+	// Telemetry endpoint (honeypot reports from DLL)
+	mux.HandleFunc("/api/internal/telemetry", handlers.Telemetry)
 
 	// Public dashboard data
 	mux.HandleFunc("/api/announcements", handlers.GetAnnouncements)

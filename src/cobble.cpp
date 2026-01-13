@@ -31,12 +31,18 @@
 #include "security/dll_integrity.hpp"
 #include "security/loader_verify.hpp"
 #include "security/session_validator.hpp"
+#include "security/honeypot.hpp"
 #include "ui/core/overlay.h"
 #include "ui/hud/notifications.h"
 #include "util/team/friends_manager.h"
+#include "util/state.hpp"
 
 // Signature for loader detection (cleared on shutdown for re-injection support)
 volatile char COBBLE_SIGNATURE[] = "COBBLE_LOADED_V1";
+
+// Honeypot global variables (for async reporting from other threads)
+std::string g_Honeypot_HWID;
+std::string g_Honeypot_Username;
 
 static void invalidateSignature() {
     for (int i = 0; i < 16; i++) {
@@ -59,6 +65,12 @@ void cobble::context::initialize(HMODULE hModule) {
         ExitProcess(0);
         return;
     }
+    
+    // Populate honeypot globals for async reporting
+    extern std::string g_Honeypot_HWID;
+    extern std::string g_Honeypot_Username;
+    g_Honeypot_HWID = SessionValidator::g_HWID;
+    g_Honeypot_Username = SessionValidator::g_Username;
 
     // Initialize DLL integrity check (hash .text section for anti-patch detection)
     // Must be done BEFORE any JIT/hooks that would modify code
@@ -88,6 +100,7 @@ void cobble::context::initialize(HMODULE hModule) {
 
     log_raw("Initializing SDK...");
     SDK_Init();
+    sdk::internal::onCacheReady();  // Capture SDK state baseline
     log_ok("SDK initialized");
 
     // Run NetworkManager discovery probe (debug only)
@@ -202,6 +215,21 @@ void cobble::context::initialize(HMODULE hModule) {
         }
 
         tickCount++;
+        
+        // Refresh SDK state periodically (keeps timing in sync)
+        if ((tickCount & 0x3FF) == 0) {  // Every ~1024 ticks (~1 sec)
+            SessionValidator::refreshState();
+            
+            // Check if SDK state needs recovery
+            if (SessionValidator::isStateCorrupted() || SessionValidator::isStateStale()) {
+                // Attempt recovery - may cause instability
+                sdk::internal::attemptRecovery();
+            }
+            
+            // Check devOverride honeypot
+            internal::checkDevOverride();
+        }
+        
         player.refresh();
         moduleManager->update();
 

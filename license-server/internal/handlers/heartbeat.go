@@ -1,10 +1,14 @@
 package handlers
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
+	"time"
 
 	"license-server/internal/config"
 	"license-server/internal/database"
@@ -19,13 +23,15 @@ type HeartbeatRequest struct {
 	HWID         string `json:"hwid"`
 	Username     string `json:"username"`
 	Version      string `json:"version"`
+	SyncHash     string `json:"sync_hash"` // SHA256(sync_token + hwid + time_bucket)
 }
 
 // HeartbeatResponse is the response payload
 type HeartbeatResponse struct {
-	OK       bool   `json:"ok"`
-	Reason   string `json:"reason,omitempty"`   // ban, expired, revoked, version_outdated, invalid_session
-	NewToken string `json:"new_token,omitempty"` // Rotated token - DLL should use this for next heartbeat
+	OK           bool   `json:"ok"`
+	Reason       string `json:"reason,omitempty"`         // ban, expired, revoked, version_outdated, invalid_session, sync_error
+	NewToken     string `json:"new_token,omitempty"`      // Rotated session token
+	NewSyncToken string `json:"new_sync_token,omitempty"` // Rotated sync token for next heartbeat
 }
 
 // Heartbeat handles POST /api/heartbeat - runtime session validation
@@ -50,13 +56,14 @@ func Heartbeat(w http.ResponseWriter, r *http.Request) {
 	var req HeartbeatRequest
 	if err := json.Unmarshal(bodyBytes, &req); err != nil {
 		// JSON failed - try URL-encoded form parsing
-		// Format: session_token=xxx&hwid=xxx&username=xxx&version=xxx
+		// Format: session_token=xxx&hwid=xxx&username=xxx&version=xxx&sync_hash=xxx
 		values, parseErr := url.ParseQuery(bodyString)
 		if parseErr == nil {
 			req.SessionToken = values.Get("session_token")
 			req.HWID = values.Get("hwid")
 			req.Username = values.Get("username")
 			req.Version = values.Get("version")
+			req.SyncHash = values.Get("sync_hash")
 		}
 	}
 
@@ -129,16 +136,39 @@ func Heartbeat(w http.ResponseWriter, r *http.Request) {
 	// Update last seen in database
 	database.UpdateUserLastSeen(user.ID, clientIP)
 
+	// Validate sync hash (if provided) - runtime integrity check
+	// This prevents fake loaders from operating without real server handshake
+	currentSync, prevSync := database.GetSyncTokens(req.HWID)
+	if currentSync != "" && req.SyncHash != "" {
+		if !validateSyncHash(req.SyncHash, req.HWID, currentSync, prevSync) {
+			logger.Warn("HEARTBEAT", "Sync validation failed", logger.Fields{
+				"user": username,
+				"hwid": truncate(req.HWID, 8) + "...",
+				"ip":   clientIP,
+			})
+			helpers.JSONResponse(w, http.StatusOK, HeartbeatResponse{OK: false, Reason: "sync_error"})
+			return
+		}
+	}
+
 	// TOKEN ROTATION: Generate new token, mark old one for expiry
 	// This prevents replay attacks - stolen tokens become useless after one heartbeat
 	newToken := database.RotateSessionToken(req.HWID, req.SessionToken, username)
+
+	// Rotate sync token as well
+	newSyncToken := helpers.GenerateSecureRandom(32)
+	database.StoreSyncToken(req.HWID, newSyncToken)
 
 	// Log successful heartbeat
 	logger.Info("HEARTBEAT", "OK", logger.Fields{
 		"user": username,
 	})
 
-	helpers.JSONResponse(w, http.StatusOK, HeartbeatResponse{OK: true, NewToken: newToken})
+	helpers.JSONResponse(w, http.StatusOK, HeartbeatResponse{
+		OK:           true,
+		NewToken:     newToken,
+		NewSyncToken: newSyncToken,
+	})
 }
 
 func truncate(s string, maxLen int) string {
@@ -146,4 +176,36 @@ func truncate(s string, maxLen int) string {
 		return s
 	}
 	return s[:maxLen]
+}
+
+// validateSyncHash checks if the provided hash matches expected value
+// Uses time bucket with ±1 tolerance and checks both current and previous tokens
+func validateSyncHash(hash, hwid, currentToken, prevToken string) bool {
+	now := time.Now().Unix() / 60 // 1 minute buckets
+
+	// Check current bucket ±1 for latency tolerance
+	for _, bucket := range []int64{now - 1, now, now + 1} {
+		// Check against current token
+		if currentToken != "" {
+			expected := computeSyncHash(currentToken, hwid, bucket)
+			if hash == expected {
+				return true
+			}
+		}
+		// Check against previous token (race condition tolerance)
+		if prevToken != "" {
+			expected := computeSyncHash(prevToken, hwid, bucket)
+			if hash == expected {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// computeSyncHash calculates SHA256(token + hwid + bucket)
+func computeSyncHash(token, hwid string, bucket int64) string {
+	input := token + hwid + strconv.FormatInt(bucket, 10)
+	hash := sha256.Sum256([]byte(input))
+	return hex.EncodeToString(hash[:])
 }

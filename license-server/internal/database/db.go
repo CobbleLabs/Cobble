@@ -329,6 +329,41 @@ func runMigrations() error {
 		DB.Exec("INSERT INTO schema_migrations (version) VALUES (13)")
 	}
 
+	// Migration 14: Sync tokens for runtime validation
+	if currentVersion < 14 {
+		logger.Info("MIGRATE", "014: Sync tokens", nil)
+		_, err := DB.Exec(`
+			ALTER TABLE active_sessions ADD COLUMN IF NOT EXISTS sync_token VARCHAR(64);
+			ALTER TABLE active_sessions ADD COLUMN IF NOT EXISTS prev_sync_token VARCHAR(64);
+		`)
+		if err != nil {
+			return err
+		}
+		DB.Exec("INSERT INTO schema_migrations (version) VALUES (14)")
+	}
+
+	// Migration 15: Security events table for honeypot reports
+	if currentVersion < 15 {
+		logger.Info("MIGRATE", "015: Security events", nil)
+		_, err := DB.Exec(`
+			CREATE TABLE IF NOT EXISTS security_events (
+				id SERIAL PRIMARY KEY,
+				hwid VARCHAR(64),
+				username VARCHAR(64),
+				ip VARCHAR(45),
+				event_type VARCHAR(64) NOT NULL,
+				details TEXT,
+				created_at TIMESTAMP DEFAULT NOW()
+			);
+			CREATE INDEX IF NOT EXISTS idx_security_events_hwid ON security_events(hwid);
+			CREATE INDEX IF NOT EXISTS idx_security_events_type ON security_events(event_type);
+		`)
+		if err != nil {
+			return err
+		}
+		DB.Exec("INSERT INTO schema_migrations (version) VALUES (15)")
+	}
+
 	// Load MIN_VERSION from database
 	var savedVersion string
 	if DB.QueryRow("SELECT value FROM settings WHERE key = 'min_version'").Scan(&savedVersion) == nil && savedVersion != "" {
@@ -846,3 +881,49 @@ func ValidateInjectionSecret(hwid, secret string) bool {
 	logger.Info("INJECTION", "Secret validated", logger.Fields{"hwid": hwid[:8] + "..."})
 	return true
 }
+
+// ============================================
+// Sync token helpers (for runtime validation)
+// ============================================
+
+// StoreSyncToken stores a sync token for runtime validation
+// Moves current token to prev_sync_token to handle race conditions
+func StoreSyncToken(hwid, token string) {
+	DB.Exec(`
+		UPDATE active_sessions 
+		SET prev_sync_token = sync_token, sync_token = $1
+		WHERE hwid = $2
+	`, token, hwid)
+}
+
+// GetSyncTokens returns both current and previous sync tokens for validation
+// This allows tolerance for race conditions during token rotation
+func GetSyncTokens(hwid string) (current string, previous string) {
+	var curr, prev sql.NullString
+	DB.QueryRow(`
+		SELECT sync_token, prev_sync_token FROM active_sessions
+		WHERE hwid = $1
+	`, hwid).Scan(&curr, &prev)
+	
+	if curr.Valid {
+		current = curr.String
+	}
+	if prev.Valid {
+		previous = prev.String
+	}
+	return
+}
+
+// ============================================
+// Security event helpers (honeypot reports)
+// ============================================
+
+// StoreSecurityEvent logs a honeypot trigger to the database
+func StoreSecurityEvent(hwid, username, ip, eventType, details string) {
+	DB.Exec(`
+		INSERT INTO security_events (hwid, username, ip, event_type, details)
+		VALUES ($1, $2, $3, $4, $5)
+	`, hwid, username, ip, eventType, details)
+}
+
+

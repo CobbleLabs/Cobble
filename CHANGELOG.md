@@ -9,6 +9,50 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/).
 ## [Unreleased]
 
 ### Added
+- **Security Hardening Phase 1: JNI Poisoning & Dead Man Switches** (`util/state.hpp`)
+  - Checksum-based tamper detection for JNI cache (detects if jclass/jmethodID are modified)
+  - Dead man switch: 5.3 minute timeout - if no heartbeat validation, triggers poison
+  - `attemptRecovery()` - Disguised as recovery, actually sets JNI cache entries to nullptr
+  - `attemptRecoveryAlt()` - Alternative: swaps method IDs to cause wrong calls
+  - `isOperational()` - Returns false if checksum mismatch or timing fail
+  - Result: Next JNI call crashes "naturally" (null dereference), looks like memory corruption
+
+- **Security Hardening Phase 2: Server Challenge Validation**
+  - **Server (`verify.go`)**: Generates 32-byte `sync_token`, stores in DB
+  - **Server (`heartbeat.go`)**: Validates `sync_hash = SHA256(sync_token + hwid + time_bucket)`
+  - **Server (`heartbeat.go`)**: ±1 minute bucket tolerance for latency
+  - **Server (`db.go`)**: Migration 14 adds `sync_token`, `prev_sync_token` to `active_sessions`
+  - **Loader (`main.cpp`)**: Passes `sync_token` to DLL via shared memory
+  - **DLL (`session_validator.hpp`)**: Calculates sync_hash, includes in heartbeat
+  - **DLL**: On `sync_error` response → immediate `g_stateCorrupted = true` → JNI poison
+  - Result: Fake loaders with hardcoded data can't pass sync validation
+
+- **Security Hardening Phase 3: Honeypot Decoy System**
+  - **`security/honeypot.hpp`**: Main honeypot reporting system
+    - Discord webhook notifications (embed with HWID, username, event type)
+    - Admin panel `/api/internal/telemetry` for persistent logging
+    - Random 2-5 second delay to avoid detection
+    - Report-once-per-type to prevent spam
+  - **`security/internal/internal_keys.h`**: Decoy "forgotten" keys file
+    - Fake `DEV_LICENSE_KEY`, `MASTER_OVERRIDE_KEY`, `PAYLOAD_DECRYPTION_KEY`
+    - Static initializer reports when file is included
+    - `GetDevKey()`, `GetMasterKey()`, `GetPayloadKey()` all report
+  - **Decoy functions**: `GetLicenseKey()`, `DecryptPayloadKey()`, `GetRawSessionData()`
+  - **`g_DevOverride`**: Looks like bypass flag, reports when set to true
+  - **Server (`telemetry.go`)**: Migration 15 creates `security_events` table
+
+### Changed
+- **Module System: Gradual Degradation**
+  - `Module::shouldUpdate()` checks `sdk::internal::isOperational()` before each update
+  - If SDK state is corrupted → modules silently stop updating (no crash, just stops working)
+  - Reverser sees: "modules stopped working" not "security triggered"
+
+- **Session Validator: Heartbeat Failure Handling**
+  - Changed from `ExitProcess(0)` on 3 failures → trigger `g_stateCorrupted = true`
+  - Main loop detects corrupted state → calls `attemptRecovery()` → JNI poison
+  - Crash appears as memory corruption bug, not security mechanism
+
+### Added
 - **Reach Module Implementation**: Hitbox displacement with anti-detection measures
   - **Hitbox Displacement**: Moves target bounding box toward player for extended reach
   - **Hit Chance** (50-100%): Randomizes which swings get extended reach (breaks patterns)

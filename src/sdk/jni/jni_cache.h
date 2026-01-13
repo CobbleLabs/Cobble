@@ -302,7 +302,6 @@ extern jmethodID mid_getUnformattedText;
 // =============================================================================
 
 extern jmethodID mid_setGrabbed;
-
 // =============================================================================
 // Initialization & Cleanup
 // =============================================================================
@@ -317,4 +316,12 @@ void Cleanup();
 // Check if cache is initialized
 bool IsInitialized();
 
+// Quick sanity check - verifies core classes are still valid
+// Returns false if cache appears corrupted
+inline bool quickCheck() {
+    return cls_Minecraft && cls_Entity && cls_EntityPlayer && 
+           mid_getMinecraft && fid_thePlayer;
+}
+
 }  // namespace JniCache
+

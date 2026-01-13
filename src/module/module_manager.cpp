@@ -42,13 +42,14 @@ void ModuleManager::update() {
     checkKeybinds();
 
     for (auto* mod : modules) {
-        if (mod->enabled)
+        if (mod->enabled && mod->shouldUpdate())
             mod->onUpdate();
     }
 
     // AutoRefill passive mode: always update when onInventoryOpen is enabled
     if (autoRefill && !autoRefill->enabled && autoRefill->settings.onInventoryOpen) {
-        autoRefill->onUpdate();
+        if (autoRefill->shouldUpdate())
+            autoRefill->onUpdate();
     }
 }
 

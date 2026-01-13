@@ -36,6 +36,7 @@ static std::string g_SessionToken;
 static std::string g_InjectionSecret;
 static std::string g_PayloadKey;
 static std::string g_HandshakeSig;  // Base64 Ed25519 signature from server
+static std::string g_SyncToken;     // Sync token for runtime validation
 static int64_t g_HandshakeTimestamp = 0;
 static int g_DaysRemaining = -1;
 
@@ -129,6 +130,10 @@ std::string GetHandshakeSig() {
 
 int64_t GetHandshakeTimestamp() {
     return g_HandshakeTimestamp;
+}
+
+std::string GetSyncToken() {
+    return g_SyncToken;
 }
 
 // Fetch payload decryption key from server after successful login/verify
@@ -454,6 +459,7 @@ bool Verify(const std::string& serverUrl) {
         g_InjectionSecret = payload.get_string("injection_secret", "");
         g_HandshakeSig = payload.get_string("handshake_sig", "");
         g_HandshakeTimestamp = payload.get_int("issued_at", 0);
+        g_SyncToken = payload.get_string("sync_token", "");
         return true;
     }
 
@@ -647,6 +653,7 @@ bool LoginWithCredentials(const std::string& serverUrl, const std::string& usern
         g_InjectionSecret = payload.get_string("injection_secret", "");
         g_HandshakeSig = payload.get_string("handshake_sig", "");
         g_HandshakeTimestamp = payload.get_int("issued_at", 0);
+        g_SyncToken = payload.get_string("sync_token", "");
         return true;
     }
 

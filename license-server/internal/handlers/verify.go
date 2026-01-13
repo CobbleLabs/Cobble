@@ -26,6 +26,7 @@ type SignedVerifyPayload struct {
 	SessionToken    string `json:"session_token,omitempty"`
 	InjectionSecret string `json:"injection_secret,omitempty"` // 32 bytes hex, DLL needs this to operate
 	HandshakeSig    string `json:"handshake_sig,omitempty"`    // Ed25519 signature of handshake data (base64)
+	SyncToken       string `json:"sync_token,omitempty"`       // For runtime sync validation
 	Message         string `json:"message,omitempty"`
 }
 
@@ -163,6 +164,11 @@ func sendSignedSuccess(w http.ResponseWriter, hwid, nonce, username string, days
 	injectionSecret := helpers.GenerateSecureRandom(32)
 	database.StoreInjectionSecret(hwid, injectionSecret)
 
+	// Generate sync token for runtime validation
+	// DLL must compute correct hash with this to pass heartbeat
+	syncToken := helpers.GenerateSecureRandom(32)
+	database.StoreSyncToken(hwid, syncToken)
+
 	// Generate handshake signature - DLL verifies this to ensure loader is legit
 	// Format: "COBBLE_HANDSHAKE|username|hwid|timestamp|injection_secret"
 	handshakeData := fmt.Sprintf("COBBLE_HANDSHAKE|%s|%s|%d|%s", username, hwid, now, injectionSecret)
@@ -183,6 +189,7 @@ func sendSignedSuccess(w http.ResponseWriter, hwid, nonce, username string, days
 		SessionToken:    sessionToken,
 		InjectionSecret: injectionSecret,
 		HandshakeSig:    handshakeSigB64,
+		SyncToken:       syncToken,
 		Message:         "Welcome, " + username,
 	}
 	sendSignedResponse(w, payload)
