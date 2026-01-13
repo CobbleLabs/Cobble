@@ -177,10 +177,11 @@ void AutoClicker::onUpdate() {
         PostMessage(hwnd, WM_LBUTTONUP, 0, 0);
         wasBreakingBlock = false;
         lastClickWasDown = false;
-        // Reset timing so autoclicks resume immediately
+        // Reset timing so autoclicks resume cleanly without catch-up burst
         auto now = std::chrono::steady_clock::now();
         lastClick = now;
         nextEventTime = now;
+        nextStableClickTime = now;  // Critical: prevents stable mode catch-up burst
     }
 
     // Attacking only - check if player is in crosshair (skip in inventory)
