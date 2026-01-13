@@ -357,8 +357,11 @@ void AimAssist::onUpdate() {
 
     bool getNewTarget = true;
 
-    // Check if locked target is still valid
-    if (settings.lockAim && hasLockedTarget) {
+    // Switch mode: ALWAYS get a new target (evaluates every frame)
+    // Other modes: Check if locked target is still valid
+    if (settings.targetMode == TargetMode::SWITCH) {
+        getNewTarget = true;  // Always evaluate for better target
+    } else if (settings.lockAim && hasLockedTarget) {
         float yawToTarget = getAngles(localX, localY, localZ, lockedTargetX, lockedTargetY, lockedTargetZ).first;
         float yawDiff = std::abs(wrapTo180(-(localYaw - yawToTarget)));
         double dist = std::sqrt((lockedTargetX - localX) * (lockedTargetX - localX) +
@@ -479,6 +482,24 @@ void AimAssist::onUpdate() {
     float yawDiff = wrapTo180(-(localYaw - yawTarget));
     float pitchDiff = wrapTo180(-(localPitch - pitchTarget));
 
+    // Hurt Time Lock: Instant aim when switching targets
+    if (settings.targetMode == TargetMode::SWITCH && 
+        settings.switchSortBy == SortBy::HURT_TIME && 
+        settings.hurtTimeLock && 
+        targetChangedThisFrame) {
+        // Apply instant aim - skip all smoothing
+        player.setYaw(yawTarget);
+        player.setPrevYaw(yawTarget);
+        if (!settings.horizontalOnly) {
+            float clampedPitch = std::clamp(pitchTarget, -90.0f, 90.0f);
+            player.setPitch(clampedPitch);
+            player.setPrevPitch(clampedPitch);
+        }
+        prevFrameHadTarget = hasLockedTarget;
+        lastMouseDown = mouseDown;
+        return;
+    }
+
     float speedSetting = std::max(settings.speed, 1.0f);
     float speed = speedSetting * 3.0f;
     cachedMouseSensitivity = mc.getMouseSensitivity();
@@ -589,6 +610,8 @@ bool AimAssist::findTarget(double& targetX, double& targetY, double& targetZ) {
     float lowestHealth = FLT_MAX;
     float minimalAngleDiff = (float)settings.fov / 2.f;
     float closestDistance = FLT_MAX;
+    int lowestHurtTime = INT_MAX;  // For HurtTime sorting (lower = better, 0 = can take damage)
+    float bestSwitchScore = FLT_MAX;  // Combined score for Switch mode
     bool found = false;
 
     // Helper to keep track of best player instance
@@ -713,6 +736,47 @@ bool AimAssist::findTarget(double& targetX, double& targetY, double& targetZ) {
         } else if (settings.targetMode == TargetMode::HEALTH) {
             if (p.health < lowestHealth) {
                 lowestHealth = p.health;
+                closestPlayer = p;
+                found = true;
+                if (env) {
+                    if (bestPlayerObjLocal)
+                        env->DeleteLocalRef(bestPlayerObjLocal);
+                    bestPlayerObjLocal = p.instance ? env->NewLocalRef(p.instance) : nullptr;
+                }
+            }
+        } else if (settings.targetMode == TargetMode::SWITCH) {
+            // Switch mode: Always pick the best target based on switchSortBy criteria
+            // Use composite score: primary criterion + small distance tie-breaker
+            float score = FLT_MAX;
+            float tieBreaker = dist * 0.001f;  // Small distance factor for tie-breaking
+            
+            switch (settings.switchSortBy) {
+                case SortBy::DISTANCE:
+                    score = dist;
+                    break;
+                case SortBy::HEALTH:
+                    score = p.health + tieBreaker;
+                    break;
+                case SortBy::FOV:
+                    score = yawDiff + tieBreaker;
+                    break;
+                case SortBy::HURT_TIME:
+                    // Lower hurtTime = better (0 means they can take damage now)
+                    // Add distance tie-breaker to prevent flickering when multiple players have same hurtTime
+                    score = (float)p.hurtTime + tieBreaker;
+                    break;
+            }
+            
+            // Hysteresis: Give current target a score bonus to prevent rapid switching
+            // Only switch if the new target is significantly better
+            bool isCurrentTarget = cachedTarget && env && !env->IsSameObject(cachedTarget, NULL) 
+                                   && env->IsSameObject(cachedTarget, p.instance);
+            if (isCurrentTarget) {
+                score -= 0.5f;  // Bonus for staying on current target
+            }
+            
+            if (score < bestSwitchScore) {
+                bestSwitchScore = score;
                 closestPlayer = p;
                 found = true;
                 if (env) {
@@ -1220,12 +1284,14 @@ bool AimAssist::getAimPoint(double targetX, double targetY, double targetZ, doub
 }
 
 void AimAssist::onRenderMenu() {
-    static const char* targetModes[] = {"Lowest Health", "Closest to Player", "Closest to Crosshair"};
+    static const char* targetModes[] = {"Lowest Health", "Closest to Player", "Closest to Crosshair", "Switch"};
+    static const char* sortByModes[] = {"Distance", "Health", "FOV", "Hurt Time"};
     int currentMode = static_cast<int>(settings.targetMode);
+    int currentSortBy = static_cast<int>(settings.switchSortBy);
 
     ui::two_column(
         "Settings",
-        [this, &currentMode]() {
+        [this, &currentMode, &currentSortBy]() {
             ui::CheckboxBind("Enabled", &enabled, &keybind);
             ImGui::Spacing();
             ui::SliderFloat("Speed", &settings.speed, 1.0f, 120.0f, "%.0f", true);
@@ -1234,7 +1300,7 @@ void AimAssist::onRenderMenu() {
             ui::SliderInt("Reaction Time", &settings.reactionTime, 0, 200, "%d ms");
         },
         "Options",
-        [this, &currentMode]() {
+        [this, &currentMode, &currentSortBy]() {
             ui::Checkbox("Always Aim", &settings.alwaysAim);
             ui::Checkbox("Break Blocks", &settings.breakBlocks);
             ui::Checkbox("Weapon Only", &settings.weaponOnly);
@@ -1243,6 +1309,21 @@ void AimAssist::onRenderMenu() {
             ImGui::Spacing();
             if (ImGui::Combo("Target Mode", &currentMode, targetModes, IM_ARRAYSIZE(targetModes))) {
                 settings.targetMode = static_cast<TargetMode>(currentMode);
+            }
+            // Show Sort By option only when Switch mode is selected
+            if (settings.targetMode == TargetMode::SWITCH) {
+                if (ImGui::Combo("Sort By", &currentSortBy, sortByModes, IM_ARRAYSIZE(sortByModes))) {
+                    settings.switchSortBy = static_cast<SortBy>(currentSortBy);
+                }
+                // Show Lock option only when Hurt Time is selected
+                if (settings.switchSortBy == SortBy::HURT_TIME) {
+                    ui::Checkbox("Lock", &settings.hurtTimeLock);
+                    if (settings.hurtTimeLock) {
+                        ImGui::TextDisabled("Instant aim on target switch");
+                    } else {
+                        ImGui::TextDisabled("Targets least recently hit player");
+                    }
+                }
             }
         });
 }

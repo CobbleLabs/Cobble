@@ -54,7 +54,8 @@ public:
     void onRenderMenu() override;
     std::string getDisplayInfo() override;
 
-    enum class TargetMode { HEALTH, DISTANCE, FOV };
+    enum class TargetMode { HEALTH, DISTANCE, FOV, SWITCH };
+    enum class SortBy { DISTANCE, HEALTH, FOV, HURT_TIME };
 
     struct Settings {
         bool horizontalOnly = true;
@@ -66,6 +67,8 @@ public:
         bool weaponOnly = false;
 
         TargetMode targetMode = TargetMode::DISTANCE;
+        SortBy switchSortBy = SortBy::DISTANCE;  // Only used when targetMode is SWITCH
+        bool hurtTimeLock = false;  // Instant aim when switching targets in Hurt Time mode
         int fov = 180;
         float distance = 5.0f;
         float speed = 50.0f;
