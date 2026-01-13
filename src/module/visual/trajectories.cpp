@@ -106,7 +106,13 @@ bool Trajectories::isThrowableItem(int itemId) {
             // Check specific potion type based on metadata
             int potionMeta = player.getHeldItemDamage();
 
-            // Minecraft 1.8 splash potion metadata:
+            // Minecraft 1.8 potion metadata:
+            // Bit 14 (value 16384) = Splash potion flag
+            // If this bit is NOT set, it's a drinkable potion - don't show trajectory
+            bool isSplash = (potionMeta & 0x4000) != 0;  // 0x4000 = 16384 = bit 14
+            if (!isSplash)
+                return false;  // Drinkable potion, no trajectory
+
             // The metadata value directly encodes the potion type
             // Common splash potion metadata values:
             // - Healing: 16389, 16421 (& 0x3F gives 5 or 21)
