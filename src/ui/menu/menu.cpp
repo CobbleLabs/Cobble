@@ -39,7 +39,7 @@
 // Module lookup by tab and subtab index
 // Returns the module that corresponds to the current subtab
 Module* getModuleForSubtab(int tabIdx, int subtabIdx) {
-    // Combat Tab (0)
+    // Combat Tab (0): AutoClicker, AimAssist, Velocity, Reach, Criticals, HitSelect, Hitbox
     if (tabIdx == 0) {
         switch (subtabIdx) {
             case 0:
@@ -47,18 +47,14 @@ Module* getModuleForSubtab(int tabIdx, int subtabIdx) {
             case 1:
                 return aimAssist;
             case 2:
-                return autoRefill;
-            case 3:
                 return velocity;
-            case 4:
+            case 3:
                 return reach;
-            case 5:
-                return blink;
-            case 6:
+            case 4:
                 return criticals;
-            case 7:
+            case 5:
                 return hitSelect;
-            case 8:
+            case 6:
                 return hitbox;
         }
     }
@@ -81,27 +77,31 @@ Module* getModuleForSubtab(int tabIdx, int subtabIdx) {
                 return nullptr;  // Notifications - special handling
         }
     }
-    // Movement Tab (2)
+    // Movement Tab (2): Sprint, Timer, NoJumpDelay
     else if (tabIdx == 2) {
         switch (subtabIdx) {
             case 0:
                 return sprint;
             case 1:
                 return timerModule;
+            case 2:
+                return noJumpDelay;
         }
     }
-    // Utility Tab (3)
+    // Utility Tab (3): AutoRefill, Blink, FastPlace, NoItemRelease, BridgeAssist, AutoTool
     else if (tabIdx == 3) {
         switch (subtabIdx) {
             case 0:
-                return fastPlace;
+                return autoRefill;
             case 1:
-                return noJumpDelay;
+                return blink;
             case 2:
-                return noItemRelease;
+                return fastPlace;
             case 3:
-                return bridgeAssist;
+                return noItemRelease;
             case 4:
+                return bridgeAssist;
+            case 5:
                 return autoTool;
         }
     }
