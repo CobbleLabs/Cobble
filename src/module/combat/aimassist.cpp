@@ -551,8 +551,7 @@ bool AimAssist::findTarget(double& targetX, double& targetY, double& targetZ) {
     JNIEnv* env = Java::Env;
     bool wantHitboxRefresh = settings.lockAim && cachedTarget && hitboxRefreshTimer.Elapsed<>() >= hitboxRefreshMs;
 
-    // FAST PATH: If we have a cached target, update its position & validate
-    if (cachedTarget && scanTimer.Elapsed<>() < 50 && !wantHitboxRefresh)  // Rescan every 50ms
+    // FAST PATH: If we have a cached target, update its position & validate\n    // NOTE: In Switch mode, we skip the fast path to ensure teams are always evaluated\n    //       (the fast path doesn't check if cachedTarget became a teammate)\n    bool skipFastPath = (settings.targetMode == TargetMode::SWITCH);\n    if (cachedTarget && scanTimer.Elapsed<>() < 50 && !wantHitboxRefresh && !skipFastPath)  // Rescan every 50ms
     {
         // Check validity (basic)
         if (Java::Env->IsSameObject(cachedTarget, NULL)) {
