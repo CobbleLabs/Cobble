@@ -134,25 +134,56 @@ struct NeuromotorState {
 
 static NeuromotorState g_neuroState;
 
-// GCD with imperfection - real mouse input isn't perfectly quantized
+// GCD calculation based on Minecraft's mouse sensitivity formula
 static float calculateGCD(float sensitivity) {
     float f = sensitivity * 0.6f + 0.2f;
     return f * f * f * 1.2f;
 }
 
-static float applyGCDWithImperfection(float delta, float gcd, std::mt19937& rng) {
+// Strict GCD application - real mice ARE quantized, AC detects when we skip GCD
+static float applyGCDStrict(float delta, float gcd) {
     if (gcd < 0.0001f)
         return delta;
-
-    // 15% chance to NOT snap to GCD (real hardware jitter)
-    std::uniform_int_distribution<int> chance(0, 100);
-    if (chance(rng) < 15) {
-        // Add small non-GCD noise
-        std::uniform_real_distribution<float> noise(-gcd * 0.3f, gcd * 0.3f);
-        return delta + noise(rng);
-    }
-
     return std::round(delta / gcd) * gcd;
+}
+
+// Calculate floor divisor (what AC uses to detect asymmetry)
+static float getFloorDivisor(float delta, float gcd) {
+    if (gcd < 0.0001f || std::abs(delta) < 0.0001f)
+        return 0.0f;
+    float divided = delta / gcd;
+    return std::abs(std::round(divided) - divided);
+}
+
+// Balance floor divisors between axes to prevent AimAssistH/I detection
+// AC flags when one axis is perfectly aligned (< 1e-4) while other isn't (> 0.03)
+static void balanceFloorDivisors(float& yawDelta, float& pitchDelta, float gcd, std::mt19937& rng) {
+    float yawDivisor = getFloorDivisor(yawDelta, gcd);
+    float pitchDivisor = getFloorDivisor(pitchDelta, gcd);
+    
+    constexpr float PERFECT_THRESHOLD = 1e-4f;
+    constexpr float OFFSET_THRESHOLD = 0.03f;
+    
+    std::uniform_real_distribution<float> microOffset(0.008f, 0.025f);
+    
+    // If yaw is too perfect while pitch isn't, add micro-offset to yaw
+    if (yawDivisor < PERFECT_THRESHOLD && pitchDivisor > OFFSET_THRESHOLD) {
+        float offset = microOffset(rng) * gcd;
+        yawDelta += (yawDelta >= 0 ? offset : -offset);
+    }
+    // If pitch is too perfect while yaw isn't, add micro-offset to pitch
+    else if (pitchDivisor < PERFECT_THRESHOLD && yawDivisor > OFFSET_THRESHOLD) {
+        float offset = microOffset(rng) * gcd;
+        pitchDelta += (pitchDelta >= 0 ? offset : -offset);
+    }
+    // If both are too perfect, add small offset to both (prevents AimAssistJ detection)
+    else if (yawDivisor < PERFECT_THRESHOLD && pitchDivisor < PERFECT_THRESHOLD) {
+        if (std::abs(yawDelta) > 0.5f || std::abs(pitchDelta) > 0.5f) {
+            float offset = microOffset(rng) * gcd * 0.5f;
+            yawDelta += offset;
+            pitchDelta += offset;
+        }
+    }
 }
 
 // Tick skip with Poisson-like distribution (not periodic)
@@ -1123,7 +1154,7 @@ void AimAssist::applyAimRand(float yawDiff, float pitchDiff, float speed) {
         debugLogTimer.Start();
     }
 
-    // ========== ANTI-CHEAT BYPASS v2: GCD with Imperfection ==========
+    // ========== ANTI-CHEAT BYPASS v3: GCD Compliance ==========
     // Refresh GCD periodically
     if (g_gcdRefreshTimer.Elapsed<>() > 500.0f) {
         g_cachedGCD = calculateGCD(cachedMouseSensitivity);
@@ -1133,14 +1164,20 @@ void AimAssist::applyAimRand(float yawDiff, float pitchDiff, float speed) {
         g_cachedGCD = calculateGCD(cachedMouseSensitivity);
     }
 
-    // Apply GCD with occasional imperfection (real hardware isn't perfect)
-    yawDelta = applyGCDWithImperfection(yawDelta, g_cachedGCD, rng);
-    pitchDelta = applyGCDWithImperfection(pitchDelta, g_cachedGCD, rng);
-
-    // ========== ANTI-CHEAT BYPASS v2: Brownian Drift ==========
-    // Add accumulated drift instead of fixed-range variance (continuous, natural)
+    // ========== CRITICAL: Apply drift BEFORE GCD, not after ==========
+    // Adding drift after GCD breaks the quantization pattern that AC expects
     yawDelta += g_neuroState.driftYaw;
     pitchDelta += settings.horizontalOnly ? 0.f : g_neuroState.driftPitch;
+    
+    // Apply STRICT GCD - no imperfection, real mice are quantized
+    // AC (AimAssistB, AimAssistK) detects when sensitivity can't be determined
+    yawDelta = applyGCDStrict(yawDelta, g_cachedGCD);
+    pitchDelta = applyGCDStrict(pitchDelta, g_cachedGCD);
+    
+    // ========== Balance floor divisors to prevent asymmetry detection ==========
+    // AimAssistH: flags when pitch is offset but yaw is perfect
+    // AimAssistI: flags when yaw is offset but pitch is perfect
+    balanceFloorDivisors(yawDelta, pitchDelta, g_cachedGCD, rng);
 
     bool applyYaw = std::abs(yawDelta) > 0.0001f;
     bool applyPitch = std::abs(pitchDelta) > 0.0001f;

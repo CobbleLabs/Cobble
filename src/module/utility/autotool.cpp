@@ -32,16 +32,30 @@ bool AutoTool::isSword(int itemId) {
     return itemId == 268 || itemId == 272 || itemId == 267 || itemId == 283 || itemId == 276;
 }
 
+bool AutoTool::isShears(int itemId) {
+    // Shears = 359
+    return itemId == 359;
+}
+
 // =============================================================================
-// Block to Tool Mapping - Which tool is best for which block
+// Block to Tool Mapping - Which tool is best for which block (1.7.10/1.8.9)
 // =============================================================================
 
 AutoTool::ToolType AutoTool::getBestToolForBlock(int blockId) {
-    // Stone-type blocks -> Pickaxe
-    // Stone=1, Cobble=4, Ores=14-16,21,22,56,73,74,129,153, Obsidian=49,
-    // Netherrack=87, Stone Bricks=98, Nether Bricks=112, End Stone=121
+    // Shears blocks - Wool, Leaves, Cobweb, Vines (MUST BE FIRST - takes priority)
     switch (blockId) {
-        case 1:    // Stone
+        case 18:   // Oak/Spruce/Birch/Jungle Leaves
+        case 30:   // Cobweb
+        case 35:   // Wool (all colors)
+        case 106:  // Vines
+        case 161:  // Acacia/Dark Oak Leaves
+        case 175:  // Double Plants (Tall Grass, Fern - partial)
+            return ToolType::SHEARS;
+    }
+
+    // Stone-type blocks -> Pickaxe
+    switch (blockId) {
+        case 1:    // Stone (all variants: granite, diorite, andesite)
         case 4:    // Cobblestone
         case 14:   // Gold Ore
         case 15:   // Iron Ore
@@ -49,17 +63,18 @@ AutoTool::ToolType AutoTool::getBestToolForBlock(int blockId) {
         case 21:   // Lapis Ore
         case 22:   // Lapis Block
         case 23:   // Dispenser
-        case 24:   // Sandstone
+        case 24:   // Sandstone (all variants)
         case 27:   // Powered Rail
         case 28:   // Detector Rail
         case 29:   // Sticky Piston
         case 33:   // Piston
+        case 34:   // Piston Head
         case 41:   // Gold Block
         case 42:   // Iron Block
         case 43:   // Double Stone Slab
         case 44:   // Stone Slab
         case 45:   // Brick Block
-        case 48:   // Mossy Cobble
+        case 48:   // Mossy Cobblestone
         case 49:   // Obsidian
         case 52:   // Monster Spawner
         case 56:   // Diamond Ore
@@ -67,13 +82,18 @@ AutoTool::ToolType AutoTool::getBestToolForBlock(int blockId) {
         case 61:   // Furnace
         case 62:   // Burning Furnace
         case 66:   // Rail
-        case 67:   // Cobble Stairs
+        case 67:   // Cobblestone Stairs
         case 70:   // Stone Pressure Plate
+        case 71:   // Iron Door Block
         case 73:   // Redstone Ore
         case 74:   // Lit Redstone Ore
+        case 77:   // Stone Button
+        case 79:   // Ice
         case 87:   // Netherrack
         case 89:   // Glowstone
-        case 98:   // Stone Bricks
+        case 97:   // Monster Egg (all variants)
+        case 98:   // Stone Bricks (all variants)
+        case 101:  // Iron Bars
         case 108:  // Brick Stairs
         case 109:  // Stone Brick Stairs
         case 112:  // Nether Brick
@@ -84,43 +104,61 @@ AutoTool::ToolType AutoTool::getBestToolForBlock(int blockId) {
         case 118:  // Cauldron
         case 120:  // End Portal Frame
         case 121:  // End Stone
+        case 128:  // Sandstone Stairs
         case 129:  // Emerald Ore
         case 130:  // Ender Chest
         case 133:  // Emerald Block
-        case 139:  // Cobble Wall
+        case 138:  // Beacon
+        case 139:  // Cobblestone Wall
         case 145:  // Anvil
+        case 147:  // Weighted Pressure Plate Light
+        case 148:  // Weighted Pressure Plate Heavy
         case 152:  // Redstone Block
         case 153:  // Nether Quartz Ore
-        case 155:  // Quartz Block
+        case 154:  // Hopper
+        case 155:  // Quartz Block (all variants)
         case 156:  // Quartz Stairs
-        case 168:  // Prismarine
+        case 157:  // Activator Rail
+        case 158:  // Dropper
+        case 159:  // Stained Hardened Clay
+        case 167:  // Iron Trapdoor
+        case 168:  // Prismarine (all variants)
         case 169:  // Sea Lantern
+        case 172:  // Hardened Clay
         case 173:  // Coal Block
+        case 174:  // Packed Ice
+        case 179:  // Red Sandstone (all variants)
+        case 180:  // Red Sandstone Stairs
+        case 181:  // Double Red Sandstone Slab
+        case 182:  // Red Sandstone Slab
             return ToolType::PICKAXE;
     }
 
     // Wood-type blocks -> Axe
-    // Log=17, Planks=5, Wood Stairs=53,67,108, Fence=85, Crafting Table=58, Chest=54
     switch (blockId) {
-        case 5:    // Wooden Planks
-        case 17:   // Log
+        case 5:    // Wooden Planks (all types)
+        case 17:   // Log (Oak, Spruce, Birch, Jungle)
         case 25:   // Note Block
+        case 26:   // Bed
         case 47:   // Bookshelf
         case 53:   // Oak Stairs
         case 54:   // Chest
         case 58:   // Crafting Table
-        case 63:   // Sign Post
-        case 64:   // Wooden Door
+        case 63:   // Standing Sign
+        case 64:   // Wooden Door Block
+        case 65:   // Ladder
         case 68:   // Wall Sign
         case 72:   // Wooden Pressure Plate
         case 84:   // Jukebox
-        case 85:   // Fence
+        case 85:   // Oak Fence
         case 86:   // Pumpkin
         case 91:   // Jack o' Lantern
-        case 96:   // Trapdoor
-        case 99:   // Huge Brown Mushroom
-        case 100:  // Huge Red Mushroom
-        case 107:  // Fence Gate
+        case 92:   // Cake
+        case 96:   // Wooden Trapdoor
+        case 99:   // Brown Mushroom Block
+        case 100:  // Red Mushroom Block
+        case 103:  // Melon Block
+        case 107:  // Oak Fence Gate
         case 125:  // Double Wooden Slab
         case 126:  // Wooden Slab
         case 127:  // Cocoa
@@ -128,13 +166,16 @@ AutoTool::ToolType AutoTool::getBestToolForBlock(int blockId) {
         case 135:  // Birch Stairs
         case 136:  // Jungle Stairs
         case 143:  // Wooden Button
+        case 144:  // Mob Head
         case 146:  // Trapped Chest
         case 151:  // Daylight Sensor
-        case 157:  // Activator Rail (has wood?)
-        case 158:  // Dropper
-        case 162:  // Log2 (Acacia/Dark Oak)
+        case 162:  // Log2 (Acacia, Dark Oak)
         case 163:  // Acacia Stairs
         case 164:  // Dark Oak Stairs
+        case 170:  // Hay Bale
+        case 176:  // Standing Banner
+        case 177:  // Wall Banner
+        case 178:  // Inverted Daylight Sensor
         case 183:  // Spruce Fence Gate
         case 184:  // Birch Fence Gate
         case 185:  // Jungle Fence Gate
@@ -145,15 +186,19 @@ AutoTool::ToolType AutoTool::getBestToolForBlock(int blockId) {
         case 190:  // Jungle Fence
         case 191:  // Dark Oak Fence
         case 192:  // Acacia Fence
+        case 193:  // Spruce Door Block
+        case 194:  // Birch Door Block
+        case 195:  // Jungle Door Block
+        case 196:  // Acacia Door Block
+        case 197:  // Dark Oak Door Block
             return ToolType::AXE;
     }
 
     // Dirt-type blocks -> Shovel
-    // Grass=2, Dirt=3, Sand=12, Gravel=13, Clay=82, Soul Sand=88, Snow=78,80
     switch (blockId) {
         case 2:    // Grass
-        case 3:    // Dirt
-        case 12:   // Sand
+        case 3:    // Dirt (all variants: coarse, podzol)
+        case 12:   // Sand (all variants)
         case 13:   // Gravel
         case 60:   // Farmland
         case 78:   // Snow Layer
@@ -161,9 +206,7 @@ AutoTool::ToolType AutoTool::getBestToolForBlock(int blockId) {
         case 82:   // Clay
         case 88:   // Soul Sand
         case 110:  // Mycelium
-        case 159:  // Stained Clay
-        case 172:  // Hardened Clay
-        case 179:  // Red Sandstone
+        case 198:  // Grass Path (1.9+ but exists in later 1.8.9 servers)
             return ToolType::SHOVEL;
     }
 
@@ -193,6 +236,9 @@ int AutoTool::findToolInHotbar(ToolType type) {
                 break;
             case ToolType::SWORD:
                 matches = isSword(itemId);
+                break;
+            case ToolType::SHEARS:
+                matches = isShears(itemId);
                 break;
             default:
                 break;

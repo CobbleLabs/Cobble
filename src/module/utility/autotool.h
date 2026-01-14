@@ -18,7 +18,7 @@ private:
     bool m_switched = false;  // Track if we performed an auto-switch
 
     // Tool type enumeration
-    enum class ToolType { NONE, PICKAXE, AXE, SHOVEL, SWORD };
+    enum class ToolType { NONE, PICKAXE, AXE, SHOVEL, SWORD, SHEARS };
 
     // Get the best tool type for a block ID
     ToolType getBestToolForBlock(int blockId);
@@ -31,6 +31,7 @@ private:
     bool isAxe(int itemId);
     bool isShovel(int itemId);
     bool isSword(int itemId);
+    bool isShears(int itemId);
 };
 
 extern AutoTool* autoTool;

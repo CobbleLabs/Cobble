@@ -41,6 +41,25 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/).
   - **`g_DevOverride`**: Looks like bypass flag, reports when set to true
   - **Server (`telemetry.go`)**: Migration 15 creates `security_events` table
 
+- **AutoTool: Shears Support & Expanded Block Mappings**
+  - Added **Shears** (ID 359) as new tool type
+  - Shears blocks: Wool (35), Leaves (18, 161), Cobweb (30), Vines (106), Double Plants (175)
+  - Expanded pickaxe blocks: Ice, Iron Bars, Stone Button, Iron Door, Hopper, Beacon, etc.
+  - Expanded axe blocks: Bed, Ladder, Melon, Cake, Hay Bale, Banners, Wood Doors (193-197)
+  - Fixed shovel/pickaxe classification for Hardened Clay (now pickaxe)
+
+### Fixed
+- **AimAssist Anti-Detection v3: GCD Compliance & Axis Balancing**
+  - **Strict GCD**: Removed 15% imperfection chance - real mice ARE quantized, AC detects when GCD pattern breaks
+  - **Drift Before GCD**: Moved neuromotor drift application BEFORE GCD quantization (adding after breaks the pattern AC expects)
+  - **Floor Divisor Balancing**: New `balanceFloorDivisors()` prevents asymmetry detection (AimAssistH/I)
+    - AC flags when one axis is perfectly GCD-aligned (< 1e-4) while other isn't (> 0.03)
+    - Now adds micro-offset to the perfect axis to match the imperfect one
+  - **AimAssistJ Bypass**: Prevents both axes from being too perfect simultaneously
+  - Result: Passes Karhu/HoodAC/SosaAC GCD and rotation consistency checks
+
+- **AutoClicker Stable Mode CPS Burst**: Fixed bug where CPS would spike (17→38) when stopping block breaking with stable mode enabled. The timeline now resets when exiting block-breaking state.
+
 ### Changed
 - **Module System: Gradual Degradation**
   - `Module::shouldUpdate()` checks `sdk::internal::isOperational()` before each update
