@@ -76,7 +76,7 @@ func Load() *Config {
 
 		// Anti-cheat
 		MinVersion:    getEnv("MIN_VERSION", "1.0.0"),
-		MaxHWIDCount:  getEnvInt("MAX_HWID_COUNT", 2),
+		MaxHWIDCount:  getEnvInt("MAX_HWID_COUNT", 1),
 		MaxConcurrent: getEnvInt("MAX_CONCURRENT", 1),
 
 		// Logging

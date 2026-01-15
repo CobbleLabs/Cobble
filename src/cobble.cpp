@@ -2,10 +2,12 @@
 #include "config/config.hpp"
 #include "module/combat/aimassist.h"
 #include "module/combat/autoclicker.h"
+#include "module/combat/backtrack.h"
 #include "module/combat/blink.h"
 #include "module/combat/criticals.h"
 #include "module/combat/hitbox.h"
 #include "module/combat/hitselect.h"
+#include "module/combat/nohitdelay.h"
 #include "module/combat/reach.h"
 #include "module/combat/velocity.h"
 #include "module/module_manager.h"
@@ -125,9 +127,11 @@ void cobble::context::initialize(HMODULE hModule) {
     velocity = new Velocity();
     reach = new Reach();
     blink = new Blink();
+    backtrack = new Backtrack();
     criticals = new Criticals();
     hitSelect = new HitSelect();
     hitbox = new Hitbox();
+    noHitDelay = new NoHitDelay();
     noJumpDelay = new NoJumpDelay();
     noItemRelease = new NoItemRelease();
     bridgeAssist = new BridgeAssist();
@@ -150,9 +154,11 @@ void cobble::context::initialize(HMODULE hModule) {
     moduleManager->registerModule(velocity);
     moduleManager->registerModule(reach);
     moduleManager->registerModule(blink);
+    moduleManager->registerModule(backtrack);
     moduleManager->registerModule(criticals);
     moduleManager->registerModule(hitSelect);
     moduleManager->registerModule(hitbox);
+    moduleManager->registerModule(noHitDelay);
     moduleManager->registerModule(noJumpDelay);
     moduleManager->registerModule(noItemRelease);
     moduleManager->registerModule(bridgeAssist);
@@ -282,12 +288,16 @@ void cobble::context::shutdown() {
         reach->setEnabled(false);
     if (blink)
         blink->setEnabled(false);
+    if (backtrack)
+        backtrack->setEnabled(false);
     if (criticals)
         criticals->setEnabled(false);
     if (hitSelect)
         hitSelect->setEnabled(false);
     if (hitbox)
         hitbox->setEnabled(false);
+    if (noHitDelay)
+        noHitDelay->setEnabled(false);
     if (noJumpDelay)
         noJumpDelay->setEnabled(false);
     if (noItemRelease)
@@ -345,6 +355,10 @@ void cobble::context::shutdown() {
         delete blink;
         blink = nullptr;
     }
+    if (backtrack) {
+        delete backtrack;
+        backtrack = nullptr;
+    }
     if (criticals) {
         delete criticals;
         criticals = nullptr;
@@ -356,6 +370,10 @@ void cobble::context::shutdown() {
     if (hitbox) {
         delete hitbox;
         hitbox = nullptr;
+    }
+    if (noHitDelay) {
+        delete noHitDelay;
+        noHitDelay = nullptr;
     }
     if (noJumpDelay) {
         delete noJumpDelay;

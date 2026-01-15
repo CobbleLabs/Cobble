@@ -3,10 +3,12 @@
 #include "../../config/config.hpp"
 #include "../../module/combat/aimassist.h"
 #include "../../module/combat/autoclicker.h"
+#include "../../module/combat/backtrack.h"
 #include "../../module/combat/blink.h"
 #include "../../module/combat/criticals.h"
 #include "../../module/combat/hitbox.h"
 #include "../../module/combat/hitselect.h"
+#include "../../module/combat/nohitdelay.h"
 #include "../../module/combat/reach.h"
 #include "../../module/combat/velocity.h"
 #include "../../module/module_manager.h"
@@ -56,6 +58,10 @@ Module* getModuleForSubtab(int tabIdx, int subtabIdx) {
                 return hitSelect;
             case 6:
                 return hitbox;
+            case 7:
+                return noHitDelay;
+            case 8:
+                return backtrack;
         }
     }
     // Visuals Tab (1)

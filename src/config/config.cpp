@@ -1,10 +1,12 @@
 #include "config.hpp"
 #include "../module/combat/aimassist.h"
 #include "../module/combat/autoclicker.h"
+#include "../module/combat/backtrack.h"
 #include "../module/combat/blink.h"
 #include "../module/combat/criticals.h"
 #include "../module/combat/hitbox.h"
 #include "../module/combat/hitselect.h"
+#include "../module/combat/nohitdelay.h"
 #include "../module/combat/reach.h"
 #include "../module/combat/velocity.h"
 #include "../module/module.h"
@@ -144,6 +146,7 @@ void ConfigManager::applyConfig() {
                 s.aimAtClosestPoint = data["aimAtClosestPoint"].as_bool(s.aimAtClosestPoint);
                 s.alwaysAim = data["alwaysAim"].as_bool(s.alwaysAim);
                 s.invisibles = data["invisibles"].as_bool(s.invisibles);
+                s.stopOnHitbox = data["stopOnHitbox"].as_bool(s.stopOnHitbox);
             } else if (name == "Velocity" && velocity) {
                 auto& s = velocity->settings;
                 s.mode = static_cast<Velocity::Mode>(data["mode"].as_int(static_cast<int>(s.mode)));
@@ -291,6 +294,17 @@ void ConfigManager::applyConfig() {
                     static_cast<ItemReleaseMode>(data["mode"].as_int(static_cast<int>(noItemRelease->settings.mode)));
             } else if (name == "FastPlace" && fastPlace) {
                 fastPlace->settings.blocksOnly = data["blocksOnly"].as_bool(fastPlace->settings.blocksOnly);
+            } else if (name == "NoHitDelay" && noHitDelay) {
+                noHitDelay->settings.weaponOnly = data["weaponOnly"].as_bool(noHitDelay->settings.weaponOnly);
+            } else if (name == "Backtrack" && backtrack) {
+                backtrack->settings.minDistance = data["minDistance"].as_float(backtrack->settings.minDistance);
+                backtrack->settings.maxDistance = data["maxDistance"].as_float(backtrack->settings.maxDistance);
+                backtrack->settings.maxDelay = data["maxDelay"].as_int(backtrack->settings.maxDelay);
+                backtrack->settings.maxHurtTime = data["maxHurtTime"].as_int(backtrack->settings.maxHurtTime);
+                backtrack->settings.cooldown = data["cooldown"].as_float(backtrack->settings.cooldown);
+                backtrack->settings.weaponOnly = data["weaponOnly"].as_bool(backtrack->settings.weaponOnly);
+                backtrack->settings.showBacktrackBox = data["showBacktrackBox"].as_bool(backtrack->settings.showBacktrackBox);
+                backtrack->settings.filledBox = data["filledBox"].as_bool(backtrack->settings.filledBox);
             }
 
             break;
@@ -373,6 +387,7 @@ void ConfigManager::buildConfigFromModules() {
             config_["modules"][name]["aimAtClosestPoint"] = s.aimAtClosestPoint;
             config_["modules"][name]["alwaysAim"] = s.alwaysAim;
             config_["modules"][name]["invisibles"] = s.invisibles;
+            config_["modules"][name]["stopOnHitbox"] = s.stopOnHitbox;
         } else if (name == "Velocity" && velocity) {
             const auto& s = velocity->settings;
             config_["modules"][name]["mode"] = static_cast<int>(s.mode);
@@ -510,6 +525,17 @@ void ConfigManager::buildConfigFromModules() {
             config_["modules"][name]["mode"] = static_cast<int>(noItemRelease->settings.mode);
         } else if (name == "FastPlace" && fastPlace) {
             config_["modules"][name]["blocksOnly"] = fastPlace->settings.blocksOnly;
+        } else if (name == "NoHitDelay" && noHitDelay) {
+            config_["modules"][name]["weaponOnly"] = noHitDelay->settings.weaponOnly;
+        } else if (name == "Backtrack" && backtrack) {
+            config_["modules"][name]["minDistance"] = backtrack->settings.minDistance;
+            config_["modules"][name]["maxDistance"] = backtrack->settings.maxDistance;
+            config_["modules"][name]["maxDelay"] = backtrack->settings.maxDelay;
+            config_["modules"][name]["maxHurtTime"] = backtrack->settings.maxHurtTime;
+            config_["modules"][name]["cooldown"] = backtrack->settings.cooldown;
+            config_["modules"][name]["weaponOnly"] = backtrack->settings.weaponOnly;
+            config_["modules"][name]["showBacktrackBox"] = backtrack->settings.showBacktrackBox;
+            config_["modules"][name]["filledBox"] = backtrack->settings.filledBox;
         }
     }
 }

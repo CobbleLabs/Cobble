@@ -4,6 +4,7 @@
 #include <TlHelp32.h>
 #include <string>
 #include <vector>
+#include "../license/telemetry.hpp"
 #include "xor.h"
 
 #pragma comment(lib, "ntdll.lib")
@@ -117,60 +118,32 @@ bool CheckHardwareBreakpoints() {
     return (ctx.Dr0 || ctx.Dr1 || ctx.Dr2 || ctx.Dr3);
 }
 
-bool CheckIsDebuggerPresentPatched() {
-    HMODULE hKernel32 = GetModuleHandleA("kernel32.dll");
-    if (!hKernel32)
-        return false;
+// Check if debugger windows are visible (fast check, no false positives)
+bool CheckDebuggerWindow() {
+    if (FindWindowA(nullptr, "x64dbg") != nullptr)
+        return true;
+    if (FindWindowA(nullptr, "x32dbg") != nullptr)
+        return true;
+    if (FindWindowA("OLLYDBG", nullptr) != nullptr)
+        return true;
+    if (FindWindowA("WinDbgFrameClass", nullptr) != nullptr)
+        return true;
+    if (FindWindowA(nullptr, "Cheat Engine") != nullptr)
+        return true;
 
-    FARPROC pIsDebuggerPresent = GetProcAddress(hKernel32, "IsDebuggerPresent");
-    if (!pIsDebuggerPresent)
-        return false;
-
-    HANDLE hSnapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
-    if (hSnapshot == INVALID_HANDLE_VALUE)
-        return false;
-
-    PROCESSENTRY32W ProcessEntry = {sizeof(PROCESSENTRY32W)};
-
-    if (!Process32FirstW(hSnapshot, &ProcessEntry)) {
-        CloseHandle(hSnapshot);
-        return false;
-    }
-
-    bool bDebuggerPresent = false;
-    DWORD dwCurrentPID = GetCurrentProcessId();
-    DWORD dwLocalFuncBytes = *(PDWORD)pIsDebuggerPresent;
-
-    do {
-        if (dwCurrentPID == ProcessEntry.th32ProcessID)
-            continue;
-
-        HANDLE hProcess = OpenProcess(PROCESS_VM_READ, FALSE, ProcessEntry.th32ProcessID);
-        if (!hProcess)
-            continue;
-
-        DWORD dwRemoteFuncBytes = 0;
-        if (ReadProcessMemory(hProcess, pIsDebuggerPresent, &dwRemoteFuncBytes, sizeof(DWORD), NULL)) {
-            if (dwRemoteFuncBytes != dwLocalFuncBytes) {
-                bDebuggerPresent = true;
-            }
-        }
-
-        CloseHandle(hProcess);
-
-        if (bDebuggerPresent)
-            break;
-
-    } while (Process32NextW(hSnapshot, &ProcessEntry));
-
-    CloseHandle(hSnapshot);
-    return bDebuggerPresent;
+    return false;
 }
 
 bool IsBeingDebugged() {
-    return CheckRemoteDebugger() || CheckPEB() || CheckNtDebugFlags() || CheckNtDebugObject() || CheckHeapFlags() ||
-           CheckHeapProtection() || CheckHardwareBreakpoints();
-    // Note: CheckIsDebuggerPresentPatched() is expensive, use sparingly
+    // Core NT-level checks (most reliable)
+    if (CheckRemoteDebugger() || CheckPEB() || CheckNtDebugFlags() || CheckNtDebugObject())
+        return true;
+
+    // Memory/register-level checks
+    if (CheckHeapFlags() || CheckHeapProtection() || CheckHardwareBreakpoints())
+        return true;
+
+    return false;
 }
 
 #pragma endregion
@@ -236,23 +209,6 @@ void HideThread(HANDLE hThread) {
 #pragma endregion
 
 #pragma region AntiVM
-
-bool HasSuspiciousSpecs() {
-    // Check CPU count
-    SYSTEM_INFO sysInfo;
-    GetSystemInfo(&sysInfo);
-    if (sysInfo.dwNumberOfProcessors < 2)
-        return true;
-
-    // Check RAM (< 2GB is suspicious)
-    MEMORYSTATUSEX memStatus = {sizeof(MEMORYSTATUSEX)};
-    GlobalMemoryStatusEx(&memStatus);
-    DWORD ramMB = (DWORD)(memStatus.ullTotalPhys / 1024 / 1024);
-    if (ramMB < 2048)
-        return true;
-
-    return false;
-}
 
 bool HasVMRegistry() {
     std::vector<std::wstring> vmKeys;
@@ -322,190 +278,11 @@ bool HasVMWareACPI() {
     return found;
 }
 
-// Check for analysis tools running
-bool HasAnalysisTools() {
-    // Build list dynamically to prevent static string extraction
-    std::vector<std::wstring> badProcesses;
-    badProcesses.reserve(28);
-
-    // Debuggers
-    badProcesses.push_back(_xorw_(L"x64dbg.exe"));
-    badProcesses.push_back(_xorw_(L"x32dbg.exe"));
-    badProcesses.push_back(_xorw_(L"ollydbg.exe"));
-    badProcesses.push_back(_xorw_(L"windbg.exe"));
-
-    // Disassemblers
-    badProcesses.push_back(_xorw_(L"ida.exe"));
-    badProcesses.push_back(_xorw_(L"ida64.exe"));
-    badProcesses.push_back(_xorw_(L"idaq.exe"));
-    badProcesses.push_back(_xorw_(L"idaq64.exe"));
-    badProcesses.push_back(_xorw_(L"dnspy.exe"));
-
-    // System monitors
-    badProcesses.push_back(_xorw_(L"procmon.exe"));
-    badProcesses.push_back(_xorw_(L"procmon64.exe"));
-    badProcesses.push_back(_xorw_(L"procexp.exe"));
-    badProcesses.push_back(_xorw_(L"procexp64.exe"));
-    badProcesses.push_back(_xorw_(L"processhacker.exe"));
-
-    // PE analyzers
-    badProcesses.push_back(_xorw_(L"pestudio.exe"));
-    badProcesses.push_back(_xorw_(L"hiew32.exe"));
-    badProcesses.push_back(_xorw_(L"lordpe.exe"));
-    badProcesses.push_back(_xorw_(L"die.exe"));
-
-    // Network sniffers
-    badProcesses.push_back(_xorw_(L"wireshark.exe"));
-    badProcesses.push_back(_xorw_(L"fiddler.exe"));
-    badProcesses.push_back(_xorw_(L"charles.exe"));
-    badProcesses.push_back(_xorw_(L"dumpcap.exe"));
-    badProcesses.push_back(_xorw_(L"httpdebugger.exe"));
-
-    // Memory editors
-    badProcesses.push_back(_xorw_(L"cheatengine-x86_64.exe"));
-    badProcesses.push_back(_xorw_(L"cheatengine.exe"));
-
-    // System tools
-    badProcesses.push_back(_xorw_(L"autoruns.exe"));
-    badProcesses.push_back(_xorw_(L"autorunsc.exe"));
-    badProcesses.push_back(_xorw_(L"regshot.exe"));
-
-    HANDLE hSnapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
-    if (hSnapshot == INVALID_HANDLE_VALUE)
-        return false;
-
-    PROCESSENTRY32W pe = {sizeof(PROCESSENTRY32W)};
-
-    if (Process32FirstW(hSnapshot, &pe)) {
-        do {
-            for (const auto& badProc : badProcesses) {
-                if (_wcsicmp(pe.szExeFile, badProc.c_str()) == 0) {
-                    CloseHandle(hSnapshot);
-                    return true;
-                }
-            }
-        } while (Process32NextW(hSnapshot, &pe));
-    }
-
-    CloseHandle(hSnapshot);
-    return false;
-}
-
-// Check for low system uptime (fresh sandbox)
-bool HasLowUptime() {
-    ULONGLONG uptimeMs = GetTickCount64();
-    ULONGLONG uptimeMinutes = uptimeMs / 1000 / 60;
-
-    // Less than 10 minutes uptime is suspicious (fresh sandbox)
-    return uptimeMinutes < 10;
-}
-
-// Check for small disk (sandboxes often have tiny disks)
-bool HasSmallDisk() {
-    ULARGE_INTEGER freeBytesAvailable, totalBytes, totalFreeBytes;
-
-    if (GetDiskFreeSpaceExW(L"C:\\", &freeBytesAvailable, &totalBytes, &totalFreeBytes)) {
-        ULONGLONG totalGB = totalBytes.QuadPart / 1024 / 1024 / 1024;
-        // Less than 50GB disk is suspicious
-        return totalGB < 50;
-    }
-
-    return false;
-}
-
-// Check for suspicious usernames
-bool HasSuspiciousUsername() {
-    wchar_t username[256] = {0};
-    DWORD size = 256;
-    GetUserNameW(username, &size);
-
-    std::vector<std::wstring> badUsernames;
-    badUsernames.reserve(21);
-    badUsernames.push_back(_xorw_(L"user"));
-    badUsernames.push_back(_xorw_(L"test"));
-    badUsernames.push_back(_xorw_(L"sandbox"));
-    badUsernames.push_back(_xorw_(L"malware"));
-    badUsernames.push_back(_xorw_(L"virus"));
-    badUsernames.push_back(_xorw_(L"sample"));
-    badUsernames.push_back(_xorw_(L"admin"));
-    badUsernames.push_back(_xorw_(L"administrator"));
-    badUsernames.push_back(_xorw_(L"guest"));
-    badUsernames.push_back(_xorw_(L"vmware"));
-    badUsernames.push_back(_xorw_(L"vbox"));
-    badUsernames.push_back(_xorw_(L"qemu"));
-    badUsernames.push_back(_xorw_(L"analysis"));
-    badUsernames.push_back(_xorw_(L"analyst"));
-    badUsernames.push_back(_xorw_(L"john"));
-    badUsernames.push_back(_xorw_(L"peter"));
-    badUsernames.push_back(_xorw_(L"currentuser"));
-    badUsernames.push_back(_xorw_(L"abby"));
-    badUsernames.push_back(_xorw_(L"george"));
-    badUsernames.push_back(_xorw_(L"hong"));
-    badUsernames.push_back(_xorw_(L"user1"));
-
-    for (const auto& badName : badUsernames) {
-        if (_wcsicmp(username, badName.c_str()) == 0) {
-            return true;
-        }
-    }
-
-    return false;
-}
-
-// Check for suspicious computer names
-bool HasSuspiciousComputerName() {
-    wchar_t computerName[256] = {0};
-    DWORD size = 256;
-    GetComputerNameW(computerName, &size);
-
-    // Only check for obvious sandbox names (NOT DESKTOP- or WIN- which are normal Windows defaults)
-    std::vector<std::wstring> badNames;
-    badNames.reserve(9);
-    badNames.push_back(_xorw_(L"SANDBOX"));
-    badNames.push_back(_xorw_(L"VIRUS"));
-    badNames.push_back(_xorw_(L"MALWARE"));
-    badNames.push_back(_xorw_(L"SAMPLE"));
-    badNames.push_back(_xorw_(L"TEST-PC"));
-    badNames.push_back(_xorw_(L"JOHN-PC"));
-    badNames.push_back(_xorw_(L"ANALYSIS"));
-    badNames.push_back(_xorw_(L"TEQUILABOOMBOOM"));
-    badNames.push_back(_xorw_(L"SANDBOX-PC"));
-
-    for (const auto& badName : badNames) {
-        if (_wcsicmp(computerName, badName.c_str()) == 0) {
-            return true;
-        }
-    }
-
-    // Very short computer name is suspicious
-    if (wcslen(computerName) < 4) {
-        return true;
-    }
-
-    return false;
-}
-
 bool IsOnVM() {
     // Core VM detection (reliable)
     if (HasVMRegistry() || HasVMFiles() || HasVMWareACPI()) {
         return true;
     }
-
-    // Analysis tools (highly suspicious)
-    if (HasAnalysisTools()) {
-        return true;
-    }
-
-    // Suspicious identifiers (sandbox names)
-    if (HasSuspiciousComputerName()) {
-        return true;
-    }
-
-    // NOTE: The following checks are DISABLED to reduce false positives:
-    // - HasSuspiciousSpecs() -> Low CPU/RAM can be normal laptops
-    // - HasLowUptime() -> User might have just rebooted
-    // - HasSmallDisk() -> Normal for SSDs
-    // - HasSuspiciousUsername() -> "admin" is common on real PCs
 
     return false;
 }
@@ -582,9 +359,7 @@ DWORD64 HashSection(LPVOID lpAddress, DWORD dwSize) {
     BYTE* pData = (BYTE*)lpAddress;
 
     for (DWORD i = 0; i < dwSize; i++, pData++) {
-        if (*pData) {
-            hash = *pData + (hash << 6) + (hash << 16) - hash;
-        }
+        hash = *pData + (hash << 6) + (hash << 16) - hash;
     }
 
     return hash;
@@ -643,6 +418,233 @@ bool RunChecks() {
     if (HasAPIHooks())
         return false;
     return true;
+}
+
+#pragma endregion
+
+#pragma region DetectionSystem
+
+// Detection wrapper for each check
+Detection CheckPEB_v2() {
+    Detection d = {"DBG_PEB", 0, ""};
+    if (CheckPEB()) {
+        d.score = 100;
+        d.details = "PEB.BeingDebugged";
+    }
+    return d;
+}
+
+Detection CheckNtDebugObject_v2() {
+    Detection d = {"DBG_DEBUGOBJECT", 0, ""};
+    if (CheckNtDebugObject()) {
+        d.score = 100;
+        d.details = "DebugObjectHandle";
+    }
+    return d;
+}
+
+Detection CheckNtDebugFlags_v2() {
+    Detection d = {"DBG_DEBUGFLAGS", 0, ""};
+    if (CheckNtDebugFlags()) {
+        d.score = 100;
+        d.details = "NoDebugInherit";
+    }
+    return d;
+}
+
+Detection CheckRemoteDebugger_v2() {
+    Detection d = {"DBG_REMOTE", 0, ""};
+    if (CheckRemoteDebugger()) {
+        d.score = 100;
+        d.details = "RemoteDebugger";
+    }
+    return d;
+}
+
+Detection CheckHardwareBreakpoints_v2() {
+    Detection d = {"DBG_HWBP", 0, ""};
+    if (CheckHardwareBreakpoints()) {
+        d.score = 100;
+        d.details = "HardwareBP";
+    }
+    return d;
+}
+
+Detection CheckHeapFlags_v2() {
+    Detection d = {"DBG_HEAP", 0, ""};
+    if (CheckHeapFlags()) {
+        d.score = 80;
+        d.details = "HeapFlags";
+    }
+    return d;
+}
+
+// Check running tools and return detections with appropriate scores
+std::vector<Detection> CheckRunningTools() {
+    std::vector<Detection> detections;
+
+    // Tool definitions: {process_name, code, score}
+    struct ToolDef {
+        const wchar_t* name;
+        const char* code;
+        int score;
+    };
+
+    // TIER 2: Debuggers/CheatEngine (score = 40, WARN)
+    // TIER 3: Network tools (score = 10, REPORT ONLY)
+    ToolDef tools[] = {
+        // TIER 2 - WARN
+        {L"x64dbg.exe", "TOOL_X64DBG", 40},
+        {L"x32dbg.exe", "TOOL_X32DBG", 40},
+        {L"ollydbg.exe", "TOOL_OLLYDBG", 40},
+        {L"windbg.exe", "TOOL_WINDBG", 40},
+        {L"ida.exe", "TOOL_IDA", 40},
+        {L"ida64.exe", "TOOL_IDA64", 40},
+        {L"idaq.exe", "TOOL_IDAQ", 40},
+        {L"idaq64.exe", "TOOL_IDAQ64", 40},
+        {L"dnspy.exe", "TOOL_DNSPY", 40},
+        {L"cheatengine-x86_64.exe", "TOOL_CE", 40},
+        {L"cheatengine.exe", "TOOL_CE", 40},
+        {L"ce.exe", "TOOL_CE", 40},
+        {L"processhacker.exe", "TOOL_PROCHACKER", 40},
+        {L"extremeinjector.exe", "TOOL_INJECTOR", 40},
+        {L"xenos.exe", "TOOL_XENOS", 40},
+        // TIER 3 - REPORT ONLY
+        {L"wireshark.exe", "TOOL_WIRESHARK", 10},
+        {L"fiddler.exe", "TOOL_FIDDLER", 10},
+        {L"charles.exe", "TOOL_CHARLES", 10},
+        {L"httpdebugger.exe", "TOOL_HTTPDEBUG", 10},
+        {L"mitmproxy.exe", "TOOL_MITMPROXY", 10},
+    };
+
+    HANDLE hSnapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+    if (hSnapshot == INVALID_HANDLE_VALUE)
+        return detections;
+
+    PROCESSENTRY32W pe = {sizeof(PROCESSENTRY32W)};
+
+    if (Process32FirstW(hSnapshot, &pe)) {
+        do {
+            for (const auto& tool : tools) {
+                if (_wcsicmp(pe.szExeFile, tool.name) == 0) {
+                    Detection d;
+                    d.code = tool.code;
+                    d.score = tool.score;
+                    // Use tool class as details, not exact name (to not leak intel)
+                    d.details = (tool.score >= 40) ? "debugger" : "network";
+                    detections.push_back(d);
+                    break;
+                }
+            }
+        } while (Process32NextW(hSnapshot, &pe));
+    }
+
+    CloseHandle(hSnapshot);
+    return detections;
+}
+
+// Check VM indicators (score 30 = ALLOW, info severity)
+std::vector<Detection> CheckVMIndicators() {
+    std::vector<Detection> detections;
+
+    if (HasVMRegistry()) {
+        detections.push_back({"VM_REGISTRY", 30, "registry"});
+    }
+    if (HasVMFiles()) {
+        detections.push_back({"VM_FILES", 30, "files"});
+    }
+    if (HasVMWareACPI()) {
+        detections.push_back({"VM_ACPI", 30, "acpi"});
+    }
+
+    return detections;
+}
+
+// Run ALL security checks and return all detections
+std::vector<Detection> RunSecurityChecks() {
+    std::vector<Detection> all;
+
+    // TIER 1: Anti-debug (score 80-100)
+    auto d1 = CheckPEB_v2();
+    if (d1.score > 0)
+        all.push_back(d1);
+
+    auto d2 = CheckNtDebugObject_v2();
+    if (d2.score > 0)
+        all.push_back(d2);
+
+    auto d3 = CheckNtDebugFlags_v2();
+    if (d3.score > 0)
+        all.push_back(d3);
+
+    auto d4 = CheckRemoteDebugger_v2();
+    if (d4.score > 0)
+        all.push_back(d4);
+
+    auto d5 = CheckHardwareBreakpoints_v2();
+    if (d5.score > 0)
+        all.push_back(d5);
+
+    auto d6 = CheckHeapFlags_v2();
+    if (d6.score > 0)
+        all.push_back(d6);
+
+    // TIER 2/3: Running tools
+    auto toolDetections = CheckRunningTools();
+    for (auto& d : toolDetections) {
+        all.push_back(d);
+    }
+
+    // TIER 3: VM indicators (report only, no block)
+    auto vmDetections = CheckVMIndicators();
+    for (auto& d : vmDetections) {
+        all.push_back(d);
+    }
+
+    return all;
+}
+
+// Calculate maximum score from all detections
+int CalculateRiskScore(const std::vector<Detection>& detections) {
+    int maxScore = 0;
+    for (const auto& d : detections) {
+        if (d.score > maxScore) {
+            maxScore = d.score;
+        }
+    }
+    return maxScore;
+}
+
+// Decide action based on score
+SecurityDecision Decide(int score) {
+    if (score >= 100)
+        return SecurityDecision::BLOCK;
+    if (score >= 40)
+        return SecurityDecision::WARN;
+    return SecurityDecision::ALLOW;
+}
+
+// Main entry point: run checks, report telemetry, return decision
+// NOTE: Telemetry::Init() should be called once at loader startup, not here
+SecurityDecision RunSecurityChecksWithDecision(std::vector<Detection>& outDetections) {
+    // Run all checks
+    outDetections = RunSecurityChecks();
+
+    // Report each detection to telemetry (throttled)
+    // Severity is derived from score using ScoreToSeverity()
+    for (const auto& d : outDetections) {
+        Telemetry::Severity sev = Telemetry::Severity::INFO;
+        if (d.score >= 100)
+            sev = Telemetry::Severity::CRITICAL;
+        else if (d.score >= 40)
+            sev = Telemetry::Severity::WARN;
+
+        Telemetry::Report(d.code, sev, d.score, d.details);
+    }
+
+    // Calculate score and decide
+    int score = CalculateRiskScore(outDetections);
+    return Decide(score);
 }
 
 #pragma endregion

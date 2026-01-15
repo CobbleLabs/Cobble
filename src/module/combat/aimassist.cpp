@@ -513,6 +513,37 @@ void AimAssist::onUpdate() {
     float yawDiff = wrapTo180(-(localYaw - yawTarget));
     float pitchDiff = wrapTo180(-(localPitch - pitchTarget));
 
+    // Stop On Hitbox: If crosshair is already inside the hitbox, let user aim freely
+    if (settings.stopOnHitbox && targetHasHitbox) {
+        float hitboxWidth = targetHitboxMaxX - targetHitboxMinX;
+        float hitboxHeight = targetHitboxMaxY - targetHitboxMinY;
+        
+        if (hitboxWidth > 0.01f && hitboxHeight > 0.01f) {
+            // Calculate angles to hitbox edges
+            float yawToMinX = getAngles(localX, localY, localZ, targetHitboxMinX, aimY, targetHitboxMinZ).first;
+            float yawToMaxX = getAngles(localX, localY, localZ, targetHitboxMaxX, aimY, targetHitboxMaxZ).first;
+            float pitchToMinY = getAngles(localX, localY, localZ, aimX, targetHitboxMinY, aimZ).second;
+            float pitchToMaxY = getAngles(localX, localY, localZ, aimX, targetHitboxMaxY, aimZ).second;
+            
+            float yawDiffToMinX = wrapTo180(-(localYaw - yawToMinX));
+            float yawDiffToMaxX = wrapTo180(-(localYaw - yawToMaxX));
+            float pitchDiffToMinY = wrapTo180(-(localPitch - pitchToMinY));
+            float pitchDiffToMaxY = wrapTo180(-(localPitch - pitchToMaxY));
+            
+            // Inside hitbox: signs of diffs to opposite edges are different
+            bool insideYaw = (yawDiffToMinX * yawDiffToMaxX) <= 0.0f;
+            bool insidePitch = (pitchDiffToMinY * pitchDiffToMaxY) <= 0.0f;
+            
+            bool insideHitbox = settings.horizontalOnly ? insideYaw : (insideYaw && insidePitch);
+            
+            if (insideHitbox) {
+                prevFrameHadTarget = hasLockedTarget;
+                lastMouseDown = mouseDown;
+                return;
+            }
+        }
+    }
+
     // Hurt Time Lock: Instant aim when switching targets
     if (settings.targetMode == TargetMode::SWITCH && 
         settings.switchSortBy == SortBy::HURT_TIME && 
@@ -1343,6 +1374,7 @@ void AimAssist::onRenderMenu() {
             ui::Checkbox("Weapon Only", &settings.weaponOnly);
             ui::Checkbox("Aim Closest Point", &settings.aimAtClosestPoint);
             ui::Checkbox("Target Invisibles", &settings.invisibles);
+            ui::Checkbox("Stop On Hitbox", &settings.stopOnHitbox);
             ImGui::Spacing();
             if (ImGui::Combo("Target Mode", &currentMode, targetModes, IM_ARRAYSIZE(targetModes))) {
                 settings.targetMode = static_cast<TargetMode>(currentMode);
