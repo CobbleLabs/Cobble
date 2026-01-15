@@ -145,7 +145,7 @@ void ConfigManager::applyConfig() {
                 s.weaponOnly = data["weaponOnly"].as_bool(s.weaponOnly);
                 s.aimAtClosestPoint = data["aimAtClosestPoint"].as_bool(s.aimAtClosestPoint);
                 s.alwaysAim = data["alwaysAim"].as_bool(s.alwaysAim);
-                s.invisibles = data["invisibles"].as_bool(s.invisibles);
+                // Note: invisibles setting intentionally not loaded - always disabled
                 s.stopOnHitbox = data["stopOnHitbox"].as_bool(s.stopOnHitbox);
             } else if (name == "Velocity" && velocity) {
                 auto& s = velocity->settings;
@@ -386,7 +386,7 @@ void ConfigManager::buildConfigFromModules() {
             config_["modules"][name]["weaponOnly"] = s.weaponOnly;
             config_["modules"][name]["aimAtClosestPoint"] = s.aimAtClosestPoint;
             config_["modules"][name]["alwaysAim"] = s.alwaysAim;
-            config_["modules"][name]["invisibles"] = s.invisibles;
+            // Note: invisibles setting intentionally not saved - always disabled
             config_["modules"][name]["stopOnHitbox"] = s.stopOnHitbox;
         } else if (name == "Velocity" && velocity) {
             const auto& s = velocity->settings;
