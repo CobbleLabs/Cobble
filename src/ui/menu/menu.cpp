@@ -3,6 +3,7 @@
 #include "../../config/config.hpp"
 #include "../../module/combat/aimassist.h"
 #include "../../module/combat/autoclicker.h"
+#include "../../module/combat/backtrack.h"
 #include "../../module/combat/blink.h"
 #include "../../module/combat/criticals.h"
 #include "../../module/combat/hitbox.h"
@@ -59,6 +60,8 @@ Module* getModuleForSubtab(int tabIdx, int subtabIdx) {
                 return hitbox;
             case 7:
                 return noHitDelay;
+            case 8:
+                return backtrack;
         }
     }
     // Visuals Tab (1)

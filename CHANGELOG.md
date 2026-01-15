@@ -59,7 +59,17 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/).
   - Sets `leftClickCounter` to 0 when left mouse is pressed
   - Optional "Weapon Only" setting to limit to swords/axes
 
-### Fixed
+- **Backtrack Module**
+  - Lags incoming packets to keep targets in range longer
+  - **Distance Range**: Min/Max distance where module activates (default 1-4 blocks)
+  - **Max Delay**: Maximum lag duration in ms (default 200ms)
+  - **Max Hurt Time**: Only activate when target can be damaged soon
+  - **Cooldown**: Delay after deactivation before reactivating
+  - **Disable on Hit**: Stop lagging when taking knockback (prevents anti-cheat flags)
+  - **Real Position Indicator**: Renders where target actually is (customizable color, filled/outline)
+  - Fully lag-based - does not violate vanilla mechanics
+
+
 - **AimAssist Anti-Detection v3: GCD Compliance & Axis Balancing**
   - **Strict GCD**: Removed 15% imperfection chance - real mice ARE quantized, AC detects when GCD pattern breaks
   - **Drift Before GCD**: Moved neuromotor drift application BEFORE GCD quantization (adding after breaks the pattern AC expects)

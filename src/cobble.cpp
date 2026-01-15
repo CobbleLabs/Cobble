@@ -2,6 +2,7 @@
 #include "config/config.hpp"
 #include "module/combat/aimassist.h"
 #include "module/combat/autoclicker.h"
+#include "module/combat/backtrack.h"
 #include "module/combat/blink.h"
 #include "module/combat/criticals.h"
 #include "module/combat/hitbox.h"
@@ -126,6 +127,7 @@ void cobble::context::initialize(HMODULE hModule) {
     velocity = new Velocity();
     reach = new Reach();
     blink = new Blink();
+    backtrack = new Backtrack();
     criticals = new Criticals();
     hitSelect = new HitSelect();
     hitbox = new Hitbox();
@@ -152,6 +154,7 @@ void cobble::context::initialize(HMODULE hModule) {
     moduleManager->registerModule(velocity);
     moduleManager->registerModule(reach);
     moduleManager->registerModule(blink);
+    moduleManager->registerModule(backtrack);
     moduleManager->registerModule(criticals);
     moduleManager->registerModule(hitSelect);
     moduleManager->registerModule(hitbox);
@@ -285,6 +288,8 @@ void cobble::context::shutdown() {
         reach->setEnabled(false);
     if (blink)
         blink->setEnabled(false);
+    if (backtrack)
+        backtrack->setEnabled(false);
     if (criticals)
         criticals->setEnabled(false);
     if (hitSelect)
@@ -349,6 +354,10 @@ void cobble::context::shutdown() {
     if (blink) {
         delete blink;
         blink = nullptr;
+    }
+    if (backtrack) {
+        delete backtrack;
+        backtrack = nullptr;
     }
     if (criticals) {
         delete criticals;
