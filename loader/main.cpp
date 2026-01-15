@@ -1,36 +1,41 @@
 ﻿#include <Windows.h>
-#include <string>
-#include <filesystem>
-#include <thread>
 #include <chrono>
 #include <ctime>
+#include <filesystem>
+#include <string>
+#include <thread>
 
-#include "process.h"
+#include "hwid.h"
 #include "inject.h"
-#include "src/core/secure_mapper.hpp"
-#include "src/core/payload_crypto.hpp"
+#include "license.h"
+#include "process.h"
 #include "resource.h"
 #include "security.h"
-#include "xor.h"
-#include "license.h"
-#include "hwid.h"
-#include "version.h"
-#include "src/util/hash.h"
-#include "src/util/dll_hash.h"
-#include "src/update/updater.h"
-#include "src/update/download.h"
+#include "src/core/payload_crypto.hpp"
+#include "src/core/secure_mapper.hpp"
 #include "src/ui/loader_window.hpp"
+#include "src/update/download.h"
+#include "src/update/updater.h"
+#include "src/util/dll_hash.h"
+#include "src/util/hash.h"
+#include "version.h"
+#include "xor.h"
 
 // Protection system
-#include "src/util/obfuscate.hpp"
+#include "src/license/telemetry.hpp"
+#include "src/security/advanced_security.hpp"
 #include "src/security/antidbg.hpp"
 #include "src/security/integrity.hpp"
 #include "src/security/integrity_gen.hpp"
-#include "src/security/advanced_security.hpp"
+#include "src/util/obfuscate.hpp"
 
 // Server configuration (obfuscated)
-inline std::string getServerPrimary() { return OBFS("api.cobble.vip"); }
-inline std::string getLicenseServerPrimary() { return OBFS("https://api.cobble.vip"); }
+inline std::string getServerPrimary() {
+    return OBFS("api.cobble.vip");
+}
+inline std::string getLicenseServerPrimary() {
+    return OBFS("https://api.cobble.vip");
+}
 
 #define SERVER_PORT_HTTPS 443
 #define LICENSE_CHECK_ENABLED true
@@ -38,22 +43,25 @@ inline std::string getLicenseServerPrimary() { return OBFS("https://api.cobble.v
 // Shared memory structure for DLL validation
 // This is passed from loader to DLL via named shared memory
 struct InjectionData {
-    char signature[16];       // "COBBLE_INJ_V1" - magic signature
-    char secret[65];          // 64 hex chars + null (injection_secret from server)
-    char username[64];        // Username from license
-    char hwid[65];            // HWID for server validation
-    uint32_t timestamp;       // Unix timestamp when created
-    uint32_t expiresIn;       // Seconds until expiry (5 minutes)
-    char handshakeSig[128];   // Base64 Ed25519 signature from server
-    char sessionToken[128];   // Session token for heartbeat
-    char syncToken[65];       // Sync token for runtime validation
+    char signature[16];      // "COBBLE_INJ_V1" - magic signature
+    char secret[65];         // 64 hex chars + null (injection_secret from server)
+    char username[64];       // Username from license
+    char hwid[65];           // HWID for server validation
+    uint32_t timestamp;      // Unix timestamp when created
+    uint32_t expiresIn;      // Seconds until expiry (5 minutes)
+    char handshakeSig[128];  // Base64 Ed25519 signature from server
+    char sessionToken[128];  // Session token for heartbeat
+    char syncToken[65];      // Sync token for runtime validation
 };
 
 std::atomic<bool> g_SecurityViolation(false);
 
 DWORD WINAPI SecurityThread1(LPVOID lpParam) {
     while (!g_SecurityViolation) {
-        if (Security::IsBeingDebugged()) { g_SecurityViolation = true; break; }
+        if (Security::IsBeingDebugged()) {
+            g_SecurityViolation = true;
+            break;
+        }
         Sleep(500);
     }
     return 0;
@@ -61,7 +69,10 @@ DWORD WINAPI SecurityThread1(LPVOID lpParam) {
 
 DWORD WINAPI SecurityThread2(LPVOID lpParam) {
     while (!g_SecurityViolation) {
-        if (Security::HasAPIHooks()) { g_SecurityViolation = true; break; }
+        if (Security::HasAPIHooks()) {
+            g_SecurityViolation = true;
+            break;
+        }
         Sleep(500);
     }
     return 0;
@@ -69,8 +80,14 @@ DWORD WINAPI SecurityThread2(LPVOID lpParam) {
 
 DWORD WINAPI SecurityThread3(LPVOID lpParam) {
     while (!g_SecurityViolation) {
-        if (AdvancedSecurity::hasKernelDebugger()) { g_SecurityViolation = true; break; }
-        if (AdvancedSecurity::hasSyscallHooks()) { g_SecurityViolation = true; break; }
+        if (AdvancedSecurity::hasKernelDebugger()) {
+            g_SecurityViolation = true;
+            break;
+        }
+        if (AdvancedSecurity::hasSyscallHooks()) {
+            g_SecurityViolation = true;
+            break;
+        }
         Sleep(1000);
     }
     return 0;
@@ -78,22 +95,62 @@ DWORD WINAPI SecurityThread3(LPVOID lpParam) {
 
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow) {
     // Security checks
-    if (Security::IsBeingDebugged()) return 1;
+    if (Security::IsBeingDebugged())
+        return 1;
     Security::Initialize();
-    
+
+    // Initialize telemetry ONCE at startup (non-blocking)
+    Telemetry::Init();
+
+    // === NEW SCORE-BASED DETECTION SYSTEM ===
+    // This detects tools (x64dbg, CheatEngine, etc.) with appropriate responses
+    {
+        std::vector<Security::Detection> detections;
+        Security::SecurityDecision decision = Security::RunSecurityChecksWithDecision(detections);
+
+        if (decision == Security::SecurityDecision::BLOCK) {
+            // Tier 1: Critical detection (debugger attached) -> silent exit
+            return 1;
+        }
+
+        if (decision == Security::SecurityDecision::WARN) {
+            // Tier 2: Tool detected (x64dbg running, etc.) -> show warning with retry
+            int userChoice = MessageBoxA(
+                nullptr, "Analysis tools detected.\n\nPlease close any debugging or analysis software and try again.",
+                "Cobble Loader", MB_RETRYCANCEL | MB_ICONWARNING);
+
+            if (userChoice == IDRETRY) {
+                // Re-check after user claims to have closed tools
+                detections.clear();
+                decision = Security::RunSecurityChecksWithDecision(detections);
+                if (decision != Security::SecurityDecision::ALLOW) {
+                    return 1;  // Still detected, exit
+                }
+            } else {
+                return 0;  // User cancelled
+            }
+        }
+        // ALLOW: continue normally
+    }
+
     AntiDebug::calibrate();
-    if (AntiDebug::isDebugged()) return 1;
-    
+    if (AntiDebug::isDebugged())
+        return 1;
+
     // Advanced security checks (VM, kernel debugger, syscall hooks)
-    if (AdvancedSecurity::isCompromised()) return 1;
-    
+    if (AdvancedSecurity::isCompromised())
+        return 1;
+
     HANDLE hThread1 = CreateThread(NULL, 0, SecurityThread1, NULL, 0, NULL);
     HANDLE hThread2 = CreateThread(NULL, 0, SecurityThread2, NULL, 0, NULL);
     HANDLE hThread3 = CreateThread(NULL, 0, SecurityThread3, NULL, 0, NULL);
-    if (hThread1) CloseHandle(hThread1);
-    if (hThread2) CloseHandle(hThread2);
-    if (hThread3) CloseHandle(hThread3);
-    
+    if (hThread1)
+        CloseHandle(hThread1);
+    if (hThread2)
+        CloseHandle(hThread2);
+    if (hThread3)
+        CloseHandle(hThread3);
+
     // UI Init
     if (!LoaderUI::Init()) {
         MessageBoxA(nullptr, "Failed to initialize UI", "Cobble Loader", MB_ICONERROR);
@@ -116,42 +173,37 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
             return 0;
         }
     }
-    
+
     // Now show the window with everything ready
     LoaderUI::Show();
-    
+
     // ==========================================================================
     // AUTO-UPDATER: Check for updates before proceeding
     // ==========================================================================
     LoaderUI::SetMessage("Checking for updates...");
     renderFrame();
-    
+
     auto updateResult = Updater::Check(COBBLE_VERSION, getServerPrimary(), SERVER_PORT_HTTPS);
-    
+
     if (updateResult.success && updateResult.mandatory) {
         // Mandatory update required - must download and restart
         LoaderUI::SetMessage("Downloading update...");
         renderFrame();
-        
+
         // Get HWID for authenticated download
         std::string hwid = HWID::Generate();
-        
+
         // Create temp directory for download
         std::string tempDir = Updater::getTempDownloadDir();
         std::string newLoaderPath = tempDir + "\\CobbleLoader.exe";
-        
+
         // Download new loader
         std::string downloadUrl = "https://" + getServerPrimary() + "/api/update/loader";
-        
-        bool downloadSuccess = Updater::downloadAndVerify(
-            downloadUrl,
-            newLoaderPath,
-            updateResult.manifest.loader.sha256,
-            updateResult.manifest.loader.size,
-            hwid,
-            nullptr
-        );
-        
+
+        bool downloadSuccess =
+            Updater::downloadAndVerify(downloadUrl, newLoaderPath, updateResult.manifest.loader.sha256,
+                                       updateResult.manifest.loader.size, hwid, nullptr);
+
         if (downloadSuccess) {
             // Spawn the new loader to replace us
             std::string selfPath = Updater::getSelfPath();
@@ -161,15 +213,16 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
                 return 0;
             }
         }
-        
+
         // Download failed - cleanup and show error
         Updater::cleanupTempDir(tempDir);
         LoaderUI::SetError("Update failed - please try again");
-        while (renderFrame());
+        while (renderFrame())
+            ;
         LoaderUI::Shutdown();
         return 1;
     }
-    
+
     // Optional update available - show notification but don't block
     if (updateResult.success && updateResult.updateAvailable && !updateResult.mandatory) {
         std::string msg = "Update v" + updateResult.manifest.version + " available";
@@ -177,42 +230,43 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         renderFrame();
         Sleep(1500);  // Brief pause to show the message
     }
-    
+
     // Load encrypted payload from resources
     HMODULE hModule = GetModuleHandle(nullptr);
     HRSRC hRes = FindResource(hModule, MAKEINTRESOURCE(IDR_COBBLE_DLL), RT_RCDATA);
     if (!hRes) {
         LoaderUI::SetError("Launch failed");
-        while (renderFrame());
+        while (renderFrame())
+            ;
         LoaderUI::Shutdown();
         return 1;
     }
-    
+
     HGLOBAL hData = LoadResource(hModule, hRes);
     BYTE* encryptedData = (BYTE*)LockResource(hData);
     DWORD encryptedSize = SizeofResource(hModule, hRes);
-    
+
     // License check FIRST (before decryption to get server key)
     std::vector<uint8_t> decryptedDll;
     BYTE* dllData = nullptr;
     size_t dllSize = 0;
-    
+
     // Pre-declare lunar so we can detect MC during login
     ProcessInfo lunar = {};
-    
+
 #if LICENSE_CHECK_ENABLED
     bool licenseValid = false;
-    
+
     if (License::Verify(getLicenseServerPrimary().c_str())) {
         licenseValid = true;
         LoaderUI::SetState(LoaderUI::State::LICENSE_VALID);
     } else if (License::RequiresLogin()) {
         // First time login flow...
         LoaderUI::SetState(LoaderUI::State::LOGIN_REQUIRED);
-        
+
         // Poll for Minecraft in background while user types credentials
         auto nextMcScan = std::chrono::steady_clock::now();
-        
+
         while (renderFrame()) {
             // MC detection in background
             auto now = std::chrono::steady_clock::now();
@@ -252,57 +306,61 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
             return 0;
         }
     }
-    
+
     if (!licenseValid) {
         LoaderUI::SetError(License::GetLastError());
-        while (renderFrame());
+        while (renderFrame())
+            ;
         LoaderUI::Shutdown();
         return 1;
     }
-    
+
     // Try to fetch payload key from server - REQUIRED
     LoaderUI::SetMessage("Initializing...");
     renderFrame();
-    
+
     std::string payloadKey;
     if (!License::FetchPayloadKey(getLicenseServerPrimary().c_str())) {
         LoaderUI::SetError("Server connection failed");
-        while (renderFrame());
+        while (renderFrame())
+            ;
         LoaderUI::Shutdown();
         return 1;
     }
     payloadKey = License::GetPayloadKey();
-    
+
     if (payloadKey.empty() || payloadKey.length() != 64) {
         LoaderUI::SetError("Key fetch failed");
-        while (renderFrame());
+        while (renderFrame())
+            ;
         LoaderUI::Shutdown();
         return 1;
     }
-    
+
     // Decrypt payload with server key - no fallback
     decryptedDll = PayloadCrypto::DecryptPayloadWithKey(encryptedData, encryptedSize, payloadKey);
-    
+
     // Zero key from memory immediately
     SecureZeroMemory(&payloadKey[0], payloadKey.size());
-    
+
 #endif
-    
+
     if (decryptedDll.empty() || !PayloadCrypto::ValidatePE(decryptedDll)) {
         LoaderUI::SetError("Launch failed");
-        while (renderFrame());
+        while (renderFrame())
+            ;
         LoaderUI::Shutdown();
         return 1;
     }
-    
+
     dllData = decryptedDll.data();
     dllSize = decryptedDll.size();
-    
+
     if (g_SecurityViolation) {
         LoaderUI::Shutdown();
         return 1;
     }
-    
+
     // Only wait for Minecraft if not already detected during login
     if (lunar.pid == 0) {
         LoaderUI::SetMessage("Waiting for Minecraft...");
@@ -317,15 +375,17 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
             auto now = std::chrono::steady_clock::now();
             if (now >= nextScan) {
                 lunar = findLunarClient();
-                if (lunar.pid != 0) break;
+                if (lunar.pid != 0)
+                    break;
                 nextScan = now + std::chrono::milliseconds(100);
             }
         }
     }
-    
+
     if (isDllInjected(lunar.pid, L"Cobble.dll")) {
         LoaderUI::SetError("Already injected");
-        while (renderFrame());
+        while (renderFrame())
+            ;
         LoaderUI::Shutdown();
         return 0;
     }
@@ -338,65 +398,61 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     // Final security check before injection
     if (Security::HasAPIHooks() || AntiDebug::isDebugged()) {
         LoaderUI::SetError("Launch failed");
-        while (renderFrame());
+        while (renderFrame())
+            ;
         LoaderUI::Shutdown();
         return 1;
     }
-    
+
     LoaderUI::SetMessage("Injecting...");
     renderFrame();
-    
+
     // Create shared memory with injection data BEFORE injection
     // The DLL will read this to validate it was loaded by the legitimate loader
     HANDLE hMapFile = nullptr;
     {
         InjectionData injData = {};
         memcpy(injData.signature, "COBBLE_INJ_V1\0\0\0", 16);
-        
+
         std::string secret = License::GetInjectionSecret();
         std::string username = License::GetUsername();
         std::string hwid = HWID::Generate();
-        
+
         strncpy_s(injData.secret, secret.c_str(), 64);
         strncpy_s(injData.username, username.c_str(), 63);
         strncpy_s(injData.hwid, hwid.c_str(), 64);
         // Use server's timestamp (issued_at) - MUST match what was signed
         injData.timestamp = (uint32_t)License::GetHandshakeTimestamp();
-        injData.expiresIn = 300; // 5 minutes to init
-        
+        injData.expiresIn = 300;  // 5 minutes to init
+
         // Copy handshake signature from server (for DLL to verify)
         std::string handshakeSig = License::GetHandshakeSig();
         strncpy_s(injData.handshakeSig, handshakeSig.c_str(), 127);
-        
+
         // Copy session token for DLL heartbeat (Phase 4)
         std::string sessionToken = License::GetSessionToken();
         strncpy_s(injData.sessionToken, sessionToken.c_str(), 127);
-        
+
         // Copy sync token for runtime validation
         std::string syncToken = License::GetSyncToken();
         strncpy_s(injData.syncToken, syncToken.c_str(), 64);
-        
+
         // Create security attributes that allow cross-process access
         // Without this, Minecraft can't read the shared memory
         SECURITY_ATTRIBUTES sa = {};
         sa.nLength = sizeof(SECURITY_ATTRIBUTES);
         sa.bInheritHandle = FALSE;
-        
+
         SECURITY_DESCRIPTOR sd = {};
         InitializeSecurityDescriptor(&sd, SECURITY_DESCRIPTOR_REVISION);
-        SetSecurityDescriptorDacl(&sd, TRUE, NULL, FALSE); // NULL DACL = all access
+        SetSecurityDescriptorDacl(&sd, TRUE, NULL, FALSE);  // NULL DACL = all access
         sa.lpSecurityDescriptor = &sd;
-        
+
         // Create named shared memory (visible to target process)
-        hMapFile = CreateFileMappingW(
-            INVALID_HANDLE_VALUE,
-            &sa,  // Use our permissive security attributes
-            PAGE_READWRITE,
-            0,
-            sizeof(InjectionData),
-            L"Local\\CobbleInjection"
-        );
-        
+        hMapFile = CreateFileMappingW(INVALID_HANDLE_VALUE,
+                                      &sa,  // Use our permissive security attributes
+                                      PAGE_READWRITE, 0, sizeof(InjectionData), L"Local\\CobbleInjection");
+
         if (hMapFile) {
             void* pBuf = MapViewOfFile(hMapFile, FILE_MAP_WRITE, 0, 0, sizeof(InjectionData));
             if (pBuf) {
@@ -404,32 +460,36 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
                 UnmapViewOfFile(pBuf);
             }
         }
-        
+
         // Zero secret from local memory
         SecureZeroMemory(&injData, sizeof(injData));
     }
-    
+
     // Use Secure Manual Mapping with shared memory sections
     // No WriteProcessMemory, no disk write, uses NT syscalls
     // NO FALLBACK - insecure methods are worse than failing
     if (!SecureMapper::SecureManualMap(lunar.pid, dllData, dllSize)) {
-        if (hMapFile) CloseHandle(hMapFile);
+        if (hMapFile)
+            CloseHandle(hMapFile);
         LoaderUI::SetError("Launch failed");
-        while (renderFrame());
+        while (renderFrame())
+            ;
         LoaderUI::Shutdown();
         return 1;
     }
-    
+
     // Clear decrypted DLL from memory immediately after injection
     SecureZeroMemory(decryptedDll.data(), decryptedDll.size());
 
     LoaderUI::SetState(LoaderUI::State::INJECTING_SUCCESS);
 
     // Let the UI complete the full inject + success animation; the UI will close itself.
-    while (renderFrame());
+    while (renderFrame())
+        ;
 
     // Clean up shared memory handle (data persists until DLL reads it)
-    if (hMapFile) CloseHandle(hMapFile);
+    if (hMapFile)
+        CloseHandle(hMapFile);
 
     LoaderUI::Shutdown();
     return 0;
