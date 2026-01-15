@@ -65,6 +65,7 @@ public:
         bool aimAtClosestPoint = false;
         bool lockAim = false;
         bool weaponOnly = false;
+        bool stopOnHitbox = false;  // Stops aim assist when crosshair is inside hitbox
 
         TargetMode targetMode = TargetMode::DISTANCE;
         SortBy switchSortBy = SortBy::DISTANCE;  // Only used when targetMode is SWITCH

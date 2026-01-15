@@ -48,6 +48,12 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/).
   - Expanded axe blocks: Bed, Ladder, Melon, Cake, Hay Bale, Banners, Wood Doors (193-197)
   - Fixed shovel/pickaxe classification for Hardened Clay (now pickaxe)
 
+- **AimAssist: Stop On Hitbox**
+  - New option that pauses aim assist when crosshair is inside target's hitbox
+  - Allows free aiming within the hitbox after initial target acquisition
+  - Respects Horizontal Only mode (only checks yaw when enabled)
+  - Config persistence included
+
 ### Fixed
 - **AimAssist Anti-Detection v3: GCD Compliance & Axis Balancing**
   - **Strict GCD**: Removed 15% imperfection chance - real mice ARE quantized, AC detects when GCD pattern breaks
