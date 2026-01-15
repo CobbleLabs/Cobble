@@ -472,6 +472,41 @@ bool FriendsManager::isLunarTeammate(const std::string& uuid) const {
     return lunarTeammates_.find(uuid) != lunarTeammates_.end();
 }
 
+void FriendsManager::removeLunarTeammate(const std::string& uuid) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    auto it = lunarTeammates_.find(uuid);
+    if (it != lunarTeammates_.end()) {
+        lunarTeammates_.erase(it);
+        log_debug("[Apollo] Removed Lunar teammate: %s", uuid.substr(0, 8).c_str());
+    }
+}
+
+void FriendsManager::syncLunarTeammates(const std::set<std::string>& currentTeammates) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    
+    // Find teammates that were removed (in old set but not in new set)
+    std::vector<std::string> toRemove;
+    for (const auto& existing : lunarTeammates_) {
+        if (currentTeammates.find(existing) == currentTeammates.end()) {
+            toRemove.push_back(existing);
+        }
+    }
+    
+    // Remove players who left the team
+    for (const auto& uuid : toRemove) {
+        lunarTeammates_.erase(uuid);
+        log_ok("[Apollo] Teammate left: %s", uuid.substr(0, 8).c_str());
+    }
+    
+    // Add new teammates
+    for (const auto& uuid : currentTeammates) {
+        auto result = lunarTeammates_.insert(uuid);
+        if (result.second) {
+            log_debug("[Apollo] Registered Lunar teammate: %s", uuid.substr(0, 8).c_str());
+        }
+    }
+}
+
 void FriendsManager::setApolloNametagColor(const std::string& uuid, const std::string& color) {
     if (uuid.empty())
         return;
@@ -479,11 +514,15 @@ void FriendsManager::setApolloNametagColor(const std::string& uuid, const std::s
     auto it = apolloNametags_.find(uuid);
     bool isNew = (it == apolloNametags_.end());
     bool isTeammate = (color == "GREEN" || color == "DARK_GREEN");
+    bool wasTeammate = !isNew && (it->second == "GREEN" || it->second == "DARK_GREEN");
 
-    // Only log if new entry or color changed
+    // Log teammate changes
     if (isNew || it->second != color) {
-        if (isTeammate) {
+        if (isTeammate && !wasTeammate) {
             log_debug("[Apollo] Nametag TEAMMATE registered: %s -> %s", uuid.substr(0, 8).c_str(), color.c_str());
+        } else if (wasTeammate && !isTeammate) {
+            log_ok("[Apollo] Nametag TEAMMATE removed: %s -> %s (was %s)", 
+                   uuid.substr(0, 8).c_str(), color.c_str(), it->second.c_str());
         }
     }
     apolloNametags_[uuid] = color;

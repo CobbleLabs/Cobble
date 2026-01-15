@@ -2046,7 +2046,7 @@ static void JNICALL nativeOnReceive(JNIEnv* env, jclass, jobject packet) {
                                         }
 
                                         // Register teammates with FriendsManager
-                                        // Use set-based synchronization to avoid clear/re-add spam
+                                        // Use diff-based sync to properly handle teammate removal
                                         if (friendsManager) {
                                             // Build new UUID set from packet
                                             std::set<std::string> newTeammates;
@@ -2061,11 +2061,8 @@ static void JNICALL nativeOnReceive(JNIEnv* env, jclass, jobject packet) {
                                                 newTeammates.insert(uuidStr);
                                             }
 
-                                            // Sync: only add new teammates (don't clear existing)
-                                            // This prevents spam when server sends periodic identical updates
-                                            for (const auto& uuid : newTeammates) {
-                                                friendsManager->addLunarTeammate(uuid);
-                                            }
+
+                                            friendsManager->syncLunarTeammates(newTeammates);
 
                                             // Only log when teammate count changes significantly
                                             static size_t lastTeammateCount = 0;

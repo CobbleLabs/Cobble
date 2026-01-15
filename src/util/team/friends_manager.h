@@ -108,8 +108,10 @@ public:
     // Check if a player is a teammate based on color matching or Lunar API
     bool isTeammate(const std::string& playerUUID, ChatColor playerColor, ChatColor localColor) const;
 
-    // Lunar API: Add player UUID to teammates set (called when packet received)
+    // Lunar API: Teammate management (from UpdateTeamMembersMessage)
     void addLunarTeammate(const std::string& uuid);
+    void removeLunarTeammate(const std::string& uuid);
+    void syncLunarTeammates(const std::set<std::string>& currentTeammates);  // Syncs to new set, removes players who left
     void clearLunarTeammates();
     bool isLunarTeammate(const std::string& uuid) const;
 
