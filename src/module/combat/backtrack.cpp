@@ -371,3 +371,6 @@ void Backtrack::onRenderMenu() {
         });
 }
 
+std::string Backtrack::getDisplayInfo() {
+    return std::to_string(settings.maxDelay) + "ms";
+}
