@@ -7,6 +7,7 @@
 #include "../../module/combat/criticals.h"
 #include "../../module/combat/hitbox.h"
 #include "../../module/combat/hitselect.h"
+#include "../../module/combat/nohitdelay.h"
 #include "../../module/combat/reach.h"
 #include "../../module/combat/velocity.h"
 #include "../../module/module_manager.h"
@@ -56,6 +57,8 @@ Module* getModuleForSubtab(int tabIdx, int subtabIdx) {
                 return hitSelect;
             case 6:
                 return hitbox;
+            case 7:
+                return noHitDelay;
         }
     }
     // Visuals Tab (1)

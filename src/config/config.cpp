@@ -5,6 +5,7 @@
 #include "../module/combat/criticals.h"
 #include "../module/combat/hitbox.h"
 #include "../module/combat/hitselect.h"
+#include "../module/combat/nohitdelay.h"
 #include "../module/combat/reach.h"
 #include "../module/combat/velocity.h"
 #include "../module/module.h"
@@ -292,6 +293,8 @@ void ConfigManager::applyConfig() {
                     static_cast<ItemReleaseMode>(data["mode"].as_int(static_cast<int>(noItemRelease->settings.mode)));
             } else if (name == "FastPlace" && fastPlace) {
                 fastPlace->settings.blocksOnly = data["blocksOnly"].as_bool(fastPlace->settings.blocksOnly);
+            } else if (name == "NoHitDelay" && noHitDelay) {
+                noHitDelay->settings.weaponOnly = data["weaponOnly"].as_bool(noHitDelay->settings.weaponOnly);
             }
 
             break;
@@ -512,6 +515,8 @@ void ConfigManager::buildConfigFromModules() {
             config_["modules"][name]["mode"] = static_cast<int>(noItemRelease->settings.mode);
         } else if (name == "FastPlace" && fastPlace) {
             config_["modules"][name]["blocksOnly"] = fastPlace->settings.blocksOnly;
+        } else if (name == "NoHitDelay" && noHitDelay) {
+            config_["modules"][name]["weaponOnly"] = noHitDelay->settings.weaponOnly;
         }
     }
 }

@@ -54,6 +54,11 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/).
   - Respects Horizontal Only mode (only checks yaw when enabled)
   - Config persistence included
 
+- **NoHitDelay Module**
+  - New combat module that removes 10-tick hit delay
+  - Sets `leftClickCounter` to 0 when left mouse is pressed
+  - Optional "Weapon Only" setting to limit to swords/axes
+
 ### Fixed
 - **AimAssist Anti-Detection v3: GCD Compliance & Axis Balancing**
   - **Strict GCD**: Removed 15% imperfection chance - real mice ARE quantized, AC detects when GCD pattern breaks
