@@ -6,7 +6,18 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/).
 
 ---
 
-## [Unreleased]
+## [1.1.2] - 2026-01-16
+
+### Security
+- **Server-Side Telemetry**: Webhooks removidos del binario, ahora van via license server
+  - Loader/DLL envían eventos a `/api/telemetry`, server reenvía a Discord
+  - Webhook configurable via `DISCORD_WEBHOOK` en `.env`
+  - Webhooks honeypot en binarios para detectar cracks
+- **DLL Decryption Timing**: DLL se desencripta solo después de detectar Minecraft
+- **OpenProcess Minimal Rights**: Reducido de `PROCESS_ALL_ACCESS` a permisos mínimos
+- **Hook Detection Mejorado**: Detecta JMP rel8, PUSH+RET, JMP [rip+disp], MOV RAX/R11
+- **Anti-Dump Protection**: Borra PE headers después de inyectar, marca como PAGE_NOACCESS
+- **Trusted Proxy Fix**: Nginx localhost ahora pasa IPs reales via X-Forwarded-For
 
 ### Added
 - **Security Hardening Phase 1: JNI Poisoning & Dead Man Switches** (`util/state.hpp`)
@@ -105,6 +116,13 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/).
   - Respects friends/teammates (Apollo, Lunar, manual friends list)
 
 ### Fixed
+- **Apollo Nametag HCT Ranked Fix**: Corregido detección de teammates en servidores con nametags complejos (HCT Ranked, etc.)
+  - El servidor enviaba JSONs con múltiples colores en arrays `"extra"` anidados
+  - El color GREEN del teammate estaba enterrado dentro de estas estructuras
+  - Ahora escanea TODO el JSON buscando GREEN/DARK_GREEN, no solo el color principal
+  - Con `"extra"` (partida): Mantiene comportamiento "sticky" - no degrada teammate status
+  - Sin `"extra"` (lobby): Confía en el color directo, permite remover teammate status correctamente
+
 - **Integrity Check Consolidation**: Unified to single SHA256-based system
   - **Removed**: `Integrity::Verify()` (FNV-1a) from main loop - was running every 30s
   - **Active**: `DllIntegrity::Check()` (SHA256) in heartbeat thread - runs every 2-3 min

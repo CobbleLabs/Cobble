@@ -136,10 +136,20 @@ func Heartbeat(w http.ResponseWriter, r *http.Request) {
 	// Update last seen in database
 	database.UpdateUserLastSeen(user.ID, clientIP)
 
-	// Validate sync hash (if provided) - runtime integrity check
+	// Validate sync hash - REQUIRED runtime integrity check
 	// This prevents fake loaders from operating without real server handshake
 	currentSync, prevSync := database.GetSyncTokens(req.HWID)
-	if currentSync != "" && req.SyncHash != "" {
+	if currentSync != "" {
+		// Server has sync_token for this HWID - client MUST provide valid sync_hash
+		if req.SyncHash == "" {
+			logger.Warn("HEARTBEAT", "Missing sync_hash", logger.Fields{
+				"user": username,
+				"hwid": truncate(req.HWID, 8) + "...",
+				"ip":   clientIP,
+			})
+			helpers.JSONResponse(w, http.StatusOK, HeartbeatResponse{OK: false, Reason: "sync_error"})
+			return
+		}
 		if !validateSyncHash(req.SyncHash, req.HWID, currentSync, prevSync) {
 			logger.Warn("HEARTBEAT", "Sync validation failed", logger.Fields{
 				"user": username,
@@ -158,6 +168,9 @@ func Heartbeat(w http.ResponseWriter, r *http.Request) {
 	// Rotate sync token as well
 	newSyncToken := helpers.GenerateSecureRandom(32)
 	database.StoreSyncToken(req.HWID, newSyncToken)
+
+	// Update active session tracking (for usage stats)
+	database.RecordSession(user.ID, req.HWID, clientIP)
 
 	// Log successful heartbeat
 	logger.Info("HEARTBEAT", "OK", logger.Fields{

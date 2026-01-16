@@ -1,9 +1,14 @@
-﻿#include <Windows.h>
+﻿#include <aclapi.h>   // SetEntriesInAclW
+#include <objbase.h>  // CoCreateGuid
+#include <Windows.h>
 #include <chrono>
 #include <ctime>
 #include <filesystem>
 #include <string>
 #include <thread>
+
+#pragma comment(lib, "ole32.lib")     // CoCreateGuid
+#pragma comment(lib, "advapi32.lib")  // SetEntriesInAclW
 
 #include "hwid.h"
 #include "inject.h"
@@ -52,6 +57,7 @@ struct InjectionData {
     char handshakeSig[128];  // Base64 Ed25519 signature from server
     char sessionToken[128];  // Session token for heartbeat
     char syncToken[65];      // Sync token for runtime validation
+    // Note: DLL derives the shared memory name from GetCurrentProcessId()
 };
 
 std::atomic<bool> g_SecurityViolation(false);
@@ -315,10 +321,64 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         return 1;
     }
 
-    // Try to fetch payload key from server - REQUIRED
+    // Wait for Minecraft if not already detected during login
+    if (lunar.pid == 0) {
+        LoaderUI::SetMessage("Waiting for Minecraft...");
+
+        auto nextScan = std::chrono::steady_clock::now();
+        while (true) {
+            if (!renderFrame()) {
+                LoaderUI::Shutdown();
+                return 0;
+            }
+
+            // Check for security violations while waiting
+            if (g_SecurityViolation) {
+                LoaderUI::Shutdown();
+                return 1;
+            }
+
+            auto now = std::chrono::steady_clock::now();
+            if (now >= nextScan) {
+                lunar = findLunarClient();
+                if (lunar.pid != 0)
+                    break;
+                nextScan = now + std::chrono::milliseconds(100);
+            }
+        }
+    }
+
+    // Check if already injected before fetching key (saves server resources)
+    if (isDllInjected(lunar.pid, L"Cobble.dll")) {
+        LoaderUI::SetError("Already injected");
+        while (renderFrame())
+            ;
+        LoaderUI::Shutdown();
+        return 0;
+    }
+
+    if (g_SecurityViolation) {
+        LoaderUI::Shutdown();
+        return 1;
+    }
+
+    // Final security check before fetching key
+    if (Security::HasAPIHooks() || AntiDebug::isDebugged()) {
+        LoaderUI::SetError("Launch failed");
+        while (renderFrame())
+            ;
+        LoaderUI::Shutdown();
+        return 1;
+    }
+
+    // =========================================================================
+    // CRITICAL SECTION: Fetch key, decrypt, and inject as fast as possible
+    // Minimize time that decrypted DLL exists in memory
+    // =========================================================================
     LoaderUI::SetMessage("Initializing...");
     renderFrame();
 
+    // Fetch payload key from server - REQUIRED
     std::string payloadKey;
     if (!License::FetchPayloadKey(getLicenseServerPrimary().c_str())) {
         LoaderUI::SetError("Server connection failed");
@@ -333,6 +393,13 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         LoaderUI::SetError("Key fetch failed");
         while (renderFrame())
             ;
+        LoaderUI::Shutdown();
+        return 1;
+    }
+
+    // One final security check right before decryption
+    if (g_SecurityViolation || Security::IsBeingDebugged() || AntiDebug::isDebugged()) {
+        SecureZeroMemory(&payloadKey[0], payloadKey.size());
         LoaderUI::Shutdown();
         return 1;
     }
@@ -356,60 +423,14 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     dllData = decryptedDll.data();
     dllSize = decryptedDll.size();
 
-    if (g_SecurityViolation) {
-        LoaderUI::Shutdown();
-        return 1;
-    }
-
-    // Only wait for Minecraft if not already detected during login
-    if (lunar.pid == 0) {
-        LoaderUI::SetMessage("Waiting for Minecraft...");
-
-        auto nextScan = std::chrono::steady_clock::now();
-        while (true) {
-            if (!renderFrame()) {
-                LoaderUI::Shutdown();
-                return 0;
-            }
-
-            auto now = std::chrono::steady_clock::now();
-            if (now >= nextScan) {
-                lunar = findLunarClient();
-                if (lunar.pid != 0)
-                    break;
-                nextScan = now + std::chrono::milliseconds(100);
-            }
-        }
-    }
-
-    if (isDllInjected(lunar.pid, L"Cobble.dll")) {
-        LoaderUI::SetError("Already injected");
-        while (renderFrame())
-            ;
-        LoaderUI::Shutdown();
-        return 0;
-    }
-
-    if (g_SecurityViolation) {
-        LoaderUI::Shutdown();
-        return 1;
-    }
-
-    // Final security check before injection
-    if (Security::HasAPIHooks() || AntiDebug::isDebugged()) {
-        LoaderUI::SetError("Launch failed");
-        while (renderFrame())
-            ;
-        LoaderUI::Shutdown();
-        return 1;
-    }
-
+    // Immediately proceed to injection - DO NOT add any delays here
     LoaderUI::SetMessage("Injecting...");
     renderFrame();
 
     // Create shared memory with injection data BEFORE injection
     // The DLL will read this to validate it was loaded by the legitimate loader
     HANDLE hMapFile = nullptr;
+    std::wstring sharedMemNameW;
     {
         InjectionData injData = {};
         memcpy(injData.signature, "COBBLE_INJ_V1\0\0\0", 16);
@@ -437,21 +458,66 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         std::string syncToken = License::GetSyncToken();
         strncpy_s(injData.syncToken, syncToken.c_str(), 64);
 
-        // Create security attributes that allow cross-process access
-        // Without this, Minecraft can't read the shared memory
+        // Generate PID-based shared memory name
+        // Other processes don't know which Java process to target, and DLL can find it via GetCurrentProcessId()
+        // Much harder to guess than fixed name "CobbleInjection"
+        wchar_t pidStr[64];
+        swprintf_s(pidStr, L"Local\\Cobble_%lu", lunar.pid);
+        sharedMemNameW = pidStr;
+
+        // Create security attributes with restricted DACL
+        // Only current user can access (not NULL DACL which allows everyone)
         SECURITY_ATTRIBUTES sa = {};
         sa.nLength = sizeof(SECURITY_ATTRIBUTES);
         sa.bInheritHandle = FALSE;
 
-        SECURITY_DESCRIPTOR sd = {};
-        InitializeSecurityDescriptor(&sd, SECURITY_DESCRIPTOR_REVISION);
-        SetSecurityDescriptorDacl(&sd, TRUE, NULL, FALSE);  // NULL DACL = all access
-        sa.lpSecurityDescriptor = &sd;
+        // Create a DACL that grants full access only to the current user
+        PSECURITY_DESCRIPTOR pSD = nullptr;
+        PSID pCurrentUserSid = nullptr;
 
-        // Create named shared memory (visible to target process)
-        hMapFile = CreateFileMappingW(INVALID_HANDLE_VALUE,
-                                      &sa,  // Use our permissive security attributes
-                                      PAGE_READWRITE, 0, sizeof(InjectionData), L"Local\\CobbleInjection");
+        // Get current user's SID
+        HANDLE hToken = nullptr;
+        PTOKEN_USER pUserToken = nullptr;
+        PACL pAcl = nullptr;
+
+        if (OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &hToken)) {
+            DWORD dwSize = 0;
+            GetTokenInformation(hToken, TokenUser, nullptr, 0, &dwSize);
+            if (dwSize > 0) {
+                pUserToken = (PTOKEN_USER)LocalAlloc(LPTR, dwSize);
+                if (pUserToken && GetTokenInformation(hToken, TokenUser, pUserToken, dwSize, &dwSize)) {
+                    pCurrentUserSid = pUserToken->User.Sid;
+
+                    // Create security descriptor with explicit ACE for current user only
+                    EXPLICIT_ACCESS ea = {};
+                    ea.grfAccessPermissions = FILE_MAP_ALL_ACCESS;
+                    ea.grfAccessMode = SET_ACCESS;
+                    ea.grfInheritance = NO_INHERITANCE;
+                    ea.Trustee.TrusteeForm = TRUSTEE_IS_SID;
+                    ea.Trustee.TrusteeType = TRUSTEE_IS_USER;
+                    ea.Trustee.ptstrName = (LPWSTR)pCurrentUserSid;
+
+                    if (SetEntriesInAclW(1, &ea, nullptr, &pAcl) == ERROR_SUCCESS) {
+                        pSD = (PSECURITY_DESCRIPTOR)LocalAlloc(LPTR, SECURITY_DESCRIPTOR_MIN_LENGTH);
+                        if (pSD) {
+                            InitializeSecurityDescriptor(pSD, SECURITY_DESCRIPTOR_REVISION);
+                            SetSecurityDescriptorDacl(pSD, TRUE, pAcl, FALSE);
+                            sa.lpSecurityDescriptor = pSD;
+                        }
+                    }
+                }
+            }
+            CloseHandle(hToken);
+        }
+
+        // Fallback: if we couldn't create restricted DACL, use default (not NULL)
+        if (!sa.lpSecurityDescriptor) {
+            sa.lpSecurityDescriptor = nullptr;
+        }
+
+        // Create named shared memory with PID-based name
+        hMapFile = CreateFileMappingW(INVALID_HANDLE_VALUE, &sa, PAGE_READWRITE, 0, sizeof(InjectionData),
+                                      sharedMemNameW.c_str());
 
         if (hMapFile) {
             void* pBuf = MapViewOfFile(hMapFile, FILE_MAP_WRITE, 0, 0, sizeof(InjectionData));
@@ -460,6 +526,14 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
                 UnmapViewOfFile(pBuf);
             }
         }
+
+        // Clean up all allocated resources
+        if (pAcl)
+            LocalFree(pAcl);
+        if (pUserToken)
+            LocalFree(pUserToken);
+        if (pSD)
+            LocalFree(pSD);
 
         // Zero secret from local memory
         SecureZeroMemory(&injData, sizeof(injData));

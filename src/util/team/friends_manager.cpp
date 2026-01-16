@@ -483,7 +483,7 @@ void FriendsManager::removeLunarTeammate(const std::string& uuid) {
 
 void FriendsManager::syncLunarTeammates(const std::set<std::string>& currentTeammates) {
     std::lock_guard<std::mutex> lock(mutex_);
-    
+
     // Find teammates that were removed (in old set but not in new set)
     std::vector<std::string> toRemove;
     for (const auto& existing : lunarTeammates_) {
@@ -491,13 +491,13 @@ void FriendsManager::syncLunarTeammates(const std::set<std::string>& currentTeam
             toRemove.push_back(existing);
         }
     }
-    
+
     // Remove players who left the team
     for (const auto& uuid : toRemove) {
         lunarTeammates_.erase(uuid);
         log_ok("[Apollo] Teammate left: %s", uuid.substr(0, 8).c_str());
     }
-    
+
     // Add new teammates
     for (const auto& uuid : currentTeammates) {
         auto result = lunarTeammates_.insert(uuid);
@@ -507,7 +507,7 @@ void FriendsManager::syncLunarTeammates(const std::set<std::string>& currentTeam
     }
 }
 
-void FriendsManager::setApolloNametagColor(const std::string& uuid, const std::string& color) {
+void FriendsManager::setApolloNametagColor(const std::string& uuid, const std::string& color, bool hasExtra) {
     if (uuid.empty())
         return;
     std::lock_guard<std::mutex> lock(mutex_);
@@ -516,13 +516,22 @@ void FriendsManager::setApolloNametagColor(const std::string& uuid, const std::s
     bool isTeammate = (color == "GREEN" || color == "DARK_GREEN");
     bool wasTeammate = !isNew && (it->second == "GREEN" || it->second == "DARK_GREEN");
 
+    // STICKY TEAMMATE: Only apply when hasExtra=true (match/complex nametags)
+    // When hasExtra=false (lobby/simple nametag without extra array), trust the color directly
+    // This allows proper downgrade when match ends and server sends simple lobby nametags
+    if (hasExtra && wasTeammate && !isTeammate) {
+        log_debug("[Apollo] Nametag ignoring non-teammate color for %s: %s (keeping %s, hasExtra=%d)",
+                  uuid.substr(0, 8).c_str(), color.c_str(), it->second.c_str(), hasExtra);
+        return;  // Keep the existing GREEN/DARK_GREEN status
+    }
+
     // Log teammate changes
     if (isNew || it->second != color) {
         if (isTeammate && !wasTeammate) {
             log_debug("[Apollo] Nametag TEAMMATE registered: %s -> %s", uuid.substr(0, 8).c_str(), color.c_str());
-        } else if (wasTeammate && !isTeammate) {
-            log_ok("[Apollo] Nametag TEAMMATE removed: %s -> %s (was %s)", 
-                   uuid.substr(0, 8).c_str(), color.c_str(), it->second.c_str());
+        } else if (wasTeammate && !isTeammate && !hasExtra) {
+            // Downgrading from teammate - only happens when hasExtra=false (lobby)
+            log_debug("[Apollo] Nametag TEAMMATE removed (lobby): %s -> %s", uuid.substr(0, 8).c_str(), color.c_str());
         }
     }
     apolloNametags_[uuid] = color;

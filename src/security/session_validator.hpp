@@ -33,6 +33,7 @@ struct InjectionData {
     char handshakeSig[128];  // Base64 Ed25519 signature from server
     char sessionToken[128];  // Session token for heartbeat
     char syncToken[65];      // Sync token for runtime validation
+    // Note: DLL derives shared memory name from GetCurrentProcessId()
 };
 
 // Ed25519 public key (XOR-obfuscated to hide from static analysis)
@@ -74,7 +75,10 @@ inline bool ReadInjectionData(InjectionData* outData) {
         return false;
 
     // Open the shared memory created by the loader
-    HANDLE hMapFile = OpenFileMappingW(FILE_MAP_ALL_ACCESS, FALSE, L"Local\\CobbleInjection");
+    // Uses PID-based name: Local\Cobble_<PID>
+    wchar_t sharedMemName[64];
+    swprintf_s(sharedMemName, L"Local\\Cobble_%lu", GetCurrentProcessId());
+    HANDLE hMapFile = OpenFileMappingW(FILE_MAP_ALL_ACCESS, FALSE, sharedMemName);
 
     if (!hMapFile) {
         // No shared memory = not loaded by legitimate loader
@@ -181,7 +185,7 @@ inline bool ValidateInjection() {
     g_SessionToken = data.sessionToken;
     g_SyncToken = data.syncToken;
     g_SessionValid = true;
-    
+
     // Record timing for state validation
     g_initTimestamp = GetTickCount64();
     g_lastValidation = g_initTimestamp;
@@ -264,31 +268,31 @@ inline std::string sha256hex(const std::string& input) {
     HCRYPTHASH hHash = 0;
     BYTE hash[32] = {0};
     DWORD hashLen = 32;
-    
+
     if (!CryptAcquireContextW(&hProv, nullptr, nullptr, PROV_RSA_AES, CRYPT_VERIFYCONTEXT)) {
         return "";
     }
-    
+
     if (!CryptCreateHash(hProv, CALG_SHA_256, 0, 0, &hHash)) {
         CryptReleaseContext(hProv, 0);
         return "";
     }
-    
+
     if (!CryptHashData(hHash, (const BYTE*)input.c_str(), (DWORD)input.length(), 0)) {
         CryptDestroyHash(hHash);
         CryptReleaseContext(hProv, 0);
         return "";
     }
-    
+
     if (!CryptGetHashParam(hHash, HP_HASHVAL, hash, &hashLen, 0)) {
         CryptDestroyHash(hHash);
         CryptReleaseContext(hProv, 0);
         return "";
     }
-    
+
     CryptDestroyHash(hHash);
     CryptReleaseContext(hProv, 0);
-    
+
     // Convert to hex string
     char hexBuf[65] = {0};
     for (DWORD i = 0; i < hashLen; i++) {
@@ -308,7 +312,6 @@ inline std::string computeSyncHash() {
     std::string input = g_SyncToken + g_HWID + std::to_string(bucket);
     return sha256hex(input);
 }
-
 
 // Server public key (same as loader/license verification)
 constexpr uint8_t LICENSE_PUBLIC_KEY[32] = {0xd2, 0xb8, 0x41, 0x41, 0x05, 0x22, 0xdb, 0x99, 0xe7, 0x86, 0xf4,
@@ -417,7 +420,7 @@ inline bool DoHeartbeat() {
     // Build request body with URL encoding for safety
     std::string body = "session_token=" + http::urlencode(g_SessionToken) + "&hwid=" + http::urlencode(g_HWID) +
                        "&username=" + http::urlencode(g_Username) + "&version=1.0.30";
-    
+
     // Include sync hash if available
     if (!syncHash.empty()) {
         body += "&sync_hash=" + http::urlencode(syncHash);
@@ -446,7 +449,7 @@ inline bool DoHeartbeat() {
     if (!ok) {
         std::string reason = resp["reason"].as_string("");
         log_err("Heartbeat rejected: %s", reason.c_str());
-        
+
         // Sync validation failure - trigger immediate poison
         // This means loader is fake or sync token was tampered
         if (reason == "sync_error") {
@@ -462,7 +465,7 @@ inline bool DoHeartbeat() {
         if (!newToken.empty()) {
             g_SessionToken = newToken;
         }
-        
+
         // Sync token rotation - update for next heartbeat
         std::string newSyncToken = resp["new_sync_token"].as_string("");
         if (!newSyncToken.empty()) {
@@ -505,7 +508,7 @@ inline DWORD WINAPI HeartbeatThreadProc(LPVOID lpParam) {
                 // Trigger gradual degradation - modules will fail naturally
                 // This looks like memory corruption, not security
                 g_stateCorrupted = true;
-                
+
                 // Return without hard exit - let it degrade naturally
                 return 0;
             }
@@ -563,7 +566,8 @@ inline void refreshState() {
 // Check if state needs refresh (too much time since last validation)
 // Returns true if state is stale and needs attention
 inline bool isStateStale() {
-    if (g_initTimestamp == 0) return true;
+    if (g_initTimestamp == 0)
+        return true;
     uint64_t now = GetTickCount64();
     // 5.3 minutes - slightly off to look natural
     constexpr uint64_t MAX_STALENESS = 318000;
@@ -581,4 +585,3 @@ inline void markStateCorrupted() {
 }
 
 }  // namespace SessionValidator
-

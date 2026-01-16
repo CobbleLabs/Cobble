@@ -9,7 +9,6 @@
 #include <Windows.h>
 #include <string>
 
-
 #include "audit_reporter.hpp"
 #include "system_info.hpp"
 
@@ -31,7 +30,10 @@ struct ValidationResult {
 // Check that the loader's shared memory section exists
 // ============================================================================
 inline bool ValidateSharedMemory() {
-    HANDLE hMapping = OpenFileMappingA(FILE_MAP_READ, FALSE, "Local\\CobbleInjection");
+    // Use PID-based name: Local\Cobble_<PID>
+    wchar_t sharedMemName[64];
+    swprintf_s(sharedMemName, L"Local\\Cobble_%lu", GetCurrentProcessId());
+    HANDLE hMapping = OpenFileMappingW(FILE_MAP_READ, FALSE, sharedMemName);
     if (hMapping == nullptr) {
         return false;
     }
@@ -197,12 +199,21 @@ inline ValidationResult ValidateAll() {
     if (!ValidateSharedMemory()) {
         result.passed = false;
         result.failedValidator = "SharedMemoryValidator";
-        result.details = "Shared memory 'Local\\CobbleInjection' not found";
+        result.details = "Shared memory not found (PID-based lookup failed)";
         AuditReporter::ReportLoaderValidationFailed(result.failedValidator, result.details);
         return result;
     }
 
-    // Validator 2: Parent Process
+    // Validator 2: Loader Process Exists (verifies CobbleLoader.exe is running)
+    if (!ValidateLoaderProcessExists()) {
+        result.passed = false;
+        result.failedValidator = "LoaderProcessValidator";
+        result.details = "Loader process not found (manual injection suspected)";
+        AuditReporter::ReportLoaderValidationFailed(result.failedValidator, result.details);
+        return result;
+    }
+
+    // Validator 3: Parent Process
     if (!ValidateParentProcess()) {
         std::string parent = SystemInfo::GetParentProcessName();
         result.passed = false;
@@ -212,7 +223,7 @@ inline ValidationResult ValidateAll() {
         return result;
     }
 
-    // Validator 3: Injection Timing
+    // Validator 4: Injection Timing
     if (!ValidateInjectionTiming()) {
         result.passed = false;
         result.failedValidator = "TimestampValidator";
@@ -221,14 +232,14 @@ inline ValidationResult ValidateAll() {
         return result;
     }
 
-    // Validator 4: No Debugger (warning only, don't block legitimate debugging)
+    // Validator 5: No Debugger (warning only, don't block legitimate debugging)
     if (!ValidateNoDebugger()) {
         // Just report, don't fail - might be legitimate user debugging
         AuditReporter::ReportSuspiciousActivity("DebuggerValidator", "Debugger detected");
         // Continue validation, don't return
     }
 
-    // Validator 5: No Suspicious Modules
+    // Validator 6: No Suspicious Modules
     if (!ValidateNoSuspiciousModules()) {
         result.passed = false;
         result.failedValidator = "ModuleValidator";

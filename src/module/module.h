@@ -12,7 +12,7 @@ struct Module {
 
     // Global unlock for experimental modules (Velocity, Reach, Blink)
     static inline bool experimentalUnlocked = false;
-    static inline const char* unlockCode = "barcelon12";  // Type this in menu to unlock
+    static inline const char* unlockCode = "CityboyKirkificationsahurnigger";  // Type this in menu to unlock
 
     Module(const char* name) : name(name) {}
     virtual ~Module() = default;
@@ -42,12 +42,10 @@ struct Module {
 
     // Check if module can be toggled (override to block toggle in certain states)
     virtual bool canToggle() { return true; }
-    
+
     // Check if SDK state allows operation (called before onUpdate)
     // Returns false if state is degraded - module should skip update
-    bool shouldUpdate() const {
-        return sdk::internal::isOperational();
-    }
+    bool shouldUpdate() const { return sdk::internal::isOperational(); }
 
     void toggle() {
         // Don't allow toggling locked modules unless unlocked
@@ -74,4 +72,3 @@ struct Module {
         toggle();
     }
 };
-

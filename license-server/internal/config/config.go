@@ -48,6 +48,9 @@ type Config struct {
 
 	// PayPal
 	PayPalWebhookID string
+
+	// Telemetry (Discord webhook for security events)
+	DiscordWebhook string
 }
 
 // Global config instance
@@ -97,6 +100,9 @@ func Load() *Config {
 
 		// PayPal
 		PayPalWebhookID: getEnv("PAYPAL_WEBHOOK_ID", ""),
+
+		// Telemetry
+		DiscordWebhook: getEnv("DISCORD_WEBHOOK", ""), // Full URL: https://discord.com/api/webhooks/...
 	}
 
 	return cfg

@@ -318,12 +318,24 @@ bool HasAPIHooks() {
 
         BYTE* pBytes = (BYTE*)pFunc;
 
-        // Skip NOP instructions
+        // Skip NOP instructions (may be legitimate padding)
         while (*pBytes == 0x90)
             pBytes++;
 
-        // Check for JMP (0xE9) or RET (0xC3) at function start
-        if (*pBytes == 0xE9 || *pBytes == 0xC3) {
+        // Check for common hook patterns
+        // 0xE9 = JMP rel32 (most common)
+        // 0xEB = JMP rel8 (short jump)
+        // 0xC3 = RET (function replaced with return)
+        // 0x68 = PUSH imm32 (start of PUSH+RET hook)
+        // 0xFF 0x25 = JMP [rip+disp32] (used by detours/MinHook)
+        // 0x48 0xB8 = MOV RAX, imm64 (x64 absolute hook)
+        if (*pBytes == 0xE9 ||                                                // JMP rel32
+            *pBytes == 0xEB ||                                                // JMP rel8
+            *pBytes == 0xC3 ||                                                // RET
+            *pBytes == 0x68 ||                                                // PUSH imm32
+            (*pBytes == 0xFF && (pBytes[1] == 0x25 || pBytes[1] == 0x15)) ||  // JMP/CALL [mem]
+            (*pBytes == 0x48 && pBytes[1] == 0xB8) ||                         // MOV RAX, imm64
+            (*pBytes == 0x49 && pBytes[1] == 0xBB)) {                         // MOV R11, imm64
             return true;
         }
     }

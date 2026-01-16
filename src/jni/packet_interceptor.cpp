@@ -1798,8 +1798,15 @@ static void JNICALL nativeOnReceive(JNIEnv* env, jclass, jobject packet) {
             if (channelStr) {
                 const char* channel = env->GetStringUTFChars(channelStr, nullptr);
                 if (channel) {
-                    // Only process lunar:apollo packets
-                    if (strcmp(channel, "lunar:apollo") == 0) {
+                    // Debug: log all unique channels received
+                    static std::unordered_set<std::string> loggedChannels;
+                    if (loggedChannels.find(channel) == loggedChannels.end()) {
+                        log_debug("[PacketInterceptor] CustomPayload channel: %s", channel);
+                        loggedChannels.insert(channel);
+                    }
+
+                    // Process lunar:apollo and apollo:json packets
+                    if (strcmp(channel, "lunar:apollo") == 0 || strcmp(channel, "apollo:json") == 0) {
                         jbyteArray byteArray = nullptr;
                         jbyte* bytes = nullptr;
                         const uint8_t* data = nullptr;
@@ -2061,7 +2068,6 @@ static void JNICALL nativeOnReceive(JNIEnv* env, jclass, jobject packet) {
                                                 newTeammates.insert(uuidStr);
                                             }
 
-
                                             friendsManager->syncLunarTeammates(newTeammates);
 
                                             // Only log when teammate count changes significantly
@@ -2190,55 +2196,78 @@ static void JNICALL nativeOnReceive(JNIEnv* env, jclass, jobject packet) {
                                         // Detect color from JSON lines (prefer explicit Adventure color, fallback to
                                         // format codes)
                                         std::string detectedColor = "unknown";
+                                        bool foundGreen = false;  // GREEN takes priority
 
-                                        // Try explicit Adventure color field: "color":"#RRGGBB"
+                                        // Check if JSON has "extra" array - indicates complex nametag (match)
+                                        // Simple lobby nametags don't have "extra", just direct color
+                                        bool hasExtra = false;
+                                        if (!jsonLines.empty()) {
+                                            hasExtra = (jsonLines[0].find("\"extra\"") != std::string::npos);
+                                        }
+
+                                        // Scan ALL color values in the JSON (including nested "extra" arrays)
+                                        // GREEN takes priority over other colors since it indicates teammate
                                         if (!jsonLines.empty()) {
                                             const std::string& firstLine = jsonLines[0];
                                             const std::string colorKey = "\"color\":\"#";
-                                            size_t cPos = firstLine.find(colorKey);
-                                            if (cPos != std::string::npos &&
-                                                cPos + colorKey.size() + 6 <= firstLine.size()) {
-                                                std::string hex = firstLine.substr(cPos + colorKey.size(), 6);
-                                                for (auto& ch : hex)
-                                                    ch = (char)std::toupper((unsigned char)ch);
 
-                                                static const std::unordered_map<std::string, std::string> kHexToColor =
-                                                    {
-                                                        // Vanilla chat/motd palette
-                                                        {"000000", "BLACK"},
-                                                        {"0000AA", "DARK_BLUE"},
-                                                        {"00AA00", "DARK_GREEN"},
-                                                        {"00AAAA", "DARK_AQUA"},
-                                                        {"AA0000", "DARK_RED"},
-                                                        {"AA00AA", "DARK_PURPLE"},
-                                                        {"FFAA00", "GOLD"},
-                                                        {"AAAAAA", "GRAY"},
-                                                        {"555555", "DARK_GRAY"},
-                                                        {"5555FF", "BLUE"},
-                                                        {"55FF55", "GREEN"},
-                                                        {"55FFFF", "AQUA"},
-                                                        {"FF5555", "RED"},
-                                                        {"FF55FF", "LIGHT_PURPLE"},
-                                                        {"FFFF55", "YELLOW"},
-                                                        {"FFFFFF", "WHITE"},
-                                                        // Extra hex observed in Apollo nametags
-                                                        {"55FF5F", "GREEN"},  // bright green
-                                                        {"FF5551", "RED"},    // bright red variant
-                                                        {"AA0003", "DARK_RED"},
-                                                        {"FF55FA", "LIGHT_PURPLE"},
-                                                        {"AA00AC", "DARK_PURPLE"},
-                                                        {"00AAAC", "DARK_AQUA"},
-                                                        {"5555FE", "BLUE"},
-                                                        {"FFFFFA", "WHITE"},
-                                                        {"AAAAAC", "GRAY"},
-                                                        {"55FFFA", "AQUA"},
-                                                        {"FFAA02", "GOLD"},
-                                                    };
+                                            static const std::unordered_map<std::string, std::string> kHexToColor = {
+                                                // Vanilla chat/motd palette
+                                                {"000000", "BLACK"},
+                                                {"0000AA", "DARK_BLUE"},
+                                                {"00AA00", "DARK_GREEN"},
+                                                {"00AAAA", "DARK_AQUA"},
+                                                {"AA0000", "DARK_RED"},
+                                                {"AA00AA", "DARK_PURPLE"},
+                                                {"FFAA00", "GOLD"},
+                                                {"AAAAAA", "GRAY"},
+                                                {"555555", "DARK_GRAY"},
+                                                {"5555FF", "BLUE"},
+                                                {"55FF55", "GREEN"},
+                                                {"55FFFF", "AQUA"},
+                                                {"FF5555", "RED"},
+                                                {"FF55FF", "LIGHT_PURPLE"},
+                                                {"FFFF55", "YELLOW"},
+                                                {"FFFFFF", "WHITE"},
+                                                // Extra hex observed in Apollo nametags
+                                                {"55FF5F", "GREEN"},  // bright green
+                                                {"FF5551", "RED"},    // bright red variant
+                                                {"AA0003", "DARK_RED"},
+                                                {"FF55FA", "LIGHT_PURPLE"},
+                                                {"AA00AC", "DARK_PURPLE"},
+                                                {"00AAAC", "DARK_AQUA"},
+                                                {"5555FE", "BLUE"},
+                                                {"FFFFFA", "WHITE"},
+                                                {"AAAAAC", "GRAY"},
+                                                {"55FFFA", "AQUA"},
+                                                {"FFAA02", "GOLD"},
+                                            };
 
-                                                auto it = kHexToColor.find(hex);
-                                                if (it != kHexToColor.end()) {
-                                                    detectedColor = it->second;
+                                            // Scan all color occurrences in the JSON
+                                            size_t searchPos = 0;
+                                            while ((searchPos = firstLine.find(colorKey, searchPos)) !=
+                                                   std::string::npos) {
+                                                if (searchPos + colorKey.size() + 6 <= firstLine.size()) {
+                                                    std::string hex = firstLine.substr(searchPos + colorKey.size(), 6);
+                                                    for (auto& ch : hex)
+                                                        ch = (char)std::toupper((unsigned char)ch);
+
+                                                    auto it = kHexToColor.find(hex);
+                                                    if (it != kHexToColor.end()) {
+                                                        // GREEN/DARK_GREEN always takes priority (teammate indicator)
+                                                        if (it->second == "GREEN" || it->second == "DARK_GREEN") {
+                                                            detectedColor = it->second;
+                                                            foundGreen = true;
+                                                            break;  // GREEN found, stop searching
+                                                        }
+                                                        // Otherwise, use first detected color if we haven't found one
+                                                        // yet
+                                                        if (detectedColor == "unknown") {
+                                                            detectedColor = it->second;
+                                                        }
+                                                    }
                                                 }
+                                                searchPos += colorKey.size();
                                             }
                                         }
 
@@ -2364,8 +2393,29 @@ static void JNICALL nativeOnReceive(JNIEnv* env, jclass, jobject packet) {
                                             std::string uuidKey =
                                                 std::to_string(uuidHigh) + ":" + std::to_string(uuidLow);
                                             auto itColor = lastNametagColor.find(uuidKey);
+                                            bool isColorChange = (itColor != lastNametagColor.end()) &&
+                                                                 (itColor->second != detectedColor);
                                             bool shouldLog = (itColor == lastNametagColor.end()) ||
                                                              (itColor->second != detectedColor);
+
+                                            // Verbose debug: log raw JSON when color changes
+                                            if (isColorChange) {
+                                                char uuidStr[64];
+                                                snprintf(uuidStr, sizeof(uuidStr), "%08x-%04x-%04x-%04x-%012llx",
+                                                         (uint32_t)(uuidHigh >> 32), (uint16_t)(uuidHigh >> 16),
+                                                         (uint16_t)uuidHigh, (uint16_t)(uuidLow >> 48),
+                                                         (unsigned long long)(uuidLow & 0xFFFFFFFFFFFFULL));
+                                                log_warn("[Apollo] COLOR CHANGE for %s: %s -> %s", uuidStr,
+                                                         itColor->second.c_str(), detectedColor.c_str());
+                                                // Log all JSON lines for debugging
+                                                for (size_t jIdx = 0; jIdx < jsonLines.size() && jIdx < 3; jIdx++) {
+                                                    std::string jsonPreview = jsonLines[jIdx];
+                                                    if (jsonPreview.length() > 120)
+                                                        jsonPreview = jsonPreview.substr(0, 120) + "...";
+                                                    log_debug("[Apollo]   JSON[%zu]: %s", jIdx, jsonPreview.c_str());
+                                                }
+                                            }
+
                                             if (shouldLog) {
                                                 lastNametagColor[uuidKey] = detectedColor;
                                                 log_ok("[Apollo] Nametag: \"%s\" -> %s", playerName.c_str(),
@@ -2379,7 +2429,10 @@ static void JNICALL nativeOnReceive(JNIEnv* env, jclass, jobject packet) {
                                                          (uint32_t)(uuidHigh >> 32), (uint16_t)(uuidHigh >> 16),
                                                          (uint16_t)uuidHigh, (uint16_t)(uuidLow >> 48),
                                                          (unsigned long long)(uuidLow & 0xFFFFFFFFFFFFULL));
-                                                friendsManager->setApolloNametagColor(uuidStr, detectedColor);
+                                                // hasExtra: true = match nametag (apply sticky teammate)
+                                                //           false = lobby nametag (trust color directly, allow
+                                                //           downgrade)
+                                                friendsManager->setApolloNametagColor(uuidStr, detectedColor, hasExtra);
                                             }
                                         }
                                     }

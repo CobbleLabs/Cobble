@@ -165,6 +165,42 @@ void __stdcall ShellcodeEntry(SecureMapper::MAPPER_CONTEXT* ctx) {
         DllMain((HINSTANCE)pBase, DLL_PROCESS_ATTACH, nullptr);
     }
 
+    // -------------------------------------------------------------------------
+    // 5. ANTI-DUMP: Erase PE headers to prevent memory dumps
+    // Without headers, tools like Scylla/PE-Sieve can't reconstruct the PE
+    // -------------------------------------------------------------------------
+    {
+        // Get VirtualProtect from kernel32
+        using VirtualProtect_t = BOOL(__stdcall*)(LPVOID, SIZE_T, DWORD, PDWORD);
+        VirtualProtect_t pVirtualProtect = nullptr;
+
+        for (DWORD i = 0; i < pK32Export->NumberOfNames; i++) {
+            char* name = (char*)((BYTE*)ctx->kernel32Base + pNames[i]);
+            if (name[0] == 'V' && name[7] == 'P' && name[14] == 't') {  // VirtualProtect
+                pVirtualProtect = (VirtualProtect_t)((BYTE*)ctx->kernel32Base + pFunctions[pOrdinals[i]]);
+                break;
+            }
+        }
+
+        if (pVirtualProtect) {
+            DWORD oldProtect = 0;
+            SIZE_T headerSize = pOpt->SizeOfHeaders;
+
+            // Make headers writable
+            if (pVirtualProtect(pBase, headerSize, PAGE_READWRITE, &oldProtect)) {
+                // Zero out all headers (DOS, NT, Section headers)
+                volatile BYTE* p = (volatile BYTE*)pBase;
+                for (SIZE_T i = 0; i < headerSize; i++) {
+                    p[i] = 0;
+                }
+
+                // Mark headers as PAGE_NOACCESS - any read attempt will crash
+                // This prevents dump tools from reading the headers
+                pVirtualProtect(pBase, headerSize, PAGE_NOACCESS, &oldProtect);
+            }
+        }
+    }
+
     // Signal completion
     ctx->completionFlag = 0xC0BB1E;
 }
@@ -230,8 +266,10 @@ bool SecureMapper::SecureManualMap(DWORD pid, BYTE* pData, size_t dataSize) {
     SIZE_T shellcodeSize = (SIZE_T)ShellcodeEnd - (SIZE_T)ShellcodeEntry;
     SIZE_T totalSize = imageSize + contextSize + shellcodeSize + 0x1000;  // Extra padding
 
-    // Open target process
-    HANDLE hProcess = OpenProcess(PROCESS_ALL_ACCESS, FALSE, pid);
+    // Open target process with MINIMAL rights to avoid anti-cheat detection
+    // PROCESS_ALL_ACCESS is a red flag for many security tools
+    HANDLE hProcess = OpenProcess(
+        PROCESS_VM_OPERATION | PROCESS_VM_WRITE | PROCESS_CREATE_THREAD | PROCESS_QUERY_INFORMATION, FALSE, pid);
     if (!hProcess)
         return false;
 

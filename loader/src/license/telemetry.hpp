@@ -1,13 +1,14 @@
 #pragma once
 // ============================================================================
-// TELEMETRY - Non-blocking security event reporter with throttling
+// TELEMETRY - Non-blocking security event reporter (SERVER-SIDE)
+// Events are sent to the license server, which forwards them to Discord
+// This removes hardcoded webhooks from the binary
 // ============================================================================
 
 #include <Windows.h>
 #include <wininet.h>
 #include <chrono>
 #include <mutex>
-#include <queue>
 #include <string>
 #include <unordered_map>
 #include "../security/xor.h"
@@ -21,10 +22,8 @@ namespace Telemetry {
 // ============================================================================
 // CONFIG
 // ============================================================================
-constexpr int MAX_QUEUE_SIZE = 10;
 constexpr int THROTTLE_SECONDS = 300;  // 5 min cooldown per event_code
-constexpr int HTTP_TIMEOUT_MS = 1500;
-constexpr int BATCH_SIZE = 5;
+constexpr int HTTP_TIMEOUT_MS = 2000;
 
 // Severity levels
 enum class Severity { INFO, WARN, HIGH, CRITICAL };
@@ -45,27 +44,15 @@ inline const char* SeverityToString(Severity s) {
 }
 
 // ============================================================================
-// EVENT STRUCTURE
-// ============================================================================
-struct SecurityEvent {
-    std::string event_code;  // "DBG_PEB", "TOOL_X64DBG", etc.
-    Severity severity;
-    int score;
-    std::string details;
-    int64_t timestamp;
-};
-
-// ============================================================================
 // INTERNAL STATE (module-level, thread-safe)
 // ============================================================================
 namespace Internal {
 inline std::mutex g_Mutex;
-inline std::queue<SecurityEvent> g_Queue;
 inline std::unordered_map<std::string, int64_t> g_LastSent;  // throttle map
 inline std::string g_SessionId;
 inline bool g_Initialized = false;
 
-// Generate short session ID (first 8 chars of HWID hash)
+// Generate short session ID (first 16 chars of HWID)
 inline void Initialize() {
     if (g_Initialized)
         return;
@@ -107,30 +94,24 @@ inline std::string EscapeJson(const std::string& s) {
     return out;
 }
 
-// Get severity color for Discord embed
-inline int SeverityToColor(Severity s) {
-    switch (s) {
-        case Severity::CRITICAL:
-            return 16711680;  // Red
-        case Severity::HIGH:
-            return 16744448;  // Orange
-        case Severity::WARN:
-            return 16776960;  // Yellow
-        case Severity::INFO:
-            return 3447003;  // Blue
-        default:
-            return 8421504;  // Gray
-    }
-}
+// Thread data structure
+struct TelemetryPayload {
+    std::string hwid;
+    std::string event_code;
+    std::string severity;
+    int score;
+    std::string details;
+    std::string version;
+};
 
-// Thread function for fire-and-forget Discord webhook
+// Thread function for fire-and-forget server request
 inline DWORD WINAPI SendThreadProc(LPVOID lpParam) {
-    std::string* pBody = static_cast<std::string*>(lpParam);
-    std::string body = *pBody;
-    delete pBody;
+    TelemetryPayload* pPayload = static_cast<TelemetryPayload*>(lpParam);
+    TelemetryPayload payload = *pPayload;
+    delete pPayload;
 
-    // Random delay 500-1500ms to not spam
-    Sleep(500 + (rand() % 1000));
+    // Random delay 300-800ms to avoid detection patterns
+    Sleep(300 + (rand() % 500));
 
     HINTERNET hInternet = InternetOpenA(_xor_("Mozilla/5.0"), INTERNET_OPEN_TYPE_PRECONFIG, NULL, NULL, 0);
     if (!hInternet)
@@ -141,78 +122,42 @@ inline DWORD WINAPI SendThreadProc(LPVOID lpParam) {
     InternetSetOptionA(hInternet, INTERNET_OPTION_SEND_TIMEOUT, &timeout, sizeof(timeout));
     InternetSetOptionA(hInternet, INTERNET_OPTION_RECEIVE_TIMEOUT, &timeout, sizeof(timeout));
 
-    // Connect to Discord
+    // Connect to our license server (NOT Discord!)
     HINTERNET hConnect =
-        InternetConnectA(hInternet, _xor_("discordapp.com"), 443, NULL, NULL, INTERNET_SERVICE_HTTP, 0, 0);
+        InternetConnectA(hInternet, _xor_("api.cobble.vip"), 443, NULL, NULL, INTERNET_SERVICE_HTTP, 0, 0);
     if (!hConnect) {
         InternetCloseHandle(hInternet);
         return 0;
     }
 
-    // Same webhook as DLL audit_reporter
-    HINTERNET hRequest = HttpOpenRequestA(
-        hConnect, "POST",
-        _xor_("/api/webhooks/1460483137388941404/7mwGnDAaVGtNaZflh15hQtE92W9FG3ci9Kud9YDSrCQiqFwKHFuD62R1Vs19SrvYFguN"),
-        NULL, NULL, NULL, INTERNET_FLAG_SECURE | INTERNET_FLAG_NO_CACHE_WRITE | INTERNET_FLAG_RELOAD, 0);
+    // POST to /api/telemetry
+    HINTERNET hRequest =
+        HttpOpenRequestA(hConnect, "POST", _xor_("/api/telemetry"), NULL, NULL, NULL,
+                         INTERNET_FLAG_SECURE | INTERNET_FLAG_NO_CACHE_WRITE | INTERNET_FLAG_RELOAD, 0);
     if (!hRequest) {
         InternetCloseHandle(hConnect);
         InternetCloseHandle(hInternet);
         return 0;
     }
 
+    // Build JSON payload
+    std::string json = "{";
+    json += "\"hwid\":\"" + EscapeJson(payload.hwid) + "\",";
+    json += "\"event_code\":\"" + EscapeJson(payload.event_code) + "\",";
+    json += "\"severity\":\"" + EscapeJson(payload.severity) + "\",";
+    json += "\"score\":" + std::to_string(payload.score) + ",";
+    json += "\"details\":\"" + EscapeJson(payload.details) + "\",";
+    json += "\"version\":\"" + EscapeJson(payload.version) + "\",";
+    json += "\"source\":\"loader\"";
+    json += "}";
+
     std::string headers = "Content-Type: application/json\r\n";
-    HttpSendRequestA(hRequest, headers.c_str(), (DWORD)headers.length(), (LPVOID)body.c_str(), (DWORD)body.length());
+    HttpSendRequestA(hRequest, headers.c_str(), (DWORD)headers.length(), (LPVOID)json.c_str(), (DWORD)json.length());
 
     InternetCloseHandle(hRequest);
     InternetCloseHandle(hConnect);
     InternetCloseHandle(hInternet);
     return 0;
-}
-
-// Build Discord embed JSON and send
-inline void SendToDiscord(const std::string& event_code, Severity severity, int score, const std::string& details) {
-    // Get HWID for identification
-    std::string hwid = g_SessionId;
-
-    // Get timestamp
-    time_t now = time(nullptr);
-    char timeBuf[64];
-    strftime(timeBuf, sizeof(timeBuf), "%Y-%m-%d %H:%M:%S", localtime(&now));
-
-    // Build Discord embed JSON
-    std::string json = R"({
-        "embeds": [{
-            "title": ")" +
-                       EscapeJson("🔒 Loader Security: " + event_code) + R"(",
-            "color": )" +
-                       std::to_string(SeverityToColor(severity)) + R"(,
-            "fields": [
-                { "name": "Event", "value": ")" +
-                       EscapeJson(event_code) + R"(", "inline": true },
-                { "name": "Severity", "value": ")" +
-                       SeverityToString(severity) + R"(", "inline": true },
-                { "name": "Score", "value": ")" +
-                       std::to_string(score) + R"(", "inline": true },
-                { "name": "HWID", "value": ")" +
-                       EscapeJson(hwid) + R"(", "inline": true },
-                { "name": "Loader", "value": ")" +
-                       EscapeJson(COBBLE_VERSION) + R"(", "inline": true },
-                { "name": "Details", "value": ")" +
-                       EscapeJson(details.empty() ? "-" : details) + R"(", "inline": false }
-            ],
-            "footer": { "text": ")" +
-                       std::string(timeBuf) + R"(" }
-        }]
-    })";
-
-    // Send async
-    std::string* pBody = new std::string(json);
-    HANDLE hThread = CreateThread(NULL, 0, SendThreadProc, pBody, 0, NULL);
-    if (hThread) {
-        CloseHandle(hThread);
-    } else {
-        delete pBody;
-    }
 }
 
 // Check if event_code is throttled
@@ -258,8 +203,22 @@ inline void Report(const std::string& event_code, Severity severity, int score, 
     // Mark as sent
     Internal::MarkSent(event_code);
 
-    // Send to Discord (non-blocking)
-    Internal::SendToDiscord(event_code, severity, score, details);
+    // Build payload
+    Internal::TelemetryPayload* pPayload = new Internal::TelemetryPayload();
+    pPayload->hwid = Internal::g_SessionId;
+    pPayload->event_code = event_code;
+    pPayload->severity = SeverityToString(severity);
+    pPayload->score = score;
+    pPayload->details = details;
+    pPayload->version = COBBLE_VERSION;
+
+    // Send async
+    HANDLE hThread = CreateThread(NULL, 0, Internal::SendThreadProc, pPayload, 0, NULL);
+    if (hThread) {
+        CloseHandle(hThread);
+    } else {
+        delete pPayload;
+    }
 }
 
 // Convenience functions for common events
@@ -274,5 +233,22 @@ inline void ReportTool(const std::string& toolName, int score) {
 inline void ReportVM(const std::string& method) {
     Report("VM_" + method, Severity::WARN, 30, method + " detected");
 }
+
+// ============================================================================
+// HONEYPOT WEBHOOK
+// This is intentionally easy to find with strings. If anyone uses it,
+// we know they extracted and are trying to use our binary.
+// ============================================================================
+namespace Honeypot {
+// DO NOT USE - This is a decoy! The real telemetry goes through the server.
+inline const char* FAKE_WEBHOOK_DO_NOT_USE =
+    "https://discord.com/api/webhooks/1461846578431131870/"
+    "dpl1XTvq-6fAkkDfyLn-yOxW-py5AORzJnInt4bOIimp_uF7H0RH1XavAqINOh7lkGqF";
+
+// If this function is ever called, report to the server
+inline void TriggerHoneypot() {
+    Report("HONEYPOT_TRIGGERED", Severity::CRITICAL, 100, "Cracker attempted to use fake webhook");
+}
+}  // namespace Honeypot
 
 }  // namespace Telemetry

@@ -303,7 +303,8 @@ void ConfigManager::applyConfig() {
                 backtrack->settings.maxHurtTime = data["maxHurtTime"].as_int(backtrack->settings.maxHurtTime);
                 backtrack->settings.cooldown = data["cooldown"].as_float(backtrack->settings.cooldown);
                 backtrack->settings.weaponOnly = data["weaponOnly"].as_bool(backtrack->settings.weaponOnly);
-                backtrack->settings.showBacktrackBox = data["showBacktrackBox"].as_bool(backtrack->settings.showBacktrackBox);
+                backtrack->settings.showBacktrackBox =
+                    data["showBacktrackBox"].as_bool(backtrack->settings.showBacktrackBox);
                 backtrack->settings.filledBox = data["filledBox"].as_bool(backtrack->settings.filledBox);
             }
 

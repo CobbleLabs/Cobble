@@ -78,8 +78,9 @@ func main() {
 	// Heartbeat endpoint (DLL calls every 2-3 min for runtime validation)
 	mux.HandleFunc("/api/heartbeat", middleware.RateLimit(handlers.Heartbeat))
 
-	// Telemetry endpoint (honeypot reports from DLL)
-	mux.HandleFunc("/api/internal/telemetry", handlers.Telemetry)
+	// Telemetry endpoint (security events from loader/DLL, forwarded to Discord)
+	mux.HandleFunc("/api/telemetry", handlers.Telemetry)
+	mux.HandleFunc("/api/internal/telemetry", handlers.Telemetry) // Legacy alias
 
 	// Audit endpoint (detailed security audit logs from DLL)
 	mux.HandleFunc("/api/internal/audit", handlers.Audit)

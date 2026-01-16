@@ -111,12 +111,15 @@ public:
     // Lunar API: Teammate management (from UpdateTeamMembersMessage)
     void addLunarTeammate(const std::string& uuid);
     void removeLunarTeammate(const std::string& uuid);
-    void syncLunarTeammates(const std::set<std::string>& currentTeammates);  // Syncs to new set, removes players who left
+    void
+    syncLunarTeammates(const std::set<std::string>& currentTeammates);  // Syncs to new set, removes players who left
     void clearLunarTeammates();
     bool isLunarTeammate(const std::string& uuid) const;
 
     // Apollo Nametags: Store player nametag colors from OverrideNametagMessage
-    void setApolloNametagColor(const std::string& uuid, const std::string& color);
+    // hasExtra: true if JSON had "extra" array (match/complex nametag), false for simple (lobby)
+    // When hasExtra=false, trust the color directly (no sticky teammate behavior)
+    void setApolloNametagColor(const std::string& uuid, const std::string& color, bool hasExtra = true);
     bool isApolloTeammate(const std::string& uuid) const;  // GREEN or DARK_GREEN
     std::string getApolloNametagColor(const std::string& uuid) const;
     void clearApolloNametags();
