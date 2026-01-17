@@ -33,6 +33,7 @@
 #include "src/security/integrity.hpp"
 #include "src/security/integrity_gen.hpp"
 #include "src/util/aes_string.hpp"
+#include "src/util/control_flow.hpp"
 
 // Server configuration (obfuscated)
 inline std::string getServerPrimary() {
@@ -64,10 +65,13 @@ std::atomic<bool> g_SecurityViolation(false);
 
 DWORD WINAPI SecurityThread1(LPVOID lpParam) {
     while (!g_SecurityViolation) {
-        if (Security::IsBeingDebugged()) {
+        CF_NOP();
+        if (CF_CHECK(Security::IsBeingDebugged())) {
+            CF_JUNK();
             g_SecurityViolation = true;
             break;
         }
+        CF_NOP();
         Sleep(500);
     }
     return 0;
@@ -75,10 +79,13 @@ DWORD WINAPI SecurityThread1(LPVOID lpParam) {
 
 DWORD WINAPI SecurityThread2(LPVOID lpParam) {
     while (!g_SecurityViolation) {
-        if (Security::HasAPIHooks()) {
+        CF_NOP();
+        if (CF_CHECK(Security::HasAPIHooks())) {
+            CF_JUNK();
             g_SecurityViolation = true;
             break;
         }
+        CF_NOP();
         Sleep(500);
     }
     return 0;
@@ -100,9 +107,11 @@ DWORD WINAPI SecurityThread3(LPVOID lpParam) {
 }
 
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow) {
-    // Security checks
-    if (Security::IsBeingDebugged())
+    // Security checks with control flow obfuscation
+    CF_CRITICAL_BEGIN();
+    if (CF_CHECK(Security::IsBeingDebugged()))
         return 1;
+    CF_CRITICAL_END();
     Security::Initialize();
 
     // Initialize telemetry ONCE at startup (non-blocking)
@@ -405,13 +414,16 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     }
 
     // One final security check right before decryption
-    if (g_SecurityViolation || Security::IsBeingDebugged() || AntiDebug::isDebugged()) {
+    CF_CRITICAL_BEGIN();
+    if (CF_CHECK(g_SecurityViolation || Security::IsBeingDebugged() || AntiDebug::isDebugged())) {
+        CF_JUNK();
         Telemetry::Report("DBG_FINAL_CHECK", Telemetry::Severity::CRITICAL, 100, OBFUSCATE_STRING("Pre-decrypt security check failed"));
         Sleep(500);
         SecureZeroMemory(&payloadKey[0], payloadKey.size());
         LoaderUI::Shutdown();
         return 1;
     }
+    CF_CRITICAL_END();
 
     // Decrypt payload with server key - no fallback
     decryptedDll = PayloadCrypto::DecryptPayloadWithKey(encryptedData, encryptedSize, payloadKey);

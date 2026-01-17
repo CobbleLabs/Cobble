@@ -422,11 +422,17 @@ bool Verify(const std::string& serverUrl) {
         return false;
     }
 
-    // Verify Ed25519 signature
-    if (!tweetnacl::verify(sigBytes.data(), payloadBytes.data(), payloadBytes.size(), LICENSE_PUBLIC_KEY)) {
+    // Verify Ed25519 signature (obfuscated critical check)
+    CF_CRITICAL_BEGIN();
+    bool sigValid = tweetnacl::verify(sigBytes.data(), payloadBytes.data(), payloadBytes.size(), LICENSE_PUBLIC_KEY);
+    CF_NOP();
+    if (!CF_CHECK(sigValid)) {
+        CF_JUNK();
         g_LastError = OBFUSCATE_STRING("Invalid signature - response may have been tampered");
+        CF_CRITICAL_END();
         return false;
     }
+    CF_CRITICAL_END();
 
     // Parse verified payload
     std::string payloadStr(payloadBytes.begin(), payloadBytes.end());
@@ -436,9 +442,11 @@ bool Verify(const std::string& serverUrl) {
         return false;
     }
 
-    // Verify nonce matches what we sent (anti-replay)
+    // Verify nonce matches what we sent (anti-replay, obfuscated)
     std::string responseNonce = payload.get_string("nonce", "");
-    if (responseNonce != nonce) {
+    CF_NOP();
+    if (!CF_CHECK(responseNonce == nonce)) {
+        CF_JUNK();
         g_LastError = OBFUSCATE_STRING("Nonce mismatch - possible replay attack");
         return false;
     }
@@ -616,11 +624,17 @@ bool LoginWithCredentials(const std::string& serverUrl, const std::string& usern
         return false;
     }
 
-    // Verify Ed25519 signature
-    if (!tweetnacl::verify(sigBytes.data(), payloadBytes.data(), payloadBytes.size(), LICENSE_PUBLIC_KEY)) {
+    // Verify Ed25519 signature (obfuscated critical check)
+    CF_CRITICAL_BEGIN();
+    bool sigValid = tweetnacl::verify(sigBytes.data(), payloadBytes.data(), payloadBytes.size(), LICENSE_PUBLIC_KEY);
+    CF_NOP();
+    if (!CF_CHECK(sigValid)) {
+        CF_JUNK();
         g_LastError = OBFUSCATE_STRING("Signature verification failed");
+        CF_CRITICAL_END();
         return false;
     }
+    CF_CRITICAL_END();
 
     // Parse verified payload
     std::string payloadStr(payloadBytes.begin(), payloadBytes.end());
@@ -630,9 +644,11 @@ bool LoginWithCredentials(const std::string& serverUrl, const std::string& usern
         return false;
     }
 
-    // Verify nonce matches
+    // Verify nonce matches (obfuscated)
     std::string responseNonce = payload.get_string("nonce", "");
-    if (responseNonce != nonce) {
+    CF_NOP();
+    if (!CF_CHECK(responseNonce == nonce)) {
+        CF_JUNK();
         g_LastError = OBFUSCATE_STRING("Security check failed");
         return false;
     }
