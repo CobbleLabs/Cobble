@@ -39,9 +39,8 @@ public:
 private:
     std::chrono::steady_clock::time_point lastClick;
     std::chrono::steady_clock::time_point nextEventTime;
-    std::chrono::steady_clock::time_point nextStableClickTime;
-    double stableIntervalMs = 0.0;
-    std::chrono::steady_clock::duration stableInterval = std::chrono::steady_clock::duration::zero();
+    std::chrono::steady_clock::time_point stableTimelineStart;
+    int stableClickCount = 0;
     int nextDelayMs = 100;
     std::mt19937 rng;
 

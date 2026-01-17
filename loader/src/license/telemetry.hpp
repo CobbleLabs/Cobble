@@ -11,7 +11,7 @@
 #include <mutex>
 #include <string>
 #include <unordered_map>
-#include "../security/xor.h"
+#include "../util/aes_string.hpp"
 #include "../version.h"
 #include "hwid.h"
 
@@ -113,7 +113,7 @@ inline DWORD WINAPI SendThreadProc(LPVOID lpParam) {
     // Random delay 300-800ms to avoid detection patterns
     Sleep(300 + (rand() % 500));
 
-    HINTERNET hInternet = InternetOpenA(_xor_("Mozilla/5.0"), INTERNET_OPEN_TYPE_PRECONFIG, NULL, NULL, 0);
+    HINTERNET hInternet = InternetOpenA(OBFUSCATE_STRING("Mozilla/5.0").c_str(), INTERNET_OPEN_TYPE_PRECONFIG, NULL, NULL, 0);
     if (!hInternet)
         return 0;
 
@@ -124,7 +124,7 @@ inline DWORD WINAPI SendThreadProc(LPVOID lpParam) {
 
     // Connect to our license server (NOT Discord!)
     HINTERNET hConnect =
-        InternetConnectA(hInternet, _xor_("api.cobble.vip"), 443, NULL, NULL, INTERNET_SERVICE_HTTP, 0, 0);
+        InternetConnectA(hInternet, OBFUSCATE_STRING("api.cobble.vip").c_str(), 443, NULL, NULL, INTERNET_SERVICE_HTTP, 0, 0);
     if (!hConnect) {
         InternetCloseHandle(hInternet);
         return 0;
@@ -132,7 +132,7 @@ inline DWORD WINAPI SendThreadProc(LPVOID lpParam) {
 
     // POST to /api/telemetry
     HINTERNET hRequest =
-        HttpOpenRequestA(hConnect, "POST", _xor_("/api/telemetry"), NULL, NULL, NULL,
+        HttpOpenRequestA(hConnect, "POST", OBFUSCATE_STRING("/api/telemetry").c_str(), NULL, NULL, NULL,
                          INTERNET_FLAG_SECURE | INTERNET_FLAG_NO_CACHE_WRITE | INTERNET_FLAG_RELOAD, 0);
     if (!hRequest) {
         InternetCloseHandle(hConnect);

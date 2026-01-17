@@ -1,8 +1,197 @@
 #pragma once
+// ============================================================================
+// Control Flow Obfuscation Primitives
+// ============================================================================
+
 #include <cstdint>
+#include <ctime>
 #include <utility>
 
 namespace obf {
+
+// ============================================================================
+// Optimization Control
+// ============================================================================
+
+#if defined(_MSC_VER)
+    #define CF_NOOPT __pragma(optimize("", off))
+    #define CF_OPT   __pragma(optimize("", on))
+    #define CF_FORCEINLINE __forceinline
+    #define CF_NOINLINE __declspec(noinline)
+    #define CF_ASSUME(x) __assume(x)
+#else
+    #define CF_NOOPT
+    #define CF_OPT
+    #define CF_FORCEINLINE inline
+    #define CF_NOINLINE
+    #define CF_ASSUME(x) ((void)0)
+#endif
+
+// ============================================================================
+// Global Opaque Seed
+// ============================================================================
+
+inline volatile int _cf_global_seed = 777 + (int)__TIME__[1] + (int)__TIME__[2] * 17;
+
+// ============================================================================
+// NOP - Anti-optimization volatile operation
+// ============================================================================
+
+#define CF_NOP() \
+    do { \
+        volatile int __cf_nop_val = __COUNTER__ ^ (int)__LINE__; \
+        obf::_cf_global_seed = (obf::_cf_global_seed ^ __cf_nop_val ^ (int)std::time(nullptr)); \
+        (void)__cf_nop_val; \
+    } while(0)
+
+// ============================================================================
+// Mixed Boolean Arithmetic (MBA)
+// Transforms simple operations into complex equivalent expressions
+// ============================================================================
+
+#define CF_MBA_ADD(a, b) ( \
+    ( ((unsigned int)(a) | (unsigned int)(b)) + ((unsigned int)(a) & (unsigned int)(b)) ) \
+    - ( ((unsigned int)(a) ^ (unsigned int)(b)) ) \
+    + ( ((unsigned int)(a) ^ (unsigned int)(b)) + 2U * ((unsigned int)(a) & (unsigned int)(b)) ) \
+    - ( ((unsigned int)(a) | (unsigned int)(b)) - ((unsigned int)(a) & (unsigned int)(b)) ) \
+)
+
+#define CF_MBA_SUB(a, b) ( \
+    ( ((unsigned int)(a)) + (~(unsigned int)(b)) + 1U ) \
+    ^ ( ((unsigned int)(a)) ^ ((~(unsigned int)(b)) ^ 1U) ) \
+)
+
+#define CF_MBA_XOR(a, b) ( \
+    ( (((unsigned int)(a)) & (~(unsigned int)(b))) | ((~(unsigned int)(a)) & ((unsigned int)(b))) ) \
+    ^ ( ((unsigned int)(a) | (unsigned int)(b)) - ((unsigned int)(a) & (unsigned int)(b)) ) \
+)
+
+#define CF_MBA_NOT(a) ( \
+    ( ((unsigned int)(a)) ^ 0xFFFFFFFFU ) \
+    ^ ( ~((unsigned int)(a)) ) \
+)
+
+// ============================================================================
+// Opaque Predicates (from Obfusk8)
+// Conditions that always evaluate to true/false but are hard to analyze
+// NOTE: Simplified to avoid __COUNTER__ issues causing false evaluations
+// ============================================================================
+
+#define CF_OPAQUE_TRUE() \
+    ( \
+        ((~0u >> 1) > 0u) && \
+        ((__LINE__ | (unsigned int)obf::_cf_global_seed) >= 0u) && \
+        ((((unsigned int)obf::_cf_global_seed | 0xCAFEBABEu) ^ 0xCAFEBABEu) <= (unsigned int)obf::_cf_global_seed \
+            || true) \
+    )
+
+#define CF_OPAQUE_FALSE() \
+    ( \
+        ((unsigned int)obf::_cf_global_seed == 0xDEADBEEF) && \
+        (((unsigned int)(__LINE__) ^ (unsigned int)obf::_cf_global_seed) == 0xDEADBEEF) && \
+        false \
+    )
+
+// ============================================================================
+// Junk Functions
+// ============================================================================
+
+namespace junk {
+
+CF_FORCEINLINE static int func_1() {
+    volatile int x = __COUNTER__ + 11 + _cf_global_seed;
+    x ^= (0xDEADBEEFU + (int)__TIME__[0]);
+    x += (int)std::time(nullptr);
+    return x;
+}
+
+CF_FORCEINLINE static int func_2() {
+    volatile int x = (__COUNTER__ * 3) ^ (_cf_global_seed);
+    for(int i = 0; i < ((__COUNTER__ % 2) + 2); ++i) x ^= i;
+    return x;
+}
+
+CF_FORCEINLINE static int func_3() {
+    volatile int x = (0x1234 | (99 + __COUNTER__)) ^ _cf_global_seed;
+    x &= (0xFFFFU + (int)__TIME__[1]);
+    x ^= (x << (((__COUNTER__) % 3) + 1) % 32);
+    return x;
+}
+
+CF_FORCEINLINE static int func_4() {
+    volatile int x = __COUNTER__ ^ _cf_global_seed;
+    volatile int y = 7 + (__COUNTER__ % 5);
+    x += y * y;
+    x ^= y;
+    x = (x << 1) | ((unsigned int)x >> 31);
+    return x;
+}
+
+CF_FORCEINLINE static int func_5() {
+    volatile int x = (((int)std::time(nullptr) ^ _cf_global_seed + __COUNTER__) % 7);
+    if (x == 0) x = 1;
+    x = (x * 13) + 71;
+    return x;
+}
+
+CF_FORCEINLINE static int func_6() {
+    volatile int x = (int)std::time(nullptr) ^ (_cf_global_seed * __COUNTER__);
+    int z = ((x & 0xFF) * 0x1F1F1F1F) ^ (__COUNTER__ + _cf_global_seed);
+    x = z ^ (x << 2);
+    x ^= ((int)__TIME__[2] | (int)__TIME__[3]);
+    return x;
+}
+
+CF_FORCEINLINE static int func_7() {
+    volatile int x = ((int)std::time(nullptr) + _cf_global_seed + __COUNTER__) ^ 0x0F0F0F0F;
+    x = ((x << 3) | ((unsigned int)x >> 29)) ^ (int)__LINE__;
+    return x;
+}
+
+using junk_func_ptr = int(*)();
+static junk_func_ptr table[] = {
+    func_1, func_2, func_3, func_4, func_5, func_6, func_7
+};
+constexpr size_t table_size = sizeof(table) / sizeof(junk_func_ptr);
+
+} // namespace junk
+
+// Call a random junk function
+#define CF_JUNK() \
+    (obf::junk::table[ \
+        ((obf::_cf_global_seed ^ __COUNTER__ ^ (int)std::time(nullptr) ^ (int)__LINE__) & 0x7FFFFFFF) % obf::junk::table_size \
+    ]())
+
+// ============================================================================
+// Obfuscated Condition Checks
+// ============================================================================
+
+// Obfuscated boolean check - returns true if condition is true
+#define CF_CHECK(condition) \
+    (CF_OPAQUE_TRUE() && (condition))
+
+// Add noise before security checks
+#define CF_SECURITY_PROLOGUE() \
+    do { \
+        CF_NOP(); \
+        CF_JUNK(); \
+        obf::_cf_global_seed = CF_MBA_XOR(obf::_cf_global_seed, (int)__LINE__); \
+    } while(0)
+
+// Add noise after security checks
+#define CF_SECURITY_EPILOGUE() \
+    do { \
+        obf::_cf_global_seed = CF_MBA_ADD(obf::_cf_global_seed, CF_JUNK()); \
+        CF_NOP(); \
+    } while(0)
+
+// Wrap a security-critical block
+#define CF_CRITICAL_BEGIN() CF_SECURITY_PROLOGUE()
+#define CF_CRITICAL_END() CF_SECURITY_EPILOGUE()
+
+// ============================================================================
+// Original Control Flow Flattening (kept for compatibility)
+// ============================================================================
 
 // Generador de estados aleatorios en compile-time
 constexpr uint32_t state_seed(const char* str, uint32_t offset = 0) {
@@ -34,7 +223,7 @@ constexpr uint32_t state_seed(const char* str, uint32_t offset = 0) {
 
 #define OBFUSCATE_END       \
     default:                \
-        __asm { int 3 }       \
+        __debugbreak();     \
         ; /* Anti-tamper */ \
         }                   \
         }                   \
@@ -84,7 +273,10 @@ struct OpaqueDispatcher {
 // Macro para llamadas ofuscadas
 #define OBFUSCATED_CALL(func, ...) obf::OpaqueDispatcher<&func>::call(__VA_ARGS__)
 
-// Junk code injection (genera instrucciones basura)
+// ============================================================================
+// Legacy Junk Code (kept for compatibility)
+// ============================================================================
+
 #define JUNK_CODE_1               \
     {                             \
         volatile int __junk = 0;  \

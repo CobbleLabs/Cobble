@@ -2,7 +2,7 @@
 #include <TlHelp32.h>
 #include <string>
 #include <vector>
-#include "../security/xor.h"
+#include "../util/aes_string.hpp"
 #include "syscalls.hpp"
 
 // ============================================================================
@@ -404,7 +404,7 @@ bool SecureMapper::SecureManualMap(DWORD pid, BYTE* pData, size_t dataSize) {
 }
 
 bool SecureMapper::IsAlreadyInjected(DWORD pid) {
-    std::wstring mutexName = std::wstring(_xorw_(L"Global\\Cobble_Instance_")) + std::to_wstring(pid);
+    std::wstring mutexName = std::wstring(OBFUSCATE_WSTRING(L"Global\\Cobble_Instance_")) + std::to_wstring(pid);
     HANDLE hMutex = OpenMutexW(SYNCHRONIZE, FALSE, mutexName.c_str());
     if (hMutex) {
         CloseHandle(hMutex);

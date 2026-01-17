@@ -6,6 +6,23 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/).
 
 ---
 
+## [1.1.3] - 2026-01-17
+
+### Changed
+- **AutoClicker Stable CPS**: Reescrito timing de stable mode con sistema basado en contador
+  - Fórmula: `expectedClicks = elapsed * CPS / 1000`, click solo si `actualClicks < expectedClicks`
+  - Elimina micro-bursts causados por jitter del main loop
+  - Un solo click por frame máximo (sin catch-up agresivo)
+  - Auto-corrección natural sin bursts ni lags
+
+### Added
+- **Menu Auto-Close on Alt-Tab**: El menú se cierra automáticamente al perder foco
+  - Previene estado de input bloqueado cuando se alt-tabea con menú abierto
+  - Restaura control del mouse y teclas de movimiento automáticamente
+  - Guarda config al cerrar (igual que cerrar con ESC)
+
+---
+
 ## [1.1.2] - 2026-01-16
 
 ### Security

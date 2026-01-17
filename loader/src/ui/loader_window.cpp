@@ -11,6 +11,7 @@
 #include "../../../infra/ext/imgui/imgui_internal.h"
 #include "inter_bold.hpp"
 #include "inter_regular.hpp"
+#include "../util/aes_string.hpp"
 
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
@@ -846,9 +847,9 @@ bool Render() {
 
         // Subtitle "Ready to Inject"
         ImGui::PushFont(g_fontRegular);
-        const char* readyText = "Ready to Inject";
-        ImVec2 readySize = ImGui::CalcTextSize(readyText);
-        dl->AddText(ImVec2(centerX - readySize.x * 0.5f, titleY + 45), IM_COL32(150, 150, 150, 180), readyText);
+        std::string readyTextStr = OBFUSCATE_STRING("Ready to Inject");
+        ImVec2 readySize = ImGui::CalcTextSize(readyTextStr.c_str());
+        dl->AddText(ImVec2(centerX - readySize.x * 0.5f, titleY + 45), IM_COL32(150, 150, 150, 180), readyTextStr.c_str());
         ImGui::PopFont();
 
         // Spinner - smooth continuous rotation
@@ -856,7 +857,8 @@ bool Render() {
         DrawSpinner(dl, ImVec2(centerX, formY + 40), 22.0f, 2.5f, phase);
 
         ImGui::PushFont(g_fontRegular);
-        const char* subText = "Open Minecraft to continue";
+        std::string subTextStr = OBFUSCATE_STRING("Open Minecraft to continue");
+        const char* subText = subTextStr.c_str();
         ImVec2 subSize2 = ImGui::CalcTextSize(subText);
         dl->AddText(ImVec2(centerX - subSize2.x * 0.5f, formY + 80), COL_TEXT_DIM, subText);
         ImGui::PopFont();

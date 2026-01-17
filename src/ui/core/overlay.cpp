@@ -391,6 +391,16 @@ BOOL __stdcall HookedSwapBuffers(HDC hdc) {
         io.DisplaySize = ImVec2((float)RenderData::screenWidth, (float)RenderData::screenHeight);
         io.MouseDrawCursor = Menu::isOpen;
 
+        // Auto-close menu on alt-tab (window loses focus)
+        if (Menu::isOpen && GetForegroundWindow() != Overlay::gameWindow) {
+            Menu::isOpen = false;
+            Menu::moduleToBind = nullptr;
+            io.MouseDrawCursor = false;
+            mc.restoreMovementKeys();
+            mc.grabMouse();
+            ConfigManager::get().onSettingChanged();
+        }
+
         ImGui_ImplOpenGL2_NewFrame();
         ImGui_ImplWin32_NewFrame();
         ImGui::NewFrame();

