@@ -153,7 +153,8 @@ void AutoClicker::onUpdate() {
 
     // Break blocks - edge detection state machine
     // Only transition on state CHANGE, not every frame
-    bool isBreaking = settings.breakBlocks && isTargetingBlock();
+    // Ignore break blocks when in inventory
+    bool isBreaking = settings.breakBlocks && !inInventory && isTargetingBlock();
 
     if (isBreaking && !wasBreakingBlock) {
         // ENTERING breaking state: release any pending synthetic click, then hold native DOWN

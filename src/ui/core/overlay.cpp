@@ -143,7 +143,11 @@ LRESULT CALLBACK HookedWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam
         } else {
             Menu::moduleToBind = nullptr;
             mc.restoreMovementKeys();
-            mc.grabMouse();  // Re-grab mouse when menu closes
+            // Only re-grab mouse if Minecraft doesn't have a GUI open
+            // Otherwise we'd override the inventory/escape menu mouse state
+            if (!mc.isInGui()) {
+                mc.grabMouse();
+            }
             // Save config when menu closes (debounced sync to server)
             ConfigManager::get().onSettingChanged();
         }
@@ -241,7 +245,10 @@ LRESULT CALLBACK HookedWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam
             Menu::moduleToBind = nullptr;
             ImGui::GetIO().MouseDrawCursor = false;
             mc.restoreMovementKeys();
-            mc.grabMouse();  // Re-grab mouse when menu closes
+            // Only re-grab mouse if Minecraft doesn't have a GUI open
+            if (!mc.isInGui()) {
+                mc.grabMouse();
+            }
             ConfigManager::get().onSettingChanged();
             return 1;
         }
@@ -391,9 +398,10 @@ BOOL __stdcall HookedSwapBuffers(HDC hdc) {
         io.DisplaySize = ImVec2((float)RenderData::screenWidth, (float)RenderData::screenHeight);
         io.MouseDrawCursor = Menu::isOpen;
 
-        // Auto-close menu on alt-tab (window loses focus)
+        // Auto-close menu on alt-tab
         if (Menu::isOpen && GetForegroundWindow() != Overlay::gameWindow) {
             Menu::isOpen = false;
+            Menu::openAnim = 0.f;  // Skip close animation
             Menu::moduleToBind = nullptr;
             io.MouseDrawCursor = false;
             mc.restoreMovementKeys();

@@ -516,23 +516,17 @@ void FriendsManager::setApolloNametagColor(const std::string& uuid, const std::s
     bool isTeammate = (color == "GREEN" || color == "DARK_GREEN");
     bool wasTeammate = !isNew && (it->second == "GREEN" || it->second == "DARK_GREEN");
 
-    // CONTEXTO DE PARTIDA (hasExtra=true) ES SIEMPRE AUTORITATIVO
-    // Sticky solo aplica en lobby (hasExtra=false) para mantener VIP verdes temporalmente
-    // Cuando entra a partida ranked, el servidor envia hasExtra=true y ese estado gana
-    if (!hasExtra && wasTeammate && !isTeammate) {
-        log_debug("[Apollo] Nametag sticky (lobby): keeping %s for %s (ignoring %s)", it->second.c_str(),
-                  uuid.substr(0, 8).c_str(), color.c_str());
-        return;  // Keep the existing GREEN/DARK_GREEN status in lobby context only
-    }
+    // NO STICKY: Always trust the latest color sent by the server
+    // The server has absolute authority over teammate status
+    // This allows players to switch teams between matches correctly
+    (void)hasExtra;  // No longer used for sticky, kept for API compatibility
 
     // Log teammate changes
     if (isNew || it->second != color) {
         if (isTeammate && !wasTeammate) {
             log_debug("[Apollo] Nametag TEAMMATE registered: %s -> %s", uuid.substr(0, 8).c_str(), color.c_str());
         } else if (wasTeammate && !isTeammate) {
-            // Downgrading from teammate - allowed in match context (hasExtra=true)
-            log_debug("[Apollo] Nametag TEAMMATE removed (match context): %s -> %s", uuid.substr(0, 8).c_str(),
-                      color.c_str());
+            log_debug("[Apollo] Nametag TEAMMATE removed: %s -> %s", uuid.substr(0, 8).c_str(), color.c_str());
         }
     }
     apolloNametags_[uuid] = color;
