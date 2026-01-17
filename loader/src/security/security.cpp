@@ -292,19 +292,17 @@ bool IsOnVM() {
 #pragma region AntiHook
 
 bool HasAPIHooks() {
-    // List of critical APIs to check
+    // ONLY check anti-debug specific APIs in ntdll
     struct APICheck {
         const wchar_t* module;
         const char* function;
     };
 
     APICheck apis[] = {
-        {L"kernel32.dll", "GetModuleHandleA"},   {L"kernel32.dll", "GetProcAddress"},
-        {L"kernel32.dll", "VirtualAlloc"},       {L"kernel32.dll", "VirtualProtect"},
-        {L"kernel32.dll", "CreateRemoteThread"}, {L"kernel32.dll", "WriteProcessMemory"},
-        {L"kernel32.dll", "TerminateProcess"},   {L"ntdll.dll", "NtSetInformationThread"},
-        {L"ntdll.dll", "NtQueryVirtualMemory"},  {L"ntdll.dll", "NtQueryInformationProcess"},
-        {L"user32.dll", "FindWindowA"},
+        // Only ntdll anti-debug functions
+        {L"ntdll.dll", "NtQueryInformationProcess"}, {L"ntdll.dll", "NtSetInformationThread"},
+        {L"ntdll.dll", "DbgUiRemoteBreakin"},        {L"ntdll.dll", "DbgBreakPoint"},
+        {L"ntdll.dll", "NtReadVirtualMemory"},
     };
 
     for (const auto& api : apis) {
@@ -318,25 +316,51 @@ bool HasAPIHooks() {
 
         BYTE* pBytes = (BYTE*)pFunc;
 
-        // Skip NOP instructions (may be legitimate padding)
+        // Skip NOP padding
         while (*pBytes == 0x90)
             pBytes++;
 
-        // Check for common hook patterns
-        // 0xE9 = JMP rel32 (most common)
-        // 0xEB = JMP rel8 (short jump)
-        // 0xC3 = RET (function replaced with return)
-        // 0x68 = PUSH imm32 (start of PUSH+RET hook)
-        // 0xFF 0x25 = JMP [rip+disp32] (used by detours/MinHook)
-        // 0x48 0xB8 = MOV RAX, imm64 (x64 absolute hook)
-        if (*pBytes == 0xE9 ||                                                // JMP rel32
-            *pBytes == 0xEB ||                                                // JMP rel8
-            *pBytes == 0xC3 ||                                                // RET
-            *pBytes == 0x68 ||                                                // PUSH imm32
-            (*pBytes == 0xFF && (pBytes[1] == 0x25 || pBytes[1] == 0x15)) ||  // JMP/CALL [mem]
-            (*pBytes == 0x48 && pBytes[1] == 0xB8) ||                         // MOV RAX, imm64
-            (*pBytes == 0x49 && pBytes[1] == 0xBB)) {                         // MOV R11, imm64
-            return true;
+        // Look for JMP/CALL patterns
+        bool hasJmp = false;
+        void* jumpTarget = nullptr;
+
+        if (*pBytes == 0xE9) {
+            // JMP rel32 - calculate target
+            int32_t offset = *(int32_t*)(pBytes + 1);
+            jumpTarget = pBytes + 5 + offset;
+            hasJmp = true;
+        } else if (*pBytes == 0xFF && pBytes[1] == 0x25) {
+            // JMP [rip+disp32] - indirect jump (Detours/MinHook style)
+            int32_t offset = *(int32_t*)(pBytes + 2);
+            void** pTarget = (void**)(pBytes + 6 + offset);
+            jumpTarget = *pTarget;
+            hasJmp = true;
+        } else if (*pBytes == 0x48 && pBytes[1] == 0xB8 && pBytes[10] == 0xFF && pBytes[11] == 0xE0) {
+            // MOV RAX, imm64 ; JMP RAX - full pattern confirmation
+            jumpTarget = *(void**)(pBytes + 2);
+            hasJmp = true;
+        }
+
+        if (!hasJmp)
+            continue;
+
+        // Now verify: is this hook going somewhere SUSPICIOUS?
+        // Legitimate hooks (AV, drivers) go to other loaded DLLs
+        // Malicious hooks go to heap/private RWX memory
+        MEMORY_BASIC_INFORMATION mbi = {};
+        if (VirtualQuery(jumpTarget, &mbi, sizeof(mbi)) == 0)
+            continue;
+
+        // Hook to loaded module = probably legitimate (AV, driver, etc)
+        if (mbi.Type == MEM_IMAGE)
+            continue;
+
+        // Hook to RWX heap/private memory = suspicious
+        bool isRWX = (mbi.Protect & PAGE_EXECUTE_READWRITE) || (mbi.Protect & PAGE_EXECUTE_WRITECOPY);
+        bool isPrivate = (mbi.Type == MEM_PRIVATE);
+
+        if (isRWX || isPrivate) {
+            return true;  // Suspicious hook detected
         }
     }
 
@@ -424,10 +448,10 @@ void Initialize() {
 }
 
 bool RunChecks() {
-    // Run all security checks
+    // Run core anti-debug checks only
+    // HasAPIHooks() is handled by DetectionSystem with proper scoring
+    // This prevents false blocking on legitimate hooked software
     if (IsBeingDebugged())
-        return false;
-    if (HasAPIHooks())
         return false;
     return true;
 }

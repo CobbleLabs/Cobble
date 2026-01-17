@@ -122,8 +122,9 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         if (decision == Security::SecurityDecision::WARN) {
             // Tier 2: Tool detected (x64dbg running, etc.) -> show warning with retry
             int userChoice = MessageBoxA(
-                nullptr, "Analysis tools detected.\n\nPlease close any debugging or analysis software and try again.",
-                "Cobble Loader", MB_RETRYCANCEL | MB_ICONWARNING);
+                nullptr,
+                _xor_("Analysis tools detected.\n\nPlease close any debugging or analysis software and try again."),
+                _xor_("Cobble Loader"), MB_RETRYCANCEL | MB_ICONWARNING);
 
             if (userChoice == IDRETRY) {
                 // Re-check after user claims to have closed tools
@@ -140,12 +141,18 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     }
 
     AntiDebug::calibrate();
-    if (AntiDebug::isDebugged())
+    if (AntiDebug::isDebugged()) {
+        Telemetry::Report("DBG_ANTIDBG", Telemetry::Severity::CRITICAL, 100, "AntiDebug::isDebugged");
+        Sleep(500);  // Give telemetry time to send
         return 1;
+    }
 
     // Advanced security checks (VM, kernel debugger, syscall hooks)
-    if (AdvancedSecurity::isCompromised())
+    if (AdvancedSecurity::isCompromised()) {
+        Telemetry::Report("DBG_ADVANCED", Telemetry::Severity::CRITICAL, 100, "AdvancedSecurity::isCompromised");
+        Sleep(500);
         return 1;
+    }
 
     HANDLE hThread1 = CreateThread(NULL, 0, SecurityThread1, NULL, 0, NULL);
     HANDLE hThread2 = CreateThread(NULL, 0, SecurityThread2, NULL, 0, NULL);
@@ -159,7 +166,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 
     // UI Init
     if (!LoaderUI::Init()) {
-        MessageBoxA(nullptr, "Failed to initialize UI", "Cobble Loader", MB_ICONERROR);
+        MessageBoxA(nullptr, _xor_("Failed to initialize UI"), _xor_("Cobble Loader"), MB_ICONERROR);
         return 1;
     }
 
@@ -381,7 +388,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     // Fetch payload key from server - REQUIRED
     std::string payloadKey;
     if (!License::FetchPayloadKey(getLicenseServerPrimary().c_str())) {
-        LoaderUI::SetError("Server connection failed");
+        LoaderUI::SetError(_xor_("Server connection failed"));
         while (renderFrame())
             ;
         LoaderUI::Shutdown();
@@ -390,7 +397,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     payloadKey = License::GetPayloadKey();
 
     if (payloadKey.empty() || payloadKey.length() != 64) {
-        LoaderUI::SetError("Key fetch failed");
+        LoaderUI::SetError(_xor_("Key fetch failed"));
         while (renderFrame())
             ;
         LoaderUI::Shutdown();
@@ -399,6 +406,8 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 
     // One final security check right before decryption
     if (g_SecurityViolation || Security::IsBeingDebugged() || AntiDebug::isDebugged()) {
+        Telemetry::Report("DBG_FINAL_CHECK", Telemetry::Severity::CRITICAL, 100, "Pre-decrypt security check failed");
+        Sleep(500);
         SecureZeroMemory(&payloadKey[0], payloadKey.size());
         LoaderUI::Shutdown();
         return 1;

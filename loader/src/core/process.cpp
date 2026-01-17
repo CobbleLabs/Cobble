@@ -1,5 +1,6 @@
 #include "process.h"
 #include <Psapi.h>
+#include "../security/xor.h"
 
 #pragma comment(lib, "psapi.lib")
 
@@ -58,12 +59,12 @@ std::vector<ProcessInfo> findProcessesByName(const std::wstring& name) {
 }
 
 ProcessInfo findLunarClient() {
-    // Look for javaw.exe with "Lunar Client" in window title
-    auto javaProcesses = findProcessesByName(L"javaw.exe");
+    // Target process - obfuscated
+    auto javaProcesses = findProcessesByName(_xorw_(L"javaw.exe"));
 
     for (const auto& proc : javaProcesses) {
-        if (proc.windowTitle.find(L"Lunar Client") != std::wstring::npos ||
-            proc.windowTitle.find(L"Minecraft") != std::wstring::npos) {
+        if (proc.windowTitle.find(_xorw_(L"Lunar Client")) != std::wstring::npos ||
+            proc.windowTitle.find(_xorw_(L"Minecraft")) != std::wstring::npos) {
             return proc;
         }
     }

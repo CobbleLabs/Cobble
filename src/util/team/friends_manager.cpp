@@ -516,22 +516,23 @@ void FriendsManager::setApolloNametagColor(const std::string& uuid, const std::s
     bool isTeammate = (color == "GREEN" || color == "DARK_GREEN");
     bool wasTeammate = !isNew && (it->second == "GREEN" || it->second == "DARK_GREEN");
 
-    // STICKY TEAMMATE: Only apply when hasExtra=true (match/complex nametags)
-    // When hasExtra=false (lobby/simple nametag without extra array), trust the color directly
-    // This allows proper downgrade when match ends and server sends simple lobby nametags
-    if (hasExtra && wasTeammate && !isTeammate) {
-        log_debug("[Apollo] Nametag ignoring non-teammate color for %s: %s (keeping %s, hasExtra=%d)",
-                  uuid.substr(0, 8).c_str(), color.c_str(), it->second.c_str(), hasExtra);
-        return;  // Keep the existing GREEN/DARK_GREEN status
+    // CONTEXTO DE PARTIDA (hasExtra=true) ES SIEMPRE AUTORITATIVO
+    // Sticky solo aplica en lobby (hasExtra=false) para mantener VIP verdes temporalmente
+    // Cuando entra a partida ranked, el servidor envia hasExtra=true y ese estado gana
+    if (!hasExtra && wasTeammate && !isTeammate) {
+        log_debug("[Apollo] Nametag sticky (lobby): keeping %s for %s (ignoring %s)", it->second.c_str(),
+                  uuid.substr(0, 8).c_str(), color.c_str());
+        return;  // Keep the existing GREEN/DARK_GREEN status in lobby context only
     }
 
     // Log teammate changes
     if (isNew || it->second != color) {
         if (isTeammate && !wasTeammate) {
             log_debug("[Apollo] Nametag TEAMMATE registered: %s -> %s", uuid.substr(0, 8).c_str(), color.c_str());
-        } else if (wasTeammate && !isTeammate && !hasExtra) {
-            // Downgrading from teammate - only happens when hasExtra=false (lobby)
-            log_debug("[Apollo] Nametag TEAMMATE removed (lobby): %s -> %s", uuid.substr(0, 8).c_str(), color.c_str());
+        } else if (wasTeammate && !isTeammate) {
+            // Downgrading from teammate - allowed in match context (hasExtra=true)
+            log_debug("[Apollo] Nametag TEAMMATE removed (match context): %s -> %s", uuid.substr(0, 8).c_str(),
+                      color.c_str());
         }
     }
     apolloNametags_[uuid] = color;
