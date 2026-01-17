@@ -32,14 +32,14 @@
 #include "src/security/antidbg.hpp"
 #include "src/security/integrity.hpp"
 #include "src/security/integrity_gen.hpp"
-#include "src/util/obfuscate.hpp"
+#include "src/util/aes_string.hpp"
 
 // Server configuration (obfuscated)
 inline std::string getServerPrimary() {
-    return OBFS("api.cobble.vip");
+    return OBFUSCATE_STRING("api.cobble.vip");
 }
 inline std::string getLicenseServerPrimary() {
-    return OBFS("https://api.cobble.vip");
+    return OBFUSCATE_STRING("https://api.cobble.vip");
 }
 
 #define SERVER_PORT_HTTPS 443
@@ -123,8 +123,8 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
             // Tier 2: Tool detected (x64dbg running, etc.) -> show warning with retry
             int userChoice = MessageBoxA(
                 nullptr,
-                _xor_("Analysis tools detected.\n\nPlease close any debugging or analysis software and try again."),
-                _xor_("Cobble Loader"), MB_RETRYCANCEL | MB_ICONWARNING);
+                OBFUSCATE_STRING("Analysis tools detected.\n\nPlease close any debugging or analysis software and try again.").c_str(),
+                OBFUSCATE_STRING("Cobble Loader").c_str(), MB_RETRYCANCEL | MB_ICONWARNING);
 
             if (userChoice == IDRETRY) {
                 // Re-check after user claims to have closed tools
@@ -166,12 +166,12 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 
     // UI Init
     if (!LoaderUI::Init()) {
-        MessageBoxA(nullptr, _xor_("Failed to initialize UI"), _xor_("Cobble Loader"), MB_ICONERROR);
+        MessageBoxA(nullptr, OBFUSCATE_STRING("Failed to initialize UI").c_str(), OBFUSCATE_STRING("Cobble Loader").c_str(), MB_ICONERROR);
         return 1;
     }
 
     LoaderUI::SetState(LoaderUI::State::INITIALIZING);
-    LoaderUI::SetMessage("Initializing...");
+    LoaderUI::SetMessage(OBFUSCATE_STRING("Initializing..."));
 
     auto renderFrame = []() -> bool {
         bool keepRunning = LoaderUI::Render();
@@ -193,14 +193,14 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     // ==========================================================================
     // AUTO-UPDATER: Check for updates before proceeding
     // ==========================================================================
-    LoaderUI::SetMessage("Checking for updates...");
+    LoaderUI::SetMessage(OBFUSCATE_STRING("Checking for updates..."));
     renderFrame();
 
     auto updateResult = Updater::Check(COBBLE_VERSION, getServerPrimary(), SERVER_PORT_HTTPS);
 
     if (updateResult.success && updateResult.mandatory) {
         // Mandatory update required - must download and restart
-        LoaderUI::SetMessage("Downloading update...");
+        LoaderUI::SetMessage(OBFUSCATE_STRING("Downloading update..."));
         renderFrame();
 
         // Get HWID for authenticated download
@@ -211,7 +211,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         std::string newLoaderPath = tempDir + "\\CobbleLoader.exe";
 
         // Download new loader
-        std::string downloadUrl = "https://" + getServerPrimary() + "/api/update/loader";
+        std::string downloadUrl = "https://" + getServerPrimary() + OBFUSCATE_STRING("/api/update/loader");
 
         bool downloadSuccess =
             Updater::downloadAndVerify(downloadUrl, newLoaderPath, updateResult.manifest.loader.sha256,
@@ -229,7 +229,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 
         // Download failed - cleanup and show error
         Updater::cleanupTempDir(tempDir);
-        LoaderUI::SetError("Update failed - please try again");
+        LoaderUI::SetError(OBFUSCATE_STRING("Update failed - please try again"));
         while (renderFrame())
             ;
         LoaderUI::Shutdown();
@@ -248,7 +248,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     HMODULE hModule = GetModuleHandle(nullptr);
     HRSRC hRes = FindResource(hModule, MAKEINTRESOURCE(IDR_COBBLE_DLL), RT_RCDATA);
     if (!hRes) {
-        LoaderUI::SetError("Launch failed");
+        LoaderUI::SetError(OBFUSCATE_STRING("Launch failed"));
         while (renderFrame())
             ;
         LoaderUI::Shutdown();
@@ -294,7 +294,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
                 LoaderUI::ClearLoginButton();
 
                 if (username.empty() || password.empty()) {
-                    LoaderUI::SetError("Enter username and password");
+                    LoaderUI::SetError(OBFUSCATE_STRING("Enter username and password"));
                     continue;
                 }
 
@@ -330,7 +330,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 
     // Wait for Minecraft if not already detected during login
     if (lunar.pid == 0) {
-        LoaderUI::SetMessage("Waiting for Minecraft...");
+        LoaderUI::SetMessage(OBFUSCATE_STRING("Waiting for Minecraft..."));
 
         auto nextScan = std::chrono::steady_clock::now();
         while (true) {
@@ -357,7 +357,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 
     // Check if already injected before fetching key (saves server resources)
     if (isDllInjected(lunar.pid, L"Cobble.dll")) {
-        LoaderUI::SetError("Already injected");
+        LoaderUI::SetError(OBFUSCATE_STRING("Already injected"));
         while (renderFrame())
             ;
         LoaderUI::Shutdown();
@@ -371,7 +371,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 
     // Final security check before fetching key
     if (Security::HasAPIHooks() || AntiDebug::isDebugged()) {
-        LoaderUI::SetError("Launch failed");
+        LoaderUI::SetError(OBFUSCATE_STRING("Launch failed"));
         while (renderFrame())
             ;
         LoaderUI::Shutdown();
@@ -382,13 +382,13 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     // CRITICAL SECTION: Fetch key, decrypt, and inject as fast as possible
     // Minimize time that decrypted DLL exists in memory
     // =========================================================================
-    LoaderUI::SetMessage("Initializing...");
+    LoaderUI::SetMessage(OBFUSCATE_STRING("Initializing..."));
     renderFrame();
 
     // Fetch payload key from server - REQUIRED
     std::string payloadKey;
     if (!License::FetchPayloadKey(getLicenseServerPrimary().c_str())) {
-        LoaderUI::SetError(_xor_("Server connection failed"));
+        LoaderUI::SetError(OBFUSCATE_STRING("Server connection failed"));
         while (renderFrame())
             ;
         LoaderUI::Shutdown();
@@ -397,7 +397,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     payloadKey = License::GetPayloadKey();
 
     if (payloadKey.empty() || payloadKey.length() != 64) {
-        LoaderUI::SetError(_xor_("Key fetch failed"));
+        LoaderUI::SetError(OBFUSCATE_STRING("Key fetch failed"));
         while (renderFrame())
             ;
         LoaderUI::Shutdown();
@@ -406,7 +406,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 
     // One final security check right before decryption
     if (g_SecurityViolation || Security::IsBeingDebugged() || AntiDebug::isDebugged()) {
-        Telemetry::Report("DBG_FINAL_CHECK", Telemetry::Severity::CRITICAL, 100, "Pre-decrypt security check failed");
+        Telemetry::Report("DBG_FINAL_CHECK", Telemetry::Severity::CRITICAL, 100, OBFUSCATE_STRING("Pre-decrypt security check failed"));
         Sleep(500);
         SecureZeroMemory(&payloadKey[0], payloadKey.size());
         LoaderUI::Shutdown();
@@ -422,7 +422,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 #endif
 
     if (decryptedDll.empty() || !PayloadCrypto::ValidatePE(decryptedDll)) {
-        LoaderUI::SetError("Launch failed");
+        LoaderUI::SetError(OBFUSCATE_STRING("Launch failed"));
         while (renderFrame())
             ;
         LoaderUI::Shutdown();
@@ -433,7 +433,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     dllSize = decryptedDll.size();
 
     // Immediately proceed to injection - DO NOT add any delays here
-    LoaderUI::SetMessage("Injecting...");
+    LoaderUI::SetMessage(OBFUSCATE_STRING("Injecting..."));
     renderFrame();
 
     // Create shared memory with injection data BEFORE injection
@@ -554,7 +554,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     if (!SecureMapper::SecureManualMap(lunar.pid, dllData, dllSize)) {
         if (hMapFile)
             CloseHandle(hMapFile);
-        LoaderUI::SetError("Launch failed");
+        LoaderUI::SetError(OBFUSCATE_STRING("Launch failed"));
         while (renderFrame())
             ;
         LoaderUI::Shutdown();

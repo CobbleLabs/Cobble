@@ -5,7 +5,7 @@
 #include <winhttp.h>
 #include <string>
 #include <vector>
-#include "../security/xor.h"
+#include "../util/aes_string.hpp"
 #include "../util/json.h"
 #include "tweetnacl.h"
 
@@ -60,22 +60,22 @@ inline int compareVersions(const std::string& a, const std::string& b) {
 // Registry helpers for highest_seen
 inline std::string getHighestSeen() {
     HKEY key;
-    if (RegOpenKeyExA(HKEY_CURRENT_USER, _xor_("Software\\Microsoft\\Cryptography\\Data"), 0, KEY_READ, &key) !=
+    if (RegOpenKeyExA(HKEY_CURRENT_USER, OBFUSCATE_STRING("Software\\Microsoft\\Cryptography\\Data").c_str(), 0, KEY_READ, &key) !=
         ERROR_SUCCESS)
         return "";
 
     char buf[64] = {0};
     DWORD size = sizeof(buf);
-    RegQueryValueExA(key, _xor_("MachineGuid"), nullptr, nullptr, (LPBYTE)buf, &size);
+    RegQueryValueExA(key, OBFUSCATE_STRING("MachineGuid").c_str(), nullptr, nullptr, (LPBYTE)buf, &size);
     RegCloseKey(key);
     return buf;
 }
 
 inline void setHighestSeen(const std::string& version) {
     HKEY key;
-    if (RegCreateKeyExA(HKEY_CURRENT_USER, _xor_("Software\\Microsoft\\Cryptography\\Data"), 0, nullptr, 0, KEY_WRITE,
+    if (RegCreateKeyExA(HKEY_CURRENT_USER, OBFUSCATE_STRING("Software\\Microsoft\\Cryptography\\Data").c_str(), 0, nullptr, 0, KEY_WRITE,
                         nullptr, &key, nullptr) == ERROR_SUCCESS) {
-        RegSetValueExA(key, _xor_("MachineGuid"), 0, REG_SZ, (LPBYTE)version.c_str(), (DWORD)version.size() + 1);
+        RegSetValueExA(key, OBFUSCATE_STRING("MachineGuid").c_str(), 0, REG_SZ, (LPBYTE)version.c_str(), (DWORD)version.size() + 1);
         RegCloseKey(key);
     }
 }
@@ -107,9 +107,9 @@ inline CheckResult TryCheck(const std::string& currentVersion, const std::string
     CheckResult result;
 
     // HTTP GET /api/update/manifest
-    HINTERNET session = WinHttpOpen(_xorw_(L"Mozilla/5.0"), WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, nullptr, nullptr, 0);
+    HINTERNET session = WinHttpOpen(OBFUSCATE_WSTRING(L"Mozilla/5.0").c_str(), WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, nullptr, nullptr, 0);
     if (!session) {
-        result.error = "WinHttpOpen failed";
+        result.error = OBFUSCATE_STRING("WinHttpOpen failed");
         return result;
     }
 
@@ -117,7 +117,7 @@ inline CheckResult TryCheck(const std::string& currentVersion, const std::string
     HINTERNET connect = WinHttpConnect(session, host.c_str(), (INTERNET_PORT)port, 0);
     if (!connect) {
         WinHttpCloseHandle(session);
-        result.error = "WinHttpConnect failed";
+        result.error = OBFUSCATE_STRING("WinHttpConnect failed");
         return result;
     }
 
@@ -128,7 +128,7 @@ inline CheckResult TryCheck(const std::string& currentVersion, const std::string
     if (!request) {
         WinHttpCloseHandle(connect);
         WinHttpCloseHandle(session);
-        result.error = "WinHttpOpenRequest failed";
+        result.error = OBFUSCATE_STRING("WinHttpOpenRequest failed");
         return result;
     }
 
@@ -147,7 +147,7 @@ inline CheckResult TryCheck(const std::string& currentVersion, const std::string
         WinHttpCloseHandle(request);
         WinHttpCloseHandle(connect);
         WinHttpCloseHandle(session);
-        result.error = "Req failed (Err " + std::to_string(err) + ")";
+        result.error = OBFUSCATE_STRING("Req failed (Err ") + std::to_string(err) + ")";
         return result;
     }
 
@@ -166,7 +166,7 @@ inline CheckResult TryCheck(const std::string& currentVersion, const std::string
     // Parse response: { manifest_b64, sig_b64 }
     json::Object response;
     if (!response.parse(body)) {
-        result.error = "Invalid JSON";
+        result.error = OBFUSCATE_STRING("Invalid JSON");
         return result;
     }
 
@@ -174,7 +174,7 @@ inline CheckResult TryCheck(const std::string& currentVersion, const std::string
     std::string sigB64 = response.get("sig_b64").as_string();
 
     if (manifestB64.empty() || sigB64.empty()) {
-        result.error = "Missing manifest or signature";
+        result.error = OBFUSCATE_STRING("Missing manifest or signature");
         return result;
     }
 
@@ -183,12 +183,12 @@ inline CheckResult TryCheck(const std::string& currentVersion, const std::string
     std::vector<uint8_t> sigBytes = base64Decode(sigB64);
 
     if (sigBytes.size() != 64) {
-        result.error = "Invalid signature size";
+        result.error = OBFUSCATE_STRING("Invalid signature size");
         return result;
     }
 
     if (!tweetnacl::verify(sigBytes.data(), manifestBytes.data(), manifestBytes.size(), UPDATE_PUBLIC_KEY)) {
-        result.error = "Signature verification failed";
+        result.error = OBFUSCATE_STRING("Signature verification failed");
         return result;
     }
 
@@ -196,7 +196,7 @@ inline CheckResult TryCheck(const std::string& currentVersion, const std::string
     std::string manifestJson(manifestBytes.begin(), manifestBytes.end());
     json::Object manifest;
     if (!manifest.parse(manifestJson)) {
-        result.error = "Invalid manifest JSON";
+        result.error = OBFUSCATE_STRING("Invalid manifest JSON");
         return result;
     }
 

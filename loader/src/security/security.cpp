@@ -5,7 +5,7 @@
 #include <string>
 #include <vector>
 #include "../license/telemetry.hpp"
-#include "xor.h"
+#include "../util/aes_string.hpp"
 
 #pragma comment(lib, "ntdll.lib")
 #pragma comment(lib, "dbghelp.lib")
@@ -213,12 +213,12 @@ void HideThread(HANDLE hThread) {
 bool HasVMRegistry() {
     std::vector<std::wstring> vmKeys;
     vmKeys.reserve(6);
-    vmKeys.push_back(_xorw_(L"System\\ControlSet001\\Services\\VMTools"));
-    vmKeys.push_back(_xorw_(L"System\\ControlSet001\\Services\\VBoxGuest"));
-    vmKeys.push_back(_xorw_(L"System\\ControlSet001\\Services\\VBoxMouse"));
-    vmKeys.push_back(_xorw_(L"System\\ControlSet001\\Services\\VBoxService"));
-    vmKeys.push_back(_xorw_(L"SOFTWARE\\Oracle\\VirtualBox Guest Additions"));
-    vmKeys.push_back(_xorw_(L"SOFTWARE\\VMware, Inc.\\VMware Tools"));
+    vmKeys.push_back(OBFUSCATE_WSTRING(L"System\\ControlSet001\\Services\\VMTools"));
+    vmKeys.push_back(OBFUSCATE_WSTRING(L"System\\ControlSet001\\Services\\VBoxGuest"));
+    vmKeys.push_back(OBFUSCATE_WSTRING(L"System\\ControlSet001\\Services\\VBoxMouse"));
+    vmKeys.push_back(OBFUSCATE_WSTRING(L"System\\ControlSet001\\Services\\VBoxService"));
+    vmKeys.push_back(OBFUSCATE_WSTRING(L"SOFTWARE\\Oracle\\VirtualBox Guest Additions"));
+    vmKeys.push_back(OBFUSCATE_WSTRING(L"SOFTWARE\\VMware, Inc.\\VMware Tools"));
 
     for (const auto& keyPath : vmKeys) {
         HKEY hKey;
@@ -234,12 +234,12 @@ bool HasVMRegistry() {
 bool HasVMFiles() {
     std::vector<std::wstring> vmFiles;
     vmFiles.reserve(6);
-    vmFiles.push_back(_xorw_(L"C:\\Windows\\System32\\vm3dgl.dll"));
-    vmFiles.push_back(_xorw_(L"C:\\Windows\\System32\\vboxdisp.dll"));
-    vmFiles.push_back(_xorw_(L"C:\\Windows\\System32\\vboxhook.dll"));
-    vmFiles.push_back(_xorw_(L"C:\\Windows\\System32\\vboxogl.dll"));
-    vmFiles.push_back(_xorw_(L"C:\\Windows\\System32\\drivers\\vboxmouse.sys"));
-    vmFiles.push_back(_xorw_(L"C:\\Windows\\System32\\drivers\\vmhgfs.sys"));
+    vmFiles.push_back(OBFUSCATE_WSTRING(L"C:\\Windows\\System32\\vm3dgl.dll"));
+    vmFiles.push_back(OBFUSCATE_WSTRING(L"C:\\Windows\\System32\\vboxdisp.dll"));
+    vmFiles.push_back(OBFUSCATE_WSTRING(L"C:\\Windows\\System32\\vboxhook.dll"));
+    vmFiles.push_back(OBFUSCATE_WSTRING(L"C:\\Windows\\System32\\vboxogl.dll"));
+    vmFiles.push_back(OBFUSCATE_WSTRING(L"C:\\Windows\\System32\\drivers\\vboxmouse.sys"));
+    vmFiles.push_back(OBFUSCATE_WSTRING(L"C:\\Windows\\System32\\drivers\\vmhgfs.sys"));
 
     for (const auto& filePath : vmFiles) {
         WIN32_FIND_DATAW findData;

@@ -3,7 +3,7 @@
 #include <fstream>
 #include <iostream>
 #include <vector>
-#include "../security/xor.h"
+#include "../util/aes_string.hpp"
 
 // =========================================================================
 // LOADER SHELLCODE
@@ -388,7 +388,7 @@ HMODULE getRemoteModuleHandle(DWORD pid, const std::wstring& moduleName) {
 bool isDllInjected(DWORD pid, const std::wstring& dllName) {
     // Robust detection via Named Mutex
     // The client creates a global mutex on startup
-    std::wstring mutexName = std::wstring(_xorw_(L"Global\\Cobble_Instance_")) + std::to_wstring(pid);
+    std::wstring mutexName = std::wstring(OBFUSCATE_WSTRING(L"Global\\Cobble_Instance_")) + std::to_wstring(pid);
 
     HANDLE hMutex = OpenMutexW(SYNCHRONIZE, FALSE, mutexName.c_str());
     if (hMutex) {
