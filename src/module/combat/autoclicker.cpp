@@ -46,11 +46,9 @@ AutoClicker::AutoClicker() : Module("AutoClicker") {
 void AutoClicker::onEnable() {
     auto now = std::chrono::steady_clock::now();
 
-    // Stable mode - add 1ms margin to ensure display never exceeds target
-    stableIntervalMs = (1000.0 / static_cast<double>(settings.stableCPSValue));
-    stableInterval = std::chrono::duration_cast<std::chrono::steady_clock::duration>(
-        std::chrono::duration<double, std::milli>(stableIntervalMs));
-    nextStableClickTime = now;
+    // Stable mode - counter-based timing
+    stableTimelineStart = now;
+    stableClickCount = 0;
 
     // Random mode
     lastClick = now;
@@ -119,7 +117,8 @@ void AutoClicker::onUpdate() {
     // Not holding left mouse button - resync timeline to prevent burst on re-press
     if (!(GetAsyncKeyState(VK_LBUTTON) & 0x8000)) {
         if (settings.stableCPS) {
-            nextStableClickTime = std::chrono::steady_clock::now();
+            stableTimelineStart = std::chrono::steady_clock::now();
+            stableClickCount = 0;
         }
         return;
     }
@@ -146,7 +145,8 @@ void AutoClicker::onUpdate() {
     if (settings.weaponOnly && !inInventory && !isHoldingWeapon()) {
         // Resync stable mode timeline to prevent burst when weapon is equipped
         if (settings.stableCPS) {
-            nextStableClickTime = std::chrono::steady_clock::now();
+            stableTimelineStart = std::chrono::steady_clock::now();
+            stableClickCount = 0;
         }
         return;
     }
@@ -181,7 +181,8 @@ void AutoClicker::onUpdate() {
         auto now = std::chrono::steady_clock::now();
         lastClick = now;
         nextEventTime = now;
-        nextStableClickTime = now;  // Critical: prevents stable mode catch-up burst
+        stableTimelineStart = now;  // Critical: prevents stable mode catch-up burst
+        stableClickCount = 0;
     }
 
     // Attacking only - check if player is in crosshair (skip in inventory)
@@ -192,52 +193,46 @@ void AutoClicker::onUpdate() {
     }
 
     // =======================
-    // STABLE MODE - FIXED CPS
+    // STABLE MODE - FIXED CPS (Counter-based timing)
     // =======================
     if (settings.stableCPS) {
         auto now = std::chrono::steady_clock::now();
-        if (stableInterval.count() <= 0) {
-            stableIntervalMs = (1000.0 / static_cast<double>(settings.stableCPSValue));
-            stableInterval = std::chrono::duration_cast<std::chrono::steady_clock::duration>(
-                std::chrono::duration<double, std::milli>(stableIntervalMs));
-        }
 
-        if (now < nextStableClickTime)
+        // Calculate how many clicks SHOULD have happened since timeline start
+        double elapsedMs = std::chrono::duration<double, std::milli>(now - stableTimelineStart).count();
+        double expectedClicks = (elapsedMs / 1000.0) * static_cast<double>(settings.stableCPSValue);
+
+        // Only click if we're behind the expected count
+        if (static_cast<double>(stableClickCount) >= expectedClicks)
             return;
-
-        // Click completo - SendMessage para timing exacto, compensando frames lentos
-        static auto startTime = std::chrono::steady_clock::now();
-        static int clickCount = 0;
 
         // Check if we should use right-click (inventory + shift = right click to avoid bounce)
         bool useRightClick = inInventory && (GetAsyncKeyState(VK_SHIFT) & 0x8000);
 
-        do {
-            if (useRightClick) {
-                SendMessage(hwnd, WM_RBUTTONDOWN, MK_RBUTTON, 0);
-                SendMessage(hwnd, WM_RBUTTONUP, 0, 0);
-            } else {
-                // Check HitSelect before attacking
-                if (hitSelect && hitSelect->enabled && !hitSelect->shouldAllowClick()) {
-                    // HitSelect blocked this click, but still advance timeline
-                    nextStableClickTime += stableInterval;
-                    continue;
-                }
-                SendMessage(hwnd, WM_LBUTTONDOWN, MK_LBUTTON, 0);
-                SendMessage(hwnd, WM_LBUTTONUP, 0, 0);
+        // Perform exactly one click per frame to avoid bursts
+        // The counter-based system naturally catches up over time without bursting
+        if (useRightClick) {
+            SendMessage(hwnd, WM_RBUTTONDOWN, MK_RBUTTON, 0);
+            SendMessage(hwnd, WM_RBUTTONUP, 0, 0);
+        } else {
+            // Check HitSelect before attacking
+            if (hitSelect && hitSelect->enabled && !hitSelect->shouldAllowClick()) {
+                // HitSelect blocked this click, still count it to maintain timing
+                stableClickCount++;
+                return;
             }
-            clickCount++;
-            nextStableClickTime += stableInterval;
-        } while (now >= nextStableClickTime);
+            SendMessage(hwnd, WM_LBUTTONDOWN, MK_LBUTTON, 0);
+            SendMessage(hwnd, WM_LBUTTONUP, 0, 0);
+        }
+        stableClickCount++;
 
-        // Debug: log CPS every 5 seconds
-        auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - startTime).count();
-        if (elapsed >= 5000) {
-            double avgCps = static_cast<double>(clickCount) * 1000.0 / static_cast<double>(elapsed);
-            log_debug("[AutoClicker] Stable: %.2f CPS (target: %.0f, interval: %.2fms)", avgCps,
-                      settings.stableCPSValue, stableIntervalMs);
-            clickCount = 0;
-            startTime = now;
+        // Debug: log actual CPS every 5 seconds
+        if (elapsedMs >= 5000.0) {
+            double actualCps = static_cast<double>(stableClickCount) * 1000.0 / elapsedMs;
+            log_debug("[AutoClicker] Stable: %.2f CPS (target: %.0f)", actualCps, settings.stableCPSValue);
+            // Reset timeline to prevent overflow on long sessions
+            stableTimelineStart = now;
+            stableClickCount = 0;
         }
 
         return;
@@ -559,10 +554,9 @@ void AutoClicker::onRenderMenu() {
                 int cpsInt = static_cast<int>(settings.stableCPSValue);
                 if (ui::SliderInt("CPS", &cpsInt, 1, 25, "%d")) {
                     settings.stableCPSValue = static_cast<float>(cpsInt);
-                    stableIntervalMs = (1000.0 / static_cast<double>(settings.stableCPSValue));
-                    stableInterval = std::chrono::duration_cast<std::chrono::steady_clock::duration>(
-                        std::chrono::duration<double, std::milli>(stableIntervalMs));
-                    nextStableClickTime = std::chrono::steady_clock::now();
+                    // Reset timeline on CPS change to apply immediately
+                    stableTimelineStart = std::chrono::steady_clock::now();
+                    stableClickCount = 0;
                 }
             } else {
                 // Random mode: min/max sliders
