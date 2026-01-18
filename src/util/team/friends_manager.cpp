@@ -182,6 +182,80 @@ std::string FriendsManager::stripColorCodes(const std::string& input) {
     return result;
 }
 
+std::string FriendsManager::stripFormatCodes(const std::string& input) {
+    std::string result;
+    result.reserve(input.size());
+
+    // Format codes to remove: k (obfuscated), l (bold), m (strikethrough), n (underline), o (italic), r (reset)
+    // Color codes to KEEP: 0-9, a-f
+    auto isFormatCode = [](char c) -> bool {
+        c = std::tolower(c);
+        return (c == 'k' || c == 'l' || c == 'm' || c == 'n' || c == 'o' || c == 'r');
+    };
+
+    for (size_t i = 0; i < input.size();) {
+        unsigned char c = input[i];
+
+        // Check for UTF-8 § (0xC2 0xA7)
+        if (c == 0xC2 && i + 2 < input.size() && (unsigned char)input[i + 1] == 0xA7) {
+            char codeChar = input[i + 2];
+            if (isFormatCode(codeChar)) {
+                // Skip the format code (§ + code = 3 bytes in UTF-8)
+                i += 3;
+                continue;
+            } else {
+                // Keep the color code
+                result += input[i];
+                result += input[i + 1];
+                result += input[i + 2];
+                i += 3;
+                continue;
+            }
+        }
+
+        // Check for & as color prefix (some mods use this)
+        if (c == '&' && i + 1 < input.size()) {
+            char codeChar = input[i + 1];
+            if (isFormatCode(codeChar)) {
+                // Skip the format code (& + code = 2 bytes)
+                i += 2;
+                continue;
+            } else {
+                char next = std::tolower(codeChar);
+                if ((next >= '0' && next <= '9') || (next >= 'a' && next <= 'f')) {
+                    // Keep the color code
+                    result += input[i];
+                    result += input[i + 1];
+                    i += 2;
+                    continue;
+                }
+            }
+        }
+
+        // Check for raw § byte (Latin-1)
+        if (c == 0xA7 && i + 1 < input.size()) {
+            char codeChar = input[i + 1];
+            if (isFormatCode(codeChar)) {
+                // Skip the format code
+                i += 2;
+                continue;
+            } else {
+                // Keep the color code
+                result += input[i];
+                result += input[i + 1];
+                i += 2;
+                continue;
+            }
+        }
+
+        // Normal character, keep it
+        result += c;
+        i++;
+    }
+
+    return result;
+}
+
 ChatColor FriendsManager::extractColor(const std::string& displayName) {
     // Look for color code pattern: § followed by 0-9 or a-f
     // Also handle & as alternate color code char (some mods)

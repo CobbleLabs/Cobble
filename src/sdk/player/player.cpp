@@ -88,6 +88,14 @@ void LocalPlayer::initFields() {
 }
 
 void LocalPlayer::refresh() {
+    // Safety check - if no valid JNI environment, don't try to refresh
+    if (!Java::Env || !Java::Initialized) {
+        if (instance) {
+            instance = nullptr;  // Invalidate cached instance
+        }
+        return;
+    }
+
     // Get fresh player instance from Minecraft
     jobject newInstance = mc.getPlayer();
 
@@ -95,6 +103,15 @@ void LocalPlayer::refresh() {
     if (instance) {
         Java::Env->DeleteLocalRef(instance);
         instance = nullptr;
+    }
+
+    // Check if we got a valid new instance
+    if (newInstance) {
+        // Verify the object is still valid (not garbage collected)
+        if (Java::Env->ExceptionCheck()) {
+            Java::Env->ExceptionClear();
+            newInstance = nullptr;
+        }
     }
 
     instance = newInstance;
@@ -279,9 +296,12 @@ void LocalPlayer::jump() {
 }
 
 void LocalPlayer::setJumpTicks(int value) {
-    if (!isValid() || !fid_jumpTicks)
+    if (!isValid() || !fid_jumpTicks || !Java::Env)
         return;
     Java::Env->SetIntField(instance, fid_jumpTicks, value);
+    if (Java::Env->ExceptionCheck()) {
+        Java::Env->ExceptionClear();
+    }
 }
 
 int LocalPlayer::getHeldItemId() {

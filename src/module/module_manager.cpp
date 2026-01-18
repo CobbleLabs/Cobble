@@ -2,6 +2,7 @@
 #include "../jni/packet_interceptor.hpp"
 #include "../sdk/core/minecraft.h"
 #include "../ui/menu/menu.h"
+#include "../util/diagnostics.hpp"
 #include "utility/autorefill.h"
 
 #ifndef WIN32_LEAN_AND_MEAN
@@ -33,7 +34,10 @@ void ModuleManager::registerModule(Module* mod) {
 }
 
 void ModuleManager::update() {
-    PacketInterceptor::Tick();
+    {
+        DIAG_SCOPE("PacketInterceptor::Tick");
+        PacketInterceptor::Tick();
+    }
 
     // Only process keybinds and modules when Minecraft is focused
     if (!isMinecraftFocused())
@@ -42,9 +46,13 @@ void ModuleManager::update() {
     checkKeybinds();
 
     for (auto* mod : modules) {
-        if (mod->enabled && mod->shouldUpdate())
+        if (mod->enabled && mod->shouldUpdate()) {
+            // Set current module name for diagnostics
+            Diagnostics::g_currentOperation.store(mod->name);
             mod->onUpdate();
+        }
     }
+    Diagnostics::g_currentOperation.store("moduleManager.update.done");
 
     // AutoRefill passive mode: always update when onInventoryOpen is enabled
     if (autoRefill && !autoRefill->enabled && autoRefill->settings.onInventoryOpen) {

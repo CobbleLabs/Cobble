@@ -133,9 +133,12 @@ void Minecraft::setRightClickDelay(int value) {
 }
 
 void Minecraft::setLeftClickCounter(int value) {
-    if (!isValid() || !fid_leftClickCounter)
+    if (!isValid() || !fid_leftClickCounter || !Java::Env)
         return;
     Java::Env->SetIntField(instance, fid_leftClickCounter, value);
+    if (Java::Env->ExceptionCheck()) {
+        Java::Env->ExceptionClear();
+    }
 }
 
 void Minecraft::setTimerSpeed(float speed) {

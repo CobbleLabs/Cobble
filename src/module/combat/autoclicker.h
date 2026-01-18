@@ -40,6 +40,7 @@ private:
     std::chrono::steady_clock::time_point lastClick;
     std::chrono::steady_clock::time_point nextEventTime;
     std::chrono::steady_clock::time_point stableTimelineStart;
+    std::chrono::steady_clock::time_point stableLastClick;  // For strict min interval enforcement
     int stableClickCount = 0;
     int nextDelayMs = 100;
     std::mt19937 rng;

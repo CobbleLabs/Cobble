@@ -39,6 +39,7 @@
 #include "ui/hud/notifications.h"
 #include "util/team/friends_manager.h"
 #include "util/state.hpp"
+#include "util/diagnostics.hpp"
 
 // Signature for loader detection (cleared on shutdown for re-injection support)
 volatile char COBBLE_SIGNATURE[] = "COBBLE_LOADED_V1";
@@ -93,6 +94,11 @@ void cobble::context::initialize(HMODULE hModule) {
 
     // Initialize logging console immediately
     c_logger::initialize();
+    
+    // Install crash handler and start watchdog (DEBUG only)
+    Diagnostics::installCrashHandler();
+    Diagnostics::startWatchdog();
+    
     log_raw("========================================");
     log_ok("Cobble injected! Build: %s", __DATE__);
     log_debug("Module Handle: 0x%p", hModule);
@@ -219,7 +225,11 @@ void cobble::context::initialize(HMODULE hModule) {
     log_ok("Main loop starting...");
 
     while (is_running) {
+        // Update watchdog tick timestamp
+        Diagnostics::tick();
+        
         if (!overlayInitialized && tickCount >= OVERLAY_INIT_DELAY) {
+            DIAG_SCOPE("Overlay::Init");
             Overlay::Init();
             overlayInitialized = true;
         }
@@ -233,6 +243,7 @@ void cobble::context::initialize(HMODULE hModule) {
         
         // Refresh SDK state periodically (keeps timing in sync)
         if ((tickCount & 0x3FF) == 0) {  // Every ~1024 ticks (~1 sec)
+            DIAG_SCOPE("SessionValidator::refresh");
             SessionValidator::refreshState();
             
             // Check if SDK state needs recovery
@@ -245,11 +256,21 @@ void cobble::context::initialize(HMODULE hModule) {
             internal::checkDevOverride();
         }
         
-        player.refresh();
-        moduleManager->update();
+        {
+            DIAG_SCOPE("player.refresh");
+            player.refresh();
+        }
+        
+        {
+            DIAG_SCOPE("moduleManager.update");
+            moduleManager->update();
+        }
 
         // Update render data matrices (for ESP) - must be on main thread with JNI access
-        RenderData::Update();
+        {
+            DIAG_SCOPE("RenderData::Update");
+            RenderData::Update();
+        }
 
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }

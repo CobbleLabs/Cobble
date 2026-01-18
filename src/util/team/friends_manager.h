@@ -171,6 +171,10 @@ public:
     // Also handles UTF-8 § (0xC2 0xA7) and & prefix (some mods)
     static std::string stripColorCodes(const std::string& input);
 
+    // Strip only format codes (§k, §l, §m, §n, §o, §r) but KEEP color codes (§0-9, §a-f)
+    // Useful when you want to preserve color information
+    static std::string stripFormatCodes(const std::string& input);
+
     // Extract ChatColor from a display name with color codes
     // e.g. "§aPlayerName" -> ChatColor::GREEN
     static ChatColor extractColor(const std::string& displayName);

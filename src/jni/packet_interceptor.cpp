@@ -33,6 +33,36 @@ namespace {
 
 constexpr const char* kTargetClassSlash = "net/minecraft/network/NetworkManager";
 constexpr const char* kTargetClassDot = "net.minecraft.network.NetworkManager";
+
+// Safety limits for protobuf parsing to prevent infinite loops on corrupted packets
+constexpr int kMaxVarintBytes = 10;      // Max bytes for a 64-bit varint
+constexpr int kMaxParseIterations = 500; // Max iterations per parsing loop
+constexpr int kMaxNestedDepth = 10;      // Max nesting depth for embedded messages
+
+// Safe varint reader: returns false if varint is malformed
+inline bool safeReadVarint(const uint8_t* data, int len, int& pos, int& outValue) {
+    outValue = 0;
+    int shift = 0;
+    int bytesRead = 0;
+    while (pos < len && bytesRead < kMaxVarintBytes) {
+        uint8_t b = data[pos++];
+        outValue |= (b & 0x7F) << shift;
+        shift += 7;
+        bytesRead++;
+        if (!(b & 0x80)) return true;
+    }
+    return false; // Malformed varint
+}
+
+// Safe varint skipper: returns false if varint is malformed
+inline bool safeSkipVarint(const uint8_t* data, int len, int& pos) {
+    int bytesRead = 0;
+    while (pos < len && bytesRead < kMaxVarintBytes) {
+        if (!(data[pos++] & 0x80)) return true;
+        bytesRead++;
+    }
+    return false; // Malformed varint
+}
 constexpr const char* kHookClassSlash = "com/cobble/agent/PacketHook";
 constexpr const char* kHookClassDot = "com.cobble.agent.PacketHook";
 constexpr const char* kHookMethodName = "shouldSend";
@@ -1859,32 +1889,27 @@ static void JNICALL nativeOnReceive(JNIEnv* env, jclass, jobject packet) {
                             // Field 2 (value) = tag 0x12 (field 2, wire type 2)
                             std::string typeUrl;
                             int pos = 0;
-                            while (pos < len) {
-                                if (pos >= len)
-                                    break;
+                            int iterations = 0;
+                            while (pos < len && iterations++ < kMaxParseIterations) {
                                 uint8_t tag = data[pos++];
                                 int fieldNum = tag >> 3;
                                 int wireType = tag & 0x07;
 
                                 if (wireType == 2) {  // Length-delimited
-                                    // Read varint length
+                                    // Read varint length safely
                                     int strLen = 0;
-                                    int shift = 0;
-                                    while (pos < len) {
-                                        uint8_t b = data[pos++];
-                                        strLen |= (b & 0x7F) << shift;
-                                        shift += 7;
-                                        if (!(b & 0x80))
-                                            break;
+                                    if (!safeReadVarint(data, len, pos, strLen) || strLen < 0 || pos + strLen > len) {
+                                        break; // Malformed packet, abort parsing
                                     }
-                                    if (fieldNum == 1 && strLen > 0 && pos + strLen <= len) {
+                                    if (fieldNum == 1 && strLen > 0) {
                                         // type_url field
                                         typeUrl = std::string((const char*)(data + pos), strLen);
                                     }
                                     pos += strLen;
                                 } else if (wireType == 0) {  // Varint
-                                    while (pos < len && (data[pos++] & 0x80))
-                                        ;
+                                    if (!safeSkipVarint(data, len, pos)) {
+                                        break; // Malformed varint, abort
+                                    }
                                 } else {
                                     break;  // Unknown wire type
                                 }
@@ -1900,27 +1925,23 @@ static void JNICALL nativeOnReceive(JNIEnv* env, jclass, jobject packet) {
                                     const uint8_t* valueData = nullptr;
                                     int valueLen = 0;
                                     int parsePos = 0;
-                                    while (parsePos < len) {
+                                    int parseIter = 0;
+                                    while (parsePos < len && parseIter++ < kMaxParseIterations) {
                                         uint8_t tag = data[parsePos++];
                                         int fieldNum = tag >> 3;
                                         int wireType = tag & 0x07;
                                         if (wireType == 2) {
-                                            int fLen = 0, shift = 0;
-                                            while (parsePos < len) {
-                                                uint8_t b = data[parsePos++];
-                                                fLen |= (b & 0x7F) << shift;
-                                                shift += 7;
-                                                if (!(b & 0x80))
-                                                    break;
+                                            int fLen = 0;
+                                            if (!safeReadVarint(data, len, parsePos, fLen) || fLen < 0 || parsePos + fLen > len) {
+                                                break;
                                             }
-                                            if (fieldNum == 2 && fLen > 0 && parsePos + fLen <= len) {
+                                            if (fieldNum == 2 && fLen > 0) {
                                                 valueData = data + parsePos;
                                                 valueLen = fLen;
                                             }
                                             parsePos += fLen;
                                         } else if (wireType == 0) {
-                                            while (parsePos < len && (data[parsePos++] & 0x80))
-                                                ;
+                                            if (!safeSkipVarint(data, len, parsePos)) break;
                                         } else
                                             break;
                                     }
@@ -1938,21 +1959,18 @@ static void JNICALL nativeOnReceive(JNIEnv* env, jclass, jobject packet) {
 
                                         int memberCount = 0;
                                         int vPos = 0;
-                                        while (vPos < valueLen) {
+                                        int vIter = 0;
+                                        while (vPos < valueLen && vIter++ < kMaxParseIterations) {
                                             uint8_t vTag = valueData[vPos++];
                                             int vFieldNum = vTag >> 3;
                                             int vWireType = vTag & 0x07;
 
                                             if (vWireType == 2) {  // Length-delimited
-                                                int vLen = 0, vShift = 0;
-                                                while (vPos < valueLen) {
-                                                    uint8_t b = valueData[vPos++];
-                                                    vLen |= (b & 0x7F) << vShift;
-                                                    vShift += 7;
-                                                    if (!(b & 0x80))
-                                                        break;
+                                                int vLen = 0;
+                                                if (!safeReadVarint(valueData, valueLen, vPos, vLen) || vLen < 0 || vPos + vLen > valueLen) {
+                                                    break;
                                                 }
-                                                if (vFieldNum == 1 && vLen > 0 && vPos + vLen <= valueLen) {
+                                                if (vFieldNum == 1 && vLen > 0) {
                                                     memberCount++;
                                                     // TeamMember message: field 1 = player_uuid
                                                     const uint8_t* memberData = valueData + vPos;
@@ -1968,25 +1986,23 @@ static void JNICALL nativeOnReceive(JNIEnv* env, jclass, jobject packet) {
                                                             vLen > 1 ? memberData[1] : 0, vLen > 2 ? memberData[2] : 0,
                                                             vLen > 3 ? memberData[3] : 0, vLen > 4 ? memberData[4] : 0);
                                                     }
-                                                    while (mPos < vLen) {
+                                                    int mIter = 0;
+                                                    while (mPos < vLen && mIter++ < kMaxParseIterations) {
                                                         uint8_t mTag = memberData[mPos++];
                                                         int mFieldNum = mTag >> 3;
                                                         int mWireType = mTag & 0x07;
                                                         if (mWireType == 2) {
-                                                            int mLen = 0, mShift = 0;
-                                                            while (mPos < vLen) {
-                                                                uint8_t b = memberData[mPos++];
-                                                                mLen |= (b & 0x7F) << mShift;
-                                                                mShift += 7;
-                                                                if (!(b & 0x80))
-                                                                    break;
+                                                            int mLen = 0;
+                                                            if (!safeReadVarint(memberData, vLen, mPos, mLen) || mLen < 0 || mPos + mLen > vLen) {
+                                                                break;
                                                             }
-                                                            if (mFieldNum == 1 && mLen > 0 && mPos + mLen <= vLen) {
+                                                            if (mFieldNum == 1 && mLen > 0) {
                                                                 // player_uuid (Uuid proto) - uses fixed64 for
                                                                 // high64/low64
                                                                 const uint8_t* uuidData = memberData + mPos;
                                                                 int uPos = 0;
-                                                                while (uPos < mLen) {
+                                                                int uIter = 0;
+                                                                while (uPos < mLen && uIter++ < kMaxParseIterations) {
                                                                     uint8_t uTag = uuidData[uPos++];
                                                                     int uFieldNum = uTag >> 3;
                                                                     int uWireType = uTag & 0x07;
@@ -2004,9 +2020,8 @@ static void JNICALL nativeOnReceive(JNIEnv* env, jclass, jobject packet) {
                                                                         else if (uFieldNum == 2)
                                                                             uuidLow = val;
                                                                     } else if (uWireType == 0) {
-                                                                        // Wire type 0 = varint (skip)
-                                                                        while (uPos < mLen && (uuidData[uPos++] & 0x80))
-                                                                            ;
+                                                                        // Wire type 0 = varint (skip safely)
+                                                                        if (!safeSkipVarint(uuidData, mLen, uPos)) break;
                                                                     } else
                                                                         break;
                                                                 }
@@ -2084,27 +2099,23 @@ static void JNICALL nativeOnReceive(JNIEnv* env, jclass, jobject packet) {
                                     const uint8_t* valueData = nullptr;
                                     int valueLen = 0;
                                     int parsePos = 0;
-                                    while (parsePos < len) {
+                                    int parseIter = 0;
+                                    while (parsePos < len && parseIter++ < kMaxParseIterations) {
                                         uint8_t tag = data[parsePos++];
                                         int fieldNum = tag >> 3;
                                         int wireType = tag & 0x07;
                                         if (wireType == 2) {
-                                            int fLen = 0, shift = 0;
-                                            while (parsePos < len) {
-                                                uint8_t b = data[parsePos++];
-                                                fLen |= (b & 0x7F) << shift;
-                                                shift += 7;
-                                                if (!(b & 0x80))
-                                                    break;
+                                            int fLen = 0;
+                                            if (!safeReadVarint(data, len, parsePos, fLen) || fLen < 0 || parsePos + fLen > len) {
+                                                break;
                                             }
-                                            if (fieldNum == 2 && fLen > 0 && parsePos + fLen <= len) {
+                                            if (fieldNum == 2 && fLen > 0) {
                                                 valueData = data + parsePos;
                                                 valueLen = fLen;
                                             }
                                             parsePos += fLen;
                                         } else if (wireType == 0) {
-                                            while (parsePos < len && (data[parsePos++] & 0x80))
-                                                ;
+                                            if (!safeSkipVarint(data, len, parsePos)) break;
                                         } else
                                             break;
                                     }
@@ -2118,24 +2129,22 @@ static void JNICALL nativeOnReceive(JNIEnv* env, jclass, jobject packet) {
 
                                         int vPos = 0;
                                         int fieldCount = 0;
-                                        while (vPos < valueLen) {
+                                        int vIter = 0;
+                                        while (vPos < valueLen && vIter++ < kMaxParseIterations) {
                                             uint8_t vTag = valueData[vPos++];
                                             int vFieldNum = vTag >> 3;
                                             int vWireType = vTag & 0x07;
 
                                             if (vWireType == 2) {
-                                                int vLen = 0, vShift = 0;
-                                                while (vPos < valueLen) {
-                                                    uint8_t b = valueData[vPos++];
-                                                    vLen |= (b & 0x7F) << vShift;
-                                                    vShift += 7;
-                                                    if (!(b & 0x80))
-                                                        break;
+                                                int vLen = 0;
+                                                if (!safeReadVarint(valueData, valueLen, vPos, vLen) || vLen < 0 || vPos + vLen > valueLen) {
+                                                    break;
                                                 }
-                                                if (vFieldNum == 1 && vLen > 0 && vPos + vLen <= valueLen) {
+                                                if (vFieldNum == 1 && vLen > 0) {
                                                     const uint8_t* uuidData = valueData + vPos;
                                                     int uPos = 0;
-                                                    while (uPos < vLen) {
+                                                    int uIter = 0;
+                                                    while (uPos < vLen && uIter++ < kMaxParseIterations) {
                                                         uint8_t uTag = uuidData[uPos++];
                                                         int uFieldNum = uTag >> 3;
                                                         int uWireType = uTag & 0x07;
@@ -2152,19 +2161,17 @@ static void JNICALL nativeOnReceive(JNIEnv* env, jclass, jobject packet) {
                                                             else if (uFieldNum == 2)
                                                                 uuidLow = val;
                                                         } else if (uWireType == 0) {
-                                                            while (uPos < vLen && (uuidData[uPos++] & 0x80))
-                                                                ;
+                                                            if (!safeSkipVarint(uuidData, vLen, uPos)) break;
                                                         } else
                                                             break;
                                                     }
-                                                } else if (vFieldNum == 3 && vLen > 0 && vPos + vLen <= valueLen) {
+                                                } else if (vFieldNum == 3 && vLen > 0) {
                                                     jsonLines.push_back(
                                                         std::string((const char*)(valueData + vPos), vLen));
                                                 }
                                                 vPos += vLen;
                                             } else if (vWireType == 0) {
-                                                while (vPos < valueLen && (valueData[vPos++] & 0x80))
-                                                    ;
+                                                if (!safeSkipVarint(valueData, valueLen, vPos)) break;
                                             } else
                                                 break;
                                             fieldCount++;
