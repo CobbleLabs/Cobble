@@ -35,9 +35,9 @@ constexpr const char* kTargetClassSlash = "net/minecraft/network/NetworkManager"
 constexpr const char* kTargetClassDot = "net.minecraft.network.NetworkManager";
 
 // Safety limits for protobuf parsing to prevent infinite loops on corrupted packets
-constexpr int kMaxVarintBytes = 10;      // Max bytes for a 64-bit varint
-constexpr int kMaxParseIterations = 500; // Max iterations per parsing loop
-constexpr int kMaxNestedDepth = 10;      // Max nesting depth for embedded messages
+constexpr int kMaxVarintBytes = 10;       // Max bytes for a 64-bit varint
+constexpr int kMaxParseIterations = 500;  // Max iterations per parsing loop
+constexpr int kMaxNestedDepth = 10;       // Max nesting depth for embedded messages
 
 // Safe varint reader: returns false if varint is malformed
 inline bool safeReadVarint(const uint8_t* data, int len, int& pos, int& outValue) {
@@ -49,19 +49,21 @@ inline bool safeReadVarint(const uint8_t* data, int len, int& pos, int& outValue
         outValue |= (b & 0x7F) << shift;
         shift += 7;
         bytesRead++;
-        if (!(b & 0x80)) return true;
+        if (!(b & 0x80))
+            return true;
     }
-    return false; // Malformed varint
+    return false;  // Malformed varint
 }
 
 // Safe varint skipper: returns false if varint is malformed
 inline bool safeSkipVarint(const uint8_t* data, int len, int& pos) {
     int bytesRead = 0;
     while (pos < len && bytesRead < kMaxVarintBytes) {
-        if (!(data[pos++] & 0x80)) return true;
+        if (!(data[pos++] & 0x80))
+            return true;
         bytesRead++;
     }
-    return false; // Malformed varint
+    return false;  // Malformed varint
 }
 constexpr const char* kHookClassSlash = "com/cobble/agent/PacketHook";
 constexpr const char* kHookClassDot = "com.cobble.agent.PacketHook";
@@ -1899,7 +1901,7 @@ static void JNICALL nativeOnReceive(JNIEnv* env, jclass, jobject packet) {
                                     // Read varint length safely
                                     int strLen = 0;
                                     if (!safeReadVarint(data, len, pos, strLen) || strLen < 0 || pos + strLen > len) {
-                                        break; // Malformed packet, abort parsing
+                                        break;  // Malformed packet, abort parsing
                                     }
                                     if (fieldNum == 1 && strLen > 0) {
                                         // type_url field
@@ -1908,7 +1910,7 @@ static void JNICALL nativeOnReceive(JNIEnv* env, jclass, jobject packet) {
                                     pos += strLen;
                                 } else if (wireType == 0) {  // Varint
                                     if (!safeSkipVarint(data, len, pos)) {
-                                        break; // Malformed varint, abort
+                                        break;  // Malformed varint, abort
                                     }
                                 } else {
                                     break;  // Unknown wire type
@@ -1932,7 +1934,8 @@ static void JNICALL nativeOnReceive(JNIEnv* env, jclass, jobject packet) {
                                         int wireType = tag & 0x07;
                                         if (wireType == 2) {
                                             int fLen = 0;
-                                            if (!safeReadVarint(data, len, parsePos, fLen) || fLen < 0 || parsePos + fLen > len) {
+                                            if (!safeReadVarint(data, len, parsePos, fLen) || fLen < 0 ||
+                                                parsePos + fLen > len) {
                                                 break;
                                             }
                                             if (fieldNum == 2 && fLen > 0) {
@@ -1941,7 +1944,8 @@ static void JNICALL nativeOnReceive(JNIEnv* env, jclass, jobject packet) {
                                             }
                                             parsePos += fLen;
                                         } else if (wireType == 0) {
-                                            if (!safeSkipVarint(data, len, parsePos)) break;
+                                            if (!safeSkipVarint(data, len, parsePos))
+                                                break;
                                         } else
                                             break;
                                     }
@@ -1967,7 +1971,8 @@ static void JNICALL nativeOnReceive(JNIEnv* env, jclass, jobject packet) {
 
                                             if (vWireType == 2) {  // Length-delimited
                                                 int vLen = 0;
-                                                if (!safeReadVarint(valueData, valueLen, vPos, vLen) || vLen < 0 || vPos + vLen > valueLen) {
+                                                if (!safeReadVarint(valueData, valueLen, vPos, vLen) || vLen < 0 ||
+                                                    vPos + vLen > valueLen) {
                                                     break;
                                                 }
                                                 if (vFieldNum == 1 && vLen > 0) {
@@ -1993,7 +1998,8 @@ static void JNICALL nativeOnReceive(JNIEnv* env, jclass, jobject packet) {
                                                         int mWireType = mTag & 0x07;
                                                         if (mWireType == 2) {
                                                             int mLen = 0;
-                                                            if (!safeReadVarint(memberData, vLen, mPos, mLen) || mLen < 0 || mPos + mLen > vLen) {
+                                                            if (!safeReadVarint(memberData, vLen, mPos, mLen) ||
+                                                                mLen < 0 || mPos + mLen > vLen) {
                                                                 break;
                                                             }
                                                             if (mFieldNum == 1 && mLen > 0) {
@@ -2021,7 +2027,8 @@ static void JNICALL nativeOnReceive(JNIEnv* env, jclass, jobject packet) {
                                                                             uuidLow = val;
                                                                     } else if (uWireType == 0) {
                                                                         // Wire type 0 = varint (skip safely)
-                                                                        if (!safeSkipVarint(uuidData, mLen, uPos)) break;
+                                                                        if (!safeSkipVarint(uuidData, mLen, uPos))
+                                                                            break;
                                                                     } else
                                                                         break;
                                                                 }
@@ -2106,7 +2113,8 @@ static void JNICALL nativeOnReceive(JNIEnv* env, jclass, jobject packet) {
                                         int wireType = tag & 0x07;
                                         if (wireType == 2) {
                                             int fLen = 0;
-                                            if (!safeReadVarint(data, len, parsePos, fLen) || fLen < 0 || parsePos + fLen > len) {
+                                            if (!safeReadVarint(data, len, parsePos, fLen) || fLen < 0 ||
+                                                parsePos + fLen > len) {
                                                 break;
                                             }
                                             if (fieldNum == 2 && fLen > 0) {
@@ -2115,7 +2123,8 @@ static void JNICALL nativeOnReceive(JNIEnv* env, jclass, jobject packet) {
                                             }
                                             parsePos += fLen;
                                         } else if (wireType == 0) {
-                                            if (!safeSkipVarint(data, len, parsePos)) break;
+                                            if (!safeSkipVarint(data, len, parsePos))
+                                                break;
                                         } else
                                             break;
                                     }
@@ -2137,7 +2146,8 @@ static void JNICALL nativeOnReceive(JNIEnv* env, jclass, jobject packet) {
 
                                             if (vWireType == 2) {
                                                 int vLen = 0;
-                                                if (!safeReadVarint(valueData, valueLen, vPos, vLen) || vLen < 0 || vPos + vLen > valueLen) {
+                                                if (!safeReadVarint(valueData, valueLen, vPos, vLen) || vLen < 0 ||
+                                                    vPos + vLen > valueLen) {
                                                     break;
                                                 }
                                                 if (vFieldNum == 1 && vLen > 0) {
@@ -2161,7 +2171,8 @@ static void JNICALL nativeOnReceive(JNIEnv* env, jclass, jobject packet) {
                                                             else if (uFieldNum == 2)
                                                                 uuidLow = val;
                                                         } else if (uWireType == 0) {
-                                                            if (!safeSkipVarint(uuidData, vLen, uPos)) break;
+                                                            if (!safeSkipVarint(uuidData, vLen, uPos))
+                                                                break;
                                                         } else
                                                             break;
                                                     }
@@ -2171,7 +2182,8 @@ static void JNICALL nativeOnReceive(JNIEnv* env, jclass, jobject packet) {
                                                 }
                                                 vPos += vLen;
                                             } else if (vWireType == 0) {
-                                                if (!safeSkipVarint(valueData, valueLen, vPos)) break;
+                                                if (!safeSkipVarint(valueData, valueLen, vPos))
+                                                    break;
                                             } else
                                                 break;
                                             fieldCount++;

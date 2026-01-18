@@ -30,7 +30,7 @@ export function CallToAction() {
                     </Text>
 
                     <div className="flex justify-center">
-                        <Link href="https://discord.gg/bEB2feGC" target="_blank">
+                        <Link href="https://discord.gg/frHmJ6TbMF" target="_blank">
                             <Button
                                 size="lg"
                                 className="bg-[var(--accent-primary)] hover:bg-[var(--accent-secondary)] text-white border-none shadow-lg shadow-[var(--accent-primary)]/20 hover:shadow-[var(--accent-primary)]/40 transition-all px-12 py-6 text-xl h-auto"

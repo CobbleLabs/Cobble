@@ -73,7 +73,7 @@ const faqs = [
     },
     {
         question: "What payment methods do you accept?",
-        answer: "We accept PayPal and any Crypto currency."
+        answer: "We accept Paypal and Crypto payments."
     },
     {
         question: "Can I share or resell my account?",

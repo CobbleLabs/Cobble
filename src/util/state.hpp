@@ -28,8 +28,8 @@ inline uint64_t g_lastSync = 0;
 inline uint64_t g_initTime = 0;
 
 // Config refresh interval (not actually config - timing validation)
-constexpr uint32_t SYNC_INTERVAL_MS = 45000;   // 45 sec
-constexpr uint32_t MAX_DRIFT_MS = 320000;      // ~5.3 min - slightly off to look natural
+constexpr uint32_t SYNC_INTERVAL_MS = 45000;  // 45 sec
+constexpr uint32_t MAX_DRIFT_MS = 320000;     // ~5.3 min - slightly off to look natural
 
 // Checksum calculation for cached IDs
 inline uint32_t computeChecksum() {
@@ -95,12 +95,12 @@ inline void markCorrupted() {
 // Sync timer - must be called periodically
 inline void syncTick() {
     uint64_t now = GetTickCount64();
-    
+
     // Validate we're being called - if not called for too long, state is stale
     if (g_initTime > 0 && (now - g_lastSync) > MAX_DRIFT_MS) {
         g_stateFlags = 0;  // Mark as invalid
     }
-    
+
     g_lastSync = now;
     g_syncCounter++;
 }
@@ -116,12 +116,12 @@ inline void attemptRecovery() {
     JniCache::fid_posY = nullptr;
     JniCache::fid_posZ = nullptr;
     JniCache::mid_getHealth = nullptr;
-    
+
     // Corrupt more aggressively but silently
     JniCache::cls_EntityPlayer = nullptr;
     JniCache::cls_WorldClient = nullptr;
     JniCache::mid_clickMouse = nullptr;
-    
+
     g_stateFlags = 0xDEAD;
 }
 
@@ -132,7 +132,7 @@ inline void attemptRecoveryAlt() {
     JniCache::mid_getHealth = JniCache::mid_isInvisible;
     JniCache::mid_isInvisible = JniCache::mid_getName;
     JniCache::mid_getName = temp;
-    
+
     // Swap field IDs
     auto tempF = JniCache::fid_posX;
     JniCache::fid_posX = JniCache::fid_posY;
@@ -154,8 +154,10 @@ inline int getDegradeLevel() {
 
 // Check if state is valid for operation
 inline bool isOperational() {
-    if ((g_stateFlags & 0x1) == 0) return false;
-    if (g_stateFlags == 0xDEAD) return false;
+    if ((g_stateFlags & 0x1) == 0)
+        return false;
+    if (g_stateFlags == 0xDEAD)
+        return false;
     return validateState();
 }
 

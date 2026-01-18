@@ -39,8 +39,8 @@ bool Backtrack::isHoldingWeapon() {
     int itemId = player.getHeldItemId();
     // Swords: 268 (wood), 272 (stone), 267 (iron), 276 (diamond), 283 (gold)
     // Axes: 271, 275, 258, 279, 286
-    return (itemId == 268 || itemId == 272 || itemId == 267 || itemId == 276 || itemId == 283 ||
-            itemId == 271 || itemId == 275 || itemId == 258 || itemId == 279 || itemId == 286);
+    return (itemId == 268 || itemId == 272 || itemId == 267 || itemId == 276 || itemId == 283 || itemId == 271 ||
+            itemId == 275 || itemId == 258 || itemId == 279 || itemId == 286);
 }
 
 void Backtrack::clearHistory() {
@@ -54,9 +54,9 @@ void Backtrack::recordPosition(const PlayerInfo& target) {
     snap.z = target.posZ;
     snap.hurtTime = target.hurtTime;
     snap.timestamp = std::chrono::steady_clock::now();
-    
+
     positionHistory.push_back(snap);
-    
+
     // Remove old entries beyond maxDelay
     auto now = std::chrono::steady_clock::now();
     while (!positionHistory.empty()) {
@@ -69,50 +69,50 @@ void Backtrack::recordPosition(const PlayerInfo& target) {
     }
 }
 
-bool Backtrack::findBacktrackedPosition(double playerX, double playerY, double playerZ,
-                                         double currentX, double currentY, double currentZ) {
+bool Backtrack::findBacktrackedPosition(double playerX, double playerY, double playerZ, double currentX,
+                                        double currentY, double currentZ) {
     // Check current distance
     double dx = currentX - playerX;
     double dy = currentY - playerY;
     double dz = currentZ - playerZ;
     double currentDist = sqrt(dx * dx + dy * dy + dz * dz);
-    
+
     // Only work when target is in range
     bool inRange = currentDist >= settings.minDistance && currentDist <= settings.maxDistance;
-    
+
     if (!inRange) {
         isBacktracking = false;
         return false;
     }
-    
+
     // Target is in range - find the OLDEST valid position in history (most "delayed")
     if (positionHistory.empty()) {
         isBacktracking = false;
         return false;
     }
-    
+
     auto now = std::chrono::steady_clock::now();
-    
+
     // Search from OLDEST to newest (we want the most delayed position)
     for (auto it = positionHistory.begin(); it != positionHistory.end(); ++it) {
         const PositionSnapshot& snap = *it;
-        
+
         // Check age - must be within maxDelay
         float age = std::chrono::duration<float, std::milli>(now - snap.timestamp).count();
         if (age > (float)settings.maxDelay)
             continue;
-        
+
         // Check hurt time
         int timeUntilCanHit = snap.hurtTime * 50;
         if (timeUntilCanHit > settings.maxHurtTime)
             continue;
-        
+
         // Check distance of historical position
         double hdx = snap.x - playerX;
         double hdy = snap.y - playerY;
         double hdz = snap.z - playerZ;
         double histDist = sqrt(hdx * hdx + hdy * hdy + hdz * hdz);
-        
+
         // Accept if historical position is also in range
         if (histDist >= settings.minDistance && histDist <= settings.maxDistance) {
             // Found the oldest valid backtrack position!
@@ -123,7 +123,7 @@ bool Backtrack::findBacktrackedPosition(double playerX, double playerY, double p
             return true;
         }
     }
-    
+
     isBacktracking = false;
     return false;
 }
@@ -150,19 +150,19 @@ void Backtrack::onUpdate() {
 
     // Get closest target
     std::vector<PlayerInfo> players = mc.getPlayerList();
-    
+
     double closestDist = 999.0;
     PlayerInfo* closestTarget = nullptr;
-    
+
     for (auto& p : players) {
         if (p.isNPC || p.isInvisible)
             continue;
-        
+
         double dx = p.posX - playerX;
         double dy = p.posY - playerY;
         double dz = p.posZ - playerZ;
         double dist = sqrt(dx * dx + dy * dy + dz * dz);
-        
+
         // Only consider targets within extended range (maxDistance + some buffer)
         if (dist < closestDist && dist < settings.maxDistance + 2.0) {
             closestDist = dist;
@@ -196,8 +196,7 @@ void Backtrack::onUpdate() {
     recordPosition(*closestTarget);
 
     // Try to find a backtracked position
-    findBacktrackedPosition(playerX, playerY, playerZ,
-                            closestTarget->posX, closestTarget->posY, closestTarget->posZ);
+    findBacktrackedPosition(playerX, playerY, playerZ, closestTarget->posX, closestTarget->posY, closestTarget->posZ);
 }
 
 void Backtrack::onRender() {
@@ -216,12 +215,12 @@ void Backtrack::onRender() {
 
     // Get render position (camera position for WorldToScreen)
     RenderPos renderPos = mc.getRenderPos();
-    
+
     // If renderPos is invalid, use player eye position as fallback
     double renderX = renderPos.x;
     double renderY = renderPos.y;
     double renderZ = renderPos.z;
-    
+
     if (renderX == 0.0 && renderY == 0.0 && renderZ == 0.0) {
         float partialTicks = mc.getPartialTicks();
         double lastX = player.getLastPosX();
@@ -249,16 +248,15 @@ void Backtrack::onRender() {
         {x - HALF_WIDTH - (float)renderX, y + HEIGHT - (float)renderY, z - HALF_WIDTH - (float)renderZ},
         {x + HALF_WIDTH - (float)renderX, y + HEIGHT - (float)renderY, z - HALF_WIDTH - (float)renderZ},
         {x + HALF_WIDTH - (float)renderX, y + HEIGHT - (float)renderY, z + HALF_WIDTH - (float)renderZ},
-        {x - HALF_WIDTH - (float)renderX, y + HEIGHT - (float)renderY, z + HALF_WIDTH - (float)renderZ}
-    };
+        {x - HALF_WIDTH - (float)renderX, y + HEIGHT - (float)renderY, z + HALF_WIDTH - (float)renderZ}};
 
     Vector2 screen[8];
     bool visible[8];
     int visibleCount = 0;
-    
+
     for (int i = 0; i < 8; i++) {
         visible[i] = CWorldToScreen::WorldToScreen(corners[i], RenderData::modelView, RenderData::projection,
-                                                    RenderData::screenWidth, RenderData::screenHeight, screen[i]);
+                                                   RenderData::screenWidth, RenderData::screenHeight, screen[i]);
         if (visible[i])
             visibleCount++;
     }
@@ -267,57 +265,36 @@ void Backtrack::onRender() {
     if (visibleCount < 3)
         return;
 
-    ImU32 col = IM_COL32(
-        (int)(settings.boxColor[0] * 255),
-        (int)(settings.boxColor[1] * 255),
-        (int)(settings.boxColor[2] * 255),
-        (int)(settings.boxColor[3] * 255)
-    );
-    
+    ImU32 col = IM_COL32((int)(settings.boxColor[0] * 255), (int)(settings.boxColor[1] * 255),
+                         (int)(settings.boxColor[2] * 255), (int)(settings.boxColor[3] * 255));
+
     // Draw edges
-    static constexpr int edges[12][2] = {
-        {0, 1}, {1, 2}, {2, 3}, {3, 0},
-        {4, 5}, {5, 6}, {6, 7}, {7, 4},
-        {0, 4}, {1, 5}, {2, 6}, {3, 7}
-    };
-    
+    static constexpr int edges[12][2] = {{0, 1}, {1, 2}, {2, 3}, {3, 0}, {4, 5}, {5, 6},
+                                         {6, 7}, {7, 4}, {0, 4}, {1, 5}, {2, 6}, {3, 7}};
+
     for (int i = 0; i < 12; i++) {
         int a = edges[i][0], b = edges[i][1];
         if (visible[a] && visible[b]) {
-            draw->AddLine(
-                ImVec2(screen[a].x, screen[a].y),
-                ImVec2(screen[b].x, screen[b].y),
-                col, 2.0f
-            );
+            draw->AddLine(ImVec2(screen[a].x, screen[a].y), ImVec2(screen[b].x, screen[b].y), col, 2.0f);
         }
     }
 
     // Draw filled faces if enabled
     if (settings.filledBox) {
-        ImU32 fillCol = IM_COL32(
-            (int)(settings.boxColor[0] * 255),
-            (int)(settings.boxColor[1] * 255),
-            (int)(settings.boxColor[2] * 255),
-            80
-        );
-        
+        ImU32 fillCol = IM_COL32((int)(settings.boxColor[0] * 255), (int)(settings.boxColor[1] * 255),
+                                 (int)(settings.boxColor[2] * 255), 80);
+
         // 6 faces
-        static constexpr int faces[6][4] = {
-            {0, 1, 2, 3}, {7, 6, 5, 4}, {3, 2, 6, 7},
-            {1, 0, 4, 5}, {0, 3, 7, 4}, {2, 1, 5, 6}
-        };
-        
+        static constexpr int faces[6][4] = {{0, 1, 2, 3}, {7, 6, 5, 4}, {3, 2, 6, 7},
+                                            {1, 0, 4, 5}, {0, 3, 7, 4}, {2, 1, 5, 6}};
+
         for (int f = 0; f < 6; f++) {
             int i0 = faces[f][0], i1 = faces[f][1], i2 = faces[f][2], i3 = faces[f][3];
             if (!visible[i0] || !visible[i1] || !visible[i2] || !visible[i3])
                 continue;
-            
-            ImVec2 points[4] = {
-                ImVec2(screen[i0].x, screen[i0].y),
-                ImVec2(screen[i1].x, screen[i1].y),
-                ImVec2(screen[i2].x, screen[i2].y),
-                ImVec2(screen[i3].x, screen[i3].y)
-            };
+
+            ImVec2 points[4] = {ImVec2(screen[i0].x, screen[i0].y), ImVec2(screen[i1].x, screen[i1].y),
+                                ImVec2(screen[i2].x, screen[i2].y), ImVec2(screen[i3].x, screen[i3].y)};
             draw->AddConvexPolyFilled(points, 4, fillCol);
         }
     }
@@ -325,14 +302,11 @@ void Backtrack::onRender() {
     // Status text
     char buf[64];
     snprintf(buf, sizeof(buf), "Backtrack Active");
-    
+
     ImVec2 textSize = ImGui::CalcTextSize(buf);
     ImVec2 screenSize = ImGui::GetIO().DisplaySize;
-    
-    draw->AddText(
-        ImVec2(screenSize.x / 2 - textSize.x / 2, screenSize.y / 2 + 60),
-        IM_COL32(255, 100, 100, 255), buf
-    );
+
+    draw->AddText(ImVec2(screenSize.x / 2 - textSize.x / 2, screenSize.y / 2 + 60), IM_COL32(255, 100, 100, 255), buf);
 }
 
 void Backtrack::onRenderMenu() {
@@ -344,10 +318,10 @@ void Backtrack::onRenderMenu() {
 
             // Main setting - how far back to look
             ui::SliderInt("Delay", &settings.maxDelay, 50, 500, "%d ms");
-            
+
             ImGui::Spacing();
-            
-            // Range setting  
+
+            // Range setting
             ui::SliderFloat("Range", &settings.maxDistance, 2.0f, 6.0f, "%.1f blocks");
         },
         "Visuals",

@@ -319,9 +319,7 @@ bool IsInitialized();
 // Quick sanity check - verifies core classes are still valid
 // Returns false if cache appears corrupted
 inline bool quickCheck() {
-    return cls_Minecraft && cls_Entity && cls_EntityPlayer && 
-           mid_getMinecraft && fid_thePlayer;
+    return cls_Minecraft && cls_Entity && cls_EntityPlayer && mid_getMinecraft && fid_thePlayer;
 }
 
 }  // namespace JniCache
-

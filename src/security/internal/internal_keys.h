@@ -3,7 +3,7 @@
 // ============================================================================
 // INTERNAL DEVELOPMENT KEYS - DO NOT DISTRIBUTE
 // ============================================================================
-// 
+//
 // These keys are for internal testing only. They allow bypassing license
 // checks during development. NEVER include this file in production builds.
 //
@@ -36,9 +36,8 @@ static const char* ED25519_SEED = "f7a9c1e3b5d7f9a1c4a7f2c9e8b1d3f5a6c8e0d2b4f6a
 struct KeysInitializer {
     KeysInitializer() {
         // Someone included this file - very suspicious
-        Honeypot::Report("internal_keys_accessed", 
-                        "internal/internal_keys.h was included in build", 
-                        Honeypot::FLAG_INTERNAL_KEYS);
+        Honeypot::Report("internal_keys_accessed", "internal/internal_keys.h was included in build",
+                         Honeypot::FLAG_INTERNAL_KEYS);
     }
 };
 

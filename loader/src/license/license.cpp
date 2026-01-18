@@ -156,7 +156,8 @@ bool FetchPayloadKey(const std::string& serverUrl) {
     std::string postData = "hwid=" + UrlEncode(hwid) + "&session_token=" + UrlEncode(g_SessionToken);
 
     // Initialize WinInet
-    HINTERNET hInternet = InternetOpenA(OBFUSCATE_STRING("Mozilla/5.0").c_str(), INTERNET_OPEN_TYPE_PRECONFIG, NULL, NULL, 0);
+    HINTERNET hInternet =
+        InternetOpenA(OBFUSCATE_STRING("Mozilla/5.0").c_str(), INTERNET_OPEN_TYPE_PRECONFIG, NULL, NULL, 0);
 
     if (!hInternet) {
         g_LastError = OBFUSCATE_STRING("Network error");
@@ -283,7 +284,8 @@ bool Verify(const std::string& serverUrl) {
         "hwid=" + UrlEncode(hwid) + "&nonce=" + UrlEncode(nonce) + "&version=" + UrlEncode(CLIENT_VERSION);
 
     // Initialize WinInet
-    HINTERNET hInternet = InternetOpenA(OBFUSCATE_STRING("Mozilla/5.0").c_str(), INTERNET_OPEN_TYPE_PRECONFIG, NULL, NULL, 0);
+    HINTERNET hInternet =
+        InternetOpenA(OBFUSCATE_STRING("Mozilla/5.0").c_str(), INTERNET_OPEN_TYPE_PRECONFIG, NULL, NULL, 0);
 
     if (!hInternet) {
         g_LastError = OBFUSCATE_STRING("Failed to initialize internet");
@@ -513,7 +515,8 @@ bool LoginWithCredentials(const std::string& serverUrl, const std::string& usern
                            "\",\"nonce\":\"" + nonce + "\",\"version\":\"" + std::string(CLIENT_VERSION) + "\"}";
 
     // Initialize WinInet
-    HINTERNET hInternet = InternetOpenA(OBFUSCATE_STRING("Mozilla/5.0").c_str(), INTERNET_OPEN_TYPE_PRECONFIG, NULL, NULL, 0);
+    HINTERNET hInternet =
+        InternetOpenA(OBFUSCATE_STRING("Mozilla/5.0").c_str(), INTERNET_OPEN_TYPE_PRECONFIG, NULL, NULL, 0);
 
     if (!hInternet) {
         g_LastError = OBFUSCATE_STRING("Network error");
@@ -688,7 +691,8 @@ bool Register(const std::string& serverUrl, const std::string& username) {
     std::string url = serverUrl + "/api/register";
     std::string postData = "hwid=" + hwid + "&username=" + username;
 
-    HINTERNET hInternet = InternetOpenA(OBFUSCATE_STRING("Mozilla/5.0").c_str(), INTERNET_OPEN_TYPE_PRECONFIG, NULL, NULL, 0);
+    HINTERNET hInternet =
+        InternetOpenA(OBFUSCATE_STRING("Mozilla/5.0").c_str(), INTERNET_OPEN_TYPE_PRECONFIG, NULL, NULL, 0);
     if (!hInternet)
         return false;
 

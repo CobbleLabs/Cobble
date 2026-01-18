@@ -398,6 +398,28 @@ func runMigrations() error {
 		DB.Exec("INSERT INTO schema_migrations (version) VALUES (16)")
 	}
 
+	// Migration 17: Coinbase payments table
+	if currentVersion < 17 {
+		logger.Info("MIGRATE", "017: Coinbase payments table", nil)
+		_, err := DB.Exec(`
+			CREATE TABLE IF NOT EXISTS coinbase_payments (
+				id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+				user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+				charge_code VARCHAR(64) NOT NULL UNIQUE,
+				plan VARCHAR(16) NOT NULL,
+				amount_usd DECIMAL(10,2) NOT NULL,
+				status VARCHAR(32) DEFAULT 'completed',
+				created_at TIMESTAMP DEFAULT NOW()
+			);
+			CREATE INDEX IF NOT EXISTS idx_coinbase_payments_user_id ON coinbase_payments(user_id);
+			CREATE INDEX IF NOT EXISTS idx_coinbase_payments_charge ON coinbase_payments(charge_code);
+		`)
+		if err != nil {
+			return err
+		}
+		DB.Exec("INSERT INTO schema_migrations (version) VALUES (17)")
+	}
+
 	// Load MIN_VERSION from database
 	var savedVersion string
 	if DB.QueryRow("SELECT value FROM settings WHERE key = 'min_version'").Scan(&savedVersion) == nil && savedVersion != "" {
@@ -832,24 +854,8 @@ func CleanupExpiredTokens() {
 }
 
 // ============================================
-// Payment helpers
+// License helpers
 // ============================================
-
-// CreatePayment records a new PayPal payment
-func CreatePayment(userID, orderID, plan string, amount float64) error {
-	_, err := DB.Exec(`
-		INSERT INTO payments (user_id, paypal_order_id, plan, amount_usd)
-		VALUES ($1, $2, $3, $4)
-	`, userID, orderID, plan, amount)
-	return err
-}
-
-// PaymentExists checks if a payment with the given order ID already exists
-func PaymentExists(orderID string) bool {
-	var exists bool
-	DB.QueryRow("SELECT EXISTS(SELECT 1 FROM payments WHERE paypal_order_id = $1)", orderID).Scan(&exists)
-	return exists
-}
 
 // UpdateLicense updates an existing license's plan and expiration
 func UpdateLicense(licenseID int, plan string, expiresAt *time.Time) error {
@@ -859,6 +865,32 @@ func UpdateLicense(licenseID int, plan string, expiresAt *time.Time) error {
 		WHERE id = $1
 	`, licenseID, plan, expiresAt)
 	return err
+}
+
+// ============================================
+// Coinbase payment helpers
+// ============================================
+
+// CreateCoinbasePayment records a new Coinbase Commerce payment
+func CreateCoinbasePayment(userID, chargeCode, plan string, amount float64) error {
+	// Use empty UUID for anonymous payments
+	var userIDVal interface{} = nil
+	if userID != "" {
+		userIDVal = userID
+	}
+
+	_, err := DB.Exec(`
+		INSERT INTO coinbase_payments (user_id, charge_code, plan, amount_usd)
+		VALUES ($1, $2, $3, $4)
+	`, userIDVal, chargeCode, plan, amount)
+	return err
+}
+
+// CoinbasePaymentExists checks if a payment with the given charge code already exists
+func CoinbasePaymentExists(chargeCode string) bool {
+	var exists bool
+	DB.QueryRow("SELECT EXISTS(SELECT 1 FROM coinbase_payments WHERE charge_code = $1)", chargeCode).Scan(&exists)
+	return exists
 }
 
 // ============================================
@@ -938,7 +970,7 @@ func GetSyncTokens(hwid string) (current string, previous string) {
 		SELECT sync_token, prev_sync_token FROM active_sessions
 		WHERE hwid = $1
 	`, hwid).Scan(&curr, &prev)
-	
+
 	if curr.Valid {
 		current = curr.String
 	}

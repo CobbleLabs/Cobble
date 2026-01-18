@@ -160,12 +160,12 @@ static float getFloorDivisor(float delta, float gcd) {
 static void balanceFloorDivisors(float& yawDelta, float& pitchDelta, float gcd, std::mt19937& rng) {
     float yawDivisor = getFloorDivisor(yawDelta, gcd);
     float pitchDivisor = getFloorDivisor(pitchDelta, gcd);
-    
+
     constexpr float PERFECT_THRESHOLD = 1e-4f;
     constexpr float OFFSET_THRESHOLD = 0.03f;
-    
+
     std::uniform_real_distribution<float> microOffset(0.008f, 0.025f);
-    
+
     // If yaw is too perfect while pitch isn't, add micro-offset to yaw
     if (yawDivisor < PERFECT_THRESHOLD && pitchDivisor > OFFSET_THRESHOLD) {
         float offset = microOffset(rng) * gcd;
@@ -517,25 +517,25 @@ void AimAssist::onUpdate() {
     if (settings.stopOnHitbox && targetHasHitbox) {
         float hitboxWidth = targetHitboxMaxX - targetHitboxMinX;
         float hitboxHeight = targetHitboxMaxY - targetHitboxMinY;
-        
+
         if (hitboxWidth > 0.01f && hitboxHeight > 0.01f) {
             // Calculate angles to hitbox edges
             float yawToMinX = getAngles(localX, localY, localZ, targetHitboxMinX, aimY, targetHitboxMinZ).first;
             float yawToMaxX = getAngles(localX, localY, localZ, targetHitboxMaxX, aimY, targetHitboxMaxZ).first;
             float pitchToMinY = getAngles(localX, localY, localZ, aimX, targetHitboxMinY, aimZ).second;
             float pitchToMaxY = getAngles(localX, localY, localZ, aimX, targetHitboxMaxY, aimZ).second;
-            
+
             float yawDiffToMinX = wrapTo180(-(localYaw - yawToMinX));
             float yawDiffToMaxX = wrapTo180(-(localYaw - yawToMaxX));
             float pitchDiffToMinY = wrapTo180(-(localPitch - pitchToMinY));
             float pitchDiffToMaxY = wrapTo180(-(localPitch - pitchToMaxY));
-            
+
             // Inside hitbox: signs of diffs to opposite edges are different
             bool insideYaw = (yawDiffToMinX * yawDiffToMaxX) <= 0.0f;
             bool insidePitch = (pitchDiffToMinY * pitchDiffToMaxY) <= 0.0f;
-            
+
             bool insideHitbox = settings.horizontalOnly ? insideYaw : (insideYaw && insidePitch);
-            
+
             if (insideHitbox) {
                 prevFrameHadTarget = hasLockedTarget;
                 lastMouseDown = mouseDown;
@@ -545,10 +545,8 @@ void AimAssist::onUpdate() {
     }
 
     // Hurt Time Lock: Instant aim when switching targets
-    if (settings.targetMode == TargetMode::SWITCH && 
-        settings.switchSortBy == SortBy::HURT_TIME && 
-        settings.hurtTimeLock && 
-        targetChangedThisFrame) {
+    if (settings.targetMode == TargetMode::SWITCH && settings.switchSortBy == SortBy::HURT_TIME &&
+        settings.hurtTimeLock && targetChangedThisFrame) {
         // Apply instant aim - skip all smoothing
         player.setYaw(yawTarget);
         player.setPrevYaw(yawTarget);
@@ -672,7 +670,7 @@ bool AimAssist::findTarget(double& targetX, double& targetY, double& targetZ) {
     float lowestHealth = FLT_MAX;
     float minimalAngleDiff = (float)settings.fov / 2.f;
     float closestDistance = FLT_MAX;
-    int lowestHurtTime = INT_MAX;  // For HurtTime sorting (lower = better, 0 = can take damage)
+    int lowestHurtTime = INT_MAX;     // For HurtTime sorting (lower = better, 0 = can take damage)
     float bestSwitchScore = FLT_MAX;  // Combined score for Switch mode
     bool found = false;
 
@@ -811,7 +809,7 @@ bool AimAssist::findTarget(double& targetX, double& targetY, double& targetZ) {
             // Use composite score: primary criterion + small distance tie-breaker
             float score = FLT_MAX;
             float tieBreaker = dist * 0.001f;  // Small distance factor for tie-breaking
-            
+
             switch (settings.switchSortBy) {
                 case SortBy::DISTANCE:
                     score = dist;
@@ -828,15 +826,15 @@ bool AimAssist::findTarget(double& targetX, double& targetY, double& targetZ) {
                     score = (float)p.hurtTime + tieBreaker;
                     break;
             }
-            
+
             // Hysteresis: Give current target a score bonus to prevent rapid switching
             // Only switch if the new target is significantly better
-            bool isCurrentTarget = cachedTarget && env && !env->IsSameObject(cachedTarget, NULL) 
-                                   && env->IsSameObject(cachedTarget, p.instance);
+            bool isCurrentTarget = cachedTarget && env && !env->IsSameObject(cachedTarget, NULL) &&
+                                   env->IsSameObject(cachedTarget, p.instance);
             if (isCurrentTarget) {
                 score -= 0.5f;  // Bonus for staying on current target
             }
-            
+
             if (score < bestSwitchScore) {
                 bestSwitchScore = score;
                 closestPlayer = p;
@@ -1175,9 +1173,9 @@ void AimAssist::applyAimRand(float yawDiff, float pitchDiff, float speed) {
         const char* pStpF = pitchStepClamped ? "S" : "";
         // Debug logging disabled - uncomment to debug aim calculations
         // log_debug("[AimAssist] spd=%.1f norm=%.2f dyn=%.2f ramp=%.2f (t=%.2f e=%.2f c=%.2f) jitter=%.4f diff(y=%.2f
-        // p=%.2f max=%.2f) step(y=%.2f p=%.2f) delta(y=%.3f%s%s p=%.3f%s%s)", 	rawSpeedSetting, speedNorm, dynamicSpeed,
-        // ramp, timeRamp, errorRamp, clickRamp, jitterRange, 	yawDiff, pitchDiff, maxDiff, maxYawStep, maxPitchStep,
-        // 	yawDelta, yErrF, yStpF, pitchDelta, pErrF, pStpF);
+        // p=%.2f max=%.2f) step(y=%.2f p=%.2f) delta(y=%.3f%s%s p=%.3f%s%s)", 	rawSpeedSetting, speedNorm,
+        // dynamicSpeed, ramp, timeRamp, errorRamp, clickRamp, jitterRange, 	yawDiff, pitchDiff, maxDiff, maxYawStep,
+        // maxPitchStep, 	yawDelta, yErrF, yStpF, pitchDelta, pErrF, pStpF);
         (void)yErrF;
         (void)yStpF;
         (void)pErrF;
@@ -1199,12 +1197,12 @@ void AimAssist::applyAimRand(float yawDiff, float pitchDiff, float speed) {
     // Adding drift after GCD breaks the quantization pattern that AC expects
     yawDelta += g_neuroState.driftYaw;
     pitchDelta += settings.horizontalOnly ? 0.f : g_neuroState.driftPitch;
-    
+
     // Apply STRICT GCD - no imperfection, real mice are quantized
     // AC (AimAssistB, AimAssistK) detects when sensitivity can't be determined
     yawDelta = applyGCDStrict(yawDelta, g_cachedGCD);
     pitchDelta = applyGCDStrict(pitchDelta, g_cachedGCD);
-    
+
     // ========== Balance floor divisors to prevent asymmetry detection ==========
     // AimAssistH: flags when pitch is offset but yaw is perfect
     // AimAssistI: flags when yaw is offset but pitch is perfect

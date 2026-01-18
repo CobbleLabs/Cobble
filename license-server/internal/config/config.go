@@ -46,8 +46,8 @@ type Config struct {
 	ResendAPIKey    string
 	ResendFromEmail string
 
-	// PayPal
-	PayPalWebhookID string
+	// Coinbase Commerce
+	CoinbaseWebhookSecret string
 
 	// Telemetry (Discord webhook for security events)
 	DiscordWebhook string
@@ -98,8 +98,8 @@ func Load() *Config {
 		ResendAPIKey:    getEnv("RESEND_API_KEY", ""),
 		ResendFromEmail: getEnv("RESEND_FROM_EMAIL", "Cobble Security <noreply@cobble.vip>"),
 
-		// PayPal
-		PayPalWebhookID: getEnv("PAYPAL_WEBHOOK_ID", ""),
+		// Coinbase Commerce
+		CoinbaseWebhookSecret: getEnv("COINBASE_WEBHOOK_SECRET", ""),
 
 		// Telemetry
 		DiscordWebhook: getEnv("DISCORD_WEBHOOK", ""), // Full URL: https://discord.com/api/webhooks/...

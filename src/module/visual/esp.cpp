@@ -56,7 +56,7 @@ void ESP::checkWorldChange() {
     if (worldChanged) {
         // Mark world change for diagnostics
         Diagnostics::beginWorldChange();
-        
+
         {
             std::lock_guard<std::mutex> lock(cacheMutex);
             cachedPlayers.clear();
@@ -73,7 +73,7 @@ void ESP::checkWorldChange() {
         if (currentWorld) {
             lastWorldRef = Java::Env->NewGlobalRef(currentWorld);
         }
-        
+
         Diagnostics::endWorldChange();
     }
 

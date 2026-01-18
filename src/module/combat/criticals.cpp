@@ -94,30 +94,32 @@ void Criticals::onUpdate() {
                 if (motionY > -0.04 && motionY < 0.04) {
                     // Calculate how far into the effect we are (0.0 to 1.0)
                     float progress = (float)(elapsed - 80) / (float)(settings.duration - 80);
-                    
+
                     // Gradual effect - starts weak, peaks in middle, fades out
                     // Bell curve: stronger in middle of duration
                     float intensity = sinf(progress * 3.14159f);
-                    
+
                     // Very small base adjustment (0.3% to 1%) based on intensity
                     double baseReduction = 0.997 + (0.007 * (1.0 - intensity));
-                    
+
                     // Add natural randomization - varies each frame
                     unsigned long frameRand = GetTickCount() ^ (GetTickCount() >> 3);
                     double randomFactor = 1.0;
-                    
+
                     // Only apply effect ~60% of frames for more natural look
                     if ((frameRand % 10) < 6) {
                         // Tiny random variation (±0.2%)
                         double randomOffset = ((frameRand % 5) - 2) * 0.001;
                         randomFactor = baseReduction + randomOffset;
-                        
+
                         // Clamp to safe range
-                        if (randomFactor < 0.993) randomFactor = 0.993;
-                        if (randomFactor > 1.002) randomFactor = 1.002;
-                        
+                        if (randomFactor < 0.993)
+                            randomFactor = 0.993;
+                        if (randomFactor > 1.002)
+                            randomFactor = 1.002;
+
                         double newMotionY = motionY * randomFactor;
-                        
+
                         // Only set if the change is meaningful but subtle
                         if (newMotionY != motionY) {
                             player.setMotionY(newMotionY);

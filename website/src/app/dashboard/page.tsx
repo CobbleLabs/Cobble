@@ -178,7 +178,7 @@ export default function DashboardPage() {
                             title="Join Discord"
                             description="Get help & community updates"
                             color="purple"
-                            href="https://discord.gg/bEB2feGC"
+                            href="https://discord.gg/frHmJ6TbMF"
                             external
                         />
                     </div>

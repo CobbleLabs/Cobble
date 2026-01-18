@@ -31,15 +31,15 @@
 #include "sdk/network/network_probe.hpp"
 #include "sdk/player/render_data.h"
 #include "security/dll_integrity.hpp"
-#include "security/loader_verify.hpp"
-#include "security/session_validator.hpp"
 #include "security/honeypot.hpp"
 #include "security/loader_validator.hpp"  // Phase 4: Multiple validators
+#include "security/loader_verify.hpp"
+#include "security/session_validator.hpp"
 #include "ui/core/overlay.h"
 #include "ui/hud/notifications.h"
-#include "util/team/friends_manager.h"
-#include "util/state.hpp"
 #include "util/diagnostics.hpp"
+#include "util/state.hpp"
+#include "util/team/friends_manager.h"
 
 // Signature for loader detection (cleared on shutdown for re-injection support)
 volatile char COBBLE_SIGNATURE[] = "COBBLE_LOADED_V1";
@@ -69,13 +69,13 @@ void cobble::context::initialize(HMODULE hModule) {
         ExitProcess(0);
         return;
     }
-    
+
     // Populate honeypot globals for async reporting
     extern std::string g_Honeypot_HWID;
     extern std::string g_Honeypot_Username;
     g_Honeypot_HWID = SessionValidator::g_HWID;
     g_Honeypot_Username = SessionValidator::g_Username;
-    
+
     // Phase 4: Run multiple loader validators
     // This validates shared memory, parent process, timing, modules
     // Failures are reported to Discord and server
@@ -94,11 +94,11 @@ void cobble::context::initialize(HMODULE hModule) {
 
     // Initialize logging console immediately
     c_logger::initialize();
-    
+
     // Install crash handler and start watchdog (DEBUG only)
     Diagnostics::installCrashHandler();
     Diagnostics::startWatchdog();
-    
+
     log_raw("========================================");
     log_ok("Cobble injected! Build: %s", __DATE__);
     log_debug("Module Handle: 0x%p", hModule);
@@ -227,7 +227,7 @@ void cobble::context::initialize(HMODULE hModule) {
     while (is_running) {
         // Update watchdog tick timestamp
         Diagnostics::tick();
-        
+
         if (!overlayInitialized && tickCount >= OVERLAY_INIT_DELAY) {
             DIAG_SCOPE("Overlay::Init");
             Overlay::Init();
@@ -240,27 +240,27 @@ void cobble::context::initialize(HMODULE hModule) {
         }
 
         tickCount++;
-        
+
         // Refresh SDK state periodically (keeps timing in sync)
         if ((tickCount & 0x3FF) == 0) {  // Every ~1024 ticks (~1 sec)
             DIAG_SCOPE("SessionValidator::refresh");
             SessionValidator::refreshState();
-            
+
             // Check if SDK state needs recovery
             if (SessionValidator::isStateCorrupted() || SessionValidator::isStateStale()) {
                 // Attempt recovery - may cause instability
                 sdk::internal::attemptRecovery();
             }
-            
+
             // Check devOverride honeypot
             internal::checkDevOverride();
         }
-        
+
         {
             DIAG_SCOPE("player.refresh");
             player.refresh();
         }
-        
+
         {
             DIAG_SCOPE("moduleManager.update");
             moduleManager->update();

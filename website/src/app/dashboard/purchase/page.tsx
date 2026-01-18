@@ -1,14 +1,11 @@
 "use client";
 
-import { useState } from "react";
 import { motion } from "framer-motion";
 import { Heading, Text } from "@/components/ui/Typography";
 import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
-import { PayPalCheckoutButton } from "@/components/ui/PayPalButton";
 import { useAuth } from "@/context/AuthContext";
-import { activatePayment } from "@/lib/api";
-import { Crown, Zap, Shield, Cloud, Headphones, Sparkles, Check, Loader2 } from "lucide-react";
+import { Crown, Zap, Shield, Cloud, Headphones, Sparkles, Bitcoin } from "lucide-react";
 import clsx from "clsx";
 
 const MONTHLY_FEATURES = [
@@ -26,12 +23,12 @@ const LIFETIME_FEATURES = [
     { icon: Sparkles, text: "Early Access Beta" },
 ];
 
-type PaymentState = "idle" | "processing" | "success" | "error";
+// Coinbase Commerce checkout URLs
+const COINBASE_MONTHLY_URL = "https://commerce.coinbase.com/checkout/6c10e1ba-b95e-490d-b2f8-0d216ccbac8f";
+const COINBASE_LIFETIME_URL = "https://commerce.coinbase.com/checkout/3aea7796-3498-4b95-a1fa-3e9877a82230";
 
 export default function PurchasePage() {
-    const { user, refreshUser, isAuthenticated, isLoading } = useAuth();
-    const [paymentState, setPaymentState] = useState<PaymentState>("idle");
-    const [activatingPlan, setActivatingPlan] = useState<string | null>(null);
+    const { user, isAuthenticated, isLoading } = useAuth();
 
     const hasLicense = user?.license && user.license.plan !== "none";
     const hasMonthly = user?.license?.plan === "monthly";
@@ -62,25 +59,6 @@ export default function PurchasePage() {
         );
     }
 
-    const handlePaymentSuccess = async (orderId: string, planType: "monthly" | "lifetime") => {
-        setPaymentState("processing");
-        setActivatingPlan(planType);
-
-        try {
-            // Call backend to verify and activate license
-            await activatePayment(orderId, planType);
-
-            setPaymentState("success");
-            // Refresh user to get updated license
-            await refreshUser();
-        } catch (error) {
-            console.error("Activation error:", error);
-            setPaymentState("error");
-        } finally {
-            setActivatingPlan(null);
-        }
-    };
-
     // Already has lifetime - show message
     if (hasLifetime) {
         return (
@@ -103,32 +81,10 @@ export default function PurchasePage() {
         );
     }
 
-    // Payment success state
-    if (paymentState === "success") {
-        return (
-            <motion.div
-                initial={{ opacity: 0, scale: 0.95 }}
-                animate={{ opacity: 1, scale: 1 }}
-                className="max-w-2xl mx-auto text-center py-12"
-            >
-                <motion.div
-                    initial={{ scale: 0 }}
-                    animate={{ scale: 1 }}
-                    transition={{ type: "spring", delay: 0.2 }}
-                    className="w-20 h-20 rounded-full bg-green-500/20 flex items-center justify-center mx-auto mb-6"
-                >
-                    <Check className="w-10 h-10 text-green-500" />
-                </motion.div>
-                <Heading className="text-3xl mb-4">Payment Successful!</Heading>
-                <Text className="text-lg mb-2">
-                    Your license has been <span className="text-green-400 font-semibold">activated</span>.
-                </Text>
-                <Text className="text-[var(--text-muted)]">
-                    You can now download Cobble from the Downloads page.
-                </Text>
-            </motion.div>
-        );
-    }
+    const handleCheckout = (url: string) => {
+        // Open Coinbase checkout in new tab
+        window.open(url, "_blank");
+    };
 
     return (
         <motion.div
@@ -139,7 +95,7 @@ export default function PurchasePage() {
             {/* Header */}
             <div className="text-center mb-12">
                 <Heading className="text-4xl mb-4">Choose Your Plan</Heading>
-                <Text className="text-lg">Unlock the full power of Cobble today.</Text>
+                <Text className="text-lg">Unlock the full power of Cobble with crypto.</Text>
             </div>
 
             {/* Pricing Cards Grid */}
@@ -180,20 +136,14 @@ export default function PurchasePage() {
                                 </div>
                             </div>
 
-                            {/* PayPal Button or Processing State */}
-                            {activatingPlan === "monthly" ? (
-                                <div className="flex items-center justify-center py-4 gap-2">
-                                    <Loader2 className="w-5 h-5 animate-spin text-[var(--accent-primary)]" />
-                                    <span className="text-sm text-[var(--text-muted)]">Activating license...</span>
-                                </div>
-                            ) : (
-                                <PayPalCheckoutButton
-                                    planType="monthly"
-                                    onSuccess={(orderId) => handlePaymentSuccess(orderId, "monthly")}
-                                    onError={(err) => console.error(err)}
-                                    disabled={paymentState === "processing"}
-                                />
-                            )}
+                            {/* Crypto Button */}
+                            <button
+                                onClick={() => handleCheckout(COINBASE_MONTHLY_URL)}
+                                className="w-full py-4 px-6 rounded-xl bg-gradient-to-r from-orange-500 to-yellow-500 text-white font-bold flex items-center justify-center gap-3 hover:from-orange-600 hover:to-yellow-600 transition-all shadow-lg shadow-orange-500/20"
+                            >
+                                <Bitcoin className="w-5 h-5" />
+                                Pay with Crypto
+                            </button>
                         </Card>
                     </motion.div>
                 )}
@@ -246,20 +196,14 @@ export default function PurchasePage() {
                             </div>
                         </div>
 
-                        {/* PayPal Button or Processing State */}
-                        {activatingPlan === "lifetime" ? (
-                            <div className="flex items-center justify-center py-4 gap-2">
-                                <Loader2 className="w-5 h-5 animate-spin text-[var(--accent-primary)]" />
-                                <span className="text-sm text-[var(--text-muted)]">Activating license...</span>
-                            </div>
-                        ) : (
-                            <PayPalCheckoutButton
-                                planType="lifetime"
-                                onSuccess={(orderId) => handlePaymentSuccess(orderId, "lifetime")}
-                                onError={(err) => console.error(err)}
-                                disabled={paymentState === "processing"}
-                            />
-                        )}
+                        {/* Crypto Button */}
+                        <button
+                            onClick={() => handleCheckout(COINBASE_LIFETIME_URL)}
+                            className="w-full py-4 px-6 rounded-xl bg-gradient-to-r from-orange-500 to-yellow-500 text-white font-bold flex items-center justify-center gap-3 hover:from-orange-600 hover:to-yellow-600 transition-all shadow-lg shadow-orange-500/20"
+                        >
+                            <Bitcoin className="w-5 h-5" />
+                            Pay with Crypto
+                        </button>
                     </Card>
                 </motion.div>
             </div>
@@ -273,11 +217,12 @@ export default function PurchasePage() {
             >
                 <div className="max-w-2xl mx-auto p-6 rounded-2xl bg-[var(--bg-secondary)] border border-[var(--border-color)]">
                     <div className="flex items-center justify-center gap-2 mb-3">
-                        <Shield className="w-5 h-5 text-[var(--accent-primary)]" />
-                        <span className="font-semibold text-white">Secure Purchase</span>
+                        <Bitcoin className="w-5 h-5 text-orange-500" />
+                        <span className="font-semibold text-white">Crypto Payments</span>
                     </div>
                     <Text className="text-sm text-[var(--text-muted)]">
-                        All payments are processed securely through PayPal. Your license will be activated automatically after payment confirmation.
+                        We accept Bitcoin, Ethereum, USDC, and other cryptocurrencies via Coinbase Commerce.
+                        Your license will be activated automatically after payment confirmation.
                     </Text>
                 </div>
             </motion.div>

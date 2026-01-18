@@ -849,7 +849,8 @@ bool Render() {
         ImGui::PushFont(g_fontRegular);
         std::string readyTextStr = OBFUSCATE_STRING("Ready to Inject");
         ImVec2 readySize = ImGui::CalcTextSize(readyTextStr.c_str());
-        dl->AddText(ImVec2(centerX - readySize.x * 0.5f, titleY + 45), IM_COL32(150, 150, 150, 180), readyTextStr.c_str());
+        dl->AddText(ImVec2(centerX - readySize.x * 0.5f, titleY + 45), IM_COL32(150, 150, 150, 180),
+                    readyTextStr.c_str());
         ImGui::PopFont();
 
         // Spinner - smooth continuous rotation

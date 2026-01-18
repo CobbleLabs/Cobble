@@ -17,16 +17,16 @@ public:
     struct Settings {
         // Minimum hits in combo before filtering kicks in
         int minComboHits = 0;
-        
+
         // Max time between hits to count as same combo (ms)
         int comboDetectionTime = 100;
-        
+
         // Wait for the first successful hit before filtering
         bool waitForFirstHit = true;
-        
+
         // How long to filter after detecting a combo (ms)
         int waitDuration = 500;
-        
+
         // Conditions
         bool weaponOnly = true;
     } settings;
@@ -39,11 +39,11 @@ private:
     std::chrono::steady_clock::time_point lastHitTime;
     std::chrono::steady_clock::time_point comboStartTime;
     std::chrono::steady_clock::time_point lastAllowedClick;
-    
+
     int comboHitCount = 0;
     bool inCombo = false;
     bool firstHitLanded = false;
-    
+
     // Cached state
     int lastTargetHurtTime = 0;
     bool hasTarget = false;

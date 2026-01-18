@@ -85,6 +85,9 @@ func main() {
 	// Audit endpoint (detailed security audit logs from DLL)
 	mux.HandleFunc("/api/internal/audit", handlers.Audit)
 
+	// Coinbase Commerce webhook (payment notifications)
+	mux.HandleFunc("/api/webhooks/coinbase", handlers.CoinbaseWebhook)
+
 	// Public dashboard data
 	mux.HandleFunc("/api/announcements", handlers.GetAnnouncements)
 	mux.HandleFunc("/api/changelogs", handlers.GetChangelogs)
@@ -113,9 +116,6 @@ func main() {
 	mux.HandleFunc("/api/users/me/hwid/reset", middleware.RequireAuth(handlers.ResetHWID))
 	mux.HandleFunc("/api/downloads", middleware.RequireAuth(handlers.GetDownloads))
 
-	// Payment endpoints
-	mux.HandleFunc("/api/payments/activate", middleware.RequireAuth(handlers.ActivatePayment))
-
 	// ============================================
 	// Admin endpoints (require JWT with admin role)
 	// ============================================
@@ -131,6 +131,7 @@ func main() {
 	mux.HandleFunc("/api/admin/changelogs/", middleware.RequireAdmin(handleAdminChangelogRoutes))
 	mux.HandleFunc("/api/admin/logs", middleware.RequireAdmin(handlers.AdminGetLogs))
 	mux.HandleFunc("/api/admin/stats", middleware.RequireAdmin(handlers.Stats))
+	mux.HandleFunc("/api/admin/test-coinbase", middleware.RequireAdmin(handlers.AdminTestCoinbase))
 
 	// Legacy admin endpoints (API key auth)
 	mux.HandleFunc("/api/admin/add", middleware.AdminAuth(handlers.AddLicense))

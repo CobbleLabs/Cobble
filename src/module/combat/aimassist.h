@@ -69,7 +69,7 @@ public:
 
         TargetMode targetMode = TargetMode::DISTANCE;
         SortBy switchSortBy = SortBy::DISTANCE;  // Only used when targetMode is SWITCH
-        bool hurtTimeLock = false;  // Instant aim when switching targets in Hurt Time mode
+        bool hurtTimeLock = false;               // Instant aim when switching targets in Hurt Time mode
         int fov = 180;
         float distance = 5.0f;
         float speed = 50.0f;

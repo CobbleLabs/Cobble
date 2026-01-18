@@ -26,7 +26,7 @@ constexpr int STONE_AXE = 275;
 constexpr int IRON_AXE = 258;
 constexpr int DIAMOND_AXE = 279;
 constexpr int GOLD_AXE = 286;
-}
+}  // namespace HitSelectItems
 
 HitSelect::HitSelect() : Module("HitSelect") {
     keybind = 0;
@@ -53,21 +53,20 @@ void HitSelect::detectHit() {
     // Detect if we just landed a hit by checking if target's hurtTime increased
     Minecraft mc;
     bool targeting = mc.isTargetingEntity();
-    
+
     if (!targeting) {
         hasTarget = false;
         return;
     }
-    
+
     hasTarget = true;
     int currentHurtTime = mc.getTargetedEntityHurtTime();
-    
+
     // HurtTime goes from 10 -> 0, if it just jumped up, we landed a hit
     if (currentHurtTime > lastTargetHurtTime && currentHurtTime >= 9) {
         auto now = std::chrono::steady_clock::now();
-        auto timeSinceLastHit = std::chrono::duration_cast<std::chrono::milliseconds>(
-            now - lastHitTime).count();
-        
+        auto timeSinceLastHit = std::chrono::duration_cast<std::chrono::milliseconds>(now - lastHitTime).count();
+
         // Check if this is part of the same combo
         if (timeSinceLastHit <= settings.comboDetectionTime) {
             comboHitCount++;
@@ -81,73 +80,75 @@ void HitSelect::detectHit() {
             inCombo = false;
             firstHitLanded = false;
         }
-        
+
         lastHitTime = now;
         firstHitLanded = true;
     }
-    
+
     lastTargetHurtTime = currentHurtTime;
 }
 
 void HitSelect::onUpdate() {
-    if (!enabled) return;
+    if (!enabled)
+        return;
     detectHit();
 }
 
 bool HitSelect::shouldAllowClick() {
-    if (!enabled) return true;
-    
+    if (!enabled)
+        return true;
+
     // Weapon check
     if (settings.weaponOnly && !isHoldingWeapon()) {
         return true;
     }
-    
+
     auto now = std::chrono::steady_clock::now();
-    
+
     // If waiting for first hit and we haven't landed one yet, allow all clicks
     if (settings.waitForFirstHit && !firstHitLanded) {
         return true;
     }
-    
+
     // Get fresh target data
     Minecraft mc;
     if (!mc.isTargetingEntity()) {
-        return true; // Not targeting, allow
+        return true;  // Not targeting, allow
     }
-    
+
     int targetHurtTime = mc.getTargetedEntityHurtTime();
-    
+
     // If target can take damage (hurtTime low), always allow
     if (targetHurtTime <= 2) {
         lastAllowedClick = now;
         return true;
     }
-    
+
     // If in combo, enforce wait duration
     if (inCombo) {
-        auto timeSinceLastAllowed = std::chrono::duration_cast<std::chrono::milliseconds>(
-            now - lastAllowedClick).count();
-        
+        auto timeSinceLastAllowed =
+            std::chrono::duration_cast<std::chrono::milliseconds>(now - lastAllowedClick).count();
+
         // Block clicks during wait duration
         if (timeSinceLastAllowed < settings.waitDuration) {
             // But allow if we've waited long enough
             return false;
         }
     }
-    
+
     lastAllowedClick = now;
     return true;
 }
 
 bool HitSelect::isHoldingWeapon() {
     int id = getHeldItemId();
-    if (id == -1) return false;
-    
-    return (id == HitSelectItems::WOOD_SWORD || id == HitSelectItems::STONE_SWORD || 
-            id == HitSelectItems::IRON_SWORD || id == HitSelectItems::DIAMOND_SWORD || 
-            id == HitSelectItems::GOLD_SWORD || id == HitSelectItems::WOOD_AXE || 
-            id == HitSelectItems::STONE_AXE || id == HitSelectItems::IRON_AXE || 
-            id == HitSelectItems::DIAMOND_AXE || id == HitSelectItems::GOLD_AXE);
+    if (id == -1)
+        return false;
+
+    return (id == HitSelectItems::WOOD_SWORD || id == HitSelectItems::STONE_SWORD || id == HitSelectItems::IRON_SWORD ||
+            id == HitSelectItems::DIAMOND_SWORD || id == HitSelectItems::GOLD_SWORD || id == HitSelectItems::WOOD_AXE ||
+            id == HitSelectItems::STONE_AXE || id == HitSelectItems::IRON_AXE || id == HitSelectItems::DIAMOND_AXE ||
+            id == HitSelectItems::GOLD_AXE);
 }
 
 int HitSelect::getHeldItemId() {
@@ -159,16 +160,16 @@ void HitSelect::onRenderMenu() {
         "Combo",
         [this]() {
             ui::CheckboxBind("Enabled", &enabled, &keybind);
-            
+
             ImGui::Spacing();
 
             ui::SliderInt("Min Combo Hits", &settings.minComboHits, 0, 5, "%d");
             ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetColorU32(ImGuiCol_TextDisabled));
             ImGui::TextWrapped("Hits needed before filtering");
             ImGui::PopStyleColor();
-            
+
             ImGui::Spacing();
-            
+
             ui::SliderInt("Combo Detection", &settings.comboDetectionTime, 50, 500, "%d ms");
             ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetColorU32(ImGuiCol_TextDisabled));
             ImGui::TextWrapped("Time between hits for combo");
@@ -180,16 +181,16 @@ void HitSelect::onRenderMenu() {
             ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetColorU32(ImGuiCol_TextDisabled));
             ImGui::TextWrapped("Don't filter until first hit");
             ImGui::PopStyleColor();
-            
+
             ImGui::Spacing();
-            
+
             ui::SliderInt("Wait Duration", &settings.waitDuration, 100, 1000, "%d ms");
             ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetColorU32(ImGuiCol_TextDisabled));
             ImGui::TextWrapped("Time between hits in combo");
             ImGui::PopStyleColor();
-            
+
             ImGui::Spacing();
-            
+
             ui::Checkbox("Weapon Only", &settings.weaponOnly);
         });
 }

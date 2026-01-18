@@ -206,7 +206,7 @@ export default function Home() {
           />
           <PricingCard
             title="Lifetime"
-            price="45"
+            price="35"
             description="The right choice."
             features={["Lifetime Access", "Priority Support", "Exclusive Discord Role", "Early Access Features"]}
             isPopular
