@@ -14,54 +14,44 @@ public:
     void onRenderMenu() override;
     std::string getDisplayInfo() override;
 
-    enum class Mode {
-        Pause = 0,  // One attack per pauseDuration (slow methodical hits)
-        Burst = 1   // Only attack when target hurtTime == 0 (perfect timing)
-    };
-
     struct Settings {
-        Mode mode = Mode::Burst;
-
-        // Pause mode: time between attacks in ms
-        int pauseDurationMs = 500;
-
-        // Burst mode: chance to cancel a bad hit (0-100%)
-        float cancelRate = 100.0f;
-
-        // Cancel rate for swings at air (0-100%)
-        float missedSwingsRate = 50.0f;
-
-        // Show swing animation even when click is blocked
-        bool fakeSwing = true;
-
+        // Minimum hits in combo before filtering kicks in
+        int minComboHits = 0;
+        
+        // Max time between hits to count as same combo (ms)
+        int comboDetectionTime = 100;
+        
+        // Wait for the first successful hit before filtering
+        bool waitForFirstHit = true;
+        
+        // How long to filter after detecting a combo (ms)
+        int waitDuration = 500;
+        
         // Conditions
-        bool weaponOnly = false;
-        bool targetingPlayerOnly = false;
+        bool weaponOnly = true;
     } settings;
 
     // Called by AutoClicker before executing a click
     // Returns true if click should proceed, false if blocked
     bool shouldAllowClick();
 
-    // Check if currently targeting a valid entity
-    bool isTargetingEntity();
-
 private:
-    std::chrono::steady_clock::time_point lastAllowedAttack;
-    std::chrono::steady_clock::time_point lastBlockedClick;
-
-    // Cached target state
-    int cachedTargetHurtTime = 0;
+    std::chrono::steady_clock::time_point lastHitTime;
+    std::chrono::steady_clock::time_point comboStartTime;
+    std::chrono::steady_clock::time_point lastAllowedClick;
+    
+    int comboHitCount = 0;
+    bool inCombo = false;
+    bool firstHitLanded = false;
+    
+    // Cached state
+    int lastTargetHurtTime = 0;
     bool hasTarget = false;
 
-    // RNG for cancel rate
-    std::mt19937 rng;
-
-    // Helper methods
+    // Helpers
     bool isHoldingWeapon();
     int getHeldItemId();
-    bool checkCancelRate(float rate);
-    void doFakeSwing();
+    void detectHit();
 };
 
 extern HitSelect* hitSelect;

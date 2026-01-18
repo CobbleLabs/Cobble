@@ -226,13 +226,11 @@ void ConfigManager::applyConfig() {
                 s.movingOnly = data["movingOnly"].as_bool(s.movingOnly);
             } else if (name == "HitSelect" && hitSelect) {
                 auto& s = hitSelect->settings;
-                s.mode = static_cast<HitSelect::Mode>(data["mode"].as_int(static_cast<int>(s.mode)));
-                s.pauseDurationMs = data["pauseDurationMs"].as_int(s.pauseDurationMs);
-                s.cancelRate = data["cancelRate"].as_float(s.cancelRate);
-                s.missedSwingsRate = data["missedSwingsRate"].as_float(s.missedSwingsRate);
-                s.fakeSwing = data["fakeSwing"].as_bool(s.fakeSwing);
+                s.minComboHits = data["minComboHits"].as_int(s.minComboHits);
+                s.comboDetectionTime = data["comboDetectionTime"].as_int(s.comboDetectionTime);
+                s.waitForFirstHit = data["waitForFirstHit"].as_bool(s.waitForFirstHit);
+                s.waitDuration = data["waitDuration"].as_int(s.waitDuration);
                 s.weaponOnly = data["weaponOnly"].as_bool(s.weaponOnly);
-                s.targetingPlayerOnly = data["targetingPlayerOnly"].as_bool(s.targetingPlayerOnly);
             } else if (name == "Hitbox" && hitbox) {
                 auto& s = hitbox->settings;
                 s.expansion = data["expansion"].as_float(s.expansion);
@@ -463,13 +461,11 @@ void ConfigManager::buildConfigFromModules() {
             config_["modules"][name]["movingOnly"] = s.movingOnly;
         } else if (name == "HitSelect" && hitSelect) {
             const auto& s = hitSelect->settings;
-            config_["modules"][name]["mode"] = static_cast<int>(s.mode);
-            config_["modules"][name]["pauseDurationMs"] = s.pauseDurationMs;
-            config_["modules"][name]["cancelRate"] = s.cancelRate;
-            config_["modules"][name]["missedSwingsRate"] = s.missedSwingsRate;
-            config_["modules"][name]["fakeSwing"] = s.fakeSwing;
+            config_["modules"][name]["minComboHits"] = s.minComboHits;
+            config_["modules"][name]["comboDetectionTime"] = s.comboDetectionTime;
+            config_["modules"][name]["waitForFirstHit"] = s.waitForFirstHit;
+            config_["modules"][name]["waitDuration"] = s.waitDuration;
             config_["modules"][name]["weaponOnly"] = s.weaponOnly;
-            config_["modules"][name]["targetingPlayerOnly"] = s.targetingPlayerOnly;
         } else if (name == "Hitbox" && hitbox) {
             const auto& s = hitbox->settings;
             config_["modules"][name]["expansion"] = s.expansion;
