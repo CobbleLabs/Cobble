@@ -7,16 +7,26 @@
 #include <vector>
 #include "../util/aes_string.hpp"
 #include "../util/json.h"
+#include "../security/themida.h"
 #include "tweetnacl.h"
 
 #pragma comment(lib, "winhttp.lib")
 
-// Ed25519 public key for manifest verification (32 bytes)
-// Generate with: openssl genpkey -algorithm Ed25519 -out private.pem
-// Extract public: openssl pkey -in private.pem -pubout -outform DER | tail -c 32 | xxd -i
-constexpr uint8_t UPDATE_PUBLIC_KEY[32] = {0xd2, 0xb8, 0x41, 0x41, 0x05, 0x22, 0xdb, 0x99, 0xe7, 0x86, 0xf4,
-                                           0x60, 0x1a, 0xb2, 0x04, 0x61, 0x0f, 0xdb, 0x14, 0x75, 0x0e, 0x93,
-                                           0xbb, 0xb5, 0xa1, 0x85, 0xc9, 0xd7, 0x23, 0x7d, 0x79, 0xac};
+// Ed25519 public key for manifest verification - protected by Themida VM
+static inline const uint8_t* GetUpdatePublicKey() {
+    // THEMIDA: Virtualize key retrieval to prevent static extraction
+    COBBLE_VM_CRITICAL_START
+
+    static const uint8_t key[32] = {0xd2, 0xb8, 0x41, 0x41, 0x05, 0x22, 0xdb, 0x99, 0xe7, 0x86, 0xf4,
+                                    0x60, 0x1a, 0xb2, 0x04, 0x61, 0x0f, 0xdb, 0x14, 0x75, 0x0e, 0x93,
+                                    0xbb, 0xb5, 0xa1, 0x85, 0xc9, 0xd7, 0x23, 0x7d, 0x79, 0xac};
+
+    COBBLE_VM_CRITICAL_END
+    return key;
+}
+
+// Macro for backward compatibility
+#define UPDATE_PUBLIC_KEY GetUpdatePublicKey()
 
 namespace Updater {
 
@@ -60,8 +70,8 @@ inline int compareVersions(const std::string& a, const std::string& b) {
 // Registry helpers for highest_seen
 inline std::string getHighestSeen() {
     HKEY key;
-    if (RegOpenKeyExA(HKEY_CURRENT_USER, OBFUSCATE_STRING("Software\\Microsoft\\Cryptography\\Data").c_str(), 0, KEY_READ, &key) !=
-        ERROR_SUCCESS)
+    if (RegOpenKeyExA(HKEY_CURRENT_USER, OBFUSCATE_STRING("Software\\Microsoft\\Cryptography\\Data").c_str(), 0,
+                      KEY_READ, &key) != ERROR_SUCCESS)
         return "";
 
     char buf[64] = {0};
@@ -73,9 +83,10 @@ inline std::string getHighestSeen() {
 
 inline void setHighestSeen(const std::string& version) {
     HKEY key;
-    if (RegCreateKeyExA(HKEY_CURRENT_USER, OBFUSCATE_STRING("Software\\Microsoft\\Cryptography\\Data").c_str(), 0, nullptr, 0, KEY_WRITE,
-                        nullptr, &key, nullptr) == ERROR_SUCCESS) {
-        RegSetValueExA(key, OBFUSCATE_STRING("MachineGuid").c_str(), 0, REG_SZ, (LPBYTE)version.c_str(), (DWORD)version.size() + 1);
+    if (RegCreateKeyExA(HKEY_CURRENT_USER, OBFUSCATE_STRING("Software\\Microsoft\\Cryptography\\Data").c_str(), 0,
+                        nullptr, 0, KEY_WRITE, nullptr, &key, nullptr) == ERROR_SUCCESS) {
+        RegSetValueExA(key, OBFUSCATE_STRING("MachineGuid").c_str(), 0, REG_SZ, (LPBYTE)version.c_str(),
+                       (DWORD)version.size() + 1);
         RegCloseKey(key);
     }
 }
@@ -107,7 +118,8 @@ inline CheckResult TryCheck(const std::string& currentVersion, const std::string
     CheckResult result;
 
     // HTTP GET /api/update/manifest
-    HINTERNET session = WinHttpOpen(OBFUSCATE_WSTRING(L"Mozilla/5.0").c_str(), WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, nullptr, nullptr, 0);
+    HINTERNET session =
+        WinHttpOpen(OBFUSCATE_WSTRING(L"Mozilla/5.0").c_str(), WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, nullptr, nullptr, 0);
     if (!session) {
         result.error = OBFUSCATE_STRING("WinHttpOpen failed");
         return result;

@@ -116,7 +116,6 @@ void ArrayListRenderer::render() {
         entries.push_back(entry);
     }
 
-    // Add "Teams" entry if Auto Detect is enabled
     if (friendsManager && friendsManager->teams.enabled) {
         entries.push_back({"Teams", ""});
     }

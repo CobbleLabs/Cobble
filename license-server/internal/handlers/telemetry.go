@@ -59,6 +59,9 @@ func Telemetry(w http.ResponseWriter, r *http.Request) {
 			req.EventType = values.Get("event_type")
 			req.EventCode = values.Get("event_code")
 			req.Severity = values.Get("severity")
+			if scoreStr := values.Get("score"); scoreStr != "" {
+				fmt.Sscanf(scoreStr, "%d", &req.Score)
+			}
 			req.Details = values.Get("details")
 			req.Version = values.Get("version")
 			req.Source = values.Get("source")
@@ -149,7 +152,7 @@ func forwardToDiscord(req TelemetryRequest, eventCode, clientIP string) {
 
 	// Build embed
 	embed := DiscordEmbed{
-		Title: fmt.Sprintf("🔒 %s: %s", source, eventCode),
+		Title: fmt.Sprintf("%s: %s", source, eventCode),
 		Color: severityToColor(req.Severity),
 		Fields: []DiscordField{
 			{Name: "Event", Value: eventCode, Inline: true},

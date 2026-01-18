@@ -9,8 +9,15 @@ Checks: >
   modernize-*,
   readability-identifier-naming,
   readability-redundant-*,
+  
+  misc-unused-*,
+  clang-diagnostic-unused-*,
+  readability-redundant-preprocessing,
+  misc-redundant-expression,
+  
   -modernize-use-trailing-return-type,
   -modernize-avoid-c-arrays,
+  -modernize-use-scoped-lock,
   -bugprone-easily-swappable-parameters,
   -performance-no-int-to-ptr
 

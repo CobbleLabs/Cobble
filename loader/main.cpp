@@ -28,19 +28,24 @@
 
 // Protection system
 #include "src/license/telemetry.hpp"
-#include "src/security/advanced_security.hpp"
-#include "src/security/antidbg.hpp"
 #include "src/security/integrity.hpp"
 #include "src/security/integrity_gen.hpp"
+#include "src/security/themida.h"
 #include "src/util/aes_string.hpp"
 #include "src/util/control_flow.hpp"
 
-// Server configuration (obfuscated)
+// Server configuration - protected by Themida
 inline std::string getServerPrimary() {
-    return OBFUSCATE_STRING("api.cobble.vip");
+    COBBLE_STR_ENCRYPT_BEGIN
+    std::string result = OBFUSCATE_STRING("api.cobble.vip");
+    COBBLE_STR_ENCRYPT_END
+    return result;
 }
 inline std::string getLicenseServerPrimary() {
-    return OBFUSCATE_STRING("https://api.cobble.vip");
+    COBBLE_STR_ENCRYPT_BEGIN
+    std::string result = OBFUSCATE_STRING("https://api.cobble.vip");
+    COBBLE_STR_ENCRYPT_END
+    return result;
 }
 
 #define SERVER_PORT_HTTPS 443
@@ -61,121 +66,80 @@ struct InjectionData {
     // Note: DLL derives the shared memory name from GetCurrentProcessId()
 };
 
-std::atomic<bool> g_SecurityViolation(false);
-
-DWORD WINAPI SecurityThread1(LPVOID lpParam) {
-    while (!g_SecurityViolation) {
-        CF_NOP();
-        if (CF_CHECK(Security::IsBeingDebugged())) {
-            CF_JUNK();
-            g_SecurityViolation = true;
-            break;
-        }
-        CF_NOP();
-        Sleep(500);
-    }
-    return 0;
-}
-
-DWORD WINAPI SecurityThread2(LPVOID lpParam) {
-    while (!g_SecurityViolation) {
-        CF_NOP();
-        if (CF_CHECK(Security::HasAPIHooks())) {
-            CF_JUNK();
-            g_SecurityViolation = true;
-            break;
-        }
-        CF_NOP();
-        Sleep(500);
-    }
-    return 0;
-}
-
-DWORD WINAPI SecurityThread3(LPVOID lpParam) {
-    while (!g_SecurityViolation) {
-        if (AdvancedSecurity::hasKernelDebugger()) {
-            g_SecurityViolation = true;
-            break;
-        }
-        if (AdvancedSecurity::hasSyscallHooks()) {
-            g_SecurityViolation = true;
-            break;
-        }
-        Sleep(1000);
-    }
-    return 0;
-}
-
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow) {
-    // Security checks with control flow obfuscation
-    CF_CRITICAL_BEGIN();
-    if (CF_CHECK(Security::IsBeingDebugged()))
-        return 1;
-    CF_CRITICAL_END();
+    // === EARLY TELEMETRY: Send webhook BEFORE Themida can kill the process ===
+    {
+        Telemetry::Init(getServerPrimary());
+        auto toolDetections = Security::CheckRunningTools();
+        for (auto& d : toolDetections) {
+            Telemetry::Severity sev = (d.score >= 40) ? Telemetry::Severity::WARN : Telemetry::Severity::INFO;
+            Telemetry::ReportImmediate(d.code, sev, d.score, d.details);
+        }
+    }
+
+    // === THEMIDA PROTECTION CHECKS (Release only, when protected) ===
+#ifdef NDEBUG
+    {
+        int protectionCheck = 0;
+        CHECK_PROTECTION(protectionCheck, 1);
+
+        if (protectionCheck == 1) {
+            // Anti-tamper check
+            int integrityCheck = 0;
+            CHECK_CODE_INTEGRITY(integrityCheck, 1);
+            if (integrityCheck != 1) {
+                Telemetry::ReportImmediate("THEMIDA_TAMPER", Telemetry::Severity::CRITICAL, 100,
+                                           "CHECK_CODE_INTEGRITY");
+                return 1;
+            }
+
+            // Debugger detection
+            int debuggerCheck = 0;
+            CHECK_DEBUGGER(debuggerCheck, 0);
+            if (debuggerCheck != 0) {
+                Telemetry::ReportImmediate("THEMIDA_DEBUGGER", Telemetry::Severity::CRITICAL, 100, "CHECK_DEBUGGER");
+                return 1;
+            }
+        }
+    }
+#endif
+
+    // Initialize security patches (anti-attach, etc.)
     Security::Initialize();
 
-    // Initialize telemetry ONCE at startup (non-blocking)
-    Telemetry::Init();
-
-    // === NEW SCORE-BASED DETECTION SYSTEM ===
-    // This detects tools (x64dbg, CheatEngine, etc.) with appropriate responses
+    // === SCORE-BASED DETECTION SYSTEM ===
     {
         std::vector<Security::Detection> detections;
         Security::SecurityDecision decision = Security::RunSecurityChecksWithDecision(detections);
 
         if (decision == Security::SecurityDecision::BLOCK) {
-            // Tier 1: Critical detection (debugger attached) -> silent exit
             return 1;
         }
 
         if (decision == Security::SecurityDecision::WARN) {
-            // Tier 2: Tool detected (x64dbg running, etc.) -> show warning with retry
             int userChoice = MessageBoxA(
                 nullptr,
-                OBFUSCATE_STRING("Analysis tools detected.\n\nPlease close any debugging or analysis software and try again.").c_str(),
+                OBFUSCATE_STRING(
+                    "Analysis tools detected.\n\nPlease close any debugging or analysis software and try again.")
+                    .c_str(),
                 OBFUSCATE_STRING("Cobble Loader").c_str(), MB_RETRYCANCEL | MB_ICONWARNING);
 
             if (userChoice == IDRETRY) {
-                // Re-check after user claims to have closed tools
                 detections.clear();
                 decision = Security::RunSecurityChecksWithDecision(detections);
                 if (decision != Security::SecurityDecision::ALLOW) {
-                    return 1;  // Still detected, exit
+                    return 1;
                 }
             } else {
-                return 0;  // User cancelled
+                return 0;
             }
         }
-        // ALLOW: continue normally
     }
-
-    AntiDebug::calibrate();
-    if (AntiDebug::isDebugged()) {
-        Telemetry::Report("DBG_ANTIDBG", Telemetry::Severity::CRITICAL, 100, "AntiDebug::isDebugged");
-        Sleep(500);  // Give telemetry time to send
-        return 1;
-    }
-
-    // Advanced security checks (VM, kernel debugger, syscall hooks)
-    if (AdvancedSecurity::isCompromised()) {
-        Telemetry::Report("DBG_ADVANCED", Telemetry::Severity::CRITICAL, 100, "AdvancedSecurity::isCompromised");
-        Sleep(500);
-        return 1;
-    }
-
-    HANDLE hThread1 = CreateThread(NULL, 0, SecurityThread1, NULL, 0, NULL);
-    HANDLE hThread2 = CreateThread(NULL, 0, SecurityThread2, NULL, 0, NULL);
-    HANDLE hThread3 = CreateThread(NULL, 0, SecurityThread3, NULL, 0, NULL);
-    if (hThread1)
-        CloseHandle(hThread1);
-    if (hThread2)
-        CloseHandle(hThread2);
-    if (hThread3)
-        CloseHandle(hThread3);
 
     // UI Init
     if (!LoaderUI::Init()) {
-        MessageBoxA(nullptr, OBFUSCATE_STRING("Failed to initialize UI").c_str(), OBFUSCATE_STRING("Cobble Loader").c_str(), MB_ICONERROR);
+        MessageBoxA(nullptr, OBFUSCATE_STRING("Failed to initialize UI").c_str(),
+                    OBFUSCATE_STRING("Cobble Loader").c_str(), MB_ICONERROR);
         return 1;
     }
 
@@ -349,11 +313,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
             }
 
             // Check for security violations while waiting
-            if (g_SecurityViolation) {
-                LoaderUI::Shutdown();
-                return 1;
-            }
-
             auto now = std::chrono::steady_clock::now();
             if (now >= nextScan) {
                 lunar = findLunarClient();
@@ -371,20 +330,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
             ;
         LoaderUI::Shutdown();
         return 0;
-    }
-
-    if (g_SecurityViolation) {
-        LoaderUI::Shutdown();
-        return 1;
-    }
-
-    // Final security check before fetching key
-    if (Security::HasAPIHooks() || AntiDebug::isDebugged()) {
-        LoaderUI::SetError(OBFUSCATE_STRING("Launch failed"));
-        while (renderFrame())
-            ;
-        LoaderUI::Shutdown();
-        return 1;
     }
 
     // =========================================================================
@@ -415,9 +360,10 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 
     // One final security check right before decryption
     CF_CRITICAL_BEGIN();
-    if (CF_CHECK(g_SecurityViolation || Security::IsBeingDebugged() || AntiDebug::isDebugged())) {
+    if (CF_CHECK(false)) {
         CF_JUNK();
-        Telemetry::Report("DBG_FINAL_CHECK", Telemetry::Severity::CRITICAL, 100, OBFUSCATE_STRING("Pre-decrypt security check failed"));
+        Telemetry::Report("DBG_FINAL_CHECK", Telemetry::Severity::CRITICAL, 100,
+                          OBFUSCATE_STRING("Pre-decrypt security check failed"));
         Sleep(500);
         SecureZeroMemory(&payloadKey[0], payloadKey.size());
         LoaderUI::Shutdown();
@@ -453,6 +399,10 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     HANDLE hMapFile = nullptr;
     std::wstring sharedMemNameW;
     {
+        // THEMIDA: Protect InjectionData preparation - contains secrets
+        // Note: VM protection covers all strings within this block
+        COBBLE_VM_HIGH_START
+
         InjectionData injData = {};
         memcpy(injData.signature, "COBBLE_INJ_V1\0\0\0", 16);
 
@@ -480,11 +430,11 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         strncpy_s(injData.syncToken, syncToken.c_str(), 64);
 
         // Generate PID-based shared memory name
-        // Other processes don't know which Java process to target, and DLL can find it via GetCurrentProcessId()
-        // Much harder to guess than fixed name "CobbleInjection"
         wchar_t pidStr[64];
         swprintf_s(pidStr, L"Local\\Cobble_%lu", lunar.pid);
         sharedMemNameW = pidStr;
+
+        COBBLE_VM_HIGH_END
 
         // Create security attributes with restricted DACL
         // Only current user can access (not NULL DACL which allows everyone)

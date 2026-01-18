@@ -70,47 +70,13 @@ int CalculateRiskScore(const std::vector<Detection>& detections);
 // NEW API: Decide action based on score
 SecurityDecision Decide(int score);
 
-// ==================== INDIVIDUAL CHECKS (internal, return Detection) ====================
-
-// Anti-debug checks (TIER 1: score = 100)
-Detection CheckPEB_v2();
-Detection CheckNtDebugObject_v2();
-Detection CheckNtDebugFlags_v2();
-Detection CheckRemoteDebugger_v2();
-Detection CheckHardwareBreakpoints_v2();
-Detection CheckHeapFlags_v2();
+// ==================== INDIVIDUAL CHECKS (internal) ====================
 
 // Tool detection (TIER 2/3: variable scores)
 std::vector<Detection> CheckRunningTools();
 
 // VM detection (TIER 3: score = 30)
 std::vector<Detection> CheckVMIndicators();
-
-// ==================== LEGACY API (for compatibility) ====================
-
-// Basic API check
-bool CheckRemoteDebugger();
-
-// PEB BeingDebugged flag (manual access)
-bool CheckPEB();
-
-// NtQueryInformationProcess with DebugFlags
-bool CheckNtDebugFlags();
-
-// NtQueryInformationProcess with DebugObject
-bool CheckNtDebugObject();
-
-// Heap debug flags (HEAP_GROWABLE check)
-bool CheckHeapFlags();
-
-// Heap protection marker (0xABABABAB)
-bool CheckHeapProtection();
-
-// Hardware breakpoint registers (DR0-DR3)
-bool CheckHardwareBreakpoints();
-
-// Combined anti-debug check (legacy)
-bool IsBeingDebugged();
 
 // ==================== ANTI-ATTACH ====================
 

@@ -5,12 +5,17 @@
 #include <iomanip>
 #include <sstream>
 
+// Themida SDK protection
+#include "../security/themida.h"
+
 #pragma comment(lib, "iphlpapi.lib")
 
 namespace HWID {
 
 // Simple hash function (SHA256-like but simpler for this use case)
 static std::string SimpleHash(const std::string& input) {
+    std::string result;
+
     // Using Windows CryptoAPI for proper hashing
     HCRYPTPROV hProv = 0;
     HCRYPTHASH hHash = 0;
@@ -18,36 +23,39 @@ static std::string SimpleHash(const std::string& input) {
     DWORD hashLen = 32;
 
     if (!CryptAcquireContextW(&hProv, NULL, NULL, PROV_RSA_AES, CRYPT_VERIFYCONTEXT)) {
-        return "";
+        goto Done;
     }
 
     if (!CryptCreateHash(hProv, CALG_SHA_256, 0, 0, &hHash)) {
-        CryptReleaseContext(hProv, 0);
-        return "";
+        goto Done;
     }
 
     if (!CryptHashData(hHash, (BYTE*)input.c_str(), (DWORD)input.length(), 0)) {
-        CryptDestroyHash(hHash);
-        CryptReleaseContext(hProv, 0);
-        return "";
+        goto Done;
     }
 
     if (!CryptGetHashParam(hHash, HP_HASHVAL, hash, &hashLen, 0)) {
-        CryptDestroyHash(hHash);
-        CryptReleaseContext(hProv, 0);
-        return "";
+        goto Done;
     }
-
-    CryptDestroyHash(hHash);
-    CryptReleaseContext(hProv, 0);
 
     // Convert to hex string
-    std::stringstream ss;
-    for (int i = 0; i < 32; i++) {
-        ss << std::hex << std::setw(2) << std::setfill('0') << (int)hash[i];
+    {
+        std::stringstream ss;
+        for (int i = 0; i < 32; i++) {
+            ss << std::hex << std::setw(2) << std::setfill('0') << (int)hash[i];
+        }
+        result = ss.str();
     }
 
-    return ss.str();
+Done:
+    if (hHash) {
+        CryptDestroyHash(hHash);
+    }
+    if (hProv) {
+        CryptReleaseContext(hProv, 0);
+    }
+
+    return result;
 }
 
 std::string GetCPUID() {
@@ -115,6 +123,8 @@ std::string GetMACAddress() {
 }
 
 std::string Generate() {
+    COBBLE_HWID_BEGIN
+
     // Combine all identifiers
     std::string combined;
     combined += GetCPUID();
@@ -124,7 +134,10 @@ std::string Generate() {
     combined += GetMACAddress();
 
     // Hash the combined string
-    return SimpleHash(combined);
+    std::string result = SimpleHash(combined);
+
+    COBBLE_HWID_END
+    return result;
 }
 
 }  // namespace HWID

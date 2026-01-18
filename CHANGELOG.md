@@ -6,6 +6,20 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/).
 
 ---
 
+## [1.1.4] - 2026-01-18
+
+### Security
+- **Themida Protection Integration**: Replaced manual security checks with Oreans Themida (SecureEngine)
+  - **Code Virtualization**: Critical functions protected with TIGER64 / SHARK64 VMs
+  - **Robust Anti-Debug**: Replaced fragile `IsBeingDebugged` checks with Themida's engine
+  - **Anti-Tamper**: Dynamic integrity checks (`CHECK_CODE_INTEGRITY`) handled by Themida
+  - **Anti-VM**: Intelligent VM detection (allows legitimate VMware users, blocks analysis VMs)
+  - **Early Telemetry**: Tool detection reports to server *before* Themida terminates the process
+  - **Silent Protection**: Removed blockers/popups in favor of silent exits or generic errors
+  - **Benefit**: Drastic reduction in false positives (OBS/Discord) vs legacy checks
+
+---
+
 ## [1.1.3] - 2026-01-17
 
 ### Changed

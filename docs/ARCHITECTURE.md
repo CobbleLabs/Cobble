@@ -19,10 +19,10 @@ Cobble is an injectable ghost client for Lunar Client (Minecraft), composed of t
 ┌─────────────────┐            ┌─────────────┐
 │  CobbleLoader   │            │  Minecraft  │
 │ ┌─────────────┐ │            │ ┌─────────┐ │
-│ │ Security    │ │            │ │Cobble.dll│ │
-│ │ - Anti-Debug│ │            │ │         │ │
-│ │ - Anti-VM   │ │            │ │ ┌─────┐ │ │
-│ │ - Anti-Dump │ │            │ │ │ JNI │ │ │
+│ │ Security:   │ │            │ │Cobble.dll │
+│ │ - Themida   │ │            │ │         │ │
+│ │ - VM/AntiDbg│ │            │ │ ┌─────┐ │ │
+│ │ - Integrity │ │            │ │ │ JNI │ │ │
 │ └─────────────┘ │            │ │ └─────┘ │ │
 │        │        │            │ │ ImGui   │ │
 │        ▼        │            │ │ Overlay │ │
@@ -49,7 +49,7 @@ Cobble is an injectable ghost client for Lunar Client (Minecraft), composed of t
 |-----------|----------------|
 | `inject.cpp` | LoadLibrary injection into javaw.exe |
 | `process.cpp` | Minecraft/Lunar process detection |
-| `security.cpp` | Anti-debug, anti-VM, anti-attach |
+| `security.cpp` | Themida integration (Anti-debug/VM definitions) |
 | `license.cpp` | HTTPS license verification, injection secret retrieval |
 | `hwid.cpp` | SHA256(CPU + Disk + MAC) generation |
 | `main.cpp` | Creates `InjectionData` shared memory for DLL validation |
@@ -264,9 +264,10 @@ CobbleLoader.exe
     │           └── Exit (return 0)
     │
     ├─[1] Security Initialization
-    │     ├── IsOnVM() → exit if VM detected
-    │     ├── IsBeingDebugged() → exit if debugger
-    │     └── Start heartbeat threads (monitoring)
+    │     ├── Themida CHECK_PROTECTION (if release build)
+    │     ├── Themida CHECK_DEBUGGER / CHECK_CODE_INTEGRITY
+    │     ├── Early Telemetry (report tools before blocking)
+    │     └── Anti-Attach patches (conditionally applied)
     │
     ├─[2] UI Init + UPDATE CHECK
     │     ├── setupConsole() + printBanner()
@@ -432,7 +433,6 @@ Overlay::Render()
 | Context | Thread | Safety Notes |
 |---------|--------|--------------|
 | Loader main | Main thread | Security init, injection |
-| Loader heartbeat | Background | Anti-debug monitoring (loader side) |
 | DLL main loop | JNI thread | Attached to JVM, 1ms tick |
 | DLL heartbeat | Background | License validation every 2-3 min |
 | Overlay render | OpenGL thread | ImGui calls only here |
@@ -470,12 +470,12 @@ Player joins server
 ## Security Model
 
 ### Loader Security
-
 | Layer | Implementation |
 |-------|----------------|
-| Anti-Debug | PEB.BeingDebugged, NtQueryInformationProcess, hardware breakpoints |
-| Anti-Attach | DbgBreakPoint patch, DbgUiRemoteBreakin patch |
-| Anti-VM | Registry keys, VM files, ACPI tables, process names |
+| Anti-Debug | **Themida** (Ring3/Ring0 detection, virtualization) |
+| Anti-Tamper | **Themida** `CHECK_CODE_INTEGRITY` (dynamic monitoring) |
+| Anti-VM | **Themida** `CHECK_VIRTUAL_PC` (with VMware support enabled) |
+| Code Prot | **Themida** TIGER64/SHARK64 Virtualization |
 | Injection | SecureManualMap (no LoadLibrary, no persistent RWX) |
 | Payload Encryption | AES-256-CBC with server-provided key |
 | Handshake | Writes `injection_secret` + `sync_token` to shared memory |

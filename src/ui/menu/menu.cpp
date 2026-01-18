@@ -229,8 +229,7 @@ static void renderSettingsPage() {
                 ImGui::Separator();
                 ImGui::Spacing();
 
-                // Auto Detect - enables all team detection (Apollo, Scoreboard, etc.)
-                ui::Checkbox("Auto Detect", &friendsManager->teams.enabled);
+                ui::Checkbox("Teams", &friendsManager->teams.enabled);
                 ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetColorU32(ImGuiCol_TextDisabled));
                 ImGui::PopStyleColor();
 

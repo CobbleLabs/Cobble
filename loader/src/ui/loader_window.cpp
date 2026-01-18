@@ -557,7 +557,8 @@ bool Render() {
 
         // Title "Cobble" - LANDS with easeOutBack (premium settle effect)
         ImGui::PushFont(g_fontLogo);
-        const char* title = "Cobble";
+        std::string titleStr = OBFUSCATE_STRING("Cobble");
+        const char* title = titleStr.c_str();
         ImVec2 titleSize = ImGui::CalcTextSize(title);
         float titleIn = easeOutBack(uiIn);
         float titleYPos = titleY + (1.0f - titleIn) * 18.0f;
@@ -568,7 +569,8 @@ bool Render() {
 
         // Subtitle - DRIFTS (not appears)
         ImGui::PushFont(g_fontRegular);
-        const char* subtitle = "Welcome back";
+        std::string subtitleStr = OBFUSCATE_STRING("Welcome back");
+        const char* subtitle = subtitleStr.c_str();
         ImVec2 subSize = ImGui::CalcTextSize(subtitle);
         float subIn = easeOutCubic(ImClamp((g_loginTime - 0.1f) / 0.5f, 0.0f, 1.0f));
         float subY = titleY + 45 + (1.0f - subIn) * 12.0f;
@@ -579,7 +581,8 @@ bool Render() {
         float inputY = formY + formOffset;
 
         // Check if we serve a blocking error that shouldn't show login fields
-        bool showLoginFields = (g_errorMessage != "Already injected");
+        std::string alreadyInjStr = OBFUSCATE_STRING("Already injected");
+        bool showLoginFields = (g_errorMessage != alreadyInjStr);
 
         if (showLoginFields) {
             ImGui::PushFont(g_fontRegular);
@@ -871,7 +874,8 @@ bool Render() {
         ImGui::PopFont();
 
         ImGui::PushFont(g_fontRegular);
-        const char* injText = "Injecting...";
+        std::string injTextStr = OBFUSCATE_STRING("Injecting...");
+        const char* injText = injTextStr.c_str();
         ImVec2 injSize = ImGui::CalcTextSize(injText);
         dl->AddText(ImVec2(centerX - injSize.x * 0.5f, titleY + 45), IM_COL32(200, 200, 200, 210), injText);
         ImGui::PopFont();

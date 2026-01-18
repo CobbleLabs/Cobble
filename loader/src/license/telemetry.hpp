@@ -50,6 +50,7 @@ namespace Internal {
 inline std::mutex g_Mutex;
 inline std::unordered_map<std::string, int64_t> g_LastSent;  // throttle map
 inline std::string g_SessionId;
+inline std::string g_ServerHost = OBFUSCATE_STRING("api.cobble.vip");
 inline bool g_Initialized = false;
 
 // Generate short session ID (first 16 chars of HWID)
@@ -59,6 +60,22 @@ inline void Initialize() {
     std::string hwid = HWID::Generate();
     g_SessionId = hwid.empty() ? "unknown" : hwid.substr(0, 16);
     g_Initialized = true;
+}
+
+inline std::string NormalizeHost(const std::string& hostOrUrl) {
+    std::string host = hostOrUrl;
+    const std::string https = "https://";
+    const std::string http = "http://";
+    if (host.rfind(https, 0) == 0) {
+        host = host.substr(https.size());
+    } else if (host.rfind(http, 0) == 0) {
+        host = host.substr(http.size());
+    }
+    size_t slash = host.find('/');
+    if (slash != std::string::npos) {
+        host = host.substr(0, slash);
+    }
+    return host;
 }
 
 // URL encode helper
@@ -104,18 +121,11 @@ struct TelemetryPayload {
     std::string version;
 };
 
-// Thread function for fire-and-forget server request
-inline DWORD WINAPI SendThreadProc(LPVOID lpParam) {
-    TelemetryPayload* pPayload = static_cast<TelemetryPayload*>(lpParam);
-    TelemetryPayload payload = *pPayload;
-    delete pPayload;
-
-    // Random delay 300-800ms to avoid detection patterns
-    Sleep(300 + (rand() % 500));
-
-    HINTERNET hInternet = InternetOpenA(OBFUSCATE_STRING("Mozilla/5.0").c_str(), INTERNET_OPEN_TYPE_PRECONFIG, NULL, NULL, 0);
+inline bool SendPayload(const TelemetryPayload& payload) {
+    HINTERNET hInternet =
+        InternetOpenA(OBFUSCATE_STRING("Mozilla/5.0").c_str(), INTERNET_OPEN_TYPE_PRECONFIG, NULL, NULL, 0);
     if (!hInternet)
-        return 0;
+        return false;
 
     DWORD timeout = HTTP_TIMEOUT_MS;
     InternetSetOptionA(hInternet, INTERNET_OPTION_CONNECT_TIMEOUT, &timeout, sizeof(timeout));
@@ -123,11 +133,11 @@ inline DWORD WINAPI SendThreadProc(LPVOID lpParam) {
     InternetSetOptionA(hInternet, INTERNET_OPTION_RECEIVE_TIMEOUT, &timeout, sizeof(timeout));
 
     // Connect to our license server (NOT Discord!)
-    HINTERNET hConnect =
-        InternetConnectA(hInternet, OBFUSCATE_STRING("api.cobble.vip").c_str(), 443, NULL, NULL, INTERNET_SERVICE_HTTP, 0, 0);
+    std::string serverHost = g_ServerHost.empty() ? OBFUSCATE_STRING("api.cobble.vip") : g_ServerHost;
+    HINTERNET hConnect = InternetConnectA(hInternet, serverHost.c_str(), 443, NULL, NULL, INTERNET_SERVICE_HTTP, 0, 0);
     if (!hConnect) {
         InternetCloseHandle(hInternet);
-        return 0;
+        return false;
     }
 
     // POST to /api/telemetry
@@ -137,7 +147,7 @@ inline DWORD WINAPI SendThreadProc(LPVOID lpParam) {
     if (!hRequest) {
         InternetCloseHandle(hConnect);
         InternetCloseHandle(hInternet);
-        return 0;
+        return false;
     }
 
     // Build JSON payload
@@ -152,11 +162,25 @@ inline DWORD WINAPI SendThreadProc(LPVOID lpParam) {
     json += "}";
 
     std::string headers = "Content-Type: application/json\r\n";
-    HttpSendRequestA(hRequest, headers.c_str(), (DWORD)headers.length(), (LPVOID)json.c_str(), (DWORD)json.length());
+    BOOL sent = HttpSendRequestA(hRequest, headers.c_str(), (DWORD)headers.length(), (LPVOID)json.c_str(),
+                                 (DWORD)json.length());
 
     InternetCloseHandle(hRequest);
     InternetCloseHandle(hConnect);
     InternetCloseHandle(hInternet);
+    return sent == TRUE;
+}
+
+// Thread function for fire-and-forget server request
+inline DWORD WINAPI SendThreadProc(LPVOID lpParam) {
+    TelemetryPayload* pPayload = static_cast<TelemetryPayload*>(lpParam);
+    TelemetryPayload payload = *pPayload;
+    delete pPayload;
+
+    // Random delay 300-800ms to avoid detection patterns
+    Sleep(300 + (rand() % 500));
+
+    SendPayload(payload);
     return 0;
 }
 
@@ -190,10 +214,47 @@ inline void Init() {
     Internal::Initialize();
 }
 
+inline void Init(const std::string& serverHost) {
+    {
+        std::lock_guard<std::mutex> lock(Internal::g_Mutex);
+        if (!serverHost.empty()) {
+            Internal::g_ServerHost = Internal::NormalizeHost(serverHost);
+        }
+    }
+    Internal::Initialize();
+}
+
+// Report a security event immediately (blocking, no throttle)
+inline void ReportImmediate(const std::string& event_code, Severity severity, int score,
+                            const std::string& details = "") {
+    Internal::Initialize();
+
+    Internal::TelemetryPayload payload;
+    payload.hwid = Internal::g_SessionId;
+    payload.event_code = event_code;
+    payload.severity = SeverityToString(severity);
+    payload.score = score;
+    payload.details = details;
+    payload.version = COBBLE_VERSION;
+
+    // Retry a couple times to increase delivery reliability
+    for (int i = 0; i < 2; i++) {
+        if (Internal::SendPayload(payload)) {
+            return;
+        }
+        Sleep(150);
+    }
+}
+
 // Report a security event (non-blocking, throttled)
 inline void Report(const std::string& event_code, Severity severity, int score, const std::string& details = "") {
     // Ensure initialized
     Internal::Initialize();
+
+    if (severity == Severity::CRITICAL) {
+        ReportImmediate(event_code, severity, score, details);
+        return;
+    }
 
     // Check throttle
     if (Internal::IsThrottled(event_code)) {

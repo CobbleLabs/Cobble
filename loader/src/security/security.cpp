@@ -6,6 +6,7 @@
 #include <vector>
 #include "../license/telemetry.hpp"
 #include "../util/aes_string.hpp"
+#include "themida.h"
 
 #pragma comment(lib, "ntdll.lib")
 #pragma comment(lib, "dbghelp.lib")
@@ -22,131 +23,7 @@ extern "C" NTSTATUS NTAPI NtSetInformationThread(HANDLE ThreadHandle, THREADINFO
 
 const THREADINFOCLASS ThreadHideFromDebugger = (THREADINFOCLASS)0x11;
 
-// ============================================================================
-// ANTI-DEBUG IMPLEMENTATIONS
-// ============================================================================
-
 namespace Security {
-
-#pragma region AntiDebug
-
-bool CheckRemoteDebugger() {
-    BOOL isDebuggerPresent = FALSE;
-    CheckRemoteDebuggerPresent(GetCurrentProcess(), &isDebuggerPresent);
-    return isDebuggerPresent != FALSE;
-}
-
-bool CheckPEB() {
-#ifdef _WIN64
-    PPEB pPeb = (PPEB)__readgsqword(0x60);
-#else
-    PPEB pPeb = (PPEB)__readfsdword(0x30);
-#endif
-    return pPeb->BeingDebugged == 1;
-}
-
-bool CheckNtDebugFlags() {
-    const DWORD ProcessDebugFlags = 0x1f;
-
-    auto NtQueryInformationProcess = reinterpret_cast<NtQueryInformationProcessTypedef>(
-        GetProcAddress(GetModuleHandleW(L"ntdll.dll"), "NtQueryInformationProcess"));
-
-    if (!NtQueryInformationProcess)
-        return false;
-
-    DWORD debugInherit = 0;
-    NTSTATUS status = NtQueryInformationProcess(GetCurrentProcess(), (PROCESSINFOCLASS)ProcessDebugFlags, &debugInherit,
-                                                sizeof(DWORD), nullptr);
-
-    // If NoDebugInherit is 0, a debugger is present
-    return (status == 0 && debugInherit == 0);
-}
-
-bool CheckNtDebugObject() {
-    const DWORD ProcessDebugObjectHandle = 0x1e;
-
-    auto NtQueryInformationProcess = reinterpret_cast<NtQueryInformationProcessTypedef>(
-        GetProcAddress(GetModuleHandleW(L"ntdll.dll"), "NtQueryInformationProcess"));
-
-    if (!NtQueryInformationProcess)
-        return false;
-
-    HANDLE debugObject = nullptr;
-    NTSTATUS status = NtQueryInformationProcess(GetCurrentProcess(), (PROCESSINFOCLASS)ProcessDebugObjectHandle,
-                                                &debugObject, sizeof(HANDLE), nullptr);
-
-    return (status == 0 && debugObject != nullptr);
-}
-
-bool CheckHeapFlags() {
-#ifdef _WIN64
-    PPEB pPeb = (PPEB)__readgsqword(0x60);
-    PVOID pHeapBase = (PVOID)(*(PDWORD_PTR)((PBYTE)pPeb + 0x30));
-    DWORD dwHeapFlagsOffset = 0x70;
-    DWORD dwHeapForceFlagsOffset = 0x74;
-#else
-    PPEB pPeb = (PPEB)__readfsdword(0x30);
-    PVOID pHeapBase = (PVOID)(*(PDWORD_PTR)((PBYTE)pPeb + 0x18));
-    DWORD dwHeapFlagsOffset = 0x40;
-    DWORD dwHeapForceFlagsOffset = 0x44;
-#endif
-
-    PDWORD pdwHeapFlags = (PDWORD)((PBYTE)pHeapBase + dwHeapFlagsOffset);
-    PDWORD pdwHeapForceFlags = (PDWORD)((PBYTE)pHeapBase + dwHeapForceFlagsOffset);
-
-    return (*pdwHeapFlags & ~HEAP_GROWABLE) || (*pdwHeapForceFlags != 0);
-}
-
-bool CheckHeapProtection() {
-    PROCESS_HEAP_ENTRY HeapEntry = {0};
-
-    do {
-        if (!HeapWalk(GetProcessHeap(), &HeapEntry))
-            return false;
-    } while (HeapEntry.wFlags != PROCESS_HEAP_ENTRY_BUSY);
-
-    PVOID pOverlapped = (PBYTE)HeapEntry.lpData + HeapEntry.cbData;
-    return ((DWORD)(*(PDWORD)pOverlapped) == 0xABABABAB);
-}
-
-bool CheckHardwareBreakpoints() {
-    CONTEXT ctx = {0};
-    ctx.ContextFlags = CONTEXT_DEBUG_REGISTERS;
-
-    RtlCaptureContext(&ctx);
-
-    return (ctx.Dr0 || ctx.Dr1 || ctx.Dr2 || ctx.Dr3);
-}
-
-// Check if debugger windows are visible (fast check, no false positives)
-bool CheckDebuggerWindow() {
-    if (FindWindowA(nullptr, "x64dbg") != nullptr)
-        return true;
-    if (FindWindowA(nullptr, "x32dbg") != nullptr)
-        return true;
-    if (FindWindowA("OLLYDBG", nullptr) != nullptr)
-        return true;
-    if (FindWindowA("WinDbgFrameClass", nullptr) != nullptr)
-        return true;
-    if (FindWindowA(nullptr, "Cheat Engine") != nullptr)
-        return true;
-
-    return false;
-}
-
-bool IsBeingDebugged() {
-    // Core NT-level checks (most reliable)
-    if (CheckRemoteDebugger() || CheckPEB() || CheckNtDebugFlags() || CheckNtDebugObject())
-        return true;
-
-    // Memory/register-level checks
-    if (CheckHeapFlags() || CheckHeapProtection() || CheckHardwareBreakpoints())
-        return true;
-
-    return false;
-}
-
-#pragma endregion
 
 #pragma region AntiAttach
 
@@ -206,6 +83,22 @@ void HideThread(HANDLE hThread) {
     NtSetInformationThread(hThread, ThreadHideFromDebugger, NULL, 0);
 }
 
+bool ShouldApplyAntiAttach() {
+#ifdef NDEBUG
+    int protectedResult = 0;
+    CHECK_PROTECTION(protectedResult, 1);
+    if (protectedResult != 1) {
+        return false;
+    }
+
+    int debugResult = 0;
+    CHECK_DEBUGGER(debugResult, 0);
+    return debugResult != 0;
+#else
+    return false;
+#endif
+}
+
 #pragma endregion
 
 #pragma region AntiVM
@@ -213,12 +106,16 @@ void HideThread(HANDLE hThread) {
 bool HasVMRegistry() {
     std::vector<std::wstring> vmKeys;
     vmKeys.reserve(6);
+
+    // THEMIDA: Encrypt VM registry key strings
+    COBBLE_STR_ENCRYPTW_BEGIN
     vmKeys.push_back(OBFUSCATE_WSTRING(L"System\\ControlSet001\\Services\\VMTools"));
     vmKeys.push_back(OBFUSCATE_WSTRING(L"System\\ControlSet001\\Services\\VBoxGuest"));
     vmKeys.push_back(OBFUSCATE_WSTRING(L"System\\ControlSet001\\Services\\VBoxMouse"));
     vmKeys.push_back(OBFUSCATE_WSTRING(L"System\\ControlSet001\\Services\\VBoxService"));
     vmKeys.push_back(OBFUSCATE_WSTRING(L"SOFTWARE\\Oracle\\VirtualBox Guest Additions"));
     vmKeys.push_back(OBFUSCATE_WSTRING(L"SOFTWARE\\VMware, Inc.\\VMware Tools"));
+    COBBLE_STR_ENCRYPTW_END
 
     for (const auto& keyPath : vmKeys) {
         HKEY hKey;
@@ -234,12 +131,16 @@ bool HasVMRegistry() {
 bool HasVMFiles() {
     std::vector<std::wstring> vmFiles;
     vmFiles.reserve(6);
+
+    // THEMIDA: Encrypt VM file path strings
+    COBBLE_STR_ENCRYPTW_BEGIN
     vmFiles.push_back(OBFUSCATE_WSTRING(L"C:\\Windows\\System32\\vm3dgl.dll"));
     vmFiles.push_back(OBFUSCATE_WSTRING(L"C:\\Windows\\System32\\vboxdisp.dll"));
     vmFiles.push_back(OBFUSCATE_WSTRING(L"C:\\Windows\\System32\\vboxhook.dll"));
     vmFiles.push_back(OBFUSCATE_WSTRING(L"C:\\Windows\\System32\\vboxogl.dll"));
     vmFiles.push_back(OBFUSCATE_WSTRING(L"C:\\Windows\\System32\\drivers\\vboxmouse.sys"));
     vmFiles.push_back(OBFUSCATE_WSTRING(L"C:\\Windows\\System32\\drivers\\vmhgfs.sys"));
+    COBBLE_STR_ENCRYPTW_END
 
     for (const auto& filePath : vmFiles) {
         WIN32_FIND_DATAW findData;
@@ -439,81 +340,17 @@ bool VerifyIntegrity(const std::vector<HASHSET>& originalHashes) {
 #pragma region Initialization
 
 void Initialize() {
-    // 1. Apply anti-attach patches
-    PatchDbgBreakPoint();
-    PatchDbgUiRemoteBreakin();
-
-    // 2. Hide main thread
-    HideThread(GetCurrentThread());
-}
-
-bool RunChecks() {
-    // Run core anti-debug checks only
-    // HasAPIHooks() is handled by DetectionSystem with proper scoring
-    // This prevents false blocking on legitimate hooked software
-    if (IsBeingDebugged())
-        return false;
-    return true;
+    // Apply anti-attach patches only when Themida detects a debugger
+    if (ShouldApplyAntiAttach()) {
+        PatchDbgBreakPoint();
+        PatchDbgUiRemoteBreakin();
+        HideThread(GetCurrentThread());
+    }
 }
 
 #pragma endregion
 
 #pragma region DetectionSystem
-
-// Detection wrapper for each check
-Detection CheckPEB_v2() {
-    Detection d = {"DBG_PEB", 0, ""};
-    if (CheckPEB()) {
-        d.score = 100;
-        d.details = "PEB.BeingDebugged";
-    }
-    return d;
-}
-
-Detection CheckNtDebugObject_v2() {
-    Detection d = {"DBG_DEBUGOBJECT", 0, ""};
-    if (CheckNtDebugObject()) {
-        d.score = 100;
-        d.details = "DebugObjectHandle";
-    }
-    return d;
-}
-
-Detection CheckNtDebugFlags_v2() {
-    Detection d = {"DBG_DEBUGFLAGS", 0, ""};
-    if (CheckNtDebugFlags()) {
-        d.score = 100;
-        d.details = "NoDebugInherit";
-    }
-    return d;
-}
-
-Detection CheckRemoteDebugger_v2() {
-    Detection d = {"DBG_REMOTE", 0, ""};
-    if (CheckRemoteDebugger()) {
-        d.score = 100;
-        d.details = "RemoteDebugger";
-    }
-    return d;
-}
-
-Detection CheckHardwareBreakpoints_v2() {
-    Detection d = {"DBG_HWBP", 0, ""};
-    if (CheckHardwareBreakpoints()) {
-        d.score = 100;
-        d.details = "HardwareBP";
-    }
-    return d;
-}
-
-Detection CheckHeapFlags_v2() {
-    Detection d = {"DBG_HEAP", 0, ""};
-    if (CheckHeapFlags()) {
-        d.score = 80;
-        d.details = "HeapFlags";
-    }
-    return d;
-}
 
 // Check running tools and return detections with appropriate scores
 std::vector<Detection> CheckRunningTools() {
@@ -526,32 +363,34 @@ std::vector<Detection> CheckRunningTools() {
         int score;
     };
 
-    // TIER 2: Debuggers/CheatEngine (score = 40, WARN)
-    // TIER 3: Network tools (score = 10, REPORT ONLY)
+    // THEMIDA: Encrypt all tool names
+    COBBLE_STR_ENCRYPTW_BEGIN
+
+    // TIER 3: Report-only. Detection is noisy; rely on Themida checks for decisions.
     ToolDef tools[] = {
-        // TIER 2 - WARN
-        {L"x64dbg.exe", "TOOL_X64DBG", 40},
-        {L"x32dbg.exe", "TOOL_X32DBG", 40},
-        {L"ollydbg.exe", "TOOL_OLLYDBG", 40},
-        {L"windbg.exe", "TOOL_WINDBG", 40},
-        {L"ida.exe", "TOOL_IDA", 40},
-        {L"ida64.exe", "TOOL_IDA64", 40},
-        {L"idaq.exe", "TOOL_IDAQ", 40},
-        {L"idaq64.exe", "TOOL_IDAQ64", 40},
-        {L"dnspy.exe", "TOOL_DNSPY", 40},
-        {L"cheatengine-x86_64.exe", "TOOL_CE", 40},
-        {L"cheatengine.exe", "TOOL_CE", 40},
-        {L"ce.exe", "TOOL_CE", 40},
-        {L"processhacker.exe", "TOOL_PROCHACKER", 40},
-        {L"extremeinjector.exe", "TOOL_INJECTOR", 40},
-        {L"xenos.exe", "TOOL_XENOS", 40},
-        // TIER 3 - REPORT ONLY
+        {L"x64dbg.exe", "TOOL_X64DBG", 10},
+        {L"x32dbg.exe", "TOOL_X32DBG", 10},
+        {L"ollydbg.exe", "TOOL_OLLYDBG", 10},
+        {L"windbg.exe", "TOOL_WINDBG", 10},
+        {L"ida.exe", "TOOL_IDA", 10},
+        {L"ida64.exe", "TOOL_IDA64", 10},
+        {L"idaq.exe", "TOOL_IDAQ", 10},
+        {L"idaq64.exe", "TOOL_IDAQ64", 10},
+        {L"dnspy.exe", "TOOL_DNSPY", 10},
+        {L"cheatengine-x86_64.exe", "TOOL_CE", 10},
+        {L"cheatengine.exe", "TOOL_CE", 10},
+        {L"ce.exe", "TOOL_CE", 10},
+        {L"processhacker.exe", "TOOL_PROCHACKER", 10},
+        {L"extremeinjector.exe", "TOOL_INJECTOR", 10},
+        {L"xenos.exe", "TOOL_XENOS", 10},
         {L"wireshark.exe", "TOOL_WIRESHARK", 10},
         {L"fiddler.exe", "TOOL_FIDDLER", 10},
         {L"charles.exe", "TOOL_CHARLES", 10},
         {L"httpdebugger.exe", "TOOL_HTTPDEBUG", 10},
         {L"mitmproxy.exe", "TOOL_MITMPROXY", 10},
     };
+
+    COBBLE_STR_ENCRYPTW_END
 
     HANDLE hSnapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
     if (hSnapshot == INVALID_HANDLE_VALUE)
@@ -567,7 +406,7 @@ std::vector<Detection> CheckRunningTools() {
                     d.code = tool.code;
                     d.score = tool.score;
                     // Use tool class as details, not exact name (to not leak intel)
-                    d.details = (tool.score >= 40) ? "debugger" : "network";
+                    d.details = OBFUSCATE_STRING("report");
                     detections.push_back(d);
                     break;
                 }
@@ -579,18 +418,47 @@ std::vector<Detection> CheckRunningTools() {
     return detections;
 }
 
+// Themida-backed checks (preferred for decisions)
+std::vector<Detection> CheckThemida() {
+    std::vector<Detection> detections;
+
+#ifndef NDEBUG
+    return detections;
+#else
+    int protectedResult = 0;
+    CHECK_PROTECTION(protectedResult, 1);
+    if (protectedResult != 1) {
+        return detections;
+    }
+
+    int result = 0;
+    CHECK_DEBUGGER(result, 0);
+    if (result != 0) {
+        detections.push_back({OBFUSCATE_STRING("THEMIDA_DEBUGGER"), 40, OBFUSCATE_STRING("debugger")});
+    }
+
+    result = 0;
+    CHECK_VIRTUAL_PC(result, 0);
+    if (result != 0) {
+        detections.push_back({OBFUSCATE_STRING("THEMIDA_VM"), 30, OBFUSCATE_STRING("vm")});
+    }
+
+    return detections;
+#endif
+}
+
 // Check VM indicators (score 30 = ALLOW, info severity)
 std::vector<Detection> CheckVMIndicators() {
     std::vector<Detection> detections;
 
     if (HasVMRegistry()) {
-        detections.push_back({"VM_REGISTRY", 30, "registry"});
+        detections.push_back({OBFUSCATE_STRING("VM_REGISTRY"), 30, OBFUSCATE_STRING("registry")});
     }
     if (HasVMFiles()) {
-        detections.push_back({"VM_FILES", 30, "files"});
+        detections.push_back({OBFUSCATE_STRING("VM_FILES"), 30, OBFUSCATE_STRING("files")});
     }
     if (HasVMWareACPI()) {
-        detections.push_back({"VM_ACPI", 30, "acpi"});
+        detections.push_back({OBFUSCATE_STRING("VM_ACPI"), 30, OBFUSCATE_STRING("acpi")});
     }
 
     return detections;
@@ -600,32 +468,13 @@ std::vector<Detection> CheckVMIndicators() {
 std::vector<Detection> RunSecurityChecks() {
     std::vector<Detection> all;
 
-    // TIER 1: Anti-debug (score 80-100)
-    auto d1 = CheckPEB_v2();
-    if (d1.score > 0)
-        all.push_back(d1);
+    // THEMIDA: Primary anti-debug/anti-vm signals
+    auto themidaDetections = CheckThemida();
+    for (auto& d : themidaDetections) {
+        all.push_back(d);
+    }
 
-    auto d2 = CheckNtDebugObject_v2();
-    if (d2.score > 0)
-        all.push_back(d2);
-
-    auto d3 = CheckNtDebugFlags_v2();
-    if (d3.score > 0)
-        all.push_back(d3);
-
-    auto d4 = CheckRemoteDebugger_v2();
-    if (d4.score > 0)
-        all.push_back(d4);
-
-    auto d5 = CheckHardwareBreakpoints_v2();
-    if (d5.score > 0)
-        all.push_back(d5);
-
-    auto d6 = CheckHeapFlags_v2();
-    if (d6.score > 0)
-        all.push_back(d6);
-
-    // TIER 2/3: Running tools
+    // TIER 3: Running tools (report only, no decision impact)
     auto toolDetections = CheckRunningTools();
     for (auto& d : toolDetections) {
         all.push_back(d);
@@ -652,12 +501,20 @@ int CalculateRiskScore(const std::vector<Detection>& detections) {
 }
 
 // Decide action based on score
+// THEMIDA: Critical decision point - maximum protection
 SecurityDecision Decide(int score) {
+    COBBLE_VM_CRITICAL_START
+
+    SecurityDecision result;
     if (score >= 100)
-        return SecurityDecision::BLOCK;
-    if (score >= 40)
-        return SecurityDecision::WARN;
-    return SecurityDecision::ALLOW;
+        result = SecurityDecision::BLOCK;
+    else if (score >= 40)
+        result = SecurityDecision::WARN;
+    else
+        result = SecurityDecision::ALLOW;
+
+    COBBLE_VM_CRITICAL_END
+    return result;
 }
 
 // Main entry point: run checks, report telemetry, return decision

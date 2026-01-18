@@ -11,6 +11,7 @@
 #include "../update/tweetnacl.h"
 #include "../util/control_flow.hpp"
 #include "../util/json.h"
+#include "../security/themida.h"
 #include "hwid.h"
 #include "version.h"
 
@@ -20,10 +21,16 @@
 // Use centralized version
 #define CLIENT_VERSION COBBLE_VERSION
 
-// Same Ed25519 public key used for updates
-constexpr uint8_t LICENSE_PUBLIC_KEY[32] = {0xd2, 0xb8, 0x41, 0x41, 0x05, 0x22, 0xdb, 0x99, 0xe7, 0x86, 0xf4,
-                                            0x60, 0x1a, 0xb2, 0x04, 0x61, 0x0f, 0xdb, 0x14, 0x75, 0x0e, 0x93,
-                                            0xbb, 0xb5, 0xa1, 0x85, 0xc9, 0xd7, 0x23, 0x7d, 0x79, 0xac};
+// Ed25519 public key
+static const uint8_t* GetLicensePublicKey() {
+    static const uint8_t key[32] = {0xd2, 0xb8, 0x41, 0x41, 0x05, 0x22, 0xdb, 0x99, 0xe7, 0x86, 0xf4,
+                                    0x60, 0x1a, 0xb2, 0x04, 0x61, 0x0f, 0xdb, 0x14, 0x75, 0x0e, 0x93,
+                                    0xbb, 0xb5, 0xa1, 0x85, 0xc9, 0xd7, 0x23, 0x7d, 0x79, 0xac};
+    return key;
+}
+
+// Macro for backward compatibility
+#define LICENSE_PUBLIC_KEY GetLicensePublicKey()
 
 namespace License {
 
@@ -153,7 +160,8 @@ bool FetchPayloadKey(const std::string& serverUrl) {
     std::string url = serverUrl + OBFUSCATE_STRING("/api/loader/payload-key");
 
     // Build POST data
-    std::string postData = "hwid=" + UrlEncode(hwid) + "&session_token=" + UrlEncode(g_SessionToken);
+    std::string postData =
+        OBFUSCATE_STRING("hwid=") + UrlEncode(hwid) + OBFUSCATE_STRING("&session_token=") + UrlEncode(g_SessionToken);
 
     // Initialize WinInet
     HINTERNET hInternet =
@@ -206,7 +214,7 @@ bool FetchPayloadKey(const std::string& serverUrl) {
         return false;
     }
 
-    std::string headers = "Content-Type: application/x-www-form-urlencoded\r\n";
+    std::string headers = OBFUSCATE_STRING("Content-Type: application/x-www-form-urlencoded\r\n");
 
     BOOL result = HttpSendRequestA(hRequest, headers.c_str(), (DWORD)headers.length(), (LPVOID)postData.c_str(),
                                    (DWORD)postData.length());
@@ -337,7 +345,7 @@ bool Verify(const std::string& serverUrl) {
         return false;
     }
 
-    std::string headers = "Content-Type: application/x-www-form-urlencoded\r\n";
+    std::string headers = OBFUSCATE_STRING("Content-Type: application/x-www-form-urlencoded\r\n");
 
     // Send request
     BOOL result = HttpSendRequestA(hRequest, headers.c_str(), (DWORD)headers.length(), (LPVOID)postData.c_str(),
@@ -375,7 +383,8 @@ bool Verify(const std::string& serverUrl) {
 
     // Check for empty response
     if (response.empty()) {
-        g_LastError = "No response from server (Status: " + std::to_string(statusCode) + ")";
+        g_LastError =
+            OBFUSCATE_STRING("No response from server (Status: ") + std::to_string(statusCode) + OBFUSCATE_STRING(")");
         // Assume unregistered HWID if we got a 4xx error
         if (statusCode >= 400 && statusCode < 500) {
             g_RequiresLogin = true;
@@ -425,16 +434,23 @@ bool Verify(const std::string& serverUrl) {
     }
 
     // Verify Ed25519 signature (obfuscated critical check)
+    // THEMIDA: Maximum protection for signature verification
+    // Note: Must have exactly 1 START and 1 END - no early returns inside VM block
+    bool sigValid = false;
+
+    COBBLE_VM_CRITICAL_START
+
     CF_CRITICAL_BEGIN();
-    bool sigValid = tweetnacl::verify(sigBytes.data(), payloadBytes.data(), payloadBytes.size(), LICENSE_PUBLIC_KEY);
+    sigValid = tweetnacl::verify(sigBytes.data(), payloadBytes.data(), payloadBytes.size(), LICENSE_PUBLIC_KEY);
     CF_NOP();
-    if (!CF_CHECK(sigValid)) {
-        CF_JUNK();
+    CF_CRITICAL_END();
+
+    COBBLE_VM_CRITICAL_END
+
+    if (!sigValid) {
         g_LastError = OBFUSCATE_STRING("Invalid signature - response may have been tampered");
-        CF_CRITICAL_END();
         return false;
     }
-    CF_CRITICAL_END();
 
     // Parse verified payload
     std::string payloadStr(payloadBytes.begin(), payloadBytes.end());
@@ -566,7 +582,7 @@ bool LoginWithCredentials(const std::string& serverUrl, const std::string& usern
         return false;
     }
 
-    std::string headers = "Content-Type: application/json\r\n";
+    std::string headers = OBFUSCATE_STRING("Content-Type: application/json\r\n");
 
     BOOL result = HttpSendRequestA(hRequest, headers.c_str(), (DWORD)headers.length(), (LPVOID)postData.c_str(),
                                    (DWORD)postData.length());
@@ -628,16 +644,23 @@ bool LoginWithCredentials(const std::string& serverUrl, const std::string& usern
     }
 
     // Verify Ed25519 signature (obfuscated critical check)
+    // THEMIDA: Maximum protection for signature verification
+    // Note: Must have exactly 1 START and 1 END - no early returns inside VM block
+    bool sigValid = false;
+
+    COBBLE_VM_CRITICAL_START
+
     CF_CRITICAL_BEGIN();
-    bool sigValid = tweetnacl::verify(sigBytes.data(), payloadBytes.data(), payloadBytes.size(), LICENSE_PUBLIC_KEY);
+    sigValid = tweetnacl::verify(sigBytes.data(), payloadBytes.data(), payloadBytes.size(), LICENSE_PUBLIC_KEY);
     CF_NOP();
-    if (!CF_CHECK(sigValid)) {
-        CF_JUNK();
+    CF_CRITICAL_END();
+
+    COBBLE_VM_CRITICAL_END
+
+    if (!sigValid) {
         g_LastError = OBFUSCATE_STRING("Signature verification failed");
-        CF_CRITICAL_END();
         return false;
     }
-    CF_CRITICAL_END();
 
     // Parse verified payload
     std::string payloadStr(payloadBytes.begin(), payloadBytes.end());
@@ -688,8 +711,8 @@ bool Register(const std::string& serverUrl, const std::string& username) {
         return false;
     }
 
-    std::string url = serverUrl + "/api/register";
-    std::string postData = "hwid=" + hwid + "&username=" + username;
+    std::string url = serverUrl + OBFUSCATE_STRING("/api/register");
+    std::string postData = OBFUSCATE_STRING("hwid=") + hwid + OBFUSCATE_STRING("&username=") + username;
 
     HINTERNET hInternet =
         InternetOpenA(OBFUSCATE_STRING("Mozilla/5.0").c_str(), INTERNET_OPEN_TYPE_PRECONFIG, NULL, NULL, 0);
@@ -726,7 +749,7 @@ bool Register(const std::string& serverUrl, const std::string& username) {
         return false;
     }
 
-    std::string headers = "Content-Type: application/x-www-form-urlencoded\r\n";
+    std::string headers = OBFUSCATE_STRING("Content-Type: application/x-www-form-urlencoded\r\n");
     HttpSendRequestA(hRequest, headers.c_str(), (DWORD)headers.length(), (LPVOID)postData.c_str(),
                      (DWORD)postData.length());
 
