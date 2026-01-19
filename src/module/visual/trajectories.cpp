@@ -54,7 +54,7 @@ void Trajectories::onDisable() {
 }
 
 void Trajectories::checkWorldChange() {
-    if (!Java::Env || !Java::Initialized)
+    if (!Java::Env() || !Java::Initialized)
         return;
 
     jobject currentWorld = mc.getWorld();
@@ -65,7 +65,7 @@ void Trajectories::checkWorldChange() {
     else if (lastWorldRef != nullptr && currentWorld == nullptr)
         worldChanged = true;
     else if (lastWorldRef != nullptr && currentWorld != nullptr) {
-        if (!Java::Env->IsSameObject(lastWorldRef, currentWorld))
+        if (!Java::Env()->IsSameObject(lastWorldRef, currentWorld))
             worldChanged = true;
     }
 
@@ -79,17 +79,17 @@ void Trajectories::checkWorldChange() {
         RenderData::Reset();
 
         if (lastWorldRef) {
-            Java::Env->DeleteGlobalRef(lastWorldRef);
+            Java::Env()->DeleteGlobalRef(lastWorldRef);
             lastWorldRef = nullptr;
         }
 
         if (currentWorld) {
-            lastWorldRef = Java::Env->NewGlobalRef(currentWorld);
+            lastWorldRef = Java::Env()->NewGlobalRef(currentWorld);
         }
     }
 
     if (currentWorld)
-        Java::Env->DeleteLocalRef(currentWorld);
+        Java::Env()->DeleteLocalRef(currentWorld);
 }
 
 bool Trajectories::isThrowableItem(int itemId) {

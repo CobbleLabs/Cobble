@@ -14,7 +14,7 @@ float Minecraft::getMouseSensitivity() {
     if (!isValid())
         return 0.5f;  // Default
 
-    JNIEnv* env = Java::GetEnv();
+    JNIEnv* env = Java::Env();
     if (!env)
         return 0.5f;
 
@@ -42,7 +42,7 @@ bool Minecraft::isTargetingBlock() {
     if (!isValid())
         return false;
 
-    JNIEnv* env = Java::GetEnv();
+    JNIEnv* env = Java::Env();
     if (!env)
         return false;
 
@@ -91,7 +91,7 @@ Minecraft::Vec3 Minecraft::getTargetedBlockPos() {
     if (!isValid())
         return result;
 
-    JNIEnv* env = Java::GetEnv();
+    JNIEnv* env = Java::Env();
     if (!env)
         return result;
 
@@ -137,7 +137,7 @@ bool Minecraft::isTargetingEntity() {
     if (!isValid())
         return false;
 
-    JNIEnv* env = Java::GetEnv();
+    JNIEnv* env = Java::Env();
     if (!env)
         return false;
 
@@ -184,7 +184,7 @@ int Minecraft::getTargetedEntityHurtTime() {
     if (!isValid())
         return 0;
 
-    JNIEnv* env = Java::GetEnv();
+    JNIEnv* env = Java::Env();
     if (!env)
         return 0;
 
@@ -230,7 +230,7 @@ PlayerInfo Minecraft::getTargetedPlayerInfo() {
     if (!isValid())
         return result;
 
-    JNIEnv* env = Java::GetEnv();
+    JNIEnv* env = Java::Env();
     if (!env)
         return result;
 
@@ -311,7 +311,7 @@ RenderPos Minecraft::getRenderPos() {
     if (!isValid())
         return result;
 
-    JNIEnv* env = Java::GetEnv();
+    JNIEnv* env = Java::Env();
     if (!env)
         return result;
 
@@ -354,7 +354,7 @@ float Minecraft::getPartialTicks() {
     if (!isValid())
         return 0.0f;
 
-    JNIEnv* env = Java::GetEnv();
+    JNIEnv* env = Java::Env();
     if (!env)
         return 0.0f;
 

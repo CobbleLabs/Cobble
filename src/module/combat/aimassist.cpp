@@ -47,21 +47,21 @@ static jfieldID g_fid_posZ = nullptr;
 static void ensure_entity_fields(jobject sample) {
     if (g_entityCls || !sample)
         return;
-    jclass cls = Java::Env->GetObjectClass(sample);
+    jclass cls = Java::Env()->GetObjectClass(sample);
     if (!cls)
         return;
-    g_entityCls = (jclass)Java::Env->NewGlobalRef(cls);
-    Java::Env->DeleteLocalRef(cls);
+    g_entityCls = (jclass)Java::Env()->NewGlobalRef(cls);
+    Java::Env()->DeleteLocalRef(cls);
     if (!g_entityCls)
         return;
-    g_fid_posX = Java::Env->GetFieldID(g_entityCls, "posX", "D");
-    g_fid_posY = Java::Env->GetFieldID(g_entityCls, "posY", "D");
-    g_fid_posZ = Java::Env->GetFieldID(g_entityCls, "posZ", "D");
+    g_fid_posX = Java::Env()->GetFieldID(g_entityCls, "posX", "D");
+    g_fid_posY = Java::Env()->GetFieldID(g_entityCls, "posY", "D");
+    g_fid_posZ = Java::Env()->GetFieldID(g_entityCls, "posZ", "D");
 }
 
 static void cleanup_entity_fields() {
     if (g_entityCls) {
-        Java::Env->DeleteGlobalRef(g_entityCls);
+        Java::Env()->DeleteGlobalRef(g_entityCls);
         g_entityCls = nullptr;
     }
     g_fid_posX = g_fid_posY = g_fid_posZ = nullptr;
@@ -291,7 +291,7 @@ void AimAssist::onDisable() {
     hasLockedTarget = false;
 
     if (cachedTarget) {
-        Java::Env->DeleteGlobalRef(cachedTarget);
+        Java::Env()->DeleteGlobalRef(cachedTarget);
         cachedTarget = nullptr;
     }
     cleanup_entity_fields();
@@ -421,26 +421,26 @@ void AimAssist::onUpdate() {
     bool forceScan = false;
 
     if (cachedTarget) {
-        if (Java::Env->IsSameObject(cachedTarget, NULL)) {
-            Java::Env->DeleteGlobalRef(cachedTarget);
+        if (Java::Env()->IsSameObject(cachedTarget, NULL)) {
+            Java::Env()->DeleteGlobalRef(cachedTarget);
             cachedTarget = nullptr;
         } else {
             ensure_entity_fields(cachedTarget);
 
             // Update position from cached target (Fast JNI)
             if (!g_fid_posX || !g_fid_posY || !g_fid_posZ) {
-                Java::Env->ExceptionClear();
-                Java::Env->DeleteGlobalRef(cachedTarget);
+                Java::Env()->ExceptionClear();
+                Java::Env()->DeleteGlobalRef(cachedTarget);
                 cachedTarget = nullptr;
                 forceScan = true;
             } else {
-                double tX = Java::Env->GetDoubleField(cachedTarget, g_fid_posX);
-                double tY = Java::Env->GetDoubleField(cachedTarget, g_fid_posY);
-                double tZ = Java::Env->GetDoubleField(cachedTarget, g_fid_posZ);
+                double tX = Java::Env()->GetDoubleField(cachedTarget, g_fid_posX);
+                double tY = Java::Env()->GetDoubleField(cachedTarget, g_fid_posY);
+                double tZ = Java::Env()->GetDoubleField(cachedTarget, g_fid_posZ);
 
-                if (Java::Env->ExceptionCheck()) {
-                    Java::Env->ExceptionClear();
-                    Java::Env->DeleteGlobalRef(cachedTarget);
+                if (Java::Env()->ExceptionCheck()) {
+                    Java::Env()->ExceptionClear();
+                    Java::Env()->DeleteGlobalRef(cachedTarget);
                     cachedTarget = nullptr;
                     forceScan = true;
                 } else {
@@ -577,15 +577,15 @@ bool AimAssist::findTarget(double& targetX, double& targetY, double& targetZ) {
     // ============================================================
 
     static Timer scanTimer;
-    JNIEnv* env = Java::Env;
+    JNIEnv* env = Java::Env();
     bool wantHitboxRefresh = settings.lockAim && cachedTarget && hitboxRefreshTimer.Elapsed<>() >= hitboxRefreshMs;
 
     // FAST PATH: If we have a cached target, update its position & validate
     if (cachedTarget && scanTimer.Elapsed<>() < 50 && !wantHitboxRefresh)  // Rescan every 50ms
     {
         // Check validity (basic)
-        if (Java::Env->IsSameObject(cachedTarget, NULL)) {
-            Java::Env->DeleteGlobalRef(cachedTarget);  // Clean up invalid ref
+        if (Java::Env()->IsSameObject(cachedTarget, NULL)) {
+            Java::Env()->DeleteGlobalRef(cachedTarget);  // Clean up invalid ref
             cachedTarget = nullptr;                    // Invalid
             targetHasHitbox = false;
             prevFrameHadTarget = false;
@@ -593,21 +593,21 @@ bool AimAssist::findTarget(double& targetX, double& targetY, double& targetZ) {
             ensure_entity_fields(cachedTarget);
 
             if (!g_fid_posX || !g_fid_posY || !g_fid_posZ) {
-                Java::Env->ExceptionClear();
-                Java::Env->DeleteGlobalRef(cachedTarget);
+                Java::Env()->ExceptionClear();
+                Java::Env()->DeleteGlobalRef(cachedTarget);
                 cachedTarget = nullptr;
                 targetHasHitbox = false;
                 return false;
             }
 
             // Update position
-            double cX = Java::Env->GetDoubleField(cachedTarget, g_fid_posX);
-            double cY = Java::Env->GetDoubleField(cachedTarget, g_fid_posY);
-            double cZ = Java::Env->GetDoubleField(cachedTarget, g_fid_posZ);
+            double cX = Java::Env()->GetDoubleField(cachedTarget, g_fid_posX);
+            double cY = Java::Env()->GetDoubleField(cachedTarget, g_fid_posY);
+            double cZ = Java::Env()->GetDoubleField(cachedTarget, g_fid_posZ);
 
-            if (Java::Env->ExceptionCheck()) {
-                Java::Env->ExceptionClear();
-                Java::Env->DeleteGlobalRef(cachedTarget);
+            if (Java::Env()->ExceptionCheck()) {
+                Java::Env()->ExceptionClear();
+                Java::Env()->DeleteGlobalRef(cachedTarget);
                 cachedTarget = nullptr;
                 targetHasHitbox = false;
                 prevFrameHadTarget = false;
@@ -655,7 +655,7 @@ bool AimAssist::findTarget(double& targetX, double& targetY, double& targetZ) {
 
     if (players.empty()) {
         if (cachedTarget) {
-            Java::Env->DeleteGlobalRef(cachedTarget);
+            Java::Env()->DeleteGlobalRef(cachedTarget);
             cachedTarget = nullptr;
         }
         targetHasHitbox = false;
@@ -683,7 +683,7 @@ bool AimAssist::findTarget(double& targetX, double& targetY, double& targetZ) {
         bool sameAsLocked = false;
         if (cachedTarget && env) {
             if (env->IsSameObject(cachedTarget, NULL)) {
-                Java::Env->DeleteGlobalRef(cachedTarget);
+                Java::Env()->DeleteGlobalRef(cachedTarget);
                 cachedTarget = nullptr;
             } else {
                 sameAsLocked = env->IsSameObject(cachedTarget, p.instance);
@@ -887,18 +887,18 @@ bool AimAssist::findTarget(double& targetX, double& targetY, double& targetZ) {
         if (cachedTarget) {
             // Check if it's the SAME object to avoid delete/new overhead?
             // IsSameObject is cheap.
-            if (!Java::Env->IsSameObject(cachedTarget, bestPlayerObjLocal)) {
-                Java::Env->DeleteGlobalRef(cachedTarget);
-                cachedTarget = Java::Env->NewGlobalRef(bestPlayerObjLocal);
+            if (!Java::Env()->IsSameObject(cachedTarget, bestPlayerObjLocal)) {
+                Java::Env()->DeleteGlobalRef(cachedTarget);
+                cachedTarget = Java::Env()->NewGlobalRef(bestPlayerObjLocal);
                 targetChangedThisFrame = true;
             }
         } else {
-            cachedTarget = Java::Env->NewGlobalRef(bestPlayerObjLocal);
+            cachedTarget = Java::Env()->NewGlobalRef(bestPlayerObjLocal);
             targetChangedThisFrame = true;
         }
     } else {
         if (cachedTarget) {
-            Java::Env->DeleteGlobalRef(cachedTarget);
+            Java::Env()->DeleteGlobalRef(cachedTarget);
             cachedTarget = nullptr;
         }
     }

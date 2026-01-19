@@ -39,7 +39,7 @@ void NameTags::onDisable() {
 
     // Clean up world ref
     /*if (lastWorldRef && Java::Env) {
-        Java::Env->DeleteGlobalRef(lastWorldRef);
+        Java::Env()->DeleteGlobalRef(lastWorldRef);
     }*/
     lastWorldRef = nullptr;
 
@@ -51,7 +51,7 @@ void NameTags::onDisable() {
 // Detect world change (server join/leave, dimension change)
 // Reinitializes RenderData when world reference changes
 void NameTags::checkWorldChange() {
-    if (!Java::Env || !Java::Initialized)
+    if (!Java::Env() || !Java::Initialized)
         return;
 
     jobject currentWorld = mc.getWorld();
@@ -67,7 +67,7 @@ void NameTags::checkWorldChange() {
         worldChanged = true;
     } else if (lastWorldRef != nullptr && currentWorld != nullptr) {
         // Check if same object
-        if (!Java::Env->IsSameObject(lastWorldRef, currentWorld)) {
+        if (!Java::Env()->IsSameObject(lastWorldRef, currentWorld)) {
             worldChanged = true;
         }
     }
@@ -89,19 +89,19 @@ void NameTags::checkWorldChange() {
 
         // Clean up old global ref
         if (lastWorldRef) {
-            Java::Env->DeleteGlobalRef(lastWorldRef);
+            Java::Env()->DeleteGlobalRef(lastWorldRef);
             lastWorldRef = nullptr;
         }
 
         // Store new global ref
         if (currentWorld) {
-            lastWorldRef = Java::Env->NewGlobalRef(currentWorld);
+            lastWorldRef = Java::Env()->NewGlobalRef(currentWorld);
         }
     }
 
     // Clean up local ref
     if (currentWorld) {
-        Java::Env->DeleteLocalRef(currentWorld);
+        Java::Env()->DeleteLocalRef(currentWorld);
     }
 }
 
@@ -144,7 +144,7 @@ void NameTags::onUpdate() {
         // Skip if out of range or too close (self)
         if (dist > settings.range || dist < 0.5f) {
             if (p.instance) {
-                Java::Env->DeleteLocalRef(p.instance);
+                Java::Env()->DeleteLocalRef(p.instance);
                 p.instance = nullptr;
             }
             continue;
@@ -198,7 +198,7 @@ void NameTags::onUpdate() {
         newCache.push_back(cached);
 
         if (p.instance) {
-            Java::Env->DeleteLocalRef(p.instance);
+            Java::Env()->DeleteLocalRef(p.instance);
             p.instance = nullptr;
         }
     }

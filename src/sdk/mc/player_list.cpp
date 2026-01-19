@@ -25,7 +25,7 @@ static bool every_ms(int ms) {
 }
 
 static void jni_log_if_exception(const char* where) {
-    JNIEnv* env = Java::GetEnv();
+    JNIEnv* env = Java::Env();
     if (!env)
         return;
 
@@ -131,7 +131,7 @@ std::vector<PlayerInfo> Minecraft::getPlayerList() {
     if (!isValid())
         return result;
 
-    JNIEnv* env = Java::GetEnv();
+    JNIEnv* env = Java::Env();
     if (!env)
         return result;
 
@@ -349,7 +349,7 @@ bool Minecraft::canEntityBeSeen(jobject target) {
     if (!isValid() || !target)
         return false;
 
-    JNIEnv* env = Java::GetEnv();
+    JNIEnv* env = Java::Env();
     if (!env)
         return false;
 
@@ -374,7 +374,7 @@ int Minecraft::getLocalPlayerTeamColor() {
     if (!isValid())
         return -1;
 
-    JNIEnv* env = Java::GetEnv();
+    JNIEnv* env = Java::Env();
     if (!env)
         return -1;
 

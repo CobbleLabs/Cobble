@@ -14,7 +14,7 @@ std::vector<SlotInfo> Minecraft::getInventorySlots() {
     if (!isValid())
         return result;
 
-    JNIEnv* env = Java::GetEnv();
+    JNIEnv* env = Java::Env();
     if (!env)
         return result;
 
@@ -153,7 +153,7 @@ void Minecraft::windowClick(int slotId, int button) {
     if (!isValid())
         return;
 
-    JNIEnv* env = Java::GetEnv();
+    JNIEnv* env = Java::Env();
     if (!env)
         return;
 
@@ -235,7 +235,7 @@ void Minecraft::openInventory() {
     if (!isValid())
         return;
 
-    JNIEnv* env = Java::GetEnv();
+    JNIEnv* env = Java::Env();
     if (!env)
         return;
 
@@ -286,7 +286,7 @@ void Minecraft::closeInventory() {
     if (!isValid())
         return;
 
-    JNIEnv* env = Java::GetEnv();
+    JNIEnv* env = Java::Env();
     if (!env)
         return;
 
@@ -318,7 +318,7 @@ bool Minecraft::isInventoryOpen() {
     if (!isValid())
         return false;
 
-    JNIEnv* env = Java::GetEnv();
+    JNIEnv* env = Java::Env();
     if (!env)
         return false;
 

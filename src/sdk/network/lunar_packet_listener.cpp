@@ -302,7 +302,7 @@ bool Init() {
         return false;
     }
 
-    JNIEnv* env = Java::Env;
+    JNIEnv* env = Java::Env();
     if (!env) {
         log_err("[LunarPacketListener] No JNIEnv");
         return false;
@@ -321,7 +321,7 @@ bool Init() {
 }
 
 void Shutdown() {
-    JNIEnv* env = Java::Env;
+    JNIEnv* env = Java::Env();
     if (env) {
         if (cls_LCPacketNametagsUpdate)
             env->DeleteGlobalRef(cls_LCPacketNametagsUpdate);

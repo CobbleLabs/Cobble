@@ -37,7 +37,7 @@ void Reach::onEnable() {
 }
 
 void Reach::onDisable() {
-    JNIEnv* env = Java::GetEnv();
+    JNIEnv* env = Java::Env();
     if (env) {
         restoreEntityHit(env);
     }
@@ -109,7 +109,7 @@ void Reach::onUpdate() {
     if (!player.isValid())
         return;
 
-    JNIEnv* env = Java::GetEnv();
+    JNIEnv* env = Java::Env();
     if (!env)
         return;
 

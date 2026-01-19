@@ -36,7 +36,7 @@ void Hitbox::onEnable() {
 }
 
 void Hitbox::onDisable() {
-    JNIEnv* env = Java::GetEnv();
+    JNIEnv* env = Java::Env();
     if (env) {
         restoreEntityHit(env);
     }
@@ -153,7 +153,7 @@ void Hitbox::onUpdate() {
     if (!player.isValid())
         return;
 
-    JNIEnv* env = Java::GetEnv();
+    JNIEnv* env = Java::Env();
     if (!env)
         return;
 

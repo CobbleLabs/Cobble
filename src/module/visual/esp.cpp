@@ -38,7 +38,7 @@ void ESP::onDisable() {
 }
 
 void ESP::checkWorldChange() {
-    if (!Java::Env || !Java::Initialized)
+    if (!Java::Env() || !Java::Initialized)
         return;
 
     jobject currentWorld = mc.getWorld();
@@ -49,7 +49,7 @@ void ESP::checkWorldChange() {
     else if (lastWorldRef != nullptr && currentWorld == nullptr)
         worldChanged = true;
     else if (lastWorldRef != nullptr && currentWorld != nullptr) {
-        if (!Java::Env->IsSameObject(lastWorldRef, currentWorld))
+        if (!Java::Env()->IsSameObject(lastWorldRef, currentWorld))
             worldChanged = true;
     }
 
@@ -66,19 +66,19 @@ void ESP::checkWorldChange() {
         RenderData::Reset();
 
         if (lastWorldRef) {
-            Java::Env->DeleteGlobalRef(lastWorldRef);
+            Java::Env()->DeleteGlobalRef(lastWorldRef);
             lastWorldRef = nullptr;
         }
 
         if (currentWorld) {
-            lastWorldRef = Java::Env->NewGlobalRef(currentWorld);
+            lastWorldRef = Java::Env()->NewGlobalRef(currentWorld);
         }
 
         Diagnostics::endWorldChange();
     }
 
     if (currentWorld)
-        Java::Env->DeleteLocalRef(currentWorld);
+        Java::Env()->DeleteLocalRef(currentWorld);
 }
 
 void ESP::onUpdate() {
@@ -112,7 +112,7 @@ void ESP::onUpdate() {
 
         if (dist > settings.range || dist < 0.5f) {
             if (p.instance) {
-                Java::Env->DeleteLocalRef(p.instance);
+                Java::Env()->DeleteLocalRef(p.instance);
                 p.instance = nullptr;
             }
             continue;
@@ -136,7 +136,7 @@ void ESP::onUpdate() {
         newCache.push_back(cached);
 
         if (p.instance) {
-            Java::Env->DeleteLocalRef(p.instance);
+            Java::Env()->DeleteLocalRef(p.instance);
             p.instance = nullptr;
         }
     }

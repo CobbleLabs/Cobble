@@ -50,7 +50,7 @@ struct RenderData {
             initRetryCount++;
         }
 
-        if (!Java::Env) {
+        if (!Java::Env()) {
             initFailed = true;
             lastInitAttempt = std::chrono::steady_clock::now();
             return false;
@@ -66,14 +66,14 @@ struct RenderData {
 
         // Try uppercase first (1.8.9), then lowercase (1.7.10)
         bool foundUpperCase = false;
-        projectionField = Java::Env->GetStaticFieldID(activeRenderInfoClass, "PROJECTION", "Ljava/nio/FloatBuffer;");
+        projectionField = Java::Env()->GetStaticFieldID(activeRenderInfoClass, "PROJECTION", "Ljava/nio/FloatBuffer;");
         if (projectionField) {
             log_debug("RenderData: Found PROJECTION (1.8.x style)");
             foundUpperCase = true;
         } else {
-            Java::Env->ExceptionClear();
+            Java::Env()->ExceptionClear();
             projectionField =
-                Java::Env->GetStaticFieldID(activeRenderInfoClass, "projection", "Ljava/nio/FloatBuffer;");
+                Java::Env()->GetStaticFieldID(activeRenderInfoClass, "projection", "Ljava/nio/FloatBuffer;");
             if (projectionField) {
                 log_debug("RenderData: Found projection (1.7.x style)");
             } else {
@@ -81,12 +81,12 @@ struct RenderData {
             }
         }
 
-        modelViewField = Java::Env->GetStaticFieldID(activeRenderInfoClass, "MODELVIEW", "Ljava/nio/FloatBuffer;");
+        modelViewField = Java::Env()->GetStaticFieldID(activeRenderInfoClass, "MODELVIEW", "Ljava/nio/FloatBuffer;");
         if (modelViewField) {
             log_debug("RenderData: Found MODELVIEW (1.8.x style)");
         } else {
-            Java::Env->ExceptionClear();
-            modelViewField = Java::Env->GetStaticFieldID(activeRenderInfoClass, "modelview", "Ljava/nio/FloatBuffer;");
+            Java::Env()->ExceptionClear();
+            modelViewField = Java::Env()->GetStaticFieldID(activeRenderInfoClass, "modelview", "Ljava/nio/FloatBuffer;");
             if (modelViewField) {
                 log_debug("RenderData: Found modelview (1.7.x style)");
             } else {
@@ -95,22 +95,22 @@ struct RenderData {
         }
 
         if (!projectionField || !modelViewField) {
-            Java::Env->ExceptionClear();
+            Java::Env()->ExceptionClear();
             log_err("RenderData: Missing matrix fields, init failed");
             initFailed = true;
             return false;
         }
 
         // FloatBuffer
-        jclass fbLocal = Java::Env->FindClass("java/nio/FloatBuffer");
+        jclass fbLocal = Java::Env()->FindClass("java/nio/FloatBuffer");
         if (!fbLocal) {
             initFailed = true;
             return false;
         }
-        floatBufferClass = (jclass)Java::Env->NewGlobalRef(fbLocal);
-        Java::Env->DeleteLocalRef(fbLocal);
+        floatBufferClass = (jclass)Java::Env()->NewGlobalRef(fbLocal);
+        Java::Env()->DeleteLocalRef(fbLocal);
 
-        floatBufferGet = Java::Env->GetMethodID(floatBufferClass, "get", "(I)F");
+        floatBufferGet = Java::Env()->GetMethodID(floatBufferClass, "get", "(I)F");
         if (!floatBufferGet) {
             initFailed = true;
             return false;
@@ -127,22 +127,22 @@ struct RenderData {
         if (!floatBuffer || !floatBufferGet)
             return m;
 
-        m.m00 = Java::Env->CallFloatMethod(floatBuffer, floatBufferGet, 0);
-        m.m01 = Java::Env->CallFloatMethod(floatBuffer, floatBufferGet, 1);
-        m.m02 = Java::Env->CallFloatMethod(floatBuffer, floatBufferGet, 2);
-        m.m03 = Java::Env->CallFloatMethod(floatBuffer, floatBufferGet, 3);
-        m.m10 = Java::Env->CallFloatMethod(floatBuffer, floatBufferGet, 4);
-        m.m11 = Java::Env->CallFloatMethod(floatBuffer, floatBufferGet, 5);
-        m.m12 = Java::Env->CallFloatMethod(floatBuffer, floatBufferGet, 6);
-        m.m13 = Java::Env->CallFloatMethod(floatBuffer, floatBufferGet, 7);
-        m.m20 = Java::Env->CallFloatMethod(floatBuffer, floatBufferGet, 8);
-        m.m21 = Java::Env->CallFloatMethod(floatBuffer, floatBufferGet, 9);
-        m.m22 = Java::Env->CallFloatMethod(floatBuffer, floatBufferGet, 10);
-        m.m23 = Java::Env->CallFloatMethod(floatBuffer, floatBufferGet, 11);
-        m.m30 = Java::Env->CallFloatMethod(floatBuffer, floatBufferGet, 12);
-        m.m31 = Java::Env->CallFloatMethod(floatBuffer, floatBufferGet, 13);
-        m.m32 = Java::Env->CallFloatMethod(floatBuffer, floatBufferGet, 14);
-        m.m33 = Java::Env->CallFloatMethod(floatBuffer, floatBufferGet, 15);
+        m.m00 = Java::Env()->CallFloatMethod(floatBuffer, floatBufferGet, 0);
+        m.m01 = Java::Env()->CallFloatMethod(floatBuffer, floatBufferGet, 1);
+        m.m02 = Java::Env()->CallFloatMethod(floatBuffer, floatBufferGet, 2);
+        m.m03 = Java::Env()->CallFloatMethod(floatBuffer, floatBufferGet, 3);
+        m.m10 = Java::Env()->CallFloatMethod(floatBuffer, floatBufferGet, 4);
+        m.m11 = Java::Env()->CallFloatMethod(floatBuffer, floatBufferGet, 5);
+        m.m12 = Java::Env()->CallFloatMethod(floatBuffer, floatBufferGet, 6);
+        m.m13 = Java::Env()->CallFloatMethod(floatBuffer, floatBufferGet, 7);
+        m.m20 = Java::Env()->CallFloatMethod(floatBuffer, floatBufferGet, 8);
+        m.m21 = Java::Env()->CallFloatMethod(floatBuffer, floatBufferGet, 9);
+        m.m22 = Java::Env()->CallFloatMethod(floatBuffer, floatBufferGet, 10);
+        m.m23 = Java::Env()->CallFloatMethod(floatBuffer, floatBufferGet, 11);
+        m.m30 = Java::Env()->CallFloatMethod(floatBuffer, floatBufferGet, 12);
+        m.m31 = Java::Env()->CallFloatMethod(floatBuffer, floatBufferGet, 13);
+        m.m32 = Java::Env()->CallFloatMethod(floatBuffer, floatBufferGet, 14);
+        m.m33 = Java::Env()->CallFloatMethod(floatBuffer, floatBufferGet, 15);
 
         return m;
     }
@@ -164,23 +164,23 @@ struct RenderData {
             return;
 
         // Read projection matrix
-        jobject projBuffer = Java::Env->GetStaticObjectField(activeRenderInfoClass, projectionField);
+        jobject projBuffer = Java::Env()->GetStaticObjectField(activeRenderInfoClass, projectionField);
         if (projBuffer) {
             Matrix newProj = ReadMatrix(projBuffer);
             if (IsMatrixValid(newProj)) {
                 projection = newProj;
             }
-            Java::Env->DeleteLocalRef(projBuffer);
+            Java::Env()->DeleteLocalRef(projBuffer);
         }
 
         // Read modelview matrix
-        jobject mvBuffer = Java::Env->GetStaticObjectField(activeRenderInfoClass, modelViewField);
+        jobject mvBuffer = Java::Env()->GetStaticObjectField(activeRenderInfoClass, modelViewField);
         if (mvBuffer) {
             Matrix newMv = ReadMatrix(mvBuffer);
             if (IsMatrixValid(newMv)) {
                 modelView = newMv;
             }
-            Java::Env->DeleteLocalRef(mvBuffer);
+            Java::Env()->DeleteLocalRef(mvBuffer);
         }
 
         // Only mark as updated if we have valid matrices

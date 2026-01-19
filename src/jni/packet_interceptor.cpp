@@ -2860,7 +2860,7 @@ bool Init() {
         return false;
     }
 
-    JNIEnv* env = Java::Env;
+    JNIEnv* env = Java::Env();
     if (!env) {
         // log_err("[PacketInterceptor] No JNIEnv");
         return false;
@@ -2950,7 +2950,7 @@ void Shutdown() {
     // Clear queue
     {
         std::lock_guard<std::mutex> lock(queueMutex);
-        JNIEnv* env = Java::Env;
+        JNIEnv* env = Java::Env();
         if (env) {
             for (auto& qp : packetQueue) {
                 env->DeleteGlobalRef(qp.packet);
@@ -2960,7 +2960,7 @@ void Shutdown() {
     }
 
     // Release global refs
-    JNIEnv* env = Java::Env;
+    JNIEnv* env = Java::Env();
     if (env) {
         if (networkManagerInstance) {
             env->DeleteGlobalRef(networkManagerInstance);
@@ -3026,14 +3026,14 @@ void setBlinkActive(bool active) {
         // log_ok("[PacketInterceptor] Hybrid Blink ACTIVATED - delay %d ticks", kHybridDelayTicks);
 
         if (!packetFieldsReady.load()) {
-            JNIEnv* env = Java::Env;
+            JNIEnv* env = Java::Env();
             if (env)
                 cachePacketFields(env);
         }
 
         // Ensure we have NetworkManager instance
         if (!networkManagerInstance) {
-            JNIEnv* env = Java::Env;
+            JNIEnv* env = Java::Env();
             if (env) {
                 jobject nm = getNetworkManager(env);
                 if (nm) {
@@ -3058,7 +3058,7 @@ int getQueuedCount() {
 }
 
 void flushQueue() {
-    JNIEnv* env = Java::Env;
+    JNIEnv* env = Java::Env();
     if (!env || !networkManagerInstance || !mid_sendPacket) {
         // log_err("[PacketInterceptor] Cannot flush - missing dependencies");
         return;
@@ -3102,7 +3102,7 @@ void flushQueue() {
 void clearQueue() {
     std::lock_guard<std::mutex> lock(queueMutex);
 
-    JNIEnv* env = Java::Env;
+    JNIEnv* env = Java::Env();
     for (auto& qp : packetQueue) {
         if (env)
             env->DeleteGlobalRef(qp.packet);
@@ -3177,7 +3177,7 @@ void Tick() {
         return;
     }
 
-    JNIEnv* env = Java::Env;
+    JNIEnv* env = Java::Env();
     if (!env)
         return;
     if (!networkManagerInstance) {

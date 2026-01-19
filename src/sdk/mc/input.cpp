@@ -29,7 +29,7 @@ void Minecraft::setKeyBindState(int keyCode, bool pressed) {
     if (!JniCache::cls_KeyBinding || !JniCache::mid_setKeyBindState)
         return;
 
-    JNIEnv* env = Java::GetEnv();
+    JNIEnv* env = Java::Env();
     if (!env)
         return;
 
@@ -44,7 +44,7 @@ int Minecraft::getSneakKey() {
     if (!isValid())
         return 42;  // LSHIFT default
 
-    JNIEnv* env = Java::GetEnv();
+    JNIEnv* env = Java::Env();
     if (!env)
         return 42;
 
@@ -82,7 +82,7 @@ void Minecraft::releaseMovementKeys() {
     if (keysReleased)
         return;
 
-    JNIEnv* env = Java::GetEnv();
+    JNIEnv* env = Java::Env();
     if (!env)
         return;
 
@@ -148,7 +148,7 @@ void Minecraft::restoreMovementKeys() {
     if (!keysReleased)
         return;
 
-    JNIEnv* env = Java::GetEnv();
+    JNIEnv* env = Java::Env();
     if (!env)
         return;
 
@@ -222,7 +222,7 @@ void Minecraft::ungrabMouse() {
     if (!isValid())
         return;
 
-    JNIEnv* env = Java::GetEnv();
+    JNIEnv* env = Java::Env();
     if (!env)
         return;
 
@@ -257,7 +257,7 @@ void Minecraft::grabMouse() {
     if (!isValid())
         return;
 
-    JNIEnv* env = Java::GetEnv();
+    JNIEnv* env = Java::Env();
     if (!env)
         return;
 

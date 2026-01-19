@@ -63,7 +63,7 @@ void probeMCPNames() {
 
         if (found) {
             log_ok("[MCP] FOUND: %s", classNames[i]);
-            Java::Env->DeleteLocalRef(cls);
+            Java::Env()->DeleteLocalRef(cls);
         } else {
             log_debug("[MCP] not found: %s", classNames[i]);
         }
@@ -96,7 +96,7 @@ void probePlayerFields() {
 
     if (err != JVMTI_ERROR_NONE) {
         // log_err("[Fields] GetClassFields failed: %d", err);
-        Java::Env->DeleteLocalRef(entityPlayerSP);
+        Java::Env()->DeleteLocalRef(entityPlayerSP);
         return;
     }
 
@@ -129,7 +129,7 @@ void probePlayerFields() {
     }
 
     Java::tiEnv->Deallocate((unsigned char*)fields);
-    Java::Env->DeleteLocalRef(entityPlayerSP);
+    Java::Env()->DeleteLocalRef(entityPlayerSP);
 }
 
 // ============================================================================
@@ -197,7 +197,7 @@ void probeNetworkClasses() {
 
     // Cleanup
     for (int i = 0; i < classCount; i++) {
-        Java::Env->DeleteLocalRef(classes[i]);
+        Java::Env()->DeleteLocalRef(classes[i]);
     }
     Java::tiEnv->Deallocate((unsigned char*)classes);
 
@@ -225,7 +225,7 @@ void probeNettyHandlers() {
 
     for (int i = 0; nettyClasses[i] != nullptr; i++) {
         // Try standard FindClass for Netty (not obfuscated)
-        jclass cls = Java::Env->FindClass(
+        jclass cls = Java::Env()->FindClass(
             // Convert dot notation to slash for FindClass
             [](const char* name) -> std::string {
                 std::string result = name;
@@ -236,8 +236,8 @@ void probeNettyHandlers() {
             }(nettyClasses[i])
                                         .c_str());
 
-        if (Java::Env->ExceptionCheck()) {
-            Java::Env->ExceptionClear();
+        if (Java::Env()->ExceptionCheck()) {
+            Java::Env()->ExceptionClear();
             continue;
         }
 
@@ -264,7 +264,7 @@ void probeNettyHandlers() {
     }
 
     if (channelHandler) {
-        Java::Env->DeleteLocalRef(channelHandler);
+        Java::Env()->DeleteLocalRef(channelHandler);
     }
 }
 
@@ -293,7 +293,7 @@ static void probeNetHandlerFields() {
 
     if (err != JVMTI_ERROR_NONE) {
         // log_err("[NetHandler] GetClassFields failed: %d", err);
-        Java::Env->DeleteLocalRef(netHandlerPlayClient);
+        Java::Env()->DeleteLocalRef(netHandlerPlayClient);
         return;
     }
 
@@ -321,7 +321,7 @@ static void probeNetHandlerFields() {
     }
 
     Java::tiEnv->Deallocate((unsigned char*)fields);
-    Java::Env->DeleteLocalRef(netHandlerPlayClient);
+    Java::Env()->DeleteLocalRef(netHandlerPlayClient);
 }
 
 // ============================================================================
@@ -340,7 +340,7 @@ static void probeSendPacket() {
 
     // Try to get sendPacket method
     // Signature: (Lnet/minecraft/network/Packet;)V
-    JNIEnv* env = Java::Env;
+    JNIEnv* env = Java::Env();
 
     jmethodID sendPacket = env->GetMethodID(networkManager, "sendPacket", "(Lnet/minecraft/network/Packet;)V");
 
@@ -403,7 +403,7 @@ static void probeSendPacket() {
         }
     }
 
-    Java::Env->DeleteLocalRef(networkManager);
+    Java::Env()->DeleteLocalRef(networkManager);
 }
 
 // ============================================================================
@@ -418,7 +418,7 @@ static void probeLastReportedPos() {
         return;
     }
 
-    JNIEnv* env = Java::Env;
+    JNIEnv* env = Java::Env();
 
     // Try MCP names first
     const char* fieldNames[] = {"lastReportedPosX",

@@ -258,7 +258,7 @@ bool Init() {
     if (g_initialized)
         return true;
 
-    JNIEnv* env = Java::GetEnv();
+    JNIEnv* env = Java::Env();
     if (!env) {
         log_err("JniCache::Init: No JNI environment");
         return false;
@@ -755,7 +755,7 @@ void Cleanup() {
     if (!g_initialized)
         return;
 
-    JNIEnv* env = Java::GetEnv();
+    JNIEnv* env = Java::Env();
     if (!env)
         return;
 

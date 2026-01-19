@@ -25,13 +25,13 @@ void SDK_Init() {
     }
 
     // getMinecraft() -> Minecraft instance
-    mc.mid_getMinecraft = Java::Env->GetStaticMethodID(mc.cls, "getMinecraft", "()Lnet/minecraft/client/Minecraft;");
+    mc.mid_getMinecraft = Java::Env()->GetStaticMethodID(mc.cls, "getMinecraft", "()Lnet/minecraft/client/Minecraft;");
     if (!mc.mid_getMinecraft) {
         log_err("SDK_Init: failed to find getMinecraft");
         return;
     }
 
-    mc.instance = Java::Env->CallStaticObjectMethod(mc.cls, mc.mid_getMinecraft);
+    mc.instance = Java::Env()->CallStaticObjectMethod(mc.cls, mc.mid_getMinecraft);
     if (!mc.instance) {
         log_err("SDK_Init: getMinecraft returned null");
         return;
@@ -41,35 +41,35 @@ void SDK_Init() {
     const char* playerSig = (Java::Version == MinecraftVersion::MC_1_7_10)
                                 ? "Lnet/minecraft/client/entity/EntityClientPlayerMP;"
                                 : "Lnet/minecraft/client/entity/EntityPlayerSP;";
-    mc.fid_thePlayer = Java::Env->GetFieldID(mc.cls, "thePlayer", playerSig);
+    mc.fid_thePlayer = Java::Env()->GetFieldID(mc.cls, "thePlayer", playerSig);
 
     // theWorld field
-    mc.fid_theWorld = Java::Env->GetFieldID(mc.cls, "theWorld", "Lnet/minecraft/client/multiplayer/WorldClient;");
+    mc.fid_theWorld = Java::Env()->GetFieldID(mc.cls, "theWorld", "Lnet/minecraft/client/multiplayer/WorldClient;");
 
     // currentScreen field (to detect if GUI is open)
-    mc.fid_currentScreen = Java::Env->GetFieldID(mc.cls, "currentScreen", "Lnet/minecraft/client/gui/GuiScreen;");
+    mc.fid_currentScreen = Java::Env()->GetFieldID(mc.cls, "currentScreen", "Lnet/minecraft/client/gui/GuiScreen;");
 
     // clickMouse method
-    mc.mid_clickMouse = Java::Env->GetMethodID(mc.cls, "clickMouse", "()V");
+    mc.mid_clickMouse = Java::Env()->GetMethodID(mc.cls, "clickMouse", "()V");
 
     // Click delay fields
-    mc.fid_rightClickDelayTimer = Java::Env->GetFieldID(mc.cls, "rightClickDelayTimer", "I");
-    mc.fid_leftClickCounter = Java::Env->GetFieldID(mc.cls, "leftClickCounter", "I");
+    mc.fid_rightClickDelayTimer = Java::Env()->GetFieldID(mc.cls, "rightClickDelayTimer", "I");
+    mc.fid_leftClickCounter = Java::Env()->GetFieldID(mc.cls, "leftClickCounter", "I");
 
     // KeyBinding cache for releaseMovementKeys (legacy, kept for compatibility)
     jclass kbCls = nullptr;
     if (Java::AssignClass("net.minecraft.client.settings.KeyBinding", kbCls)) {
-        mc.cls_keyBinding = (jclass)Java::Env->NewGlobalRef(kbCls);
+        mc.cls_keyBinding = (jclass)Java::Env()->NewGlobalRef(kbCls);
 
-        mc.mid_unPressAllKeys = Java::Env->GetStaticMethodID(mc.cls_keyBinding, "unPressAllKeys", "()V");
+        mc.mid_unPressAllKeys = Java::Env()->GetStaticMethodID(mc.cls_keyBinding, "unPressAllKeys", "()V");
         if (!mc.mid_unPressAllKeys) {
-            Java::Env->ExceptionClear();
-            mc.mid_unPressAllKeys = Java::Env->GetStaticMethodID(mc.cls_keyBinding, "func_74505_d", "()V");
+            Java::Env()->ExceptionClear();
+            mc.mid_unPressAllKeys = Java::Env()->GetStaticMethodID(mc.cls_keyBinding, "func_74505_d", "()V");
         }
 
-        mc.mid_setKeyBindState = Java::Env->GetStaticMethodID(mc.cls_keyBinding, "setKeyBindState", "(IZ)V");
-        mc.mid_getKeyCode = Java::Env->GetMethodID(mc.cls_keyBinding, "getKeyCode", "()I");
-        mc.fid_pressed = Java::Env->GetFieldID(mc.cls_keyBinding, "pressed", "Z");
+        mc.mid_setKeyBindState = Java::Env()->GetStaticMethodID(mc.cls_keyBinding, "setKeyBindState", "(IZ)V");
+        mc.mid_getKeyCode = Java::Env()->GetMethodID(mc.cls_keyBinding, "getKeyCode", "()I");
+        mc.fid_pressed = Java::Env()->GetFieldID(mc.cls_keyBinding, "pressed", "Z");
     }
 
     // Initialize JNI cache (new centralized system)
@@ -95,49 +95,49 @@ void SDK_Init() {
 jobject Minecraft::getPlayer() {
     if (!isValid() || !fid_thePlayer)
         return nullptr;
-    return Java::Env->GetObjectField(instance, fid_thePlayer);
+    return Java::Env()->GetObjectField(instance, fid_thePlayer);
 }
 
 jobject Minecraft::getWorld() {
     if (!isValid() || !fid_theWorld)
         return nullptr;
-    return Java::Env->GetObjectField(instance, fid_theWorld);
+    return Java::Env()->GetObjectField(instance, fid_theWorld);
 }
 
 bool Minecraft::isInGui() {
     if (!isValid() || !fid_currentScreen)
         return false;
-    jobject screen = Java::Env->GetObjectField(instance, fid_currentScreen);
+    jobject screen = Java::Env()->GetObjectField(instance, fid_currentScreen);
     bool result = (screen != nullptr);
     if (screen)
-        Java::Env->DeleteLocalRef(screen);
+        Java::Env()->DeleteLocalRef(screen);
     return result;
 }
 
 void Minecraft::clickMouse() {
     if (!isValid() || !mid_clickMouse)
         return;
-    Java::Env->CallVoidMethod(instance, mid_clickMouse);
+    Java::Env()->CallVoidMethod(instance, mid_clickMouse);
 }
 
 int Minecraft::getRightClickDelay() {
     if (!isValid() || !fid_rightClickDelayTimer)
         return 0;
-    return Java::Env->GetIntField(instance, fid_rightClickDelayTimer);
+    return Java::Env()->GetIntField(instance, fid_rightClickDelayTimer);
 }
 
 void Minecraft::setRightClickDelay(int value) {
     if (!isValid() || !fid_rightClickDelayTimer)
         return;
-    Java::Env->SetIntField(instance, fid_rightClickDelayTimer, value);
+    Java::Env()->SetIntField(instance, fid_rightClickDelayTimer, value);
 }
 
 void Minecraft::setLeftClickCounter(int value) {
-    if (!isValid() || !fid_leftClickCounter || !Java::Env)
+    if (!isValid() || !fid_leftClickCounter || !Java::Env())
         return;
-    Java::Env->SetIntField(instance, fid_leftClickCounter, value);
-    if (Java::Env->ExceptionCheck()) {
-        Java::Env->ExceptionClear();
+    Java::Env()->SetIntField(instance, fid_leftClickCounter, value);
+    if (Java::Env()->ExceptionCheck()) {
+        Java::Env()->ExceptionClear();
     }
 }
 
@@ -147,10 +147,10 @@ void Minecraft::setTimerSpeed(float speed) {
     if (!JniCache::fid_timer || !JniCache::fid_timerSpeed)
         return;
 
-    jobject timer = Java::Env->GetObjectField(instance, JniCache::fid_timer);
+    jobject timer = Java::Env()->GetObjectField(instance, JniCache::fid_timer);
     if (!timer)
         return;
 
-    Java::Env->SetFloatField(timer, JniCache::fid_timerSpeed, speed);
-    Java::Env->DeleteLocalRef(timer);
+    Java::Env()->SetFloatField(timer, JniCache::fid_timerSpeed, speed);
+    Java::Env()->DeleteLocalRef(timer);
 }

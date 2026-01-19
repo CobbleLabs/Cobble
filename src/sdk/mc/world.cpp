@@ -15,7 +15,7 @@ int Minecraft::getBlockId(int x, int y, int z) {
 
     // 1.7.10: World.getBlock(int, int, int) -> Block
     if (Java::Version == MinecraftVersion::MC_1_7_10) {
-        JNIEnv* env = Java::GetEnv();
+        JNIEnv* env = Java::Env();
         if (!env)
             return 0;
 
@@ -41,7 +41,7 @@ int Minecraft::getBlockId(int x, int y, int z) {
         return blockId;
     }
 
-    JNIEnv* env = Java::GetEnv();
+    JNIEnv* env = Java::Env();
     if (!env)
         return 0;
 
@@ -118,7 +118,7 @@ Minecraft::RAYTRACE_BLOCKS_RESULT Minecraft::rayTraceBlocks(Vec3 from, Vec3 dire
     if (!isValid())
         return RAYTRACE_BLOCKS_RESULT::RAYTRACE_ERROR;
 
-    JNIEnv* env = Java::GetEnv();
+    JNIEnv* env = Java::Env();
     if (!env)
         return RAYTRACE_BLOCKS_RESULT::RAYTRACE_ERROR;
 

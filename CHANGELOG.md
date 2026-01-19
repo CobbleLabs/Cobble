@@ -6,6 +6,18 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/).
 
 ---
 
+## [1.1.5] - 2026-01-19
+
+### Fixed
+- **JNI Thread-Safety**: Implementado thread-local storage para JNIEnv 
+  - `Java::Env` ahora es una función `Java::Env()` que retorna el env del hilo actual
+  - Cada hilo obtiene y cachea su propio JNIEnv automáticamente
+  - Corrige crashes en sistemas con Windows custom/kernels modificados (AtlasOS, ReviOS, etc.)
+  - El scheduler agresivo de estos sistemas causaba race conditions entre hilos
+  - Attachea hilos automáticamente si no están conectados a la JVM
+
+---
+
 ## [1.1.4] - 2026-01-18
 
 ### Security
