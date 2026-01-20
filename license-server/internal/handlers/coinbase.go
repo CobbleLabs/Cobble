@@ -22,8 +22,8 @@ import (
 
 // CoinbaseWebhookEvent represents a Coinbase Commerce webhook event
 type CoinbaseWebhookEvent struct {
-	ID           int    `json:"id"`
-	ScheduledFor string `json:"scheduled_for"`
+	ID           interface{} `json:"id"` // Can be string or int depending on Coinbase API version
+	ScheduledFor string      `json:"scheduled_for"`
 	Event        struct {
 		ID   string `json:"id"`
 		Type string `json:"type"`
