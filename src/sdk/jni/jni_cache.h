@@ -228,6 +228,7 @@ extern jfieldID fid_ENTITY;
 // =============================================================================
 
 extern jfieldID fid_playerEntities;
+extern jfieldID fid_loadedEntityList;  // All entities in world (mobs, animals, players)
 extern jmethodID mid_getBlockState;
 extern jmethodID mid_getBlockWorld;  // 1.7.10: World.getBlock(int,int,int) -> Block
 extern jmethodID mid_rayTraceBlocks;

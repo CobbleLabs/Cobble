@@ -12,6 +12,7 @@ struct ImDrawList;
 struct TrajectoryPoint {
     float relX = 0, relY = 0, relZ = 0;  // Relative to player eye
     bool valid = false;
+    bool hitBlock = false;  // True if this point is at a block collision
 };
 
 class Trajectories : public Module {

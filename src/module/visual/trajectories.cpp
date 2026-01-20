@@ -4,6 +4,7 @@
 #include <cmath>
 #include "../../../infra/ext/imgui/imgui.h"
 #include "../../sdk/core/minecraft.h"
+#include "../../sdk/jni/jni_cache.h"
 #include "../../sdk/player/render_data.h"
 #include "../../ui/menu/menu.h"
 #include "../../ui/widgets/widgets.hpp"
@@ -300,7 +301,7 @@ void Trajectories::simulateTrajectory() {
     // Calculate right-hand offset (perpendicular to look direction in XZ plane)
     // This simulates the projectile coming from the player's right hand
     float rightOffsetAmount = 0.4f;  // Lateral offset in blocks (to the right)
-    float forwardOffset = 1.5f;      // Forward offset in blocks (line starts further away)
+    float forwardOffset = 2.5f;      // Forward offset in blocks (line starts further from player)
 
     // Right vector is perpendicular to look direction (negated for right side)
     float rightX = -cosf(yawRad) * rightOffsetAmount;
@@ -325,6 +326,7 @@ void Trajectories::simulateTrajectory() {
     start.relY = (float)relPosY;
     start.relZ = (float)relPosZ;
     start.valid = true;
+    start.hitBlock = false;
     newTrajectory.push_back(start);
 
     for (int tick = 0; tick < MAX_SIMULATION_TICKS; tick++) {
@@ -333,21 +335,23 @@ void Trajectories::simulateTrajectory() {
         double prevRelY = relPosY;
         double prevRelZ = relPosZ;
 
-        // Smooth trajectory: add multiple sub-steps per tick for smoother curve
+        // Smooth trajectory using correct Verlet-style physics integration
+        // Each substep applies proportional physics for true parabolic curve
         const int subSteps = 4;
-        double subVx = vx / subSteps;
-        double subVy = vy / subSteps;
-        double subVz = vz / subSteps;
+        double subDrag = pow(physics.drag, 1.0 / subSteps);  // Fractional drag per substep
         double subGravity = physics.gravity / subSteps;
 
         for (int sub = 0; sub < subSteps; sub++) {
-            // Apply sub-step velocity
-            relPosX += subVx;
-            relPosY += subVy;
-            relPosZ += subVz;
+            // Apply velocity first (position update)
+            relPosX += vx / subSteps;
+            relPosY += vy / subSteps;
+            relPosZ += vz / subSteps;
 
-            // Apply sub-step gravity
-            subVy -= subGravity;
+            // Update velocity for next substep (gravity + drag)
+            vy -= subGravity;
+            vx *= subDrag;
+            vy *= subDrag;
+            vz *= subDrag;
 
             // Add intermediate point for smoother curve
             TrajectoryPoint subPoint;
@@ -355,14 +359,9 @@ void Trajectories::simulateTrajectory() {
             subPoint.relY = (float)relPosY;
             subPoint.relZ = (float)relPosZ;
             subPoint.valid = true;
+            subPoint.hitBlock = false;
             newTrajectory.push_back(subPoint);
         }
-
-        // Update actual velocity for next tick (apply full tick physics)
-        vy -= physics.gravity;
-        vx *= physics.drag;
-        vy *= physics.drag;
-        vz *= physics.drag;
 
         // Check for block collision using raytrace (need absolute coords for raytrace)
         double absFromX = startX + prevRelX;
@@ -380,9 +379,10 @@ void Trajectories::simulateTrajectory() {
 
         if (rayResult == Minecraft::RAYTRACE_BLOCKS_RESULT::HIT ||
             rayResult == Minecraft::RAYTRACE_BLOCKS_RESULT::HIT_FROM_AIRBLOCK) {
-            // Hit a block - stop simulation
-            // Keep the physics-simulated position (don't use raytrace result)
-            // This ensures the endpoint matches the interpolated trajectory
+            // Hit a block - mark the endpoint and stop simulation
+            if (!newTrajectory.empty()) {
+                newTrajectory.back().hitBlock = true;
+            }
             break;
         }
 
@@ -517,6 +517,10 @@ void Trajectories::onRender() {
     std::vector<ImVec2> polylinePoints;
     polylinePoints.reserve(localTrajectory.size());
 
+    // Track hit point for marker
+    ImVec2 hitMarkerPos;
+    bool hasHitMarker = false;
+
     // Add ALL trajectory points - the 3D physics naturally creates the parabola
     for (size_t i = 0; i < localTrajectory.size(); i++) {
         const auto& point = localTrajectory[i];
@@ -538,6 +542,12 @@ void Trajectories::onRender() {
         if (visible) {
             // Use natural 3D projection - no artificial offsets
             polylinePoints.push_back(ImVec2(screenPos.x, screenPos.y));
+
+            // Track the first hit block position for marker
+            if (point.hitBlock && !hasHitMarker) {
+                hitMarkerPos = ImVec2(screenPos.x, screenPos.y);
+                hasHitMarker = true;
+            }
         }
     }
 
@@ -545,6 +555,14 @@ void Trajectories::onRender() {
     if (polylinePoints.size() >= 2) {
         draw->AddPolyline(polylinePoints.data(), (int)polylinePoints.size(), lineColor, ImDrawFlags_None,
                           settings.thickness);
+    }
+
+    // Draw hit marker (filled circle at impact point)
+    if (hasHitMarker) {
+        float markerRadius = settings.thickness * 2.5f;
+        draw->AddCircleFilled(hitMarkerPos, markerRadius, lineColor);
+        // Outline for visibility
+        draw->AddCircle(hitMarkerPos, markerRadius, IM_COL32(0, 0, 0, 180), 0, 1.5f);
     }
 }
 

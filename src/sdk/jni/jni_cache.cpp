@@ -153,6 +153,7 @@ jfieldID fid_ENTITY = nullptr;
 
 // World IDs
 jfieldID fid_playerEntities = nullptr;
+jfieldID fid_loadedEntityList = nullptr;
 jmethodID mid_getBlockState = nullptr;
 jmethodID mid_getBlockWorld = nullptr;  // 1.7.10: World.getBlock(int,int,int)
 jmethodID mid_rayTraceBlocks = nullptr;
@@ -615,6 +616,17 @@ bool Init() {
 
     if (cls_WorldClient) {
         TRY_FIELD(fid_playerEntities, cls_WorldClient, "playerEntities", "Ljava/util/List;");
+        
+        // loadedEntityList contains ALL entities (mobs, animals, players)
+        TRY_FIELD(fid_loadedEntityList, cls_WorldClient, "loadedEntityList", "Ljava/util/List;");
+        if (!fid_loadedEntityList) {
+            // Try parent class World
+            jclass cls_World = nullptr;
+            if (Java::AssignClass("net.minecraft.world.World", cls_World) && cls_World) {
+                TRY_FIELD(fid_loadedEntityList, cls_World, "loadedEntityList", "Ljava/util/List;");
+                env->DeleteLocalRef(cls_World);
+            }
+        }
 
         if (!is_1_7_10) {
             TRY_METHOD(mid_getBlockState, cls_WorldClient, "getBlockState",

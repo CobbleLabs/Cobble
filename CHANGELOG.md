@@ -6,6 +6,19 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/).
 
 ---
 
+## [1.1.6] - 2026-01-20
+
+### Fixed
+- **Trajectories Smooth Curve**: Corregido física de simulación para curva parabólica suave
+  - Antes: Substeps calculaban velocidad fraccionada pero no la actualizaban entre pasos, causando segmentos rectos
+  - Ahora: Integración Verlet-style correcta - gravedad y drag se aplican proporcionalmente por substep
+  - Resultado: Línea suave sin imperfecciones ni "escalones"
+- **Trajectories Start Position**: La línea ahora empieza más adelante del jugador (2.5 bloques vs 1.5)
+  - Evita que la línea se dibuje encima del personaje
+- **Trajectories Endpoint**: Marcador circular en punto de impacto cuando toca superficie
+
+---
+
 ## [1.1.5] - 2026-01-19
 
 ### Fixed
