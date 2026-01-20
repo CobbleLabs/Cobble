@@ -47,7 +47,7 @@ inline double cachedLocalLastZ = 0.0;
 inline bool cachedValid = false;
 
 inline void Update() {
-    if (!Java::Env || !Java::Initialized)
+    if (!Java::Env() || !Java::Initialized)
         return;
 
     if (!player.isValid()) {
@@ -87,7 +87,7 @@ inline void Update() {
         newPlayers.push_back(std::move(cached));
 
         if (p.instance) {
-            Java::Env->DeleteLocalRef(p.instance);
+            Java::Env()->DeleteLocalRef(p.instance);
             p.instance = nullptr;
         }
     }

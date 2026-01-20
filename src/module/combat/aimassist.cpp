@@ -270,8 +270,8 @@ void AimAssist::onEnable() {
     // CRITICAL: Clean up any stale JNI references from previous session
     // This fixes the intermittent "no target detected" bug after game state changes
     if (cachedTarget) {
-        if (Java::Env && !Java::Env->IsSameObject(cachedTarget, NULL)) {
-            Java::Env->DeleteGlobalRef(cachedTarget);
+        if (Java::Env() && !Java::Env()->IsSameObject(cachedTarget, NULL)) {
+            Java::Env()->DeleteGlobalRef(cachedTarget);
         }
         cachedTarget = nullptr;
     }
