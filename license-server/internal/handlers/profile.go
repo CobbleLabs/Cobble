@@ -215,7 +215,7 @@ func ResetHWID(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Reset HWID
+	// Reset HWID in license
 	_, err := database.DB.Exec(`
 		UPDATE licenses SET hwid = NULL, hwid_last_reset = NOW(), updated_at = NOW()
 		WHERE id = $1
@@ -224,6 +224,9 @@ func ResetHWID(w http.ResponseWriter, r *http.Request) {
 		helpers.JSONResponse(w, http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to reset HWID"})
 		return
 	}
+
+	// Clear HWID history to prevent false bans (user starts fresh)
+	database.ClearHWIDHistory(userID)
 
 	logger.Info("PROFILE", "HWID reset", logger.Fields{"user_id": userID})
 	helpers.JSONResponse(w, http.StatusOK, models.SuccessResponse{Success: true})

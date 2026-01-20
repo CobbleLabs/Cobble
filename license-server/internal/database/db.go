@@ -571,7 +571,14 @@ func GetLicenseByHWID(hwid string) (*LicenseRow, error) {
 }
 
 // CreateLicense creates a new license for a user
+// Also clears HWID history to prevent false "HWID abuse" bans after license revoke/recreate
 func CreateLicense(userID, plan string, expiresAt *time.Time) (int, error) {
+	// Clear HWID history to start fresh - prevents false bans when admin revokes and re-grants license
+	DB.Exec("DELETE FROM hwid_history WHERE user_id = $1", userID)
+
+	// Also clear any stale active sessions
+	DB.Exec("DELETE FROM active_sessions WHERE user_id = $1", userID)
+
 	var id int
 	err := DB.QueryRow(`
 		INSERT INTO licenses (user_id, plan, expires_at)
@@ -681,6 +688,13 @@ func CountUserHWIDs(userID string) int {
 	var count int
 	DB.QueryRow("SELECT COUNT(DISTINCT hwid) FROM hwid_history WHERE user_id = $1", userID).Scan(&count)
 	return count
+}
+
+// ClearHWIDHistory deletes all HWID history for a user
+// Used by admin to prevent false bans after hardware changes
+func ClearHWIDHistory(userID string) error {
+	_, err := DB.Exec("DELETE FROM hwid_history WHERE user_id = $1", userID)
+	return err
 }
 
 // RecordSession records an active session

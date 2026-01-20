@@ -993,7 +993,7 @@ func AdminResetHWID(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Reset HWID
+	// Reset HWID in license
 	_, err = database.DB.Exec(`
 		UPDATE licenses 
 		SET hwid = NULL, hwid_last_reset = NOW(), updated_at = NOW() 
@@ -1004,6 +1004,9 @@ func AdminResetHWID(w http.ResponseWriter, r *http.Request) {
 		helpers.JSONResponse(w, http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to reset HWID"})
 		return
 	}
+
+	// Clear HWID history to prevent false bans (user starts fresh)
+	database.ClearHWIDHistory(userID)
 
 	adminID := middleware.GetUserID(r)
 	database.LogAuditAdmin(adminID, "hwid.reset", "user", &userID, nil, helpers.GetClientIP(r))
