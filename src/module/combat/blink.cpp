@@ -15,6 +15,7 @@ Blink* blink = nullptr;
 Blink::Blink() : Module("Blink") {
     keybind = 0;
     locked = true;
+    renders = true;
 }
 
 void Blink::onEnable() {

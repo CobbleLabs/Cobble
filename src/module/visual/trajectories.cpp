@@ -26,6 +26,7 @@ static constexpr int MAX_SIMULATION_TICKS = 300;
 
 Trajectories::Trajectories() : Module("Trajectories") {
     keybind = 0;
+    renders = true;
 }
 
 void Trajectories::onEnable() {
@@ -411,7 +412,6 @@ void Trajectories::onUpdate() {
     }
 
     checkWorldChange();
-    RenderData::Update();
 
     RenderPos renderPos = mc.getRenderPos();
     float partialTicks = mc.getPartialTicks();

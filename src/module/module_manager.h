@@ -10,6 +10,8 @@ public:
     void registerModule(Module* mod);
     void update();
     void onRender();  // Called from overlay for visual modules
+    bool hasRenderWork() const;
+    bool needsPlayerCache() const;
     void checkKeybinds();
     void broadcastModuleState(Module* mod);  // Send state to web UI
 

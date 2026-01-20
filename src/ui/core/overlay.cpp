@@ -384,6 +384,19 @@ BOOL __stdcall HookedSwapBuffers(HDC hdc) {
             RenderData::screenHeight = newHeight;
         }
 
+        NotificationManager::update();
+        bool hasRenderWork = moduleManager && moduleManager->hasRenderWork();
+        bool hasNotifications = NotificationManager::hasActive();
+        bool hasArrayList = ArrayListRenderer::hasActive();
+        bool menuAnimating = Menu::openAnim > 0.01f;
+        if (!Menu::isOpen && !menuAnimating && !hasRenderWork && !hasNotifications && !hasArrayList) {
+            if (Overlay::deviceContext && Overlay::originalContext &&
+                wglGetCurrentContext() != Overlay::originalContext) {
+                wglMakeCurrent(Overlay::deviceContext, Overlay::originalContext);
+            }
+            return originalSwapBuffers(hdc);
+        }
+
         if (!wglMakeCurrent(Overlay::deviceContext, Overlay::overlayContext)) {
             return originalSwapBuffers(hdc);
         }

@@ -409,7 +409,11 @@ void Menu::ApplyStyle() {
 void Menu::Render() {
     // Animate open/close
     float targetAnim = isOpen ? 1.f : 0.f;
-    openAnim = ImLerp(openAnim, targetAnim, 15.f * ImGui::GetIO().DeltaTime);
+    float dt = ImGui::GetIO().DeltaTime;
+    if (dt > (1.0f / 60.0f)) {
+        dt = 1.0f / 60.0f;
+    }
+    openAnim = ImLerp(openAnim, targetAnim, 15.f * dt);
 
     if (openAnim < 0.01f && !isOpen)
         return;

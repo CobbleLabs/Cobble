@@ -243,3 +243,13 @@ void ArrayListRenderer::render() {
         idx++;
     }
 }
+
+bool ArrayListRenderer::hasActive() {
+    if (!enabled)
+        return false;
+    if (Menu::isOpen)
+        return false;
+    if (!player.isValid())
+        return false;
+    return true;
+}

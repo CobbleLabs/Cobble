@@ -30,6 +30,7 @@
 #include "sdk/network/lunar_packet_listener.hpp"
 #include "sdk/network/network_probe.hpp"
 #include "sdk/player/render_data.h"
+#include "sdk/player/visual_cache.h"
 #include "security/dll_integrity.hpp"
 #include "security/honeypot.hpp"
 #include "security/loader_validator.hpp"  // Phase 4: Multiple validators
@@ -40,6 +41,8 @@
 #include "util/diagnostics.hpp"
 #include "util/state.hpp"
 #include "util/team/friends_manager.h"
+
+#include <algorithm>
 
 // Signature for loader detection (cleared on shutdown for re-injection support)
 volatile char COBBLE_SIGNATURE[] = "COBBLE_LOADED_V1";
@@ -216,8 +219,21 @@ void cobble::context::initialize(HMODULE hModule) {
         log_ok("Created instance mutex: %ls", mutexName.c_str());
     }
 
-    int tickCount = 0;
-    const int OVERLAY_INIT_DELAY = 1000;
+    const auto startTime = std::chrono::steady_clock::now();
+    auto lastSessionRefresh = startTime;
+    auto lastPlayerRefresh = startTime;
+    auto lastModuleUpdate = startTime;
+    auto lastRenderUpdate = startTime;
+    auto lastVisualCacheUpdate = startTime;
+
+    constexpr auto OVERLAY_INIT_DELAY = std::chrono::milliseconds(1000);
+    constexpr auto NOTIFICATION_DELAY = std::chrono::milliseconds(1100);
+    constexpr auto SESSION_REFRESH_INTERVAL = std::chrono::milliseconds(1000);
+    constexpr auto PLAYER_REFRESH_INTERVAL = std::chrono::milliseconds(2);
+    constexpr auto MODULE_UPDATE_INTERVAL = std::chrono::milliseconds(2);
+    constexpr auto RENDERDATA_UPDATE_INTERVAL = std::chrono::milliseconds(4);
+    constexpr auto VISUAL_CACHE_INTERVAL = std::chrono::milliseconds(4);
+    constexpr auto MIN_SLEEP = std::chrono::milliseconds(1);
     bool overlayInitialized = false;
     bool notificationShown = false;
 
@@ -228,21 +244,21 @@ void cobble::context::initialize(HMODULE hModule) {
         // Update watchdog tick timestamp
         Diagnostics::tick();
 
-        if (!overlayInitialized && tickCount >= OVERLAY_INIT_DELAY) {
+        auto now = std::chrono::steady_clock::now();
+
+        if (!overlayInitialized && now - startTime >= OVERLAY_INIT_DELAY) {
             DIAG_SCOPE("Overlay::Init");
             Overlay::Init();
             overlayInitialized = true;
         }
 
-        if (overlayInitialized && !notificationShown && tickCount >= OVERLAY_INIT_DELAY + 100) {
+        if (overlayInitialized && !notificationShown && now - startTime >= NOTIFICATION_DELAY) {
             NotificationManager::addSystem("Cobble loaded");
             notificationShown = true;
         }
 
-        tickCount++;
-
         // Refresh SDK state periodically (keeps timing in sync)
-        if ((tickCount & 0x3FF) == 0) {  // Every ~1024 ticks (~1 sec)
+        if (now - lastSessionRefresh >= SESSION_REFRESH_INTERVAL) {
             DIAG_SCOPE("SessionValidator::refresh");
             SessionValidator::refreshState();
 
@@ -254,29 +270,48 @@ void cobble::context::initialize(HMODULE hModule) {
 
             // Check devOverride honeypot
             internal::checkDevOverride();
+            lastSessionRefresh = now;
         }
 
-        {
+        if (now - lastPlayerRefresh >= PLAYER_REFRESH_INTERVAL) {
             DIAG_SCOPE("player.refresh");
             player.refresh();
+            lastPlayerRefresh = now;
         }
 
-        {
+        if (moduleManager && moduleManager->needsPlayerCache() &&
+            now - lastVisualCacheUpdate >= VISUAL_CACHE_INTERVAL) {
+            DIAG_SCOPE("VisualCache::Update");
+            VisualCache::Update();
+            lastVisualCacheUpdate = now;
+        }
+
+        if (now - lastModuleUpdate >= MODULE_UPDATE_INTERVAL) {
             DIAG_SCOPE("moduleManager.update");
             moduleManager->update();
+            lastModuleUpdate = now;
         }
 
         // Update render data matrices (for ESP) - must be on main thread with JNI access
-        {
+        if (now - lastRenderUpdate >= RENDERDATA_UPDATE_INTERVAL) {
             DIAG_SCOPE("RenderData::Update");
             RenderData::Update();
+            lastRenderUpdate = now;
         }
 
-        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        auto nextWake = std::min(
+            {lastPlayerRefresh + PLAYER_REFRESH_INTERVAL, lastModuleUpdate + MODULE_UPDATE_INTERVAL,
+             lastRenderUpdate + RENDERDATA_UPDATE_INTERVAL, lastVisualCacheUpdate + VISUAL_CACHE_INTERVAL,
+             lastSessionRefresh + SESSION_REFRESH_INTERVAL});
+        auto sleepFor = nextWake - now;
+        if (sleepFor > MIN_SLEEP) {
+            std::this_thread::sleep_for(sleepFor);
+        } else {
+            std::this_thread::sleep_for(MIN_SLEEP);
+        }
     }
 
     shutdown();
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));
     ExitThread(0);
 }
 

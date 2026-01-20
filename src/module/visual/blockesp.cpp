@@ -25,6 +25,7 @@ enum BlockID {
 
 BlockESP::BlockESP() : Module("BlockESP") {
     keybind = 0;
+    renders = true;
 }
 
 void BlockESP::onEnable() {

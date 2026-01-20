@@ -21,4 +21,5 @@ inline float yOffset = 5.0f;
 inline int anchor = 0;  // 0=TopRight, 1=TopLeft, 2=BottomRight, 3=BottomLeft
 
 void render();
+bool hasActive();
 }  // namespace ArrayListRenderer

@@ -177,3 +177,15 @@ void NotificationManager::render() {
         index++;
     }
 }
+
+bool NotificationManager::hasActive() {
+    if (!enabled)
+        return false;
+
+    std::lock_guard<std::mutex> lock(mutex);
+    for (const auto& notif : notifications) {
+        if (!notif.isExpired())
+            return true;
+    }
+    return false;
+}

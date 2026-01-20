@@ -41,6 +41,7 @@ void add(const std::string& moduleName, bool enabled);
 void addSystem(const std::string& message);
 void update();
 void render();
+bool hasActive();
 
 // Timing
 inline constexpr float NOTIFICATION_DURATION = 2.0f;

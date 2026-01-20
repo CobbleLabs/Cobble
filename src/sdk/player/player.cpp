@@ -96,28 +96,24 @@ void LocalPlayer::refresh() {
         return;
     }
 
-    // Get fresh player instance from Minecraft
-    jobject newInstance = mc.getPlayer();
-
-    // Delete old local ref if exists
+    // ALWAYS get a fresh reference - the old approach cached too aggressively
+    // and caused stale position data when changing worlds/servers
     if (instance) {
         Java::Env()->DeleteLocalRef(instance);
         instance = nullptr;
     }
 
-    // Check if we got a valid new instance
-    if (newInstance) {
+    instance = mc.getPlayer();
+
+    // Check if we got a valid instance
+    if (instance) {
         // Verify the object is still valid (not garbage collected)
         if (Java::Env()->ExceptionCheck()) {
             Java::Env()->ExceptionClear();
-            newInstance = nullptr;
+            instance = nullptr;
+        } else if (!fieldsInitialized) {
+            initFields();
         }
-    }
-
-    instance = newInstance;
-
-    if (instance && !fieldsInitialized) {
-        initFields();
     }
 }
 

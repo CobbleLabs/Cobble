@@ -68,6 +68,22 @@ void ModuleManager::onRender() {
     }
 }
 
+bool ModuleManager::hasRenderWork() const {
+    for (const auto* mod : modules) {
+        if (mod->enabled && mod->renders)
+            return true;
+    }
+    return false;
+}
+
+bool ModuleManager::needsPlayerCache() const {
+    for (const auto* mod : modules) {
+        if (mod->enabled && mod->usesPlayerCache)
+            return true;
+    }
+    return false;
+}
+
 void ModuleManager::checkKeybinds() {
     if (mc.isInGui())
         return;

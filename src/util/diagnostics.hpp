@@ -43,7 +43,11 @@ private:
     const char* prev_;
 };
 
+#ifdef NDEBUG
+#define DIAG_SCOPE(name) ((void)0)  // No-op in Release builds
+#else
 #define DIAG_SCOPE(name) Diagnostics::ScopeMarker _scope_##__LINE__(name)
+#endif
 
 // Update tick timestamp (call from main loop)
 inline void tick() {

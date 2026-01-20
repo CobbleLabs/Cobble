@@ -160,9 +160,6 @@ struct RenderData {
         if (!initialized && !Init())
             return;
 
-        if (!initialized && !Init())
-            return;
-
         // Read projection matrix
         jobject projBuffer = Java::Env()->GetStaticObjectField(activeRenderInfoClass, projectionField);
         if (projBuffer) {
@@ -185,10 +182,6 @@ struct RenderData {
 
         // Only mark as updated if we have valid matrices
         updated = IsMatrixValid(projection) && IsMatrixValid(modelView);
-
-        // Detailed matrix logging for debugging
-        // Only mark as updated if we have valid matrices
-        updated = IsMatrixValid(projection) && IsMatrixValid(modelView);
     }
 
     // Reset state (call on world change or re-enable)
@@ -196,5 +189,8 @@ struct RenderData {
         updated = false;
         modelView = Matrix{};
         projection = Matrix{};
+        initFailed = false;
+        initRetryCount = 0;
+        lastInitAttempt = {};
     }
 };

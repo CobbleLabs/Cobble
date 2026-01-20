@@ -25,6 +25,7 @@ static constexpr float PLAYER_HEIGHT = 1.8f;
 Hitbox::Hitbox() : Module("Hitbox") {
     keybind = 0;
     locked = true;
+    renders = true;
 }
 
 void Hitbox::onEnable() {

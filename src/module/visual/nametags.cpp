@@ -1,5 +1,6 @@
 #include "nametags.h"
 #include "../../sdk/core/minecraft.h"
+#include "../../sdk/player/visual_cache.h"
 #include "../../sdk/player/render_data.h"
 #include "../../ui/widgets/widgets.hpp"
 #include "../../util/logger.hpp"
@@ -15,6 +16,8 @@ NameTags* nameTags = nullptr;
 
 NameTags::NameTags() : Module("NameTags") {
     keybind = 0;  // No default keybind
+    renders = true;
+    usesPlayerCache = true;
 }
 
 void NameTags::onEnable() {
@@ -117,20 +120,24 @@ void NameTags::onUpdate() {
         return;
     }
 
-    // Update render matrices from Java
-    RenderData::Update();
+    auto snap = VisualCache::GetSnapshot();
+    if (!snap.valid) {
+        std::lock_guard<std::mutex> lock(cacheMutex);
+        cachedPlayers.clear();
+        return;
+    }
 
     // Get render position and partial ticks
-    RenderPos renderPos = mc.getRenderPos();
-    float partialTicks = mc.getPartialTicks();
+    RenderPos renderPos = snap.renderPos;
+    float partialTicks = snap.partialTicks;
 
     // Get local player position for distance calculation
-    double localX = player.getPosX();
-    double localY = player.getPosY();
-    double localZ = player.getPosZ();
+    double localX = snap.localX;
+    double localY = snap.localY;
+    double localZ = snap.localZ;
 
-    // Get player list from Java
-    auto players = mc.getPlayerList();
+    // Get player list from cache
+    auto& players = snap.players;
 
     // Build new cache
     std::vector<CachedPlayer> newCache;
@@ -142,13 +149,8 @@ void NameTags::onUpdate() {
         float dist = (float)std::sqrt(dx * dx + dy * dy + dz * dz);
 
         // Skip if out of range or too close (self)
-        if (dist > settings.range || dist < 0.5f) {
-            if (p.instance) {
-                Java::Env()->DeleteLocalRef(p.instance);
-                p.instance = nullptr;
-            }
+        if (dist > settings.range || dist < 0.5f)
             continue;
-        }
 
         CachedPlayer cached;
         cached.name = p.name;
@@ -196,11 +198,6 @@ void NameTags::onUpdate() {
         }
 
         newCache.push_back(cached);
-
-        if (p.instance) {
-            Java::Env()->DeleteLocalRef(p.instance);
-            p.instance = nullptr;
-        }
     }
 
     // Thread-safe swap
@@ -216,9 +213,9 @@ void NameTags::onUpdate() {
         cachedLocalX = localX;
         cachedLocalY = localY;
         cachedLocalZ = localZ;
-        cachedLocalLastX = player.getLastPosX();
-        cachedLocalLastY = player.getLastPosY();
-        cachedLocalLastZ = player.getLastPosZ();
+        cachedLocalLastX = snap.localLastX;
+        cachedLocalLastY = snap.localLastY;
+        cachedLocalLastZ = snap.localLastZ;
 
         // Apply resolved Mojang names to cached players
         for (auto& cp : cachedPlayers) {

@@ -18,8 +18,15 @@ Checks: >
   -modernize-use-trailing-return-type,
   -modernize-avoid-c-arrays,
   -modernize-use-scoped-lock,
+  -modernize-use-nodiscard,
+  -modernize-pass-by-value,
+  -modernize-macro-to-enum,
+  -readability-identifier-naming,
+  -bugprone-implicit-widening-of-multiplication-result,
+  -bugprone-narrowing-conversions,
   -bugprone-easily-swappable-parameters,
-  -performance-no-int-to-ptr
+  -performance-no-int-to-ptr,
+  -performance-enum-size
 
 # Don't treat warnings as errors (JNI code has many valid exceptions)
 WarningsAsErrors: ''

@@ -4,6 +4,7 @@
 #include <cmath>
 #include "../../../infra/ext/imgui/imgui.h"
 #include "../../sdk/core/minecraft.h"
+#include "../../sdk/player/visual_cache.h"
 #include "../../sdk/player/render_data.h"
 #include "../../ui/widgets/widgets.hpp"
 #include "../../util/diagnostics.hpp"
@@ -15,6 +16,8 @@ ESP* esp = nullptr;
 
 ESP::ESP() : Module("ESP") {
     keybind = 0;
+    renders = true;
+    usesPlayerCache = true;
 }
 
 void ESP::onEnable() {
@@ -92,16 +95,21 @@ void ESP::onUpdate() {
         return;
     }
 
-    RenderData::Update();
+    auto snap = VisualCache::GetSnapshot();
+    if (!snap.valid) {
+        std::lock_guard<std::mutex> lock(cacheMutex);
+        cachedPlayers.clear();
+        return;
+    }
 
-    RenderPos renderPos = mc.getRenderPos();
-    float partialTicks = mc.getPartialTicks();
+    RenderPos renderPos = snap.renderPos;
+    float partialTicks = snap.partialTicks;
 
-    double localX = player.getPosX();
-    double localY = player.getPosY();
-    double localZ = player.getPosZ();
+    double localX = snap.localX;
+    double localY = snap.localY;
+    double localZ = snap.localZ;
 
-    auto players = mc.getPlayerList();
+    auto& players = snap.players;
     std::vector<EspPlayer> newCache;
 
     for (auto& p : players) {
@@ -110,13 +118,8 @@ void ESP::onUpdate() {
         double dz = p.posZ - localZ;
         float dist = (float)std::sqrt(dx * dx + dy * dy + dz * dz);
 
-        if (dist > settings.range || dist < 0.5f) {
-            if (p.instance) {
-                Java::Env()->DeleteLocalRef(p.instance);
-                p.instance = nullptr;
-            }
+        if (dist > settings.range || dist < 0.5f)
             continue;
-        }
 
         EspPlayer cached;
         cached.name = p.name;
@@ -134,11 +137,6 @@ void ESP::onUpdate() {
         cached.valid = true;
 
         newCache.push_back(cached);
-
-        if (p.instance) {
-            Java::Env()->DeleteLocalRef(p.instance);
-            p.instance = nullptr;
-        }
     }
 
     {
@@ -151,9 +149,9 @@ void ESP::onUpdate() {
         cachedLocalX = localX;
         cachedLocalY = localY;
         cachedLocalZ = localZ;
-        cachedLocalLastX = player.getLastPosX();
-        cachedLocalLastY = player.getLastPosY();
-        cachedLocalLastZ = player.getLastPosZ();
+        cachedLocalLastX = snap.localLastX;
+        cachedLocalLastY = snap.localLastY;
+        cachedLocalLastZ = snap.localLastZ;
     }
 }
 

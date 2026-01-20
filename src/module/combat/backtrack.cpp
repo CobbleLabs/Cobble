@@ -21,6 +21,7 @@ Backtrack* backtrack = nullptr;
 
 Backtrack::Backtrack() : Module("Backtrack") {
     keybind = 0;
+    renders = true;
 }
 
 void Backtrack::onEnable() {

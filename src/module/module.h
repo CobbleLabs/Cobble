@@ -9,6 +9,8 @@ struct Module {
     bool enabled = false;
     int keybind = 0;      // Virtual key code, 0 = no keybind
     bool locked = false;  // If true, module is hidden/grayed in UI until unlocked
+    bool renders = false; // If true, module draws in onRender
+    bool usesPlayerCache = false; // If true, module uses shared visual cache
 
     // Global unlock for experimental modules (Velocity, Reach, Blink)
     static inline bool experimentalUnlocked = false;
