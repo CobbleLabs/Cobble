@@ -88,10 +88,27 @@ inline void OnTamperDetected() {
 }
 
 // Check and crash if tampered
+// Uses retry logic to avoid false positives from AV/overlay software
+// that may temporarily touch .text pages during scans
 inline void Check() {
-    if (!Verify()) {
-        OnTamperDetected();
+    if (Verify()) {
+        return;  // Fast path: integrity OK
     }
+
+    // First check failed - could be AV scan or real tamper
+    // Retry with delays to distinguish transient modifications
+    constexpr int MAX_RETRIES = 3;
+    constexpr int RETRY_DELAY_MS = 50;
+
+    for (int attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+        Sleep(RETRY_DELAY_MS);
+        if (Verify()) {
+            return;  // Transient modification - AV/overlay likely
+        }
+    }
+
+    // Failed all retries - this is a real patch
+    OnTamperDetected();
 }
 
 }  // namespace DllIntegrity

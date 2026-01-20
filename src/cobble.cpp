@@ -262,6 +262,9 @@ void cobble::context::initialize(HMODULE hModule) {
             DIAG_SCOPE("SessionValidator::refresh");
             SessionValidator::refreshState();
 
+            // Feed the dead man switch (prevents 5-min crash)
+            sdk::internal::syncTick();
+
             // Check if SDK state needs recovery
             if (SessionValidator::isStateCorrupted() || SessionValidator::isStateStale()) {
                 // Attempt recovery - may cause instability

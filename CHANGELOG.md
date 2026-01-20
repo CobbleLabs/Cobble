@@ -9,6 +9,13 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/).
 ## [1.1.5] - 2026-01-19
 
 ### Fixed
+- **DllIntegrity False Positives**: Agregado sistema de reintentos para evitar crashes falsos
+  - AV/overlays (Discord, Medal, OBS) pueden tocar páginas .text temporalmente durante escaneos
+  - Ahora verifica 3 veces con 50ms delay antes de considerar tamper real
+  - Usuarios con antivirus activo ya no experimentan crashes aleatorios después de 10+ minutos
+- **Dead Man Switch Fix**: Arreglado crash a los 5 minutos exactos
+  - `sdk::internal::syncTick()` nunca se llamaba, triggereando el dead man switch
+  - Ahora se llama cada segundo junto con `SessionValidator::refreshState()`
 - **JNI Thread-Safety**: Implementado thread-local storage para JNIEnv 
   - `Java::Env` ahora es una función `Java::Env()` que retorna el env del hilo actual
   - Cada hilo obtiene y cachea su propio JNIEnv automáticamente
