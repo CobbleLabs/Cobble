@@ -596,28 +596,75 @@ func AdminGetLogs(w http.ResponseWriter, r *http.Request) {
 		limit = 50
 	}
 
-	rows, _ := database.DB.Query(`
-		SELECT id, admin_id, action, target_type, target_id, details, ip_address, created_at
-		FROM audit_log ORDER BY created_at DESC LIMIT $1
-	`, limit)
+	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
+	if page <= 0 {
+		page = 1
+	}
+	offset := (page - 1) * limit
+
+	// Get total count
+	var total int
+	database.DB.QueryRow(`SELECT COUNT(*) FROM audit_log`).Scan(&total)
+
+	// Get logs with usernames resolved via JOINs (safe casting with CASE)
+	rows, err := database.DB.Query(`
+		SELECT 
+			al.id, 
+			al.admin_id, 
+			al.action, 
+			al.target_type, 
+			al.target_id, 
+			al.details, 
+			al.created_at
+		FROM audit_log al
+		ORDER BY al.created_at DESC 
+		LIMIT $1 OFFSET $2
+	`, limit, offset)
+	if err != nil {
+		helpers.JSONResponse(w, http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to fetch logs: " + err.Error()})
+		return
+	}
 	defer rows.Close()
 
 	var logs []map[string]interface{}
 	for rows.Next() {
 		var id int
-		var adminID, targetType, targetID, details, ip *string
+		var adminID, targetType, targetID, details *string
 		var action string
 		var createdAt time.Time
 
-		rows.Scan(&id, &adminID, &action, &targetType, &targetID, &details, &ip, &createdAt)
+		rows.Scan(&id, &adminID, &action, &targetType, &targetID, &details, &createdAt)
+
+		// Lookup actor username
+		actorName := "System"
+		if adminID != nil && *adminID != "" {
+			var username string
+			err := database.DB.QueryRow(`SELECT username FROM users WHERE id = $1`, *adminID).Scan(&username)
+			if err == nil {
+				actorName = username
+			}
+		}
+
+		// Lookup target username
+		targetName := ""
+		if targetID != nil && *targetID != "" {
+			var username string
+			err := database.DB.QueryRow(`SELECT username FROM users WHERE id = $1`, *targetID).Scan(&username)
+			if err == nil {
+				targetName = username
+			} else {
+				// Target might not be a user ID, just use the raw value
+				targetName = *targetID
+			}
+		}
+
 		logs = append(logs, map[string]interface{}{
 			"id":          id,
-			"admin_id":    adminID,
+			"actor":       actorName,
 			"action":      action,
 			"target_type": targetType,
-			"target_id":   targetID,
+			"target":      targetName,
 			"details":     details,
-			"ip_address":  ip,
 			"created_at":  createdAt,
 		})
 	}
@@ -628,7 +675,9 @@ func AdminGetLogs(w http.ResponseWriter, r *http.Request) {
 
 	helpers.JSONResponse(w, http.StatusOK, map[string]interface{}{
 		"logs":  logs,
-		"total": len(logs),
+		"total": total,
+		"page":  page,
+		"limit": limit,
 	})
 }
 
