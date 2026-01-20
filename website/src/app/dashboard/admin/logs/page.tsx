@@ -14,11 +14,12 @@ import { useRequireAdmin } from "@/context/AuthContext";
 import * as api from "@/lib/api";
 
 interface LogEntry {
-    id: string;
+    id: number;
+    actor?: string;
     action: string;
-    actor: string;
+    target_type?: string;
     target?: string;
-    metadata?: string;
+    details?: string;
     created_at: string;
 }
 
@@ -106,7 +107,7 @@ export default function AdminLogsPage() {
                                 {
                                     header: "Actor",
                                     accessorKey: "actor",
-                                    cell: (item) => <span className="text-white font-medium">{item.actor}</span>
+                                    cell: (item) => <span className="text-white font-medium">{item.actor || 'System'}</span>
                                 },
                                 {
                                     header: "Action",
@@ -120,12 +121,15 @@ export default function AdminLogsPage() {
                                 {
                                     header: "Target",
                                     accessorKey: "target",
-                                    cell: (item) => <span>{item.target || "-"}</span>
+                                    cell: (item) => {
+                                        if (!item.target) return <span className="text-[var(--text-muted)]">-</span>;
+                                        return <span>{item.target}</span>;
+                                    }
                                 },
                                 {
                                     header: "Details",
-                                    accessorKey: "metadata",
-                                    cell: (item) => <span className="text-[var(--text-muted)]">{item.metadata || "-"}</span>
+                                    accessorKey: "details",
+                                    cell: (item) => <span className="text-[var(--text-muted)] truncate max-w-[200px] block">{item.details || "-"}</span>
                                 },
                             ]}
                         />

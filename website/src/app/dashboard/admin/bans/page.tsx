@@ -33,10 +33,15 @@ export default function AdminBansPage() {
     const fetchBannedUsers = useCallback(async (searchTerm: string, pageNum: number) => {
         setLoading(true);
         try {
-            const data = await api.admin.getUsers({ search: searchTerm || undefined, page: pageNum, limit });
-            const bannedUsers = (data.users || []).filter(u => u.banned_at);
-            setUsers(bannedUsers);
-            setTotal(bannedUsers.length);
+            // Use status="banned" filter to get only banned users with proper pagination
+            const data = await api.admin.getUsers({
+                search: searchTerm || undefined,
+                status: "banned",
+                page: pageNum,
+                limit
+            });
+            setUsers(data.users || []);
+            setTotal(data.total || 0);
         } catch (error) {
             console.error("Failed to fetch bans:", error);
             showToast({ title: "Error", message: "Failed to load bans", type: "error" });

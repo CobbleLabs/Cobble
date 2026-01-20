@@ -201,10 +201,6 @@ export default function DownloadsPage() {
                                     Download
                                 </Button>
                             </div>
-
-                            <p className="text-[var(--text-muted)] text-xs mt-4 text-center">
-                                Tip: Use names like &quot;Discord&quot; or &quot;Spotify&quot; to blend in
-                            </p>
                         </motion.div>
                     </motion.div>
                 )}

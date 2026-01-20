@@ -501,11 +501,6 @@ export default function UserDetailPage() {
                             onChange={(e) => setLicenseDays(e.target.value)}
                         />
                     )}
-                    {licensePlan === "monthly" && (
-                        <div className="text-sm text-[var(--text-muted)] p-3 bg-[var(--bg-secondary)] rounded-xl">
-                            30 days access
-                        </div>
-                    )}
                 </div>
             </Modal>
 

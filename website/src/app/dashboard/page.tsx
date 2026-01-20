@@ -168,10 +168,10 @@ export default function DashboardPage() {
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <ActionCard
                             icon={Download}
-                            title="Download Loader"
-                            description="Get the latest client version"
+                            title={isActive ? "Download Loader" : "Get a License"}
+                            description={isActive ? "Get the latest client version" : "Purchase to access downloads"}
                             color="blue"
-                            href="/dashboard/downloads"
+                            href={isActive ? "/dashboard/downloads" : "/dashboard/purchase"}
                         />
                         <ActionCard
                             icon={ExternalLink}
@@ -232,7 +232,8 @@ export default function DashboardPage() {
                                         key={changelog.id}
                                         version={changelog.version}
                                         date={new Date(changelog.released_at).toLocaleDateString()}
-                                        description={changelog.changes?.[0] || "New update"}
+                                        changes={changelog.changes || []}
+                                        maxChanges={3}
                                     />
                                 ))
                             ) : (

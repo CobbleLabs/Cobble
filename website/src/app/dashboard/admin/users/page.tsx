@@ -136,10 +136,15 @@ export default function AdminUsersPage() {
         if (!selectedUser) return;
         setModalLoading(true);
         try {
+            // Monthly = 30 days, Lifetime = no expiry, Custom = user input
+            const duration = licensePlan === "lifetime" ? undefined :
+                licensePlan === "monthly" ? 30 :
+                    parseInt(licenseDays);
+
             await api.admin.createLicense(
                 selectedUser.id,
                 licensePlan,
-                licensePlan === "lifetime" ? undefined : parseInt(licenseDays)
+                duration
             );
             showToast({ title: "License Created", message: `${licensePlan} license created`, type: "success" });
             closeModal();
@@ -200,6 +205,16 @@ export default function AdminUsersPage() {
                                     accessorKey: "license",
                                     cell: (item) => {
                                         if (!item.license) return <Badge variant="secondary">No License</Badge>;
+
+                                        // Check if license is expired (not lifetime and has expiry in the past)
+                                        const isExpired = item.license.plan !== "lifetime" &&
+                                            item.license.expires_at &&
+                                            new Date(item.license.expires_at) < new Date();
+
+                                        if (isExpired) {
+                                            return <Badge variant="warning">Expired</Badge>;
+                                        }
+
                                         const variant = item.license.plan === "lifetime" ? "success" : "info";
                                         return <Badge variant={variant}>{item.license.plan}</Badge>;
                                     }
@@ -318,11 +333,12 @@ export default function AdminUsersPage() {
                             value={licensePlan}
                             onChange={(e) => setLicensePlan(e.target.value)}
                         >
-                            <option value="monthly">Monthly</option>
+                            <option value="monthly">Monthly (30 days)</option>
                             <option value="lifetime">Lifetime</option>
+                            <option value="custom">Custom</option>
                         </select>
                     </div>
-                    {licensePlan !== "lifetime" && (
+                    {licensePlan === "custom" && (
                         <Input
                             label="Duration (Days)"
                             type="number"

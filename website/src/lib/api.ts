@@ -265,9 +265,10 @@ export interface AdminUsersResponse {
 }
 
 export const admin = {
-    async getUsers(params?: { search?: string; page?: number; limit?: number }): Promise<AdminUsersResponse> {
+    async getUsers(params?: { search?: string; status?: string; page?: number; limit?: number }): Promise<AdminUsersResponse> {
         const query = new URLSearchParams();
         if (params?.search) query.set('search', params.search);
+        if (params?.status) query.set('status', params.status);
         if (params?.page) query.set('page', params.page.toString());
         if (params?.limit) query.set('limit', params.limit.toString());
         return apiFetch(`/api/admin/users?${query}`);
