@@ -67,16 +67,7 @@ static void cleanup_entity_fields() {
     g_fid_posX = g_fid_posY = g_fid_posZ = nullptr;
 }
 
-// ============================================================
-// Neuromotor Noise Simulation
-// Instead of fixed ranges, simulate actual human motor noise:
-// - Brownian drift (accumulated small errors)
-// - Reaction time jitter (variable delay)
-// - Imperfect GCD (real mouse != perfect quantization)
-// - Overshoot/undershoot (motor control imprecision)
-// ============================================================
-
-// Neuromotor state - persists across frames for continuity
+// Neuromotor state for human-like aiming
 struct NeuromotorState {
     float driftYaw = 0.0f;  // Accumulated Brownian drift
     float driftPitch = 0.0f;
@@ -671,20 +662,8 @@ bool AimAssist::findTarget(double& targetX, double& targetY, double& targetZ) {
 
     auto players = mc.getPlayerList();
 
-    // DEBUG: Log player list size
-    static Timer debugPlayerListTimer;
-    if (debugPlayerListTimer.Elapsed<>() > 2000) {
-        log_debug("[AimAssist] getPlayerList returned %zu players, scanTimer elapsed: %.0fms", players.size(),
-                  scanTimer.Elapsed<>());
-        debugPlayerListTimer.Start();
-    }
-
-    // Resolve pending name-only friends to UUIDs using live players
     if (friendsManager) {
-        int resolved = friendsManager->resolvePending(players);
-        if (resolved > 0) {
-            // log_debug("[AimAssist] Resolved %d pending friend(s) to UUID", resolved);
-        }
+        friendsManager->resolvePending(players);
     }
 
     if (players.empty()) {
@@ -708,13 +687,9 @@ bool AimAssist::findTarget(double& targetX, double& targetY, double& targetZ) {
     float bestSwitchScore = FLT_MAX;  // Combined score for Switch mode
     bool found = false;
 
-    // Helper to keep track of best player instance
     jobject bestPlayerObjLocal = nullptr;
     PlayerInfo closestPlayer;
     bool refreshedHitbox = false;
-
-    // DEBUG: Track skip reasons
-    int skipDistance = 0, skipInvisible = 0, skipNPC = 0, skipTeam = 0, skipFOV = 0;
 
     for (auto& p : players) {
         bool sameAsLocked = false;
@@ -746,58 +721,22 @@ bool AimAssist::findTarget(double& targetX, double& targetY, double& targetZ) {
         double dz = p.posZ - localZ;
         float dist = (float)std::sqrt(dx * dx + dy * dy + dz * dz);
 
-        // DEBUG: Log position and distance for each player
-        static Timer posDebugTimer;
-        if (posDebugTimer.Elapsed<>() > 1000) {
-            log_debug("[AimAssist] Player '%s': pos=(%.1f,%.1f,%.1f) local=(%.1f,%.1f,%.1f) dist=%.2f limit=%.1f",
-                      p.name.c_str(), p.posX, p.posY, p.posZ, localX, localY, localZ, dist, settings.distance);
-            posDebugTimer.Start();
-        }
-
         if (dist > settings.distance || dist < 0.2f) {
-            skipDistance++;
             continue;
         }
         if (p.isInvisible && !settings.invisibles) {
-            skipInvisible++;
             continue;
         }
         if (p.isNPC) {
-            skipNPC++;
-            continue;  // Skip NPCs/bots
+            continue;
         }
 
-        // Debug: Log parsed colors (every ~50 iterations) - BEFORE friend check
-        static int colorDebugCounter = 0;
-        if (++colorDebugCounter >= 50 && friendsManager) {
-            static int localTeamColorDbg = -1;
-            static Timer colorRefreshTimerDbg;
-            if (colorRefreshTimerDbg.Elapsed<>() > 1000) {
-                localTeamColorDbg = mc.getLocalPlayerTeamColor();
-                colorRefreshTimerDbg.Start();
-            }
-            // Debug logging disabled - uncomment to debug team color parsing
-            log_debug("[Teams] %s | pColor=%d lColor=%d | auto=%d manual=%d mColor=%d | apply=%d", p.name.c_str(),
-                      p.teamColor, localTeamColorDbg, friendsManager->teams.matchOwnNametag ? 1 : 0,
-                      friendsManager->teams.manualColorEnabled ? 1 : 0,
-                      static_cast<int>(friendsManager->teams.manualColor), friendsManager->applyToCombat ? 1 : 0);
-            colorDebugCounter = 0;
-        }
-
-        // Friends/Teams filter - skip friendly players (ALWAYS active)
-        // Priority order:
-        // 1. Apollo Teams (isLunarTeammate - from UpdateTeamMembersMessage)
-        // 2. Apollo Nametags (isApolloTeammate - GREEN/DARK_GREEN)
-        // 3. Manual Friends (isFriendByUUID/isFriendByName)
-        // 4. Scoreboard Teams (isTeammate - color matching)
         if (friendsManager) {
-            // Priority 1: Apollo Teams (most reliable - explicit team packets)
             bool isApolloTeam = !p.uuid.empty() && friendsManager->isLunarTeammate(p.uuid);
             if (isApolloTeam) {
                 continue;
             }
 
-            // Priority 2: Apollo Nametags (GREEN or DARK_GREEN = teammate)
             bool isApolloNametag = !p.uuid.empty() && friendsManager->isApolloTeammate(p.uuid);
             if (isApolloNametag) {
                 continue;
@@ -823,7 +762,6 @@ bool AimAssist::findTarget(double& targetX, double& targetY, double& targetZ) {
             ChatColor localColor = static_cast<ChatColor>(localTeamColor);
             bool isScoreboardTeammate = friendsManager->isTeammate(p.uuid, playerColor, localColor);
             if (isScoreboardTeammate) {
-                skipTeam++;
                 continue;
             }
         }
@@ -832,7 +770,6 @@ bool AimAssist::findTarget(double& targetX, double& targetY, double& targetZ) {
         float yawDiff = std::abs(wrapTo180(-(localYaw - yawToTarget)));
 
         if ((int)yawDiff > settings.fov / 2) {
-            skipFOV++;
             continue;
         }
 
@@ -936,19 +873,6 @@ bool AimAssist::findTarget(double& targetX, double& targetY, double& targetZ) {
         targetHasHitbox = false;
     }
 
-    // DEBUG: Log filter statistics
-    static Timer filterLogTimer;
-    if (filterLogTimer.Elapsed<>() > 2000) {
-        int total = players.size();
-        log_debug(
-            "[AimAssist] FILTER: total=%d found=%d | skip: dist=%d invis=%d npc=%d team=%d fov=%d | settings: "
-            "dist=%.1f fov=%d",
-            total, found ? 1 : 0, skipDistance, skipInvisible, skipNPC, skipTeam, skipFOV, settings.distance,
-            settings.fov);
-        filterLogTimer.Start();
-    }
-
-    // Update Cached Target
     if (found && bestPlayerObjLocal) {
         if (cachedTarget) {
             // Check if it's the SAME object to avoid delete/new overhead?
