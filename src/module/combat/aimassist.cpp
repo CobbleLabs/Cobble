@@ -196,10 +196,7 @@ static bool shouldSkipTick(std::mt19937& rng) {
 static float g_cachedGCD = 0.0f;
 static Timer g_gcdRefreshTimer;
 
-// ============================================================
 // AimBoost Implementation
-// ============================================================
-
 AimBoost::AimBoost(float speed_mult_min, float speed_mult_max, float freq_min_ms, float freq_max_ms, bool continuous)
     : speed_mult_min(speed_mult_min),
       speed_mult_max(speed_mult_max),
@@ -245,10 +242,7 @@ float AimBoost::Delay() {
     return slerp(prev_speed_mult, continuous ? speed_mult : 1.f, timer.Elapsed<>() / frequency_ms);
 }
 
-// ============================================================
 // AimAssist Implementation
-// ============================================================
-
 AimAssist::AimAssist() : Module("AimAssist") {
     keybind = 0;
     std::random_device rd;
@@ -412,13 +406,10 @@ void AimAssist::onUpdate() {
 
     hasLockedTarget = false;
 
-    // ============================================================
     // HYBRID LOOP LOGIC
     // 1. If we have a cached GlobalRef target (cachedTarget), update its position FAST (every frame).
     // 2. If it is valid and in range: use it.
     // 3. If invalid or timer expired: run findTarget (slow scan).
-    // ============================================================
-
     bool validCache = false;
     bool forceScan = false;
 
@@ -572,12 +563,9 @@ void AimAssist::onUpdate() {
 }
 
 bool AimAssist::findTarget(double& targetX, double& targetY, double& targetZ) {
-    // ============================================================
     // HYBRID TRACKING SYSTEM
     // 1. Fast Path (Every Frame): Update position of locked target directly (JNI)
     // 2. Slow Path (Scan Interval): Scan full player list for new/better targets
-    // ============================================================
-
     static Timer scanTimer;
     JNIEnv* env = Java::Env();
 
@@ -947,7 +935,6 @@ void AimAssist::applyAimRand(float yawDiff, float pitchDiff, float speed) {
     float ramp = std::min({timeRamp, errorRamp, clickRamp});
     dynamicSpeed *= ramp;
 
-    // ========== ANTI-CHEAT BYPASS v2: Variable Deceleration ==========
     // Randomize deceleration zone per target (humans are inconsistent)
     static float currentDecelZone = 6.0f;
     if (targetChangedThisFrame) {
@@ -962,7 +949,6 @@ void AimAssist::applyAimRand(float yawDiff, float pitchDiff, float speed) {
         dynamicSpeed *= std::max(0.2f, decelFactor);
     }
 
-    // ========== ANTI-CHEAT BYPASS v2: Poisson Tick Skip ==========
     // Non-periodic skips with exponential inter-arrival times
     if (shouldSkipTick(rng)) {
         return;
@@ -1080,7 +1066,6 @@ void AimAssist::applyAimRand(float yawDiff, float pitchDiff, float speed) {
         pitchAccum = 0.0f;
         cursorAccumY = 0.0;
     } else {
-        // ========== ANTI-CHEAT: Baseline Pitch Movement ==========
         // Humans NEVER have exactly 0.0 pitch movement - add micro-noise
         float baselinePitch = g_neuroState.driftPitch * 0.3f;
         if (std::abs(pitchAccum) < 0.001f) {
@@ -1173,7 +1158,6 @@ void AimAssist::applyAimRand(float yawDiff, float pitchDiff, float speed) {
         debugLogTimer.Start();
     }
 
-    // ========== ANTI-CHEAT BYPASS v3: GCD Compliance ==========
     // Refresh GCD periodically
     if (g_gcdRefreshTimer.Elapsed<>() > 500.0f) {
         g_cachedGCD = calculateGCD(cachedMouseSensitivity);
@@ -1183,7 +1167,6 @@ void AimAssist::applyAimRand(float yawDiff, float pitchDiff, float speed) {
         g_cachedGCD = calculateGCD(cachedMouseSensitivity);
     }
 
-    // ========== CRITICAL: Apply drift BEFORE GCD, not after ==========
     // Adding drift after GCD breaks the quantization pattern that AC expects
     yawDelta += g_neuroState.driftYaw;
     pitchDelta += settings.horizontalOnly ? 0.f : g_neuroState.driftPitch;
@@ -1193,7 +1176,6 @@ void AimAssist::applyAimRand(float yawDiff, float pitchDiff, float speed) {
     yawDelta = applyGCDStrict(yawDelta, g_cachedGCD);
     pitchDelta = applyGCDStrict(pitchDelta, g_cachedGCD);
 
-    // ========== Balance floor divisors to prevent asymmetry detection ==========
     // AimAssistH: flags when pitch is offset but yaw is perfect
     // AimAssistI: flags when yaw is offset but pitch is perfect
     balanceFloorDivisors(yawDelta, pitchDelta, g_cachedGCD, rng);
@@ -1204,7 +1186,6 @@ void AimAssist::applyAimRand(float yawDiff, float pitchDiff, float speed) {
         // No rotation this frame - set prev slightly behind current (natural interpolation)
         float curYaw = player.getYaw();
         float curPitch = player.getPitch();
-        // ========== Physical Continuity ==========
         // Use drift as offset instead of random (maintains physical coherence)
         player.setPrevYaw(curYaw - g_neuroState.driftYaw * 0.5f);
         player.setPrevPitch(curPitch - g_neuroState.driftPitch * 0.5f);
@@ -1215,7 +1196,6 @@ void AimAssist::applyAimRand(float yawDiff, float pitchDiff, float speed) {
         float currentYaw = player.getYaw();
         float newYaw = currentYaw + yawDelta;
         player.setYaw(newYaw);
-        // ========== Physical Continuity ==========
         // prevYaw = lerp towards newYaw (natural interpolation, not random)
         float prevLerp = randFloat(0.85f, 0.95f);
         player.setPrevYaw(std::lerp(currentYaw, newYaw, prevLerp));
@@ -1225,7 +1205,6 @@ void AimAssist::applyAimRand(float yawDiff, float pitchDiff, float speed) {
         float currentPitch = player.getPitch();
         float finalPitch = std::clamp(currentPitch + pitchDelta, -90.0f, 90.0f);
         player.setPitch(finalPitch);
-        // ========== Physical Continuity ==========
         // prevPitch = lerp towards finalPitch
         float prevLerp = randFloat(0.85f, 0.95f);
         player.setPrevPitch(std::lerp(currentPitch, finalPitch, prevLerp));
