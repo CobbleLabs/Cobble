@@ -1,9 +1,13 @@
 #pragma once
 
+#include <atomic>
+#include <cstdint>
 #include <map>
 #include <mutex>
 #include <set>
 #include <string>
+#include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 // Minecraft color codes (§X format)
@@ -117,10 +121,9 @@ public:
     bool isLunarTeammate(const std::string& uuid) const;
 
     // Apollo Nametags: Store player nametag colors from OverrideNametagMessage
-    // hasExtra: true if JSON had "extra" array (match/complex nametag), false for simple (lobby)
-    // When hasExtra=false, trust the color directly (no sticky teammate behavior)
+    // hasExtra: true if JSON had "extra" array (team-tag in HCTRanked), false for simple (lobby/party)
     void setApolloNametagColor(const std::string& uuid, const std::string& color, bool hasExtra = true);
-    bool isApolloTeammate(const std::string& uuid) const;  // GREEN or DARK_GREEN
+    bool isApolloTeammate(const std::string& uuid) const;  // confirmed via Apollo nametag or Lunar team payload
     std::string getApolloNametagColor(const std::string& uuid) const;
     void clearApolloNametags();
     size_t getApolloNametagCount() const;   // Debug: total nametags cached
@@ -132,7 +135,8 @@ public:
     
     // Call from main loop to detect server/dimension changes
     // Automatically clears lunarTeammates_ and apolloNametags_ when world changes
-    void checkWorldChange();
+    bool checkWorldChange();
+    uint64_t getWorldChangeSerial() const;
 
     // ============================================================
     // Visual Friends - Auto-detected teammates (cleared on world change)
@@ -208,12 +212,21 @@ private:
 
     // Apollo nametag colors (UUIDs from OverrideNametagMessage -> color string)
     std::map<std::string, std::string> apolloNametags_;
+    std::unordered_set<std::string> apolloNametagTeammates_;
+    std::unordered_map<std::string, int> apolloNametagGreenHits_;
+    std::unordered_map<std::string, int64_t> apolloNametagLastGreenMs_;
+    std::unordered_map<std::string, int64_t> apolloNametagLastSeenMs_;
 
     // Visual friends (auto-detected teammates, cleared on world change)
     std::set<std::string> visualFriends_;
 
     // World change detection (jobject stored as void* to avoid JNI include)
     void* lastWorldRef_ = nullptr;
+    std::atomic<uint64_t> worldChangeSerial_{0};
+
+    static constexpr int kApolloGreenConfirmCount = 2;
+    static constexpr int64_t kApolloGreenConfirmWindowMs = 1500;
+    static constexpr int64_t kApolloTeammateGraceMs = 8000;
 
     // Helper to lowercase a string
     static std::string toLower(const std::string& s);

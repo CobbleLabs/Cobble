@@ -96,9 +96,8 @@ void cobble::context::initialize(HMODULE hModule) {
     // Initialize logging console immediately
     c_logger::initialize();
 
-    // Install crash handler and start watchdog (DEBUG only)
+    // Install crash handler (watchdog starts after main loop begins)
     Diagnostics::installCrashHandler();
-    Diagnostics::startWatchdog();
 
     log_raw("========================================");
     log_ok("Cobble injected! Build: %s", __DATE__);
@@ -232,6 +231,9 @@ void cobble::context::initialize(HMODULE hModule) {
     bool notificationShown = false;
 
     is_running = true;
+    // Seed watchdog timestamp and start after init to avoid false freezes
+    Diagnostics::tick();
+    Diagnostics::startWatchdog();
     log_ok("Main loop starting...");
 
     while (is_running) {

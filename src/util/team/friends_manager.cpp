@@ -584,25 +584,39 @@ void FriendsManager::syncLunarTeammates(const std::set<std::string>& currentTeam
 void FriendsManager::setApolloNametagColor(const std::string& uuid, const std::string& color, bool hasExtra) {
     if (uuid.empty())
         return;
+    auto now = std::chrono::steady_clock::now().time_since_epoch();
+    int64_t nowMs = std::chrono::duration_cast<std::chrono::milliseconds>(now).count();
     std::lock_guard<std::mutex> lock(mutex_);
-    auto it = apolloNametags_.find(uuid);
-    bool isNew = (it == apolloNametags_.end());
-    bool isTeammate = (color == "GREEN" || color == "DARK_GREEN");
-    bool wasTeammate = !isNew && (it->second == "GREEN" || it->second == "DARK_GREEN");
+    apolloNametagLastSeenMs_[uuid] = nowMs;
 
-    // NO STICKY: Always trust the latest color sent by the server
-    // The server has absolute authority over teammate status
-    // This allows players to switch teams between matches correctly
-    (void)hasExtra;  // No longer used for sticky, kept for API compatibility
+    bool isGreen = (color == "GREEN" || color == "DARK_GREEN");
+    bool isTeammateSignal = isGreen || hasExtra;
+    int& greenHits = apolloNametagGreenHits_[uuid];
+    int64_t& lastGreenMs = apolloNametagLastGreenMs_[uuid];
 
-    // Log teammate changes
-    if (isNew || it->second != color) {
-        if (isTeammate && !wasTeammate) {
-            log_debug("[Apollo] Nametag TEAMMATE registered: %s -> %s", uuid.substr(0, 8).c_str(), color.c_str());
-        } else if (wasTeammate && !isTeammate) {
-            log_debug("[Apollo] Nametag TEAMMATE removed: %s -> %s", uuid.substr(0, 8).c_str(), color.c_str());
+    if (isTeammateSignal) {
+        if (lastGreenMs > 0 && nowMs - lastGreenMs > kApolloGreenConfirmWindowMs) {
+            greenHits = 0;
+        }
+        greenHits = hasExtra ? kApolloGreenConfirmCount : (greenHits + 1);
+        lastGreenMs = nowMs;
+        if (greenHits >= kApolloGreenConfirmCount) {
+            if (apolloNametagTeammates_.insert(uuid).second) {
+                log_debug("[Apollo] Nametag TEAMMATE registered: %s -> %s", uuid.substr(0, 8).c_str(),
+                          color.c_str());
+            }
+        }
+    } else {
+        greenHits = 0;
+        auto itTeam = apolloNametagTeammates_.find(uuid);
+        if (itTeam != apolloNametagTeammates_.end()) {
+            if (lastGreenMs == 0 || nowMs - lastGreenMs > kApolloTeammateGraceMs) {
+                apolloNametagTeammates_.erase(itTeam);
+                log_debug("[Apollo] Nametag TEAMMATE removed: %s -> %s", uuid.substr(0, 8).c_str(), color.c_str());
+            }
         }
     }
+
     apolloNametags_[uuid] = color;
 }
 
@@ -610,11 +624,10 @@ bool FriendsManager::isApolloTeammate(const std::string& uuid) const {
     if (uuid.empty())
         return false;
     std::lock_guard<std::mutex> lock(mutex_);
-    auto it = apolloNametags_.find(uuid);
-    if (it == apolloNametags_.end())
-        return false;
-    // GREEN or DARK_GREEN = teammate
-    return it->second == "GREEN" || it->second == "DARK_GREEN";
+    if (lunarTeammates_.find(uuid) != lunarTeammates_.end()) {
+        return true;
+    }
+    return apolloNametagTeammates_.find(uuid) != apolloNametagTeammates_.end();
 }
 
 std::string FriendsManager::getApolloNametagColor(const std::string& uuid) const {
@@ -631,6 +644,10 @@ void FriendsManager::clearApolloNametags() {
         log_debug("[Apollo] Cleared %zu nametag colors (world change)", apolloNametags_.size());
         apolloNametags_.clear();
     }
+    apolloNametagTeammates_.clear();
+    apolloNametagGreenHits_.clear();
+    apolloNametagLastGreenMs_.clear();
+    apolloNametagLastSeenMs_.clear();
 }
 
 size_t FriendsManager::getApolloNametagCount() const {
@@ -640,13 +657,7 @@ size_t FriendsManager::getApolloNametagCount() const {
 
 size_t FriendsManager::getApolloTeammateCount() const {
     std::lock_guard<std::mutex> lock(mutex_);
-    size_t count = 0;
-    for (const auto& pair : apolloNametags_) {
-        if (pair.second == "GREEN" || pair.second == "DARK_GREEN") {
-            count++;
-        }
-    }
-    return count;
+    return apolloNametagTeammates_.size();
 }
 
 // ============================================================
@@ -691,9 +702,9 @@ void FriendsManager::clearVisualFriends() {
 // World Change Detection
 // ============================================================
 
-void FriendsManager::checkWorldChange() {
+bool FriendsManager::checkWorldChange() {
     if (!Java::Env() || !Java::Initialized)
-        return;
+        return false;
 
     jobject currentWorld = mc.getWorld();
     bool worldChanged = false;
@@ -720,6 +731,7 @@ void FriendsManager::checkWorldChange() {
         clearLunarTeammates();
         clearApolloNametags();
         clearVisualFriends();
+        worldChangeSerial_.fetch_add(1, std::memory_order_relaxed);
 
         // Update world reference
         if (lastWorld) {
@@ -736,6 +748,11 @@ void FriendsManager::checkWorldChange() {
     if (currentWorld) {
         Java::Env()->DeleteLocalRef(currentWorld);
     }
+    return worldChanged;
+}
+
+uint64_t FriendsManager::getWorldChangeSerial() const {
+    return worldChangeSerial_.load(std::memory_order_relaxed);
 }
 
 // ============================================================
