@@ -6,6 +6,17 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/).
 
 ---
 
+## [1.1.7] - 2026-01-21
+
+### Fixed
+- **Apollo/Lunar Teammate Data Stale on Server Change**: Los teammates detectados via Apollo/Lunar API ahora se limpian correctamente al cambiar de servidor o partida
+  - Antes: Al cambiar de servidor, los jugadores que fueron teammates en la partida anterior seguían siendo ignorados por AimAssist/ESP
+  - Ahora: `FriendsManager::checkWorldChange()` detecta cambios de mundo y limpia `apolloNametags_` y `lunarTeammates_`
+  - Se ejecuta cada segundo en el main loop junto con el session refresh
+  - Corrige el bug donde ex-teammates seguían con color verde en ESP después de cambiar de team
+
+---
+
 ## [1.1.6] - 2026-01-20
 
 ### Fixed
@@ -16,6 +27,9 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/).
 - **Trajectories Start Position**: La línea ahora empieza más adelante del jugador (2.5 bloques vs 1.5)
   - Evita que la línea se dibuje encima del personaje
 - **Trajectories Endpoint**: Marcador circular en punto de impacto cuando toca superficie
+- **Sprint Module Refactor**: Reescrito con lógica simplificada
+  - Antes: Chequeaba tecla W y estado actual, causaba bugs
+  - Ahora: Simplemente `sprint = !sneaking` - más confiable y sin bugs
 
 ---
 

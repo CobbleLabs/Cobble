@@ -265,6 +265,11 @@ void cobble::context::initialize(HMODULE hModule) {
             // Feed the dead man switch (prevents 5-min crash)
             sdk::internal::syncTick();
 
+            // Check for world changes - clears teammate data on server switch
+            if (friendsManager) {
+                friendsManager->checkWorldChange();
+            }
+
             // Check if SDK state needs recovery
             if (SessionValidator::isStateCorrupted() || SessionValidator::isStateStale()) {
                 // Attempt recovery - may cause instability

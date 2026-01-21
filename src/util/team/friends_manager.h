@@ -127,6 +127,14 @@ public:
     size_t getApolloTeammateCount() const;  // Debug: count of GREEN/DARK_GREEN
 
     // ============================================================
+    // World Change Detection
+    // ============================================================
+    
+    // Call from main loop to detect server/dimension changes
+    // Automatically clears lunarTeammates_ and apolloNametags_ when world changes
+    void checkWorldChange();
+
+    // ============================================================
     // Visual Friends - Auto-detected teammates (cleared on world change)
     // ============================================================
 
@@ -203,6 +211,9 @@ private:
 
     // Visual friends (auto-detected teammates, cleared on world change)
     std::set<std::string> visualFriends_;
+
+    // World change detection (jobject stored as void* to avoid JNI include)
+    void* lastWorldRef_ = nullptr;
 
     // Helper to lowercase a string
     static std::string toLower(const std::string& s);

@@ -688,6 +688,57 @@ void FriendsManager::clearVisualFriends() {
 }
 
 // ============================================================
+// World Change Detection
+// ============================================================
+
+void FriendsManager::checkWorldChange() {
+    if (!Java::Env() || !Java::Initialized)
+        return;
+
+    jobject currentWorld = mc.getWorld();
+    bool worldChanged = false;
+
+    jobject lastWorld = static_cast<jobject>(lastWorldRef_);
+
+    if (lastWorld == nullptr && currentWorld != nullptr) {
+        // First world load
+        worldChanged = true;
+    } else if (lastWorld != nullptr && currentWorld == nullptr) {
+        // Left server
+        worldChanged = true;
+    } else if (lastWorld != nullptr && currentWorld != nullptr) {
+        // Check if different world object
+        if (!Java::Env()->IsSameObject(lastWorld, currentWorld)) {
+            worldChanged = true;
+        }
+    }
+
+    if (worldChanged) {
+        log_ok("[FriendsManager] World change detected - clearing teammate data");
+
+        // Clear all session-based teammate data
+        clearLunarTeammates();
+        clearApolloNametags();
+        clearVisualFriends();
+
+        // Update world reference
+        if (lastWorld) {
+            Java::Env()->DeleteGlobalRef(lastWorld);
+            lastWorldRef_ = nullptr;
+        }
+
+        if (currentWorld) {
+            lastWorldRef_ = Java::Env()->NewGlobalRef(currentWorld);
+        }
+    }
+
+    // Clean up local ref
+    if (currentWorld) {
+        Java::Env()->DeleteLocalRef(currentWorld);
+    }
+}
+
+// ============================================================
 // Combined Check
 // ============================================================
 
