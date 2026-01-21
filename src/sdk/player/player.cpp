@@ -60,6 +60,9 @@ void LocalPlayer::initFields() {
 
         // JumpTicks (in EntityLivingBase) - controls jump delay
         fid_jumpTicks = Java::Env()->GetFieldID(livingCls, "jumpTicks", "I");
+        
+        // isUsingItem (in EntityLivingBase) - true when eating/drinking
+        mid_isUsingItem = Java::Env()->GetMethodID(livingCls, "isUsingItem", "()Z");
     }
 
     // EntityPlayerSP specific fields - for Blink (lastReportedPos)
@@ -270,6 +273,12 @@ bool LocalPlayer::isSneaking() {
     if (!isValid() || !mid_isSneaking)
         return false;
     return Java::Env()->CallBooleanMethod(instance, mid_isSneaking);
+}
+
+bool LocalPlayer::isUsingItem() {
+    if (!isValid() || !mid_isUsingItem)
+        return false;
+    return Java::Env()->CallBooleanMethod(instance, mid_isUsingItem);
 }
 
 // Combat

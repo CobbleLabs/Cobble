@@ -114,6 +114,7 @@ jfieldID fid_keyBindLeft = nullptr;
 jfieldID fid_keyBindRight = nullptr;
 jfieldID fid_keyBindJump = nullptr;
 jfieldID fid_keyBindSneak = nullptr;
+jfieldID fid_keyBindSprint = nullptr;
 jfieldID fid_keyBindAttack = nullptr;
 jfieldID fid_keyBindUseItem = nullptr;
 
@@ -496,6 +497,7 @@ bool Init() {
         TRY_FIELD(fid_keyBindRight, cls_GameSettings, "keyBindRight", "Lnet/minecraft/client/settings/KeyBinding;");
         TRY_FIELD(fid_keyBindJump, cls_GameSettings, "keyBindJump", "Lnet/minecraft/client/settings/KeyBinding;");
         TRY_FIELD(fid_keyBindSneak, cls_GameSettings, "keyBindSneak", "Lnet/minecraft/client/settings/KeyBinding;");
+        TRY_FIELD(fid_keyBindSprint, cls_GameSettings, "keyBindSprint", "Lnet/minecraft/client/settings/KeyBinding;");
         TRY_FIELD(fid_keyBindAttack, cls_GameSettings, "keyBindAttack", "Lnet/minecraft/client/settings/KeyBinding;");
         TRY_FIELD(fid_keyBindUseItem, cls_GameSettings, "keyBindUseItem", "Lnet/minecraft/client/settings/KeyBinding;");
     }

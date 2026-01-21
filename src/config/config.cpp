@@ -219,11 +219,8 @@ void ConfigManager::applyConfig() {
                 s.showDebug = data["showDebug"].as_bool(s.showDebug);
             } else if (name == "Criticals" && criticals) {
                 auto& s = criticals->settings;
-                s.duration = data["duration"].as_int(s.duration);
-                s.mousePressed = data["mousePressed"].as_bool(s.mousePressed);
+                s.maxDelay = data["maxDelay"].as_int(s.maxDelay);
                 s.weaponOnly = data["weaponOnly"].as_bool(s.weaponOnly);
-                s.lookingAtPlayer = data["lookingAtPlayer"].as_bool(s.lookingAtPlayer);
-                s.movingOnly = data["movingOnly"].as_bool(s.movingOnly);
             } else if (name == "HitSelect" && hitSelect) {
                 auto& s = hitSelect->settings;
                 s.minComboHits = data["minComboHits"].as_int(s.minComboHits);
@@ -454,11 +451,8 @@ void ConfigManager::buildConfigFromModules() {
             config_["modules"][name]["showDebug"] = s.showDebug;
         } else if (name == "Criticals" && criticals) {
             const auto& s = criticals->settings;
-            config_["modules"][name]["duration"] = s.duration;
-            config_["modules"][name]["mousePressed"] = s.mousePressed;
+            config_["modules"][name]["maxDelay"] = s.maxDelay;
             config_["modules"][name]["weaponOnly"] = s.weaponOnly;
-            config_["modules"][name]["lookingAtPlayer"] = s.lookingAtPlayer;
-            config_["modules"][name]["movingOnly"] = s.movingOnly;
         } else if (name == "HitSelect" && hitSelect) {
             const auto& s = hitSelect->settings;
             config_["modules"][name]["minComboHits"] = s.minComboHits;

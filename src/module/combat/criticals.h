@@ -1,7 +1,10 @@
 #pragma once
 
+#include <chrono>
 #include "../module.h"
 
+// Criticals module - Packet mode
+// Delays movement packets at the right time to increase the chance of crits
 class Criticals : public Module {
 public:
     Criticals();
@@ -12,21 +15,22 @@ public:
     void onRenderMenu() override;
 
     struct Settings {
-        int duration = 100;  // Duration in ms (10-300)
-        bool mousePressed = false;
-        bool weaponOnly = false;
-        bool lookingAtPlayer = false;
-        bool movingOnly = false;
+        int maxDelay = 100;       // Maximum delay in ms (50-500)
+        bool weaponOnly = false;  // Only activate when holding weapon
     } settings;
 
 private:
+    // State tracking
+    bool isDelaying = false;
+    std::chrono::steady_clock::time_point delayStartTime;
+    bool wasAttacking = false;
     int lastHurtTime = 0;
-    unsigned long hitTimeMs = 0;  // When player was hit (ms)
-    bool isExtendingAirTime = false;
 
     // Helper methods
-    bool checkConditions();
     bool isHoldingWeapon();
+    bool shouldStartDelay();
+    void startPacketDelay();
+    void stopPacketDelay();
 };
 
 extern Criticals* criticals;
