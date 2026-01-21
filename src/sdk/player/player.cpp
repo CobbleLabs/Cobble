@@ -60,12 +60,11 @@ void LocalPlayer::initFields() {
 
         // JumpTicks (in EntityLivingBase) - controls jump delay
         fid_jumpTicks = Java::Env()->GetFieldID(livingCls, "jumpTicks", "I");
-        
+
         // isUsingItem (in EntityLivingBase) - true when eating/drinking
         mid_isUsingItem = Java::Env()->GetMethodID(livingCls, "isUsingItem", "()Z");
     }
 
-    // EntityPlayerSP specific fields - for Blink (lastReportedPos)
     // Need to get EntityPlayerSP class for these
     jclass playerSPCls = nullptr;
     if (Java::AssignClass("net.minecraft.client.entity.EntityPlayerSP", playerSPCls)) {
@@ -742,7 +741,7 @@ void LocalPlayer::setCurrentSlot(int slot) {
 }
 
 // ============================================================================
-// Blink - lastReportedPos manipulation
+// lastReportedPos manipulation
 // These fields control when Minecraft sends C03PacketPlayer
 // By keeping lastReportedPos = currentPos, no movement packets are sent
 // ============================================================================

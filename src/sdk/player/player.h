@@ -62,7 +62,7 @@ struct LocalPlayer {
     int getCurrentSlot();           // Get current hotbar slot (0-8)
     void setCurrentSlot(int slot);  // Set current hotbar slot (0-8)
 
-    // Blink - lastReportedPos (prevents sending movement packets)
+    // lastReportedPos (prevents sending movement packets)
     double getLastReportedPosX();
     double getLastReportedPosY();
     double getLastReportedPosZ();
@@ -109,7 +109,7 @@ private:
     jmethodID mid_getHealth = nullptr;
     jmethodID mid_jump = nullptr;
 
-    // Blink - lastReportedPos fields (EntityPlayerSP specific)
+    // lastReportedPos fields (EntityPlayerSP specific)
     jfieldID fid_lastReportedPosX = nullptr;
     jfieldID fid_lastReportedPosY = nullptr;
     jfieldID fid_lastReportedPosZ = nullptr;

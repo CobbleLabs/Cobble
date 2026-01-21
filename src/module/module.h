@@ -7,12 +7,12 @@
 struct Module {
     const char* name;
     bool enabled = false;
-    int keybind = 0;      // Virtual key code, 0 = no keybind
-    bool locked = false;  // If true, module is hidden/grayed in UI until unlocked
-    bool renders = false; // If true, module draws in onRender
-    bool usesPlayerCache = false; // If true, module uses shared visual cache
+    int keybind = 0;               // Virtual key code, 0 = no keybind
+    bool locked = false;           // If true, module is hidden/grayed in UI until unlocked
+    bool renders = false;          // If true, module draws in onRender
+    bool usesPlayerCache = false;  // If true, module uses shared visual cache
 
-    // Global unlock for experimental modules (Velocity, Reach, Blink)
+    // Global unlock for experimental modules (Velocity, Reach)
     static inline bool experimentalUnlocked = false;
     static inline const char* unlockCode = "CityboyKirkificationsahurnigger";  // Type this in menu to unlock
 

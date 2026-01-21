@@ -2,8 +2,6 @@
 #include "../module/combat/aimassist.h"
 #include "../module/combat/autoclicker.h"
 #include "../module/combat/backtrack.h"
-#include "../module/combat/blink.h"
-#include "../module/combat/criticals.h"
 #include "../module/combat/hitbox.h"
 #include "../module/combat/hitselect.h"
 #include "../module/combat/nohitdelay.h"
@@ -212,15 +210,6 @@ void ConfigManager::applyConfig() {
                 s.hitChance = data["hitChance"].as_int(s.hitChance);
                 s.maxConsecutiveHits = data["maxConsecutiveHits"].as_int(s.maxConsecutiveHits);
                 s.onlyMovingTargets = data["onlyMovingTargets"].as_bool(s.onlyMovingTargets);
-            } else if (name == "Blink" && blink) {
-                auto& s = blink->settings;
-                s.maxDuration = data["maxDuration"].as_float(s.maxDuration);
-                s.disableOnAttack = data["disableOnAttack"].as_bool(s.disableOnAttack);
-                s.showDebug = data["showDebug"].as_bool(s.showDebug);
-            } else if (name == "Criticals" && criticals) {
-                auto& s = criticals->settings;
-                s.maxDelay = data["maxDelay"].as_int(s.maxDelay);
-                s.weaponOnly = data["weaponOnly"].as_bool(s.weaponOnly);
             } else if (name == "HitSelect" && hitSelect) {
                 auto& s = hitSelect->settings;
                 s.minComboHits = data["minComboHits"].as_int(s.minComboHits);
@@ -444,15 +433,6 @@ void ConfigManager::buildConfigFromModules() {
             config_["modules"][name]["hitChance"] = s.hitChance;
             config_["modules"][name]["maxConsecutiveHits"] = s.maxConsecutiveHits;
             config_["modules"][name]["onlyMovingTargets"] = s.onlyMovingTargets;
-        } else if (name == "Blink" && blink) {
-            const auto& s = blink->settings;
-            config_["modules"][name]["maxDuration"] = s.maxDuration;
-            config_["modules"][name]["disableOnAttack"] = s.disableOnAttack;
-            config_["modules"][name]["showDebug"] = s.showDebug;
-        } else if (name == "Criticals" && criticals) {
-            const auto& s = criticals->settings;
-            config_["modules"][name]["maxDelay"] = s.maxDelay;
-            config_["modules"][name]["weaponOnly"] = s.weaponOnly;
         } else if (name == "HitSelect" && hitSelect) {
             const auto& s = hitSelect->settings;
             config_["modules"][name]["minComboHits"] = s.minComboHits;

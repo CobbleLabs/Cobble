@@ -3,8 +3,6 @@
 #include "module/combat/aimassist.h"
 #include "module/combat/autoclicker.h"
 #include "module/combat/backtrack.h"
-#include "module/combat/blink.h"
-#include "module/combat/criticals.h"
 #include "module/combat/hitbox.h"
 #include "module/combat/hitselect.h"
 #include "module/combat/nohitdelay.h"
@@ -135,9 +133,7 @@ void cobble::context::initialize(HMODULE hModule) {
     autoRefill = new AutoRefill();
     velocity = new Velocity();
     reach = new Reach();
-    blink = new Blink();
     backtrack = new Backtrack();
-    criticals = new Criticals();
     hitSelect = new HitSelect();
     hitbox = new Hitbox();
     noHitDelay = new NoHitDelay();
@@ -162,9 +158,7 @@ void cobble::context::initialize(HMODULE hModule) {
     moduleManager->registerModule(autoRefill);
     moduleManager->registerModule(velocity);
     moduleManager->registerModule(reach);
-    moduleManager->registerModule(blink);
     moduleManager->registerModule(backtrack);
-    moduleManager->registerModule(criticals);
     moduleManager->registerModule(hitSelect);
     moduleManager->registerModule(hitbox);
     moduleManager->registerModule(noHitDelay);
@@ -307,10 +301,10 @@ void cobble::context::initialize(HMODULE hModule) {
             lastRenderUpdate = now;
         }
 
-        auto nextWake = std::min(
-            {lastPlayerRefresh + PLAYER_REFRESH_INTERVAL, lastModuleUpdate + MODULE_UPDATE_INTERVAL,
-             lastRenderUpdate + RENDERDATA_UPDATE_INTERVAL, lastVisualCacheUpdate + VISUAL_CACHE_INTERVAL,
-             lastSessionRefresh + SESSION_REFRESH_INTERVAL});
+        auto nextWake =
+            std::min({lastPlayerRefresh + PLAYER_REFRESH_INTERVAL, lastModuleUpdate + MODULE_UPDATE_INTERVAL,
+                      lastRenderUpdate + RENDERDATA_UPDATE_INTERVAL, lastVisualCacheUpdate + VISUAL_CACHE_INTERVAL,
+                      lastSessionRefresh + SESSION_REFRESH_INTERVAL});
         auto sleepFor = nextWake - now;
         if (sleepFor > MIN_SLEEP) {
             std::this_thread::sleep_for(sleepFor);
@@ -324,8 +318,6 @@ void cobble::context::initialize(HMODULE hModule) {
 }
 
 void cobble::context::shutdown() {
-    // Stop heartbeat thread FIRST - before any other cleanup
-    // This prevents crashes from the thread accessing freed resources
     SessionValidator::StopHeartbeatThread();
 
     invalidateSignature();
@@ -350,12 +342,8 @@ void cobble::context::shutdown() {
         velocity->setEnabled(false);
     if (reach)
         reach->setEnabled(false);
-    if (blink)
-        blink->setEnabled(false);
     if (backtrack)
         backtrack->setEnabled(false);
-    if (criticals)
-        criticals->setEnabled(false);
     if (hitSelect)
         hitSelect->setEnabled(false);
     if (hitbox)
@@ -415,17 +403,9 @@ void cobble::context::shutdown() {
         delete reach;
         reach = nullptr;
     }
-    if (blink) {
-        delete blink;
-        blink = nullptr;
-    }
     if (backtrack) {
         delete backtrack;
         backtrack = nullptr;
-    }
-    if (criticals) {
-        delete criticals;
-        criticals = nullptr;
     }
     if (hitSelect) {
         delete hitSelect;

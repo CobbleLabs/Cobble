@@ -3000,172 +3000,22 @@ bool IsReady() {
     return initialized.load();
 }
 
-void setBlinkActive(bool active) {
-    bool wasActive = blinkActive.exchange(active);
-
-    if (active && !wasActive) {
-        hybridIntercept = true;
-        hybridRelease = false;
-        lastHybridSend = std::chrono::steady_clock::now();
-        clearQueue();
-        clearDesiredQueue();
-        {
-            std::lock_guard<std::mutex> lock(shadowMutex);
-            if (player.isValid()) {
-                lastSentPos.x = player.getPosX();
-                lastSentPos.y = player.getPosY();
-                lastSentPos.z = player.getPosZ();
-                haveLastSent = true;
-                shadowPos = lastSentPos;
-                shadowInitialized = true;
-            } else {
-                haveLastSent = false;
-                shadowInitialized = false;
-            }
-        }
-
-        // log_ok("[PacketInterceptor] Hybrid Blink ACTIVATED - delay %d ticks", kHybridDelayTicks);
-
-        if (!packetFieldsReady.load()) {
-            JNIEnv* env = Java::Env();
-            if (env)
-                cachePacketFields(env);
-        }
-
-        // Ensure we have NetworkManager instance
-        if (!networkManagerInstance) {
-            JNIEnv* env = Java::Env();
-            if (env) {
-                jobject nm = getNetworkManager(env);
-                if (nm) {
-                    networkManagerInstance = env->NewGlobalRef(nm);
-                    // log_ok("[PacketInterceptor] Late-cached NetworkManager instance");
-                }
-            }
-        }
-    } else if (!active && wasActive) {
-        hybridRelease = true;
-        // log_ok("[PacketInterceptor] Hybrid Blink DEACTIVATED - releasing (queue: %zu)", getDesiredQueueCount());
-    }
-}
-
+// Blink/Criticals functions - deprecated, kept as stubs for compatibility
+void setBlinkActive(bool) {}
 bool isBlinkActive() {
-    return blinkActive.load();
+    return false;
 }
-
-void setCriticalsActive(bool active) {
-    bool wasActive = criticalsActive.exchange(active);
-
-    if (active && !wasActive) {
-        // Activating Criticals packet delay
-        hybridIntercept = true;
-        hybridRelease = false;
-        lastHybridSend = std::chrono::steady_clock::now();
-        // Don't clear queues - Criticals uses simpler blocking
-        {
-            std::lock_guard<std::mutex> lock(shadowMutex);
-            if (player.isValid()) {
-                lastSentPos.x = player.getPosX();
-                lastSentPos.y = player.getPosY();
-                lastSentPos.z = player.getPosZ();
-                haveLastSent = true;
-                shadowPos = lastSentPos;
-                shadowInitialized = true;
-            } else {
-                haveLastSent = false;
-                shadowInitialized = false;
-            }
-        }
-
-        // log_debug("[PacketInterceptor] Criticals ACTIVATED");
-
-        if (!packetFieldsReady.load()) {
-            JNIEnv* env = Java::Env();
-            if (env)
-                cachePacketFields(env);
-        }
-
-        // Ensure we have NetworkManager instance
-        if (!networkManagerInstance) {
-            JNIEnv* env = Java::Env();
-            if (env) {
-                jobject nm = getNetworkManager(env);
-                if (nm) {
-                    networkManagerInstance = env->NewGlobalRef(nm);
-                }
-            }
-        }
-    } else if (!active && wasActive) {
-        // Deactivating - flush immediately (no delay like Blink)
-        hybridRelease = true;
-        hybridIntercept = false;
-        // log_debug("[PacketInterceptor] Criticals DEACTIVATED");
-    }
-}
-
+void setCriticalsActive(bool) {}
 bool isCriticalsActive() {
-    return criticalsActive.load();
+    return false;
 }
 
+// Queue functions - deprecated stubs
 int getQueuedCount() {
-    std::lock_guard<std::mutex> lock(queueMutex);
-    return (int)packetQueue.size();
+    return 0;
 }
-
-void flushQueue() {
-    JNIEnv* env = Java::Env();
-    if (!env || !networkManagerInstance || !mid_sendPacket) {
-        // log_err("[PacketInterceptor] Cannot flush - missing dependencies");
-        return;
-    }
-
-    std::vector<QueuedPacket> toSend;
-    {
-        std::lock_guard<std::mutex> lock(queueMutex);
-        if (packetQueue.empty()) {
-            // log_debug("[PacketInterceptor] Nothing to flush");
-            return;
-        }
-        toSend.swap(packetQueue);
-    }
-
-    int count = (int)toSend.size();
-    // log_ok("[PacketInterceptor] Flushing %d queued packets...", count);
-
-    for (auto& qp : toSend) {
-        // log_debug("[PacketInterceptor] Sending queued packet: %s", getPacketTypeName(env, qp.packet));
-
-        // Call sendPacket on NetworkManager
-        env->CallVoidMethod(networkManagerInstance, mid_sendPacket, qp.packet);
-
-        if (env->ExceptionCheck()) {
-            env->ExceptionDescribe();
-            env->ExceptionClear();
-            // log_err("[PacketInterceptor] Exception while sending queued packet");
-        }
-
-        if (qp.hasPos) {
-            std::lock_guard<std::mutex> lock(shadowMutex);
-            lastSentPos = qp.pos;
-            haveLastSent = true;
-        }
-        env->DeleteGlobalRef(qp.packet);
-    }
-    // log_ok("[PacketInterceptor] Flush complete - sent %d packets", count);
-}
-
-void clearQueue() {
-    std::lock_guard<std::mutex> lock(queueMutex);
-
-    JNIEnv* env = Java::Env();
-    for (auto& qp : packetQueue) {
-        if (env)
-            env->DeleteGlobalRef(qp.packet);
-    }
-    packetQueue.clear();
-
-    // log_debug("[PacketInterceptor] Queue cleared");
-}
+void flushQueue() {}
+void clearQueue() {}
 
 void setDebugPacketLogging(bool enabled) {
     debugPacketLogging.store(enabled);
@@ -3174,20 +3024,6 @@ void setDebugPacketLogging(bool enabled) {
 
 bool isDebugPacketLogging() {
     return debugPacketLogging.load();
-}
-
-void printDebugInfo() {
-    // log_debug("=== PacketInterceptor Debug ===");
-    // log_debug("  Initialized: %s", initialized.load() ? "YES" : "NO");
-    // log_debug("  Blink Active: %s", blinkActive.load() ? "YES" : "NO");
-    // log_debug("  Hybrid Intercept: %s", hybridIntercept.load() ? "YES" : "NO");
-    // log_debug("  Hybrid Release: %s", hybridRelease.load() ? "YES" : "NO");
-    // log_debug("  Queued Packets: %d", getQueuedCount());
-    // log_debug("  Desired Queue: %zu", getDesiredQueueCount());
-    // log_debug("  Packet Fields Ready: %s", packetFieldsReady.load() ? "YES" : "NO");
-    // log_debug("  NetworkManager: %p", networkManagerInstance);
-    // log_debug("  sendPacket method: %p", mid_sendPacket);
-    // log_debug("  C03PacketPlayer class: %p", cls_C03PacketPlayer);
 }
 
 bool getLastSentPosition(double& x, double& y, double& z) {
@@ -3463,127 +3299,7 @@ bool shouldSendPacket(JNIEnv* env, jobject packet) {
         }
     }
 
-    // ===== BLINK MOVEMENT PACKET LOGIC =====
-    // Only process movement packets if Blink is active
-    if (!hybridIntercept.load()) {
-        return true;  // Passthrough for movement packets when Blink is off
-    }
-
-    // Check if this is a movement packet (original Blink logic)
-    if (!isMovementPacket(env, packet)) {
-        // Not a movement packet - let it through
-        return true;
-    }
-
-    if (!packetFieldsReady.load()) {
-        cachePacketFields(env);
-    }
-
-    bool hasPosPacket = false;
-    if (cls_C04PacketPlayerPosition && env->IsInstanceOf(packet, cls_C04PacketPlayerPosition)) {
-        hasPosPacket = true;
-    } else if (cls_C06PacketPlayerPosLook && env->IsInstanceOf(packet, cls_C06PacketPlayerPosLook)) {
-        hasPosPacket = true;
-    }
-
-    if (packetFieldsReady.load() && player.isValid() && hasPosPacket) {
-        PacketPos desired{};
-        if (!readPacketPos(env, packet, desired)) {
-            desired.x = player.getPosX();
-            desired.y = player.getPosY();
-            desired.z = player.getPosZ();
-        }
-
-        PacketPos shadowSnapshot{};
-        {
-            std::lock_guard<std::mutex> lock(shadowMutex);
-            shadowSnapshot = shadowPos;
-        }
-
-        PacketPos target{};
-        size_t delay = blinkActive.load() ? kHybridDelayTicks : 0;
-        {
-            std::lock_guard<std::mutex> lock(desiredMutex);
-            desiredQueue.push_back(desired);
-            if (desiredQueue.size() > kHybridMaxQueue) {
-                desiredQueue.pop_front();
-            }
-
-            if (desiredQueue.size() <= delay) {
-                target = shadowSnapshot;
-            } else {
-                target = desiredQueue.front();
-                desiredQueue.pop_front();
-            }
-        }
-
-        PacketPos next{};
-        {
-            std::lock_guard<std::mutex> lock(shadowMutex);
-            if (!shadowInitialized) {
-                shadowPos = target;
-                shadowInitialized = true;
-            }
-            next = stepToward(shadowPos, target, kHybridMaxSkipDist, kHybridMaxSkipY);
-            shadowPos = next;
-            lastSentPos = next;
-            haveLastSent = true;
-        }
-
-        writePacketPos(env, packet, next);
-
-        if (hybridRelease.load() && !blinkActive.load()) {
-            bool queueEmpty = false;
-            {
-                std::lock_guard<std::mutex> lock(desiredMutex);
-                queueEmpty = desiredQueue.empty();
-            }
-            PacketPos current{};
-            current.x = player.getPosX();
-            current.y = player.getPosY();
-            current.z = player.getPosZ();
-            if (queueEmpty && isSafeSkip(next, current)) {
-                clearDesiredQueue();
-                hybridRelease = false;
-                hybridIntercept = false;
-                // log_ok("[PacketInterceptor] Hybrid release complete - caught up to client");
-            }
-        }
-
-        return true;
-    }
-
-    // Movement packet while hybrid is active - queue it
-    {
-        std::lock_guard<std::mutex> lock(queueMutex);
-        jobject globalRef = env->NewGlobalRef(packet);
-        if (!globalRef) {
-            return true;
-        }
-        QueuedPacket qp;
-        qp.packet = globalRef;
-        if (!packetFieldsReady.load()) {
-            cachePacketFields(env);
-        }
-        if (packetFieldsReady.load()) {
-            qp.hasPos = readPacketPos(env, packet, qp.pos);
-        }
-        packetQueue.push_back(qp);
-
-        if (packetQueue.size() > kHybridMaxQueue) {
-            env->DeleteGlobalRef(packetQueue.front().packet);
-            packetQueue.erase(packetQueue.begin());
-            // log_warn("[PacketInterceptor] Hybrid queue capped at %zu packets", kHybridMaxQueue);
-        }
-
-        static int debugCounter = 0;
-        if (++debugCounter % 20 == 0 || packetQueue.size() <= 3) {
-            // log_debug("[PacketInterceptor] Queued %s (total: %d)",
-            getPacketTypeName(env, packet), (int)packetQueue.size();
-        }
-    }
-
-    return false;  // Block this packet
+    return true;
 }
 
 }  // namespace PacketInterceptor

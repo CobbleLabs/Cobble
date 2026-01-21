@@ -4,8 +4,6 @@
 #include "../../module/combat/aimassist.h"
 #include "../../module/combat/autoclicker.h"
 #include "../../module/combat/backtrack.h"
-#include "../../module/combat/blink.h"
-#include "../../module/combat/criticals.h"
 #include "../../module/combat/hitbox.h"
 #include "../../module/combat/hitselect.h"
 #include "../../module/combat/nohitdelay.h"
@@ -41,7 +39,7 @@
 // Module lookup by tab and subtab index
 // Returns the module that corresponds to the current subtab
 Module* getModuleForSubtab(int tabIdx, int subtabIdx) {
-    // Combat Tab (0): AutoClicker, AimAssist, Velocity, Reach, Criticals, HitSelect, Hitbox
+    // Combat Tab (0): AutoClicker, AimAssist, Velocity, Reach, HitSelect, Hitbox, NoHitDelay, Backtrack
     if (tabIdx == 0) {
         switch (subtabIdx) {
             case 0:
@@ -53,14 +51,12 @@ Module* getModuleForSubtab(int tabIdx, int subtabIdx) {
             case 3:
                 return reach;
             case 4:
-                return criticals;
-            case 5:
                 return hitSelect;
-            case 6:
+            case 5:
                 return hitbox;
-            case 7:
+            case 6:
                 return noHitDelay;
-            case 8:
+            case 7:
                 return backtrack;
         }
     }
@@ -94,20 +90,18 @@ Module* getModuleForSubtab(int tabIdx, int subtabIdx) {
                 return noJumpDelay;
         }
     }
-    // Utility Tab (3): AutoRefill, Blink, FastPlace, NoItemRelease, BridgeAssist, AutoTool
+    // Utility Tab (3): AutoRefill, FastPlace, NoItemRelease, BridgeAssist, AutoTool
     else if (tabIdx == 3) {
         switch (subtabIdx) {
             case 0:
                 return autoRefill;
             case 1:
-                return blink;
-            case 2:
                 return fastPlace;
-            case 3:
+            case 2:
                 return noItemRelease;
-            case 4:
+            case 3:
                 return bridgeAssist;
-            case 5:
+            case 4:
                 return autoTool;
         }
     }
