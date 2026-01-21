@@ -86,7 +86,8 @@ struct RenderData {
             log_debug("RenderData: Found MODELVIEW (1.8.x style)");
         } else {
             Java::Env()->ExceptionClear();
-            modelViewField = Java::Env()->GetStaticFieldID(activeRenderInfoClass, "modelview", "Ljava/nio/FloatBuffer;");
+            modelViewField =
+                Java::Env()->GetStaticFieldID(activeRenderInfoClass, "modelview", "Ljava/nio/FloatBuffer;");
             if (modelViewField) {
                 log_debug("RenderData: Found modelview (1.7.x style)");
             } else {
@@ -121,10 +122,34 @@ struct RenderData {
         return true;
     }
 
-    // Read matrix from FloatBuffer
     static Matrix ReadMatrix(jobject floatBuffer) {
         Matrix m{};
-        if (!floatBuffer || !floatBufferGet)
+        if (!floatBuffer)
+            return m;
+
+        void* directPtr = Java::Env()->GetDirectBufferAddress(floatBuffer);
+        if (directPtr) {
+            float* data = static_cast<float*>(directPtr);
+            m.m00 = data[0];
+            m.m01 = data[1];
+            m.m02 = data[2];
+            m.m03 = data[3];
+            m.m10 = data[4];
+            m.m11 = data[5];
+            m.m12 = data[6];
+            m.m13 = data[7];
+            m.m20 = data[8];
+            m.m21 = data[9];
+            m.m22 = data[10];
+            m.m23 = data[11];
+            m.m30 = data[12];
+            m.m31 = data[13];
+            m.m32 = data[14];
+            m.m33 = data[15];
+            return m;
+        }
+
+        if (!floatBufferGet)
             return m;
 
         m.m00 = Java::Env()->CallFloatMethod(floatBuffer, floatBufferGet, 0);

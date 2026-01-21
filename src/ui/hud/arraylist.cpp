@@ -56,16 +56,11 @@ static RGB FromHSB(float h, float s, float b) {
     return RGB{(r + m) * 255.0f, (g + m) * 255.0f, (bl + m) * 255.0f};
 }
 
-// Rainbow color generator - smooth flowing animation
-static ImU32 GetRainbowColor(int moduleIndex, float saturation) {
-    // Get current time in milliseconds
-    auto now = std::chrono::system_clock::now().time_since_epoch();
-    long long millis = std::chrono::duration_cast<std::chrono::milliseconds>(now).count();
-
+static ImU32 GetRainbowColor(int moduleIndex, float saturation, long long timeMs) {
     // Use modulo to keep the number small and avoid precision issues
     // 8000ms = 8 second full rainbow cycle
     float cycleMs = 8000.0f;
-    float timeInCycle = std::fmod((float)(millis % 8000), cycleMs);
+    float timeInCycle = std::fmod((float)(timeMs % 8000), cycleMs);
 
     // Each module offset for flowing effect (100ms offset per module)
     float moduleOffset = (moduleIndex * 100.0f);
@@ -90,7 +85,11 @@ void ArrayListRenderer::render() {
     // Build list of display entries (name + info)
     struct DisplayEntry {
         std::string name;
-        std::string info;  // Empty if no info
+        std::string info;      // Empty if no info
+        std::string infoText;  // Preformatted " info"
+        ImVec2 nameSize;
+        ImVec2 infoSize;
+        float totalWidth;
     };
     std::vector<DisplayEntry> entries;
 
@@ -117,7 +116,10 @@ void ArrayListRenderer::render() {
     }
 
     if (friendsManager && friendsManager->teams.enabled) {
-        entries.push_back({"Teams", ""});
+        DisplayEntry e;
+        e.name = "Teams";
+        e.info = "";
+        entries.push_back(e);
     }
 
     if (entries.empty())
@@ -131,15 +133,18 @@ void ArrayListRenderer::render() {
     // Base font size with scale applied (24px base)
     float fontSize = 24.0f * scale;
 
-    // Sort by total text width using the actual font
+    for (auto& entry : entries) {
+        entry.nameSize = arrayFont->CalcTextSizeA(fontSize, FLT_MAX, 0.0f, entry.name.c_str());
+        entry.infoText = entry.info.empty() ? "" : " " + entry.info;
+        entry.infoSize = entry.info.empty() ? ImVec2(0, 0)
+                                            : arrayFont->CalcTextSizeA(fontSize, FLT_MAX, 0.0f, entry.infoText.c_str());
+        entry.totalWidth = entry.nameSize.x + entry.infoSize.x;
+    }
+
+    // Sort by total text width (sizes already calculated)
     if (sortByLength) {
-        std::sort(entries.begin(), entries.end(), [arrayFont, fontSize](const DisplayEntry& a, const DisplayEntry& b) {
-            std::string fullA = a.name + (a.info.empty() ? "" : " " + a.info);
-            std::string fullB = b.name + (b.info.empty() ? "" : " " + b.info);
-            ImVec2 sizeA = arrayFont->CalcTextSizeA(fontSize, FLT_MAX, 0.0f, fullA.c_str());
-            ImVec2 sizeB = arrayFont->CalcTextSizeA(fontSize, FLT_MAX, 0.0f, fullB.c_str());
-            return sizeA.x > sizeB.x;
-        });
+        std::sort(entries.begin(), entries.end(),
+                  [](const DisplayEntry& a, const DisplayEntry& b) { return a.totalWidth > b.totalWidth; });
     }
 
     ImDrawList* draw = ImGui::GetWindowDrawList();
@@ -157,12 +162,10 @@ void ArrayListRenderer::render() {
     bool anchorLeft = (anchor == 1 || anchor == 3);    // TopLeft or BottomLeft
     bool anchorBottom = (anchor == 2 || anchor == 3);  // BottomRight or BottomLeft
 
-    // Calculate total height for bottom anchoring
     float totalHeight = 0.0f;
     if (anchorBottom) {
         for (const auto& entry : entries) {
-            ImVec2 nameSize = arrayFont->CalcTextSizeA(fontSize, FLT_MAX, 0.0f, entry.name.c_str());
-            totalHeight += nameSize.y;
+            totalHeight += entry.nameSize.y;
         }
     }
 
@@ -174,19 +177,20 @@ void ArrayListRenderer::render() {
     ImU32 bgColor = showBackground ? IM_COL32(19, 19, 19, 150) : IM_COL32(0, 0, 0, 0);
     ImU32 infoColor = IM_COL32(180, 180, 180, 255);  // Light gray for info
 
+    long long rainbowTimeMs = 0;
+    if (rainbow) {
+        auto now = std::chrono::system_clock::now().time_since_epoch();
+        rainbowTimeMs = std::chrono::duration_cast<std::chrono::milliseconds>(now).count();
+    }
+
     for (const auto& entry : entries) {
-        // Calculate sizes
-        ImVec2 nameSize = arrayFont->CalcTextSizeA(fontSize, FLT_MAX, 0.0f, entry.name.c_str());
-        std::string infoText = entry.info.empty() ? "" : " " + entry.info;
-        ImVec2 infoSize =
-            entry.info.empty() ? ImVec2(0, 0) : arrayFont->CalcTextSizeA(fontSize, FLT_MAX, 0.0f, infoText.c_str());
-        float totalWidth = nameSize.x + infoSize.x;
-        float lineHeight = nameSize.y;
+        float totalWidth = entry.totalWidth;
+        float lineHeight = entry.nameSize.y;
 
         // Get color (rainbow or accent)
         ImU32 moduleColor;
         if (rainbow) {
-            moduleColor = GetRainbowColor(idx, rainbowSaturation);
+            moduleColor = GetRainbowColor(idx, rainbowSaturation, rainbowTimeMs);
         } else {
             // Use custom color if set, otherwise use accent color
             if (color[0] < 0) {
@@ -231,7 +235,7 @@ void ArrayListRenderer::render() {
 
         // Draw info with gray color
         if (!entry.info.empty()) {
-            draw->AddText(arrayFont, fontSize, ImVec2(textX + nameSize.x, y), infoColor, infoText.c_str());
+            draw->AddText(arrayFont, fontSize, ImVec2(textX + entry.nameSize.x, y), infoColor, entry.infoText.c_str());
         }
 
         // Color bar on edge

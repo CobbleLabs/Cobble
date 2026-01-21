@@ -53,16 +53,9 @@ WNDPROC originalWndProc = nullptr;
 ImFont* defaultFont = nullptr;
 
 void SetupImGui() {
-    Overlay::overlayContext = wglCreateContext(Overlay::deviceContext);
+    Overlay::overlayContext = wglGetCurrentContext();
     if (!Overlay::overlayContext) {
-        log_err("Failed to create overlay GL context");
-        return;
-    }
-
-    if (!wglMakeCurrent(Overlay::deviceContext, Overlay::overlayContext)) {
-        log_err("Failed to activate overlay GL context");
-        wglDeleteContext(Overlay::overlayContext);
-        Overlay::overlayContext = nullptr;
+        log_err("No GL context available for overlay");
         return;
     }
 
@@ -129,6 +122,21 @@ void SetupImGui() {
 
     RenderData::screenWidth = viewport[2];
     RenderData::screenHeight = viewport[3];
+
+    // Warm-up frame to preload font textures
+    {
+        ImGui_ImplOpenGL2_NewFrame();
+        ImGui_ImplWin32_NewFrame();
+        ImGui::NewFrame();
+        Menu::ApplyStyle();
+        ImGui::Begin("##warmup", nullptr,
+                     ImGuiWindowFlags_NoBackground | ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoInputs |
+                         ImGuiWindowFlags_NoNav);
+        ImGui::End();
+        ImGui::EndFrame();
+        ImGui::Render();
+        ImGui_ImplOpenGL2_RenderDrawData(ImGui::GetDrawData());
+    }
 
     Overlay::initialized = true;
 }
@@ -323,15 +331,10 @@ BOOL __stdcall HookedSwapBuffers(HDC hdc) {
             Menu::isOpen = false;
             Menu::moduleToBind = nullptr;
 
-            if (Overlay::overlayContext) {
-                if (wglMakeCurrent(hdc, Overlay::overlayContext)) {
-                    ImGui_ImplOpenGL2_Shutdown();
-                    ImGui_ImplWin32_Shutdown();
-                    ImGui::DestroyContext();
-                }
-                wglDeleteContext(Overlay::overlayContext);
-                Overlay::overlayContext = nullptr;
-            }
+            ImGui_ImplOpenGL2_Shutdown();
+            ImGui_ImplWin32_Shutdown();
+            ImGui::DestroyContext();
+            Overlay::overlayContext = nullptr;
             Overlay::initialized = false;
             reinitCooldown = 5;
             targetContext = nullptr;
@@ -384,20 +387,11 @@ BOOL __stdcall HookedSwapBuffers(HDC hdc) {
             RenderData::screenHeight = newHeight;
         }
 
-        NotificationManager::update();
         bool hasRenderWork = moduleManager && moduleManager->hasRenderWork();
         bool hasNotifications = NotificationManager::hasActive();
         bool hasArrayList = ArrayListRenderer::hasActive();
         bool menuAnimating = Menu::openAnim > 0.01f;
         if (!Menu::isOpen && !menuAnimating && !hasRenderWork && !hasNotifications && !hasArrayList) {
-            if (Overlay::deviceContext && Overlay::originalContext &&
-                wglGetCurrentContext() != Overlay::originalContext) {
-                wglMakeCurrent(Overlay::deviceContext, Overlay::originalContext);
-            }
-            return originalSwapBuffers(hdc);
-        }
-
-        if (!wglMakeCurrent(Overlay::deviceContext, Overlay::overlayContext)) {
             return originalSwapBuffers(hdc);
         }
 
@@ -443,10 +437,6 @@ BOOL __stdcall HookedSwapBuffers(HDC hdc) {
         ImGui::EndFrame();
         ImGui::Render();
         ImGui_ImplOpenGL2_RenderDrawData(ImGui::GetDrawData());
-
-        if (!wglMakeCurrent(Overlay::deviceContext, Overlay::originalContext)) {
-            return originalSwapBuffers(hdc);
-        }
     } __except (EXCEPTION_EXECUTE_HANDLER) {}
 
     return originalSwapBuffers(hdc);
@@ -511,20 +501,13 @@ void Overlay::Shutdown() {
     // Wait for hook to be fully disabled
     std::this_thread::sleep_for(std::chrono::milliseconds(16));
 
-    // Clean up ImGui AFTER hooks are disabled
-    if (initialized && overlayContext) {
-        // Try to make our context current for cleanup
-        if (deviceContext && wglMakeCurrent(deviceContext, overlayContext)) {
-            ImGui_ImplOpenGL2_Shutdown();
-            ImGui_ImplWin32_Shutdown();
-            ImGui::DestroyContext();
-            wglMakeCurrent(nullptr, nullptr);
-        }
-        wglDeleteContext(overlayContext);
+    if (initialized) {
+        ImGui_ImplOpenGL2_Shutdown();
+        ImGui_ImplWin32_Shutdown();
+        ImGui::DestroyContext();
         overlayContext = nullptr;
     }
 
-    // Now remove hooks and uninitialize MinHook
     MH_RemoveHook(MH_ALL_HOOKS);
     MH_Uninitialize();
 
