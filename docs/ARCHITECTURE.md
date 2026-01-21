@@ -109,21 +109,21 @@ src/
 
 ### Packet Interceptor (JVMTI Bytecode Path)
 
-The PacketInterceptor hooks Java bytecode at class-load time to intercept outbound packets without JVMTI method entry events.
+PacketInterceptor now only coordinates JVMTI bytecode hooks for Apollo and the NoItemRelease gate.
 
-- JVMTI ClassFileLoadHook patches `NetworkManager.sendPacket(...)` to call a native bridge before the original body.
-- The native bridge (PacketHook) can queue or pass through movement packets.
-- Cached `jclass` references are stored as GlobalRefs to stay valid across GC.
-- `Java::ClassLoader` is cached as a GlobalRef to resolve classes consistently.
+- Incoming observer hooks:
+  - `NetworkManager.channelRead0`
+  - `NetHandlerPlayClient.handleCustomPayload` (Apollo payload)
+  - `NetHandlerPlayClient.handleTeams`
+  - `LCNetHandlerClient.handleNametagsUpdate/handleOverrideNametags`
+- Outgoing gate:
+  - `NetworkManager.sendPacket(...)` for `C07PacketPlayerDigging.RELEASE_USE_ITEM`
 
-### Blink Flow (PacketInterceptor)
-
-Blink now relies on PacketInterceptor rather than `lastReportedPos` mutation.
-
-1. `Blink::onEnable()` -> `PacketInterceptor::setBlinkActive(true)`
-2. Movement packets are queued while Blink is active.
-3. `Blink::onDisable()` -> `PacketInterceptor::setBlinkActive(false)`
-4. A drain flush sends queued packets in small batches during `PacketInterceptor::Tick()`.
+Implementation is split into focused units:
+- `src/jni/packet/bytecode_patcher.*` (JVMTI patcher + hooks)
+- `src/jni/apollo/apollo_packet_observer.*` (Apollo parsing)
+- `src/jni/noitemrelease/noitemrelease_gate.*` (NoItemRelease gate)
+- `src/jni/packet/packet_interceptor.*` (orchestration)
 
 ### Overlay Context Stability
 
@@ -454,7 +454,7 @@ Player joins server
     │
     ├── Server sends S3FPacketCustomPayload (channel: "lunar:apollo")
     │
-    └── PacketInterceptor::nativeOnReceive()
+    └── ApolloPacketObserver::NativeOnReceive()
             ├── Parse protobuf override_nametag_message
             ├── Extract nametag color from adventure_component
             └── FriendsManager::setApolloNametagColor(uuid, color)
@@ -633,3 +633,4 @@ msbuild CobbleLoader.vcxproj /p:Configuration=Release /p:Platform=x64
 cd license-server
 sudo bash deploy/deploy.sh
 ```
+

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "java.h"
+#include "../java.h"
 
 // ============================================================================
 // PacketInterceptor - Apollo Teams packet interception
@@ -17,19 +17,5 @@ void Shutdown();
 
 // Check if initialized successfully
 bool IsReady();
-
-// Called each frame to process queued packets
-void Tick();
-
-// Debug logging
-void setDebugPacketLogging(bool enabled);
-bool isDebugPacketLogging();
-
-// Debug info
-void printDebugInfo();
-
-// Internal - called from Java via registered native
-// Returns true if packet should be sent, false to block
-bool shouldSendPacket(JNIEnv* env, jobject packet);
 
 }  // namespace PacketInterceptor

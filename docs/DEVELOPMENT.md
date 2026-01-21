@@ -8,20 +8,23 @@ This guide explains how to work within the Cobble codebase: creating modules, us
 
 ```
 src/
-├── cobble.cpp/.hpp     # Entry point, module lifecycle
-├── jni/                # JVM bridge
-├── sdk/                # Minecraft wrappers
-├── module/
-│   ├── module.h        # Base class
-│   ├── module_manager.h/.cpp
-│   ├── combat/         # AutoClicker, AimAssist, Velocity, Reach
-│   ├── visual/         # NameTags
-│   └── utility/        # NoJumpDelay
-└── ui/
-    ├── core/           # Overlay, ImGui hooks
-    ├── widgets/        # Consolidated widgets
-    ├── menu/           # Tab navigation
-    └── hud/            # ArrayList, Notifications
+|-- cobble.cpp/.hpp     # Entry point, module lifecycle
+|-- jni/                # JVM bridge
+|   |-- apollo/         # Apollo packet observer
+|   |-- noitemrelease/  # NoItemRelease sendPacket gate
+|   `-- packet/         # PacketInterceptor + bytecode patcher
+|-- sdk/                # Minecraft wrappers
+|-- module/
+|   |-- module.h        # Base class
+|   |-- module_manager.h/.cpp
+|   |-- combat/         # AutoClicker, AimAssist, Velocity, Reach
+|   |-- visual/         # NameTags
+|   `-- utility/        # NoJumpDelay
+`-- ui/
+    |-- core/           # Overlay, ImGui hooks
+    |-- widgets/        # Consolidated widgets
+    |-- menu/           # Tab navigation
+    `-- hud/            # ArrayList, Notifications
 ```
 
 ---
@@ -293,34 +296,16 @@ void onUpdate() {
 
 ---
 
-## Blink and PacketInterceptor
+## PacketInterceptor (Apollo + NoItemRelease)
 
-Blink uses PacketInterceptor (JVMTI bytecode hook) instead of `lastReportedPos` fields.
+PacketInterceptor is now a focused observer/gate:
 
-### Blink Module Pattern
+- Incoming hooks (Apollo): `channelRead0`, `handleCustomPayload`, `handleTeams`,
+  `LCNetHandlerClient.handleNametagsUpdate`, `handleOverrideNametags`
+- Outgoing gate (NoItemRelease): `NetworkManager.sendPacket(...)` only for
+  `C07PacketPlayerDigging.RELEASE_USE_ITEM`
 
-```cpp
-void Blink::onEnable()
-{
-    PacketInterceptor::setBlinkActive(true);
-}
-
-void Blink::onDisable()
-{
-    PacketInterceptor::setBlinkActive(false);  // schedules drain
-}
-```
-
-### Packet Interceptor Drain
-
-- `setBlinkActive(false)` does not flush immediately.
-- `PacketInterceptor::Tick()` drains queued packets in small batches.
-- `ModuleManager::update()` calls `PacketInterceptor::Tick()` once per tick.
-
-### Debugging
-
-- Expect logs like: `Blink ACTIVATED`, `Queued C03PacketPlayer...`, `Drain complete`.
-- If Blink desyncs, verify the bytecode hook patched both `sendPacket` overloads.
+There is no tick/drain path anymore; Apollo runs on incoming hooks only.
 
 ---
 
@@ -419,3 +404,4 @@ log_debug("Value: %.2f", someFloat);
 - [ ] Added to `Cobble.vcxproj`
 - [ ] Tested build
 - [ ] Tested in-game
+

@@ -87,7 +87,10 @@
     <ClCompile Include="src\main.cpp" />
     <ClCompile Include="src\cobble.cpp" />
     <ClCompile Include="src\jni\java.cpp" />
-    <ClCompile Include="src\jni\packet_interceptor.cpp" />
+    <ClCompile Include="src\jni\apollo\apollo_packet_observer.cpp" />
+    <ClCompile Include="src\jni\noitemrelease\noitemrelease_gate.cpp" />
+    <ClCompile Include="src\jni\packet\bytecode_patcher.cpp" />
+    <ClCompile Include="src\jni\packet\packet_interceptor.cpp" />
     <ClCompile Include="src\sdk\core\minecraft.cpp" />
     <ClCompile Include="src\sdk\player\player.cpp" />
     <ClCompile Include="src\sdk\network\network_probe.cpp" />
@@ -149,8 +152,11 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="src\cobble.hpp" />
+    <ClInclude Include="src\jni\apollo\apollo_packet_observer.hpp" />
+    <ClInclude Include="src\jni\packet\bytecode_patcher.hpp" />
     <ClInclude Include="src\jni\java.h" />
-    <ClInclude Include="src\jni\packet_interceptor.hpp" />
+    <ClInclude Include="src\jni\noitemrelease\noitemrelease_gate.hpp" />
+    <ClInclude Include="src\jni\packet\packet_interceptor.hpp" />
     <ClInclude Include="src\util\logger.hpp" />
     <ClInclude Include="src\sdk\version.h" />
     <ClInclude Include="src\sdk\jni\jstring_util.h" />

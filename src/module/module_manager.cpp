@@ -1,5 +1,4 @@
 #include "module_manager.h"
-#include "../jni/packet_interceptor.hpp"
 #include "../sdk/core/minecraft.h"
 #include "../ui/menu/menu.h"
 #include "../util/diagnostics.hpp"
@@ -34,11 +33,6 @@ void ModuleManager::registerModule(Module* mod) {
 }
 
 void ModuleManager::update() {
-    {
-        DIAG_SCOPE("PacketInterceptor::Tick");
-        PacketInterceptor::Tick();
-    }
-
     // Only process keybinds and modules when Minecraft is focused
     if (!isMinecraftFocused())
         return;

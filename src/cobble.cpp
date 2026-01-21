@@ -24,7 +24,7 @@
 #include "module/visual/trajectories.h"
 
 #include "hooks/winsock_hooks.h"
-#include "jni/packet_interceptor.hpp"
+#include "jni/packet/packet_interceptor.hpp"
 #include "sdk/network/lunar_packet_listener.hpp"
 #include "sdk/network/network_probe.hpp"
 #include "sdk/player/render_data.h"
