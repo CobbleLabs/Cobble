@@ -1,7 +1,9 @@
 #include "criticals.h"
+#include "../../jni/packet_interceptor.hpp"
 #include "../../sdk/core/minecraft.h"
 #include "../../ui/menu/menu.h"
 #include "../../ui/widgets/widgets.hpp"
+#include "../../util/logger.hpp"
 
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
@@ -18,41 +20,84 @@ Criticals::Criticals() : Module("Criticals") {
 }
 
 void Criticals::onEnable() {
-    lastHurtTime = 0;
-    hitTimeMs = 0;
-    isExtendingAirTime = false;
+    isDelaying = false;
+    wasAttacking = false;
+    log_ok("[Criticals] Module ENABLED");
 }
 
 void Criticals::onDisable() {
-    isExtendingAirTime = false;
+    // Make sure to release packets if we were delaying
+    if (isDelaying) {
+        log_debug("[Criticals] Disabling while delay active - stopping delay");
+        stopPacketDelay();
+    }
+    log_ok("[Criticals] Module DISABLED");
 }
 
 bool Criticals::isHoldingWeapon() {
     int itemId = player.getHeldItemId();
     // Swords: 268 (wood), 272 (stone), 267 (iron), 276 (diamond), 283 (gold)
     // Axes: 271, 275, 258, 279, 286
-    return (itemId == 268 || itemId == 272 || itemId == 267 || itemId == 276 || itemId == 283 || itemId == 271 ||
-            itemId == 275 || itemId == 258 || itemId == 279 || itemId == 286);
+    return (itemId == 268 || itemId == 272 || itemId == 267 || itemId == 276 || itemId == 283 || 
+            itemId == 271 || itemId == 275 || itemId == 258 || itemId == 279 || itemId == 286);
 }
 
-bool Criticals::checkConditions() {
-    if (settings.mousePressed) {
-        if (!(GetAsyncKeyState(VK_LBUTTON) & 0x8000))
-            return false;
+bool Criticals::shouldStartDelay() {
+    // Check weapon condition
+    if (settings.weaponOnly && !isHoldingWeapon()) {
+        log_debug("[Criticals] Condition FAILED: Not holding weapon (weaponOnly=true)");
+        return false;
     }
 
-    if (settings.weaponOnly && !isHoldingWeapon())
+    // Must be looking at an entity to attack
+    if (!mc.isTargetingEntity()) {
+        log_debug("[Criticals] Condition FAILED: Not targeting entity");
         return false;
-
-    if (settings.lookingAtPlayer && !mc.isTargetingEntity())
-        return false;
-
-    if (settings.movingOnly) {
-        if (!(GetAsyncKeyState('W') & 0x8000))
-            return false;
     }
 
+    // Must be falling (motionY < 0) - this is when crits happen
+    double motionY = player.getMotionY();
+    if (motionY >= 0) {
+        log_debug("[Criticals] Condition FAILED: Not falling (motionY=%.4f >= 0)", motionY);
+        return false;
+    }
+
+    // Must not be on ground
+    if (player.isOnGround()) {
+        log_debug("[Criticals] Condition FAILED: On ground");
+        return false;
+    }
+
+    log_debug("[Criticals] All conditions PASSED: targeting entity, falling (motionY=%.4f), in air", motionY);
     return true;
+}
+
+void Criticals::startPacketDelay() {
+    if (isDelaying) {
+        log_debug("[Criticals] startPacketDelay called but already delaying");
+        return;
+    }
+
+    // Use dedicated Criticals packet delay (not Blink's)
+    log_ok("[Criticals] >>> STARTING packet delay (max %d ms)", settings.maxDelay);
+    PacketInterceptor::setCriticalsActive(true);
+    isDelaying = true;
+    delayStartTime = std::chrono::steady_clock::now();
+}
+
+void Criticals::stopPacketDelay() {
+    if (!isDelaying) {
+        log_debug("[Criticals] stopPacketDelay called but not delaying");
+        return;
+    }
+
+    auto now = std::chrono::steady_clock::now();
+    auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - delayStartTime).count();
+
+    // Release packets using Criticals-specific function
+    log_ok("[Criticals] <<< STOPPING packet delay (was active for %lld ms)", elapsed);
+    PacketInterceptor::setCriticalsActive(false);
+    isDelaying = false;
 }
 
 void Criticals::onUpdate() {
@@ -65,75 +110,42 @@ void Criticals::onUpdate() {
     if (!player.isValid())
         return;
 
-    int currentHurtTime = player.getHurtTime();
+    // Get current attack state
+    bool isAttacking = (GetAsyncKeyState(VK_LBUTTON) & 0x8000) != 0;
 
-    // Detect hit (hurtTime goes from 0 to max on hit)
-    bool justGotHit = currentHurtTime > 0 && currentHurtTime > lastHurtTime;
+    // Detect attack press (rising edge)
+    bool attackPressed = isAttacking && !wasAttacking;
 
-    if (justGotHit) {
-        // Check conditions before activating
-        if (checkConditions()) {
-            hitTimeMs = GetTickCount();
-            isExtendingAirTime = true;
+    // If we're currently delaying packets
+    if (isDelaying) {
+        auto now = std::chrono::steady_clock::now();
+        auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - delayStartTime).count();
+
+        // Release packets after max delay time
+        if (elapsed >= settings.maxDelay) {
+            log_debug("[Criticals] Max delay reached (%lld ms >= %d ms)", elapsed, settings.maxDelay);
+            stopPacketDelay();
+        }
+        // Also release if we land on ground
+        else if (player.isOnGround()) {
+            log_debug("[Criticals] Landed on ground - releasing early");
+            stopPacketDelay();
         }
     }
 
-    // Subtle air time extension - extremely delicate to avoid detection
-    if (isExtendingAirTime) {
-        unsigned long elapsed = GetTickCount() - hitTimeMs;
-
-        // Wait 80ms before applying (more natural delay after hit)
-        // And only within the configured window
-        if (elapsed > 80 && elapsed < (unsigned long)settings.duration) {
-            // Only when in air
-            if (!player.isOnGround()) {
-                double motionY = player.getMotionY();
-
-                // Tighter apex detection - only at the very top of the arc
-                // When motionY is very close to 0 (transitioning from up to down)
-                if (motionY > -0.04 && motionY < 0.04) {
-                    // Calculate how far into the effect we are (0.0 to 1.0)
-                    float progress = (float)(elapsed - 80) / (float)(settings.duration - 80);
-
-                    // Gradual effect - starts weak, peaks in middle, fades out
-                    // Bell curve: stronger in middle of duration
-                    float intensity = sinf(progress * 3.14159f);
-
-                    // Very small base adjustment (0.3% to 1%) based on intensity
-                    double baseReduction = 0.997 + (0.007 * (1.0 - intensity));
-
-                    // Add natural randomization - varies each frame
-                    unsigned long frameRand = GetTickCount() ^ (GetTickCount() >> 3);
-                    double randomFactor = 1.0;
-
-                    // Only apply effect ~60% of frames for more natural look
-                    if ((frameRand % 10) < 6) {
-                        // Tiny random variation (±0.2%)
-                        double randomOffset = ((frameRand % 5) - 2) * 0.001;
-                        randomFactor = baseReduction + randomOffset;
-
-                        // Clamp to safe range
-                        if (randomFactor < 0.993)
-                            randomFactor = 0.993;
-                        if (randomFactor > 1.002)
-                            randomFactor = 1.002;
-
-                        double newMotionY = motionY * randomFactor;
-
-                        // Only set if the change is meaningful but subtle
-                        if (newMotionY != motionY) {
-                            player.setMotionY(newMotionY);
-                        }
-                    }
-                }
+    // Start delay on attack if conditions are met
+    if (attackPressed) {
+        log_debug("[Criticals] Attack detected (LMB pressed)");
+        if (!isDelaying) {
+            if (shouldStartDelay()) {
+                startPacketDelay();
             }
-        } else if (elapsed >= (unsigned long)settings.duration) {
-            // Duration expired
-            isExtendingAirTime = false;
+        } else {
+            log_debug("[Criticals] Already delaying - ignoring attack");
         }
     }
 
-    lastHurtTime = currentHurtTime;
+    wasAttacking = isAttacking;
 }
 
 void Criticals::onRenderMenu() {
@@ -143,16 +155,17 @@ void Criticals::onRenderMenu() {
             ui::CheckboxBind("Enabled", &enabled, &keybind);
             ImGui::Spacing();
 
-            // Delay slider with ms suffix
-            int delay = settings.duration;
-            if (ui::SliderInt("Delay", &delay, 10, 300, "%d ms"))
-                settings.duration = delay;
+            // Max delay slider
+            int delay = settings.maxDelay;
+            if (ui::SliderInt("Max Delay", &delay, 50, 500, "%d ms"))
+                settings.maxDelay = delay;
+
+            ImGui::Spacing();
+            ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.0f, 1.0f), "Note:");
+            ImGui::TextWrapped("High delay values may make hits feel laggy.");
         },
         "Conditions",
-        [this]() {
-            ui::Checkbox("Mouse Pressed", &settings.mousePressed);
-            ui::Checkbox("Weapon Only", &settings.weaponOnly);
-            ui::Checkbox("Looking At Player", &settings.lookingAtPlayer);
-            ui::Checkbox("Moving Only", &settings.movingOnly);
+        [this]() { 
+            ui::Checkbox("Weapon Only", &settings.weaponOnly); 
         });
 }

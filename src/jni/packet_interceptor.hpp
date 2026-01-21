@@ -29,6 +29,10 @@ bool IsReady();
 void setBlinkActive(bool active);
 bool isBlinkActive();
 
+// Criticals control - independent packet delay for crit timing
+void setCriticalsActive(bool active);
+bool isCriticalsActive();
+
 // Queue management
 int getQueuedCount();
 void flushQueue();  // Send all queued packets

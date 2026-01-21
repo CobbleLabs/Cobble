@@ -45,6 +45,7 @@ struct LocalPlayer {
     bool isSprinting();
     void setSprinting(bool value);
     bool isSneaking();
+    bool isUsingItem();  // True when eating/drinking (prevents sprint)
 
     // Combat
     float getHealth();
@@ -104,6 +105,7 @@ private:
     jmethodID mid_isSprinting = nullptr;
     jmethodID mid_setSprinting = nullptr;
     jmethodID mid_isSneaking = nullptr;
+    jmethodID mid_isUsingItem = nullptr;
     jmethodID mid_getHealth = nullptr;
     jmethodID mid_jump = nullptr;
 

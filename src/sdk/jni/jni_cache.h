@@ -164,6 +164,7 @@ extern jfieldID fid_keyBindLeft;
 extern jfieldID fid_keyBindRight;
 extern jfieldID fid_keyBindJump;
 extern jfieldID fid_keyBindSneak;
+extern jfieldID fid_keyBindSprint;
 extern jfieldID fid_keyBindAttack;
 extern jfieldID fid_keyBindUseItem;
 

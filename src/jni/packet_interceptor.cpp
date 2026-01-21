@@ -1343,6 +1343,7 @@ namespace PacketInterceptor {
 // State
 static std::atomic<bool> initialized{false};
 static std::atomic<bool> blinkActive{false};
+static std::atomic<bool> criticalsActive{false};  // Criticals packet delay state
 static std::atomic<bool> hybridIntercept{false};
 static std::atomic<bool> hybridRelease{false};
 
@@ -3050,6 +3051,60 @@ void setBlinkActive(bool active) {
 
 bool isBlinkActive() {
     return blinkActive.load();
+}
+
+void setCriticalsActive(bool active) {
+    bool wasActive = criticalsActive.exchange(active);
+
+    if (active && !wasActive) {
+        // Activating Criticals packet delay
+        hybridIntercept = true;
+        hybridRelease = false;
+        lastHybridSend = std::chrono::steady_clock::now();
+        // Don't clear queues - Criticals uses simpler blocking
+        {
+            std::lock_guard<std::mutex> lock(shadowMutex);
+            if (player.isValid()) {
+                lastSentPos.x = player.getPosX();
+                lastSentPos.y = player.getPosY();
+                lastSentPos.z = player.getPosZ();
+                haveLastSent = true;
+                shadowPos = lastSentPos;
+                shadowInitialized = true;
+            } else {
+                haveLastSent = false;
+                shadowInitialized = false;
+            }
+        }
+
+        // log_debug("[PacketInterceptor] Criticals ACTIVATED");
+
+        if (!packetFieldsReady.load()) {
+            JNIEnv* env = Java::Env();
+            if (env)
+                cachePacketFields(env);
+        }
+
+        // Ensure we have NetworkManager instance
+        if (!networkManagerInstance) {
+            JNIEnv* env = Java::Env();
+            if (env) {
+                jobject nm = getNetworkManager(env);
+                if (nm) {
+                    networkManagerInstance = env->NewGlobalRef(nm);
+                }
+            }
+        }
+    } else if (!active && wasActive) {
+        // Deactivating - flush immediately (no delay like Blink)
+        hybridRelease = true;
+        hybridIntercept = false;
+        // log_debug("[PacketInterceptor] Criticals DEACTIVATED");
+    }
+}
+
+bool isCriticalsActive() {
+    return criticalsActive.load();
 }
 
 int getQueuedCount() {
