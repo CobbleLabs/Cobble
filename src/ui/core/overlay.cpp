@@ -308,13 +308,10 @@ BOOL __stdcall HookedSwapBuffers(HDC hdc) {
                     originalWndProc = nullptr;
                 }
 
-                if (Overlay::overlayContext) {
-                    if (wglMakeCurrent(hdc, Overlay::overlayContext)) {
-                        ImGui_ImplOpenGL2_Shutdown();
-                        ImGui_ImplWin32_Shutdown();
-                        ImGui::DestroyContext();
-                    }
-                    wglDeleteContext(Overlay::overlayContext);
+                if (Overlay::initialized) {
+                    ImGui_ImplOpenGL2_Shutdown();
+                    ImGui_ImplWin32_Shutdown();
+                    ImGui::DestroyContext();
                     Overlay::overlayContext = nullptr;
                 }
                 Overlay::initialized = false;
