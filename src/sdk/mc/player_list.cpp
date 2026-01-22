@@ -219,6 +219,10 @@ std::vector<PlayerInfo> Minecraft::getPlayerList() {
         // Visibility
         if (JniCache::mid_isInvisible) {
             info.isInvisible = env->CallBooleanMethod(entity, JniCache::mid_isInvisible);
+            if (env->ExceptionCheck()) {
+                env->ExceptionClear();
+                info.isInvisible = false;  // Safe default
+            }
         }
 
         // UUID - Stable player identity (CANNOT be modified by server plugins)

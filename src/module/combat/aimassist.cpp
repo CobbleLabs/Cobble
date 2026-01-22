@@ -1340,7 +1340,7 @@ void AimAssist::onRenderMenu() {
             ui::Checkbox("Break Blocks", &settings.breakBlocks);
             ui::Checkbox("Weapon Only", &settings.weaponOnly);
             ui::Checkbox("Aim Closest Point", &settings.aimAtClosestPoint);
-            // Note: Target Invisibles option removed - always disabled for safety
+            ui::Checkbox("Target Invisibles", &settings.invisibles);
             ui::Checkbox("Stop On Hitbox", &settings.stopOnHitbox);
             ImGui::Spacing();
             if (ImGui::Combo("Target Mode", &currentMode, targetModes, IM_ARRAYSIZE(targetModes))) {
