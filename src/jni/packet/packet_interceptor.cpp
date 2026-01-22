@@ -4,7 +4,7 @@
 #include <cstring>
 #include "../apollo/apollo_packet_observer.hpp"
 #include "bytecode_patcher.hpp"
-#include "../noitemrelease/noitemrelease_gate.hpp"
+#include "outgoing_gate.hpp"
 #include "../../util/logger.hpp"
 
 namespace PacketInterceptor {
@@ -44,7 +44,7 @@ bool Init() {
     bool interceptReady = false;
     if (Java::tiEnv && haveCaps) {
         if (caps.can_generate_all_class_hook_events && caps.can_retransform_classes) {
-            if (BytecodePatcher::RegisterHooks(env, &NoItemReleaseGate::NativeShouldSend,
+            if (BytecodePatcher::RegisterHooks(env, &OutgoingPacketGate::NativeShouldSend,
                                                &ApolloPacketObserver::NativeOnReceive) &&
                 BytecodePatcher::InstallBytecodeHook(env)) {
                 interceptReady = true;

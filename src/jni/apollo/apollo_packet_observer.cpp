@@ -11,6 +11,7 @@
 #include "../../sdk/network/lunar_packet_listener.hpp"
 #include "../../util/logger.hpp"
 #include "../../util/team/friends_manager.h"
+#include "../../module/movement/blink.h"
 
 namespace {
 
@@ -107,6 +108,24 @@ inline bool isWorldChangePacket(JNIEnv* env, jobject packet) {
     return false;
 }
 
+inline bool isServerPosLookPacket(JNIEnv* env, jobject packet) {
+    static jclass cls_S08PacketPlayerPosLook = nullptr;
+    static bool triedInit = false;
+
+    if (!triedInit) {
+        triedInit = true;
+        jclass local = nullptr;
+        if (Java::AssignClass("net.minecraft.network.play.server.S08PacketPlayerPosLook", local)) {
+            cls_S08PacketPlayerPosLook = (jclass)env->NewGlobalRef(local);
+            env->DeleteLocalRef(local);
+        }
+        if (env->ExceptionCheck())
+            env->ExceptionClear();
+    }
+
+    return cls_S08PacketPlayerPosLook && env->IsInstanceOf(packet, cls_S08PacketPlayerPosLook);
+}
+
 }  // namespace
 
 namespace ApolloPacketObserver {
@@ -126,6 +145,19 @@ void JNICALL ApolloPacketObserver::NativeOnReceive(JNIEnv* env, jclass, jobject 
             g_typeLogBudget.store(5);
         }
         return;
+    }
+
+    if (::blink && ::blink->enabled && isServerPosLookPacket(env, packet)) {
+        static std::atomic<int64_t> lastLogMs{0};
+        auto now = std::chrono::steady_clock::now().time_since_epoch();
+        int64_t nowMs = std::chrono::duration_cast<std::chrono::milliseconds>(now).count();
+        int64_t last = lastLogMs.load();
+        if (nowMs - last > 500) {
+            lastLogMs.store(nowMs);
+            log_warn("[Blink] Server correction (S08PacketPlayerPosLook) received while blinking");
+        }
+
+        ::blink->setEnabled(false);
     }
 
     bool blockActive = false;

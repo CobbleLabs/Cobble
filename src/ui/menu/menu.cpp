@@ -12,6 +12,7 @@
 #include "../../module/module_manager.h"
 #include "../../module/movement/nojumpdelay.h"
 #include "../../module/movement/sprint.h"
+#include "../../module/movement/blink.h"
 #include "../../module/movement/timer.h"
 #include "../../module/utility/autorefill.h"
 #include "../../module/utility/autotool.h"
@@ -79,7 +80,7 @@ Module* getModuleForSubtab(int tabIdx, int subtabIdx) {
                 return nullptr;  // Notifications - special handling
         }
     }
-    // Movement Tab (2): Sprint, Timer, NoJumpDelay
+    // Movement Tab (2): Sprint, Timer, NoJumpDelay, Blink
     else if (tabIdx == 2) {
         switch (subtabIdx) {
             case 0:
@@ -88,6 +89,8 @@ Module* getModuleForSubtab(int tabIdx, int subtabIdx) {
                 return timerModule;
             case 2:
                 return noJumpDelay;
+            case 3:
+                return blink;
         }
     }
     // Utility Tab (3): AutoRefill, FastPlace, NoItemRelease, BridgeAssist, AutoTool

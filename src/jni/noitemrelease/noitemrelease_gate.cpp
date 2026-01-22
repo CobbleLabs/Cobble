@@ -35,8 +35,7 @@ static bool shouldSendPacket(JNIEnv* env, jobject packet) {
 
                         // Try 1.8.9+ method first: enum Action field
                         jfieldID statusField = env->GetFieldID(
-                            cls, "status",
-                            "Lnet/minecraft/network/play/client/C07PacketPlayerDigging$Action;");
+                            cls, "status", "Lnet/minecraft/network/play/client/C07PacketPlayerDigging$Action;");
                         if (env->ExceptionCheck())
                             env->ExceptionClear();
 
@@ -45,8 +44,7 @@ static bool shouldSendPacket(JNIEnv* env, jobject packet) {
                             if (statusObj) {
                                 jclass statusCls = env->GetObjectClass(statusObj);
                                 if (statusCls) {
-                                    jmethodID nameMethod =
-                                        env->GetMethodID(statusCls, "name", "()Ljava/lang/String;");
+                                    jmethodID nameMethod = env->GetMethodID(statusCls, "name", "()Ljava/lang/String;");
                                     if (nameMethod) {
                                         jstring enumName = (jstring)env->CallObjectMethod(statusObj, nameMethod);
                                         if (enumName) {

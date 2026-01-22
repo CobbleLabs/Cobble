@@ -11,6 +11,7 @@
 #include "../module/module_manager.h"
 #include "../module/movement/nojumpdelay.h"
 #include "../module/movement/sprint.h"
+#include "../module/movement/blink.h"
 #include "../module/utility/autorefill.h"
 #include "../module/utility/bridgeassist.h"
 #include "../module/utility/fastplace.h"
@@ -290,6 +291,17 @@ void ConfigManager::applyConfig() {
                 backtrack->settings.showBacktrackBox =
                     data["showBacktrackBox"].as_bool(backtrack->settings.showBacktrackBox);
                 backtrack->settings.filledBox = data["filledBox"].as_bool(backtrack->settings.filledBox);
+            } else if (name == "Blink" && blink) {
+                auto& s = blink->settings;
+                s.timerLimit = data["timerLimit"].as_float(s.timerLimit);
+                s.showTimerHud = data["showTimerHud"].as_bool(s.showTimerHud);
+                s.showBreadcrumbs = data["showBreadcrumbs"].as_bool(s.showBreadcrumbs);
+                if (data.has("blinkColor")) {
+                    s.blinkColor[0] = data["blinkColor"]["r"].as_float(s.blinkColor[0]);
+                    s.blinkColor[1] = data["blinkColor"]["g"].as_float(s.blinkColor[1]);
+                    s.blinkColor[2] = data["blinkColor"]["b"].as_float(s.blinkColor[2]);
+                    s.blinkColor[3] = data["blinkColor"]["a"].as_float(s.blinkColor[3]);
+                }
             }
 
             break;
@@ -507,6 +519,15 @@ void ConfigManager::buildConfigFromModules() {
             config_["modules"][name]["weaponOnly"] = backtrack->settings.weaponOnly;
             config_["modules"][name]["showBacktrackBox"] = backtrack->settings.showBacktrackBox;
             config_["modules"][name]["filledBox"] = backtrack->settings.filledBox;
+        } else if (name == "Blink" && blink) {
+            const auto& s = blink->settings;
+            config_["modules"][name]["timerLimit"] = s.timerLimit;
+            config_["modules"][name]["showTimerHud"] = s.showTimerHud;
+            config_["modules"][name]["showBreadcrumbs"] = s.showBreadcrumbs;
+            config_["modules"][name]["blinkColor"]["r"] = s.blinkColor[0];
+            config_["modules"][name]["blinkColor"]["g"] = s.blinkColor[1];
+            config_["modules"][name]["blinkColor"]["b"] = s.blinkColor[2];
+            config_["modules"][name]["blinkColor"]["a"] = s.blinkColor[3];
         }
     }
 }
