@@ -9,6 +9,7 @@
 #include "../../module/combat/nohitdelay.h"
 #include "../../module/combat/reach.h"
 #include "../../module/combat/velocity.h"
+#include "../../module/combat/criticals.h"
 #include "../../module/module_manager.h"
 #include "../../module/movement/nojumpdelay.h"
 #include "../../module/movement/sprint.h"
@@ -59,6 +60,8 @@ Module* getModuleForSubtab(int tabIdx, int subtabIdx) {
                 return noHitDelay;
             case 7:
                 return backtrack;
+            case 8:
+                return criticals;
         }
     }
     // Visuals Tab (1)
