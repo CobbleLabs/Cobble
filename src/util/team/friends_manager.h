@@ -40,6 +40,13 @@ struct FriendData {
     std::string displayName;  // For UI only - can change
 };
 
+// Teammate record - tracks when a teammate was registered
+// Used to validate that teammate data is from the current world
+struct TeammateRecord {
+    uint64_t registeredAtSerial;  // World serial when teammate was registered
+    int64_t registeredAtMs;       // Timestamp for debugging
+};
+
 // FriendsManager - Manages friends list and team detection
 // ============================================================
 // IMPORTANT: All matching is done by UUID, never by name!
@@ -132,7 +139,7 @@ public:
     // ============================================================
     // World Change Detection
     // ============================================================
-    
+
     // Call from main loop to detect server/dimension changes
     // Automatically clears lunarTeammates_ and apolloNametags_ when world changes
     bool checkWorldChange();
@@ -147,6 +154,7 @@ public:
     void removeVisualFriend(const std::string& uuid);
     bool isVisualFriend(const std::string& uuid) const;
     void clearVisualFriends();
+    void notifyWorldChangePacket();
 
     // ============================================================
     // Application Scope
@@ -208,11 +216,13 @@ private:
     std::set<std::string> pendingNames_;
 
     // Lunar API teammates (UUIDs from UpdateTeamMembersMessage)
-    std::set<std::string> lunarTeammates_;
+    // Map stores TeammateRecord to validate data is from current world
+    std::map<std::string, TeammateRecord> lunarTeammates_;
 
     // Apollo nametag colors (UUIDs from OverrideNametagMessage -> color string)
     std::map<std::string, std::string> apolloNametags_;
-    std::unordered_set<std::string> apolloNametagTeammates_;
+    // Map stores TeammateRecord to validate data is from current world
+    std::unordered_map<std::string, TeammateRecord> apolloNametagTeammates_;
     std::unordered_map<std::string, int> apolloNametagGreenHits_;
     std::unordered_map<std::string, int64_t> apolloNametagLastGreenMs_;
     std::unordered_map<std::string, int64_t> apolloNametagLastSeenMs_;
@@ -223,6 +233,7 @@ private:
     // World change detection (jobject stored as void* to avoid JNI include)
     void* lastWorldRef_ = nullptr;
     std::atomic<uint64_t> worldChangeSerial_{0};
+    std::atomic<int64_t> lastWorldChangePacketMs_{0};
 
     static constexpr int kApolloGreenConfirmCount = 2;
     static constexpr int64_t kApolloGreenConfirmWindowMs = 1500;

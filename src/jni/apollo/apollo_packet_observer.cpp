@@ -2,6 +2,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <cctype>
 #include <cstdint>
 #include <cstring>
 #include <string>
@@ -78,6 +79,83 @@ inline void logWorldChangeSkip(const char* msg) {
     log_debug("%s", msg);
 }
 
+inline bool isNameChar(unsigned char c) {
+    return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_';
+}
+
+inline std::string extractNameFromJsonLine(const std::string& line) {
+    std::string best;
+    std::string fallback;
+    size_t i = 0;
+    while (i < line.size()) {
+        if (line[i] != '"') {
+            ++i;
+            continue;
+        }
+        size_t start = i + 1;
+        size_t end = start;
+        bool escaped = false;
+        while (end < line.size()) {
+            char ch = line[end];
+            if (ch == '\\' && !escaped) {
+                escaped = true;
+                ++end;
+                continue;
+            }
+            if (ch == '"' && !escaped) {
+                break;
+            }
+            escaped = false;
+            ++end;
+        }
+        if (end >= line.size()) {
+            break;
+        }
+        std::string value = line.substr(start, end - start);
+        size_t after = end + 1;
+        while (after < line.size() && std::isspace(static_cast<unsigned char>(line[after])))
+            ++after;
+        if (after < line.size() && line[after] == ':') {
+            i = end + 1;
+            continue;  // key, not a value
+        }
+
+        if (!value.empty() && value[0] == '#' && value.size() >= 4) {
+            i = end + 1;
+            continue;  // color hex
+        }
+
+        std::string cleaned;
+        cleaned.reserve(value.size());
+        for (unsigned char c : value) {
+            if (isNameChar(c))
+                cleaned.push_back(static_cast<char>(c));
+        }
+        if (!cleaned.empty()) {
+            if (cleaned.size() >= 2 && best.empty())
+                best = cleaned;
+            if (fallback.empty())
+                fallback = cleaned;
+        }
+        i = end + 1;
+    }
+    return best.empty() ? fallback : best;
+}
+
+inline std::string extractNameFromJsonLines(const std::vector<std::string>& lines) {
+    std::string fallback;
+    for (const auto& line : lines) {
+        std::string name = extractNameFromJsonLine(line);
+        if (!name.empty()) {
+            if (name.size() >= 2)
+                return name;
+            if (fallback.empty())
+                fallback = name;
+        }
+    }
+    return fallback;
+}
+
 inline bool isWorldChangePacket(JNIEnv* env, jobject packet) {
     static jclass cls_S01PacketJoinGame = nullptr;
     static jclass cls_S07PacketRespawn = nullptr;
@@ -134,16 +212,11 @@ void JNICALL ApolloPacketObserver::NativeOnReceive(JNIEnv* env, jclass, jobject 
         return;
 
     static std::atomic<int> g_typeLogBudget{0};
-    static std::atomic<bool> g_seenApolloSinceWorldChange{false};
+    // Removed g_seenApolloSinceWorldChange - serial validation handles stale data
 
     if (friendsManager && isWorldChangePacket(env, packet)) {
-        if (!g_seenApolloSinceWorldChange.exchange(false)) {
-            log_ok("[FriendsManager] World change detected (packet) - clearing teammate data");
-            friendsManager->clearLunarTeammates();
-            friendsManager->clearApolloNametags();
-            friendsManager->clearVisualFriends();
-            g_typeLogBudget.store(5);
-        }
+        friendsManager->notifyWorldChangePacket();
+        g_typeLogBudget.store(5);
         return;
     }
 
@@ -228,7 +301,6 @@ void JNICALL ApolloPacketObserver::NativeOnReceive(JNIEnv* env, jclass, jobject 
 
     // If this is a CustomPayload packet, check for lunar:apollo channel
     if (cls_S3FPacketCustomPayload && env->IsInstanceOf(packet, cls_S3FPacketCustomPayload)) {
-        checkWorldChangeIfNeeded();
         jmethodID channelMethod = mid_getChannelName ? mid_getChannelName : mid_getChannelName_legacy;
         if (channelMethod) {
             jstring channelStr = (jstring)env->CallObjectMethod(packet, channelMethod);
@@ -244,7 +316,6 @@ void JNICALL ApolloPacketObserver::NativeOnReceive(JNIEnv* env, jclass, jobject 
 
                     // Process lunar:apollo and apollo:json packets
                     if (strcmp(channel, "lunar:apollo") == 0 || strcmp(channel, "apollo:json") == 0) {
-                        g_seenApolloSinceWorldChange.store(true);
                         jbyteArray byteArray = nullptr;
                         jbyte* bytes = nullptr;
                         const uint8_t* data = nullptr;
@@ -687,7 +758,8 @@ void JNICALL ApolloPacketObserver::NativeOnReceive(JNIEnv* env, jclass, jobject 
 
                                                         auto it = kHexToColor.find(hex);
                                                         if (it != kHexToColor.end()) {
-                                                            // GREEN/DARK_GREEN always takes priority (teammate indicator)
+                                                            // GREEN/DARK_GREEN always takes priority (teammate
+                                                            // indicator)
                                                             if (it->second == "GREEN" || it->second == "DARK_GREEN") {
                                                                 detectedColor = it->second;
                                                                 foundGreen = true;
@@ -798,30 +870,10 @@ void JNICALL ApolloPacketObserver::NativeOnReceive(JNIEnv* env, jclass, jobject 
 
                                         // Log the parsed nametag with color
                                         if ((uuidHigh != 0 || uuidLow != 0) && !jsonLines.empty()) {
-                                            // Extract player name from first JSON line
-                                            std::string playerName = "?";
-                                            const std::string& firstLine = jsonLines[0];
-                                            size_t textPos = firstLine.find("\"text\":\"");
-                                            if (textPos != std::string::npos) {
-                                                size_t startPos = textPos + 8;
-                                                size_t endPos = firstLine.find("\"", startPos);
-                                                if (endPos != std::string::npos) {
-                                                    playerName = firstLine.substr(startPos, endPos - startPos);
-                                                    // Strip Minecraft color codes from the extracted name
-                                                    std::string clean;
-                                                    for (size_t i = 0; i < playerName.size(); ++i) {
-                                                        unsigned char c = (unsigned char)playerName[i];
-                                                        if (c == 0xC2 && i + 2 < playerName.size() &&
-                                                            (unsigned char)playerName[i + 1] == 0xA7) {
-                                                            i += 2;
-                                                        } else if (c != 0xC2 && c != 0xA7) {
-                                                            clean += playerName[i];
-                                                        }
-                                                    }
-                                                    if (!clean.empty())
-                                                        playerName = clean;
-                                                }
-                                            }
+                                            // Extract player name from JSON lines (skip formatting-only tokens)
+                                            std::string playerName = extractNameFromJsonLines(jsonLines);
+                                            if (playerName.empty())
+                                                playerName = "?";
 
                                             static std::unordered_map<std::string, std::string> lastNametagColor;
                                             std::string uuidKey =
@@ -833,9 +885,8 @@ void JNICALL ApolloPacketObserver::NativeOnReceive(JNIEnv* env, jclass, jobject 
                                                              (itColor->second != detectedColor);
 
                                             // Verbose debug: log raw JSON when color changes (teammate signals only)
-                                            if (isColorChange &&
-                                                (detectedColor == "GREEN" || detectedColor == "DARK_GREEN" ||
-                                                 hasExtra)) {
+                                            if (isColorChange && (detectedColor == "GREEN" ||
+                                                                  detectedColor == "DARK_GREEN" || hasExtra)) {
                                                 char uuidStr[64];
                                                 snprintf(uuidStr, sizeof(uuidStr), "%08x-%04x-%04x-%04x-%012llx",
                                                          (uint32_t)(uuidHigh >> 32), (uint16_t)(uuidHigh >> 16),
@@ -854,9 +905,8 @@ void JNICALL ApolloPacketObserver::NativeOnReceive(JNIEnv* env, jclass, jobject 
 
                                             if (shouldLog) {
                                                 lastNametagColor[uuidKey] = detectedColor;
-                                                bool isTeammateSignal =
-                                                    (detectedColor == "GREEN" || detectedColor == "DARK_GREEN" ||
-                                                     hasExtra);
+                                                bool isTeammateSignal = (detectedColor == "GREEN" ||
+                                                                         detectedColor == "DARK_GREEN" || foundGreen);
                                                 if (isTeammateSignal || detectedColor == "unknown") {
                                                     log_ok("[Apollo] Nametag: \"%s\" -> %s", playerName.c_str(),
                                                            detectedColor.c_str());
@@ -870,12 +920,12 @@ void JNICALL ApolloPacketObserver::NativeOnReceive(JNIEnv* env, jclass, jobject 
                                                          (uint32_t)(uuidHigh >> 32), (uint16_t)(uuidHigh >> 16),
                                                          (uint16_t)uuidHigh, (uint16_t)(uuidLow >> 48),
                                                          (unsigned long long)(uuidLow & 0xFFFFFFFFFFFFULL));
-                                                bool hasTeammateExtra = hasExtra && foundGreen;
+                                                bool hasTeammateExtra = foundGreen;
                                                 friendsManager->setApolloNametagColor(uuidStr, detectedColor,
                                                                                       hasTeammateExtra);
 
                                                 // Focused teammate debug (throttled per UUID)
-                                                if (hasExtra || foundGreen) {
+                                                if (foundGreen) {
                                                     static std::unordered_map<std::string, int64_t> lastSignalLogMs;
                                                     auto now = std::chrono::steady_clock::now().time_since_epoch();
                                                     int64_t nowMs =
@@ -883,11 +933,13 @@ void JNICALL ApolloPacketObserver::NativeOnReceive(JNIEnv* env, jclass, jobject 
                                                             .count();
                                                     int64_t& last = lastSignalLogMs[uuidStr];
                                                     if (nowMs - last > 2000) {
-                                                        log_debug("[Apollo] Teammate signal: %s name=%s color=%s extra=%d green=%d lines=%zu",
-                                                                  uuidStr, playerName.c_str(), detectedColor.c_str(),
-                                                                  hasExtra ? 1 : 0, foundGreen ? 1 : 0,
-                                                                  jsonLines.size());
-                                                        for (size_t jIdx = 0; jIdx < jsonLines.size() && jIdx < 3; jIdx++) {
+                                                        log_debug(
+                                                            "[Apollo] Teammate signal: %s name=%s color=%s extra=%d "
+                                                            "green=%d lines=%zu",
+                                                            uuidStr, playerName.c_str(), detectedColor.c_str(),
+                                                            hasExtra ? 1 : 0, foundGreen ? 1 : 0, jsonLines.size());
+                                                        for (size_t jIdx = 0; jIdx < jsonLines.size() && jIdx < 3;
+                                                             jIdx++) {
                                                             std::string jsonPreview = jsonLines[jIdx];
                                                             if (jsonPreview.length() > 200)
                                                                 jsonPreview = jsonPreview.substr(0, 200) + "...";
@@ -942,10 +994,6 @@ void JNICALL ApolloPacketObserver::NativeOnReceive(JNIEnv* env, jclass, jobject 
     }
 
     if (cls_S3EPacketTeams && env->IsInstanceOf(packet, cls_S3EPacketTeams)) {
-        if (checkWorldChangeIfNeeded()) {
-            log_debug("[Apollo] Skipping Teams due to world change");
-            return;
-        }
         static std::atomic<int> teamPacketCount{0};
 
         // Get action type: 0=create, 1=remove, 2=update, 3=add players, 4=remove players
@@ -1005,19 +1053,14 @@ void JNICALL ApolloPacketObserver::NativeOnReceive(JNIEnv* env, jclass, jobject 
             env->ReleaseStringUTFChars(nameStr, teamName);
         if (nameStr)
             env->DeleteLocalRef(nameStr);
-    if (checkWorldChangeIfNeeded()) {
-        log_debug("[Apollo] Skipping trailing processing due to world change");
-        return;
+        if (env->ExceptionCheck())
+            env->ExceptionClear();
     }
-    if (env->ExceptionCheck())
-        env->ExceptionClear();
-}
 
     // Process Lunar Client nametag packets (legacy path)
     if (!blockActive && LunarPacketListener::IsReady()) {
         LunarPacketListener::processIncomingPacket(env, packet);
     }
 }
-
 
 }  // namespace ApolloPacketObserver

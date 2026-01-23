@@ -9,8 +9,8 @@
 
 namespace OutgoingPacketGate {
 
-// llamado desde bytecode patch de NetworkManager.sendPacket
-// retorna JNI_TRUE si el paquete debe enviarse, JNI_FALSE si debe bloquearse
+// Called from bytecode patch of NetworkManager.sendPacket
+// Returns JNI_TRUE if packet should be sent, JNI_FALSE if it should be blocked
 jboolean JNICALL NativeShouldSend(JNIEnv* env, jclass, jobject packet);
 
 }  // namespace OutgoingPacketGate

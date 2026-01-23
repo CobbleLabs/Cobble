@@ -505,8 +505,13 @@ bool FriendsManager::isTeammate(const std::string& playerUUID, ChatColor playerC
     // Check Lunar API teammates by UUID first (most reliable)
     if (teams.lunarApiEnabled && !playerUUID.empty()) {
         std::lock_guard<std::mutex> lock(mutex_);
-        if (lunarTeammates_.find(playerUUID) != lunarTeammates_.end()) {
-            return true;
+        auto it = lunarTeammates_.find(playerUUID);
+        if (it != lunarTeammates_.end()) {
+            // Validate that teammate was registered in current world
+            if (it->second.registeredAtSerial == worldChangeSerial_.load(std::memory_order_relaxed)) {
+                return true;
+            }
+            // Stale record from previous world - ignore
         }
     }
 
@@ -524,10 +529,22 @@ bool FriendsManager::isTeammate(const std::string& playerUUID, ChatColor playerC
 }
 
 void FriendsManager::addLunarTeammate(const std::string& uuid) {
+    auto now = std::chrono::steady_clock::now().time_since_epoch();
+    int64_t nowMs = std::chrono::duration_cast<std::chrono::milliseconds>(now).count();
     std::lock_guard<std::mutex> lock(mutex_);
-    auto result = lunarTeammates_.insert(uuid);
+
+    // Create record with current world serial
+    TeammateRecord record;
+    record.registeredAtSerial = worldChangeSerial_.load(std::memory_order_relaxed);
+    record.registeredAtMs = nowMs;
+
+    auto result = lunarTeammates_.insert({uuid, record});
     if (result.second) {
-        log_debug("[Apollo] Registered Lunar teammate: %s", uuid.c_str());
+        log_debug("[Apollo] Registered Lunar teammate: %s (serial=%llu)", uuid.c_str(),
+                  (unsigned long long)record.registeredAtSerial);
+    } else {
+        // Update existing record with new serial
+        result.first->second = record;
     }
 }
 
@@ -543,7 +560,12 @@ bool FriendsManager::isLunarTeammate(const std::string& uuid) const {
     if (!teams.lunarApiEnabled)
         return false;
     std::lock_guard<std::mutex> lock(mutex_);
-    return lunarTeammates_.find(uuid) != lunarTeammates_.end();
+    auto it = lunarTeammates_.find(uuid);
+    if (it == lunarTeammates_.end())
+        return false;
+
+    // Validate that teammate was registered in current world
+    return it->second.registeredAtSerial == worldChangeSerial_.load(std::memory_order_relaxed);
 }
 
 void FriendsManager::removeLunarTeammate(const std::string& uuid) {
@@ -556,13 +578,16 @@ void FriendsManager::removeLunarTeammate(const std::string& uuid) {
 }
 
 void FriendsManager::syncLunarTeammates(const std::set<std::string>& currentTeammates) {
+    auto now = std::chrono::steady_clock::now().time_since_epoch();
+    int64_t nowMs = std::chrono::duration_cast<std::chrono::milliseconds>(now).count();
+    uint64_t currentSerial = worldChangeSerial_.load(std::memory_order_relaxed);
     std::lock_guard<std::mutex> lock(mutex_);
 
-    // Find teammates that were removed (in old set but not in new set)
+    // Find teammates that were removed (in old map but not in new set)
     std::vector<std::string> toRemove;
-    for (const auto& existing : lunarTeammates_) {
-        if (currentTeammates.find(existing) == currentTeammates.end()) {
-            toRemove.push_back(existing);
+    for (const auto& entry : lunarTeammates_) {
+        if (currentTeammates.find(entry.first) == currentTeammates.end()) {
+            toRemove.push_back(entry.first);
         }
     }
 
@@ -572,11 +597,20 @@ void FriendsManager::syncLunarTeammates(const std::set<std::string>& currentTeam
         log_ok("[Apollo] Teammate left: %s", uuid.substr(0, 8).c_str());
     }
 
-    // Add new teammates
+    // Add new teammates with current serial
     for (const auto& uuid : currentTeammates) {
-        auto result = lunarTeammates_.insert(uuid);
-        if (result.second) {
-            log_debug("[Apollo] Registered Lunar teammate: %s", uuid.substr(0, 8).c_str());
+        auto it = lunarTeammates_.find(uuid);
+        if (it == lunarTeammates_.end()) {
+            TeammateRecord record;
+            record.registeredAtSerial = currentSerial;
+            record.registeredAtMs = nowMs;
+            lunarTeammates_[uuid] = record;
+            log_debug("[Apollo] Registered Lunar teammate: %s (serial=%llu)", uuid.substr(0, 8).c_str(),
+                      (unsigned long long)currentSerial);
+        } else {
+            // Update existing record with current serial (refresh)
+            it->second.registeredAtSerial = currentSerial;
+            it->second.registeredAtMs = nowMs;
         }
     }
 }
@@ -586,6 +620,7 @@ void FriendsManager::setApolloNametagColor(const std::string& uuid, const std::s
         return;
     auto now = std::chrono::steady_clock::now().time_since_epoch();
     int64_t nowMs = std::chrono::duration_cast<std::chrono::milliseconds>(now).count();
+    uint64_t currentSerial = worldChangeSerial_.load(std::memory_order_relaxed);
     std::lock_guard<std::mutex> lock(mutex_);
     apolloNametagLastSeenMs_[uuid] = nowMs;
 
@@ -601,9 +636,18 @@ void FriendsManager::setApolloNametagColor(const std::string& uuid, const std::s
         greenHits = hasExtra ? kApolloGreenConfirmCount : (greenHits + 1);
         lastGreenMs = nowMs;
         if (greenHits >= kApolloGreenConfirmCount) {
-            if (apolloNametagTeammates_.insert(uuid).second) {
-                log_debug("[Apollo] Nametag TEAMMATE registered: %s -> %s", uuid.substr(0, 8).c_str(),
-                          color.c_str());
+            auto it = apolloNametagTeammates_.find(uuid);
+            if (it == apolloNametagTeammates_.end()) {
+                TeammateRecord record;
+                record.registeredAtSerial = currentSerial;
+                record.registeredAtMs = nowMs;
+                apolloNametagTeammates_[uuid] = record;
+                log_debug("[Apollo] Nametag TEAMMATE registered: %s -> %s (serial=%llu)", uuid.substr(0, 8).c_str(),
+                          color.c_str(), (unsigned long long)currentSerial);
+            } else {
+                // Refresh serial for existing teammate
+                it->second.registeredAtSerial = currentSerial;
+                it->second.registeredAtMs = nowMs;
             }
         }
     } else {
@@ -623,11 +667,26 @@ void FriendsManager::setApolloNametagColor(const std::string& uuid, const std::s
 bool FriendsManager::isApolloTeammate(const std::string& uuid) const {
     if (uuid.empty())
         return false;
+    uint64_t currentSerial = worldChangeSerial_.load(std::memory_order_relaxed);
     std::lock_guard<std::mutex> lock(mutex_);
-    if (lunarTeammates_.find(uuid) != lunarTeammates_.end()) {
-        return true;
+
+    // Check Lunar teammates first (with serial validation)
+    auto itLunar = lunarTeammates_.find(uuid);
+    if (itLunar != lunarTeammates_.end()) {
+        if (itLunar->second.registeredAtSerial == currentSerial) {
+            return true;
+        }
     }
-    return apolloNametagTeammates_.find(uuid) != apolloNametagTeammates_.end();
+
+    // Check Apollo nametag teammates (with serial validation)
+    auto itApollo = apolloNametagTeammates_.find(uuid);
+    if (itApollo != apolloNametagTeammates_.end()) {
+        if (itApollo->second.registeredAtSerial == currentSerial) {
+            return true;
+        }
+    }
+
+    return false;
 }
 
 std::string FriendsManager::getApolloNametagColor(const std::string& uuid) const {
@@ -698,6 +757,22 @@ void FriendsManager::clearVisualFriends() {
     }
 }
 
+void FriendsManager::notifyWorldChangePacket() {
+    auto now = std::chrono::steady_clock::now().time_since_epoch();
+    int64_t nowMs = std::chrono::duration_cast<std::chrono::milliseconds>(now).count();
+    int64_t last = lastWorldChangePacketMs_.load(std::memory_order_relaxed);
+    if (nowMs - last < 500) {
+        return;
+    }
+    lastWorldChangePacketMs_.store(nowMs, std::memory_order_relaxed);
+
+    log_ok("[FriendsManager] World change detected (packet) - clearing teammate data");
+    clearLunarTeammates();
+    clearApolloNametags();
+    clearVisualFriends();
+    worldChangeSerial_.fetch_add(1, std::memory_order_relaxed);
+}
+
 // ============================================================
 // World Change Detection
 // ============================================================
@@ -712,8 +787,13 @@ bool FriendsManager::checkWorldChange() {
     jobject lastWorld = static_cast<jobject>(lastWorldRef_);
 
     if (lastWorld == nullptr && currentWorld != nullptr) {
-        // First world load
-        worldChanged = true;
+        // First world detection (e.g., injection mid-match)
+        // Don't clear teammates - treat as initialization, not change
+        // Just store the reference and return
+        lastWorldRef_ = Java::Env()->NewGlobalRef(currentWorld);
+        Java::Env()->DeleteLocalRef(currentWorld);
+        log_debug("[FriendsManager] First world detection - skipping teammate clear");
+        return false;
     } else if (lastWorld != nullptr && currentWorld == nullptr) {
         // Left server
         worldChanged = true;
@@ -725,13 +805,18 @@ bool FriendsManager::checkWorldChange() {
     }
 
     if (worldChanged) {
-        log_ok("[FriendsManager] World change detected - clearing teammate data");
+        auto now = std::chrono::steady_clock::now().time_since_epoch();
+        int64_t nowMs = std::chrono::duration_cast<std::chrono::milliseconds>(now).count();
+        int64_t lastPacketMs = lastWorldChangePacketMs_.load(std::memory_order_relaxed);
+        if (nowMs - lastPacketMs > 3000) {
+            log_ok("[FriendsManager] World change detected - clearing teammate data");
 
-        // Clear all session-based teammate data
-        clearLunarTeammates();
-        clearApolloNametags();
-        clearVisualFriends();
-        worldChangeSerial_.fetch_add(1, std::memory_order_relaxed);
+            // Clear all session-based teammate data
+            clearLunarTeammates();
+            clearApolloNametags();
+            clearVisualFriends();
+            worldChangeSerial_.fetch_add(1, std::memory_order_relaxed);
+        }
 
         // Update world reference
         if (lastWorld) {

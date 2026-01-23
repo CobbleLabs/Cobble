@@ -6,14 +6,14 @@
 namespace OutgoingPacketGate {
 
 jboolean JNICALL NativeShouldSend(JNIEnv* env, jclass cls, jobject packet) {
-    // primero chequear Blink - si bloquea, no enviar
+    // First check Blink - if it blocks, don't send
     if (!BlinkGate::ShouldSendPacket(env, packet)) {
         return JNI_FALSE;
     }
 
-    // despues chequear NoItemRelease
-    // nota: NoItemReleaseGate::NativeShouldSend tiene la misma firma
-    // pero llamamos directamente para evitar overhead de JNI callback
+    // Then check NoItemRelease
+    // Note: NoItemReleaseGate::NativeShouldSend has the same signature
+    // but we call it directly to avoid JNI callback overhead
     return NoItemReleaseGate::NativeShouldSend(env, cls, packet);
 }
 

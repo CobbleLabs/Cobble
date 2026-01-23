@@ -24,6 +24,7 @@
 #include "../ui/hud/arraylist.h"
 #include "../ui/hud/notifications.h"
 #include "../ui/menu/menu.h"
+#include "../ui/widgets/theme.hpp"
 #include "../util/team/friends_manager.h"
 
 using namespace ArrayListRenderer;
@@ -53,6 +54,13 @@ void ConfigManager::applyConfig() {
     if (config_.has("settings")) {
         syncEnabled_ = config_["settings"]["cloudSync"].as_bool(false);
         Menu::menuKey = config_["settings"]["menuKey"].as_int(0x2D);  // VK_INSERT
+        // Load accent color
+        if (config_["settings"].has("accentColor")) {
+            ui::theme::accentColor[0] = config_["settings"]["accentColor"]["r"].as_float(0.843f);
+            ui::theme::accentColor[1] = config_["settings"]["accentColor"]["g"].as_float(0.376f);
+            ui::theme::accentColor[2] = config_["settings"]["accentColor"]["b"].as_float(0.078f);
+            ui::theme::accentColor[3] = config_["settings"]["accentColor"]["a"].as_float(1.0f);
+        }
     }
 
     // Apply HUD settings
@@ -321,6 +329,11 @@ void ConfigManager::buildConfigFromModules() {
     // Settings
     config_["settings"]["cloudSync"] = syncEnabled_;
     config_["settings"]["menuKey"] = Menu::menuKey;
+    // Save accent color
+    config_["settings"]["accentColor"]["r"] = ui::theme::accentColor[0];
+    config_["settings"]["accentColor"]["g"] = ui::theme::accentColor[1];
+    config_["settings"]["accentColor"]["b"] = ui::theme::accentColor[2];
+    config_["settings"]["accentColor"]["a"] = ui::theme::accentColor[3];
 
     // HUD
     config_["hud"]["arrayList"] = enabled;

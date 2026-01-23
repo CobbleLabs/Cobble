@@ -4,11 +4,11 @@
 
 namespace BlinkGate {
 
-// chequea si el paquete debe ser bloqueado por Blink
-// retorna true si el paquete debe enviarse, false si debe bloquearse
+// Check if packet should be blocked by Blink
+// Returns true if packet should be sent, false if it should be blocked
 bool ShouldSendPacket(JNIEnv* env, jobject packet);
 
-// llamado desde NativeShouldSend en el packet interceptor
+// Called from NativeShouldSend in the packet interceptor
 jboolean JNICALL NativeShouldSend(JNIEnv* env, jclass, jobject packet);
 
 }  // namespace BlinkGate
