@@ -6,6 +6,20 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/).
 
 ---
 
+## [1.1.8] - 2026-01-22
+
+### Added
+- **AimAssist Target Invisibles**: Nueva opción para permitir que AimAssist apunte a jugadores invisibles
+  - Checkbox "Target Invisibles" en la sección Options
+  - Deshabilitado por defecto (comportamiento anterior)
+  - Se guarda/carga correctamente en config
+
+### Fixed
+- **JNI Exception en isInvisible**: Agregado manejo de excepciones al llamar Entity.isInvisible()
+  - Previene crashes en jugadores con estados especiales o entidades corruptas
+
+---
+
 ## [1.1.7] - 2026-01-21
 
 ### Fixed

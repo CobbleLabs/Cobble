@@ -7,6 +7,7 @@
 #include "../module/combat/nohitdelay.h"
 #include "../module/combat/reach.h"
 #include "../module/combat/velocity.h"
+#include "../module/combat/criticals.h"
 #include "../module/module.h"
 #include "../module/module_manager.h"
 #include "../module/movement/nojumpdelay.h"
@@ -152,7 +153,7 @@ void ConfigManager::applyConfig() {
                 s.weaponOnly = data["weaponOnly"].as_bool(s.weaponOnly);
                 s.aimAtClosestPoint = data["aimAtClosestPoint"].as_bool(s.aimAtClosestPoint);
                 s.alwaysAim = data["alwaysAim"].as_bool(s.alwaysAim);
-                // Note: invisibles setting intentionally not loaded - always disabled
+                s.invisibles = data["invisibles"].as_bool(s.invisibles);
                 s.stopOnHitbox = data["stopOnHitbox"].as_bool(s.stopOnHitbox);
             } else if (name == "Velocity" && velocity) {
                 auto& s = velocity->settings;
@@ -289,6 +290,12 @@ void ConfigManager::applyConfig() {
                 fastPlace->settings.blocksOnly = data["blocksOnly"].as_bool(fastPlace->settings.blocksOnly);
             } else if (name == "NoHitDelay" && noHitDelay) {
                 noHitDelay->settings.weaponOnly = data["weaponOnly"].as_bool(noHitDelay->settings.weaponOnly);
+            } else if (name == "Criticals" && criticals) {
+                auto& s = criticals->settings;
+                s.maxDelayMs = data["maxDelayMs"].as_int(s.maxDelayMs);
+                s.onlyWhileAttacking = data["onlyWhileAttacking"].as_bool(s.onlyWhileAttacking);
+                s.lookingAtPlayer = data["lookingAtPlayer"].as_bool(s.lookingAtPlayer);
+                s.onlyWithSword = data["onlyWithSword"].as_bool(s.onlyWithSword);
             } else if (name == "Backtrack" && backtrack) {
                 backtrack->settings.minDistance = data["minDistance"].as_float(backtrack->settings.minDistance);
                 backtrack->settings.maxDistance = data["maxDistance"].as_float(backtrack->settings.maxDistance);
@@ -396,7 +403,7 @@ void ConfigManager::buildConfigFromModules() {
             config_["modules"][name]["weaponOnly"] = s.weaponOnly;
             config_["modules"][name]["aimAtClosestPoint"] = s.aimAtClosestPoint;
             config_["modules"][name]["alwaysAim"] = s.alwaysAim;
-            // Note: invisibles setting intentionally not saved - always disabled
+            config_["modules"][name]["invisibles"] = s.invisibles;
             config_["modules"][name]["stopOnHitbox"] = s.stopOnHitbox;
         } else if (name == "Velocity" && velocity) {
             const auto& s = velocity->settings;
@@ -523,6 +530,12 @@ void ConfigManager::buildConfigFromModules() {
             config_["modules"][name]["blocksOnly"] = fastPlace->settings.blocksOnly;
         } else if (name == "NoHitDelay" && noHitDelay) {
             config_["modules"][name]["weaponOnly"] = noHitDelay->settings.weaponOnly;
+        } else if (name == "Criticals" && criticals) {
+            const auto& s = criticals->settings;
+            config_["modules"][name]["maxDelayMs"] = s.maxDelayMs;
+            config_["modules"][name]["onlyWhileAttacking"] = s.onlyWhileAttacking;
+            config_["modules"][name]["lookingAtPlayer"] = s.lookingAtPlayer;
+            config_["modules"][name]["onlyWithSword"] = s.onlyWithSword;
         } else if (name == "Backtrack" && backtrack) {
             config_["modules"][name]["minDistance"] = backtrack->settings.minDistance;
             config_["modules"][name]["maxDistance"] = backtrack->settings.maxDistance;

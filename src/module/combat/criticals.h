@@ -1,0 +1,45 @@
+#pragma once
+
+#include "../module.h"
+#include "../../jni/java.h"
+#include <vector>
+#include <mutex>
+
+class Criticals : public Module {
+public:
+    Criticals();
+
+    void onEnable() override;
+    void onDisable() override;
+    void onUpdate() override;
+    void onRenderMenu() override;
+
+    struct Settings {
+        int maxDelayMs = 50;           // Maximum delay in milliseconds (10-300)
+        bool onlyWhileAttacking = true; // Only apply when LMB pressed
+        bool lookingAtPlayer = false;  // Only apply when looking at a player
+        bool onlyWithSword = true;     // Only apply when holding sword
+    } settings;
+
+    // Packet delay control
+    bool shouldDelayPacket();
+    void queuePacket(JNIEnv* env, jobject packet);
+
+private:
+    // Packet queue
+    std::vector<jobject> queuedPackets;
+    std::mutex queueMutex;
+    ULONGLONG delayStartTime = 0;
+    bool isDelaying = false;
+    
+    // State tracking
+    bool wasAttacking = false;
+    int ticksSinceAttack = 0;
+    
+    void flushQueuedPackets();
+    void clearQueuedPackets();
+    bool isHoldingSword();
+    bool isLookingAtPlayer();
+};
+
+extern Criticals* criticals;
