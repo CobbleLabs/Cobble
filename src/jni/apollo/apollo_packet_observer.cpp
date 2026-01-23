@@ -710,10 +710,12 @@ void JNICALL ApolloPacketObserver::NativeOnReceive(JNIEnv* env, jclass, jobject 
                                             }
                                         }
 
-                                        // Scan ALL color values in the JSON (including nested "extra" arrays)
-                                        // GREEN takes priority over other colors since it indicates teammate
+                                        // Only check FIRST TWO color levels to avoid false positives from cosmetic
+                                        // effects Level 0 = outer color, Level 1 = first extra color Deeper nested
+                                        // colors (level 2+) are cosmetic effects and should be IGNORED
                                         if (!jsonLines.empty()) {
                                             const std::string colorKey = "\"color\":\"#";
+                                            const std::string extraKey = "\"extra\"";
 
                                             static const std::unordered_map<std::string, std::string> kHexToColor = {
                                                 // Vanilla chat/motd palette
@@ -734,7 +736,7 @@ void JNICALL ApolloPacketObserver::NativeOnReceive(JNIEnv* env, jclass, jobject 
                                                 {"FFFF55", "YELLOW"},
                                                 {"FFFFFF", "WHITE"},
                                                 // Extra hex observed in Apollo nametags
-                                                {"55FF5F", "GREEN"},  // bright green
+                                                {"55FF5F", "GREEN"},  // bright green (teammate indicator)
                                                 {"FF5551", "RED"},    // bright red variant
                                                 {"AA0003", "DARK_RED"},
                                                 {"FF55FA", "LIGHT_PURPLE"},
@@ -747,33 +749,58 @@ void JNICALL ApolloPacketObserver::NativeOnReceive(JNIEnv* env, jclass, jobject 
                                                 {"FFAA02", "GOLD"},
                                             };
 
-                                            for (const auto& line : jsonLines) {
-                                                size_t searchPos = 0;
-                                                while ((searchPos = line.find(colorKey, searchPos)) !=
-                                                       std::string::npos) {
-                                                    if (searchPos + colorKey.size() + 6 <= line.size()) {
-                                                        std::string hex = line.substr(searchPos + colorKey.size(), 6);
-                                                        for (auto& ch : hex)
-                                                            ch = (char)std::toupper((unsigned char)ch);
-
-                                                        auto it = kHexToColor.find(hex);
-                                                        if (it != kHexToColor.end()) {
-                                                            // GREEN/DARK_GREEN always takes priority (teammate
-                                                            // indicator)
-                                                            if (it->second == "GREEN" || it->second == "DARK_GREEN") {
-                                                                detectedColor = it->second;
-                                                                foundGreen = true;
-                                                                break;
-                                                            }
-                                                            if (detectedColor == "unknown") {
-                                                                detectedColor = it->second;
-                                                            }
-                                                        }
+                                            // Helper lambda to extract color name from hex at position
+                                            auto extractColorAt = [&](const std::string& line,
+                                                                      size_t pos) -> std::string {
+                                                if (pos + colorKey.size() + 6 <= line.size()) {
+                                                    std::string hex = line.substr(pos + colorKey.size(), 6);
+                                                    for (auto& ch : hex)
+                                                        ch = (char)std::toupper((unsigned char)ch);
+                                                    auto it = kHexToColor.find(hex);
+                                                    if (it != kHexToColor.end()) {
+                                                        return it->second;
                                                     }
-                                                    searchPos += colorKey.size();
                                                 }
-                                                if (foundGreen)
-                                                    break;
+                                                return "";
+                                            };
+
+                                            for (const auto& line : jsonLines) {
+                                                // Find first color (level 0 - outer color)
+                                                size_t firstColorPos = line.find(colorKey);
+                                                if (firstColorPos == std::string::npos)
+                                                    continue;
+
+                                                std::string level0Color = extractColorAt(line, firstColorPos);
+
+                                                // Find first "extra" to locate level 1 color
+                                                size_t firstExtraPos = line.find(extraKey, firstColorPos);
+                                                std::string level1Color;
+
+                                                if (firstExtraPos != std::string::npos) {
+                                                    // Find the color inside first extra (level 1)
+                                                    size_t level1ColorPos = line.find(colorKey, firstExtraPos);
+                                                    if (level1ColorPos != std::string::npos) {
+                                                        level1Color = extractColorAt(line, level1ColorPos);
+                                                    }
+                                                }
+
+                                                // Determine final color: GREEN at level 0 or level 1 = teammate
+                                                // Level 1 GREEN takes priority (server obfuscates teammate color there)
+                                                if (level1Color == "GREEN" || level1Color == "DARK_GREEN") {
+                                                    detectedColor = level1Color;
+                                                    foundGreen = true;
+                                                } else if (level0Color == "GREEN" || level0Color == "DARK_GREEN") {
+                                                    detectedColor = level0Color;
+                                                    foundGreen = true;
+                                                } else if (!level1Color.empty()) {
+                                                    // Use level 1 color if available (more specific than outer)
+                                                    detectedColor = level1Color;
+                                                } else if (!level0Color.empty()) {
+                                                    detectedColor = level0Color;
+                                                }
+
+                                                // Only process first line (first nametag component)
+                                                break;
                                             }
                                         }
 
@@ -905,8 +932,8 @@ void JNICALL ApolloPacketObserver::NativeOnReceive(JNIEnv* env, jclass, jobject 
 
                                             if (shouldLog) {
                                                 lastNametagColor[uuidKey] = detectedColor;
-                                                bool isTeammateSignal = (detectedColor == "GREEN" ||
-                                                                         detectedColor == "DARK_GREEN" || foundGreen);
+                                                bool isTeammateSignal =
+                                                    (detectedColor == "GREEN" || detectedColor == "DARK_GREEN");
                                                 if (isTeammateSignal || detectedColor == "unknown") {
                                                     log_ok("[Apollo] Nametag: \"%s\" -> %s", playerName.c_str(),
                                                            detectedColor.c_str());

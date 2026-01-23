@@ -235,7 +235,8 @@ private:
     std::atomic<uint64_t> worldChangeSerial_{0};
     std::atomic<int64_t> lastWorldChangePacketMs_{0};
 
-    static constexpr int kApolloGreenConfirmCount = 2;
+    static constexpr int kApolloGreenConfirmCount =
+        3;  // Requires 3 green signals to confirm (prevents cosmetic effect false positives)
     static constexpr int64_t kApolloGreenConfirmWindowMs = 1500;
     static constexpr int64_t kApolloTeammateGraceMs = 8000;
 

@@ -623,9 +623,12 @@ void FriendsManager::setApolloNametagColor(const std::string& uuid, const std::s
     uint64_t currentSerial = worldChangeSerial_.load(std::memory_order_relaxed);
     std::lock_guard<std::mutex> lock(mutex_);
     apolloNametagLastSeenMs_[uuid] = nowMs;
+    (void)hasExtra;  // Parameter preserved for potential debug logging
 
     bool isGreen = (color == "GREEN" || color == "DARK_GREEN");
-    bool isTeammateSignal = isGreen || hasExtra;
+    // Only treat as teammate signal if the color is actually GREEN
+    // hasExtra alone (cosmetic effects) should NOT trigger teammate detection
+    bool isTeammateSignal = isGreen;
     int& greenHits = apolloNametagGreenHits_[uuid];
     int64_t& lastGreenMs = apolloNametagLastGreenMs_[uuid];
 
@@ -633,7 +636,9 @@ void FriendsManager::setApolloNametagColor(const std::string& uuid, const std::s
         if (lastGreenMs > 0 && nowMs - lastGreenMs > kApolloGreenConfirmWindowMs) {
             greenHits = 0;
         }
-        greenHits = hasExtra ? kApolloGreenConfirmCount : (greenHits + 1);
+        // Always increment by 1, never auto-confirm (even with hasExtra)
+        // This prevents cosmetic color cycling from false-positive triggering
+        greenHits++;
         lastGreenMs = nowMs;
         if (greenHits >= kApolloGreenConfirmCount) {
             auto it = apolloNametagTeammates_.find(uuid);
