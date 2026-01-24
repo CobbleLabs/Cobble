@@ -34,6 +34,10 @@ out/
 # Allow JNI dependencies
 !infra/ext/jni/jvm.lib
 
+# Allow Themida SDK libs
+!themida/ThemidaSDK/Lib/
+!themida/ThemidaSDK/Lib/**
+
 # =========================
 # Temp / OS
 # =========================
