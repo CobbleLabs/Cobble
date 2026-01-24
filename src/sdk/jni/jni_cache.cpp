@@ -185,6 +185,7 @@ jmethodID mid_windowClick = nullptr;
 jmethodID mid_getItem = nullptr;
 jfieldID fid_stackSize = nullptr;
 jmethodID mid_getItemDamage = nullptr;
+jfieldID fid_itemDamage = nullptr;
 
 // Slot IDs
 jmethodID mid_getStack = nullptr;
@@ -618,7 +619,7 @@ bool Init() {
 
     if (cls_WorldClient) {
         TRY_FIELD(fid_playerEntities, cls_WorldClient, "playerEntities", "Ljava/util/List;");
-        
+
         // loadedEntityList contains ALL entities (mobs, animals, players)
         TRY_FIELD(fid_loadedEntityList, cls_WorldClient, "loadedEntityList", "Ljava/util/List;");
         if (!fid_loadedEntityList) {
@@ -724,6 +725,11 @@ bool Init() {
         TRY_METHOD(mid_getItemDamage, cls_ItemStack, "getItemDamage", "()I");
         if (!mid_getItemDamage) {
             TRY_METHOD(mid_getItemDamage, cls_ItemStack, "getMetadata", "()I");
+        }
+
+        TRY_FIELD(fid_itemDamage, cls_ItemStack, "itemDamage", "I");
+        if (!fid_itemDamage) {
+            TRY_FIELD(fid_itemDamage, cls_ItemStack, "field_77991_e", "I");
         }
     }
 

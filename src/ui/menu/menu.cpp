@@ -15,6 +15,7 @@
 #include "../../module/movement/sprint.h"
 #include "../../module/movement/blink.h"
 #include "../../module/movement/timer.h"
+#include "../../module/utility/armorswitch.h"
 #include "../../module/utility/autorefill.h"
 #include "../../module/utility/autotool.h"
 #include "../../module/utility/bridgeassist.h"
@@ -96,18 +97,20 @@ Module* getModuleForSubtab(int tabIdx, int subtabIdx) {
                 return blink;
         }
     }
-    // Utility Tab (3): AutoRefill, FastPlace, NoItemRelease, BridgeAssist, AutoTool
+    // Utility Tab (3): ArmorSwitch, AutoRefill, FastPlace, NoItemRelease, BridgeAssist, AutoTool
     else if (tabIdx == 3) {
         switch (subtabIdx) {
             case 0:
-                return autoRefill;
+                return armorSwitch;
             case 1:
-                return fastPlace;
+                return autoRefill;
             case 2:
-                return noItemRelease;
+                return fastPlace;
             case 3:
-                return bridgeAssist;
+                return noItemRelease;
             case 4:
+                return bridgeAssist;
+            case 5:
                 return autoTool;
         }
     }

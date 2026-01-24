@@ -14,6 +14,7 @@
 #include "module/movement/sprint.h"
 #include "module/movement/blink.h"
 #include "module/movement/timer.h"
+#include "module/utility/armorswitch.h"
 #include "module/utility/autorefill.h"
 #include "module/utility/autotool.h"
 #include "module/utility/bridgeassist.h"
@@ -131,6 +132,7 @@ void cobble::context::initialize(HMODULE hModule) {
     moduleManager = new ModuleManager();
     autoClicker = new AutoClicker();
     aimAssist = new AimAssist();
+    armorSwitch = new ArmorSwitch();
     autoRefill = new AutoRefill();
     velocity = new Velocity();
     reach = new Reach();
@@ -158,6 +160,7 @@ void cobble::context::initialize(HMODULE hModule) {
     log_raw("Registering modules...");
     moduleManager->registerModule(autoClicker);
     moduleManager->registerModule(aimAssist);
+    moduleManager->registerModule(armorSwitch);
     moduleManager->registerModule(autoRefill);
     moduleManager->registerModule(velocity);
     moduleManager->registerModule(reach);
@@ -344,6 +347,8 @@ void cobble::context::shutdown() {
         autoClicker->setEnabled(false);
     if (aimAssist)
         aimAssist->setEnabled(false);
+    if (armorSwitch)
+        armorSwitch->setEnabled(false);
     if (autoRefill)
         autoRefill->setEnabled(false);
     if (velocity)
@@ -402,6 +407,10 @@ void cobble::context::shutdown() {
     if (aimAssist) {
         delete aimAssist;
         aimAssist = nullptr;
+    }
+    if (armorSwitch) {
+        delete armorSwitch;
+        armorSwitch = nullptr;
     }
     if (autoRefill) {
         delete autoRefill;

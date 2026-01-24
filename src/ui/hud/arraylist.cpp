@@ -13,6 +13,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <cstring>
 #include <string>
 
 // RGB struct for HSB conversion
@@ -96,6 +97,9 @@ void ArrayListRenderer::render() {
     // Add enabled modules with their display info
     for (auto* mod : moduleManager->getModules()) {
         if (mod && mod->enabled) {
+            if (mod->name && std::strcmp(mod->name, "ArmorSwitch") == 0) {
+                continue;
+            }
             DisplayEntry entry;
             entry.name = mod->name;
             if (showInfo) {

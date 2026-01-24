@@ -111,11 +111,12 @@ struct Minecraft {
     void setTimerSpeed(float speed);
 
     // Inventory operations for AutoRefill
-    std::vector<SlotInfo> getInventorySlots();  // Get all 36 inventory slots
-    void windowClick(int slotId, int button);   // Click inventory slot (shift-click)
-    void openInventory();                       // Open player inventory GUI (like pressing E)
-    void closeInventory();                      // Close current GUI
-    bool isInventoryOpen();                     // Check if inventory GUI is open
+    std::vector<SlotInfo> getInventorySlots();                 // Get all 36 inventory slots
+    void windowClick(int slotId, int button);                  // Click inventory slot (shift-click)
+    void windowClickSwap(int containerSlot, int hotbarIndex);  // Swap container slot with hotbar (mode 2)
+    void openInventory();                                      // Open player inventory GUI
+    void closeInventory();                                     // Close current GUI
+    bool isInventoryOpen();                                    // Check if inventory GUI is open
 
     // Get local player's team color from their displayName
     // Returns -1 (UNKNOWN) if no color code found

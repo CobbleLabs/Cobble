@@ -108,6 +108,7 @@
     <ClCompile Include="src\module\module_manager.cpp" />
     <ClCompile Include="src\module\combat\autoclicker.cpp" />
     <ClCompile Include="src\module\combat\aimassist.cpp" />
+    <ClCompile Include="src\module\utility\armorswitch.cpp" />
     <ClCompile Include="src\module\utility\autorefill.cpp" />
     <ClCompile Include="src\module\combat\velocity.cpp" />
     <ClCompile Include="src\module\combat\reach.cpp" />
@@ -176,6 +177,7 @@
     <ClInclude Include="src\module\module_manager.h" />
     <ClInclude Include="src\module\combat\autoclicker.h" />
     <ClInclude Include="src\module\combat\aimassist.h" />
+    <ClInclude Include="src\module\utility\armorswitch.h" />
     <ClInclude Include="src\module\utility\autorefill.h" />
     <ClInclude Include="src\module\combat\velocity.h" />
     <ClInclude Include="src\module\combat\reach.h" />

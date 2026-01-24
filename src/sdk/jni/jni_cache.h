@@ -278,6 +278,7 @@ extern jmethodID mid_windowClick;
 extern jmethodID mid_getItem;
 extern jfieldID fid_stackSize;
 extern jmethodID mid_getItemDamage;
+extern jfieldID fid_itemDamage;
 
 // =============================================================================
 // Slot class IDs

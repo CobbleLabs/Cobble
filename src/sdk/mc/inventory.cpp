@@ -113,6 +113,17 @@ std::vector<SlotInfo> Minecraft::getInventorySlots() {
 
         if (JniCache::mid_getItemDamage) {
             slot.damage = env->CallIntMethod(itemStack, JniCache::mid_getItemDamage);
+            if (env->ExceptionCheck()) {
+                env->ExceptionClear();
+                // Try direct field as fallback
+                if (JniCache::fid_itemDamage) {
+                    slot.damage = env->GetIntField(itemStack, JniCache::fid_itemDamage);
+                } else {
+                    slot.damage = 0;
+                }
+            }
+        } else if (JniCache::fid_itemDamage) {
+            slot.damage = env->GetIntField(itemStack, JniCache::fid_itemDamage);
         }
 
         // Check if it's a potion (ID 373)
@@ -212,9 +223,89 @@ void Minecraft::windowClick(int slotId, int button) {
         containerSlot = slotId + 36;
     }
 
+    log_debug("[windowClick] slotId=%d -> containerSlot=%d, windowId=%d, button=%d, mode=1 (shift)", slotId,
+              containerSlot, windowId, button);
+
     // Call windowClick (mode 1 = shift-click)
     jobject result =
         env->CallObjectMethod(playerController, mid_windowClick, windowId, containerSlot, button, 1, localPlayer);
+
+    if (env->ExceptionCheck()) {
+        env->ExceptionClear();
+    }
+
+    if (result)
+        env->DeleteLocalRef(result);
+    env->DeleteLocalRef(controllerCls);
+    env->DeleteLocalRef(playerController);
+    env->DeleteLocalRef(localPlayer);
+}
+
+// =============================================================================
+// windowClickSwap - Swap a container slot with a hotbar slot (mode 2)
+// This is like pressing a number key while hovering over a slot
+// =============================================================================
+
+void Minecraft::windowClickSwap(int containerSlot, int hotbarIndex) {
+    if (!isValid())
+        return;
+
+    JNIEnv* env = Java::Env();
+    if (!env)
+        return;
+
+    jobject localPlayer = getPlayer();
+    if (!localPlayer)
+        return;
+
+    // Get openContainer from player
+    if (!JniCache::fid_openContainer) {
+        env->DeleteLocalRef(localPlayer);
+        return;
+    }
+
+    jobject openContainer = env->GetObjectField(localPlayer, JniCache::fid_openContainer);
+    if (!openContainer) {
+        env->DeleteLocalRef(localPlayer);
+        return;
+    }
+
+    // Get windowId from container
+    int windowId = 0;
+    if (JniCache::fid_windowId) {
+        windowId = env->GetIntField(openContainer, JniCache::fid_windowId);
+    }
+
+    env->DeleteLocalRef(openContainer);
+
+    // Get playerController from Minecraft
+    if (!JniCache::fid_playerController) {
+        env->DeleteLocalRef(localPlayer);
+        return;
+    }
+
+    jobject playerController = env->GetObjectField(instance, JniCache::fid_playerController);
+    if (!playerController) {
+        env->DeleteLocalRef(localPlayer);
+        return;
+    }
+
+    jclass controllerCls = env->GetObjectClass(playerController);
+
+    // windowClick(int windowId, int slotId, int mouseButton, int mode, EntityPlayer player)
+    jmethodID mid_windowClick = env->GetMethodID(
+        controllerCls, "windowClick", "(IIIILnet/minecraft/entity/player/EntityPlayer;)Lnet/minecraft/item/ItemStack;");
+
+    if (!mid_windowClick) {
+        env->DeleteLocalRef(controllerCls);
+        env->DeleteLocalRef(playerController);
+        env->DeleteLocalRef(localPlayer);
+        return;
+    }
+
+    // Call windowClick with mode 2 (hotbar swap), button = hotbar index
+    jobject result =
+        env->CallObjectMethod(playerController, mid_windowClick, windowId, containerSlot, hotbarIndex, 2, localPlayer);
 
     if (env->ExceptionCheck()) {
         env->ExceptionClear();

@@ -13,6 +13,7 @@
 #include "../module/movement/nojumpdelay.h"
 #include "../module/movement/sprint.h"
 #include "../module/movement/blink.h"
+#include "../module/utility/armorswitch.h"
 #include "../module/utility/autorefill.h"
 #include "../module/utility/bridgeassist.h"
 #include "../module/utility/fastplace.h"
@@ -238,6 +239,11 @@ void ConfigManager::applyConfig() {
                     s.hitboxColor[2] = data["hitboxColor"]["b"].as_float(s.hitboxColor[2]);
                     s.hitboxColor[3] = data["hitboxColor"]["a"].as_float(s.hitboxColor[3]);
                 }
+            } else if (name == "ArmorSwitch" && armorSwitch) {
+                auto& s = armorSwitch->settings;
+                s.set1Material = data["set1Material"].as_int(s.set1Material);
+                s.set2Material = data["set2Material"].as_int(s.set2Material);
+                s.switchDelay = data["switchDelay"].as_int(s.switchDelay);
             } else if (name == "AutoRefill" && autoRefill) {
                 auto& s = autoRefill->settings;
                 s.refillSoup = data["refillSoup"].as_bool(s.refillSoup);
@@ -481,6 +487,11 @@ void ConfigManager::buildConfigFromModules() {
             config_["modules"][name]["hitboxColor"]["g"] = s.hitboxColor[1];
             config_["modules"][name]["hitboxColor"]["b"] = s.hitboxColor[2];
             config_["modules"][name]["hitboxColor"]["a"] = s.hitboxColor[3];
+        } else if (name == "ArmorSwitch" && armorSwitch) {
+            const auto& s = armorSwitch->settings;
+            config_["modules"][name]["set1Material"] = s.set1Material;
+            config_["modules"][name]["set2Material"] = s.set2Material;
+            config_["modules"][name]["switchDelay"] = s.switchDelay;
         } else if (name == "AutoRefill" && autoRefill) {
             const auto& s = autoRefill->settings;
             config_["modules"][name]["refillSoup"] = s.refillSoup;
