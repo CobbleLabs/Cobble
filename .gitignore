@@ -31,6 +31,9 @@ out/
 *.exe
 *.lib
 
+# Allow JNI dependencies
+!infra/ext/jni/jvm.lib
+
 # =========================
 # Temp / OS
 # =========================
@@ -66,5 +69,7 @@ website.zip
 # Auto-generated
 # =========================
 loader/res/Cobble.enc
-loader/src/security/integrity_gen.hpp
 loader/src/util/dll_hash.h
+
+# Allow integrity generator (needed after clone)
+!loader/src/security/integrity_gen.hpp
