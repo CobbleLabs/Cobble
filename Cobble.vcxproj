@@ -123,7 +123,7 @@
     <ClCompile Include="src\module\movement\nojumpdelay.cpp" />
     <ClCompile Include="src\module\utility\noitemrelease.cpp" />
     <ClCompile Include="src\module\utility\bridgeassist.cpp" />
-    <ClCompile Include="src\module\movement\sprint.cpp" />
+
     <ClCompile Include="src\module\utility\fastplace.cpp" />
     <ClCompile Include="src\module\movement\timer.cpp" />
     <ClCompile Include="src\module\utility\autotool.cpp" />
@@ -193,7 +193,7 @@
     <ClInclude Include="src\hooks\winsock_hooks.h" />
     <ClInclude Include="src\module\movement\nojumpdelay.h" />
     <ClInclude Include="src\module\utility\bridgeassist.h" />
-    <ClInclude Include="src\module\movement\sprint.h" />
+
     <ClInclude Include="src\module\utility\fastplace.h" />
     <ClInclude Include="src\module\movement\timer.h" />
     <ClInclude Include="src\module\utility\autotool.h" />

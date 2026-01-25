@@ -6,6 +6,22 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/).
 
 ---
 
+## [1.1.10] - 2026-01-25
+
+### Fixed
+- **NoHitDelay/Sprint Crash After ~1 Hour**: Corregido memory leak de JNI que causaba crash después de 1-1.5 horas
+  - `getHeldItemId()` creaba 4 jclass locales + ~10 field/method lookups por tick
+  - Ahora los IDs están cacheados en `LocalPlayer::initFields()` (una sola vez al inicio)
+  - Eliminadas ~3.6 millones de operaciones JNI por hora de juego
+  - Usuarios con NoHitDelay + Weapon Only ya no experimentan crashes
+
+### Removed
+- **Sprint Module**: Eliminado completamente - Lunar Client ya incluye Toggle Sprint nativo
+  - Causaba overhead JNI innecesario (isSneaking, isUsingItem, setSprinting cada tick)
+  - Los usuarios pueden usar el Toggle Sprint de Lunar en su lugar
+
+---
+
 ## [1.1.9] - 2026-01-24
 
 ### Changed

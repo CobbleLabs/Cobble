@@ -1,3 +1,12 @@
+package commands
+
+import (
+	"cobble-discord-bot/config"
+	"log"
+
+	"github.com/bwmarrin/discordgo"
+)
+
 // SetupTicketPanel creates the ticket panel message
 func SetupTicketPanel(s *discordgo.Session, cfg *config.Config) {
 	if cfg.TicketPanelChannel == "" {

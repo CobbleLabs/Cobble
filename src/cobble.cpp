@@ -11,7 +11,6 @@
 #include "module/combat/criticals.h"
 #include "module/module_manager.h"
 #include "module/movement/nojumpdelay.h"
-#include "module/movement/sprint.h"
 #include "module/movement/blink.h"
 #include "module/movement/timer.h"
 #include "module/utility/armorswitch.h"
@@ -145,7 +144,6 @@ void cobble::context::initialize(HMODULE hModule) {
     noJumpDelay = new NoJumpDelay();
     noItemRelease = new NoItemRelease();
     bridgeAssist = new BridgeAssist();
-    sprint = new Sprint();
     blink = new Blink();
     fastPlace = new FastPlace();
     timerModule = new TimerMod();
@@ -173,7 +171,6 @@ void cobble::context::initialize(HMODULE hModule) {
     moduleManager->registerModule(noJumpDelay);
     moduleManager->registerModule(noItemRelease);
     moduleManager->registerModule(bridgeAssist);
-    moduleManager->registerModule(sprint);
     moduleManager->registerModule(blink);
     moduleManager->registerModule(fastPlace);
     moduleManager->registerModule(timerModule);
@@ -375,8 +372,6 @@ void cobble::context::shutdown() {
         noItemRelease->setEnabled(false);
     if (bridgeAssist)
         bridgeAssist->setEnabled(false);
-    if (sprint)
-        sprint->setEnabled(false);
     if (blink)
         blink->setEnabled(false);
     if (fastPlace)
@@ -459,10 +454,6 @@ void cobble::context::shutdown() {
     if (bridgeAssist) {
         delete bridgeAssist;
         bridgeAssist = nullptr;
-    }
-    if (sprint) {
-        delete sprint;
-        sprint = nullptr;
     }
     if (blink) {
         delete blink;

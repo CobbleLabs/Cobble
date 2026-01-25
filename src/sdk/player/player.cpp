@@ -86,6 +86,40 @@ void LocalPlayer::initFields() {
         Java::Env()->DeleteLocalRef(playerSPCls);
     }
 
+    // Cache inventory-related fields/methods (prevents JNI leak in getHeldItemId)
+    // These are resolved once here instead of every tick
+    jclass playerCls = nullptr;
+    jclass inventoryCls = nullptr;
+    jclass itemStackCls = nullptr;
+    jclass itemCls = nullptr;
+
+    if (Java::AssignClass("net.minecraft.entity.player.EntityPlayer", playerCls) &&
+        Java::AssignClass("net.minecraft.entity.player.InventoryPlayer", inventoryCls) &&
+        Java::AssignClass("net.minecraft.item.ItemStack", itemStackCls) &&
+        Java::AssignClass("net.minecraft.item.Item", itemCls)) {
+
+        fid_playerInventory = Java::Env()->GetFieldID(playerCls, "inventory", "Lnet/minecraft/entity/player/InventoryPlayer;");
+        mid_getCurrentItem = Java::Env()->GetMethodID(inventoryCls, "getCurrentItem", "()Lnet/minecraft/item/ItemStack;");
+        mid_getItem = Java::Env()->GetMethodID(itemStackCls, "getItem", "()Lnet/minecraft/item/Item;");
+        mid_getIdFromItem = Java::Env()->GetStaticMethodID(itemCls, "getIdFromItem", "(Lnet/minecraft/item/Item;)I");
+        mid_getMetadata = Java::Env()->GetMethodID(itemStackCls, "getMetadata", "()I");
+
+        // Keep Item class as GlobalRef for static method calls
+        cls_Item = (jclass)Java::Env()->NewGlobalRef(itemCls);
+
+        if (fid_playerInventory && mid_getCurrentItem && mid_getItem && mid_getIdFromItem) {
+            log_ok("LocalPlayer: inventory fields cached (NoHitDelay ready)");
+        }
+
+        Java::Env()->DeleteLocalRef(playerCls);
+        Java::Env()->DeleteLocalRef(inventoryCls);
+        Java::Env()->DeleteLocalRef(itemStackCls);
+        Java::Env()->DeleteLocalRef(itemCls);
+    }
+
+    if (Java::Env()->ExceptionCheck())
+        Java::Env()->ExceptionClear();
+
     fieldsInitialized = true;
 }
 
@@ -312,98 +346,36 @@ int LocalPlayer::getHeldItemId() {
     if (!isValid())
         return -1;
 
-    // Chain: player.inventory.getCurrentItem().getItem() -> Item.getIdFromItem(item)
-    // Uses method calls instead of caching to keep implementation simple
-
-    // Get EntityPlayer class for inventory field
-    jclass playerCls = nullptr;
-    if (!Java::AssignClass("net.minecraft.entity.player.EntityPlayer", playerCls))
+    // Uses cached field/method IDs from initFields() to avoid JNI leaks
+    // Previously this created 4 jclass locals per call, causing crashes after ~1 hour
+    if (!fid_playerInventory || !mid_getCurrentItem || !mid_getItem || !mid_getIdFromItem || !cls_Item)
         return -1;
 
-    // Get InventoryPlayer class
-    jclass inventoryCls = nullptr;
-    if (!Java::AssignClass("net.minecraft.entity.player.InventoryPlayer", inventoryCls)) {
-        Java::Env()->DeleteLocalRef(playerCls);
+    jobject inventory = Java::Env()->GetObjectField(instance, fid_playerInventory);
+    if (!inventory)
         return -1;
-    }
 
-    // Get ItemStack class
-    jclass itemStackCls = nullptr;
-    if (!Java::AssignClass("net.minecraft.item.ItemStack", itemStackCls)) {
-        Java::Env()->DeleteLocalRef(playerCls);
-        Java::Env()->DeleteLocalRef(inventoryCls);
+    jobject itemStack = Java::Env()->CallObjectMethod(inventory, mid_getCurrentItem);
+    Java::Env()->DeleteLocalRef(inventory);
+
+    if (!itemStack)
+        return -1;  // Empty hand
+
+    jobject item = Java::Env()->CallObjectMethod(itemStack, mid_getItem);
+    Java::Env()->DeleteLocalRef(itemStack);
+
+    if (!item)
         return -1;
-    }
 
-    // Get Item class
-    jclass itemCls = nullptr;
-    if (!Java::AssignClass("net.minecraft.item.Item", itemCls)) {
-        Java::Env()->DeleteLocalRef(playerCls);
-        Java::Env()->DeleteLocalRef(inventoryCls);
-        Java::Env()->DeleteLocalRef(itemStackCls);
-        return -1;
-    }
+    int result = Java::Env()->CallStaticIntMethod(cls_Item, mid_getIdFromItem, item);
+    Java::Env()->DeleteLocalRef(item);
 
-    int result = -1;
-
-    // player.inventory field
-    jfieldID fid_inventory =
-        Java::Env()->GetFieldID(playerCls, "inventory", "Lnet/minecraft/entity/player/InventoryPlayer;");
-    if (!fid_inventory)
-        goto cleanup;
-
-    {
-        jobject inventory = Java::Env()->GetObjectField(instance, fid_inventory);
-        if (!inventory)
-            goto cleanup;
-
-        // inventory.getCurrentItem()
-        jmethodID mid_getCurrentItem =
-            Java::Env()->GetMethodID(inventoryCls, "getCurrentItem", "()Lnet/minecraft/item/ItemStack;");
-        if (!mid_getCurrentItem) {
-            Java::Env()->DeleteLocalRef(inventory);
-            goto cleanup;
-        }
-
-        jobject itemStack = Java::Env()->CallObjectMethod(inventory, mid_getCurrentItem);
-        Java::Env()->DeleteLocalRef(inventory);
-
-        if (!itemStack)
-            goto cleanup;  // Empty hand
-
-        // itemStack.getItem()
-        jmethodID mid_getItem = Java::Env()->GetMethodID(itemStackCls, "getItem", "()Lnet/minecraft/item/Item;");
-        if (!mid_getItem) {
-            Java::Env()->DeleteLocalRef(itemStack);
-            goto cleanup;
-        }
-
-        jobject item = Java::Env()->CallObjectMethod(itemStack, mid_getItem);
-        Java::Env()->DeleteLocalRef(itemStack);
-
-        if (!item)
-            goto cleanup;
-
-        // Item.getIdFromItem(item) - static method
-        jmethodID mid_getIdFromItem =
-            Java::Env()->GetStaticMethodID(itemCls, "getIdFromItem", "(Lnet/minecraft/item/Item;)I");
-        if (!mid_getIdFromItem) {
-            Java::Env()->DeleteLocalRef(item);
-            goto cleanup;
-        }
-
-        result = Java::Env()->CallStaticIntMethod(itemCls, mid_getIdFromItem, item);
-        Java::Env()->DeleteLocalRef(item);
-    }
-
-cleanup:
-    Java::Env()->DeleteLocalRef(playerCls);
-    Java::Env()->DeleteLocalRef(inventoryCls);
-    Java::Env()->DeleteLocalRef(itemStackCls);
-    Java::Env()->DeleteLocalRef(itemCls);
+    if (Java::Env()->ExceptionCheck())
+        Java::Env()->ExceptionClear();
 
     return result;
 }
+
 
 int LocalPlayer::getHeldItemDamage() {
     if (!isValid())

@@ -23,7 +23,7 @@ std::vector<ui::tab_t> ui::tabs = {
      "Combat",
      {"AutoClicker", "AimAssist", "Velocity", "Reach", "HitSelect", "Hitbox", "NoHitDelay", "Backtrack", "Criticals"}},
     {ICON_FA_EYE, "Visuals", {"NameTags", "ESP", "Tracers", "BlockESP", "Trajectories", "ArrayList", "Notifications"}},
-    {ICON_FA_RUNNING, "Movement", {"Sprint", "Timer", "NoJumpDelay", "Blink"}},
+    {ICON_FA_RUNNING, "Movement", {"Timer", "NoJumpDelay", "Blink"}},
     {ICON_FA_KEYBOARD,
      "Utility",
      {"ArmorSwitch", "AutoRefill", "FastPlace", "NoItemRelease", "BridgeAssist", "AutoTool"}},

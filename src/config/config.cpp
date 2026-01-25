@@ -11,7 +11,7 @@
 #include "../module/module.h"
 #include "../module/module_manager.h"
 #include "../module/movement/nojumpdelay.h"
-#include "../module/movement/sprint.h"
+
 #include "../module/movement/blink.h"
 #include "../module/utility/armorswitch.h"
 #include "../module/utility/autorefill.h"
