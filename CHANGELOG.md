@@ -6,6 +6,29 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/).
 
 ---
 
+## [1.1.9] - 2026-01-24
+
+### Changed
+- **Backtrack Module Rewrite**: Dos modos de operación para mayor flexibilidad
+  - **Manual Mode**: Guarda N ticks de posiciones pasadas por entidad, permite atacar en cualquier posición almacenada
+    - Opción "Ticks" (1-20): Cuántas posiciones anteriores guardar
+    - Opción "Render Previous Ticks": Renderiza "shadows" en posiciones pasadas
+  - **Lag Based Mode**: Retrasa paquetes entrantes de posición de entidades (S14/S18) cuando es ventajoso
+    - Opción "Latency" (50-500ms): Latencia añadida a la conexión
+    - Opción "Render Server Pos": Muestra última posición conocida del servidor
+  - Nuevo selector de modo en la UI
+  - Historial de posiciones por entidad (no global)
+  - Colores configurables para box y shadow por separado
+  - Full config persistence para todas las nuevas opciones
+
+### Added
+- **BacktrackGate**: Sistema de intercepción de paquetes entrantes para Lag Based mode
+  - Detecta S14PacketEntity y S18PacketEntityTeleport
+  - Queue con GlobalRefs para delay controlado
+  - Thread-safe con mutex protection
+
+---
+
 ## [1.1.8] - 2026-01-22
 
 ### Added

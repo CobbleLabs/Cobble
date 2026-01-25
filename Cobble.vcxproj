@@ -93,6 +93,7 @@
     <ClCompile Include="src\jni\packet\packet_interceptor.cpp" />
     <ClCompile Include="src\jni\packet\outgoing_gate.cpp" />
     <ClCompile Include="src\jni\blink\blink_gate.cpp" />
+    <ClCompile Include="src\jni\backtrack\backtrack_gate.cpp" />
     <ClCompile Include="src\jni\criticals\criticals_gate.cpp" />
     <ClCompile Include="src\module\movement\blink.cpp" />
     <ClCompile Include="src\sdk\core\minecraft.cpp" />
@@ -164,6 +165,7 @@
     <ClInclude Include="src\jni\noitemrelease\noitemrelease_gate.hpp" />
     <ClInclude Include="src\jni\packet\packet_interceptor.hpp" />
     <ClInclude Include="src\jni\criticals\criticals_gate.hpp" />
+    <ClInclude Include="src\jni\backtrack\backtrack_gate.hpp" />
     <ClInclude Include="src\util\logger.hpp" />
     <ClInclude Include="src\sdk\version.h" />
     <ClInclude Include="src\sdk\jni\jstring_util.h" />

@@ -303,15 +303,31 @@ void ConfigManager::applyConfig() {
                 s.lookingAtPlayer = data["lookingAtPlayer"].as_bool(s.lookingAtPlayer);
                 s.onlyWithSword = data["onlyWithSword"].as_bool(s.onlyWithSword);
             } else if (name == "Backtrack" && backtrack) {
-                backtrack->settings.minDistance = data["minDistance"].as_float(backtrack->settings.minDistance);
-                backtrack->settings.maxDistance = data["maxDistance"].as_float(backtrack->settings.maxDistance);
-                backtrack->settings.maxDelay = data["maxDelay"].as_int(backtrack->settings.maxDelay);
-                backtrack->settings.maxHurtTime = data["maxHurtTime"].as_int(backtrack->settings.maxHurtTime);
-                backtrack->settings.cooldown = data["cooldown"].as_float(backtrack->settings.cooldown);
-                backtrack->settings.weaponOnly = data["weaponOnly"].as_bool(backtrack->settings.weaponOnly);
-                backtrack->settings.showBacktrackBox =
-                    data["showBacktrackBox"].as_bool(backtrack->settings.showBacktrackBox);
-                backtrack->settings.filledBox = data["filledBox"].as_bool(backtrack->settings.filledBox);
+                auto& s = backtrack->settings;
+                s.mode = static_cast<BacktrackMode>(data["mode"].as_int(static_cast<int>(s.mode)));
+                s.ticks = data["ticks"].as_int(s.ticks);
+                s.latency = data["latency"].as_int(s.latency);
+                s.renderPreviousTicks = data["renderPreviousTicks"].as_bool(s.renderPreviousTicks);
+                s.renderServerPos = data["renderServerPos"].as_bool(s.renderServerPos);
+                s.minDistance = data["minDistance"].as_float(s.minDistance);
+                s.maxDistance = data["maxDistance"].as_float(s.maxDistance);
+                s.maxHurtTime = data["maxHurtTime"].as_int(s.maxHurtTime);
+                s.cooldown = data["cooldown"].as_float(s.cooldown);
+                s.weaponOnly = data["weaponOnly"].as_bool(s.weaponOnly);
+                s.showBacktrackBox = data["showBacktrackBox"].as_bool(s.showBacktrackBox);
+                s.filledBox = data["filledBox"].as_bool(s.filledBox);
+                if (data.has("boxColor")) {
+                    s.boxColor[0] = data["boxColor"]["r"].as_float(s.boxColor[0]);
+                    s.boxColor[1] = data["boxColor"]["g"].as_float(s.boxColor[1]);
+                    s.boxColor[2] = data["boxColor"]["b"].as_float(s.boxColor[2]);
+                    s.boxColor[3] = data["boxColor"]["a"].as_float(s.boxColor[3]);
+                }
+                if (data.has("shadowColor")) {
+                    s.shadowColor[0] = data["shadowColor"]["r"].as_float(s.shadowColor[0]);
+                    s.shadowColor[1] = data["shadowColor"]["g"].as_float(s.shadowColor[1]);
+                    s.shadowColor[2] = data["shadowColor"]["b"].as_float(s.shadowColor[2]);
+                    s.shadowColor[3] = data["shadowColor"]["a"].as_float(s.shadowColor[3]);
+                }
             } else if (name == "Blink" && blink) {
                 auto& s = blink->settings;
                 s.timerLimit = data["timerLimit"].as_float(s.timerLimit);
@@ -548,14 +564,27 @@ void ConfigManager::buildConfigFromModules() {
             config_["modules"][name]["lookingAtPlayer"] = s.lookingAtPlayer;
             config_["modules"][name]["onlyWithSword"] = s.onlyWithSword;
         } else if (name == "Backtrack" && backtrack) {
-            config_["modules"][name]["minDistance"] = backtrack->settings.minDistance;
-            config_["modules"][name]["maxDistance"] = backtrack->settings.maxDistance;
-            config_["modules"][name]["maxDelay"] = backtrack->settings.maxDelay;
-            config_["modules"][name]["maxHurtTime"] = backtrack->settings.maxHurtTime;
-            config_["modules"][name]["cooldown"] = backtrack->settings.cooldown;
-            config_["modules"][name]["weaponOnly"] = backtrack->settings.weaponOnly;
-            config_["modules"][name]["showBacktrackBox"] = backtrack->settings.showBacktrackBox;
-            config_["modules"][name]["filledBox"] = backtrack->settings.filledBox;
+            const auto& s = backtrack->settings;
+            config_["modules"][name]["mode"] = static_cast<int>(s.mode);
+            config_["modules"][name]["ticks"] = s.ticks;
+            config_["modules"][name]["latency"] = s.latency;
+            config_["modules"][name]["renderPreviousTicks"] = s.renderPreviousTicks;
+            config_["modules"][name]["renderServerPos"] = s.renderServerPos;
+            config_["modules"][name]["minDistance"] = s.minDistance;
+            config_["modules"][name]["maxDistance"] = s.maxDistance;
+            config_["modules"][name]["maxHurtTime"] = s.maxHurtTime;
+            config_["modules"][name]["cooldown"] = s.cooldown;
+            config_["modules"][name]["weaponOnly"] = s.weaponOnly;
+            config_["modules"][name]["showBacktrackBox"] = s.showBacktrackBox;
+            config_["modules"][name]["filledBox"] = s.filledBox;
+            config_["modules"][name]["boxColor"]["r"] = s.boxColor[0];
+            config_["modules"][name]["boxColor"]["g"] = s.boxColor[1];
+            config_["modules"][name]["boxColor"]["b"] = s.boxColor[2];
+            config_["modules"][name]["boxColor"]["a"] = s.boxColor[3];
+            config_["modules"][name]["shadowColor"]["r"] = s.shadowColor[0];
+            config_["modules"][name]["shadowColor"]["g"] = s.shadowColor[1];
+            config_["modules"][name]["shadowColor"]["b"] = s.shadowColor[2];
+            config_["modules"][name]["shadowColor"]["a"] = s.shadowColor[3];
         } else if (name == "Blink" && blink) {
             const auto& s = blink->settings;
             config_["modules"][name]["timerLimit"] = s.timerLimit;
