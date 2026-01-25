@@ -747,6 +747,7 @@ void JNICALL ApolloPacketObserver::NativeOnReceive(JNIEnv* env, jclass, jobject 
                                                 {"AAAAAC", "GRAY"},
                                                 {"55FFFA", "AQUA"},
                                                 {"FFAA02", "GOLD"},
+                                                {"FFFF5D", "YELLOW"},  // flechazo: amarillo brillante
                                             };
 
                                             // Helper lambda to extract color name from hex at position
@@ -764,43 +765,70 @@ void JNICALL ApolloPacketObserver::NativeOnReceive(JNIEnv* env, jclass, jobject 
                                                 return "";
                                             };
 
-                                            for (const auto& line : jsonLines) {
-                                                // Find first color (level 0 - outer color)
-                                                size_t firstColorPos = line.find(colorKey);
-                                                if (firstColorPos == std::string::npos)
-                                                    continue;
+                                            // Shallow color scan: only root (depth 1) and first extra (depth <= 3)
+                                            // to avoid nested cosmetic greens (e.g., flechazo efecto)
+                                            std::string level0Color;
+                                            std::string level1Color;
 
-                                                std::string level0Color = extractColorAt(line, firstColorPos);
+                                            auto scanColors = [&](const std::string& line) {
+                                                int depth = 0;
+                                                bool inString = false;
+                                                bool escape = false;
 
-                                                // Find first "extra" to locate level 1 color
-                                                size_t firstExtraPos = line.find(extraKey, firstColorPos);
-                                                std::string level1Color;
+                                                for (size_t i = 0; i + colorKey.size() + 6 <= line.size(); ++i) {
+                                                    // Detect color token before string state changes
+                                                    if (line.compare(i, colorKey.size(), colorKey) == 0) {
+                                                        std::string c = extractColorAt(line, i);
+                                                        if (depth == 1 && level0Color.empty()) {
+                                                            level0Color = c;
+                                                        } else if (depth > 1 && depth <= 3 && level1Color.empty()) {
+                                                            level1Color = c;
+                                                        }
+                                                    }
 
-                                                if (firstExtraPos != std::string::npos) {
-                                                    // Find the color inside first extra (level 1)
-                                                    size_t level1ColorPos = line.find(colorKey, firstExtraPos);
-                                                    if (level1ColorPos != std::string::npos) {
-                                                        level1Color = extractColorAt(line, level1ColorPos);
+                                                    char ch = line[i];
+                                                    if (inString) {
+                                                        if (escape) {
+                                                            escape = false;
+                                                        } else if (ch == '\\') {
+                                                            escape = true;
+                                                        } else if (ch == '"') {
+                                                            inString = false;
+                                                        }
+                                                        continue;
+                                                    }
+
+                                                    if (ch == '"') {
+                                                        inString = true;
+                                                        continue;
+                                                    }
+                                                    if (ch == '{' || ch == '[') {
+                                                        depth++;
+                                                    } else if ((ch == '}' || ch == ']') && depth > 0) {
+                                                        depth--;
                                                     }
                                                 }
+                                            };
 
-                                                // Determine final color: GREEN at level 0 or level 1 = teammate
-                                                // Level 1 GREEN takes priority (server obfuscates teammate color there)
-                                                if (level1Color == "GREEN" || level1Color == "DARK_GREEN") {
-                                                    detectedColor = level1Color;
-                                                    foundGreen = true;
-                                                } else if (level0Color == "GREEN" || level0Color == "DARK_GREEN") {
-                                                    detectedColor = level0Color;
-                                                    foundGreen = true;
-                                                } else if (!level1Color.empty()) {
-                                                    // Use level 1 color if available (more specific than outer)
-                                                    detectedColor = level1Color;
-                                                } else if (!level0Color.empty()) {
-                                                    detectedColor = level0Color;
-                                                }
+                                            for (const auto& line : jsonLines) {
+                                                scanColors(line);
+                                                if (!level0Color.empty() && !level1Color.empty())
+                                                    break;
+                                            }
 
-                                                // Only process first line (first nametag component)
-                                                break;
+                                            // Determine final color: GREEN at level 0 or level 1 = teammate
+                                            // Level 1 GREEN takes priority (server obfuscates teammate color there)
+                                            if (level1Color == "GREEN" || level1Color == "DARK_GREEN") {
+                                                detectedColor = level1Color;
+                                                foundGreen = true;
+                                            } else if (level0Color == "GREEN" || level0Color == "DARK_GREEN") {
+                                                detectedColor = level0Color;
+                                                foundGreen = true;
+                                            } else if (!level1Color.empty()) {
+                                                // Use level 1 color if available (more specific than outer)
+                                                detectedColor = level1Color;
+                                            } else if (!level0Color.empty()) {
+                                                detectedColor = level0Color;
                                             }
                                         }
 
