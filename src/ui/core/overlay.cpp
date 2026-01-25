@@ -200,15 +200,6 @@ LRESULT CALLBACK HookedWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam
         }
     }
 
-    // F9 = Request Apollo Nametag Data from server
-    if (!Menu::isOpen && msg == WM_KEYDOWN && wParam == VK_F9) {
-        if (ApolloHandshake::RequestNametagData()) {
-            NotificationManager::addSystem("Requesting nametag data...");
-        } else {
-            NotificationManager::addSystem("Not connected or not ready");
-        }
-    }
-
     if (Menu::isOpen) {
         if (Menu::moduleToBind != nullptr) {
             if (msg == WM_KEYDOWN) {

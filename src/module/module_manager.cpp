@@ -4,6 +4,8 @@
 #include "../util/diagnostics.hpp"
 #include "utility/autorefill.h"
 
+#include <unordered_map>
+
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
 #endif
@@ -84,16 +86,29 @@ void ModuleManager::checkKeybinds() {
     if (Menu::isOpen)
         return;
 
+    // Collect all unique keybinds and their current state
+    std::unordered_map<int, bool> currentStates;
+    for (auto* mod : modules) {
+        if (mod->keybind != 0 && currentStates.find(mod->keybind) == currentStates.end()) {
+            currentStates[mod->keybind] = (GetAsyncKeyState(mod->keybind) & 0x8000) != 0;
+        }
+    }
+
+    // Toggle all modules with matching keybind on key press
     for (auto* mod : modules) {
         if (mod->keybind == 0)
             continue;
 
-        bool pressed = (GetAsyncKeyState(mod->keybind) & 0x8000) != 0;
+        bool pressed = currentStates[mod->keybind];
+        bool wasPressed = keyStates[mod->keybind];
 
-        if (pressed && !keyStates[mod->keybind]) {
+        if (pressed && !wasPressed) {
             mod->toggle();
         }
+    }
 
-        keyStates[mod->keybind] = pressed;
+    // Update key states after processing all modules
+    for (auto& [key, pressed] : currentStates) {
+        keyStates[key] = pressed;
     }
 }
