@@ -109,12 +109,19 @@ private:
     jmethodID mid_getHealth = nullptr;
     jmethodID mid_jump = nullptr;
 
-    // lastReportedPos fields (EntityPlayerSP specific)
     jfieldID fid_lastReportedPosX = nullptr;
     jfieldID fid_lastReportedPosY = nullptr;
     jfieldID fid_lastReportedPosZ = nullptr;
     jfieldID fid_lastReportedYaw = nullptr;
     jfieldID fid_lastReportedPitch = nullptr;
+
+    // Cached inventory fields/methods (prevents JNI leak in getHeldItemId)
+    jclass cls_Item = nullptr;                // GlobalRef
+    jfieldID fid_playerInventory = nullptr;
+    jmethodID mid_getCurrentItem = nullptr;
+    jmethodID mid_getItem = nullptr;
+    jmethodID mid_getIdFromItem = nullptr;
+    jmethodID mid_getMetadata = nullptr;
 
     bool fieldsInitialized = false;
     void initFields();

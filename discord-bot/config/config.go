@@ -18,10 +18,14 @@ type Config struct {
 	CategorySupportID string
 	CategoryMediaID   string
 
-	LogChannelID        string
+	LogChannelID       string
 	TicketPanelChannel string
 
 	DBPath string
+
+	// Gemini AI Image Detection
+	GeminiAPIKey          string
+	ImageDetectionEnabled bool
 
 	ColorBug     int
 	ColorSupport int
@@ -53,6 +57,10 @@ func Load() *Config {
 		TicketPanelChannel: getEnv("TICKET_PANEL_CHANNEL_ID", ""),
 
 		DBPath: getEnv("DB_PATH", "./tickets.db"),
+
+		// Gemini AI
+		GeminiAPIKey:          getEnv("GEMINI_API_KEY", ""),
+		ImageDetectionEnabled: getEnv("IMAGE_DETECTION_ENABLED", "true") == "true",
 
 		ColorBug:     hexToInt(getEnv("COLOR_BUG", "ff0000")),
 		ColorSupport: hexToInt(getEnv("COLOR_SUPPORT", "5865f2")),

@@ -1,4 +1,4 @@
 #pragma once
 
 // Version
-#define COBBLE_VERSION "1.1.5"
+#define COBBLE_VERSION "1.1.7"

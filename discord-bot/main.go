@@ -31,6 +31,7 @@ func main() {
 	// Register handlers
 	bot.AddHandler(handlers.HandleInteraction)
 	bot.AddHandler(handlers.HandleReady)
+	bot.AddHandler(handlers.HandleMessageCreate)
 
 	// Enable intents
 	bot.Identify.Intents = discordgo.IntentsGuilds |

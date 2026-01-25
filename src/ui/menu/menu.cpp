@@ -12,7 +12,6 @@
 #include "../../module/combat/criticals.h"
 #include "../../module/module_manager.h"
 #include "../../module/movement/nojumpdelay.h"
-#include "../../module/movement/sprint.h"
 #include "../../module/movement/blink.h"
 #include "../../module/movement/timer.h"
 #include "../../module/utility/armorswitch.h"
@@ -84,16 +83,14 @@ Module* getModuleForSubtab(int tabIdx, int subtabIdx) {
                 return nullptr;  // Notifications - special handling
         }
     }
-    // Movement Tab (2): Sprint, Timer, NoJumpDelay, Blink
+    // Movement Tab (2): Timer, NoJumpDelay, Blink
     else if (tabIdx == 2) {
         switch (subtabIdx) {
             case 0:
-                return sprint;
-            case 1:
                 return timerModule;
-            case 2:
+            case 1:
                 return noJumpDelay;
-            case 3:
+            case 2:
                 return blink;
         }
     }
