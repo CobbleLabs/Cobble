@@ -42,6 +42,7 @@
 #include "util/diagnostics.hpp"
 #include "util/state.hpp"
 #include "util/team/friends_manager.h"
+#include "jni/apollo/apollo_handshake.hpp"
 
 #include <algorithm>
 
@@ -274,6 +275,9 @@ void cobble::context::initialize(HMODULE hModule) {
             if (friendsManager) {
                 friendsManager->checkWorldChange();
             }
+
+            // Process pending Apollo handshakes
+            ApolloHandshake::Tick();
 
             // Check if SDK state needs recovery
             if (SessionValidator::isStateCorrupted() || SessionValidator::isStateStale()) {

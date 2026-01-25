@@ -1,4 +1,5 @@
 #include "apollo_packet_observer.hpp"
+#include "apollo_handshake.hpp"
 
 #include <atomic>
 #include <chrono>
@@ -13,6 +14,11 @@
 #include "../../util/logger.hpp"
 #include "../../util/team/friends_manager.h"
 #include "../../module/movement/blink.h"
+
+// Shared logging budget so it can be bumped externally (e.g., manual requests)
+static std::atomic<int> g_typeLogBudget{0};
+// Force nametag logs even if color didn't change (manual refresh)
+static std::atomic<int> g_forceNametagLogs{0};
 
 namespace {
 
@@ -211,12 +217,16 @@ void JNICALL ApolloPacketObserver::NativeOnReceive(JNIEnv* env, jclass, jobject 
     if (!packet)
         return;
 
-    static std::atomic<int> g_typeLogBudget{0};
     // Removed g_seenApolloSinceWorldChange - serial validation handles stale data
 
     if (friendsManager && isWorldChangePacket(env, packet)) {
         friendsManager->notifyWorldChangePacket();
         g_typeLogBudget.store(5);
+
+        // Send Apollo handshake after world change
+        // This triggers servers to send us team/nametag data
+        ApolloHandshake::OnWorldChange(env);
+
         return;
     }
 
@@ -396,6 +406,24 @@ void JNICALL ApolloPacketObserver::NativeOnReceive(JNIEnv* env, jclass, jobject 
 
                             // Log if we found a nametag message
                             if (!typeUrl.empty()) {
+                                // Track Apollo response for handshake stats
+                                ApolloHandshake::OnApolloResponse();
+
+                                // One-time log for unexpected message types to help discovery
+                                static const std::unordered_set<std::string> kKnownTypes = {
+                                    "type.googleapis.com/"
+                                    "lunarclient.apollo.configurable.v1.OverrideConfigurableSettingsMessage",
+                                    "type.googleapis.com/lunarclient.apollo.player.v1.UpdatePlayerWorldMessage",
+                                    "type.googleapis.com/lunarclient.apollo.team.v1.UpdateTeamMembersMessage",
+                                    "type.googleapis.com/lunarclient.apollo.nametag.v1.OverrideNametagMessage",
+                                    "type.googleapis.com/lunarclient.apollo.common.v1.PingResponse",
+                                };
+                                static std::unordered_set<std::string> s_loggedTypes;
+                                if (s_loggedTypes.size() < 30 && kKnownTypes.find(typeUrl) == kKnownTypes.end() &&
+                                    s_loggedTypes.insert(typeUrl).second) {
+                                    log_debug("[Apollo] New/unknown Apollo type_url: %s", typeUrl.c_str());
+                                }
+
                                 int budget = g_typeLogBudget.load();
                                 if (budget > 0) {
                                     if (g_typeLogBudget.compare_exchange_strong(budget, budget - 1)) {
@@ -403,6 +431,31 @@ void JNICALL ApolloPacketObserver::NativeOnReceive(JNIEnv* env, jclass, jobject 
                                                   blockActive ? 1 : 0);
                                     }
                                 }
+
+                                // Enhanced logging for specific message types
+                                static std::atomic<int> debugBudget{20};  // Log first 20 messages
+                                int db = debugBudget.load();
+                                if (db > 0) {
+                                    debugBudget.compare_exchange_strong(db, db - 1);
+
+                                    // Categorize message types for easier reading
+                                    if (typeUrl.find("Team") != std::string::npos) {
+                                        log_ok("[Apollo] TEAM message: %s", typeUrl.c_str());
+                                    } else if (typeUrl.find("Nametag") != std::string::npos) {
+                                        log_ok("[Apollo] NAMETAG message: %s", typeUrl.c_str());
+                                    } else if (typeUrl.find("Glow") != std::string::npos) {
+                                        log_ok("[Apollo] GLOW message: %s", typeUrl.c_str());
+                                    } else if (typeUrl.find("Ping") != std::string::npos) {
+                                        log_ok("[Apollo] PING response: %s", typeUrl.c_str());
+                                    } else if (typeUrl.find("Configurable") != std::string::npos) {
+                                        log_ok("[Apollo] CONFIG message: %s", typeUrl.c_str());
+                                    } else if (typeUrl.find("PlayerWorld") != std::string::npos) {
+                                        log_ok("[Apollo] WORLD message: %s", typeUrl.c_str());
+                                    } else {
+                                        log_debug("[Apollo] OTHER message: %s", typeUrl.c_str());
+                                    }
+                                }
+
                                 static std::atomic<int> teamCount{0};
 
                                 // Detect and parse Team messages
@@ -938,6 +991,33 @@ void JNICALL ApolloPacketObserver::NativeOnReceive(JNIEnv* env, jclass, jobject 
                                                                  (itColor->second != detectedColor);
                                             bool shouldLog = (itColor == lastNametagColor.end()) ||
                                                              (itColor->second != detectedColor);
+                                            bool forceAllColors = false;
+                                            int forceBudget = g_forceNametagLogs.load();
+                                            if (forceBudget > 0) {
+                                                // Deduplication: skip if already logged this UUID in current force
+                                                // session
+                                                static std::unordered_set<std::string> forceLoggedUuids;
+                                                static int64_t forceSessionStart = 0;
+                                                auto now = std::chrono::steady_clock::now().time_since_epoch();
+                                                int64_t nowMs =
+                                                    std::chrono::duration_cast<std::chrono::milliseconds>(now).count();
+
+                                                // Reset dedup set if this is a new force session (>5 seconds gap)
+                                                if (nowMs - forceSessionStart > 5000) {
+                                                    forceLoggedUuids.clear();
+                                                    forceSessionStart = nowMs;
+                                                }
+
+                                                // Only log if we haven't seen this UUID yet in this session
+                                                if (forceLoggedUuids.find(uuidKey) == forceLoggedUuids.end()) {
+                                                    if (g_forceNametagLogs.compare_exchange_strong(forceBudget,
+                                                                                                   forceBudget - 1)) {
+                                                        forceLoggedUuids.insert(uuidKey);
+                                                        shouldLog = true;
+                                                        forceAllColors = true;
+                                                    }
+                                                }
+                                            }
 
                                             // Verbose debug: log raw JSON when color changes (teammate signals only)
                                             if (isColorChange && (detectedColor == "GREEN" ||
@@ -962,7 +1042,7 @@ void JNICALL ApolloPacketObserver::NativeOnReceive(JNIEnv* env, jclass, jobject 
                                                 lastNametagColor[uuidKey] = detectedColor;
                                                 bool isTeammateSignal =
                                                     (detectedColor == "GREEN" || detectedColor == "DARK_GREEN");
-                                                if (isTeammateSignal || detectedColor == "unknown") {
+                                                if (forceAllColors || isTeammateSignal || detectedColor == "unknown") {
                                                     log_ok("[Apollo] Nametag: \"%s\" -> %s", playerName.c_str(),
                                                            detectedColor.c_str());
                                                 }
@@ -1116,6 +1196,14 @@ void JNICALL ApolloPacketObserver::NativeOnReceive(JNIEnv* env, jclass, jobject 
     if (!blockActive && LunarPacketListener::IsReady()) {
         LunarPacketListener::processIncomingPacket(env, packet);
     }
+}
+
+void ApolloPacketObserver::BoostLogBudget(int count) {
+    g_typeLogBudget.store(count);
+}
+
+void ApolloPacketObserver::ForceLogNametags(int count) {
+    g_forceNametagLogs.store(count);
 }
 
 }  // namespace ApolloPacketObserver
