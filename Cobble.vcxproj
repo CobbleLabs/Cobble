@@ -88,6 +88,7 @@
     <ClCompile Include="src\cobble.cpp" />
     <ClCompile Include="src\jni\java.cpp" />
     <ClCompile Include="src\jni\apollo\apollo_packet_observer.cpp" />
+    <ClCompile Include="src\jni\apollo\apollo_handshake.cpp" />
     <ClCompile Include="src\jni\noitemrelease\noitemrelease_gate.cpp" />
     <ClCompile Include="src\jni\packet\bytecode_patcher.cpp" />
     <ClCompile Include="src\jni\packet\packet_interceptor.cpp" />
@@ -160,6 +161,7 @@
   <ItemGroup>
     <ClInclude Include="src\cobble.hpp" />
     <ClInclude Include="src\jni\apollo\apollo_packet_observer.hpp" />
+    <ClInclude Include="src\jni\apollo\apollo_handshake.hpp" />
     <ClInclude Include="src\jni\packet\bytecode_patcher.hpp" />
     <ClInclude Include="src\jni\java.h" />
     <ClInclude Include="src\jni\noitemrelease\noitemrelease_gate.hpp" />

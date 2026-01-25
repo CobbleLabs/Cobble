@@ -1,4 +1,5 @@
 #include "apollo_packet_observer.hpp"
+#include "apollo_handshake.hpp"
 
 #include <atomic>
 #include <chrono>
@@ -13,6 +14,11 @@
 #include "../../util/logger.hpp"
 #include "../../util/team/friends_manager.h"
 #include "../../module/movement/blink.h"
+
+// Shared logging budget so it can be bumped externally (e.g., manual requests)
+static std::atomic<int> g_typeLogBudget{0};
+// Force nametag logs even if color didn't change (manual refresh)
+static std::atomic<int> g_forceNametagLogs{0};
 
 namespace {
 
@@ -211,12 +217,16 @@ void JNICALL ApolloPacketObserver::NativeOnReceive(JNIEnv* env, jclass, jobject 
     if (!packet)
         return;
 
-    static std::atomic<int> g_typeLogBudget{0};
     // Removed g_seenApolloSinceWorldChange - serial validation handles stale data
 
     if (friendsManager && isWorldChangePacket(env, packet)) {
         friendsManager->notifyWorldChangePacket();
         g_typeLogBudget.store(5);
+
+        // Send Apollo handshake after world change
+        // This triggers servers to send us team/nametag data
+        ApolloHandshake::OnWorldChange(env);
+
         return;
     }
 
@@ -396,6 +406,24 @@ void JNICALL ApolloPacketObserver::NativeOnReceive(JNIEnv* env, jclass, jobject 
 
                             // Log if we found a nametag message
                             if (!typeUrl.empty()) {
+                                // Track Apollo response for handshake stats
+                                ApolloHandshake::OnApolloResponse();
+
+                                // One-time log for unexpected message types to help discovery
+                                static const std::unordered_set<std::string> kKnownTypes = {
+                                    "type.googleapis.com/"
+                                    "lunarclient.apollo.configurable.v1.OverrideConfigurableSettingsMessage",
+                                    "type.googleapis.com/lunarclient.apollo.player.v1.UpdatePlayerWorldMessage",
+                                    "type.googleapis.com/lunarclient.apollo.team.v1.UpdateTeamMembersMessage",
+                                    "type.googleapis.com/lunarclient.apollo.nametag.v1.OverrideNametagMessage",
+                                    "type.googleapis.com/lunarclient.apollo.common.v1.PingResponse",
+                                };
+                                static std::unordered_set<std::string> s_loggedTypes;
+                                if (s_loggedTypes.size() < 30 && kKnownTypes.find(typeUrl) == kKnownTypes.end() &&
+                                    s_loggedTypes.insert(typeUrl).second) {
+                                    log_debug("[Apollo] New/unknown Apollo type_url: %s", typeUrl.c_str());
+                                }
+
                                 int budget = g_typeLogBudget.load();
                                 if (budget > 0) {
                                     if (g_typeLogBudget.compare_exchange_strong(budget, budget - 1)) {
@@ -403,6 +431,31 @@ void JNICALL ApolloPacketObserver::NativeOnReceive(JNIEnv* env, jclass, jobject 
                                                   blockActive ? 1 : 0);
                                     }
                                 }
+
+                                // Enhanced logging for specific message types
+                                static std::atomic<int> debugBudget{20};  // Log first 20 messages
+                                int db = debugBudget.load();
+                                if (db > 0) {
+                                    debugBudget.compare_exchange_strong(db, db - 1);
+
+                                    // Categorize message types for easier reading
+                                    if (typeUrl.find("Team") != std::string::npos) {
+                                        log_ok("[Apollo] TEAM message: %s", typeUrl.c_str());
+                                    } else if (typeUrl.find("Nametag") != std::string::npos) {
+                                        log_ok("[Apollo] NAMETAG message: %s", typeUrl.c_str());
+                                    } else if (typeUrl.find("Glow") != std::string::npos) {
+                                        log_ok("[Apollo] GLOW message: %s", typeUrl.c_str());
+                                    } else if (typeUrl.find("Ping") != std::string::npos) {
+                                        log_ok("[Apollo] PING response: %s", typeUrl.c_str());
+                                    } else if (typeUrl.find("Configurable") != std::string::npos) {
+                                        log_ok("[Apollo] CONFIG message: %s", typeUrl.c_str());
+                                    } else if (typeUrl.find("PlayerWorld") != std::string::npos) {
+                                        log_ok("[Apollo] WORLD message: %s", typeUrl.c_str());
+                                    } else {
+                                        log_debug("[Apollo] OTHER message: %s", typeUrl.c_str());
+                                    }
+                                }
+
                                 static std::atomic<int> teamCount{0};
 
                                 // Detect and parse Team messages
@@ -747,6 +800,7 @@ void JNICALL ApolloPacketObserver::NativeOnReceive(JNIEnv* env, jclass, jobject 
                                                 {"AAAAAC", "GRAY"},
                                                 {"55FFFA", "AQUA"},
                                                 {"FFAA02", "GOLD"},
+                                                {"FFFF5D", "YELLOW"},  // flechazo: amarillo brillante
                                             };
 
                                             // Helper lambda to extract color name from hex at position
@@ -764,43 +818,70 @@ void JNICALL ApolloPacketObserver::NativeOnReceive(JNIEnv* env, jclass, jobject 
                                                 return "";
                                             };
 
-                                            for (const auto& line : jsonLines) {
-                                                // Find first color (level 0 - outer color)
-                                                size_t firstColorPos = line.find(colorKey);
-                                                if (firstColorPos == std::string::npos)
-                                                    continue;
+                                            // Shallow color scan: only root (depth 1) and first extra (depth <= 3)
+                                            // to avoid nested cosmetic greens (e.g., flechazo efecto)
+                                            std::string level0Color;
+                                            std::string level1Color;
 
-                                                std::string level0Color = extractColorAt(line, firstColorPos);
+                                            auto scanColors = [&](const std::string& line) {
+                                                int depth = 0;
+                                                bool inString = false;
+                                                bool escape = false;
 
-                                                // Find first "extra" to locate level 1 color
-                                                size_t firstExtraPos = line.find(extraKey, firstColorPos);
-                                                std::string level1Color;
+                                                for (size_t i = 0; i + colorKey.size() + 6 <= line.size(); ++i) {
+                                                    // Detect color token before string state changes
+                                                    if (line.compare(i, colorKey.size(), colorKey) == 0) {
+                                                        std::string c = extractColorAt(line, i);
+                                                        if (depth == 1 && level0Color.empty()) {
+                                                            level0Color = c;
+                                                        } else if (depth > 1 && depth <= 3 && level1Color.empty()) {
+                                                            level1Color = c;
+                                                        }
+                                                    }
 
-                                                if (firstExtraPos != std::string::npos) {
-                                                    // Find the color inside first extra (level 1)
-                                                    size_t level1ColorPos = line.find(colorKey, firstExtraPos);
-                                                    if (level1ColorPos != std::string::npos) {
-                                                        level1Color = extractColorAt(line, level1ColorPos);
+                                                    char ch = line[i];
+                                                    if (inString) {
+                                                        if (escape) {
+                                                            escape = false;
+                                                        } else if (ch == '\\') {
+                                                            escape = true;
+                                                        } else if (ch == '"') {
+                                                            inString = false;
+                                                        }
+                                                        continue;
+                                                    }
+
+                                                    if (ch == '"') {
+                                                        inString = true;
+                                                        continue;
+                                                    }
+                                                    if (ch == '{' || ch == '[') {
+                                                        depth++;
+                                                    } else if ((ch == '}' || ch == ']') && depth > 0) {
+                                                        depth--;
                                                     }
                                                 }
+                                            };
 
-                                                // Determine final color: GREEN at level 0 or level 1 = teammate
-                                                // Level 1 GREEN takes priority (server obfuscates teammate color there)
-                                                if (level1Color == "GREEN" || level1Color == "DARK_GREEN") {
-                                                    detectedColor = level1Color;
-                                                    foundGreen = true;
-                                                } else if (level0Color == "GREEN" || level0Color == "DARK_GREEN") {
-                                                    detectedColor = level0Color;
-                                                    foundGreen = true;
-                                                } else if (!level1Color.empty()) {
-                                                    // Use level 1 color if available (more specific than outer)
-                                                    detectedColor = level1Color;
-                                                } else if (!level0Color.empty()) {
-                                                    detectedColor = level0Color;
-                                                }
+                                            for (const auto& line : jsonLines) {
+                                                scanColors(line);
+                                                if (!level0Color.empty() && !level1Color.empty())
+                                                    break;
+                                            }
 
-                                                // Only process first line (first nametag component)
-                                                break;
+                                            // Determine final color: GREEN at level 0 or level 1 = teammate
+                                            // Level 1 GREEN takes priority (server obfuscates teammate color there)
+                                            if (level1Color == "GREEN" || level1Color == "DARK_GREEN") {
+                                                detectedColor = level1Color;
+                                                foundGreen = true;
+                                            } else if (level0Color == "GREEN" || level0Color == "DARK_GREEN") {
+                                                detectedColor = level0Color;
+                                                foundGreen = true;
+                                            } else if (!level1Color.empty()) {
+                                                // Use level 1 color if available (more specific than outer)
+                                                detectedColor = level1Color;
+                                            } else if (!level0Color.empty()) {
+                                                detectedColor = level0Color;
                                             }
                                         }
 
@@ -910,6 +991,33 @@ void JNICALL ApolloPacketObserver::NativeOnReceive(JNIEnv* env, jclass, jobject 
                                                                  (itColor->second != detectedColor);
                                             bool shouldLog = (itColor == lastNametagColor.end()) ||
                                                              (itColor->second != detectedColor);
+                                            bool forceAllColors = false;
+                                            int forceBudget = g_forceNametagLogs.load();
+                                            if (forceBudget > 0) {
+                                                // Deduplication: skip if already logged this UUID in current force
+                                                // session
+                                                static std::unordered_set<std::string> forceLoggedUuids;
+                                                static int64_t forceSessionStart = 0;
+                                                auto now = std::chrono::steady_clock::now().time_since_epoch();
+                                                int64_t nowMs =
+                                                    std::chrono::duration_cast<std::chrono::milliseconds>(now).count();
+
+                                                // Reset dedup set if this is a new force session (>5 seconds gap)
+                                                if (nowMs - forceSessionStart > 5000) {
+                                                    forceLoggedUuids.clear();
+                                                    forceSessionStart = nowMs;
+                                                }
+
+                                                // Only log if we haven't seen this UUID yet in this session
+                                                if (forceLoggedUuids.find(uuidKey) == forceLoggedUuids.end()) {
+                                                    if (g_forceNametagLogs.compare_exchange_strong(forceBudget,
+                                                                                                   forceBudget - 1)) {
+                                                        forceLoggedUuids.insert(uuidKey);
+                                                        shouldLog = true;
+                                                        forceAllColors = true;
+                                                    }
+                                                }
+                                            }
 
                                             // Verbose debug: log raw JSON when color changes (teammate signals only)
                                             if (isColorChange && (detectedColor == "GREEN" ||
@@ -934,7 +1042,7 @@ void JNICALL ApolloPacketObserver::NativeOnReceive(JNIEnv* env, jclass, jobject 
                                                 lastNametagColor[uuidKey] = detectedColor;
                                                 bool isTeammateSignal =
                                                     (detectedColor == "GREEN" || detectedColor == "DARK_GREEN");
-                                                if (isTeammateSignal || detectedColor == "unknown") {
+                                                if (forceAllColors || isTeammateSignal || detectedColor == "unknown") {
                                                     log_ok("[Apollo] Nametag: \"%s\" -> %s", playerName.c_str(),
                                                            detectedColor.c_str());
                                                 }
@@ -1088,6 +1196,14 @@ void JNICALL ApolloPacketObserver::NativeOnReceive(JNIEnv* env, jclass, jobject 
     if (!blockActive && LunarPacketListener::IsReady()) {
         LunarPacketListener::processIncomingPacket(env, packet);
     }
+}
+
+void ApolloPacketObserver::BoostLogBudget(int count) {
+    g_typeLogBudget.store(count);
+}
+
+void ApolloPacketObserver::ForceLogNametags(int count) {
+    g_forceNametagLogs.store(count);
 }
 
 }  // namespace ApolloPacketObserver
