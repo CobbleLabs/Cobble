@@ -43,6 +43,10 @@ var commandList = []*discordgo.ApplicationCommand{
 		Name:        "stats",
 		Description: "Show ticket statistics (Staff only)",
 	},
+	{
+		Name:        "nuke",
+		Description: "Nuke channel - recreates the channel (Admin only)",
+	},
 }
 
 func Register(s *discordgo.Session, guildID string) {

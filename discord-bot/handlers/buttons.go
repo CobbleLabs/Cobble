@@ -18,6 +18,8 @@ func handleButton(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		showTicketModal(s, i, "support", "💬 Support Request")
 	case "ticket_media":
 		showTicketModal(s, i, "media", "📸 Media Request")
+	case "ticket_buy":
+		showBuyModal(s, i)
 	case "close_ticket":
 		closeTicketConfirm(s, i)
 	}
@@ -65,6 +67,58 @@ func showTicketModal(s *discordgo.Session, i *discordgo.InteractionCreate, categ
 
 	if err != nil {
 		log.Println("Error showing modal:", err)
+	}
+}
+
+func showBuyModal(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseModal,
+		Data: &discordgo.InteractionResponseData{
+			CustomID: "modal_buy",
+			Title:    "🛒 Buy Cobble",
+			Components: []discordgo.MessageComponent{
+				discordgo.ActionsRow{
+					Components: []discordgo.MessageComponent{
+						discordgo.TextInput{
+							CustomID:    "plan",
+							Label:       "Plan (Monthly / Permanent)",
+							Style:       discordgo.TextInputShort,
+							Placeholder: "Monthly or Permanent",
+							Required:    true,
+							MaxLength:   20,
+						},
+					},
+				},
+				discordgo.ActionsRow{
+					Components: []discordgo.MessageComponent{
+						discordgo.TextInput{
+							CustomID:    "payment",
+							Label:       "Payment Method (Crypto / PayPal)",
+							Style:       discordgo.TextInputShort,
+							Placeholder: "Crypto or PayPal",
+							Required:    true,
+							MaxLength:   20,
+						},
+					},
+				},
+				discordgo.ActionsRow{
+					Components: []discordgo.MessageComponent{
+						discordgo.TextInput{
+							CustomID:    "website_user",
+							Label:       "Website Username (who will use it)",
+							Style:       discordgo.TextInputShort,
+							Placeholder: "Your website username",
+							Required:    true,
+							MaxLength:   50,
+						},
+					},
+				},
+			},
+		},
+	})
+
+	if err != nil {
+		log.Println("Error showing buy modal:", err)
 	}
 }
 

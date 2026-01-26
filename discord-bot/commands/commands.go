@@ -306,6 +306,88 @@ func ShowStats(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	})
 }
 
+func NukeChannel(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	cfg := config.Get()
+
+	// Check admin role
+	hasAdmin := false
+	for _, role := range i.Member.Roles {
+		if role == cfg.AdminRoleID {
+			hasAdmin = true
+			break
+		}
+	}
+
+	if !hasAdmin {
+		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+			Type: discordgo.InteractionResponseChannelMessageWithSource,
+			Data: &discordgo.InteractionResponseData{
+				Content: "❌ Only admins can use this command.",
+				Flags:   discordgo.MessageFlagsEphemeral,
+			},
+		})
+		return
+	}
+
+	// Defer response
+	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
+		Data: &discordgo.InteractionResponseData{
+			Flags: discordgo.MessageFlagsEphemeral,
+		},
+	})
+
+	// Get original channel info
+	originalChannel, err := s.Channel(i.ChannelID)
+	if err != nil {
+		s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+			Content: stringPtr("❌ Failed to get channel info."),
+		})
+		return
+	}
+
+	// Create new channel with same settings
+	newChannel, err := s.GuildChannelCreateComplex(i.GuildID, discordgo.GuildChannelCreateData{
+		Name:                 originalChannel.Name,
+		Type:                 originalChannel.Type,
+		Topic:                originalChannel.Topic,
+		Bitrate:              originalChannel.Bitrate,
+		UserLimit:            originalChannel.UserLimit,
+		RateLimitPerUser:     originalChannel.RateLimitPerUser,
+		Position:             originalChannel.Position,
+		PermissionOverwrites: originalChannel.PermissionOverwrites,
+		ParentID:             originalChannel.ParentID,
+		NSFW:                 originalChannel.NSFW,
+	})
+
+	if err != nil {
+		s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+			Content: stringPtr("❌ Failed to create new channel."),
+		})
+		return
+	}
+
+	// Delete old channel
+	_, err = s.ChannelDelete(i.ChannelID)
+	if err != nil {
+		s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+			Content: stringPtr("❌ Failed to delete old channel."),
+		})
+		return
+	}
+
+	// Send nuke embed in new channel
+	embed := &discordgo.MessageEmbed{
+		Description: "✅ Channel has been nuked and recreated.",
+		Color:       0x57F287, // Discord green
+		Image: &discordgo.MessageEmbedImage{
+			URL: "https://media.giphy.com/media/XUFPGrX5Zis6Y/giphy.gif",
+		},
+	}
+
+	s.ChannelMessageSendEmbed(newChannel.ID, embed)
+}
+
 func stringPtr(s string) *string {
 	return &s
 }

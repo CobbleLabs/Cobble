@@ -46,5 +46,7 @@ func handleCommand(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		commands.TransferTicket(s, i)
 	case "stats":
 		commands.ShowStats(s, i)
+	case "nuke":
+		commands.NukeChannel(s, i)
 	}
 }

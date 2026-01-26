@@ -17,6 +17,7 @@ type Config struct {
 	CategoryBugID     string
 	CategorySupportID string
 	CategoryMediaID   string
+	CategoryBuyID     string
 
 	LogChannelID       string
 	TicketPanelChannel string
@@ -31,6 +32,7 @@ type Config struct {
 	ColorBug     int
 	ColorSupport int
 	ColorMedia   int
+	ColorBuy     int
 	ColorSuccess int
 	ColorError   int
 }
@@ -53,6 +55,7 @@ func Load() *Config {
 		CategoryBugID:     getEnv("CATEGORY_BUG_ID", ""),
 		CategorySupportID: getEnv("CATEGORY_SUPPORT_ID", ""),
 		CategoryMediaID:   getEnv("CATEGORY_MEDIA_ID", ""),
+		CategoryBuyID:     getEnv("CATEGORY_BUY_ID", ""),
 
 		LogChannelID:       getEnv("LOG_CHANNEL_ID", ""),
 		TicketPanelChannel: getEnv("TICKET_PANEL_CHANNEL_ID", ""),
@@ -67,6 +70,7 @@ func Load() *Config {
 		ColorBug:     hexToInt(getEnv("COLOR_BUG", "ff0000")),
 		ColorSupport: hexToInt(getEnv("COLOR_SUPPORT", "5865f2")),
 		ColorMedia:   hexToInt(getEnv("COLOR_MEDIA", "00ff00")),
+		ColorBuy:     hexToInt(getEnv("COLOR_BUY", "f5a623")),
 		ColorSuccess: hexToInt(getEnv("COLOR_SUCCESS", "00ff00")),
 		ColorError:   hexToInt(getEnv("COLOR_ERROR", "ff0000")),
 	}

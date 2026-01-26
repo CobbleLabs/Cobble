@@ -23,6 +23,8 @@ func handleModal(s *discordgo.Session, i *discordgo.InteractionCreate) {
 
 		if category == "close" {
 			handleCloseModal(s, i, data)
+		} else if category == "buy" {
+			handleBuyModal(s, i, data)
 		} else {
 			handleTicketModal(s, i, data, category)
 		}
@@ -170,6 +172,144 @@ func handleTicketModal(s *discordgo.Session, i *discordgo.InteractionCreate, dat
 			Title:       "🎫 New Ticket Created",
 			Color:       color,
 			Description: fmt.Sprintf("**User:** %s\n**Category:** %s\n**Channel:** <#%s>", user.Mention(), strings.Title(category), channel.ID),
+			Timestamp:   time.Now().Format(time.RFC3339),
+		}
+		s.ChannelMessageSendEmbed(cfg.LogChannelID, logEmbed)
+	}
+
+	// Update response
+	s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+		Content: stringPtr(fmt.Sprintf("✅ Ticket created: <#%s>", channel.ID)),
+	})
+}
+
+func handleBuyModal(s *discordgo.Session, i *discordgo.InteractionCreate, data discordgo.ModalSubmitInteractionData) {
+	// Get form data
+	plan := data.Components[0].(*discordgo.ActionsRow).Components[0].(*discordgo.TextInput).Value
+	payment := data.Components[1].(*discordgo.ActionsRow).Components[0].(*discordgo.TextInput).Value
+	websiteUser := data.Components[2].(*discordgo.ActionsRow).Components[0].(*discordgo.TextInput).Value
+
+	user := i.Member.User
+	username := user.Username
+	category := "buy"
+
+	// Check ticket limit (2 per category)
+	var openTickets int
+	database.DB.QueryRow(
+		"SELECT COUNT(*) FROM tickets WHERE user_id = ? AND category = ? AND status IN ('open', 'claimed')",
+		user.ID, category,
+	).Scan(&openTickets)
+
+	if openTickets >= 2 {
+		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+			Type: discordgo.InteractionResponseChannelMessageWithSource,
+			Data: &discordgo.InteractionResponseData{
+				Content: fmt.Sprintf("❌ You already have %d open tickets in this category. Please close an existing ticket before creating a new one.", openTickets),
+				Flags:   discordgo.MessageFlagsEphemeral,
+			},
+		})
+		return
+	}
+
+	// Defer response
+	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
+		Data: &discordgo.InteractionResponseData{
+			Flags: discordgo.MessageFlagsEphemeral,
+		},
+	})
+
+	cfg := config.Get()
+	parentID := cfg.CategoryBuyID
+	color := cfg.ColorBuy
+	emoji := "🛒"
+
+	// Create channel with username
+	channelName := fmt.Sprintf("ticket-buy-%s", username)
+
+	channel, err := s.GuildChannelCreateComplex(cfg.GuildID, discordgo.GuildChannelCreateData{
+		Name:     channelName,
+		Type:     discordgo.ChannelTypeGuildText,
+		ParentID: parentID,
+		PermissionOverwrites: []*discordgo.PermissionOverwrite{
+			{
+				ID:   cfg.GuildID, // @everyone
+				Type: discordgo.PermissionOverwriteTypeRole,
+				Deny: discordgo.PermissionViewChannel,
+			},
+			{
+				ID:    user.ID,
+				Type:  discordgo.PermissionOverwriteTypeMember,
+				Allow: discordgo.PermissionViewChannel | discordgo.PermissionSendMessages,
+			},
+			{
+				ID:    cfg.StaffRoleID,
+				Type:  discordgo.PermissionOverwriteTypeRole,
+				Allow: discordgo.PermissionViewChannel | discordgo.PermissionSendMessages,
+			},
+		},
+	})
+
+	if err != nil {
+		log.Println("Error creating channel:", err)
+		s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+			Content: stringPtr("❌ Failed to create ticket. Please contact an admin."),
+		})
+		return
+	}
+
+	// Save to database
+	_, err = database.DB.Exec(
+		"INSERT INTO tickets (channel_id, user_id, username, category) VALUES (?, ?, ?, ?)",
+		channel.ID, user.ID, username, category,
+	)
+
+	if err != nil {
+		log.Println("Error saving ticket:", err)
+	}
+
+	// Send ticket message with buy details
+	embed := &discordgo.MessageEmbed{
+		Title: fmt.Sprintf("%s Buy Cobble", emoji),
+		Color: color,
+		Fields: []*discordgo.MessageEmbedField{
+			{Name: "Created by", Value: user.Mention(), Inline: true},
+			{Name: "Category", Value: "Buy", Inline: true},
+			{Name: "Status", Value: "🟢 Open", Inline: true},
+			{Name: "📋 Plan", Value: plan, Inline: true},
+			{Name: "💳 Payment Method", Value: payment, Inline: true},
+			{Name: "👤 Website User", Value: websiteUser, Inline: true},
+		},
+		Timestamp: time.Now().Format(time.RFC3339),
+	}
+
+	components := []discordgo.MessageComponent{
+		discordgo.ActionsRow{
+			Components: []discordgo.MessageComponent{
+				discordgo.Button{
+					Label:    "Close Ticket",
+					Style:    discordgo.DangerButton,
+					CustomID: "close_ticket",
+					Emoji: &discordgo.ComponentEmoji{
+						Name: "🔒",
+					},
+				},
+			},
+		},
+	}
+
+	s.ChannelMessageSendComplex(channel.ID, &discordgo.MessageSend{
+		Content:    fmt.Sprintf("<@&%s> %s", cfg.StaffRoleID, user.Mention()),
+		Embeds:     []*discordgo.MessageEmbed{embed},
+		Components: components,
+	})
+
+	// Log to log channel
+	if cfg.LogChannelID != "" {
+		logEmbed := &discordgo.MessageEmbed{
+			Title:       "🎫 New Buy Ticket Created",
+			Color:       color,
+			Description: fmt.Sprintf("**User:** %s\n**Category:** Buy\n**Plan:** %s\n**Payment:** %s\n**Channel:** <#%s>", user.Mention(), plan, payment, channel.ID),
 			Timestamp:   time.Now().Format(time.RFC3339),
 		}
 		s.ChannelMessageSendEmbed(cfg.LogChannelID, logEmbed)

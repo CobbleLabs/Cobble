@@ -37,6 +37,11 @@ func SetupTicketPanel(s *discordgo.Session, cfg *config.Config) {
 				Value:  "Request custom graphics, videos, or other media content.",
 				Inline: false,
 			},
+			{
+				Name:   "🛒 Buy Cobble",
+				Value:  "Purchase a license for Cobble. Choose your plan and payment method.",
+				Inline: false,
+			},
 		},
 		Footer: &discordgo.MessageEmbedFooter{
 			Text: "⚡ Average response time: < 1 hour",
@@ -68,6 +73,14 @@ func SetupTicketPanel(s *discordgo.Session, cfg *config.Config) {
 					CustomID: "ticket_media",
 					Emoji: &discordgo.ComponentEmoji{
 						Name: "📸",
+					},
+				},
+				discordgo.Button{
+					Label:    "Buy Cobble",
+					Style:    discordgo.SecondaryButton,
+					CustomID: "ticket_buy",
+					Emoji: &discordgo.ComponentEmoji{
+						Name: "🛒",
 					},
 				},
 			},
