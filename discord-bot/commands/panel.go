@@ -37,17 +37,9 @@ func SetupTicketPanel(s *discordgo.Session, cfg *config.Config) {
 				Value:  "Request custom graphics, videos, or other media content.",
 				Inline: false,
 			},
-			{
-				Name:   "\u200b",
-				Value:  "**Note:** You can have up to 2 open tickets per category.",
-				Inline: false,
-			},
 		},
 		Footer: &discordgo.MessageEmbedFooter{
 			Text: "⚡ Average response time: < 1 hour",
-		},
-		Thumbnail: &discordgo.MessageEmbedThumbnail{
-			URL: "https://i.imgur.com/YourLogoHere.png", // Optional: Add your logo
 		},
 	}
 

@@ -126,6 +126,7 @@ public:
     syncLunarTeammates(const std::set<std::string>& currentTeammates);  // Syncs to new set, removes players who left
     void clearLunarTeammates();
     bool isLunarTeammate(const std::string& uuid) const;
+    bool hasLunarTeammates() const;  // Returns true if any Lunar API teammates are active
 
     // Apollo Nametags: Store player nametag colors from OverrideNametagMessage
     // hasExtra: true if JSON had "extra" array (team-tag in HCTRanked), false for simple (lobby/party)

@@ -20,6 +20,7 @@ type Config struct {
 
 	LogChannelID       string
 	TicketPanelChannel string
+	ArchiveChannelID   string
 
 	DBPath string
 
@@ -55,6 +56,7 @@ func Load() *Config {
 
 		LogChannelID:       getEnv("LOG_CHANNEL_ID", ""),
 		TicketPanelChannel: getEnv("TICKET_PANEL_CHANNEL_ID", ""),
+		ArchiveChannelID:   getEnv("ARCHIVE_CHANNEL_ID", ""),
 
 		DBPath: getEnv("DB_PATH", "./tickets.db"),
 

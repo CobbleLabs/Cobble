@@ -328,7 +328,7 @@ static bool initPacketClasses(JNIEnv* env) {
         }
     }
 
-    log_ok("[ApolloHandshake] Packet classes initialized successfully");
+    //log_ok("[ApolloHandshake] Packet classes initialized successfully");
     return true;
 }
 
@@ -496,16 +496,18 @@ bool SendHandshake(JNIEnv* env) {
 
     // Build PlayerHandshakeMessage
     auto handshakePayload = buildPlayerHandshakeMessage();
+    /*
     if (debug) {
         log_debug("[ApolloHandshake] PlayerHandshakeMessage built: %zu bytes", handshakePayload.size());
-    }
+    }*/
 
     // Wrap in google.protobuf.Any
     const char* typeUrl = "type.googleapis.com/lunarclient.apollo.player.v1.PlayerHandshakeMessage";
     auto anyWrapper = buildAnyWrapper(typeUrl, handshakePayload);
+    /*
     if (debug) {
         log_debug("[ApolloHandshake] Any wrapper built: %zu bytes (type=%s)", anyWrapper.size(), typeUrl);
-    }
+    }*/
 
     // Create and send the packet
     jobject packet = createCustomPayloadPacket(env, "lunar:apollo", anyWrapper);
@@ -546,9 +548,9 @@ bool SendPingRequest(JNIEnv* env) {
     const char* typeUrl = "type.googleapis.com/lunarclient.apollo.common.v1.PingRequest";
     auto anyWrapper = buildAnyWrapper(typeUrl, pingPayload);
 
-    if (debug) {
+    /*if (debug) {
         log_debug("[ApolloHandshake] PingRequest built: %zu bytes", anyWrapper.size());
-    }
+    }*/
 
     // Create and send
     jobject packet = createCustomPayloadPacket(env, "lunar:apollo", anyWrapper);
@@ -565,9 +567,9 @@ bool SendPingRequest(JNIEnv* env) {
         g_stats.pingsSent++;
     }
 
-    if (debug) {
+    /*if (debug) {
         log_debug("[ApolloHandshake] PingRequest sent");
-    }
+    }*/
 
     return true;
 }
@@ -578,7 +580,7 @@ void OnWorldChange(JNIEnv* env) {
     int64_t nowMs = std::chrono::duration_cast<std::chrono::milliseconds>(now).count();
     int64_t lastMs = g_lastWorldChangeMs.load();
     if (nowMs - lastMs < 800) {
-        log_debug("[ApolloHandshake] World change debounce hit, skipping extra trigger");
+        //log_debug("[ApolloHandshake] World change debounce hit, skipping extra trigger");
         return;
     }
     g_lastWorldChangeMs.store(nowMs);
@@ -588,11 +590,11 @@ void OnWorldChange(JNIEnv* env) {
 
     if (newSerial == lastHandshake) {
         // Already sent handshake for this world
-        log_debug("[ApolloHandshake] Handshake already sent for world serial %llu", newSerial);
+        //log_debug("[ApolloHandshake] Handshake already sent for world serial %llu", newSerial);
         return;
     }
 
-    log_ok("[ApolloHandshake] World change detected (serial=%llu), queuing handshake...", newSerial);
+    //log_ok("[ApolloHandshake] World change detected (serial=%llu), queuing handshake...", newSerial);
 
     // Try to send immediately if ready
     if (mc.isValid() && SendHandshake(env)) {
@@ -605,7 +607,7 @@ void OnWorldChange(JNIEnv* env) {
     g_pendingHandshakeTimeMs.store(nowMs);
     g_handshakeRetryCount.store(0);
     g_pendingHandshake.store(true);
-    log_debug("[ApolloHandshake] Handshake queued (mc not ready), will retry...");
+    //log_debug("[ApolloHandshake] Handshake queued (mc not ready), will retry...");
 }
 
 void Tick() {
@@ -626,7 +628,7 @@ void Tick() {
     // Check retry count
     int retries = g_handshakeRetryCount.fetch_add(1);
     if (retries >= kMaxHandshakeRetries) {
-        log_warn("[ApolloHandshake] Max retries reached, giving up on handshake");
+        //log_warn("[ApolloHandshake] Max retries reached, giving up on handshake");
         g_pendingHandshake.store(false);
         return;
     }
@@ -660,7 +662,7 @@ void Tick() {
         g_lastHandshakeSerial.store(currentSerial);
         SendPingRequest(env);
         g_pendingHandshake.store(false);
-        log_ok("[ApolloHandshake] Pending handshake sent successfully (after %d retries)", retries);
+        //log_ok("[ApolloHandshake] Pending handshake sent successfully (after %d retries)", retries);
     } else {
         g_pendingHandshakeTimeMs.store(nowMs);
     }
@@ -681,12 +683,12 @@ void RequestNametagRefresh() {
     g_handshakeRetryCount.store(0);
     g_pendingHandshake.store(true);
 
-    log_ok("[ApolloHandshake] Nametag refresh requested - handshake queued");
+    //log_ok("[ApolloHandshake] Nametag refresh requested - handshake queued");
 }
 
 bool SendConfigurableSettings(JNIEnv* env) {
     if (!env || !IsReady()) {
-        log_warn("[ApolloHandshake] Not ready to send config settings");
+        //log_warn("[ApolloHandshake] Not ready to send config settings");
         return false;
     }
 
@@ -695,35 +697,35 @@ bool SendConfigurableSettings(JNIEnv* env) {
     // Build OverrideConfigurableSettingsMessage
     auto configPayload = buildOverrideConfigurableSettingsMessage();
     if (debug) {
-        log_debug("[ApolloHandshake] OverrideConfigurableSettingsMessage built: %zu bytes", configPayload.size());
+        //log_debug("[ApolloHandshake] OverrideConfigurableSettingsMessage built: %zu bytes", configPayload.size());
     }
 
     // Wrap in google.protobuf.Any
     const char* typeUrl = "type.googleapis.com/lunarclient.apollo.configurable.v1.OverrideConfigurableSettingsMessage";
     auto anyWrapper = buildAnyWrapper(typeUrl, configPayload);
     if (debug) {
-        log_debug("[ApolloHandshake] Any wrapper built: %zu bytes", anyWrapper.size());
+        //log_debug("[ApolloHandshake] Any wrapper built: %zu bytes", anyWrapper.size());
     }
 
     // Create and send the packet
     jobject packet = createCustomPayloadPacket(env, "lunar:apollo", anyWrapper);
     if (!packet) {
-        log_warn("[ApolloHandshake] Failed to create config packet");
+        //log_warn("[ApolloHandshake] Failed to create config packet");
         return false;
     }
 
     if (!sendPacketToServer(env, packet)) {
-        log_warn("[ApolloHandshake] Failed to send config packet");
+        //log_warn("[ApolloHandshake] Failed to send config packet");
         return false;
     }
 
-    log_ok("[ApolloHandshake] Sent OverrideConfigurableSettingsMessage (nametag/team/team_view enabled)");
+    //log_ok("[ApolloHandshake] Sent OverrideConfigurableSettingsMessage (nametag/team/team_view enabled)");
     return true;
 }
 
 bool RequestNametagData() {
     if (!IsReady()) {
-        log_warn("[ApolloHandshake] Not ready to request nametag data");
+        //log_warn("[ApolloHandshake] Not ready to request nametag data");
         return false;
     }
 
@@ -737,11 +739,11 @@ bool RequestNametagData() {
     }
 
     if (!env) {
-        log_warn("[ApolloHandshake] Failed to get JNIEnv");
+        //log_warn("[ApolloHandshake] Failed to get JNIEnv");
         return false;
     }
 
-    log_ok("[ApolloHandshake] Requesting nametag data from server...");
+    //log_ok("[ApolloHandshake] Requesting nametag data from server...");
 
     // Boost Apollo payload logging so user sees incoming types/colors after the request
     ApolloPacketObserver::BoostLogBudget(100);
@@ -757,8 +759,8 @@ bool RequestNametagData() {
     bool pingOk = SendPingRequest(env);
 
     if (handshakeOk || configOk) {
-        log_ok("[ApolloHandshake] Nametag request sent (handshake=%s, config=%s, ping=%s)", handshakeOk ? "OK" : "FAIL",
-               configOk ? "OK" : "FAIL", pingOk ? "OK" : "FAIL");
+        //log_ok("[ApolloHandshake] Nametag request sent (handshake=%s, config=%s, ping=%s)", handshakeOk ? "OK" : "FAIL",
+        //       configOk ? "OK" : "FAIL", pingOk ? "OK" : "FAIL");
         return true;
     }
 

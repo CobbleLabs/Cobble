@@ -502,19 +502,35 @@ bool FriendsManager::isTeammate(const std::string& playerUUID, ChatColor playerC
         lastDebugLog = now;
     }
 
-    // Check Lunar API teammates by UUID first (most reliable)
+    uint64_t currentSerial = worldChangeSerial_.load(std::memory_order_relaxed);
+
+    // Check Lunar API teammates by UUID first (most reliable) - PRIORITY
     if (teams.lunarApiEnabled && !playerUUID.empty()) {
         std::lock_guard<std::mutex> lock(mutex_);
         auto it = lunarTeammates_.find(playerUUID);
         if (it != lunarTeammates_.end()) {
             // Validate that teammate was registered in current world
-            if (it->second.registeredAtSerial == worldChangeSerial_.load(std::memory_order_relaxed)) {
+            if (it->second.registeredAtSerial == currentSerial) {
                 return true;
             }
             // Stale record from previous world - ignore
         }
     }
 
+    // Check if ANY Lunar teammates exist for current world
+    // If yes, ONLY use Lunar API (ignore color matching to avoid false positives)
+    if (teams.lunarApiEnabled) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        for (const auto& entry : lunarTeammates_) {
+            if (entry.second.registeredAtSerial == currentSerial) {
+                // Lunar API is active - don't use color matching as fallback
+                // This prevents false positives from servers that give same color to non-teammates
+                return false;
+            }
+        }
+    }
+
+    // Only use color matching as FALLBACK when no Lunar API data exists
     // Auto color: match own nametag color
     if (teams.matchOwnNametag && localColor != ChatColor::UNKNOWN && playerColor == localColor) {
         return true;
@@ -566,6 +582,21 @@ bool FriendsManager::isLunarTeammate(const std::string& uuid) const {
 
     // Validate that teammate was registered in current world
     return it->second.registeredAtSerial == worldChangeSerial_.load(std::memory_order_relaxed);
+}
+
+bool FriendsManager::hasLunarTeammates() const {
+    if (!teams.lunarApiEnabled)
+        return false;
+    uint64_t currentSerial = worldChangeSerial_.load(std::memory_order_relaxed);
+    std::lock_guard<std::mutex> lock(mutex_);
+    
+    // Check if any Lunar teammate is valid for current world
+    for (const auto& entry : lunarTeammates_) {
+        if (entry.second.registeredAtSerial == currentSerial) {
+            return true;
+        }
+    }
+    return false;
 }
 
 void FriendsManager::removeLunarTeammate(const std::string& uuid) {
@@ -675,7 +706,7 @@ bool FriendsManager::isApolloTeammate(const std::string& uuid) const {
     uint64_t currentSerial = worldChangeSerial_.load(std::memory_order_relaxed);
     std::lock_guard<std::mutex> lock(mutex_);
 
-    // Check Lunar teammates first (with serial validation)
+    // Check Lunar teammates first (with serial validation) - PRIORITY
     auto itLunar = lunarTeammates_.find(uuid);
     if (itLunar != lunarTeammates_.end()) {
         if (itLunar->second.registeredAtSerial == currentSerial) {
@@ -683,11 +714,24 @@ bool FriendsManager::isApolloTeammate(const std::string& uuid) const {
         }
     }
 
-    // Check Apollo nametag teammates (with serial validation)
-    auto itApollo = apolloNametagTeammates_.find(uuid);
-    if (itApollo != apolloNametagTeammates_.end()) {
-        if (itApollo->second.registeredAtSerial == currentSerial) {
-            return true;
+    // Check if ANY Lunar teammates exist for current world
+    // If yes, ONLY use Lunar API (ignore nametag colors to avoid false positives)
+    bool hasAnyLunarTeammate = false;
+    for (const auto& entry : lunarTeammates_) {
+        if (entry.second.registeredAtSerial == currentSerial) {
+            hasAnyLunarTeammate = true;
+            break;
+        }
+    }
+
+    // Only use Apollo nametag teammates as FALLBACK when no Lunar API data exists
+    // This prevents false positives from servers that give green nametags to non-teammates
+    if (!hasAnyLunarTeammate) {
+        auto itApollo = apolloNametagTeammates_.find(uuid);
+        if (itApollo != apolloNametagTeammates_.end()) {
+            if (itApollo->second.registeredAtSerial == currentSerial) {
+                return true;
+            }
         }
     }
 
