@@ -6,6 +6,17 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/).
 
 ---
 
+## [1.1.11] - 2026-01-26
+
+### Fixed
+- **Crash con múltiples módulos de combate activos**: Corregido memory leak de JNI LocalRefs
+  - **Backtrack**: `onUpdate()` no liberaba los `jobject instance` de `getPlayerList()`
+  - **AutoClicker**: `isTargetingPlayer()` (modo Attacking Only) tenía el mismo problema
+  - Cada tick acumulaba LocalRefs sin liberar → overflow después de ~30-60 segundos de uso intensivo
+  - Afectaba especialmente a usuarios con: Backtrack + AimAssist + Reach + AutoClicker simultáneos
+
+---
+
 ## [1.1.10] - 2026-01-25
 
 ### Fixed

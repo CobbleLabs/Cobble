@@ -292,6 +292,15 @@ void Backtrack::onUpdate() {
             log_debug("[Backtrack] Flushed packets (target out of range)");
         }
     }
+
+    // Cleanup JNI LocalRefs to prevent memory leak
+    // Each PlayerInfo.instance is a jobject that must be freed
+    for (auto& p : players) {
+        if (p.instance) {
+            Java::Env()->DeleteLocalRef(p.instance);
+            p.instance = nullptr;
+        }
+    }
 }
 
 void Backtrack::renderBox3D(double x, double y, double z, unsigned int color, unsigned int fillColor, bool filled) {

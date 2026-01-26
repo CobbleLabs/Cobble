@@ -436,6 +436,7 @@ bool AutoClicker::isTargetingPlayer() {
     float playerX = static_cast<float>(player.getPosX());
     float playerZ = static_cast<float>(player.getPosZ());
 
+    bool found = false;
     for (const auto& p : players) {
         float dx = static_cast<float>(p.posX) - playerX;
         float dz = static_cast<float>(p.posZ) - playerZ;
@@ -443,11 +444,20 @@ bool AutoClicker::isTargetingPlayer() {
 
         // Within 4.5 blocks (reach + some buffer)
         if (distSq < 20.25f) {  // 4.5^2
-            return true;
+            found = true;
+            break;
         }
     }
 
-    return false;
+    // Cleanup JNI LocalRefs to prevent memory leak
+    for (auto& p : players) {
+        if (p.instance) {
+            Java::Env()->DeleteLocalRef(p.instance);
+            p.instance = nullptr;
+        }
+    }
+
+    return found;
 }
 
 int AutoClicker::getHeldItemId() {
