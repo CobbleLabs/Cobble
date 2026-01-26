@@ -33,6 +33,22 @@ ArmorSwitch::ArmorSwitch() : Module("ArmorSwitch") {
     keybind = 0;
 }
 
+bool ArmorSwitch::canToggle() {
+    // Prevent spam: don't allow toggle while processing
+    return state == State::Idle;
+}
+
+int ArmorSwitch::inventoryToContainerSlot(int invSlot) {
+    // mainInventory: 0-8 = hotbar, 9-35 = main inventory
+    // Container slots: 5-8 = armor, 9-35 = main inventory, 36-44 = hotbar
+    if (invSlot >= 0 && invSlot <= 8) {
+        return 36 + invSlot;  // Hotbar: inv 0-8 -> container 36-44
+    } else if (invSlot >= 9 && invSlot <= 35) {
+        return invSlot;  // Main inventory: same slot numbers
+    }
+    return -1;
+}
+
 int ArmorSwitch::getArmorId(ArmorMaterial material, int slotType) {
     // slotType: 0=helmet, 1=chest, 2=legs, 3=boots
     switch (material) {
@@ -461,7 +477,6 @@ void ArmorSwitch::scanForSwaps() {
         int targetId = getArmorId(targetMat, slotType);
         int currentId = getEquippedArmorId(slotType);
 
-        // TODO: make durability selection work in 1.7.10.
         int sourceDamage = 0;
         int sourceSlot = -1;
         if (currentId == targetId && currentId != 0) {
@@ -482,10 +497,42 @@ void ArmorSwitch::scanForSwaps() {
         }
 
         int hotbarIndex = -1;
+        
+        // Case 1: Armor is already in hotbar (sourceSlot 0-8)
         if (sourceSlot >= 0 && sourceSlot <= 8) {
             hotbarIndex = sourceSlot;
             hotbarReserved[hotbarIndex] = true;
+            
+            // Direct swap: hotbar slot <-> armor slot
+            // After this: armor slot has new armor, hotbar has old armor (or empty)
+            SwapTask equipTask;
+            equipTask.containerSlot = 5 + slotType;  // armor slot
+            equipTask.hotbarIndex = hotbarIndex;
+            pendingSwaps.push_back(equipTask);
+            
+            // If there was armor equipped, we need to move it somewhere
+            // The old armor is now in the hotbar slot
+            if (currentId != 0) {
+                // Find an empty slot in main inventory to store old armor
+                int emptyInvSlot = -1;
+                for (const auto& slot : slots) {
+                    if (slot.slotId >= 9 && slot.slotId <= 35 && slot.itemId == 0) {
+                        emptyInvSlot = slot.slotId;
+                        break;
+                    }
+                }
+                if (emptyInvSlot != -1) {
+                    SwapTask restoreTask;
+                    restoreTask.containerSlot = emptyInvSlot;  // main inv slot
+                    restoreTask.hotbarIndex = hotbarIndex;
+                    pendingSwaps.push_back(restoreTask);
+                }
+            }
         } else {
+            // Case 2: Armor is in main inventory (sourceSlot 9-35)
+            // Need to use hotbar as intermediary
+            
+            // Find a hotbar slot to use
             for (int i = 0; i < 9; i++) {
                 if (!hotbarOccupied[i] && !hotbarReserved[i]) {
                     hotbarIndex = i;
@@ -495,7 +542,7 @@ void ArmorSwitch::scanForSwaps() {
             }
 
             if (hotbarIndex == -1) {
-                // Hotbar full: use slots 2-5 (indices 2-5) as swap targets.
+                // Hotbar full: use slots 2-5 as swap targets
                 for (int i = 2; i <= 5; i++) {
                     if (!hotbarReserved[i]) {
                         hotbarIndex = i;
@@ -509,27 +556,28 @@ void ArmorSwitch::scanForSwaps() {
                 continue;
             }
 
+            // Step 1: Move new armor from inventory to hotbar
+            // sourceSlot (inv) <-> hotbarIndex
+            // After: hotbar has new armor, sourceSlot has whatever was in hotbar
             SwapTask moveTask;
             moveTask.containerSlot = sourceSlot;  // main inventory slot 9-35
             moveTask.hotbarIndex = hotbarIndex;
             pendingSwaps.push_back(moveTask);
 
+            // Step 2: Swap hotbar (new armor) with armor slot (old armor)
+            // After: armor slot has new armor, hotbar has old armor
             SwapTask equipTask;
-            equipTask.containerSlot = 5 + slotType;  // 5=helmet, 6=chest, 7=legs, 8=boots
+            equipTask.containerSlot = 5 + slotType;  // armor slot
             equipTask.hotbarIndex = hotbarIndex;
             pendingSwaps.push_back(equipTask);
 
+            // Step 3: Move old armor (now in hotbar) back to original source slot
+            // After: sourceSlot has old armor, hotbar has original hotbar item
             SwapTask restoreTask;
-            restoreTask.containerSlot = sourceSlot;  // move old armor back into the original source slot
+            restoreTask.containerSlot = sourceSlot;
             restoreTask.hotbarIndex = hotbarIndex;
             pendingSwaps.push_back(restoreTask);
-            continue;
         }
-
-        SwapTask equipTask;
-        equipTask.containerSlot = 5 + slotType;  // 5=helmet, 6=chest, 7=legs, 8=boots
-        equipTask.hotbarIndex = hotbarIndex;
-        pendingSwaps.push_back(equipTask);
     }
 }
 

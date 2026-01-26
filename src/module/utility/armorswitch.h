@@ -50,6 +50,7 @@ public:
     void onUpdate() override;
     void onRenderMenu() override;
     std::string getDisplayInfo() override;
+    bool canToggle() override;
 
     struct Settings {
         // Full set materials
@@ -96,6 +97,9 @@ private:
 
     void scanForSwaps();
     void finishSwap();
+    
+    // Convert mainInventory slot (0-35) to container slot for windowClickSwap
+    int inventoryToContainerSlot(int invSlot);
 };
 
 extern ArmorSwitch* armorSwitch;
