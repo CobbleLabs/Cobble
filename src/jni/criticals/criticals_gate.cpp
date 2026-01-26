@@ -76,6 +76,11 @@ static bool isMovementPacket(JNIEnv* env, jobject packet) {
 namespace CriticalsGate {
 
 bool ShouldSendPacket(JNIEnv* env, jobject packet) {
+    // 1.7.10: Packet class names are different/obfuscated - skip entirely to prevent crash
+    if (Java::Version == MinecraftVersion::MC_1_7_10) {
+        return true;
+    }
+
     // If criticals module is not initialized or not enabled, allow
     if (!::criticals || !::criticals->enabled) {
         return true;

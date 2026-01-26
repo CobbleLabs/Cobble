@@ -15,6 +15,10 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/).
   - Cada tick acumulaba LocalRefs sin liberar → overflow después de ~30-60 segundos de uso intensivo
   - Afectaba especialmente a usuarios con: Backtrack + AimAssist + Reach + AutoClicker simultáneos
 
+- **Criticals crasheaba en 1.7.10**: El interceptor de paquetes buscaba `C03PacketPlayer` que no existe en 1.7.10
+  - Agregado version check para desactivar automáticamente el interceptor en 1.7.10
+  - El módulo Criticals ahora es compatible con 1.7.10 (aunque no funciona, no crashea)
+
 ---
 
 ## [1.1.10] - 2026-01-25
