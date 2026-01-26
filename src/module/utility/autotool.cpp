@@ -269,13 +269,25 @@ void AutoTool::onUpdate() {
     if (!player.isValid())
         return;
 
-    // Check if player is holding left click (mining)
+    // Check if player is holding left click (mining/attacking)
     bool isLeftClickHeld = (GetAsyncKeyState(VK_LBUTTON) & 0x8000) != 0;
 
-    // Check if targeting a block
+    // Check what we're targeting
     bool targetingBlock = mc.isTargetingBlock();
+    bool targetingEntity = mc.isTargetingEntity();
 
-    if (isLeftClickHeld && targetingBlock) {
+    // Priority: Attack entity (AutoSword) > Mine block (AutoTool)
+    if (isLeftClickHeld && targetingEntity && settings.autoSword) {
+        // Auto-switch to sword when attacking an entity
+        // NOTE: Sword stays equipped - no switch-back for combat
+        int swordSlot = findToolInHotbar(ToolType::SWORD);
+        int currentSlot = player.getCurrentSlot();
+
+        if (swordSlot != -1 && swordSlot != currentSlot) {
+            // Switch to sword (permanent - no switch-back)
+            player.setCurrentSlot(swordSlot);
+        }
+    } else if (isLeftClickHeld && targetingBlock) {
         // Get block position directly from game's objectMouseOver
         Minecraft::Vec3 hitPos = mc.getTargetedBlockPos();
 
@@ -323,5 +335,8 @@ void AutoTool::onUpdate() {
 void AutoTool::onRenderMenu() {
     ui::two_column(
         "General", [this]() { ui::CheckboxBind("Enabled", &enabled, &keybind); }, "Options",
-        [this]() { ui::Checkbox("Switch Back After Mining", &settings.switchBack); });
+        [this]() {
+            ui::Checkbox("Auto Sword (Attack)", &settings.autoSword);
+            ui::Checkbox("Switch Back", &settings.switchBack);
+        });
 }

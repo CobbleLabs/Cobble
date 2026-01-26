@@ -10,7 +10,8 @@ public:
     void onRenderMenu() override;
 
     struct Settings {
-        bool switchBack = true;  // Switch back to previous slot when not mining
+        bool switchBack = true;   // Switch back to previous slot when not mining
+        bool autoSword = true;    // Auto-switch to sword when attacking entities
     } settings;
 
 private:
