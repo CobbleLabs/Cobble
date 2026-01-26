@@ -1,5 +1,6 @@
 #pragma once
 
+#include <shellapi.h>
 #include <shlobj.h>
 #include <wincrypt.h>
 #include <Windows.h>
@@ -11,6 +12,7 @@
 #pragma comment(lib, "advapi32.lib")
 #pragma comment(lib, "winhttp.lib")
 #pragma comment(lib, "ole32.lib")
+#pragma comment(lib, "shell32.lib")
 
 namespace Updater {
 
@@ -242,13 +244,34 @@ inline bool spawnStub(const std::string& currentPath, const std::string& newPath
     STARTUPINFOA si = {sizeof(si)};
     PROCESS_INFORMATION pi;
 
-    if (!CreateProcessA(nullptr, cmdLine, nullptr, nullptr, FALSE, CREATE_NO_WINDOW, nullptr, nullptr, &si, &pi)) {
-        return false;
+    // Try CreateProcess first (normal case)
+    if (CreateProcessA(nullptr, cmdLine, nullptr, nullptr, FALSE, CREATE_NO_WINDOW, nullptr, nullptr, &si, &pi)) {
+        CloseHandle(pi.hThread);
+        CloseHandle(pi.hProcess);
+        return true;
     }
 
-    CloseHandle(pi.hThread);
-    CloseHandle(pi.hProcess);
-    return true;
+    // Fallback: Use ShellExecuteA to handle UAC/SmartScreen prompts
+    // This will show a visible window but ensures the update can proceed
+    SHELLEXECUTEINFOA sei = {sizeof(sei)};
+    sei.fMask = SEE_MASK_NOCLOSEPROCESS | SEE_MASK_FLAG_NO_UI;
+    sei.lpVerb = "open";
+    sei.lpFile = newPath.c_str();
+    
+    char params[2048];
+    sprintf_s(params, "--update-pid %lu --update-old \"%s\" --update-new \"%s\"",
+              GetCurrentProcessId(), currentPath.c_str(), newPath.c_str());
+    sei.lpParameters = params;
+    sei.nShow = SW_HIDE;
+
+    if (ShellExecuteExA(&sei)) {
+        if (sei.hProcess) {
+            CloseHandle(sei.hProcess);
+        }
+        return true;
+    }
+
+    return false;
 }
 
 // Cleanup temp directory

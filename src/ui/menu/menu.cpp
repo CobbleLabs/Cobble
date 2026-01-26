@@ -233,10 +233,6 @@ static void renderSettingsPage() {
                 ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetColorU32(ImGuiCol_TextDisabled));
                 ImGui::PopStyleColor();
 
-                ImGui::Spacing();
-                ImGui::Separator();
-                ImGui::Spacing();
-
                 // Quick-add friend feature
                 ui::CheckboxBind("Quick Add", &friendsManager->quickAddEnabled, &friendsManager->quickAddKey);
                 ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetColorU32(ImGuiCol_TextDisabled));
@@ -407,6 +403,9 @@ void Menu::ApplyStyle() {
 }
 
 void Menu::Render() {
+    // Reset binder state at start of each frame
+    ui::ResetBinderState();
+
     // Animate open/close
     float targetAnim = isOpen ? 1.f : 0.f;
     float dt = ImGui::GetIO().DeltaTime;

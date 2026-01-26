@@ -143,7 +143,8 @@ void SetupImGui() {
 }
 
 LRESULT CALLBACK HookedWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
-    if (msg == WM_KEYDOWN && wParam == Menu::menuKey) {
+    // Don't toggle menu if a keybind binder is active (user is selecting a new key)
+    if (msg == WM_KEYDOWN && wParam == Menu::menuKey && !ui::IsBinderActive()) {
         Menu::isOpen = !Menu::isOpen;
 
         if (Menu::isOpen) {
@@ -235,8 +236,8 @@ LRESULT CALLBACK HookedWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam
             }
         }
 
-        // ESC closes menu
-        if (msg == WM_KEYDOWN && wParam == VK_ESCAPE) {
+        // ESC closes menu (but not if a keybind widget is active)
+        if (msg == WM_KEYDOWN && wParam == VK_ESCAPE && !ui::IsBinderActive()) {
             Menu::isOpen = false;
             Menu::moduleToBind = nullptr;
             ImGui::GetIO().MouseDrawCursor = false;

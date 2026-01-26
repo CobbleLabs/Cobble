@@ -1,3 +1,4 @@
+#define IMGUI_DEFINE_MATH_OPERATORS
 #include "theme.hpp"
 #include "widgets.hpp"
 
@@ -11,6 +12,7 @@ ImU32 getAccent(float alpha) {
 }
 
 void apply() {
+    ImGui::StyleColorsDark();
     auto& style = ImGui::GetStyle();
 
     style.WindowRounding = s(8.0f);

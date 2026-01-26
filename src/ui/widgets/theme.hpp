@@ -10,7 +10,12 @@ namespace ui {
 namespace theme {
 
 // Scheme/Accent color (user configurable)
-inline float accentColor[4] = {0.843f, 0.376f, 0.078f, 1.0f};  // Orange default
+inline float accentColor[4] = {
+    0.9412f,  // R = 240
+    0.4667f,  // G = 119
+    0.0549f,  // B = 14
+    1.0f      // A = 255
+};
 
 // Get accent color as ImU32 with optional alpha multiplier
 ImU32 getAccent(float alpha = 1.0f);

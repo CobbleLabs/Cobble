@@ -8,6 +8,17 @@
 
 using namespace ImGui;
 
+// ==================== BINDER STATE ====================
+static bool g_BinderActive = false;
+
+bool ui::IsBinderActive() {
+    return g_BinderActive;
+}
+
+void ui::ResetBinderState() {
+    g_BinderActive = false;
+}
+
 // ==================== GLOBAL SCHEME COLOR ====================
 float g_SchemeColor[4] = {0.843f, 0.376f, 0.078f, 1.0f};
 
@@ -274,6 +285,9 @@ bool ui::CheckboxBind(const char* label, bool* v, int* key) {
 
     bool bindHovered = ItemHoverable(bindBox, bId, 0);
     bool bindActive = GetActiveID() == bId;
+    
+    // Update global binder state for ESC handling in overlay
+    if (bindActive) g_BinderActive = true;
 
     struct bind_s {
         float anim;
@@ -987,6 +1001,9 @@ bool ui::Binder(const char* label, int* key) {
 
     bool hovered = ItemHoverable(bb, id, 0);
     bool active = GetActiveID() == id;
+    
+    // Update global binder state for ESC handling in overlay
+    if (active) g_BinderActive = true;
 
     struct binder_state {
         float anim;

@@ -97,6 +97,8 @@ bool SliderInt(const char* label, int* v, int v_min, int v_max, const char* form
 // Keybind capture
 bool Binder(const char* label, int* key);
 const char* GetKeyName(int vk);
+bool IsBinderActive();  // Returns true if any keybind widget is currently capturing input
+void ResetBinderState();  // Call at start of each frame
 
 // Color picker
 bool color(const char* name, float col[4], bool alpha = true);
@@ -135,6 +137,6 @@ void subtab(int num, int tab_num);
 void apply_style();
 
 // Base window size (larger for better 1080p visibility)
-inline ImVec2 baseSize{750, 530};
-inline ImVec2 size{750, 530};
+inline ImVec2 baseSize{900, 600};
+inline ImVec2 size{900, 600};
 }  // namespace ui

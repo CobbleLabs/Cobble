@@ -38,5 +38,5 @@ void NoJumpDelay::onUpdate() {
 void NoJumpDelay::onRenderMenu() {
     ui::two_column(
         "General", [this]() { ui::CheckboxBind("Enabled", &enabled, &keybind); }, "Info",
-        [this]() { ImGui::TextWrapped("Removes jump delay for bhop."); });
+        [this]() { ImGui::TextWrapped("Removes jump delay."); });
 }
