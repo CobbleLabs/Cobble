@@ -59,7 +59,8 @@ struct SlotInfo {
     int slotId = -1;
     int itemId = 0;  // 0 = empty, 282 = soup, 373 = potion, etc
     int stackSize = 0;
-    int damage = 0;  // Potion metadata (used to identify potion type)
+    int damage = 0;  // Durability damage or potion metadata
+    int protectionLevel = 0;  // Protection enchantment level (0 = none)
     bool isSplashPotion = false;
     bool isHealthPotion = false;  // Instant Health I or II
 };
@@ -112,6 +113,7 @@ struct Minecraft {
 
     // Inventory operations for AutoRefill
     std::vector<SlotInfo> getInventorySlots();                 // Get all 36 inventory slots
+    std::vector<SlotInfo> getArmorSlots();                     // Get 4 armor slots (0=helmet, 1=chest, 2=legs, 3=boots)
     void windowClick(int slotId, int button);                  // Click inventory slot (shift-click)
     void windowClickSwap(int containerSlot, int hotbarIndex);  // Swap container slot with hotbar (mode 2)
     void openInventory();                                      // Open player inventory GUI

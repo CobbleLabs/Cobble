@@ -77,6 +77,18 @@ std::vector<SlotInfo> Minecraft::getInventorySlots() {
         mid_isSplash = env->GetMethodID(potionCls, "isSplash", "(I)Z");
     }
 
+    // Get NBT classes for enchantment reading
+    jclass nbtCompoundCls = nullptr;
+    Java::AssignClass("net.minecraft.nbt.NBTTagCompound", nbtCompoundCls);
+    jmethodID mid_getShort = nullptr;
+    if (nbtCompoundCls) {
+        mid_getShort = env->GetMethodID(nbtCompoundCls, "getShort", "(Ljava/lang/String;)S");
+    }
+
+    // Cache strings for enchantment lookup
+    jstring strId = env->NewStringUTF("id");
+    jstring strLvl = env->NewStringUTF("lvl");
+
     int arrayLen = env->GetArrayLength(mainInventory);
 
     // Iterate all 36 slots (0-8 = hotbar, 9-35 = main inventory)
@@ -138,15 +150,210 @@ std::vector<SlotInfo> Minecraft::getInventorySlots() {
             }
         }
 
+        // Get Protection enchantment level for armor items (IDs 298-317)
+        if (slot.itemId >= 298 && slot.itemId <= 317 && mid_getShort && nbtCompoundCls) {
+            jclass stackCls = env->GetObjectClass(itemStack);
+            jmethodID mid_getEnchantTagList = env->GetMethodID(stackCls, "getEnchantmentTagList", "()Lnet/minecraft/nbt/NBTTagList;");
+            env->DeleteLocalRef(stackCls);
+            
+            if (mid_getEnchantTagList) {
+                jobject tagList = env->CallObjectMethod(itemStack, mid_getEnchantTagList);
+                if (tagList && !env->ExceptionCheck()) {
+                    jclass tagListCls = env->GetObjectClass(tagList);
+                    jmethodID mid_tagCount = env->GetMethodID(tagListCls, "tagCount", "()I");
+                    jmethodID mid_getCompoundAt = env->GetMethodID(tagListCls, "getCompoundTagAt", "(I)Lnet/minecraft/nbt/NBTTagCompound;");
+                    env->DeleteLocalRef(tagListCls);
+                    
+                    if (mid_tagCount && mid_getCompoundAt) {
+                        int count = env->CallIntMethod(tagList, mid_tagCount);
+                        for (int e = 0; e < count; e++) {
+                            jobject compound = env->CallObjectMethod(tagList, mid_getCompoundAt, e);
+                            if (compound) {
+                                short enchantId = env->CallShortMethod(compound, mid_getShort, strId);
+                                if (enchantId == 0) {  // Protection enchant ID = 0
+                                    slot.protectionLevel = env->CallShortMethod(compound, mid_getShort, strLvl);
+                                    env->DeleteLocalRef(compound);
+                                    break;
+                                }
+                                env->DeleteLocalRef(compound);
+                            }
+                        }
+                    }
+                    env->DeleteLocalRef(tagList);
+                } else {
+                    env->ExceptionClear();
+                }
+            }
+        }
+
         env->DeleteLocalRef(item);
         env->DeleteLocalRef(itemStack);
         result.push_back(slot);
     }
 
     // Cleanup
+    env->DeleteLocalRef(strId);
+    env->DeleteLocalRef(strLvl);
     env->DeleteLocalRef(mainInventory);
+    if (nbtCompoundCls)
+        env->DeleteLocalRef(nbtCompoundCls);
     if (potionCls)
         env->DeleteLocalRef(potionCls);
+    if (itemCls)
+        env->DeleteLocalRef(itemCls);
+    env->DeleteLocalRef(inventoryCls);
+    env->DeleteLocalRef(inventory);
+    env->DeleteLocalRef(localPlayer);
+
+    return result;
+}
+
+// =============================================================================
+// getArmorSlots - Get equipped armor slots info (0=helmet, 1=chest, 2=legs, 3=boots)
+// =============================================================================
+
+std::vector<SlotInfo> Minecraft::getArmorSlots() {
+    std::vector<SlotInfo> result;
+    if (!isValid())
+        return result;
+
+    JNIEnv* env = Java::Env();
+    if (!env)
+        return result;
+
+    jobject localPlayer = getPlayer();
+    if (!localPlayer)
+        return result;
+
+    if (!JniCache::fid_inventory) {
+        env->DeleteLocalRef(localPlayer);
+        return result;
+    }
+
+    jobject inventory = env->GetObjectField(localPlayer, JniCache::fid_inventory);
+    if (!inventory) {
+        env->DeleteLocalRef(localPlayer);
+        return result;
+    }
+
+    jclass inventoryCls = env->GetObjectClass(inventory);
+    jfieldID fid_armorInventory = env->GetFieldID(inventoryCls, "armorInventory", "[Lnet/minecraft/item/ItemStack;");
+    if (!fid_armorInventory) {
+        env->ExceptionClear();
+        env->DeleteLocalRef(inventoryCls);
+        env->DeleteLocalRef(inventory);
+        env->DeleteLocalRef(localPlayer);
+        return result;
+    }
+
+    jobjectArray armorInventory = (jobjectArray)env->GetObjectField(inventory, fid_armorInventory);
+    if (!armorInventory) {
+        env->DeleteLocalRef(inventoryCls);
+        env->DeleteLocalRef(inventory);
+        env->DeleteLocalRef(localPlayer);
+        return result;
+    }
+
+    // Get Item class for getIdFromItem
+    jclass itemCls = nullptr;
+    Java::AssignClass("net.minecraft.item.Item", itemCls);
+    jmethodID mid_getIdFromItem = nullptr;
+    if (itemCls) {
+        mid_getIdFromItem = env->GetStaticMethodID(itemCls, "getIdFromItem", "(Lnet/minecraft/item/Item;)I");
+    }
+
+    // NBT for enchantment reading
+    jclass nbtCompoundCls = nullptr;
+    Java::AssignClass("net.minecraft.nbt.NBTTagCompound", nbtCompoundCls);
+    jmethodID mid_getShort = nullptr;
+    if (nbtCompoundCls) {
+        mid_getShort = env->GetMethodID(nbtCompoundCls, "getShort", "(Ljava/lang/String;)S");
+    }
+    jstring strId = env->NewStringUTF("id");
+    jstring strLvl = env->NewStringUTF("lvl");
+
+    // armorInventory indices: 0=boots, 1=legs, 2=chest, 3=helmet
+    // We return: 0=helmet, 1=chest, 2=legs, 3=boots
+    for (int slotType = 0; slotType < 4; slotType++) {
+        SlotInfo slot;
+        slot.slotId = slotType;
+
+        int armorIdx = 3 - slotType;  // Convert our index to MC index
+        jobject itemStack = env->GetObjectArrayElement(armorInventory, armorIdx);
+        if (!itemStack) {
+            result.push_back(slot);
+            continue;
+        }
+
+        jobject item = nullptr;
+        if (JniCache::mid_getItem) {
+            item = env->CallObjectMethod(itemStack, JniCache::mid_getItem);
+        }
+
+        if (!item) {
+            env->DeleteLocalRef(itemStack);
+            result.push_back(slot);
+            continue;
+        }
+
+        if (mid_getIdFromItem) {
+            slot.itemId = env->CallStaticIntMethod(itemCls, mid_getIdFromItem, item);
+        }
+
+        if (JniCache::mid_getItemDamage) {
+            slot.damage = env->CallIntMethod(itemStack, JniCache::mid_getItemDamage);
+            if (env->ExceptionCheck()) {
+                env->ExceptionClear();
+                slot.damage = 0;
+            }
+        }
+
+        // Get Protection enchantment
+        if (mid_getShort && nbtCompoundCls) {
+            jclass stackCls = env->GetObjectClass(itemStack);
+            jmethodID mid_getEnchantTagList = env->GetMethodID(stackCls, "getEnchantmentTagList", "()Lnet/minecraft/nbt/NBTTagList;");
+            env->DeleteLocalRef(stackCls);
+
+            if (mid_getEnchantTagList) {
+                jobject tagList = env->CallObjectMethod(itemStack, mid_getEnchantTagList);
+                if (tagList && !env->ExceptionCheck()) {
+                    jclass tagListCls = env->GetObjectClass(tagList);
+                    jmethodID mid_tagCount = env->GetMethodID(tagListCls, "tagCount", "()I");
+                    jmethodID mid_getCompoundAt = env->GetMethodID(tagListCls, "getCompoundTagAt", "(I)Lnet/minecraft/nbt/NBTTagCompound;");
+                    env->DeleteLocalRef(tagListCls);
+
+                    if (mid_tagCount && mid_getCompoundAt) {
+                        int count = env->CallIntMethod(tagList, mid_tagCount);
+                        for (int e = 0; e < count; e++) {
+                            jobject compound = env->CallObjectMethod(tagList, mid_getCompoundAt, e);
+                            if (compound) {
+                                short enchantId = env->CallShortMethod(compound, mid_getShort, strId);
+                                if (enchantId == 0) {
+                                    slot.protectionLevel = env->CallShortMethod(compound, mid_getShort, strLvl);
+                                    env->DeleteLocalRef(compound);
+                                    break;
+                                }
+                                env->DeleteLocalRef(compound);
+                            }
+                        }
+                    }
+                    env->DeleteLocalRef(tagList);
+                } else {
+                    env->ExceptionClear();
+                }
+            }
+        }
+
+        env->DeleteLocalRef(item);
+        env->DeleteLocalRef(itemStack);
+        result.push_back(slot);
+    }
+
+    env->DeleteLocalRef(strId);
+    env->DeleteLocalRef(strLvl);
+    env->DeleteLocalRef(armorInventory);
+    if (nbtCompoundCls)
+        env->DeleteLocalRef(nbtCompoundCls);
     if (itemCls)
         env->DeleteLocalRef(itemCls);
     env->DeleteLocalRef(inventoryCls);

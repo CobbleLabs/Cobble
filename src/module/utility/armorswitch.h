@@ -59,6 +59,9 @@ public:
 
         // Delay between swaps (ms)
         int switchDelay = 50;
+        
+        // When same material, prefer higher Protection enchant
+        bool preferProtection = true;
     } settings;
 
 private:
@@ -86,11 +89,7 @@ private:
 
     // Find armor in inventory matching the desired material for a slot type
     // Returns slot id (0-35) or -1 if not found
-    int findArmorInInventory(int slotType, ArmorMaterial material, int* outDamage);
-
-    // Get current equipped armor item ID for a slot
-    int getEquippedArmorId(int slotType);
-    int getEquippedArmorDamage(int slotType);
+    int findArmorInInventory(int slotType, ArmorMaterial material, int* outDamage, int* outProtLevel = nullptr);
 
     // Detect which set the player is currently wearing
     int detectCurrentSet();

@@ -126,11 +126,13 @@ int ArmorSwitch::detectCurrentSet() {
     ArmorMaterial set1Mat = static_cast<ArmorMaterial>(settings.set1Material);
     ArmorMaterial set2Mat = static_cast<ArmorMaterial>(settings.set2Material);
 
+    auto armorSlots = mc.getArmorSlots();
+    
     int set1Matches = 0;
     int set2Matches = 0;
 
     for (int slotType = 0; slotType < 4; slotType++) {
-        int equipped = getEquippedArmorId(slotType);
+        int equipped = (slotType < (int)armorSlots.size()) ? armorSlots[slotType].itemId : 0;
         if (equipped == 0)
             continue;
 
@@ -250,197 +252,40 @@ void ArmorSwitch::onUpdate() {
     }
 }
 
-int ArmorSwitch::getEquippedArmorId(int slotType) {
-    if (!player.isValid())
-        return 0;
-
-    JNIEnv* env = Java::Env();
-    if (!env)
-        return 0;
-
-    jobject localPlayer = mc.getPlayer();
-    if (!localPlayer)
-        return 0;
-
-    jclass playerCls = nullptr;
-    if (!Java::AssignClass("net.minecraft.entity.player.EntityPlayer", playerCls)) {
-        env->DeleteLocalRef(localPlayer);
-        return 0;
-    }
-
-    jfieldID fid_inventory = env->GetFieldID(playerCls, "inventory", "Lnet/minecraft/entity/player/InventoryPlayer;");
-    if (!fid_inventory) {
-        env->DeleteLocalRef(playerCls);
-        env->DeleteLocalRef(localPlayer);
-        return 0;
-    }
-
-    jobject inventory = env->GetObjectField(localPlayer, fid_inventory);
-    if (!inventory) {
-        env->DeleteLocalRef(playerCls);
-        env->DeleteLocalRef(localPlayer);
-        return 0;
-    }
-
-    jclass inventoryCls = env->GetObjectClass(inventory);
-    jfieldID fid_armorInventory = env->GetFieldID(inventoryCls, "armorInventory", "[Lnet/minecraft/item/ItemStack;");
-    if (!fid_armorInventory) {
-        env->ExceptionClear();
-        env->DeleteLocalRef(inventoryCls);
-        env->DeleteLocalRef(inventory);
-        env->DeleteLocalRef(playerCls);
-        env->DeleteLocalRef(localPlayer);
-        return 0;
-    }
-
-    jobjectArray armorInventory = (jobjectArray)env->GetObjectField(inventory, fid_armorInventory);
-    if (!armorInventory) {
-        env->DeleteLocalRef(inventoryCls);
-        env->DeleteLocalRef(inventory);
-        env->DeleteLocalRef(playerCls);
-        env->DeleteLocalRef(localPlayer);
-        return 0;
-    }
-
-    // armorInventory indices: 0=boots, 1=legs, 2=chest, 3=helmet
-    // Our slotType: 0=helmet, 1=chest, 2=legs, 3=boots
-    int armorIdx = 3 - slotType;
-
-    int itemId = 0;
-    jobject itemStack = env->GetObjectArrayElement(armorInventory, armorIdx);
-    if (itemStack) {
-        jclass itemCls = nullptr;
-        if (Java::AssignClass("net.minecraft.item.Item", itemCls)) {
-            jclass itemStackCls = env->GetObjectClass(itemStack);
-            jmethodID mid_getItem = env->GetMethodID(itemStackCls, "getItem", "()Lnet/minecraft/item/Item;");
-
-            if (mid_getItem) {
-                jobject item = env->CallObjectMethod(itemStack, mid_getItem);
-                if (item) {
-                    jmethodID mid_getIdFromItem =
-                        env->GetStaticMethodID(itemCls, "getIdFromItem", "(Lnet/minecraft/item/Item;)I");
-                    if (mid_getIdFromItem) {
-                        itemId = env->CallStaticIntMethod(itemCls, mid_getIdFromItem, item);
-                    }
-                    env->DeleteLocalRef(item);
-                }
-            }
-            env->DeleteLocalRef(itemStackCls);
-            env->DeleteLocalRef(itemCls);
-        }
-        env->DeleteLocalRef(itemStack);
-    }
-
-    env->DeleteLocalRef(armorInventory);
-    env->DeleteLocalRef(inventoryCls);
-    env->DeleteLocalRef(inventory);
-    env->DeleteLocalRef(playerCls);
-    env->DeleteLocalRef(localPlayer);
-
-    return itemId;
-}
-
-int ArmorSwitch::getEquippedArmorDamage(int slotType) {
-    if (!player.isValid())
-        return 0;
-
-    JNIEnv* env = Java::Env();
-    if (!env)
-        return 0;
-
-    jobject localPlayer = mc.getPlayer();
-    if (!localPlayer)
-        return 0;
-
-    jclass playerCls = nullptr;
-    if (!Java::AssignClass("net.minecraft.entity.player.EntityPlayer", playerCls)) {
-        env->DeleteLocalRef(localPlayer);
-        return 0;
-    }
-
-    jfieldID fid_inventory = env->GetFieldID(playerCls, "inventory", "Lnet/minecraft/entity/player/InventoryPlayer;");
-    if (!fid_inventory) {
-        env->DeleteLocalRef(playerCls);
-        env->DeleteLocalRef(localPlayer);
-        return 0;
-    }
-
-    jobject inventory = env->GetObjectField(localPlayer, fid_inventory);
-    if (!inventory) {
-        env->DeleteLocalRef(playerCls);
-        env->DeleteLocalRef(localPlayer);
-        return 0;
-    }
-
-    jclass inventoryCls = env->GetObjectClass(inventory);
-    jfieldID fid_armorInventory = env->GetFieldID(inventoryCls, "armorInventory", "[Lnet/minecraft/item/ItemStack;");
-    if (!fid_armorInventory) {
-        env->ExceptionClear();
-        env->DeleteLocalRef(inventoryCls);
-        env->DeleteLocalRef(inventory);
-        env->DeleteLocalRef(playerCls);
-        env->DeleteLocalRef(localPlayer);
-        return 0;
-    }
-
-    jobjectArray armorInventory = (jobjectArray)env->GetObjectField(inventory, fid_armorInventory);
-    if (!armorInventory) {
-        env->DeleteLocalRef(inventoryCls);
-        env->DeleteLocalRef(inventory);
-        env->DeleteLocalRef(playerCls);
-        env->DeleteLocalRef(localPlayer);
-        return 0;
-    }
-
-    // armorInventory indices: 0=boots, 1=legs, 2=chest, 3=helmet
-    // Our slotType: 0=helmet, 1=chest, 2=legs, 3=boots
-    int armorIdx = 3 - slotType;
-
-    int damage = 0;
-    jobject itemStack = env->GetObjectArrayElement(armorInventory, armorIdx);
-    if (itemStack) {
-        if (JniCache::mid_getItemDamage) {
-            damage = env->CallIntMethod(itemStack, JniCache::mid_getItemDamage);
-            if (env->ExceptionCheck()) {
-                env->ExceptionClear();
-                if (JniCache::fid_itemDamage) {
-                    damage = env->GetIntField(itemStack, JniCache::fid_itemDamage);
-                } else {
-                    damage = 0;
-                }
-            }
-        } else if (JniCache::fid_itemDamage) {
-            damage = env->GetIntField(itemStack, JniCache::fid_itemDamage);
-        } else {
-            damage = 0;
-        }
-        env->DeleteLocalRef(itemStack);
-    }
-
-    env->DeleteLocalRef(armorInventory);
-    env->DeleteLocalRef(inventoryCls);
-    env->DeleteLocalRef(inventory);
-    env->DeleteLocalRef(playerCls);
-    env->DeleteLocalRef(localPlayer);
-
-    return damage;
-}
-
-int ArmorSwitch::findArmorInInventory(int slotType, ArmorMaterial material, int* outDamage) {
+int ArmorSwitch::findArmorInInventory(int slotType, ArmorMaterial material, int* outDamage, int* outProtLevel) {
     auto slots = mc.getInventorySlots();
     int targetId = getArmorId(material, slotType);
 
     bool found = false;
     int bestSlot = -1;
     int bestDamage = 0;
+    int bestProtLevel = 0;
 
     // Search inventory and hotbar (slots 0-35)
+    // SlotInfo already has protectionLevel from SDK
     for (const auto& slot : slots) {
         if (slot.slotId >= 0 && slot.slotId <= 35 && slot.itemId == targetId) {
-            if (!found || slot.damage < bestDamage) {
+            // Compare: Protection first (if enabled), then durability (lower damage = better)
+            bool isBetter = false;
+            if (!found) {
+                isBetter = true;
+            } else if (settings.preferProtection) {
+                if (slot.protectionLevel > bestProtLevel) {
+                    isBetter = true;
+                } else if (slot.protectionLevel == bestProtLevel && slot.damage < bestDamage) {
+                    isBetter = true;
+                }
+            } else {
+                if (slot.damage < bestDamage) {
+                    isBetter = true;
+                }
+            }
+            
+            if (isBetter) {
                 found = true;
                 bestSlot = slot.slotId;
                 bestDamage = slot.damage;
+                bestProtLevel = slot.protectionLevel;
             }
         }
     }
@@ -448,6 +293,8 @@ int ArmorSwitch::findArmorInInventory(int slotType, ArmorMaterial material, int*
     if (found) {
         if (outDamage)
             *outDamage = bestDamage;
+        if (outProtLevel)
+            *outProtLevel = bestProtLevel;
         return bestSlot;
     }
     return -1;
@@ -463,6 +310,9 @@ void ArmorSwitch::scanForSwaps() {
     if (slots.empty())
         return;
 
+    // Get equipped armor info from SDK
+    auto armorSlots = mc.getArmorSlots();
+
     bool hotbarOccupied[9] = {};
     bool hotbarReserved[9] = {};
     for (const auto& slot : slots) {
@@ -475,22 +325,43 @@ void ArmorSwitch::scanForSwaps() {
     // slotType: 0=helmet, 1=chest, 2=legs, 3=boots
     for (int slotType = 0; slotType < 4; slotType++) {
         int targetId = getArmorId(targetMat, slotType);
-        int currentId = getEquippedArmorId(slotType);
+        
+        // Get current equipped armor info from SDK
+        int currentId = (slotType < (int)armorSlots.size()) ? armorSlots[slotType].itemId : 0;
+        int currentDamage = (slotType < (int)armorSlots.size()) ? armorSlots[slotType].damage : 0;
+        int currentProtLevel = (slotType < (int)armorSlots.size()) ? armorSlots[slotType].protectionLevel : 0;
 
         int sourceDamage = 0;
+        int sourceProtLevel = 0;
         int sourceSlot = -1;
+        
         if (currentId == targetId && currentId != 0) {
-            sourceSlot = findArmorInInventory(slotType, targetMat, &sourceDamage);
+            // Same material equipped - check if inventory has better
+            sourceSlot = findArmorInInventory(slotType, targetMat, &sourceDamage, &sourceProtLevel);
             if (sourceSlot == -1) {
                 continue;
             }
 
-            int currentDamage = getEquippedArmorDamage(slotType);
-            if (currentDamage <= sourceDamage) {
+            // Compare: Protection first (if enabled), then durability
+            bool shouldSwitch = false;
+            if (settings.preferProtection) {
+                if (sourceProtLevel > currentProtLevel) {
+                    shouldSwitch = true;
+                } else if (sourceProtLevel == currentProtLevel && currentDamage > sourceDamage) {
+                    shouldSwitch = true;
+                }
+            } else {
+                if (currentDamage > sourceDamage) {
+                    shouldSwitch = true;
+                }
+            }
+            
+            if (!shouldSwitch) {
                 continue;
             }
         } else {
-            sourceSlot = findArmorInInventory(slotType, targetMat, &sourceDamage);
+            // Different material or empty slot - find target material
+            sourceSlot = findArmorInInventory(slotType, targetMat, &sourceDamage, &sourceProtLevel);
             if (sourceSlot == -1) {
                 continue;
             }
@@ -505,29 +376,11 @@ void ArmorSwitch::scanForSwaps() {
             
             // Direct swap: hotbar slot <-> armor slot
             // After this: armor slot has new armor, hotbar has old armor (or empty)
+            // Old armor stays in hotbar where new armor was - simple exchange
             SwapTask equipTask;
             equipTask.containerSlot = 5 + slotType;  // armor slot
             equipTask.hotbarIndex = hotbarIndex;
             pendingSwaps.push_back(equipTask);
-            
-            // If there was armor equipped, we need to move it somewhere
-            // The old armor is now in the hotbar slot
-            if (currentId != 0) {
-                // Find an empty slot in main inventory to store old armor
-                int emptyInvSlot = -1;
-                for (const auto& slot : slots) {
-                    if (slot.slotId >= 9 && slot.slotId <= 35 && slot.itemId == 0) {
-                        emptyInvSlot = slot.slotId;
-                        break;
-                    }
-                }
-                if (emptyInvSlot != -1) {
-                    SwapTask restoreTask;
-                    restoreTask.containerSlot = emptyInvSlot;  // main inv slot
-                    restoreTask.hotbarIndex = hotbarIndex;
-                    pendingSwaps.push_back(restoreTask);
-                }
-            }
         } else {
             // Case 2: Armor is in main inventory (sourceSlot 9-35)
             // Need to use hotbar as intermediary
@@ -594,6 +447,9 @@ void ArmorSwitch::onRenderMenu() {
         int delay = settings.switchDelay;
         if (ui::SliderInt("Delay (ms)", &delay, 0, 200, "%d"))
             settings.switchDelay = delay;
+        
+        ImGui::Spacing();
+        ui::Checkbox("Prefer Protection", &settings.preferProtection);
     });
 }
 
