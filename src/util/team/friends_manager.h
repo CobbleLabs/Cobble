@@ -239,7 +239,7 @@ private:
     static constexpr int kApolloGreenConfirmCount =
         3;  // Requires 3 green signals to confirm (prevents cosmetic effect false positives)
     static constexpr int64_t kApolloGreenConfirmWindowMs = 1500;
-    static constexpr int64_t kApolloTeammateGraceMs = 8000;
+    static constexpr int64_t kApolloTeammateGraceMs = 10000;  // 10 seconds grace period for archer tag
 
     // Helper to lowercase a string
     static std::string toLower(const std::string& s);

@@ -687,13 +687,21 @@ void FriendsManager::setApolloNametagColor(const std::string& uuid, const std::s
             }
         }
     } else {
-        greenHits = 0;
+        // Only reset greenHits if NOT already a confirmed teammate
+        // This preserves confirmation state during temporary color changes (e.g., archer tag)
         auto itTeam = apolloNametagTeammates_.find(uuid);
-        if (itTeam != apolloNametagTeammates_.end()) {
+        if (itTeam == apolloNametagTeammates_.end()) {
+            // Not a teammate - reset hits
+            greenHits = 0;
+        } else {
+            // Already a teammate - check grace period before removing
+            // Keep greenHits intact so they don't need to re-confirm after archer tag
             if (lastGreenMs == 0 || nowMs - lastGreenMs > kApolloTeammateGraceMs) {
                 apolloNametagTeammates_.erase(itTeam);
-                log_debug("[Apollo] Nametag TEAMMATE removed: %s -> %s", uuid.substr(0, 8).c_str(), color.c_str());
+                greenHits = 0;  // Reset hits only when actually removed
+                log_debug("[Apollo] Nametag TEAMMATE removed: %s -> %s (grace expired)", uuid.substr(0, 8).c_str(), color.c_str());
             }
+            // else: within grace period, keep teammate status and greenHits
         }
     }
 
