@@ -57,6 +57,49 @@ unsigned int ItemTextureManager::loadTexture(const std::string& name) {
     return textureId;
 }
 
+// Helper to get potion texture name from damage value
+// Damage value format in MC 1.7/1.8: bits encode potion type, tier, extended, splash
+static std::string getPotionTextureName(int damage, bool isSplashItem) {
+    // Extract potion effect from damage value
+    // Lower 4 bits (0-15) = base potion type
+    // Bit 5 (32) = tier II
+    // Bit 6 (64) = extended duration
+    // Bit 14 (16384) = splash (for ID 373)
+    
+    int baseType = damage & 0x0F;
+    bool tierII = (damage & 0x20) != 0;
+    bool extended = (damage & 0x40) != 0;
+    bool isSplash = isSplashItem || ((damage & 0x4000) != 0);
+    
+    std::string prefix = "potion_";
+    std::string suffix = "";
+    
+    if (isSplash) suffix = "_splash";
+    else if (tierII) suffix = "_2";
+    else if (extended) suffix = "_ext";
+    
+    // Map base potion types
+    switch (baseType) {
+        case 0:  return "potion_bottle_empty";  // Water bottle
+        case 1:  return prefix + "regen" + suffix;
+        case 2:  return prefix + "speed" + suffix;
+        case 3:  return prefix + "fire_res" + suffix;
+        case 4:  return prefix + "poison" + suffix;
+        case 5:  return prefix + "health" + suffix;
+        case 6:  return prefix + "night_vision" + suffix;
+        case 8:  return prefix + "weakness" + suffix;
+        case 9:  return prefix + "strength" + suffix;
+        case 10: return prefix + "slowness" + suffix;
+        case 11: return prefix + "leaping" + suffix;
+        case 12: return prefix + "harming" + suffix;
+        case 13: return prefix + "water_breathing" + suffix;
+        case 14: return prefix + "invisibility" + suffix;
+        default: 
+            // Unknown potion type - return generic
+            return isSplash ? "potion_bottle_splash" : "potion_bottle_drinkable";
+    }
+}
+
 std::string ItemTextureManager::getTextureFilename(int itemId, int damage) {
     switch (itemId) {
         // Swords
@@ -139,9 +182,9 @@ std::string ItemTextureManager::getTextureFilename(int itemId, int damage) {
         case 393: return "potato_baked";
         case 400: return "pumpkin_pie";
         
-        // Potions
-        case 373: return "potion_bottle_drinkable";
-        case 438: return "potion_bottle_splash";
+        // Potions - use damage value to determine type
+        case 373: return getPotionTextureName(damage, false);
+        case 438: return getPotionTextureName(damage, true);
         
         // Ender items
         case 368: return "ender_pearl";

@@ -69,7 +69,7 @@ public:
     } settings;
 
 private:
-    enum class State { Idle, WaitingForInventory, OpeningInventory, Switching, Closing };
+    enum class State { Idle, OpeningInventory, Switching, Closing };
 
     State state = State::Idle;
     std::chrono::steady_clock::time_point stateStartTime;
@@ -100,10 +100,13 @@ private:
     int detectCurrentSet();
 
     void scanForSwaps();
-    void finishSwap();
+    void finishSwap(bool fromOnInventoryOpen = false);
     
     // Convert mainInventory slot (0-35) to container slot for windowClickSwap
     int inventoryToContainerSlot(int invSlot);
+    
+    // Track inventory open state for passive mode
+    bool wasInventoryOpen = false;
 };
 
 extern ArmorSwitch* armorSwitch;

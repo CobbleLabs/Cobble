@@ -49,8 +49,8 @@ ArmorSwitch::ArmorSwitch() : Module("ArmorSwitch") {
 }
 
 bool ArmorSwitch::canToggle() {
-    // Prevent spam: don't allow toggle while processing
-    return state == State::Idle;
+    // Block toggle when in passive mode (onInventoryOpen)
+    return !settings.onInventoryOpen && state == State::Idle;
 }
 
 int ArmorSwitch::inventoryToContainerSlot(int invSlot) {
@@ -183,26 +183,18 @@ void ArmorSwitch::onEnable() {
         return;
     }
     
-    // If onInventoryOpen mode: wait for inventory to be opened
+    // Passive mode: just stay enabled and monitor in onUpdate
     if (settings.onInventoryOpen) {
-        if (mc.isInventoryOpen()) {
-            // Already open, proceed immediately
-            goto start_switching;
-        } else {
-            // Wait for user to open inventory
-            state = State::WaitingForInventory;
-            stateStartTime = std::chrono::steady_clock::now();
-            return;
-        }
-    } else {
-        // Normal mode: don't start if already in a GUI
-        if (mc.isInGui()) {
-            enabled = false;
-            return;
-        }
+        wasInventoryOpen = mc.isInventoryOpen();
+        return;  // Stay enabled, onUpdate will handle the rest
+    }
+    
+    // Manual mode: don't start if already in a GUI
+    if (mc.isInGui()) {
+        enabled = false;
+        return;
     }
 
-start_switching:
     // Detect current set and switch to the OTHER one
     int currentSet = detectCurrentSet();
     if (currentSet == 0) {
@@ -218,17 +210,10 @@ start_switching:
         return;
     }
 
-    if (settings.onInventoryOpen || mc.isInventoryOpen()) {
-        // Inventory already open, go straight to switching
-        state = State::Switching;
-        stateStartTime = std::chrono::steady_clock::now();
-        lastClickTime = stateStartTime - std::chrono::milliseconds(settings.switchDelay);
-    } else {
-        // Open inventory first
-        sendLwjglKey(mc.getInventoryKey());
-        state = State::OpeningInventory;
-        stateStartTime = std::chrono::steady_clock::now();
-    }
+    // Open inventory first
+    sendLwjglKey(mc.getInventoryKey());
+    state = State::OpeningInventory;
+    stateStartTime = std::chrono::steady_clock::now();
 }
 
 void ArmorSwitch::onDisable() {
@@ -236,20 +221,50 @@ void ArmorSwitch::onDisable() {
     pendingSwaps.clear();
 }
 
-void ArmorSwitch::finishSwap() {
-    // Always close inventory when done
-    if (mc.isInventoryOpen()) {
+void ArmorSwitch::finishSwap(bool fromOnInventoryOpen) {
+    // Only close inventory if not in passive mode
+    if (!fromOnInventoryOpen && mc.isInventoryOpen()) {
         sendKey(VK_ESCAPE);
     }
 
     state = State::Idle;
     pendingSwaps.clear();
-    enabled = false;
+    
+    // Don't disable in passive mode - stays active to detect next inventory open
+    if (!settings.onInventoryOpen) {
+        enabled = false;
+    }
 }
 
 void ArmorSwitch::onUpdate() {
     if (!player.isValid())
         return;
+
+    // Passive mode: monitor for inventory open
+    if (settings.onInventoryOpen && state == State::Idle) {
+        bool inventoryOpen = mc.isInventoryOpen();
+        
+        if (inventoryOpen && !wasInventoryOpen) {
+            // User just opened inventory - detect and switch armor
+            int currentSet = detectCurrentSet();
+            if (currentSet == 0) {
+                targetSet = 1;
+            } else {
+                targetSet = 0;
+            }
+            
+            scanForSwaps();
+            
+            if (!pendingSwaps.empty()) {
+                state = State::Switching;
+                stateStartTime = std::chrono::steady_clock::now();
+                lastClickTime = stateStartTime - std::chrono::milliseconds(settings.switchDelay);
+            }
+        }
+        
+        wasInventoryOpen = inventoryOpen;
+    }
+
     if (state == State::Idle)
         return;
 
@@ -259,31 +274,6 @@ void ArmorSwitch::onUpdate() {
     switch (state) {
         case State::Idle:
             break;
-
-        case State::WaitingForInventory: {
-            // Wait for user to open inventory (onInventoryOpen mode)
-            if (mc.isInventoryOpen()) {
-                // User opened inventory - now start the process
-                int currentSet = detectCurrentSet();
-                if (currentSet == 0) {
-                    targetSet = 1;
-                } else {
-                    targetSet = 0;
-                }
-
-                scanForSwaps();
-
-                if (pendingSwaps.empty()) {
-                    finishSwap();
-                    return;
-                }
-
-                state = State::Switching;
-                stateStartTime = now;
-                lastClickTime = now - std::chrono::milliseconds(settings.switchDelay);
-            }
-            break;
-        }
 
         case State::OpeningInventory: {
             if (mc.isInventoryOpen()) {
@@ -301,7 +291,7 @@ void ArmorSwitch::onUpdate() {
                 return;
 
             if (!mc.isInventoryOpen()) {
-                finishSwap();
+                finishSwap(settings.onInventoryOpen);
                 return;
             }
 
@@ -328,7 +318,7 @@ void ArmorSwitch::onUpdate() {
 
         case State::Closing: {
             if (elapsed >= settings.switchDelay) {
-                finishSwap();
+                finishSwap(settings.onInventoryOpen);
             }
             break;
         }

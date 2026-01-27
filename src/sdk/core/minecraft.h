@@ -118,7 +118,8 @@ struct Minecraft {
     void windowClickSwap(int containerSlot, int hotbarIndex);  // Swap container slot with hotbar (mode 2)
     void openInventory();                                      // Open player inventory GUI
     void closeInventory();                                     // Close current GUI
-    bool isInventoryOpen();                                    // Check if inventory GUI is open
+    bool isInventoryOpen();                                    // Check if any container GUI is open
+    bool isPlayerInventoryOpen();                              // Check if player inventory (E key) is open
 
     // Get local player's team color from their displayName
     // Returns -1 (UNKNOWN) if no color code found

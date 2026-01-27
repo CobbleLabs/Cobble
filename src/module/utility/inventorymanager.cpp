@@ -62,17 +62,12 @@ int InventoryManager::inventoryToContainerSlot(int invSlot) {
 }
 
 void InventoryManager::saveHotbar() {
-    log_debug("[InvMgr] saveHotbar() called");
-    
-    log_debug("[InvMgr] mc.isValid()=%d, player.isValid()=%d", mc.isValid() ? 1 : 0, player.isValid() ? 1 : 0);
     if (!mc.isValid() || !player.isValid()) {
         NotificationManager::addSystem("Cannot save, not in game");
         return;
     }
     
-    log_debug("[InvMgr] Calling mc.getInventorySlots()...");
     auto slots = mc.getInventorySlots();
-    log_debug("[InvMgr] getInventorySlots() returned %zu slots", slots.size());
     
     if (slots.empty()) {
         NotificationManager::addSystem("Cannot save, inventory empty");
@@ -111,26 +106,12 @@ void InventoryManager::onEnable() {
         return;
     }
     
-    // If onInventoryOpen mode: wait for inventory to be opened
-    if (settings.onInventoryOpen) {
-        if (mc.isInventoryOpen()) {
-            // Already open, proceed immediately
-            goto start_restoring;
-        } else {
-            // Wait for user to open inventory
-            state = State::WaitingForInventory;
-            stateStartTime = std::chrono::steady_clock::now();
-            return;
-        }
-    } else {
-        // Normal mode: don't start if already in a GUI
-        if (mc.isInGui()) {
-            enabled = false;
-            return;
-        }
+    // Don't start if already in a GUI
+    if (mc.isInGui()) {
+        enabled = false;
+        return;
     }
 
-start_restoring:
     if (!presets[settings.activePreset].saved) {
         saveHotbar();
         enabled = false;
@@ -145,17 +126,10 @@ start_restoring:
         return;
     }
 
-    if (settings.onInventoryOpen || mc.isInventoryOpen()) {
-        // Inventory already open, go straight to swapping
-        state = State::Swapping;
-        stateStartTime = std::chrono::steady_clock::now();
-        lastSwapTime = stateStartTime - std::chrono::milliseconds(settings.swapDelay);
-    } else {
-        // Open inventory first using user's inventory key
-        sendLwjglKey(mc.getInventoryKey());
-        state = State::OpeningInventory;
-        stateStartTime = std::chrono::steady_clock::now();
-    }
+    // Open inventory using user's inventory key
+    sendLwjglKey(mc.getInventoryKey());
+    state = State::OpeningInventory;
+    stateStartTime = std::chrono::steady_clock::now();
 }
 
 void InventoryManager::onDisable() {
@@ -175,6 +149,7 @@ void InventoryManager::finishRestore() {
 void InventoryManager::onUpdate() {
     if (!player.isValid())
         return;
+
     if (state == State::Idle)
         return;
 
@@ -185,33 +160,8 @@ void InventoryManager::onUpdate() {
         case State::Idle:
             break;
 
-        case State::WaitingForInventory: {
-            // Wait for user to open inventory (onInventoryOpen mode)
-            if (mc.isInventoryOpen()) {
-                // User opened inventory - now start the process
-                if (!presets[settings.activePreset].saved) {
-                    saveHotbar();
-                    finishRestore();
-                    return;
-                }
-
-                scanForSwaps();
-
-                if (pendingSwaps.empty()) {
-                    NotificationManager::addSystem("Hotbar already matches");
-                    finishRestore();
-                    return;
-                }
-
-                state = State::Swapping;
-                stateStartTime = now;
-                lastSwapTime = now - std::chrono::milliseconds(settings.swapDelay);
-            }
-            break;
-        }
-
         case State::OpeningInventory: {
-            if (mc.isInventoryOpen()) {
+            if (mc.isPlayerInventoryOpen()) {
                 state = State::Swapping;
                 stateStartTime = now;
                 lastSwapTime = now - std::chrono::milliseconds(settings.swapDelay);
@@ -222,7 +172,7 @@ void InventoryManager::onUpdate() {
         }
 
         case State::Swapping: {
-            if (!mc.isInventoryOpen()) {
+            if (!mc.isPlayerInventoryOpen()) {
                 finishRestore();
                 return;
             }
@@ -248,6 +198,7 @@ void InventoryManager::onUpdate() {
                 break;
             }
             
+            log_debug("[InvManager] Executing swap: container %d -> hotbar %d", containerSlot, task.targetHotbar);
             mc.windowClickSwap(containerSlot, task.targetHotbar);
 
             lastSwapTime = now;
@@ -289,11 +240,10 @@ void InventoryManager::scanForSwaps() {
     
     const Preset& preset = presets[settings.activePreset];
     
-    // Mark hotbar slots that are already correct as "used" so we don't pull from them
+    // Mark ALL hotbar slots that are targets in the preset as unavailable for sourcing
+    // This prevents stealing items that will be placed in earlier hotbar slots
     for (int i = 0; i < 9; i++) {
-        if (preset.slots[i].itemId != 0 &&
-            current[i].itemId == preset.slots[i].itemId &&
-            current[i].damage == preset.slots[i].damage) {
+        if (preset.slots[i].itemId != 0) {
             usedAsSource[i] = true;
         }
     }
@@ -352,6 +302,7 @@ void InventoryManager::scanForSwaps() {
             continue;  // Item not found in inventory
 
         pendingSwaps.push_back({sourceSlot, targetSlot});
+        log_debug("[InvManager] Planned swap: slot %d -> hotbar %d (item %d)", sourceSlot, targetSlot, wantedId);
         
         // Mark source as used
         usedAsSource[sourceSlot] = true;
@@ -533,8 +484,6 @@ void InventoryManager::onRenderMenu() {
             settings.swapDelay = delay;
         
         ImGui::Spacing();
-        ui::Checkbox("On Inventory Open", &settings.onInventoryOpen);
-        ImGui::Spacing();
         ImGui::Separator();
         ImGui::Spacing();
         
@@ -578,9 +527,7 @@ void InventoryManager::onRenderMenu() {
         
         // Save button
         if (ImGui::Button(currentPreset.saved ? "Overwrite" : "Save Hotbar", ImVec2(ImGui::GetContentRegionAvail().x, 0))) {
-            log_debug("[InvMgr] Save button clicked");
             saveHotbar();
-            log_debug("[InvMgr] saveHotbar() returned");
         }
         
         ImGui::Spacing();
@@ -596,8 +543,6 @@ void InventoryManager::onRenderMenu() {
         
         ImDrawList* draw = ImGui::GetWindowDrawList();
         
-        log_debug("[InvMgr] Rendering slots, saved=%d", currentPreset.saved ? 1 : 0);
-        
         for (int i = 0; i < 9; i++) {
             ImVec2 slotMin = ImVec2(cursor.x + i * (slotSize + spacing), cursor.y);
             ImVec2 slotMax = ImVec2(slotMin.x + slotSize, slotMin.y + slotSize);
@@ -608,10 +553,8 @@ void InventoryManager::onRenderMenu() {
                 draw->AddRectFilled(slotMin, slotMax, IM_COL32(40, 40, 40, 220), 4.0f);
                 draw->AddRect(slotMin, slotMax, IM_COL32(80, 80, 80, 255), 4.0f);
                 
-                log_debug("[InvMgr] Slot %d: itemId=%d, damage=%d - getting texture", i, currentPreset.slots[i].itemId, currentPreset.slots[i].damage);
                 // Try to get item texture
                 unsigned int texId = ItemTextureManager::get().getTexture(currentPreset.slots[i].itemId, currentPreset.slots[i].damage);
-                log_debug("[InvMgr] Slot %d: texId=%u", i, texId);
                 
                 if (texId != 0) {
                     // Render item texture

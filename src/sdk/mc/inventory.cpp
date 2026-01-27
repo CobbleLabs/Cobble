@@ -576,7 +576,7 @@ void Minecraft::closeInventory() {
 }
 
 // =============================================================================
-// isInventoryOpen - Check if an inventory GUI is open
+// isInventoryOpen - Check if an inventory GUI is open (any container)
 // =============================================================================
 
 bool Minecraft::isInventoryOpen() {
@@ -601,6 +601,38 @@ bool Minecraft::isInventoryOpen() {
     if (Java::AssignClass("net.minecraft.client.gui.inventory.GuiContainer", guiContainerCls)) {
         result = env->IsInstanceOf(screen, guiContainerCls);
         env->DeleteLocalRef(guiContainerCls);
+    }
+
+    env->DeleteLocalRef(screen);
+    return result;
+}
+
+// =============================================================================
+// isPlayerInventoryOpen - Check if specifically the player inventory GUI is open
+// =============================================================================
+
+bool Minecraft::isPlayerInventoryOpen() {
+    if (!isValid())
+        return false;
+
+    JNIEnv* env = Java::Env();
+    if (!env)
+        return false;
+
+    if (!JniCache::fid_currentScreen)
+        return false;
+
+    jobject screen = env->GetObjectField(instance, JniCache::fid_currentScreen);
+    if (!screen)
+        return false;
+
+    // Check if it's specifically GuiInventory (player inventory only)
+    jclass guiInventoryCls = nullptr;
+    bool result = false;
+
+    if (Java::AssignClass("net.minecraft.client.gui.inventory.GuiInventory", guiInventoryCls)) {
+        result = env->IsInstanceOf(screen, guiInventoryCls);
+        env->DeleteLocalRef(guiInventoryCls);
     }
 
     env->DeleteLocalRef(screen);
