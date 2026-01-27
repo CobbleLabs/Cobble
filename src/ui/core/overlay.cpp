@@ -5,6 +5,7 @@
 #include "../../sdk/player/render_data.h"
 #include "../../util/logger.hpp"
 #include "../../util/team/friends_manager.h"
+#include "../../util/textures/item_textures.h"
 #include "../hud/arraylist.h"
 #include "../hud/notifications.h"
 #include "../menu/menu.h"
@@ -140,6 +141,9 @@ void SetupImGui() {
     }
 
     Overlay::initialized = true;
+    
+    // Initialize item textures (embedded in DLL, no path needed)
+    ItemTextureManager::get().init("");
 }
 
 LRESULT CALLBACK HookedWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {

@@ -20,6 +20,7 @@
 #include "../../module/utility/bridgeassist.h"
 #include "../../module/utility/fastplace.h"
 #include "../../module/utility/noitemrelease.h"
+#include "../../module/utility/inventorymanager.h"
 #include "../../module/visual/blockesp.h"
 #include "../../module/visual/esp.h"
 #include "../../module/visual/nametags.h"
@@ -109,6 +110,8 @@ Module* getModuleForSubtab(int tabIdx, int subtabIdx) {
                 return bridgeAssist;
             case 5:
                 return autoTool;
+            case 6:
+                return inventoryManager;
         }
     }
     // Settings Tab (4) - no module, handled specially

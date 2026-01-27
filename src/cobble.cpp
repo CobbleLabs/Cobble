@@ -19,6 +19,7 @@
 #include "module/utility/bridgeassist.h"
 #include "module/utility/fastplace.h"
 #include "module/utility/noitemrelease.h"
+#include "module/utility/inventorymanager.h"
 #include "module/visual/blockesp.h"
 #include "module/visual/esp.h"
 #include "module/visual/nametags.h"
@@ -148,6 +149,7 @@ void cobble::context::initialize(HMODULE hModule) {
     fastPlace = new FastPlace();
     timerModule = new TimerMod();
     autoTool = new AutoTool();
+    inventoryManager = new InventoryManager();
     nameTags = new NameTags();
     esp = new ESP();
     tracers = new Tracers();
@@ -175,6 +177,7 @@ void cobble::context::initialize(HMODULE hModule) {
     moduleManager->registerModule(fastPlace);
     moduleManager->registerModule(timerModule);
     moduleManager->registerModule(autoTool);
+    moduleManager->registerModule(inventoryManager);
     moduleManager->registerModule(nameTags);
     moduleManager->registerModule(esp);
     moduleManager->registerModule(tracers);
@@ -380,6 +383,8 @@ void cobble::context::shutdown() {
         timerModule->setEnabled(false);
     if (autoTool)
         autoTool->setEnabled(false);
+    if (inventoryManager)
+        inventoryManager->setEnabled(false);
     if (nameTags)
         nameTags->setEnabled(false);
     if (esp)
@@ -470,6 +475,10 @@ void cobble::context::shutdown() {
     if (autoTool) {
         delete autoTool;
         autoTool = nullptr;
+    }
+    if (inventoryManager) {
+        delete inventoryManager;
+        inventoryManager = nullptr;
     }
     if (nameTags) {
         delete nameTags;

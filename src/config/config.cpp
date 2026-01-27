@@ -18,6 +18,7 @@
 #include "../module/utility/bridgeassist.h"
 #include "../module/utility/fastplace.h"
 #include "../module/utility/noitemrelease.h"
+#include "../module/utility/inventorymanager.h"
 #include "../module/visual/blockesp.h"
 #include "../module/visual/esp.h"
 #include "../module/visual/nametags.h"
@@ -339,6 +340,24 @@ void ConfigManager::applyConfig() {
                     s.blinkColor[2] = data["blinkColor"]["b"].as_float(s.blinkColor[2]);
                     s.blinkColor[3] = data["blinkColor"]["a"].as_float(s.blinkColor[3]);
                 }
+            } else if (name == "InvManager" && inventoryManager) {
+                inventoryManager->settings.swapDelay = data["swapDelay"].as_int(50);
+                inventoryManager->settings.activePreset = data["activePreset"].as_int(0);
+                if (data.has("presets")) {
+                    for (int p = 0; p < InventoryManager::MAX_PRESETS; p++) {
+                        std::string presetKey = "p" + std::to_string(p);
+                        if (data["presets"].has(presetKey)) {
+                            inventoryManager->presets[p].saved = data["presets"][presetKey]["saved"].as_bool(false);
+                            for (int i = 0; i < 9; i++) {
+                                std::string slotKey = std::to_string(i);
+                                if (data["presets"][presetKey].has(slotKey)) {
+                                    inventoryManager->presets[p].slots[i].itemId = data["presets"][presetKey][slotKey]["id"].as_int(0);
+                                    inventoryManager->presets[p].slots[i].damage = data["presets"][presetKey][slotKey]["dmg"].as_int(0);
+                                }
+                            }
+                        }
+                    }
+                }
             }
 
             break;
@@ -594,6 +613,18 @@ void ConfigManager::buildConfigFromModules() {
             config_["modules"][name]["blinkColor"]["g"] = s.blinkColor[1];
             config_["modules"][name]["blinkColor"]["b"] = s.blinkColor[2];
             config_["modules"][name]["blinkColor"]["a"] = s.blinkColor[3];
+        } else if (name == "InvManager" && inventoryManager) {
+            config_["modules"][name]["swapDelay"] = inventoryManager->settings.swapDelay;
+            config_["modules"][name]["activePreset"] = inventoryManager->settings.activePreset;
+            for (int p = 0; p < InventoryManager::MAX_PRESETS; p++) {
+                std::string presetKey = "p" + std::to_string(p);
+                config_["modules"][name]["presets"][presetKey]["saved"] = inventoryManager->presets[p].saved;
+                for (int i = 0; i < 9; i++) {
+                    std::string slotKey = std::to_string(i);
+                    config_["modules"][name]["presets"][presetKey][slotKey]["id"] = inventoryManager->presets[p].slots[i].itemId;
+                    config_["modules"][name]["presets"][presetKey][slotKey]["dmg"] = inventoryManager->presets[p].slots[i].damage;
+                }
+            }
         }
     }
 }

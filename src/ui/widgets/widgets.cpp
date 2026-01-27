@@ -37,7 +37,7 @@ std::vector<ui::tab_t> ui::tabs = {
     {ICON_FA_RUNNING, "Movement", {"Timer", "NoJumpDelay", "Blink"}},
     {ICON_FA_KEYBOARD,
      "Utility",
-     {"ArmorSwitch", "AutoRefill", "FastPlace", "NoItemRelease", "BridgeAssist", "AutoTool"}},
+     {"ArmorSwitch", "AutoRefill", "FastPlace", "NoItemRelease", "BridgeAssist", "AutoTool", "InvManager"}},
     {ICON_FA_GEAR, "Settings", {}}};
 
 // ==================== SCALING ====================

@@ -8,6 +8,14 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/).
 
 ## [1.1.11] - 2026-01-26
 
+### Added
+- **InventoryManager Module**: Guarda y restaura la configuración del hotbar
+  - Guarda layout actual (botón en menú o primer toggle con keybind)
+  - Restaura items a sus posiciones guardadas al presionar keybind
+  - Delay configurable entre swaps
+  - Útil para modalidades con abilities que desacomodan el hotbar
+  - Config persistence (layout guardado se mantiene entre sesiones)
+
 ### Fixed
 - **Crash con múltiples módulos de combate activos**: Corregido memory leak de JNI LocalRefs
   - **Backtrack**: `onUpdate()` no liberaba los `jobject instance` de `getPlayerList()`

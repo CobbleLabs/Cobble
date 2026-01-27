@@ -127,6 +127,7 @@
     <ClCompile Include="src\module\utility\fastplace.cpp" />
     <ClCompile Include="src\module\movement\timer.cpp" />
     <ClCompile Include="src\module\utility\autotool.cpp" />
+    <ClCompile Include="src\module\utility\inventorymanager.cpp" />
     <ClCompile Include="src\module\visual\nametags.cpp" />
     <ClCompile Include="src\module\visual\esp.cpp" />
     <ClCompile Include="src\module\visual\tracers.cpp" />
@@ -146,6 +147,7 @@
     <ClCompile Include="src\util\math\worldToScreen.cpp" />
     <ClCompile Include="src\util\team\friends_manager.cpp" />
     <ClCompile Include="src\util\inventory\inventory_hooks.cpp" />
+    <ClCompile Include="src\util\textures\item_textures.cpp" />
     <!-- External libraries -->
     <ClCompile Include="infra\ext\imgui\imgui.cpp" />
     <ClCompile Include="infra\ext\imgui\imgui_draw.cpp" />
@@ -197,6 +199,7 @@
     <ClInclude Include="src\module\utility\fastplace.h" />
     <ClInclude Include="src\module\movement\timer.h" />
     <ClInclude Include="src\module\utility\autotool.h" />
+    <ClInclude Include="src\module\utility\inventorymanager.h" />
     <ClInclude Include="src\module\visual\nametags.h" />
     <ClInclude Include="src\module\visual\esp.h" />
     <!-- UI -->
