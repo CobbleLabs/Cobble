@@ -26,12 +26,12 @@ private:
     ~ItemTextureManager() = default;
 
     // Load a PNG file and create GL texture
-    unsigned int loadTexture(const std::string& path);
+    unsigned int loadTexture(const std::string& name);
 
     // Get texture filename for item ID
     std::string getTextureFilename(int itemId, int damage = 0);
 
     std::string basePath;
-    std::unordered_map<int, unsigned int> textureCache;  // itemId -> GL texture ID
+    std::unordered_map<int, unsigned int> textureCache;  // cacheKey -> GL texture ID
     bool initialized = false;
 };

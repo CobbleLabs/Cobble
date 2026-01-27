@@ -24,6 +24,19 @@ static void sendKey(WORD vk) {
     SendInput(2, inputs, sizeof(INPUT));
 }
 
+// LWJGL key code to Windows scan code mapping
+// LWJGL uses scancodes directly for most keys
+static void sendLwjglKey(int lwjglKeyCode) {
+    INPUT inputs[2] = {};
+    inputs[0].type = INPUT_KEYBOARD;
+    inputs[0].ki.wScan = (WORD)lwjglKeyCode;
+    inputs[0].ki.dwFlags = KEYEVENTF_SCANCODE;
+    inputs[1].type = INPUT_KEYBOARD;
+    inputs[1].ki.wScan = (WORD)lwjglKeyCode;
+    inputs[1].ki.dwFlags = KEYEVENTF_SCANCODE | KEYEVENTF_KEYUP;
+    SendInput(2, inputs, sizeof(INPUT));
+}
+
 InventoryManager::InventoryManager() : Module("InvManager") {
     keybind = 0;
 }
@@ -73,11 +86,32 @@ void InventoryManager::saveHotbar() {
 }
 
 void InventoryManager::onEnable() {
-    if (mc.isInGui()) {
+    // Safety check - don't start if already processing
+    if (state != State::Idle) {
         enabled = false;
         return;
     }
+    
+    // If onInventoryOpen mode: wait for inventory to be opened
+    if (settings.onInventoryOpen) {
+        if (mc.isInventoryOpen()) {
+            // Already open, proceed immediately
+            goto start_restoring;
+        } else {
+            // Wait for user to open inventory
+            state = State::WaitingForInventory;
+            stateStartTime = std::chrono::steady_clock::now();
+            return;
+        }
+    } else {
+        // Normal mode: don't start if already in a GUI
+        if (mc.isInGui()) {
+            enabled = false;
+            return;
+        }
+    }
 
+start_restoring:
     if (!presets[settings.activePreset].saved) {
         saveHotbar();
         enabled = false;
@@ -92,9 +126,17 @@ void InventoryManager::onEnable() {
         return;
     }
 
-    sendKey('E');
-    state = State::OpeningInventory;
-    stateStartTime = std::chrono::steady_clock::now();
+    if (settings.onInventoryOpen || mc.isInventoryOpen()) {
+        // Inventory already open, go straight to swapping
+        state = State::Swapping;
+        stateStartTime = std::chrono::steady_clock::now();
+        lastSwapTime = stateStartTime - std::chrono::milliseconds(settings.swapDelay);
+    } else {
+        // Open inventory first using user's inventory key
+        sendLwjglKey(mc.getInventoryKey());
+        state = State::OpeningInventory;
+        stateStartTime = std::chrono::steady_clock::now();
+    }
 }
 
 void InventoryManager::onDisable() {
@@ -123,6 +165,31 @@ void InventoryManager::onUpdate() {
     switch (state) {
         case State::Idle:
             break;
+
+        case State::WaitingForInventory: {
+            // Wait for user to open inventory (onInventoryOpen mode)
+            if (mc.isInventoryOpen()) {
+                // User opened inventory - now start the process
+                if (!presets[settings.activePreset].saved) {
+                    saveHotbar();
+                    finishRestore();
+                    return;
+                }
+
+                scanForSwaps();
+
+                if (pendingSwaps.empty()) {
+                    NotificationManager::addSystem("Hotbar already matches");
+                    finishRestore();
+                    return;
+                }
+
+                state = State::Swapping;
+                stateStartTime = now;
+                lastSwapTime = now - std::chrono::milliseconds(settings.swapDelay);
+            }
+            break;
+        }
 
         case State::OpeningInventory: {
             if (mc.isInventoryOpen()) {
@@ -155,6 +222,13 @@ void InventoryManager::onUpdate() {
             pendingSwaps.erase(pendingSwaps.begin());
 
             int containerSlot = inventoryToContainerSlot(task.sourceSlot);
+            
+            // Safety check - skip if slot is invalid
+            if (containerSlot < 0 || task.targetHotbar < 0 || task.targetHotbar > 8) {
+                lastSwapTime = now;
+                break;
+            }
+            
             mc.windowClickSwap(containerSlot, task.targetHotbar);
 
             lastSwapTime = now;
@@ -429,6 +503,8 @@ void InventoryManager::onRenderMenu() {
         if (ui::SliderInt("Click Delay (ms)", &delay, 0, 200, "%d"))
             settings.swapDelay = delay;
         
+        ImGui::Spacing();
+        ui::Checkbox("On Inventory Open", &settings.onInventoryOpen);
         ImGui::Spacing();
         ImGui::Separator();
         ImGui::Spacing();

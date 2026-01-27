@@ -62,10 +62,13 @@ public:
         
         // When same material, prefer higher Protection enchant
         bool preferProtection = true;
+        
+        // Only trigger when inventory is already open
+        bool onInventoryOpen = false;
     } settings;
 
 private:
-    enum class State { Idle, OpeningInventory, Switching, Closing };
+    enum class State { Idle, WaitingForInventory, OpeningInventory, Switching, Closing };
 
     State state = State::Idle;
     std::chrono::steady_clock::time_point stateStartTime;

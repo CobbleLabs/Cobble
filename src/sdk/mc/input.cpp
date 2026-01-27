@@ -69,6 +69,38 @@ int Minecraft::getSneakKey() {
 }
 
 // =============================================================================
+// getInventoryKey - Get the keycode for the inventory keybind
+// =============================================================================
+
+int Minecraft::getInventoryKey() {
+    if (!isValid())
+        return 18;  // 'E' default (LWJGL key code)
+
+    JNIEnv* env = Java::Env();
+    if (!env)
+        return 18;
+
+    jobject gameSettings = getGameSettings(env, instance);
+    if (!gameSettings)
+        return 18;
+
+    int code = 18;  // Default LWJGL key code for 'E'
+
+    if (JniCache::fid_keyBindInventory) {
+        jobject keyBindInventory = env->GetObjectField(gameSettings, JniCache::fid_keyBindInventory);
+        if (keyBindInventory) {
+            if (JniCache::mid_getKeyCode) {
+                code = env->CallIntMethod(keyBindInventory, JniCache::mid_getKeyCode);
+            }
+            env->DeleteLocalRef(keyBindInventory);
+        }
+    }
+
+    env->DeleteLocalRef(gameSettings);
+    return code;
+}
+
+// =============================================================================
 // releaseMovementKeys - Release all movement keybinds when menu opens
 // =============================================================================
 

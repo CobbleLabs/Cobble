@@ -167,6 +167,7 @@ extern jfieldID fid_keyBindSneak;
 extern jfieldID fid_keyBindSprint;
 extern jfieldID fid_keyBindAttack;
 extern jfieldID fid_keyBindUseItem;
+extern jfieldID fid_keyBindInventory;
 
 // =============================================================================
 // KeyBinding class IDs

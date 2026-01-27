@@ -18,7 +18,22 @@ ArmorSwitch* armorSwitch = nullptr;
 static const char* materialNames[] = {"Diamond", "Gold", "Iron", "Leather", "Chain"};
 static constexpr int MATERIAL_COUNT = 5;
 
-// Send keyboard input
+// LWJGL key code to Windows scan code mapping (common keys)
+// LWJGL uses scancodes directly for most keys
+static void sendLwjglKey(int lwjglKeyCode) {
+    // LWJGL key codes are already scan codes for most keys
+    // We need to send as scan code, not virtual key
+    INPUT inputs[2] = {};
+    inputs[0].type = INPUT_KEYBOARD;
+    inputs[0].ki.wScan = (WORD)lwjglKeyCode;
+    inputs[0].ki.dwFlags = KEYEVENTF_SCANCODE;
+    inputs[1].type = INPUT_KEYBOARD;
+    inputs[1].ki.wScan = (WORD)lwjglKeyCode;
+    inputs[1].ki.dwFlags = KEYEVENTF_SCANCODE | KEYEVENTF_KEYUP;
+    SendInput(2, inputs, sizeof(INPUT));
+}
+
+// Send keyboard input using VK code
 static void sendKey(WORD vk) {
     INPUT inputs[2] = {};
     inputs[0].type = INPUT_KEYBOARD;
@@ -150,11 +165,26 @@ int ArmorSwitch::detectCurrentSet() {
 }
 
 void ArmorSwitch::onEnable() {
-    if (mc.isInGui()) {
-        enabled = false;
-        return;
+    // If onInventoryOpen mode: wait for inventory to be opened
+    if (settings.onInventoryOpen) {
+        if (mc.isInventoryOpen()) {
+            // Already open, proceed immediately
+            goto start_switching;
+        } else {
+            // Wait for user to open inventory
+            state = State::WaitingForInventory;
+            stateStartTime = std::chrono::steady_clock::now();
+            return;
+        }
+    } else {
+        // Normal mode: don't start if already in a GUI
+        if (mc.isInGui()) {
+            enabled = false;
+            return;
+        }
     }
 
+start_switching:
     // Detect current set and switch to the OTHER one
     int currentSet = detectCurrentSet();
     if (currentSet == 0) {
@@ -170,9 +200,17 @@ void ArmorSwitch::onEnable() {
         return;
     }
 
-    sendKey('E');
-    state = State::OpeningInventory;
-    stateStartTime = std::chrono::steady_clock::now();
+    if (settings.onInventoryOpen || mc.isInventoryOpen()) {
+        // Inventory already open, go straight to switching
+        state = State::Switching;
+        stateStartTime = std::chrono::steady_clock::now();
+        lastClickTime = stateStartTime - std::chrono::milliseconds(settings.switchDelay);
+    } else {
+        // Open inventory first
+        sendLwjglKey(mc.getInventoryKey());
+        state = State::OpeningInventory;
+        stateStartTime = std::chrono::steady_clock::now();
+    }
 }
 
 void ArmorSwitch::onDisable() {
@@ -181,6 +219,7 @@ void ArmorSwitch::onDisable() {
 }
 
 void ArmorSwitch::finishSwap() {
+    // Always close inventory when done
     if (mc.isInventoryOpen()) {
         sendKey(VK_ESCAPE);
     }
@@ -203,6 +242,31 @@ void ArmorSwitch::onUpdate() {
         case State::Idle:
             break;
 
+        case State::WaitingForInventory: {
+            // Wait for user to open inventory (onInventoryOpen mode)
+            if (mc.isInventoryOpen()) {
+                // User opened inventory - now start the process
+                int currentSet = detectCurrentSet();
+                if (currentSet == 0) {
+                    targetSet = 1;
+                } else {
+                    targetSet = 0;
+                }
+
+                scanForSwaps();
+
+                if (pendingSwaps.empty()) {
+                    finishSwap();
+                    return;
+                }
+
+                state = State::Switching;
+                stateStartTime = now;
+                lastClickTime = now - std::chrono::milliseconds(settings.switchDelay);
+            }
+            break;
+        }
+
         case State::OpeningInventory: {
             if (mc.isInventoryOpen()) {
                 state = State::Switching;
@@ -224,6 +288,7 @@ void ArmorSwitch::onUpdate() {
             }
 
             if (pendingSwaps.empty()) {
+                // Done switching - go to closing
                 state = State::Closing;
                 stateStartTime = now;
                 return;
@@ -449,6 +514,7 @@ void ArmorSwitch::onRenderMenu() {
             settings.switchDelay = delay;
         
         ImGui::Spacing();
+        ui::Checkbox("On Inventory Open", &settings.onInventoryOpen);
         ui::Checkbox("Prefer Protection", &settings.preferProtection);
     });
 }

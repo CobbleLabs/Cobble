@@ -189,8 +189,16 @@ std::string ItemTextureManager::getTextureFilename(int itemId, int damage) {
 unsigned int ItemTextureManager::getTexture(int itemId, int damage) {
     if (!initialized) return 0;
     
+    // Use combined key for items that use damage for variants (potions: 373, 438)
+    // For most items, damage is durability and shouldn't affect texture
+    int cacheKey = itemId;
+    if (itemId == 373 || itemId == 438) {
+        // Potions use damage for type - combine into unique key
+        cacheKey = itemId * 10000 + damage;
+    }
+    
     // Check cache first
-    auto it = textureCache.find(itemId);
+    auto it = textureCache.find(cacheKey);
     if (it != textureCache.end()) {
         return it->second;
     }
@@ -198,13 +206,13 @@ unsigned int ItemTextureManager::getTexture(int itemId, int damage) {
     // Get texture name for this item
     std::string name = getTextureFilename(itemId, damage);
     if (name.empty()) {
-        textureCache[itemId] = 0;
+        textureCache[cacheKey] = 0;
         return 0;
     }
     
     // Load texture from embedded data
     unsigned int texId = loadTexture(name);
     
-    textureCache[itemId] = texId;
+    textureCache[cacheKey] = texId;
     return texId;
 }

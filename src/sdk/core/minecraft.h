@@ -165,7 +165,8 @@ struct Minecraft {
 
     // Input control (JNI)
     void setKeyBindState(int keyCode, bool pressed);
-    int getSneakKey();  // Returns key code for sneak keybind
+    int getSneakKey();      // Returns key code for sneak keybind
+    int getInventoryKey();  // Returns key code for inventory keybind (default 'E')
 
     // Mouse grab control (for menu open/close)
     // Releases or grabs mouse at LWJGL level to prevent camera movement when menu is open
