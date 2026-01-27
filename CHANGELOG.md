@@ -6,6 +6,16 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/).
 
 ---
 
+## [1.1.12] - 2026-01-27
+
+### Removed
+- **Criticals Module**: Eliminado completamente debido a crashes persistentes
+  - El módulo causaba crashes al interactuar con el hook de paquetes
+  - El cached jclass GlobalRef se invalidaba con el tiempo, causando crash sin logs
+  - Decisión: Remover hasta poder implementar una versión estable
+
+---
+
 ## [1.1.11] - 2026-01-26
 
 ### Added

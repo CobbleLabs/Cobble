@@ -7,7 +7,6 @@
 #include "../module/combat/nohitdelay.h"
 #include "../module/combat/reach.h"
 #include "../module/combat/velocity.h"
-#include "../module/combat/criticals.h"
 #include "../module/module.h"
 #include "../module/module_manager.h"
 #include "../module/movement/nojumpdelay.h"
@@ -300,12 +299,6 @@ void ConfigManager::applyConfig() {
                 fastPlace->settings.blocksOnly = data["blocksOnly"].as_bool(fastPlace->settings.blocksOnly);
             } else if (name == "NoHitDelay" && noHitDelay) {
                 noHitDelay->settings.weaponOnly = data["weaponOnly"].as_bool(noHitDelay->settings.weaponOnly);
-            } else if (name == "Criticals" && criticals) {
-                auto& s = criticals->settings;
-                s.maxDelayMs = data["maxDelayMs"].as_int(s.maxDelayMs);
-                s.onlyWhileAttacking = data["onlyWhileAttacking"].as_bool(s.onlyWhileAttacking);
-                s.lookingAtPlayer = data["lookingAtPlayer"].as_bool(s.lookingAtPlayer);
-                s.onlyWithSword = data["onlyWithSword"].as_bool(s.onlyWithSword);
             } else if (name == "Backtrack" && backtrack) {
                 auto& s = backtrack->settings;
                 s.mode = static_cast<BacktrackMode>(data["mode"].as_int(static_cast<int>(s.mode)));
@@ -583,12 +576,6 @@ void ConfigManager::buildConfigFromModules() {
             config_["modules"][name]["blocksOnly"] = fastPlace->settings.blocksOnly;
         } else if (name == "NoHitDelay" && noHitDelay) {
             config_["modules"][name]["weaponOnly"] = noHitDelay->settings.weaponOnly;
-        } else if (name == "Criticals" && criticals) {
-            const auto& s = criticals->settings;
-            config_["modules"][name]["maxDelayMs"] = s.maxDelayMs;
-            config_["modules"][name]["onlyWhileAttacking"] = s.onlyWhileAttacking;
-            config_["modules"][name]["lookingAtPlayer"] = s.lookingAtPlayer;
-            config_["modules"][name]["onlyWithSword"] = s.onlyWithSword;
         } else if (name == "Backtrack" && backtrack) {
             const auto& s = backtrack->settings;
             config_["modules"][name]["mode"] = static_cast<int>(s.mode);
