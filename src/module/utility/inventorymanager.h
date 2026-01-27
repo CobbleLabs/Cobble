@@ -68,6 +68,9 @@ private:
     std::vector<SwapTask> pendingSwaps;
     SwapTask lastSwap{};   // Last executed swap, for verification
 
+    // If true, last scan detected mismatches but couldn't schedule swaps (items missing)
+    bool lastScanMissingItems = false;
+
     static constexpr int TIMEOUT_MS = 2000;
     static constexpr int VERIFY_DELAY_MS = 40;
     static constexpr int MAX_RETRIES = 5;

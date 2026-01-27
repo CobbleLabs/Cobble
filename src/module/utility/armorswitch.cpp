@@ -296,7 +296,6 @@ void ArmorSwitch::onUpdate() {
                 // Done switching - go to closing
                 state = State::Closing;
                 stateStartTime = now;
-                log_debug("[ArmorSwitch] All swaps done, closing");
                 return;
             }
 
@@ -307,10 +306,6 @@ void ArmorSwitch::onUpdate() {
 
             lastSwap = pendingSwaps.front();
             pendingSwaps.erase(pendingSwaps.begin());
-
-            log_debug("[ArmorSwitch] Swap: container=%d, hotbar=%d, armorType=%d, expect=%d, retry=%d",
-                lastSwap.containerSlot, lastSwap.hotbarIndex, lastSwap.armorSlotType, 
-                lastSwap.expectedItemId, lastSwap.retryCount);
 
             // Swap container slot with hotbar slot
             mc.windowClickSwap(lastSwap.containerSlot, lastSwap.hotbarIndex);
@@ -341,13 +336,11 @@ void ArmorSwitch::onUpdate() {
             auto retrySwap = [&]() {
                 if (lastSwap.retryCount < MAX_RETRIES) {
                     lastSwap.retryCount++;
-                    log_debug("[ArmorSwitch] Swap FAILED, retry #%d", lastSwap.retryCount);
                     pendingSwaps.insert(pendingSwaps.begin(), lastSwap);
                     state = State::Switching;
                     stateStartTime = now;
                     lastClickTime = now - std::chrono::milliseconds(effectiveDelay());
                 } else {
-                    log_debug("[ArmorSwitch] Swap FAILED, max retries exceeded");
                     state = State::Switching;
                     stateStartTime = now;
                 }
@@ -358,9 +351,6 @@ void ArmorSwitch::onUpdate() {
                 auto armorSlots = mc.getArmorSlots();
                 int currentId = (lastSwap.armorSlotType < (int)armorSlots.size()) 
                     ? armorSlots[lastSwap.armorSlotType].itemId : 0;
-
-                log_debug("[ArmorSwitch] Verify armor: slot=%d, current=%d, expected=%d, elapsed=%lldms",
-                    lastSwap.armorSlotType, currentId, lastSwap.expectedItemId, elapsed);
 
                 if (currentId == lastSwap.expectedItemId) {
                     state = State::Switching;
@@ -377,8 +367,6 @@ void ArmorSwitch::onUpdate() {
                         break;
                     }
                 }
-                log_debug("[ArmorSwitch] Verify hotbar move: idx=%d, current=%d, expected=%d, elapsed=%lldms",
-                    lastSwap.hotbarIndex, hotbarId, lastSwap.expectedItemId, elapsed);
                 if (hotbarId == lastSwap.expectedItemId) {
                     state = State::Switching;
                     stateStartTime = now;
@@ -396,8 +384,6 @@ void ArmorSwitch::onUpdate() {
                         break;
                     }
                 }
-                log_debug("[ArmorSwitch] Verify restore: invSlot=%d, current=%d, expected=%d, elapsed=%lldms",
-                    lastSwap.containerSlot, invId, lastSwap.expectedItemId, elapsed);
                 if (found && invId == lastSwap.expectedItemId) {
                     state = State::Switching;
                     stateStartTime = now;

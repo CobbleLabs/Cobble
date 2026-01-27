@@ -121,7 +121,7 @@ void InventoryManager::onEnable() {
     scanForSwaps();
 
     if (pendingSwaps.empty()) {
-        NotificationManager::addSystem("Hotbar already matches");
+        NotificationManager::addSystem(lastScanMissingItems ? "Preset items missing in inventory" : "Hotbar already matches");
         enabled = false;
         return;
     }
@@ -199,7 +199,6 @@ void InventoryManager::onUpdate() {
                 break;
             }
             
-            log_debug("[InvManager] Executing swap: container %d -> hotbar %d", containerSlot, task.targetHotbar);
             mc.windowClickSwap(containerSlot, task.targetHotbar);
 
             lastSwapTime = now;
@@ -244,13 +243,11 @@ void InventoryManager::onUpdate() {
             } else {
                 if (lastSwap.retryCount < MAX_RETRIES) {
                     lastSwap.retryCount++;
-                    log_debug("[InvManager] Swap FAILED, retry #%d", lastSwap.retryCount);
                     pendingSwaps.insert(pendingSwaps.begin(), lastSwap);
                     state = State::Swapping;
                     stateStartTime = now;
                     lastSwapTime = now - std::chrono::milliseconds(effectiveDelay());
                 } else {
-                    log_debug("[InvManager] Swap FAILED, max retries exceeded");
                     state = State::Swapping;
                     stateStartTime = now;
                 }
@@ -269,12 +266,12 @@ void InventoryManager::onUpdate() {
 
 void InventoryManager::scanForSwaps() {
     pendingSwaps.clear();
+    lastScanMissingItems = false;
 
     auto slots = mc.getInventorySlots();
     if (slots.empty())
         return;
 
-    // Build lookup: what's currently where
     struct CurrentSlot {
         int itemId = 0;
         int damage = 0;
@@ -290,87 +287,81 @@ void InventoryManager::scanForSwaps() {
 
     const Preset& preset = presets[settings.activePreset];
 
-    // PASS 1: Identify which hotbar slots already have the correct item in the correct position
-    // These slots should NOT be used as source for other swaps
-    bool correctlyPlaced[9] = {};
+    auto slotMatches = [&](int hotbarIdx) {
+        int wantedId = preset.slots[hotbarIdx].itemId;
+        int wantedDamage = preset.slots[hotbarIdx].damage;
+        bool compareDamage = (wantedId == 373);
+
+        if (wantedId == 0)
+            return current[hotbarIdx].itemId == 0;
+
+        if (current[hotbarIdx].itemId != wantedId)
+            return false;
+
+        if (compareDamage && current[hotbarIdx].damage != wantedDamage)
+            return false;
+
+        return true;
+    };
+
+    bool correct[9] = {};
+    for (int i = 0; i < 9; i++) {
+        correct[i] = slotMatches(i);
+    }
+
+    // Greedy planning: every iteration fixes one hotbar slot and updates state
     for (int targetSlot = 0; targetSlot < 9; targetSlot++) {
+        if (correct[targetSlot])
+            continue;
+
         int wantedId = preset.slots[targetSlot].itemId;
         int wantedDamage = preset.slots[targetSlot].damage;
-        
+        bool compareDamage = (wantedId == 373);
+
+        auto matchesWanted = [&](const CurrentSlot& s) {
+            if (s.itemId != wantedId)
+                return false;
+            if (compareDamage && s.damage != wantedDamage)
+                return false;
+            return true;
+        };
+
+        // If the slot should be empty, just record mismatch (we don't move items out yet)
         if (wantedId == 0) {
-            correctlyPlaced[targetSlot] = true;  // Empty slot is "correct"
+            if (current[targetSlot].itemId != 0)
+                lastScanMissingItems = true;
             continue;
         }
-        
-        bool compareDamage = (wantedId == 373);
-        
-        if (current[targetSlot].itemId == wantedId) {
-            if (!compareDamage || current[targetSlot].damage == wantedDamage) {
-                correctlyPlaced[targetSlot] = true;
+
+        int sourceSlot = -1;
+
+        // Priority 1: main inventory
+        for (int i = 9; i < 36; i++) {
+            if (matchesWanted(current[i])) {
+                sourceSlot = i;
+                break;
             }
         }
-    }
 
-    // Track which slots have been used as source (prevents using same item twice)
-    bool usedAsSource[36] = {};
-    
-    // Mark correctly placed hotbar items as used so they won't be stolen
-    for (int i = 0; i < 9; i++) {
-        if (correctlyPlaced[i]) {
-            usedAsSource[i] = true;
-        }
-    }
-
-    // PASS 2: For each incorrectly placed slot, find the item and create swap tasks
-    for (int targetSlot = 0; targetSlot < 9; targetSlot++) {
-        if (correctlyPlaced[targetSlot])
-            continue;
-            
-        int wantedId = preset.slots[targetSlot].itemId;
-        int wantedDamage = preset.slots[targetSlot].damage;
-
-        // Skip if slot should be empty
-        if (wantedId == 0)
-            continue;
-
-        bool compareDamage = (wantedId == 373);
-
-        // Find the item - Priority 1: main inventory, Priority 2: hotbar
-        int sourceSlot = -1;
-        
-        // Priority 1: Search main inventory (9-35)
-        for (int i = 9; i < 36; i++) {
-            if (usedAsSource[i])
-                continue;
-            if (current[i].itemId == wantedId) {
-                if (!compareDamage || current[i].damage == wantedDamage) {
+        // Priority 2: hotbar slots that aren't already correct
+        if (sourceSlot == -1) {
+            for (int i = 0; i < 9; i++) {
+                if (i == targetSlot)
+                    continue;
+                if (correct[i])  // don't steal from already correct slots
+                    continue;
+                if (matchesWanted(current[i])) {
                     sourceSlot = i;
                     break;
                 }
             }
         }
-        
-        // Priority 2: Search hotbar (0-8) - but NOT correctly placed items
-        if (sourceSlot == -1) {
-            for (int i = 0; i < 9; i++) {
-                if (i == targetSlot)
-                    continue;
-                if (usedAsSource[i])
-                    continue;
-                // Don't steal from correctly placed slots
-                if (correctlyPlaced[i])
-                    continue;
-                if (current[i].itemId == wantedId) {
-                    if (!compareDamage || current[i].damage == wantedDamage) {
-                        sourceSlot = i;
-                        break;
-                    }
-                }
-            }
-        }
 
-        if (sourceSlot == -1)
-            continue;  // Item not found in inventory
+        if (sourceSlot == -1) {
+            // Item not found anywhere; avoid false "matches" notification
+            lastScanMissingItems = true;
+            continue;
+        }
 
         SwapTask task{};
         task.sourceSlot = sourceSlot;
@@ -380,16 +371,13 @@ void InventoryManager::scanForSwaps() {
         task.compareDamage = compareDamage;
         task.retryCount = 0;
         pendingSwaps.push_back(task);
-        log_debug("[InvManager] Planned swap: slot %d -> hotbar %d (item %d)", sourceSlot, targetSlot, wantedId);
-        
-        // Mark source as used
-        usedAsSource[sourceSlot] = true;
-        
-        // Update current state to reflect the swap (items exchange positions)
+
+        // Simulate swap so following iterations see updated state
         std::swap(current[sourceSlot], current[targetSlot]);
-        
-        // If the source was in hotbar, the item that was in targetSlot is now at sourceSlot
-        // This might be the correct item for another slot, so we need to track this
+
+        if (sourceSlot < 9)
+            correct[sourceSlot] = slotMatches(sourceSlot);
+        correct[targetSlot] = slotMatches(targetSlot);
     }
 }
 
