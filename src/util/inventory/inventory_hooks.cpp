@@ -1,61 +1,18 @@
 #include "inventory_hooks.h"
+#include "../../sdk/jni/jni_cache.h"
 #include "../logger.hpp"
 
 int InventoryHooks::getItemIdFromStack(JNIEnv* env, jobject itemStack) {
-    if (!itemStack)
+    if (!itemStack || !JniCache::mid_getItem || !JniCache::cls_Item || !JniCache::mid_getIdFromItem)
         return -1;
 
-    // Get ItemStack class
-    jclass itemStackCls = env->GetObjectClass(itemStack);
-    if (!itemStackCls)
+    jobject item = env->CallObjectMethod(itemStack, JniCache::mid_getItem);
+    if (!item)
         return -1;
 
-    // Get Item class
-    jclass itemCls = nullptr;
-    if (!Java::AssignClass("net.minecraft.item.Item", itemCls)) {
-        env->DeleteLocalRef(itemStackCls);
-        return -1;
-    }
-
-    // Get itemStack.getItem() method
-    jmethodID mid_getItem = env->GetMethodID(itemStackCls, "getItem", "()Lnet/minecraft/item/Item;");
-    if (!mid_getItem || env->ExceptionCheck()) {
-        env->ExceptionClear();
-        env->DeleteLocalRef(itemStackCls);
-        env->DeleteLocalRef(itemCls);
-        return -1;
-    }
-
-    jobject item = env->CallObjectMethod(itemStack, mid_getItem);
-    if (!item || env->ExceptionCheck()) {
-        env->ExceptionClear();
-        env->DeleteLocalRef(itemStackCls);
-        env->DeleteLocalRef(itemCls);
-        return -1;
-    }
-
-    // Get Item.getIdFromItem static method
-    jmethodID mid_getIdFromItem = env->GetStaticMethodID(itemCls, "getIdFromItem", "(Lnet/minecraft/item/Item;)I");
-    if (!mid_getIdFromItem || env->ExceptionCheck()) {
-        env->ExceptionClear();
-        env->DeleteLocalRef(item);
-        env->DeleteLocalRef(itemStackCls);
-        env->DeleteLocalRef(itemCls);
-        return -1;
-    }
-
-    int itemId = env->CallStaticIntMethod(itemCls, mid_getIdFromItem, item);
-    if (env->ExceptionCheck()) {
-        env->ExceptionClear();
-        itemId = -1;
-    }
-
-    // Cleanup
+    int id = env->CallStaticIntMethod(JniCache::cls_Item, JniCache::mid_getIdFromItem, item);
     env->DeleteLocalRef(item);
-    env->DeleteLocalRef(itemStackCls);
-    env->DeleteLocalRef(itemCls);
-
-    return itemId;
+    return id;
 }
 
 bool InventoryHooks::install() {

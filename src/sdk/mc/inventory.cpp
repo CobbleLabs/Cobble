@@ -6,6 +6,23 @@
 #include "../jni/jni_cache.h"
 
 // =============================================================================
+// Helper: Get item ID from ItemStack (uses cached JNI IDs)
+// =============================================================================
+
+int getItemIdFromStack(JNIEnv* env, jobject itemStack) {
+    if (!itemStack || !JniCache::mid_getItem || !JniCache::cls_Item || !JniCache::mid_getIdFromItem)
+        return -1;
+
+    jobject item = env->CallObjectMethod(itemStack, JniCache::mid_getItem);
+    if (!item)
+        return -1;
+
+    int id = env->CallStaticIntMethod(JniCache::cls_Item, JniCache::mid_getIdFromItem, item);
+    env->DeleteLocalRef(item);
+    return id;
+}
+
+// =============================================================================
 // getInventorySlots - Get all 36 inventory slots info
 // =============================================================================
 
@@ -60,23 +77,6 @@ std::vector<SlotInfo> Minecraft::getInventorySlots() {
         return result;
     }
 
-    // Get Item class for getIdFromItem
-    jclass itemCls = nullptr;
-    Java::AssignClass("net.minecraft.item.Item", itemCls);
-
-    jmethodID mid_getIdFromItem = nullptr;
-    if (itemCls) {
-        mid_getIdFromItem = env->GetStaticMethodID(itemCls, "getIdFromItem", "(Lnet/minecraft/item/Item;)I");
-    }
-
-    // Get ItemPotion class for splash detection
-    jclass potionCls = nullptr;
-    Java::AssignClass("net.minecraft.item.ItemPotion", potionCls);
-    jmethodID mid_isSplash = nullptr;
-    if (potionCls) {
-        mid_isSplash = env->GetMethodID(potionCls, "isSplash", "(I)Z");
-    }
-
     // Get NBT classes for enchantment reading
     jclass nbtCompoundCls = nullptr;
     Java::AssignClass("net.minecraft.nbt.NBTTagCompound", nbtCompoundCls);
@@ -102,21 +102,12 @@ std::vector<SlotInfo> Minecraft::getInventorySlots() {
             continue;
         }
 
-        // Get item from stack
-        jobject item = nullptr;
-        if (JniCache::mid_getItem) {
-            item = env->CallObjectMethod(itemStack, JniCache::mid_getItem);
-        }
-
-        if (!item) {
+        // Get item ID using helper
+        slot.itemId = getItemIdFromStack(env, itemStack);
+        if (slot.itemId < 0) {
             env->DeleteLocalRef(itemStack);
             result.push_back(slot);
             continue;
-        }
-
-        // Get item ID
-        if (mid_getIdFromItem) {
-            slot.itemId = env->CallStaticIntMethod(itemCls, mid_getIdFromItem, item);
         }
 
         if (JniCache::fid_stackSize) {
@@ -140,9 +131,8 @@ std::vector<SlotInfo> Minecraft::getInventorySlots() {
 
         // Check if it's a potion (ID 373)
         if (slot.itemId == 373) {
-            if (mid_isSplash && potionCls && env->IsInstanceOf(item, potionCls)) {
-                slot.isSplashPotion = env->CallBooleanMethod(item, mid_isSplash, slot.damage);
-            }
+            // Splash detection via metadata bit 14 (0x4000 = 16384)
+            slot.isSplashPotion = (slot.damage & 0x4000) != 0;
 
             // Check if health potion by damage value
             if (slot.damage == 8197 || slot.damage == 8229 || slot.damage == 16389 || slot.damage == 16421) {
@@ -186,7 +176,6 @@ std::vector<SlotInfo> Minecraft::getInventorySlots() {
             }
         }
 
-        env->DeleteLocalRef(item);
         env->DeleteLocalRef(itemStack);
         result.push_back(slot);
     }
@@ -197,10 +186,6 @@ std::vector<SlotInfo> Minecraft::getInventorySlots() {
     env->DeleteLocalRef(mainInventory);
     if (nbtCompoundCls)
         env->DeleteLocalRef(nbtCompoundCls);
-    if (potionCls)
-        env->DeleteLocalRef(potionCls);
-    if (itemCls)
-        env->DeleteLocalRef(itemCls);
     env->DeleteLocalRef(inventoryCls);
     env->DeleteLocalRef(inventory);
     env->DeleteLocalRef(localPlayer);
@@ -254,14 +239,6 @@ std::vector<SlotInfo> Minecraft::getArmorSlots() {
         return result;
     }
 
-    // Get Item class for getIdFromItem
-    jclass itemCls = nullptr;
-    Java::AssignClass("net.minecraft.item.Item", itemCls);
-    jmethodID mid_getIdFromItem = nullptr;
-    if (itemCls) {
-        mid_getIdFromItem = env->GetStaticMethodID(itemCls, "getIdFromItem", "(Lnet/minecraft/item/Item;)I");
-    }
-
     // NBT for enchantment reading
     jclass nbtCompoundCls = nullptr;
     Java::AssignClass("net.minecraft.nbt.NBTTagCompound", nbtCompoundCls);
@@ -285,19 +262,12 @@ std::vector<SlotInfo> Minecraft::getArmorSlots() {
             continue;
         }
 
-        jobject item = nullptr;
-        if (JniCache::mid_getItem) {
-            item = env->CallObjectMethod(itemStack, JniCache::mid_getItem);
-        }
-
-        if (!item) {
+        // Get item ID using helper
+        slot.itemId = getItemIdFromStack(env, itemStack);
+        if (slot.itemId < 0) {
             env->DeleteLocalRef(itemStack);
             result.push_back(slot);
             continue;
-        }
-
-        if (mid_getIdFromItem) {
-            slot.itemId = env->CallStaticIntMethod(itemCls, mid_getIdFromItem, item);
         }
 
         if (JniCache::mid_getItemDamage) {
@@ -344,7 +314,6 @@ std::vector<SlotInfo> Minecraft::getArmorSlots() {
             }
         }
 
-        env->DeleteLocalRef(item);
         env->DeleteLocalRef(itemStack);
         result.push_back(slot);
     }
@@ -354,8 +323,6 @@ std::vector<SlotInfo> Minecraft::getArmorSlots() {
     env->DeleteLocalRef(armorInventory);
     if (nbtCompoundCls)
         env->DeleteLocalRef(nbtCompoundCls);
-    if (itemCls)
-        env->DeleteLocalRef(itemCls);
     env->DeleteLocalRef(inventoryCls);
     env->DeleteLocalRef(inventory);
     env->DeleteLocalRef(localPlayer);

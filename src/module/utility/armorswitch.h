@@ -3,6 +3,7 @@
 #include <chrono>
 #include <vector>
 #include "../module.h"
+#include "../../sdk/core/minecraft.h"
 
 // Armor IDs in Minecraft 1.8
 namespace ArmorItems {
@@ -92,7 +93,8 @@ private:
 
     // Find armor in inventory matching the desired material for a slot type
     // Returns slot id (0-35) or -1 if not found
-    int findArmorInInventory(int slotType, ArmorMaterial material, int* outDamage, int* outProtLevel = nullptr);
+    // Takes pre-fetched slots
+    int findArmorInInventory(const std::vector<SlotInfo>& slots, int slotType, ArmorMaterial material, int* outDamage, int* outProtLevel = nullptr);
 
     // Detect which set the player is currently wearing
     int detectCurrentSet();

@@ -34,6 +34,7 @@ jclass cls_GuiInventory = nullptr;
 jclass cls_Container = nullptr;
 jclass cls_Slot = nullptr;
 jclass cls_ItemStack = nullptr;
+jclass cls_Item = nullptr;
 jclass cls_IChatComponent = nullptr;
 jclass cls_List = nullptr;
 jclass cls_Mouse = nullptr;
@@ -188,6 +189,9 @@ jfieldID fid_stackSize = nullptr;
 jmethodID mid_getItemDamage = nullptr;
 jfieldID fid_itemDamage = nullptr;
 
+// Item IDs
+jmethodID mid_getIdFromItem = nullptr;
+
 // Slot IDs
 jmethodID mid_getStack = nullptr;
 
@@ -296,6 +300,7 @@ bool Init() {
     CACHE_CLASS(cls_Container, "net.minecraft.inventory.Container");
     CACHE_CLASS(cls_Slot, "net.minecraft.inventory.Slot");
     CACHE_CLASS(cls_ItemStack, "net.minecraft.item.ItemStack");
+    CACHE_CLASS(cls_Item, "net.minecraft.item.Item");
     CACHE_CLASS(cls_Block, "net.minecraft.block.Block");
     CACHE_CLASS(cls_Timer, "net.minecraft.util.Timer");
 
@@ -736,6 +741,14 @@ bool Init() {
     }
 
     // =========================================================================
+    // Item class IDs
+    // =========================================================================
+
+    if (cls_Item) {
+        TRY_STATIC_METHOD(mid_getIdFromItem, cls_Item, "getIdFromItem", "(Lnet/minecraft/item/Item;)I");
+    }
+
+    // =========================================================================
     // List class IDs
     // =========================================================================
 
@@ -813,6 +826,7 @@ void Cleanup() {
     DELETE_GLOBAL(cls_Container);
     DELETE_GLOBAL(cls_Slot);
     DELETE_GLOBAL(cls_ItemStack);
+    DELETE_GLOBAL(cls_Item);
     DELETE_GLOBAL(cls_IChatComponent);
     DELETE_GLOBAL(cls_List);
     DELETE_GLOBAL(cls_Mouse);

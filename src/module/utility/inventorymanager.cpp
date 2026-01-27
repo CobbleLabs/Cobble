@@ -3,6 +3,7 @@
 #include "../../ui/widgets/widgets.hpp"
 #include "../../ui/hud/notifications.h"
 #include "../../util/textures/item_textures.h"
+#include "../../util/logger.hpp"
 
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
@@ -61,9 +62,22 @@ int InventoryManager::inventoryToContainerSlot(int invSlot) {
 }
 
 void InventoryManager::saveHotbar() {
-    auto slots = mc.getInventorySlots();
-    if (slots.empty())
+    log_debug("[InvMgr] saveHotbar() called");
+    
+    log_debug("[InvMgr] mc.isValid()=%d, player.isValid()=%d", mc.isValid() ? 1 : 0, player.isValid() ? 1 : 0);
+    if (!mc.isValid() || !player.isValid()) {
+        NotificationManager::addSystem("Cannot save, not in game");
         return;
+    }
+    
+    log_debug("[InvMgr] Calling mc.getInventorySlots()...");
+    auto slots = mc.getInventorySlots();
+    log_debug("[InvMgr] getInventorySlots() returned %zu slots", slots.size());
+    
+    if (slots.empty()) {
+        NotificationManager::addSystem("Cannot save, inventory empty");
+        return;
+    }
 
     Preset& preset = presets[settings.activePreset];
     
@@ -86,8 +100,7 @@ void InventoryManager::saveHotbar() {
 }
 
 void InventoryManager::onEnable() {
-    // Safety check - don't start if player is invalid
-    if (!player.isValid()) {
+    if (!mc.isValid() || !player.isValid()) {
         enabled = false;
         return;
     }
@@ -294,9 +307,15 @@ void InventoryManager::scanForSwaps() {
         if (wantedId == 0)
             continue;
 
+        // For potions (ID 373), damage value = potion type, must match exactly
+        // For other items (tools, weapons, armor), damage = durability used, ignore it
+        bool compareDamage = (wantedId == 373);
+
         // Already correct?
-        if (current[targetSlot].itemId == wantedId && current[targetSlot].damage == wantedDamage)
-            continue;
+        if (current[targetSlot].itemId == wantedId) {
+            if (!compareDamage || current[targetSlot].damage == wantedDamage)
+                continue;
+        }
 
         // Find the item in main inventory first (slots 9-35), then check hotbar
         int sourceSlot = -1;
@@ -305,9 +324,11 @@ void InventoryManager::scanForSwaps() {
         for (int i = 9; i < 36; i++) {
             if (usedAsSource[i])
                 continue;
-            if (current[i].itemId == wantedId && current[i].damage == wantedDamage) {
-                sourceSlot = i;
-                break;
+            if (current[i].itemId == wantedId) {
+                if (!compareDamage || current[i].damage == wantedDamage) {
+                    sourceSlot = i;
+                    break;
+                }
             }
         }
         
@@ -318,9 +339,11 @@ void InventoryManager::scanForSwaps() {
                     continue;
                 if (usedAsSource[i])
                     continue;
-                if (current[i].itemId == wantedId && current[i].damage == wantedDamage) {
-                    sourceSlot = i;
-                    break;
+                if (current[i].itemId == wantedId) {
+                    if (!compareDamage || current[i].damage == wantedDamage) {
+                        sourceSlot = i;
+                        break;
+                    }
                 }
             }
         }
@@ -481,7 +504,7 @@ static const char* getItemShortName(int itemId) {
         case 112: return "NBrk";
         case 121: return "End";
         case 155: return "Qrz";
-        case 170: return "Hay";  // Hay bale!
+        case 170: return "Hay";
         
         // Misc
         case 54: return "Chst";
@@ -555,7 +578,9 @@ void InventoryManager::onRenderMenu() {
         
         // Save button
         if (ImGui::Button(currentPreset.saved ? "Overwrite" : "Save Hotbar", ImVec2(ImGui::GetContentRegionAvail().x, 0))) {
+            log_debug("[InvMgr] Save button clicked");
             saveHotbar();
+            log_debug("[InvMgr] saveHotbar() returned");
         }
         
         ImGui::Spacing();
@@ -571,6 +596,8 @@ void InventoryManager::onRenderMenu() {
         
         ImDrawList* draw = ImGui::GetWindowDrawList();
         
+        log_debug("[InvMgr] Rendering slots, saved=%d", currentPreset.saved ? 1 : 0);
+        
         for (int i = 0; i < 9; i++) {
             ImVec2 slotMin = ImVec2(cursor.x + i * (slotSize + spacing), cursor.y);
             ImVec2 slotMax = ImVec2(slotMin.x + slotSize, slotMin.y + slotSize);
@@ -581,8 +608,10 @@ void InventoryManager::onRenderMenu() {
                 draw->AddRectFilled(slotMin, slotMax, IM_COL32(40, 40, 40, 220), 4.0f);
                 draw->AddRect(slotMin, slotMax, IM_COL32(80, 80, 80, 255), 4.0f);
                 
+                log_debug("[InvMgr] Slot %d: itemId=%d, damage=%d - getting texture", i, currentPreset.slots[i].itemId, currentPreset.slots[i].damage);
                 // Try to get item texture
                 unsigned int texId = ItemTextureManager::get().getTexture(currentPreset.slots[i].itemId, currentPreset.slots[i].damage);
+                log_debug("[InvMgr] Slot %d: texId=%u", i, texId);
                 
                 if (texId != 0) {
                     // Render item texture
@@ -614,7 +643,6 @@ void InventoryManager::onRenderMenu() {
             draw->AddText(numPos, IM_COL32(100, 100, 100, 255), numBuf);
         }
         
-        // Reserve space for the slots + number labels
         ImGui::Dummy(ImVec2(totalWidth, slotSize + ui::s(14)));
         
         if (!currentPreset.saved) {

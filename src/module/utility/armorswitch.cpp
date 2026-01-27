@@ -138,10 +138,16 @@ int ArmorSwitch::getArmorId(ArmorMaterial material, int slotType) {
 }
 
 int ArmorSwitch::detectCurrentSet() {
+    // Safety check - return -1 if not in game
+    if (!mc.isValid() || !player.isValid())
+        return -1;
+    
     ArmorMaterial set1Mat = static_cast<ArmorMaterial>(settings.set1Material);
     ArmorMaterial set2Mat = static_cast<ArmorMaterial>(settings.set2Material);
 
     auto armorSlots = mc.getArmorSlots();
+    if (armorSlots.empty())
+        return -1;
     
     int set1Matches = 0;
     int set2Matches = 0;
@@ -165,6 +171,18 @@ int ArmorSwitch::detectCurrentSet() {
 }
 
 void ArmorSwitch::onEnable() {
+    // Safety check - don't start if not in game
+    if (!mc.isValid() || !player.isValid()) {
+        enabled = false;
+        return;
+    }
+    
+    // Safety check - don't start if already processing
+    if (state != State::Idle) {
+        enabled = false;
+        return;
+    }
+    
     // If onInventoryOpen mode: wait for inventory to be opened
     if (settings.onInventoryOpen) {
         if (mc.isInventoryOpen()) {
@@ -317,8 +335,7 @@ void ArmorSwitch::onUpdate() {
     }
 }
 
-int ArmorSwitch::findArmorInInventory(int slotType, ArmorMaterial material, int* outDamage, int* outProtLevel) {
-    auto slots = mc.getInventorySlots();
+int ArmorSwitch::findArmorInInventory(const std::vector<SlotInfo>& slots, int slotType, ArmorMaterial material, int* outDamage, int* outProtLevel) {
     int targetId = getArmorId(material, slotType);
 
     bool found = false;
@@ -402,7 +419,7 @@ void ArmorSwitch::scanForSwaps() {
         
         if (currentId == targetId && currentId != 0) {
             // Same material equipped - check if inventory has better
-            sourceSlot = findArmorInInventory(slotType, targetMat, &sourceDamage, &sourceProtLevel);
+            sourceSlot = findArmorInInventory(slots, slotType, targetMat, &sourceDamage, &sourceProtLevel);
             if (sourceSlot == -1) {
                 continue;
             }
@@ -426,7 +443,7 @@ void ArmorSwitch::scanForSwaps() {
             }
         } else {
             // Different material or empty slot - find target material
-            sourceSlot = findArmorInInventory(slotType, targetMat, &sourceDamage, &sourceProtLevel);
+            sourceSlot = findArmorInInventory(slots, slotType, targetMat, &sourceDamage, &sourceProtLevel);
             if (sourceSlot == -1) {
                 continue;
             }
@@ -520,6 +537,10 @@ void ArmorSwitch::onRenderMenu() {
 }
 
 std::string ArmorSwitch::getDisplayInfo() {
+    // Safety check - don't query if not in game
+    if (!mc.isValid() || !player.isValid())
+        return "---";
+    
     int currentSet = detectCurrentSet();
     if (currentSet == 0) {
         return std::string("Set 1 - ") + materialNames[settings.set1Material];

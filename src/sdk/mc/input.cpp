@@ -20,6 +20,29 @@ static jobject getGameSettings(JNIEnv* env, jobject mcInstance) {
 }
 
 // =============================================================================
+// Helper: Get keycode from a keybind field
+// =============================================================================
+
+static int getKeyBindCode(JNIEnv* env, jobject mcInstance, jfieldID keyBindField, int defaultCode) {
+    if (!keyBindField || !JniCache::mid_getKeyCode)
+        return defaultCode;
+
+    jobject gameSettings = getGameSettings(env, mcInstance);
+    if (!gameSettings)
+        return defaultCode;
+
+    int code = defaultCode;
+    jobject keyBind = env->GetObjectField(gameSettings, keyBindField);
+    if (keyBind) {
+        code = env->CallIntMethod(keyBind, JniCache::mid_getKeyCode);
+        env->DeleteLocalRef(keyBind);
+    }
+
+    env->DeleteLocalRef(gameSettings);
+    return code;
+}
+
+// =============================================================================
 // setKeyBindState - Set a keybind's pressed state
 // =============================================================================
 
@@ -43,29 +66,8 @@ void Minecraft::setKeyBindState(int keyCode, bool pressed) {
 int Minecraft::getSneakKey() {
     if (!isValid())
         return 42;  // LSHIFT default
-
     JNIEnv* env = Java::Env();
-    if (!env)
-        return 42;
-
-    jobject gameSettings = getGameSettings(env, instance);
-    if (!gameSettings)
-        return 42;
-
-    int code = 42;
-
-    if (JniCache::fid_keyBindSneak) {
-        jobject keyBindSneak = env->GetObjectField(gameSettings, JniCache::fid_keyBindSneak);
-        if (keyBindSneak) {
-            if (JniCache::mid_getKeyCode) {
-                code = env->CallIntMethod(keyBindSneak, JniCache::mid_getKeyCode);
-            }
-            env->DeleteLocalRef(keyBindSneak);
-        }
-    }
-
-    env->DeleteLocalRef(gameSettings);
-    return code;
+    return env ? getKeyBindCode(env, instance, JniCache::fid_keyBindSneak, 42) : 42;
 }
 
 // =============================================================================
@@ -75,29 +77,8 @@ int Minecraft::getSneakKey() {
 int Minecraft::getInventoryKey() {
     if (!isValid())
         return 18;  // 'E' default (LWJGL key code)
-
     JNIEnv* env = Java::Env();
-    if (!env)
-        return 18;
-
-    jobject gameSettings = getGameSettings(env, instance);
-    if (!gameSettings)
-        return 18;
-
-    int code = 18;  // Default LWJGL key code for 'E'
-
-    if (JniCache::fid_keyBindInventory) {
-        jobject keyBindInventory = env->GetObjectField(gameSettings, JniCache::fid_keyBindInventory);
-        if (keyBindInventory) {
-            if (JniCache::mid_getKeyCode) {
-                code = env->CallIntMethod(keyBindInventory, JniCache::mid_getKeyCode);
-            }
-            env->DeleteLocalRef(keyBindInventory);
-        }
-    }
-
-    env->DeleteLocalRef(gameSettings);
-    return code;
+    return env ? getKeyBindCode(env, instance, JniCache::fid_keyBindInventory, 18) : 18;
 }
 
 // =============================================================================

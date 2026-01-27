@@ -43,6 +43,7 @@ extern jclass cls_GuiInventory;
 extern jclass cls_Container;
 extern jclass cls_Slot;
 extern jclass cls_ItemStack;
+extern jclass cls_Item;
 
 // Chat
 extern jclass cls_IChatComponent;
@@ -280,6 +281,12 @@ extern jmethodID mid_getItem;
 extern jfieldID fid_stackSize;
 extern jmethodID mid_getItemDamage;
 extern jfieldID fid_itemDamage;
+
+// =============================================================================
+// Item class IDs
+// =============================================================================
+
+extern jmethodID mid_getIdFromItem;
 
 // =============================================================================
 // Slot class IDs
