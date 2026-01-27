@@ -245,6 +245,9 @@ void ConfigManager::applyConfig() {
                 s.set1Material = data["set1Material"].as_int(s.set1Material);
                 s.set2Material = data["set2Material"].as_int(s.set2Material);
                 s.switchDelay = data["switchDelay"].as_int(s.switchDelay);
+                s.preferProtection = data["preferProtection"].as_bool(s.preferProtection);
+                s.onInventoryOpen = data["onInventoryOpen"].as_bool(s.onInventoryOpen);
+                s.retryOnFail = data["retryOnFail"].as_bool(s.retryOnFail);
             } else if (name == "AutoRefill" && autoRefill) {
                 auto& s = autoRefill->settings;
                 s.refillSoup = data["refillSoup"].as_bool(s.refillSoup);
@@ -527,6 +530,9 @@ void ConfigManager::buildConfigFromModules() {
             config_["modules"][name]["set1Material"] = s.set1Material;
             config_["modules"][name]["set2Material"] = s.set2Material;
             config_["modules"][name]["switchDelay"] = s.switchDelay;
+            config_["modules"][name]["preferProtection"] = s.preferProtection;
+            config_["modules"][name]["onInventoryOpen"] = s.onInventoryOpen;
+            config_["modules"][name]["retryOnFail"] = s.retryOnFail;
         } else if (name == "AutoRefill" && autoRefill) {
             const auto& s = autoRefill->settings;
             config_["modules"][name]["refillSoup"] = s.refillSoup;

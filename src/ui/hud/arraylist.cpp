@@ -2,6 +2,7 @@
 #include "../../../infra/ext/imgui/imgui.h"
 #include "../../module/module_manager.h"
 #include "../../module/utility/autorefill.h"
+#include "../../module/utility/armorswitch.h"
 #include "../../sdk/core/minecraft.h"
 #include "../../sdk/player/player.h"
 #include "../../sdk/player/render_data.h"
@@ -97,9 +98,6 @@ void ArrayListRenderer::render() {
     // Add enabled modules with their display info
     for (auto* mod : moduleManager->getModules()) {
         if (mod && mod->enabled) {
-            if (mod->name && std::strcmp(mod->name, "ArmorSwitch") == 0) {
-                continue;
-            }
             DisplayEntry entry;
             entry.name = mod->name;
             if (showInfo) {
@@ -115,6 +113,16 @@ void ArrayListRenderer::render() {
         entry.name = autoRefill->name;
         if (showInfo) {
             entry.info = autoRefill->getDisplayInfo();
+        }
+        entries.push_back(entry);
+    }
+
+    // Special case: Show ArmorSwitch when onInventoryOpen is enabled (passive mode)
+    if (armorSwitch && !armorSwitch->enabled && armorSwitch->settings.onInventoryOpen) {
+        DisplayEntry entry;
+        entry.name = armorSwitch->name;
+        if (showInfo) {
+            entry.info = armorSwitch->getDisplayInfo();
         }
         entries.push_back(entry);
     }

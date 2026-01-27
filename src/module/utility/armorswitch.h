@@ -66,10 +66,13 @@ public:
         
         // Only trigger when inventory is already open
         bool onInventoryOpen = false;
+        
+        // Retry swaps if they fail (for slow servers)
+        bool retryOnFail = false;
     } settings;
 
 private:
-    enum class State { Idle, OpeningInventory, Switching, Closing };
+    enum class State { Idle, OpeningInventory, Switching, Verifying, Closing };
 
     State state = State::Idle;
     std::chrono::steady_clock::time_point stateStartTime;
@@ -82,11 +85,17 @@ private:
     struct SwapTask {
         int containerSlot;  // Container slot id: armor 5-8, main inv 9-35, hotbar 36-44
         int hotbarIndex;    // Hotbar index 0-8
+        int expectedItemId; // What we expect in the armor slot after swap
+        int armorSlotType;  // 0=helmet, 1=chest, 2=legs, 3=boots (-1 if not armor swap)
+        int retryCount;     // Number of retries
     };
     std::vector<SwapTask> pendingSwaps;
+    SwapTask lastSwap;      // Last swap executed, for verification
 
     static constexpr int DELAY_AFTER_OPEN = 100;
     static constexpr int DELAY_BEFORE_CLOSE = 80;
+    static constexpr int MAX_RETRIES = 5;
+    static constexpr int VERIFY_DELAY_MS = 40;
 
     // Get armor item ID for a material at a specific slot type
     int getArmorId(ArmorMaterial material, int slotType);

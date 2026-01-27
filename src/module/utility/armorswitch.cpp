@@ -287,9 +287,6 @@ void ArmorSwitch::onUpdate() {
         }
 
         case State::Switching: {
-            if (elapsed < settings.switchDelay)
-                return;
-
             if (!mc.isInventoryOpen()) {
                 finishSwap(settings.onInventoryOpen);
                 return;
@@ -299,6 +296,7 @@ void ArmorSwitch::onUpdate() {
                 // Done switching - go to closing
                 state = State::Closing;
                 stateStartTime = now;
+                log_debug("[ArmorSwitch] All swaps done, closing");
                 return;
             }
 
@@ -306,13 +304,73 @@ void ArmorSwitch::onUpdate() {
             if (clickElapsed < settings.switchDelay)
                 return;
 
-            SwapTask task = pendingSwaps.front();
+            lastSwap = pendingSwaps.front();
             pendingSwaps.erase(pendingSwaps.begin());
 
+            log_debug("[ArmorSwitch] Swap: container=%d, hotbar=%d, armorType=%d, expect=%d, retry=%d",
+                lastSwap.containerSlot, lastSwap.hotbarIndex, lastSwap.armorSlotType, 
+                lastSwap.expectedItemId, lastSwap.retryCount);
+
             // Swap container slot with hotbar slot
-            mc.windowClickSwap(task.containerSlot, task.hotbarIndex);
+            mc.windowClickSwap(lastSwap.containerSlot, lastSwap.hotbarIndex);
 
             lastClickTime = now;
+            
+            // If retryOnFail enabled, verify all swaps
+            if (settings.retryOnFail) {
+                state = State::Verifying;
+                stateStartTime = now;
+            }
+            break;
+        }
+
+        case State::Verifying: {
+            if (!mc.isInventoryOpen()) {
+                finishSwap(settings.onInventoryOpen);
+                return;
+            }
+
+            // Wait fixed delay before checking
+            if (elapsed < VERIFY_DELAY_MS)
+                return;
+
+            // For non-armor swaps, just wait and continue (can't easily verify)
+            if (lastSwap.armorSlotType < 0) {
+                state = State::Switching;
+                stateStartTime = now;
+                break;
+            }
+
+            // Check if armor slot has expected item
+            auto armorSlots = mc.getArmorSlots();
+            int currentId = (lastSwap.armorSlotType < (int)armorSlots.size()) 
+                ? armorSlots[lastSwap.armorSlotType].itemId : 0;
+
+            log_debug("[ArmorSwitch] Verify: slot=%d, current=%d, expected=%d, elapsed=%lldms",
+                lastSwap.armorSlotType, currentId, lastSwap.expectedItemId, elapsed);
+
+            if (currentId == lastSwap.expectedItemId) {
+                // Success - continue with next swap
+                log_debug("[ArmorSwitch] Swap SUCCESS");
+                state = State::Switching;
+                stateStartTime = now;
+            } else {
+                // Failed - retry if not exceeded max retries
+                if (lastSwap.retryCount < MAX_RETRIES) {
+                    lastSwap.retryCount++;
+                    log_debug("[ArmorSwitch] Swap FAILED, retry #%d", lastSwap.retryCount);
+                    // Re-insert at front to retry immediately
+                    pendingSwaps.insert(pendingSwaps.begin(), lastSwap);
+                    state = State::Switching;
+                    stateStartTime = now;
+                    lastClickTime = now - std::chrono::milliseconds(settings.switchDelay);
+                } else {
+                    // Max retries exceeded, skip and continue
+                    log_debug("[ArmorSwitch] Swap FAILED, max retries exceeded");
+                    state = State::Switching;
+                    stateStartTime = now;
+                }
+            }
             break;
         }
 
@@ -379,8 +437,9 @@ void ArmorSwitch::scanForSwaps() {
         static_cast<ArmorMaterial>(targetSet == 0 ? settings.set1Material : settings.set2Material);
 
     auto slots = mc.getInventorySlots();
-    if (slots.empty())
+    if (slots.empty()) {
         return;
+    }
 
     // Get equipped armor info from SDK
     auto armorSlots = mc.getArmorSlots();
@@ -452,6 +511,9 @@ void ArmorSwitch::scanForSwaps() {
             SwapTask equipTask;
             equipTask.containerSlot = 5 + slotType;  // armor slot
             equipTask.hotbarIndex = hotbarIndex;
+            equipTask.expectedItemId = targetId;
+            equipTask.armorSlotType = slotType;
+            equipTask.retryCount = 0;
             pendingSwaps.push_back(equipTask);
         } else {
             // Case 2: Armor is in main inventory (sourceSlot 9-35)
@@ -487,6 +549,9 @@ void ArmorSwitch::scanForSwaps() {
             SwapTask moveTask;
             moveTask.containerSlot = sourceSlot;  // main inventory slot 9-35
             moveTask.hotbarIndex = hotbarIndex;
+            moveTask.expectedItemId = 0;  // Not an armor slot swap
+            moveTask.armorSlotType = -1;
+            moveTask.retryCount = 0;
             pendingSwaps.push_back(moveTask);
 
             // Step 2: Swap hotbar (new armor) with armor slot (old armor)
@@ -494,6 +559,9 @@ void ArmorSwitch::scanForSwaps() {
             SwapTask equipTask;
             equipTask.containerSlot = 5 + slotType;  // armor slot
             equipTask.hotbarIndex = hotbarIndex;
+            equipTask.expectedItemId = targetId;
+            equipTask.armorSlotType = slotType;
+            equipTask.retryCount = 0;
             pendingSwaps.push_back(equipTask);
 
             // Step 3: Move old armor (now in hotbar) back to original source slot
@@ -501,6 +569,9 @@ void ArmorSwitch::scanForSwaps() {
             SwapTask restoreTask;
             restoreTask.containerSlot = sourceSlot;
             restoreTask.hotbarIndex = hotbarIndex;
+            restoreTask.expectedItemId = 0;  // Not an armor slot swap
+            restoreTask.armorSlotType = -1;
+            restoreTask.retryCount = 0;
             pendingSwaps.push_back(restoreTask);
         }
     }
@@ -521,12 +592,37 @@ void ArmorSwitch::onRenderMenu() {
             settings.switchDelay = delay;
         
         ImGui::Spacing();
+        bool wasOnInventoryOpen = settings.onInventoryOpen;
         ui::Checkbox("On Inventory Open", &settings.onInventoryOpen);
+        // Auto-enable/disable module when setting changes
+        if (settings.onInventoryOpen != wasOnInventoryOpen) {
+            if (settings.onInventoryOpen) {
+                // Turning ON passive mode - enable module
+                if (!enabled) {
+                    enabled = true;
+                    wasInventoryOpen = mc.isInventoryOpen();
+                }
+            } else {
+                // Turning OFF passive mode - disable module if idle
+                if (enabled && state == State::Idle) {
+                    enabled = false;
+                }
+            }
+        }
         ui::Checkbox("Prefer Protection", &settings.preferProtection);
+        ui::Checkbox("Retry on Fail", &settings.retryOnFail);
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("Use if armor swaps fail on some servers");
+        }
     });
 }
 
 std::string ArmorSwitch::getDisplayInfo() {
+    // Show "Inv Open" in passive mode
+    if (settings.onInventoryOpen) {
+        return "Inv Open";
+    }
+    
     // Safety check - don't query if not in game
     if (!mc.isValid() || !player.isValid())
         return "---";
