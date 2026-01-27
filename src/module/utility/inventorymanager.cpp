@@ -288,21 +288,44 @@ void InventoryManager::scanForSwaps() {
         }
     }
 
+    const Preset& preset = presets[settings.activePreset];
+
+    // PASS 1: Identify which hotbar slots already have the correct item in the correct position
+    // These slots should NOT be used as source for other swaps
+    bool correctlyPlaced[9] = {};
+    for (int targetSlot = 0; targetSlot < 9; targetSlot++) {
+        int wantedId = preset.slots[targetSlot].itemId;
+        int wantedDamage = preset.slots[targetSlot].damage;
+        
+        if (wantedId == 0) {
+            correctlyPlaced[targetSlot] = true;  // Empty slot is "correct"
+            continue;
+        }
+        
+        bool compareDamage = (wantedId == 373);
+        
+        if (current[targetSlot].itemId == wantedId) {
+            if (!compareDamage || current[targetSlot].damage == wantedDamage) {
+                correctlyPlaced[targetSlot] = true;
+            }
+        }
+    }
+
     // Track which slots have been used as source (prevents using same item twice)
     bool usedAsSource[36] = {};
     
-    const Preset& preset = presets[settings.activePreset];
-    
-    // Mark ALL hotbar slots that are targets in the preset as unavailable for sourcing
-    // This prevents stealing items that will be placed in earlier hotbar slots
+    // Mark correctly placed hotbar items as used so they won't be stolen
     for (int i = 0; i < 9; i++) {
-        if (preset.slots[i].itemId != 0) {
+        if (correctlyPlaced[i]) {
             usedAsSource[i] = true;
         }
     }
 
-    // For each hotbar slot, check if it matches the saved layout
+    // PASS 2: For each incorrectly placed slot, find the item and create swap tasks
     for (int targetSlot = 0; targetSlot < 9; targetSlot++) {
+        if (correctlyPlaced[targetSlot])
+            continue;
+            
         int wantedId = preset.slots[targetSlot].itemId;
         int wantedDamage = preset.slots[targetSlot].damage;
 
@@ -310,17 +333,9 @@ void InventoryManager::scanForSwaps() {
         if (wantedId == 0)
             continue;
 
-        // For potions (ID 373), damage value = potion type, must match exactly
-        // For other items (tools, weapons, armor), damage = durability used, ignore it
         bool compareDamage = (wantedId == 373);
 
-        // Already correct?
-        if (current[targetSlot].itemId == wantedId) {
-            if (!compareDamage || current[targetSlot].damage == wantedDamage)
-                continue;
-        }
-
-        // Find the item in main inventory first (slots 9-35), then check hotbar
+        // Find the item - Priority 1: main inventory, Priority 2: hotbar
         int sourceSlot = -1;
         
         // Priority 1: Search main inventory (9-35)
@@ -335,12 +350,15 @@ void InventoryManager::scanForSwaps() {
             }
         }
         
-        // Priority 2: Search hotbar (0-8) if not in main inv
+        // Priority 2: Search hotbar (0-8) - but NOT correctly placed items
         if (sourceSlot == -1) {
             for (int i = 0; i < 9; i++) {
                 if (i == targetSlot)
                     continue;
                 if (usedAsSource[i])
+                    continue;
+                // Don't steal from correctly placed slots
+                if (correctlyPlaced[i])
                     continue;
                 if (current[i].itemId == wantedId) {
                     if (!compareDamage || current[i].damage == wantedDamage) {
@@ -367,8 +385,11 @@ void InventoryManager::scanForSwaps() {
         // Mark source as used
         usedAsSource[sourceSlot] = true;
         
-        // Update current state to reflect the swap
+        // Update current state to reflect the swap (items exchange positions)
         std::swap(current[sourceSlot], current[targetSlot]);
+        
+        // If the source was in hotbar, the item that was in targetSlot is now at sourceSlot
+        // This might be the correct item for another slot, so we need to track this
     }
 }
 
