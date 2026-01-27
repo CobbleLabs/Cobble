@@ -164,7 +164,7 @@ void InventoryManager::onUpdate() {
             if (mc.isPlayerInventoryOpen()) {
                 state = State::Swapping;
                 stateStartTime = now;
-                lastSwapTime = now - std::chrono::milliseconds(settings.swapDelay);
+                lastSwapTime = now - std::chrono::milliseconds(effectiveDelay());
             } else if (elapsed > TIMEOUT_MS) {
                 finishRestore();
             }
@@ -184,7 +184,8 @@ void InventoryManager::onUpdate() {
             }
 
             auto swapElapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - lastSwapTime).count();
-            if (swapElapsed < settings.swapDelay)
+            int delay = effectiveDelay();
+            if (swapElapsed < delay)
                 return;
 
             SwapTask task = pendingSwaps.front();
@@ -202,11 +203,63 @@ void InventoryManager::onUpdate() {
             mc.windowClickSwap(containerSlot, task.targetHotbar);
 
             lastSwapTime = now;
+            if (settings.retryOnFail) {
+                lastSwap = task;
+                state = State::Verifying;
+                stateStartTime = now;
+            }
+            break;
+        }
+
+        case State::Verifying: {
+            if (!mc.isPlayerInventoryOpen()) {
+                finishRestore();
+                return;
+            }
+
+            auto verifyElapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - stateStartTime).count();
+            int verifyDelay = settings.retryOnFail ? (std::max)(VERIFY_DELAY_MS, effectiveDelay()) : VERIFY_DELAY_MS;
+            if (verifyElapsed < verifyDelay)
+                break;
+
+            auto slots = mc.getInventorySlots();
+            int currentId = 0;
+            int currentDamage = 0;
+            bool found = false;
+            for (const auto& s : slots) {
+                if (s.slotId == lastSwap.targetHotbar) {
+                    currentId = s.itemId;
+                    currentDamage = s.damage;
+                    found = true;
+                    break;
+                }
+            }
+
+            bool ok = found && currentId == lastSwap.expectedId &&
+                      (!lastSwap.compareDamage || currentDamage == lastSwap.expectedDamage);
+
+            if (ok) {
+                state = State::Swapping;
+                stateStartTime = now;
+            } else {
+                if (lastSwap.retryCount < MAX_RETRIES) {
+                    lastSwap.retryCount++;
+                    log_debug("[InvManager] Swap FAILED, retry #%d", lastSwap.retryCount);
+                    pendingSwaps.insert(pendingSwaps.begin(), lastSwap);
+                    state = State::Swapping;
+                    stateStartTime = now;
+                    lastSwapTime = now - std::chrono::milliseconds(effectiveDelay());
+                } else {
+                    log_debug("[InvManager] Swap FAILED, max retries exceeded");
+                    state = State::Swapping;
+                    stateStartTime = now;
+                }
+            }
             break;
         }
 
         case State::Closing: {
-            if (elapsed >= settings.swapDelay) {
+            if (elapsed >= effectiveDelay()) {
                 finishRestore();
             }
             break;
@@ -301,7 +354,14 @@ void InventoryManager::scanForSwaps() {
         if (sourceSlot == -1)
             continue;  // Item not found in inventory
 
-        pendingSwaps.push_back({sourceSlot, targetSlot});
+        SwapTask task{};
+        task.sourceSlot = sourceSlot;
+        task.targetHotbar = targetSlot;
+        task.expectedId = wantedId;
+        task.expectedDamage = wantedDamage;
+        task.compareDamage = compareDamage;
+        task.retryCount = 0;
+        pendingSwaps.push_back(task);
         log_debug("[InvManager] Planned swap: slot %d -> hotbar %d (item %d)", sourceSlot, targetSlot, wantedId);
         
         // Mark source as used
@@ -482,6 +542,13 @@ void InventoryManager::onRenderMenu() {
         int delay = settings.swapDelay;
         if (ui::SliderInt("Click Delay (ms)", &delay, 0, 200, "%d"))
             settings.swapDelay = delay;
+
+        bool retry = settings.retryOnFail;
+        if (ui::Checkbox("Retry on Fail", &retry))
+            settings.retryOnFail = retry;
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("Use if swaps fail on some servers");
+        }
         
         ImGui::Spacing();
         ImGui::Separator();

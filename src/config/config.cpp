@@ -344,7 +344,8 @@ void ConfigManager::applyConfig() {
                     s.blinkColor[3] = data["blinkColor"]["a"].as_float(s.blinkColor[3]);
                 }
             } else if (name == "InvManager" && inventoryManager) {
-                inventoryManager->settings.swapDelay = data["swapDelay"].as_int(50);
+                inventoryManager->settings.swapDelay = data["swapDelay"].as_int(inventoryManager->settings.swapDelay);
+                inventoryManager->settings.retryOnFail = data["retryOnFail"].as_bool(inventoryManager->settings.retryOnFail);
                 inventoryManager->settings.activePreset = data["activePreset"].as_int(0);
                 if (data.has("presets")) {
                     for (int p = 0; p < InventoryManager::MAX_PRESETS; p++) {
@@ -621,6 +622,7 @@ void ConfigManager::buildConfigFromModules() {
             config_["modules"][name]["blinkColor"]["a"] = s.blinkColor[3];
         } else if (name == "InvManager" && inventoryManager) {
             config_["modules"][name]["swapDelay"] = inventoryManager->settings.swapDelay;
+            config_["modules"][name]["retryOnFail"] = inventoryManager->settings.retryOnFail;
             config_["modules"][name]["activePreset"] = inventoryManager->settings.activePreset;
             for (int p = 0; p < InventoryManager::MAX_PRESETS; p++) {
                 std::string presetKey = "p" + std::to_string(p);
