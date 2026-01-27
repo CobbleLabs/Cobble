@@ -86,6 +86,12 @@ void InventoryManager::saveHotbar() {
 }
 
 void InventoryManager::onEnable() {
+    // Safety check - don't start if player is invalid
+    if (!player.isValid()) {
+        enabled = false;
+        return;
+    }
+    
     // Safety check - don't start if already processing
     if (state != State::Idle) {
         enabled = false;
