@@ -2,6 +2,7 @@
 
 #include <chrono>
 #include <vector>
+#include <algorithm>
 #include "../module.h"
 #include "../../sdk/core/minecraft.h"
 
@@ -60,6 +61,8 @@ public:
 
         // Delay between swaps (ms)
         int switchDelay = 50;
+        // Minimum delay enforced while retryOnFail is enabled (ms)
+        int retryMinDelay = 70;
         
         // When same material, prefer higher Protection enchant
         bool preferProtection = true;
@@ -85,8 +88,13 @@ private:
     struct SwapTask {
         int containerSlot;  // Container slot id: armor 5-8, main inv 9-35, hotbar 36-44
         int hotbarIndex;    // Hotbar index 0-8
-        int expectedItemId; // What we expect in the armor slot after swap
-        int armorSlotType;  // 0=helmet, 1=chest, 2=legs, 3=boots (-1 if not armor swap)
+        int expectedItemId; // What we expect to see after swap
+        // Verification target:
+        //  0-3 : armor slot type (helmet/chest/legs/boots)
+        //  -2  : verify hotbar[hotbarIndex] has expectedItemId (move-to-hotbar stage)
+        //  -3  : verify inventory slot containerSlot has expectedItemId (restore stage)
+        //  -1  : no verification
+        int armorSlotType;
         int retryCount;     // Number of retries
     };
     std::vector<SwapTask> pendingSwaps;
@@ -96,6 +104,10 @@ private:
     static constexpr int DELAY_BEFORE_CLOSE = 80;
     static constexpr int MAX_RETRIES = 5;
     static constexpr int VERIFY_DELAY_MS = 40;
+
+    int effectiveDelay() const {
+        return settings.retryOnFail ? (std::max)(settings.switchDelay, settings.retryMinDelay) : settings.switchDelay;
+    }
 
     // Get armor item ID for a material at a specific slot type
     int getArmorId(ArmorMaterial material, int slotType);
