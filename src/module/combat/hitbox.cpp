@@ -158,8 +158,14 @@ void Hitbox::onUpdate() {
     if (!env)
         return;
 
+    // Clear any pending JNI exceptions from previous operations
+    if (env->ExceptionCheck()) {
+        env->ExceptionClear();
+    }
+
     // Always restore at start of frame - we'll re-apply if needed
     restoreEntityHit(env);
+
 
     auto playerList = mc.getPlayerList();
 

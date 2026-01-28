@@ -211,7 +211,17 @@ void Backtrack::onUpdate() {
     double playerZ = player.getPosZ();
 
     // Get player list
+    JNIEnv* env = Java::Env();
+    if (!env)
+        return;
+    
+    // Clear any pending JNI exceptions from previous operations
+    if (env->ExceptionCheck()) {
+        env->ExceptionClear();
+    }
+
     std::vector<PlayerInfo> players = mc.getPlayerList();
+
 
     double closestDist = 999.0;
     PlayerInfo* closestTarget = nullptr;
@@ -297,11 +307,17 @@ void Backtrack::onUpdate() {
     // Each PlayerInfo.instance is a jobject that must be freed
     for (auto& p : players) {
         if (p.instance) {
-            Java::Env()->DeleteLocalRef(p.instance);
+            env->DeleteLocalRef(p.instance);
             p.instance = nullptr;
         }
     }
+
+    // Clear any exceptions that occurred during iteration
+    if (env->ExceptionCheck()) {
+        env->ExceptionClear();
+    }
 }
+
 
 void Backtrack::renderBox3D(double x, double y, double z, unsigned int color, unsigned int fillColor, bool filled) {
     if (!RenderData::updated)

@@ -113,8 +113,14 @@ void Reach::onUpdate() {
     if (!env)
         return;
 
+    // Clear any pending JNI exceptions from previous operations
+    if (env->ExceptionCheck()) {
+        env->ExceptionClear();
+    }
+
     // Always restore previous override at start of frame
     restoreEntityHit(env);
+
 
     // Check conditions
     if (settings.weaponsOnly && !isHoldingWeapon())

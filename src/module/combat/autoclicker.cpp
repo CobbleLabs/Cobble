@@ -425,6 +425,15 @@ bool AutoClicker::isTargetingPlayer() {
     // Check if the objectMouseOver is an entity (type 1 = block, type 2 = entity)
     // For now, we use a simpler check: if not targeting block and in combat range
 
+    JNIEnv* env = Java::Env();
+    if (!env)
+        return false;
+
+    // Clear any pending JNI exceptions from previous operations
+    if (env->ExceptionCheck()) {
+        env->ExceptionClear();
+    }
+
     if (isTargetingBlock())
         return false;
 
@@ -437,7 +446,8 @@ bool AutoClicker::isTargetingPlayer() {
     float playerZ = static_cast<float>(player.getPosZ());
 
     bool found = false;
-    for (const auto& p : players) {
+    for (auto& p : players) {
+        // Calculate distance
         float dx = static_cast<float>(p.posX) - playerX;
         float dz = static_cast<float>(p.posZ) - playerZ;
         float distSq = dx * dx + dz * dz;
@@ -445,20 +455,23 @@ bool AutoClicker::isTargetingPlayer() {
         // Within 4.5 blocks (reach + some buffer)
         if (distSq < 20.25f) {  // 4.5^2
             found = true;
-            break;
         }
-    }
 
-    // Cleanup JNI LocalRefs to prevent memory leak
-    for (auto& p : players) {
+        // Always cleanup LocalRef - don't break early
         if (p.instance) {
-            Java::Env()->DeleteLocalRef(p.instance);
+            env->DeleteLocalRef(p.instance);
             p.instance = nullptr;
         }
     }
 
+    // Clear any exceptions that occurred during iteration
+    if (env->ExceptionCheck()) {
+        env->ExceptionClear();
+    }
+
     return found;
 }
+
 
 int AutoClicker::getHeldItemId() {
     return player.getHeldItemId();

@@ -650,9 +650,15 @@ bool AimAssist::findTarget(double& targetX, double& targetY, double& targetZ) {
 
     auto players = mc.getPlayerList();
 
+    // Clear any exceptions that occurred during player list fetch
+    if (env && env->ExceptionCheck()) {
+        env->ExceptionClear();
+    }
+
     if (friendsManager) {
         friendsManager->resolvePending(players);
     }
+
 
     if (players.empty()) {
         if (cachedTarget) {
