@@ -5,7 +5,7 @@
 #include "../module/combat/hitbox.h"
 #include "../module/combat/hitselect.h"
 #include "../module/combat/nohitdelay.h"
-#include "../module/combat/reach.h"
+
 #include "../module/combat/velocity.h"
 #include "../module/module.h"
 #include "../module/module_manager.h"
@@ -209,19 +209,7 @@ void ConfigManager::applyConfig() {
                 auto& s = bridgeAssist->settings;
                 s.onlyLookingDown = data["onlyLookingDown"].as_bool(s.onlyLookingDown);
                 s.onlyWhenSneaking = data["onlyWhenSneaking"].as_bool(s.onlyWhenSneaking);
-            } else if (name == "Reach" && reach) {
-                auto& s = reach->settings;
-                s.distance = data["distance"].as_float(s.distance);
-                s.minDistance = data["minDistance"].as_float(s.minDistance);
-                s.maxDistance = data["maxDistance"].as_float(s.maxDistance);
-                s.intervalMode = data["intervalMode"].as_bool(s.intervalMode);
-                s.weaponsOnly = data["weaponsOnly"].as_bool(s.weaponsOnly);
-                s.sprintingOnly = data["sprintingOnly"].as_bool(s.sprintingOnly);
-                s.movingOnly = data["movingOnly"].as_bool(s.movingOnly);
-                s.hitChance = data["hitChance"].as_int(s.hitChance);
-                s.maxConsecutiveHits = data["maxConsecutiveHits"].as_int(s.maxConsecutiveHits);
-                s.onlyMovingTargets = data["onlyMovingTargets"].as_bool(s.onlyMovingTargets);
-            } else if (name == "HitSelect" && hitSelect) {
+            else if (name == "HitSelect" && hitSelect) {
                 auto& s = hitSelect->settings;
                 s.minComboHits = data["minComboHits"].as_int(s.minComboHits);
                 s.comboDetectionTime = data["comboDetectionTime"].as_int(s.comboDetectionTime);
@@ -491,19 +479,7 @@ void ConfigManager::buildConfigFromModules() {
             const auto& s = bridgeAssist->settings;
             config_["modules"][name]["onlyLookingDown"] = s.onlyLookingDown;
             config_["modules"][name]["onlyWhenSneaking"] = s.onlyWhenSneaking;
-        } else if (name == "Reach" && reach) {
-            const auto& s = reach->settings;
-            config_["modules"][name]["distance"] = s.distance;
-            config_["modules"][name]["minDistance"] = s.minDistance;
-            config_["modules"][name]["maxDistance"] = s.maxDistance;
-            config_["modules"][name]["intervalMode"] = s.intervalMode;
-            config_["modules"][name]["weaponsOnly"] = s.weaponsOnly;
-            config_["modules"][name]["sprintingOnly"] = s.sprintingOnly;
-            config_["modules"][name]["movingOnly"] = s.movingOnly;
-            config_["modules"][name]["hitChance"] = s.hitChance;
-            config_["modules"][name]["maxConsecutiveHits"] = s.maxConsecutiveHits;
-            config_["modules"][name]["onlyMovingTargets"] = s.onlyMovingTargets;
-        } else if (name == "HitSelect" && hitSelect) {
+        else if (name == "HitSelect" && hitSelect) {
             const auto& s = hitSelect->settings;
             config_["modules"][name]["minComboHits"] = s.minComboHits;
             config_["modules"][name]["comboDetectionTime"] = s.comboDetectionTime;

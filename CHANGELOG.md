@@ -6,6 +6,15 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/).
 
 ---
 
+## [1.1.13] - 2026-01-30
+
+### Removed
+- **Reach Module**: Eliminado completamente a pedido del usuario
+  - El módulo extendía el alcance de ataque mediante desplazamiento del hitbox
+  - Limpiadas todas las referencias en cobble.cpp, config.cpp, menu.cpp, widgets.cpp
+
+---
+
 ## [1.1.12] - 2026-01-27
 
 ### Removed
@@ -14,7 +23,7 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/).
   - El cached jclass GlobalRef se invalidaba con el tiempo, causando crash sin logs
   - Decisión: Remover hasta poder implementar una versión estable
 
----
+
 
 ## [1.1.11] - 2026-01-26
 
