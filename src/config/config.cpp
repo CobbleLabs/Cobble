@@ -213,6 +213,11 @@ void ConfigManager::applyConfig() {
             } else if (name == "Reach" && reach) {
                 auto& s = reach->settings;
                 s.distance = data["distance"].as_float(s.distance);
+                s.weaponsOnly = data["weaponsOnly"].as_bool(s.weaponsOnly);
+                s.sprintingOnly = data["sprintingOnly"].as_bool(s.sprintingOnly);
+                s.movingOnly = data["movingOnly"].as_bool(s.movingOnly);
+                s.hitChance = data["hitChance"].as_int(s.hitChance);
+                s.tickDelay = data["tickDelay"].as_int(s.tickDelay);
             } else if (name == "HitSelect" && hitSelect) {
                 auto& s = hitSelect->settings;
                 s.minComboHits = data["minComboHits"].as_int(s.minComboHits);
@@ -486,6 +491,11 @@ void ConfigManager::buildConfigFromModules() {
         } else if (name == "Reach" && reach) {
             const auto& s = reach->settings;
             config_["modules"][name]["distance"] = s.distance;
+            config_["modules"][name]["weaponsOnly"] = s.weaponsOnly;
+            config_["modules"][name]["sprintingOnly"] = s.sprintingOnly;
+            config_["modules"][name]["movingOnly"] = s.movingOnly;
+            config_["modules"][name]["hitChance"] = s.hitChance;
+            config_["modules"][name]["tickDelay"] = s.tickDelay;
         } else if (name == "HitSelect" && hitSelect) {
             const auto& s = hitSelect->settings;
             config_["modules"][name]["minComboHits"] = s.minComboHits;

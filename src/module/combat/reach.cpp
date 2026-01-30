@@ -21,12 +21,44 @@ static constexpr float PI = 3.14159265358979323846f;
 
 Reach::Reach() : Module("Reach") {
     keybind = 0;
+    rngState = static_cast<unsigned int>(GetTickCount());
 }
 
 void Reach::onEnable() {
+    tickCounter = 0;
+    rngState ^= static_cast<unsigned int>(GetTickCount());
 }
 
 void Reach::onDisable() {
+}
+
+float Reach::randomFloat(float min, float max) {
+    rngState ^= rngState << 13;
+    rngState ^= rngState >> 17;
+    rngState ^= rngState << 5;
+    float normalized = static_cast<float>(rngState) / static_cast<float>(0xFFFFFFFF);
+    return min + normalized * (max - min);
+}
+
+bool Reach::shouldApplyThisTick() {
+    // Tick delay check
+    if (settings.tickDelay > 0) {
+        tickCounter++;
+        if (tickCounter <= settings.tickDelay) {
+            return false;
+        }
+        tickCounter = 0;
+    }
+    
+    // Hit chance check
+    if (settings.hitChance < 100) {
+        int roll = static_cast<int>(randomFloat(0.0f, 100.0f));
+        if (roll >= settings.hitChance) {
+            return false;
+        }
+    }
+    
+    return true;
 }
 
 void Reach::onUpdate() {
@@ -41,6 +73,29 @@ void Reach::onUpdate() {
     
     if (env->ExceptionCheck()) {
         env->ExceptionClear();
+    }
+    
+    // Anti-detection: tick delay and hit chance
+    if (!shouldApplyThisTick()) return;
+    
+    // Weapons only check
+    if (settings.weaponsOnly) {
+        int itemId = player.getHeldItemId();
+        // Swords: 268, 272, 267, 276, 283
+        // Axes: 271, 275, 258, 279, 286
+        bool isSword = (itemId == 268 || itemId == 272 || itemId == 267 || itemId == 276 || itemId == 283);
+        bool isAxe = (itemId == 271 || itemId == 275 || itemId == 258 || itemId == 279 || itemId == 286);
+        if (!isSword && !isAxe) return;
+    }
+    
+    // Sprinting only check
+    if (settings.sprintingOnly && !player.isSprinting()) return;
+    
+    // Moving only check
+    if (settings.movingOnly) {
+        double motionX = player.getMotionX();
+        double motionZ = player.getMotionZ();
+        if (motionX * motionX + motionZ * motionZ < 0.0001) return;
     }
     
     // Get player list
@@ -58,21 +113,12 @@ void Reach::onUpdate() {
     
     for (auto& p : playerList) {
         if (!p.instance) continue;
-        
-        // Skip self check is handled by playerList
-        
-        // Skip invisible
         if (p.isInvisible) continue;
-        
-        // Skip NPCs
         if (p.isNPC) continue;
-        
-        // Skip friends
         if (friendsManager && friendsManager->isFriendByUUID(p.uuid)) continue;
         if (friendsManager && friendsManager->isApolloTeammate(p.uuid)) continue;
         if (friendsManager && friendsManager->isLunarTeammate(p.uuid)) continue;
         
-        // Calculate distance
         double dx = localX - p.posX;
         double dy = localY - p.posY;
         double dz = localZ - p.posZ;
@@ -84,7 +130,7 @@ void Reach::onUpdate() {
         }
     }
     
-    // Cleanup all instances we don't need
+    // Cleanup non-targets
     for (auto& p : playerList) {
         if (p.instance && (&p != target)) {
             env->DeleteLocalRef(p.instance);
@@ -94,21 +140,20 @@ void Reach::onUpdate() {
     
     if (!target || !target->instance) return;
     
-    // Check distance conditions (only apply for players beyond vanilla reach but within our reach)
+    // Only apply for players beyond vanilla reach
     float distBetween = finalDist;
     if (distBetween > settings.distance + 0.5f || distBetween <= 3.0f) {
         env->DeleteLocalRef(target->instance);
         return;
     }
     
-    // Knight reach algorithm: move bounding box towards local player
+    // Knight reach algorithm
     float targetX = (float)target->posX;
     float targetZ = (float)target->posZ;
     
     float hypothenuseDistance = hypotf((float)(localX - target->posX), (float)(localZ - target->posZ));
     float dist = settings.distance - 3.0f;
     
-    // Adjust distance calculation
     while (distBetween > 3.0f && (distBetween < (dist + 3.0f)) && dist > 0.05f) {
         dist -= 0.05f;
     }
@@ -117,7 +162,6 @@ void Reach::onUpdate() {
         dist -= hypothenuseDistance;
     }
     
-    // Calculate angle to target
     float angleX = targetX - (float)localX;
     float angleZ = targetZ - (float)localZ;
     
@@ -129,14 +173,13 @@ void Reach::onUpdate() {
         angle = -90.0f + (float)(atan2f(angleZ, angleX) * 180.0f / PI);
     }
     
-    // Calculate new position
     float ax = cosf((angle + 90.0f) * PI / 180.0f);
     float az = sinf((angle + 90.0f) * PI / 180.0f);
     
     float newX = targetX - ax * dist;
     float newZ = targetZ - az * dist;
     
-    // Get the bounding box of the target entity
+    // Get bounding box
     if (!JniCache::fid_boundingBox) {
         env->DeleteLocalRef(target->instance);
         return;
@@ -148,7 +191,6 @@ void Reach::onUpdate() {
         return;
     }
     
-    // Read current bounding box values
     if (!JniCache::fid_aabb_minX || !JniCache::fid_aabb_maxX) {
         env->DeleteLocalRef(aabb);
         env->DeleteLocalRef(target->instance);
@@ -158,15 +200,13 @@ void Reach::onUpdate() {
     double curMinY = env->GetDoubleField(aabb, JniCache::fid_aabb_minY);
     double curMaxY = env->GetDoubleField(aabb, JniCache::fid_aabb_maxY);
     
-    // Entity width is 0.6, half width is 0.3
     float newWidth = 0.6f / 2.0f;
     
-    // Set new bounding box (moved towards player)
+    // Move bounding box towards player
     env->SetDoubleField(aabb, JniCache::fid_aabb_minX, (double)(newX - newWidth));
     env->SetDoubleField(aabb, JniCache::fid_aabb_minZ, (double)(newZ - newWidth));
     env->SetDoubleField(aabb, JniCache::fid_aabb_maxX, (double)(newX + newWidth));
     env->SetDoubleField(aabb, JniCache::fid_aabb_maxZ, (double)(newZ + newWidth));
-    // Keep Y values unchanged
     env->SetDoubleField(aabb, JniCache::fid_aabb_minY, curMinY);
     env->SetDoubleField(aabb, JniCache::fid_aabb_maxY, curMaxY);
     
@@ -185,19 +225,38 @@ void Reach::onRenderMenu() {
             ui::CheckboxBind("Enabled", &enabled, &keybind);
             ImGui::Spacing();
             
-            ui::SliderFloat("Distance", &settings.distance, 3.0f, 6.0f, "%.1f");
-        },
-        "Info",
-        [this]() {
-            ImGui::TextWrapped("Extends attack reach by moving target hitboxes closer.");
+            ui::SliderFloat("Distance", &settings.distance, 3.0f, 6.0f, "%.2f");
+            
             ImGui::Spacing();
-            ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "Only affects players beyond 3.0 blocks.");
+            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.7f, 0.7f, 0.7f, 1.0f));
+            ImGui::Text("Conditions");
+            ImGui::PopStyleColor();
+            ImGui::Spacing();
+            
+            ui::Checkbox("Weapons Only", &settings.weaponsOnly);
+            ui::Checkbox("Sprinting Only", &settings.sprintingOnly);
+            ui::Checkbox("Moving Only", &settings.movingOnly);
+        },
+        "Anti-Detection",
+        [this]() {
+            int chance = settings.hitChance;
+            if (ui::SliderInt("Hit Chance", &chance, 0, 100, "%d%%")) {
+                settings.hitChance = chance;
+            }
+            
+            int delay = settings.tickDelay;
+            if (ui::SliderInt("Tick Delay", &delay, 0, 10, "%d")) {
+                settings.tickDelay = delay;
+            }
+            
+            ImGui::Spacing();
+            ImGui::TextWrapped("Lower hit chance and higher tick delay make reach less detectable but less consistent.");
         }
     );
 }
 
 std::string Reach::getDisplayInfo() {
     char buf[16];
-    snprintf(buf, sizeof(buf), "%.1f", settings.distance);
+    snprintf(buf, sizeof(buf), "%.2f", settings.distance);
     return buf;
 }
