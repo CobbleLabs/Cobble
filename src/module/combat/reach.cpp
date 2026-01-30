@@ -248,9 +248,6 @@ void Reach::onRenderMenu() {
             if (ui::SliderInt("Tick Delay", &delay, 0, 10, "%d")) {
                 settings.tickDelay = delay;
             }
-            
-            ImGui::Spacing();
-            ImGui::TextWrapped("Lower hit chance and higher tick delay make reach less detectable but less consistent.");
         }
     );
 }
