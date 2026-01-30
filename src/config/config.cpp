@@ -7,6 +7,7 @@
 #include "../module/combat/nohitdelay.h"
 
 #include "../module/combat/velocity.h"
+#include "../module/combat/reach.h"
 #include "../module/module.h"
 #include "../module/module_manager.h"
 #include "../module/movement/nojumpdelay.h"
@@ -209,7 +210,10 @@ void ConfigManager::applyConfig() {
                 auto& s = bridgeAssist->settings;
                 s.onlyLookingDown = data["onlyLookingDown"].as_bool(s.onlyLookingDown);
                 s.onlyWhenSneaking = data["onlyWhenSneaking"].as_bool(s.onlyWhenSneaking);
-            else if (name == "HitSelect" && hitSelect) {
+            } else if (name == "Reach" && reach) {
+                auto& s = reach->settings;
+                s.distance = data["distance"].as_float(s.distance);
+            } else if (name == "HitSelect" && hitSelect) {
                 auto& s = hitSelect->settings;
                 s.minComboHits = data["minComboHits"].as_int(s.minComboHits);
                 s.comboDetectionTime = data["comboDetectionTime"].as_int(s.comboDetectionTime);
@@ -479,7 +483,10 @@ void ConfigManager::buildConfigFromModules() {
             const auto& s = bridgeAssist->settings;
             config_["modules"][name]["onlyLookingDown"] = s.onlyLookingDown;
             config_["modules"][name]["onlyWhenSneaking"] = s.onlyWhenSneaking;
-        else if (name == "HitSelect" && hitSelect) {
+        } else if (name == "Reach" && reach) {
+            const auto& s = reach->settings;
+            config_["modules"][name]["distance"] = s.distance;
+        } else if (name == "HitSelect" && hitSelect) {
             const auto& s = hitSelect->settings;
             config_["modules"][name]["minComboHits"] = s.minComboHits;
             config_["modules"][name]["comboDetectionTime"] = s.comboDetectionTime;

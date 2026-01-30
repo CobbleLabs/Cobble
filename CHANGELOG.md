@@ -6,6 +6,17 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/).
 
 ---
 
+## [1.1.14] - 2026-01-30
+
+### Added
+- **Reach Module**: Nueva implementación estable
+  - Usando raycast AABB matemático local (sin JNI excesivo)
+  - Datos de hitbox cacheados de getPlayerList()
+  - Random mode, filtros de weapon/sprinting/team
+  - Hit chance configurable
+
+---
+
 ## [1.1.13] - 2026-01-30
 
 ### Removed

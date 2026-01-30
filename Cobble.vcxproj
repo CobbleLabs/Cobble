@@ -113,6 +113,7 @@
     <ClCompile Include="src\module\utility\autorefill.cpp" />
     <ClCompile Include="src\module\combat\velocity.cpp" />
     <ClCompile Include="src\module\combat\reach.cpp" />
+
     <ClCompile Include="src\module\combat\backtrack.cpp" />
     <ClCompile Include="src\module\combat\hitselect.cpp" />
     <ClCompile Include="src\module\combat\hitbox.cpp" />
@@ -184,6 +185,7 @@
     <ClInclude Include="src\module\utility\autorefill.h" />
     <ClInclude Include="src\module\combat\velocity.h" />
     <ClInclude Include="src\module\combat\reach.h" />
+
     <ClInclude Include="src\module\combat\backtrack.h" />
     <ClInclude Include="src\module\combat\hitselect.h" />
     <ClInclude Include="src\module\combat\hitbox.h" />

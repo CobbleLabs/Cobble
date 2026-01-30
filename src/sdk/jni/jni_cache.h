@@ -84,6 +84,7 @@ extern jfieldID fid_mouseHelper;
 extern jfieldID fid_inGameHasFocus;
 extern jfieldID fid_timer;
 extern jfieldID fid_playerController;
+extern jfieldID fid_pointedEntity;  // Minecraft.pointedEntity for reach
 
 // =============================================================================
 // Entity class IDs

@@ -8,6 +8,7 @@
 #include "../../module/combat/hitselect.h"
 #include "../../module/combat/nohitdelay.h"
 
+#include "../../module/combat/reach.h"
 #include "../../module/combat/velocity.h"
 #include "../../module/module_manager.h"
 #include "../../module/movement/nojumpdelay.h"
@@ -41,7 +42,7 @@
 // Module lookup by tab and subtab index
 // Returns the module that corresponds to the current subtab
 Module* getModuleForSubtab(int tabIdx, int subtabIdx) {
-    // Combat Tab (0): AutoClicker, AimAssist, Velocity, HitSelect, Hitbox, NoHitDelay, Backtrack
+    // Combat Tab (0): AutoClicker, AimAssist, Velocity, Reach, HitSelect, Hitbox, NoHitDelay, Backtrack
     if (tabIdx == 0) {
         switch (subtabIdx) {
             case 0:
@@ -51,12 +52,14 @@ Module* getModuleForSubtab(int tabIdx, int subtabIdx) {
             case 2:
                 return velocity;
             case 3:
-                return hitSelect;
+                return reach;
             case 4:
-                return hitbox;
+                return hitSelect;
             case 5:
-                return noHitDelay;
+                return hitbox;
             case 6:
+                return noHitDelay;
+            case 7:
                 return backtrack;
         }
     }

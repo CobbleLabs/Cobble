@@ -61,6 +61,7 @@ jfieldID fid_mouseHelper = nullptr;
 jfieldID fid_inGameHasFocus = nullptr;
 jfieldID fid_timer = nullptr;
 jfieldID fid_playerController = nullptr;
+jfieldID fid_pointedEntity = nullptr;  // Minecraft.pointedEntity for reach
 
 // Entity IDs
 jfieldID fid_posX = nullptr;
@@ -369,6 +370,7 @@ bool Init() {
     TRY_FIELD(fid_timer, cls_Minecraft, "timer", "Lnet/minecraft/util/Timer;");
     TRY_FIELD(fid_playerController, cls_Minecraft, "playerController",
               "Lnet/minecraft/client/multiplayer/PlayerControllerMP;");
+    TRY_FIELD(fid_pointedEntity, cls_Minecraft, "pointedEntity", "Lnet/minecraft/entity/Entity;");
 
     // =========================================================================
     // Entity class IDs

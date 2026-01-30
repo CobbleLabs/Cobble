@@ -7,6 +7,7 @@
 #include "module/combat/hitselect.h"
 #include "module/combat/nohitdelay.h"
 
+#include "module/combat/reach.h"
 #include "module/combat/velocity.h"
 #include "module/module_manager.h"
 #include "module/movement/nojumpdelay.h"
@@ -135,6 +136,7 @@ void cobble::context::initialize(HMODULE hModule) {
     armorSwitch = new ArmorSwitch();
     autoRefill = new AutoRefill();
     velocity = new Velocity();
+    reach = new Reach();
 
     backtrack = new Backtrack();
     hitSelect = new HitSelect();
@@ -162,6 +164,7 @@ void cobble::context::initialize(HMODULE hModule) {
     moduleManager->registerModule(armorSwitch);
     moduleManager->registerModule(autoRefill);
     moduleManager->registerModule(velocity);
+    moduleManager->registerModule(reach);
 
     moduleManager->registerModule(backtrack);
     moduleManager->registerModule(hitSelect);
@@ -354,6 +357,8 @@ void cobble::context::shutdown() {
         autoRefill->setEnabled(false);
     if (velocity)
         velocity->setEnabled(false);
+    if (reach)
+        reach->setEnabled(false);
 
     if (backtrack)
         backtrack->setEnabled(false);
@@ -417,6 +422,10 @@ void cobble::context::shutdown() {
     if (velocity) {
         delete velocity;
         velocity = nullptr;
+    }
+    if (reach) {
+        delete reach;
+        reach = nullptr;
     }
 
     if (backtrack) {
