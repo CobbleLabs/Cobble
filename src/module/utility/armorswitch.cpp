@@ -141,14 +141,14 @@ int ArmorSwitch::detectCurrentSet() {
     // Safety check - return -1 if not in game
     if (!mc.isValid() || !player.isValid())
         return -1;
-    
+
     ArmorMaterial set1Mat = static_cast<ArmorMaterial>(settings.set1Material);
     ArmorMaterial set2Mat = static_cast<ArmorMaterial>(settings.set2Material);
 
     auto armorSlots = mc.getArmorSlots();
     if (armorSlots.empty())
         return -1;
-    
+
     int set1Matches = 0;
     int set2Matches = 0;
 
@@ -176,19 +176,19 @@ void ArmorSwitch::onEnable() {
         enabled = false;
         return;
     }
-    
+
     // Safety check - don't start if already processing
     if (state != State::Idle) {
         enabled = false;
         return;
     }
-    
+
     // Passive mode: just stay enabled and monitor in onUpdate
     if (settings.onInventoryOpen) {
         wasInventoryOpen = mc.isInventoryOpen();
         return;  // Stay enabled, onUpdate will handle the rest
     }
-    
+
     // Manual mode: don't start if already in a GUI
     if (mc.isInGui()) {
         enabled = false;
@@ -211,9 +211,18 @@ void ArmorSwitch::onEnable() {
     }
 
     // Open inventory first
-    sendLwjglKey(mc.getInventoryKey());
-    state = State::OpeningInventory;
-    stateStartTime = std::chrono::steady_clock::now();
+    if (settings.silentMode) {
+        log_debug("[ArmorSwitch] Silent Mode: Sending Open Packet + Starting swaps.");
+        mc.sendInventoryOpenPacket();
+
+        state = State::Switching;
+        stateStartTime = std::chrono::steady_clock::now();
+        lastClickTime = stateStartTime - std::chrono::milliseconds(effectiveDelay());
+    } else {
+        sendLwjglKey(mc.getInventoryKey());
+        state = State::OpeningInventory;
+        stateStartTime = std::chrono::steady_clock::now();
+    }
 }
 
 void ArmorSwitch::onDisable() {
@@ -222,14 +231,14 @@ void ArmorSwitch::onDisable() {
 }
 
 void ArmorSwitch::finishSwap(bool fromOnInventoryOpen) {
-    // Only close inventory if not in passive mode
-    if (!fromOnInventoryOpen && mc.isInventoryOpen()) {
+    // Only close inventory if not in passive mode AND not silent mode
+    if (!fromOnInventoryOpen && !settings.silentMode && mc.isInventoryOpen()) {
         sendKey(VK_ESCAPE);
     }
 
     state = State::Idle;
     pendingSwaps.clear();
-    
+
     // Don't disable in passive mode - stays active to detect next inventory open
     if (!settings.onInventoryOpen) {
         enabled = false;
@@ -243,7 +252,7 @@ void ArmorSwitch::onUpdate() {
     // Passive mode: monitor for inventory open
     if (settings.onInventoryOpen && state == State::Idle) {
         bool inventoryOpen = mc.isInventoryOpen();
-        
+
         if (inventoryOpen && !wasInventoryOpen) {
             // User just opened inventory - detect and switch armor
             int currentSet = detectCurrentSet();
@@ -252,16 +261,16 @@ void ArmorSwitch::onUpdate() {
             } else {
                 targetSet = 0;
             }
-            
+
             scanForSwaps();
-            
+
             if (!pendingSwaps.empty()) {
                 state = State::Switching;
                 stateStartTime = std::chrono::steady_clock::now();
                 lastClickTime = stateStartTime - std::chrono::milliseconds(effectiveDelay());
             }
         }
-        
+
         wasInventoryOpen = inventoryOpen;
     }
 
@@ -287,7 +296,8 @@ void ArmorSwitch::onUpdate() {
         }
 
         case State::Switching: {
-            if (!mc.isInventoryOpen()) {
+            if (!mc.isInventoryOpen() && !settings.silentMode) {
+                log_debug("[ArmorSwitch] Aborting: Inventory closed unexpectedly.");
                 finishSwap(settings.onInventoryOpen);
                 return;
             }
@@ -308,10 +318,14 @@ void ArmorSwitch::onUpdate() {
             pendingSwaps.erase(pendingSwaps.begin());
 
             // Swap container slot with hotbar slot
+            if (settings.silentMode) {
+                log_debug("[ArmorSwitch] Silent Swap: Container %d <-> Hotbar %d", lastSwap.containerSlot,
+                          lastSwap.hotbarIndex);
+            }
             mc.windowClickSwap(lastSwap.containerSlot, lastSwap.hotbarIndex);
 
             lastClickTime = now;
-            
+
             // If retryOnFail enabled, verify all swaps
             if (settings.retryOnFail) {
                 state = State::Verifying;
@@ -321,7 +335,7 @@ void ArmorSwitch::onUpdate() {
         }
 
         case State::Verifying: {
-            if (!mc.isInventoryOpen()) {
+            if (!mc.isInventoryOpen() && !settings.silentMode) {
                 finishSwap(settings.onInventoryOpen);
                 return;
             }
@@ -334,6 +348,9 @@ void ArmorSwitch::onUpdate() {
             auto slots = mc.getInventorySlots();
 
             auto retrySwap = [&]() {
+                if (settings.silentMode) {
+                    log_debug("[ArmorSwitch] VS Fail: Retrying swap (try %d/%d)", lastSwap.retryCount + 1, MAX_RETRIES);
+                }
                 if (lastSwap.retryCount < MAX_RETRIES) {
                     lastSwap.retryCount++;
                     pendingSwaps.insert(pendingSwaps.begin(), lastSwap);
@@ -341,6 +358,8 @@ void ArmorSwitch::onUpdate() {
                     stateStartTime = now;
                     lastClickTime = now - std::chrono::milliseconds(effectiveDelay());
                 } else {
+                    if (settings.silentMode)
+                        log_debug("[ArmorSwitch] Swap Failed: Max retries reached execution aborted for this item.");
                     state = State::Switching;
                     stateStartTime = now;
                 }
@@ -349,13 +368,19 @@ void ArmorSwitch::onUpdate() {
             if (lastSwap.armorSlotType >= 0) {
                 // Check armor slot
                 auto armorSlots = mc.getArmorSlots();
-                int currentId = (lastSwap.armorSlotType < (int)armorSlots.size()) 
-                    ? armorSlots[lastSwap.armorSlotType].itemId : 0;
+                int currentId =
+                    (lastSwap.armorSlotType < (int)armorSlots.size()) ? armorSlots[lastSwap.armorSlotType].itemId : 0;
 
                 if (currentId == lastSwap.expectedItemId) {
+                    if (settings.silentMode)
+                        log_debug("[ArmorSwitch] Verify OK: Armor slot %d has correct item %d", lastSwap.armorSlotType,
+                                  currentId);
                     state = State::Switching;
                     stateStartTime = now;
                 } else {
+                    if (settings.silentMode)
+                        log_debug("[ArmorSwitch] Verify Mismatch: Armor slot %d has %d, expected %d",
+                                  lastSwap.armorSlotType, currentId, lastSwap.expectedItemId);
                     retrySwap();
                 }
             } else if (lastSwap.armorSlotType == -2) {
@@ -368,9 +393,15 @@ void ArmorSwitch::onUpdate() {
                     }
                 }
                 if (hotbarId == lastSwap.expectedItemId) {
+                    if (settings.silentMode)
+                        log_debug("[ArmorSwitch] Verify OK: Hotbar slot %d has correct item %d", lastSwap.hotbarIndex,
+                                  hotbarId);
                     state = State::Switching;
                     stateStartTime = now;
                 } else {
+                    if (settings.silentMode)
+                        log_debug("[ArmorSwitch] Verify Mismatch: Hotbar slot %d has %d, expected %d",
+                                  lastSwap.hotbarIndex, hotbarId, lastSwap.expectedItemId);
                     retrySwap();
                 }
             } else if (lastSwap.armorSlotType == -3) {
@@ -385,9 +416,15 @@ void ArmorSwitch::onUpdate() {
                     }
                 }
                 if (found && invId == lastSwap.expectedItemId) {
+                    if (settings.silentMode)
+                        log_debug("[ArmorSwitch] Verify OK: Inventory slot %d has correct item %d",
+                                  lastSwap.containerSlot, invId);
                     state = State::Switching;
                     stateStartTime = now;
                 } else {
+                    if (settings.silentMode)
+                        log_debug("[ArmorSwitch] Verify Mismatch: Inventory slot %d has %d (found=%d), expected %d",
+                                  lastSwap.containerSlot, invId, found, lastSwap.expectedItemId);
                     retrySwap();
                 }
             } else {
@@ -399,7 +436,11 @@ void ArmorSwitch::onUpdate() {
         }
 
         case State::Closing: {
-            if (elapsed >= settings.switchDelay) {
+            if (settings.silentMode) {
+                log_debug("[ArmorSwitch] Silent Mode: Finished (Sending Close Packet).");
+                mc.sendInventoryClosePacket();
+                finishSwap(settings.onInventoryOpen);
+            } else if (elapsed >= settings.switchDelay) {
                 finishSwap(settings.onInventoryOpen);
             }
             break;
@@ -407,7 +448,8 @@ void ArmorSwitch::onUpdate() {
     }
 }
 
-int ArmorSwitch::findArmorInInventory(const std::vector<SlotInfo>& slots, int slotType, ArmorMaterial material, int* outDamage, int* outProtLevel) {
+int ArmorSwitch::findArmorInInventory(const std::vector<SlotInfo>& slots, int slotType, ArmorMaterial material,
+                                      int* outDamage, int* outProtLevel) {
     int targetId = getArmorId(material, slotType);
 
     bool found = false;
@@ -434,7 +476,7 @@ int ArmorSwitch::findArmorInInventory(const std::vector<SlotInfo>& slots, int sl
                     isBetter = true;
                 }
             }
-            
+
             if (isBetter) {
                 found = true;
                 bestSlot = slot.slotId;
@@ -506,7 +548,7 @@ void ArmorSwitch::scanForSwaps() {
     // slotType: 0=helmet, 1=chest, 2=legs, 3=boots
     for (int slotType = 0; slotType < 4; slotType++) {
         int targetId = getArmorId(targetMat, slotType);
-        
+
         // Get current equipped armor info from SDK
         int currentId = (slotType < (int)armorSlots.size()) ? armorSlots[slotType].itemId : 0;
         int currentDamage = (slotType < (int)armorSlots.size()) ? armorSlots[slotType].damage : 0;
@@ -515,7 +557,7 @@ void ArmorSwitch::scanForSwaps() {
         int sourceDamage = 0;
         int sourceProtLevel = 0;
         int sourceSlot = -1;
-        
+
         if (currentId == targetId && currentId != 0) {
             // Same material equipped - check if inventory has better
             sourceSlot = findArmorInInventory(slots, slotType, targetMat, &sourceDamage, &sourceProtLevel);
@@ -536,7 +578,7 @@ void ArmorSwitch::scanForSwaps() {
                     shouldSwitch = true;
                 }
             }
-            
+
             if (!shouldSwitch) {
                 continue;
             }
@@ -549,7 +591,7 @@ void ArmorSwitch::scanForSwaps() {
         }
 
         int hotbarIndex = -1;
-        
+
         // Case 1: Armor is already in hotbar (sourceSlot 0-8)
         if (sourceSlot >= 0 && sourceSlot <= 8) {
             hotbarIndex = sourceSlot;
@@ -659,7 +701,7 @@ void ArmorSwitch::onRenderMenu() {
         int delay = settings.switchDelay;
         if (ui::SliderInt("Delay (ms)", &delay, 0, 200, "%d"))
             settings.switchDelay = delay;
-        
+
         ImGui::Spacing();
         bool wasOnInventoryOpen = settings.onInventoryOpen;
         ui::Checkbox("On Inventory Open", &settings.onInventoryOpen);
@@ -683,6 +725,7 @@ void ArmorSwitch::onRenderMenu() {
         if (ImGui::IsItemHovered()) {
             ImGui::SetTooltip("Use if armor swaps fail on some servers");
         }
+        ui::Checkbox("Silent Mode (TEST)", &settings.silentMode);
     });
 }
 
@@ -691,11 +734,11 @@ std::string ArmorSwitch::getDisplayInfo() {
     if (settings.onInventoryOpen) {
         return "Inv Open";
     }
-    
+
     // Safety check - don't query if not in game
     if (!mc.isValid() || !player.isValid())
         return "---";
-    
+
     int currentSet = detectCurrentSet();
     if (currentSet == 0) {
         return std::string("Set 1 - ") + materialNames[settings.set1Material];

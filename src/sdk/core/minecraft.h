@@ -59,7 +59,7 @@ struct SlotInfo {
     int slotId = -1;
     int itemId = 0;  // 0 = empty, 282 = soup, 373 = potion, etc
     int stackSize = 0;
-    int damage = 0;  // Durability damage or potion metadata
+    int damage = 0;           // Durability damage or potion metadata
     int protectionLevel = 0;  // Protection enchantment level (0 = none)
     bool isSplashPotion = false;
     bool isHealthPotion = false;  // Instant Health I or II
@@ -173,6 +173,15 @@ struct Minecraft {
     // Releases or grabs mouse at LWJGL level to prevent camera movement when menu is open
     void ungrabMouse();
     void grabMouse();
+
+    // Send a packet to the server immediately (addToSendQueue)
+    void sendPacket(jobject packet);
+
+    // Helper to open inventory purely via packet (Silent Mode)
+    void sendInventoryOpenPacket();
+
+    // Helper to close inventory purely via packet (Silent Mode)
+    void sendInventoryClosePacket();
 
     jclass cls = nullptr;
     jobject instance = nullptr;

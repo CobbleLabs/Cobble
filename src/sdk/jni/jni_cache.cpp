@@ -39,6 +39,12 @@ jclass cls_IChatComponent = nullptr;
 jclass cls_List = nullptr;
 jclass cls_Mouse = nullptr;
 
+// Packet Classes
+jclass cls_Packet = nullptr;
+jclass cls_C16PacketClientStatus = nullptr;
+jclass cls_C16EnumState = nullptr;
+jclass cls_C0DPacketCloseWindow = nullptr;
+
 // Minecraft IDs
 jmethodID mid_getMinecraft = nullptr;
 jmethodID mid_clickMouse = nullptr;
@@ -202,6 +208,12 @@ jmethodID mid_listGet = nullptr;
 // IChatComponent IDs
 jmethodID mid_getFormattedText = nullptr;
 jmethodID mid_getUnformattedText = nullptr;
+
+// Packet Method IDs
+jmethodID mid_addToSendQueue = nullptr;
+jmethodID mid_C16PacketClientStatus_init = nullptr;
+jfieldID fid_C16EnumState_OPEN_INVENTORY_ACHIEVEMENT = nullptr;
+jmethodID mid_C0DPacketCloseWindow_init = nullptr;
 
 // LWJGL Mouse IDs
 jmethodID mid_setGrabbed = nullptr;
@@ -396,6 +408,9 @@ bool Init() {
         TRY_METHOD(mid_getPlayerInfoByUUID, cls_NetHandlerPlayClient, "getPlayerInfo",
                    "(Ljava/util/UUID;)Lnet/minecraft/client/network/NetworkPlayerInfo;");
         log_debug("[JniCache] NetHandlerPlayClient.getPlayerInfo(UUID): %s", mid_getPlayerInfoByUUID ? "OK" : "FAILED");
+
+        // addToSendQueue(Packet) -> void
+        TRY_METHOD(mid_addToSendQueue, cls_NetHandlerPlayClient, "addToSendQueue", "(Lnet/minecraft/network/Packet;)V");
     } else {
         log_debug("[JniCache] NetHandlerPlayClient class: FAILED");
     }
@@ -507,7 +522,8 @@ bool Init() {
         TRY_FIELD(fid_keyBindSprint, cls_GameSettings, "keyBindSprint", "Lnet/minecraft/client/settings/KeyBinding;");
         TRY_FIELD(fid_keyBindAttack, cls_GameSettings, "keyBindAttack", "Lnet/minecraft/client/settings/KeyBinding;");
         TRY_FIELD(fid_keyBindUseItem, cls_GameSettings, "keyBindUseItem", "Lnet/minecraft/client/settings/KeyBinding;");
-        TRY_FIELD(fid_keyBindInventory, cls_GameSettings, "keyBindInventory", "Lnet/minecraft/client/settings/KeyBinding;");
+        TRY_FIELD(fid_keyBindInventory, cls_GameSettings, "keyBindInventory",
+                  "Lnet/minecraft/client/settings/KeyBinding;");
     }
 
     // =========================================================================
@@ -767,6 +783,30 @@ bool Init() {
         if (!mid_getUnformattedText) {
             TRY_METHOD(mid_getUnformattedText, cls_IChatComponent, "getUnformattedText", "()Ljava/lang/String;");
         }
+    }
+
+    // =========================================================================
+    // Packet Classes (1.8)
+    // =========================================================================
+
+    CACHE_CLASS(cls_Packet, "net.minecraft.network.Packet");
+    CACHE_CLASS(cls_C16PacketClientStatus, "net.minecraft.network.play.client.C16PacketClientStatus");
+    if (cls_C16PacketClientStatus) {
+        CACHE_CLASS(cls_C16EnumState, "net.minecraft.network.play.client.C16PacketClientStatus$EnumState");
+        if (cls_C16EnumState) {
+            TRY_STATIC_FIELD(fid_C16EnumState_OPEN_INVENTORY_ACHIEVEMENT, cls_C16EnumState,
+                             "OPEN_INVENTORY_ACHIEVEMENT",
+                             "Lnet/minecraft/network/play/client/C16PacketClientStatus$EnumState;");
+            if (fid_C16EnumState_OPEN_INVENTORY_ACHIEVEMENT) {
+                TRY_METHOD(mid_C16PacketClientStatus_init, cls_C16PacketClientStatus, "<init>",
+                           "(Lnet/minecraft/network/play/client/C16PacketClientStatus$EnumState;)V");
+            }
+        }
+    }
+
+    CACHE_CLASS(cls_C0DPacketCloseWindow, "net.minecraft.network.play.client.C0DPacketCloseWindow");
+    if (cls_C0DPacketCloseWindow) {
+        TRY_METHOD(mid_C0DPacketCloseWindow_init, cls_C0DPacketCloseWindow, "<init>", "(I)V");
     }
 
     // =========================================================================

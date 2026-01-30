@@ -154,3 +154,64 @@ void Minecraft::setTimerSpeed(float speed) {
     Java::Env()->SetFloatField(timer, JniCache::fid_timerSpeed, speed);
     Java::Env()->DeleteLocalRef(timer);
 }
+
+void Minecraft::sendPacket(jobject packet) {
+    if (!isValid() || !packet)
+        return;
+
+    JNIEnv* env = Java::Env();
+    if (!env)
+        return;
+
+    // Get NetHandlerPlayClient connection
+    jobject netHandler = env->CallObjectMethod(instance, JniCache::mid_getNetHandler);
+    if (!netHandler)
+        return;
+
+    // Call addToSendQueue(packet)
+    env->CallVoidMethod(netHandler, JniCache::mid_addToSendQueue, packet);
+
+    env->DeleteLocalRef(netHandler);
+}
+
+void Minecraft::sendInventoryOpenPacket() {
+    JNIEnv* env = Java::Env();
+    if (!env || !JniCache::cls_C16PacketClientStatus || !JniCache::fid_C16EnumState_OPEN_INVENTORY_ACHIEVEMENT) {
+        log_debug("Cannot send open packet: Missing classes/IDs");
+        return;
+    }
+
+    // Get EnumState.OPEN_INVENTORY_ACHIEVEMENT
+    jobject enumState =
+        env->GetStaticObjectField(JniCache::cls_C16EnumState, JniCache::fid_C16EnumState_OPEN_INVENTORY_ACHIEVEMENT);
+    if (!enumState)
+        return;
+
+    // New C16PacketClientStatus(enumState)
+    jobject packet =
+        env->NewObject(JniCache::cls_C16PacketClientStatus, JniCache::mid_C16PacketClientStatus_init, enumState);
+    if (packet) {
+        sendPacket(packet);
+        env->DeleteLocalRef(packet);
+    }
+
+    env->DeleteLocalRef(enumState);
+}
+
+void Minecraft::sendInventoryClosePacket() {
+    JNIEnv* env = Java::Env();
+    if (!env || !JniCache::cls_C0DPacketCloseWindow) {
+        log_debug("Cannot send close packet: Missing classes");
+        return;
+    }
+
+    // We can use windowId 0 (player inventory) or try to get actual open container id?
+    // Usually for client inventory loop, sending close for window 0 is correct if we pretended to open it.
+    // However, C0D constructor takes int windowId.
+
+    jobject packet = env->NewObject(JniCache::cls_C0DPacketCloseWindow, JniCache::mid_C0DPacketCloseWindow_init, 0);
+    if (packet) {
+        sendPacket(packet);
+        env->DeleteLocalRef(packet);
+    }
+}

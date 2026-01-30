@@ -63,16 +63,27 @@ public:
         int switchDelay = 50;
         // Minimum delay enforced while retryOnFail is enabled (ms)
         int retryMinDelay = 70;
-        
+
         // When same material, prefer higher Protection enchant
         bool preferProtection = true;
-        
+
         // Only trigger when inventory is already open
         bool onInventoryOpen = false;
-        
-        // Retry swaps if they fail (for slow servers)
+
+        // retry swaps if they fail (for slow servers)
         bool retryOnFail = false;
+
+        // TEST: Silent mode (no GUI)
+        bool silentMode = false;
+
+        // Auto-balance settings
+        bool autoBalance = false;
+        int maxDurabilityDiff = 10;  // Max difference in % to trigger swap
+        int checkInterval = 1000;    // Check every 1s
     } settings;
+
+    std::chrono::steady_clock::time_point lastBalanceCheck;
+    void checkAutoBalance();
 
 private:
     enum class State { Idle, OpeningInventory, Switching, Verifying, Closing };
@@ -86,19 +97,19 @@ private:
 
     // Swap task: swap a container slot with a hotbar slot
     struct SwapTask {
-        int containerSlot;  // Container slot id: armor 5-8, main inv 9-35, hotbar 36-44
-        int hotbarIndex;    // Hotbar index 0-8
-        int expectedItemId; // What we expect to see after swap
+        int containerSlot;   // Container slot id: armor 5-8, main inv 9-35, hotbar 36-44
+        int hotbarIndex;     // Hotbar index 0-8
+        int expectedItemId;  // What we expect to see after swap
         // Verification target:
         //  0-3 : armor slot type (helmet/chest/legs/boots)
         //  -2  : verify hotbar[hotbarIndex] has expectedItemId (move-to-hotbar stage)
         //  -3  : verify inventory slot containerSlot has expectedItemId (restore stage)
         //  -1  : no verification
         int armorSlotType;
-        int retryCount;     // Number of retries
+        int retryCount;  // Number of retries
     };
     std::vector<SwapTask> pendingSwaps;
-    SwapTask lastSwap;      // Last swap executed, for verification
+    SwapTask lastSwap;  // Last swap executed, for verification
 
     static constexpr int DELAY_AFTER_OPEN = 100;
     static constexpr int DELAY_BEFORE_CLOSE = 80;
@@ -115,17 +126,18 @@ private:
     // Find armor in inventory matching the desired material for a slot type
     // Returns slot id (0-35) or -1 if not found
     // Takes pre-fetched slots
-    int findArmorInInventory(const std::vector<SlotInfo>& slots, int slotType, ArmorMaterial material, int* outDamage, int* outProtLevel = nullptr);
+    int findArmorInInventory(const std::vector<SlotInfo>& slots, int slotType, ArmorMaterial material, int* outDamage,
+                             int* outProtLevel = nullptr);
 
     // Detect which set the player is currently wearing
     int detectCurrentSet();
 
     void scanForSwaps();
     void finishSwap(bool fromOnInventoryOpen = false);
-    
+
     // Convert mainInventory slot (0-35) to container slot for windowClickSwap
     int inventoryToContainerSlot(int invSlot);
-    
+
     // Track inventory open state for passive mode
     bool wasInventoryOpen = false;
 };

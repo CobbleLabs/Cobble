@@ -48,6 +48,12 @@ extern jclass cls_Item;
 // Chat
 extern jclass cls_IChatComponent;
 
+// Packets
+extern jclass cls_Packet;
+extern jclass cls_C16PacketClientStatus;
+extern jclass cls_C16EnumState;
+extern jclass cls_C0DPacketCloseWindow;
+
 // Java utils
 extern jclass cls_List;
 
@@ -104,7 +110,9 @@ extern jmethodID mid_uuidToString;  // UUID.toString() -> String
 // =============================================================================
 
 extern jclass cls_NetHandlerPlayClient;
+extern jclass cls_NetHandlerPlayClient;
 extern jmethodID mid_getPlayerInfoByUUID;  // getPlayerInfo(UUID) -> NetworkPlayerInfo
+extern jmethodID mid_addToSendQueue;       // addToSendQueue(Packet) -> void
 
 // =============================================================================
 // NetworkPlayerInfo class IDs
@@ -307,6 +315,14 @@ extern jmethodID mid_listGet;
 
 extern jmethodID mid_getFormattedText;
 extern jmethodID mid_getUnformattedText;
+
+// =============================================================================
+// Packet Constructors & Fields
+// =============================================================================
+
+extern jmethodID mid_C16PacketClientStatus_init;
+extern jfieldID fid_C16EnumState_OPEN_INVENTORY_ACHIEVEMENT;
+extern jmethodID mid_C0DPacketCloseWindow_init;
 
 // =============================================================================
 // LWJGL Mouse class IDs

@@ -64,11 +64,11 @@ void Hitbox::restoreEntityHit(JNIEnv* env) {
     }
 
     if (overrideState.originalEntityHit) {
-        env->DeleteLocalRef(overrideState.originalEntityHit);
+        env->DeleteGlobalRef(overrideState.originalEntityHit);
         overrideState.originalEntityHit = nullptr;
     }
     if (overrideState.originalTypeOfHit) {
-        env->DeleteLocalRef(overrideState.originalTypeOfHit);
+        env->DeleteGlobalRef(overrideState.originalTypeOfHit);
         overrideState.originalTypeOfHit = nullptr;
     }
 
@@ -165,7 +165,6 @@ void Hitbox::onUpdate() {
 
     // Always restore at start of frame - we'll re-apply if needed
     restoreEntityHit(env);
-
 
     auto playerList = mc.getPlayerList();
 
@@ -297,13 +296,13 @@ void Hitbox::onUpdate() {
     }
 
     jobject originalEntity = env->GetObjectField(mouseOver, JniCache::fid_entityHit);
-    overrideState.originalEntityHit = originalEntity ? env->NewLocalRef(originalEntity) : nullptr;
+    overrideState.originalEntityHit = originalEntity ? env->NewGlobalRef(originalEntity) : nullptr;
     if (originalEntity)
         env->DeleteLocalRef(originalEntity);
 
     if (JniCache::fid_typeOfHit) {
         jobject originalType = env->GetObjectField(mouseOver, JniCache::fid_typeOfHit);
-        overrideState.originalTypeOfHit = originalType ? env->NewLocalRef(originalType) : nullptr;
+        overrideState.originalTypeOfHit = originalType ? env->NewGlobalRef(originalType) : nullptr;
         if (originalType)
             env->DeleteLocalRef(originalType);
     }
