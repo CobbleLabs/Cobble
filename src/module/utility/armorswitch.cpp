@@ -725,7 +725,10 @@ void ArmorSwitch::onRenderMenu() {
         if (ImGui::IsItemHovered()) {
             ImGui::SetTooltip("Use if armor swaps fail on some servers");
         }
-        ui::Checkbox("Silent Mode (TEST)", &settings.silentMode);
+        ui::Checkbox("Silent Mode", &settings.silentMode);
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("Swaps armor silently without opening the inventory");
+        }
     });
 }
 

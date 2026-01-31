@@ -34,6 +34,9 @@ public:
 
         // On Inventory Open: trigger refill when user opens inventory manually
         bool onInventoryOpen = false;
+
+        // Silent Mode: perform actions without opening GUI
+        bool silentMode = false;
     } settings;
 
 private:
@@ -59,10 +62,6 @@ private:
 
     void scanForRefills();
     void finishRefill(bool fromOnInventoryOpen = false);
-
-    // Internal delays
-    static constexpr int DELAY_AFTER_OPEN = 150;
-    static constexpr int DELAY_BEFORE_CLOSE = 100;
 };
 
 extern AutoRefill* autoRefill;

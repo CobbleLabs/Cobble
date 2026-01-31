@@ -250,6 +250,7 @@ void ConfigManager::applyConfig() {
                 s.refillPotions = data["refillPotions"].as_bool(s.refillPotions);
                 s.speed = data["speed"].as_int(s.speed);
                 s.onInventoryOpen = data["onInventoryOpen"].as_bool(s.onInventoryOpen);
+                s.silentMode = data["silentMode"].as_bool(s.silentMode);
             } else if (name == "BlockESP" && blockESP) {
                 auto& s = blockESP->settings;
                 s.drawDiamond = data["drawDiamond"].as_bool(s.drawDiamond);
@@ -335,7 +336,8 @@ void ConfigManager::applyConfig() {
                 }
             } else if (name == "InvManager" && inventoryManager) {
                 inventoryManager->settings.swapDelay = data["swapDelay"].as_int(inventoryManager->settings.swapDelay);
-                inventoryManager->settings.retryOnFail = data["retryOnFail"].as_bool(inventoryManager->settings.retryOnFail);
+                inventoryManager->settings.retryOnFail =
+                    data["retryOnFail"].as_bool(inventoryManager->settings.retryOnFail);
                 inventoryManager->settings.activePreset = data["activePreset"].as_int(0);
                 if (data.has("presets")) {
                     for (int p = 0; p < InventoryManager::MAX_PRESETS; p++) {
@@ -345,8 +347,10 @@ void ConfigManager::applyConfig() {
                             for (int i = 0; i < 9; i++) {
                                 std::string slotKey = std::to_string(i);
                                 if (data["presets"][presetKey].has(slotKey)) {
-                                    inventoryManager->presets[p].slots[i].itemId = data["presets"][presetKey][slotKey]["id"].as_int(0);
-                                    inventoryManager->presets[p].slots[i].damage = data["presets"][presetKey][slotKey]["dmg"].as_int(0);
+                                    inventoryManager->presets[p].slots[i].itemId =
+                                        data["presets"][presetKey][slotKey]["id"].as_int(0);
+                                    inventoryManager->presets[p].slots[i].damage =
+                                        data["presets"][presetKey][slotKey]["dmg"].as_int(0);
                                 }
                             }
                         }
@@ -526,6 +530,7 @@ void ConfigManager::buildConfigFromModules() {
             config_["modules"][name]["refillPotions"] = s.refillPotions;
             config_["modules"][name]["speed"] = s.speed;
             config_["modules"][name]["onInventoryOpen"] = s.onInventoryOpen;
+            config_["modules"][name]["silentMode"] = s.silentMode;
         } else if (name == "BlockESP" && blockESP) {
             const auto& s = blockESP->settings;
             config_["modules"][name]["drawDiamond"] = s.drawDiamond;
@@ -609,8 +614,10 @@ void ConfigManager::buildConfigFromModules() {
                 config_["modules"][name]["presets"][presetKey]["saved"] = inventoryManager->presets[p].saved;
                 for (int i = 0; i < 9; i++) {
                     std::string slotKey = std::to_string(i);
-                    config_["modules"][name]["presets"][presetKey][slotKey]["id"] = inventoryManager->presets[p].slots[i].itemId;
-                    config_["modules"][name]["presets"][presetKey][slotKey]["dmg"] = inventoryManager->presets[p].slots[i].damage;
+                    config_["modules"][name]["presets"][presetKey][slotKey]["id"] =
+                        inventoryManager->presets[p].slots[i].itemId;
+                    config_["modules"][name]["presets"][presetKey][slotKey]["dmg"] =
+                        inventoryManager->presets[p].slots[i].damage;
                 }
             }
         }

@@ -49,9 +49,16 @@ void AutoRefill::onEnable() {
         return;
     }
 
-    sendKey('E');
-    state = State::Waiting;
-    stateStartTime = std::chrono::steady_clock::now();
+    if (settings.silentMode) {
+        mc.sendInventoryOpenPacket();
+        state = State::Refilling;
+        stateStartTime = std::chrono::steady_clock::now();
+        lastMoveTime = stateStartTime - std::chrono::milliseconds(settings.speed);
+    } else {
+        sendKey('E');
+        state = State::Waiting;
+        stateStartTime = std::chrono::steady_clock::now();
+    }
 }
 
 void AutoRefill::onDisable() {
@@ -60,8 +67,8 @@ void AutoRefill::onDisable() {
 }
 
 void AutoRefill::finishRefill(bool fromOnInventoryOpen) {
-    // Only close inventory if not in onInventoryOpen mode
-    if (!fromOnInventoryOpen && mc.isInventoryOpen()) {
+    // Only close inventory if not in onInventoryOpen mode and not in silent mode
+    if (!fromOnInventoryOpen && !settings.silentMode && mc.isInventoryOpen()) {
         sendKey(VK_ESCAPE);
     }
 
@@ -118,10 +125,10 @@ void AutoRefill::onUpdate() {
         }
 
         case State::Refilling: {
-            if (elapsed < DELAY_AFTER_OPEN)
+            if (elapsed < settings.speed)
                 return;
 
-            if (!mc.isInventoryOpen()) {
+            if (!mc.isInventoryOpen() && !settings.silentMode) {
                 finishRefill(settings.onInventoryOpen);
                 return;
             }
@@ -145,7 +152,10 @@ void AutoRefill::onUpdate() {
         }
 
         case State::Closing: {
-            if (elapsed >= DELAY_BEFORE_CLOSE) {
+            if (settings.silentMode) {
+                mc.sendInventoryClosePacket();
+                finishRefill(settings.onInventoryOpen);
+            } else if (elapsed >= settings.speed) {
                 // Validation: retry if items are still missing
                 scanForRefills();
 
@@ -222,7 +232,7 @@ void AutoRefill::onRenderMenu() {
             ui::Binder("Keybind", &keybind);
             ImGui::Spacing();
             int speed = settings.speed;
-            if (ui::SliderInt("Speed (ms)", &speed, 20, 200, "%d"))
+            if (ui::SliderInt("Speed (ms)", &speed, 0, 200, "%d"))
                 settings.speed = speed;
             ImGui::Spacing();
             ui::Checkbox("On Inventory Open", &settings.onInventoryOpen);
@@ -231,6 +241,10 @@ void AutoRefill::onRenderMenu() {
         [this]() {
             ui::Checkbox("Refill Soup", &settings.refillSoup);
             ui::Checkbox("Refill Potions", &settings.refillPotions);
+            ui::Checkbox("Silent Mode", &settings.silentMode);
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("Refills without opening inventory");
+            }
         });
 }
 

@@ -73,7 +73,6 @@ public:
         // retry swaps if they fail (for slow servers)
         bool retryOnFail = false;
 
-        // TEST: Silent mode (no GUI)
         bool silentMode = false;
 
         // Auto-balance settings
