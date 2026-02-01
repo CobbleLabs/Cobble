@@ -335,6 +335,70 @@ std::vector<PlayerInfo> Minecraft::getPlayerList() {
             }
         }
 
+        // Armor
+        if (JniCache::fid_inventory && JniCache::fid_armorInventory) {
+            jobject inventory = env->GetObjectField(entity, JniCache::fid_inventory);
+            if (inventory) {
+                jobjectArray armorList = (jobjectArray)env->GetObjectField(inventory, JniCache::fid_armorInventory);
+                if (armorList) {
+                    int len = env->GetArrayLength(armorList);
+                    for (int k = 0; k < len; k++) {
+                        jobject stack = env->GetObjectArrayElement(armorList, k);
+                        PlayerInfo::ArmorItem itemInfo;
+                        if (stack) {
+                            if (JniCache::mid_getItem && JniCache::mid_getIdFromItem) {
+                                jobject item = env->CallObjectMethod(stack, JniCache::mid_getItem);
+                                if (item) {
+                                    itemInfo.id = env->CallStaticIntMethod(JniCache::cls_Item, JniCache::mid_getIdFromItem, item);
+                                    if (JniCache::mid_getMaxDamage)
+                                        itemInfo.maxDamage = env->CallIntMethod(item, JniCache::mid_getMaxDamage);
+                                    env->DeleteLocalRef(item);
+                                }
+                            }
+                            if (JniCache::mid_getItemDamage) {
+                                itemInfo.damage = env->CallIntMethod(stack, JniCache::mid_getItemDamage);
+                            }
+                            env->DeleteLocalRef(stack);
+                        }
+                        info.armor.push_back(itemInfo);
+                    }
+                    env->DeleteLocalRef(armorList);
+                }
+                env->DeleteLocalRef(inventory);
+            }
+        }
+
+        // Potions
+        if (JniCache::fid_activePotionsMap && JniCache::mid_mapValues && JniCache::mid_collectionToArray) {
+            jobject potionMap = env->GetObjectField(entity, JniCache::fid_activePotionsMap);
+            if (potionMap) {
+                jobject values = env->CallObjectMethod(potionMap, JniCache::mid_mapValues);
+                if (values) {
+                    jobjectArray arr = (jobjectArray)env->CallObjectMethod(values, JniCache::mid_collectionToArray);
+                    if (arr) {
+                        int len = env->GetArrayLength(arr);
+                        for (int k = 0; k < len; k++) {
+                            jobject effect = env->GetObjectArrayElement(arr, k);
+                            if (effect) {
+                                PlayerInfo::PotionEffectInfo effInfo;
+                                if (JniCache::mid_getPotionID)
+                                    effInfo.id = env->CallIntMethod(effect, JniCache::mid_getPotionID);
+                                if (JniCache::mid_getDuration)
+                                    effInfo.duration = env->CallIntMethod(effect, JniCache::mid_getDuration);
+                                if (JniCache::mid_getAmplifier)
+                                    effInfo.amplifier = env->CallIntMethod(effect, JniCache::mid_getAmplifier);
+                                info.potions.push_back(effInfo);
+                                env->DeleteLocalRef(effect);
+                            }
+                        }
+                        env->DeleteLocalRef(arr);
+                    }
+                    env->DeleteLocalRef(values);
+                }
+                env->DeleteLocalRef(potionMap);
+            }
+        }
+
         result.push_back(std::move(info));
     }
 

@@ -5,6 +5,7 @@
 #include <string>
 #include <vector>
 #include "../../jni/java.h"
+#include "../../sdk/core/minecraft.h"
 #include "../module.h"
 
 // Forward declare
@@ -21,6 +22,8 @@ struct CachedPlayer {
     float health = 20.0f;
     float maxHealth = 20.0f;
     bool valid = false;
+    std::vector<PlayerInfo::ArmorItem> armor;
+    std::vector<PlayerInfo::PotionEffectInfo> potions;
 
     // Get display name (prefers Mojang real name if available)
     const std::string& getDisplayName() const { return !mojangName.empty() ? mojangName : name; }
@@ -43,6 +46,8 @@ public:
         bool background = true;
         bool showHealth = true;
         bool showDistance = true;
+        bool showArmor = true;
+        bool showEffects = true;
     } settings;
 
 private:
@@ -73,7 +78,8 @@ private:
     void checkWorldChange();
 
     void renderPlayerTag(ImDrawList* draw, float screenX, float screenY, const char* name, float distance, float health,
-                         float maxHealth);
+                         float maxHealth, const std::vector<PlayerInfo::ArmorItem>& armor,
+                         const std::vector<PlayerInfo::PotionEffectInfo>& potions);
 };
 
 extern NameTags* nameTags;

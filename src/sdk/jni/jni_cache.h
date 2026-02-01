@@ -22,6 +22,7 @@ extern jclass cls_EntityLivingBase;
 extern jclass cls_EntityPlayer;
 extern jclass cls_EntityArmorStand;
 extern jclass cls_EntityItem;
+extern jclass cls_PotionEffect;
 
 // Settings & Input
 extern jclass cls_GameSettings;
@@ -42,6 +43,7 @@ extern jclass cls_Timer;
 extern jclass cls_GuiScreen;
 extern jclass cls_GuiInventory;
 extern jclass cls_Container;
+extern jclass cls_InventoryPlayer;
 extern jclass cls_Slot;
 extern jclass cls_ItemStack;
 extern jclass cls_Item;
@@ -57,6 +59,8 @@ extern jclass cls_C0DPacketCloseWindow;
 
 // Java utils
 extern jclass cls_List;
+extern jclass cls_Map;
+extern jclass cls_Collection;
 
 // LWJGL (for mouse grab fallback)
 extern jclass cls_Mouse;
@@ -129,6 +133,7 @@ extern jmethodID mid_getNetworkGameProfile;  // getGameProfile() -> GameProfile
 
 extern jmethodID mid_getHealth;
 extern jmethodID mid_getMaxHealth;
+extern jfieldID fid_activePotionsMap; // Map<Integer, PotionEffect>
 extern jfieldID fid_hurtTime;
 extern jfieldID fid_hurtResistantTime;
 extern jfieldID fid_maxHurtResistantTime;
@@ -161,7 +166,25 @@ extern jmethodID mid_getName;
 extern jmethodID mid_getDisplayName;
 extern jmethodID mid_getGameProfile;  // EntityPlayer.getGameProfile() -> GameProfile
 extern jfieldID fid_inventory;
+extern jfieldID fid_inventory;
 extern jfieldID fid_openContainer;
+
+// =============================================================================
+// InventoryPlayer & PotionEffect IDs
+// =============================================================================
+
+extern jfieldID fid_armorInventory; // ItemStack[]
+
+extern jmethodID mid_getPotionID;
+extern jmethodID mid_getDuration;
+extern jmethodID mid_getAmplifier;
+
+// =============================================================================
+// Map & Collection IDs
+// =============================================================================
+
+extern jmethodID mid_mapValues;
+extern jmethodID mid_collectionToArray;
 
 // =============================================================================
 // GameProfile class IDs (com.mojang.authlib.GameProfile)
@@ -304,6 +327,7 @@ extern jfieldID fid_itemDamage;
 
 extern jmethodID mid_getIdFromItem;
 extern jmethodID mid_getItemStackLimit;
+extern jmethodID mid_getMaxDamage;
 
 // =============================================================================
 // Slot class IDs

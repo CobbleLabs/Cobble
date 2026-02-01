@@ -36,8 +36,11 @@ jclass cls_Container = nullptr;
 jclass cls_Slot = nullptr;
 jclass cls_ItemStack = nullptr;
 jclass cls_Item = nullptr;
+jclass cls_PotionEffect = nullptr;
 jclass cls_IChatComponent = nullptr;
 jclass cls_List = nullptr;
+jclass cls_Map = nullptr;
+jclass cls_Collection = nullptr;
 jclass cls_Mouse = nullptr;
 
 // Packet Classes
@@ -94,6 +97,7 @@ jfieldID fid_maxHurtResistantTime = nullptr;
 jmethodID mid_canEntityBeSeen = nullptr;
 jfieldID fid_boundingBox = nullptr;
 jmethodID mid_isSneaking = nullptr;
+jfieldID fid_activePotionsMap = nullptr;
 
 // AxisAlignedBB class and fields
 jclass cls_AxisAlignedBB = nullptr;
@@ -110,6 +114,19 @@ jmethodID mid_getDisplayName = nullptr;
 jmethodID mid_getGameProfile = nullptr;
 jfieldID fid_inventory = nullptr;
 jfieldID fid_openContainer = nullptr;
+
+// InventoryPlayer IDs
+jclass cls_InventoryPlayer = nullptr;
+jfieldID fid_armorInventory = nullptr;
+
+// Potion IDs
+jmethodID mid_getPotionID = nullptr;
+jmethodID mid_getDuration = nullptr;
+jmethodID mid_getAmplifier = nullptr;
+
+// Collection/Map IDs
+jmethodID mid_mapValues = nullptr;
+jmethodID mid_collectionToArray = nullptr;
 
 // GameProfile IDs (com.mojang.authlib.GameProfile)
 jclass cls_GameProfile = nullptr;
@@ -200,6 +217,7 @@ jfieldID fid_itemDamage = nullptr;
 // Item IDs
 jmethodID mid_getIdFromItem = nullptr;
 jmethodID mid_getItemStackLimit = nullptr;
+jmethodID mid_getMaxDamage = nullptr;
 
 // EntityItem IDs
 jmethodID mid_getEntityItem = nullptr;
@@ -320,6 +338,7 @@ bool Init() {
     CACHE_CLASS(cls_Slot, "net.minecraft.inventory.Slot");
     CACHE_CLASS(cls_ItemStack, "net.minecraft.item.ItemStack");
     CACHE_CLASS(cls_Item, "net.minecraft.item.Item");
+    CACHE_CLASS(cls_PotionEffect, "net.minecraft.potion.PotionEffect");
     CACHE_CLASS(cls_Block, "net.minecraft.block.Block");
     CACHE_CLASS(cls_Timer, "net.minecraft.util.Timer");
 
@@ -336,8 +355,13 @@ bool Init() {
 
     // Java classes
     cls_List = env->FindClass("java/util/List");
-    if (cls_List)
-        cls_List = (jclass)env->NewGlobalRef(cls_List);
+    if (cls_List) cls_List = (jclass)env->NewGlobalRef(cls_List);
+
+    cls_Map = env->FindClass("java/util/Map");
+    if (cls_Map) cls_Map = (jclass)env->NewGlobalRef(cls_Map);
+
+    cls_Collection = env->FindClass("java/util/Collection");
+    if (cls_Collection) cls_Collection = (jclass)env->NewGlobalRef(cls_Collection);
 
     // LWJGL (may not be available)
     jclass mouseLocal = env->FindClass("org/lwjgl/input/Mouse");
@@ -473,6 +497,11 @@ bool Init() {
         TRY_FIELD(fid_maxHurtResistantTime, cls_EntityLivingBase, "maxHurtResistantTime", "I");
         TRY_METHOD(mid_canEntityBeSeen, cls_EntityLivingBase, "canEntityBeSeen", "(Lnet/minecraft/entity/Entity;)Z");
         TRY_METHOD(mid_isSneaking, cls_EntityLivingBase, "isSneaking", "()Z");
+        TRY_FIELD(fid_activePotionsMap, cls_EntityLivingBase, "activePotionsMap", "Ljava/util/Map;");
+        if (!fid_activePotionsMap) {
+             // 1.7.10 obfuscated
+             TRY_FIELD(fid_activePotionsMap, cls_EntityLivingBase, "field_70713_bf", "Ljava/util/Map;");
+        }
     }
 
     // =========================================================================
@@ -505,6 +534,45 @@ bool Init() {
 
         TRY_FIELD(fid_inventory, cls_EntityPlayer, "inventory", "Lnet/minecraft/entity/player/InventoryPlayer;");
         TRY_FIELD(fid_openContainer, cls_EntityPlayer, "openContainer", "Lnet/minecraft/inventory/Container;");
+        TRY_FIELD(fid_inventory, cls_EntityPlayer, "inventory", "Lnet/minecraft/entity/player/InventoryPlayer;");
+        TRY_FIELD(fid_openContainer, cls_EntityPlayer, "openContainer", "Lnet/minecraft/inventory/Container;");
+        
+        // Cache InventoryPlayer class from the field type if possible, or lookup
+        CACHE_CLASS(cls_InventoryPlayer, "net.minecraft.entity.player.InventoryPlayer");
+        if (cls_InventoryPlayer) {
+            TRY_FIELD(fid_armorInventory, cls_InventoryPlayer, "armorInventory", "[Lnet/minecraft/item/ItemStack;");
+            if (!fid_armorInventory) {
+                 TRY_FIELD(fid_armorInventory, cls_InventoryPlayer, "field_70460_b", "[Lnet/minecraft/item/ItemStack;");
+            }
+        }
+    }
+
+    // =========================================================================
+    // PotionEffect class IDs
+    // =========================================================================
+
+    if (cls_PotionEffect) {
+        TRY_METHOD(mid_getPotionID, cls_PotionEffect, "getPotionID", "()I");
+        TRY_METHOD(mid_getDuration, cls_PotionEffect, "getDuration", "()I");
+        TRY_METHOD(mid_getAmplifier, cls_PotionEffect, "getAmplifier", "()I");
+        
+        if (!mid_getPotionID) { // 1.7.10 obfuscated
+             TRY_METHOD(mid_getPotionID, cls_PotionEffect, "func_76456_a", "()I");
+             TRY_METHOD(mid_getDuration, cls_PotionEffect, "func_76459_b", "()I");
+             TRY_METHOD(mid_getAmplifier, cls_PotionEffect, "func_76458_c", "()I");
+        }
+    }
+    
+    // =========================================================================
+    // Collection/Map IDs
+    // =========================================================================
+    
+    if (cls_Map) {
+        TRY_METHOD(mid_mapValues, cls_Map, "values", "()Ljava/util/Collection;");
+    }
+    
+    if (cls_Collection) {
+        TRY_METHOD(mid_collectionToArray, cls_Collection, "toArray", "()[Ljava/lang/Object;");
     }
 
     // =========================================================================
@@ -785,6 +853,10 @@ bool Init() {
         TRY_METHOD(mid_getItemStackLimit, cls_Item, "getItemStackLimit", "()I");
         if (!mid_getItemStackLimit) {
             TRY_METHOD(mid_getItemStackLimit, cls_Item, "func_77639_j", "()I");
+        }
+        TRY_METHOD(mid_getMaxDamage, cls_Item, "getMaxDamage", "()I");
+        if (!mid_getMaxDamage) {
+             TRY_METHOD(mid_getMaxDamage, cls_Item, "func_77612_l", "()I");
         }
     }
 

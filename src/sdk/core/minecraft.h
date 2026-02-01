@@ -45,6 +45,21 @@ struct PlayerInfo {
     float getHitboxWidth() const { return hitboxMaxX - hitboxMinX; }
     float getHitboxHeight() const { return hitboxMaxY - hitboxMinY; }
     float getEyeHeight() const { return isSneaking ? 1.54f : 1.62f; }
+
+    struct ArmorItem {
+        int id = 0;
+        int damage = 0;
+        int maxDamage = 0;
+    };
+
+    struct PotionEffectInfo {
+        int id = 0;
+        int duration = 0;
+        int amplifier = 0;
+    };
+
+    std::vector<ArmorItem> armor;
+    std::vector<PotionEffectInfo> potions;
 };
 
 struct ItemEntityInfo {
