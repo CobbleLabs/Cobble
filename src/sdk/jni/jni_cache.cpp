@@ -544,6 +544,11 @@ bool Init() {
             if (!fid_armorInventory) {
                  TRY_FIELD(fid_armorInventory, cls_InventoryPlayer, "field_70460_b", "[Lnet/minecraft/item/ItemStack;");
             }
+            
+            TRY_FIELD(fid_mainInventory, cls_InventoryPlayer, "mainInventory", "[Lnet/minecraft/item/ItemStack;");
+            if (!fid_mainInventory) {
+                 TRY_FIELD(fid_mainInventory, cls_InventoryPlayer, "field_70462_a", "[Lnet/minecraft/item/ItemStack;");
+            }
         }
     }
 

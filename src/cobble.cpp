@@ -25,11 +25,14 @@
 #include "module/visual/item_esp.h"
 #include "module/visual/nametags.h"
 #include "module/visual/tracers.h"
+#include "module/visual/tracers.h"
 #include "module/visual/trajectories.h"
+#include "module/visual/dropped_info.h"
 
 #include "hooks/winsock_hooks.h"
 #include "jni/packet/packet_interceptor.hpp"
 #include "sdk/network/lunar_packet_listener.hpp"
+#include "sdk/network/lunar_sender.hpp"
 #include "sdk/network/network_probe.hpp"
 #include "sdk/player/render_data.h"
 #include "sdk/player/visual_cache.h"
@@ -157,6 +160,7 @@ void cobble::context::initialize(HMODULE hModule) {
     tracers = new Tracers();
     blockESP = new BlockESP();
     trajectories = new Trajectories();
+    droppedInfo = new DroppedInfo();
     friendsManager = new FriendsManager();
     log_ok("Modules allocated");
 
@@ -186,6 +190,7 @@ void cobble::context::initialize(HMODULE hModule) {
     moduleManager->registerModule(tracers);
     moduleManager->registerModule(blockESP);
     moduleManager->registerModule(trajectories);
+    moduleManager->registerModule(droppedInfo);
     log_ok("Modules registered");
 
     // Initialize config (loads local, applies to modules, async fetch from server)
@@ -209,11 +214,48 @@ void cobble::context::initialize(HMODULE hModule) {
 
     // Initialize LunarPacketListener for Lunar Client API packet interception
     log_raw("Initializing LunarPacketListener...");
-    if (LunarPacketListener::Init()) {
-        log_ok("LunarPacketListener initialized");
-    } else {
-        log_warn("LunarPacketListener failed");
-    }
+    // Initialize Network Listeners
+    NetworkProbe::run();
+    log_ok("NetworkProbe ran");
+    
+    // Lunar Integration
+    LunarPacketListener::Init();
+    LunarSender::Init();
+
+    // Combat
+    modules.push_back(new AutoClicker());
+    modules.push_back(new AimAssist());
+    modules.push_back(new Velocity());
+    modules.push_back(new Reach());
+    modules.push_back(new HitSelect());
+    modules.push_back(new Hitbox());
+    modules.push_back(new NoHitDelay());
+    modules.push_back(new Backtrack());
+
+    // Visuals
+    modules.push_back(new NameTags());
+    modules.push_back(new ESP());
+    modules.push_back(new ItemESP());
+    modules.push_back(new Tracers());
+    modules.push_back(new BlockESP());
+    modules.push_back(new Trajectories());
+    modules.push_back(new DroppedInfo());
+    modules.push_back(new ArrayList());
+    modules.push_back(new Notifications());
+    
+    // Movement
+    modules.push_back(new Timer());
+    modules.push_back(new NoJumpDelay());
+    modules.push_back(new Blink());
+    
+    // Utility
+    modules.push_back(new ArmorSwitch());
+    modules.push_back(new AutoRefill());
+    modules.push_back(new FastPlace());
+    modules.push_back(new NoItemRelease());
+    modules.push_back(new BridgeAssist());
+    modules.push_back(new AutoTool());
+    modules.push_back(new InvManager());
 
     // Create Named Mutex for Injection Detection
     DWORD pid = GetCurrentProcessId();
@@ -504,6 +546,10 @@ void cobble::context::shutdown() {
     if (trajectories) {
         delete trajectories;
         trajectories = nullptr;
+    }
+    if (droppedInfo) {
+        delete droppedInfo;
+        droppedInfo = nullptr;
     }
     if (friendsManager) {
         delete friendsManager;

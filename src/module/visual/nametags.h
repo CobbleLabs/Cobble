@@ -25,6 +25,7 @@ struct CachedPlayer {
     std::vector<PlayerInfo::ArmorItem> armor;
     std::vector<PlayerInfo::PotionEffectInfo> potions;
 
+
     // Get display name (prefers Mojang real name if available)
     const std::string& getDisplayName() const { return !mojangName.empty() ? mojangName : name; }
 };

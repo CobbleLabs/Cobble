@@ -60,12 +60,14 @@ struct PlayerInfo {
 
     std::vector<ArmorItem> armor;
     std::vector<PotionEffectInfo> potions;
+    int totalHealthPotions = 0;
 };
 
 struct ItemEntityInfo {
     jobject instance = nullptr; // Caller must delete
     double posX = 0, posY = 0, posZ = 0;
     int itemId = 0;
+    int damage = 0; // Metadata
     int stackSize = 0;
     int maxStackSize = 64;
     bool isStackable() const { return maxStackSize > 1; }

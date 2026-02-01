@@ -187,6 +187,11 @@ std::vector<ItemEntityInfo> Minecraft::getItemEntityList() {
                      }
                  }
                  
+                 // Damage/Metadata
+                 if (JniCache::mid_getItemDamage) {
+                     info.damage = env->CallIntMethod(itemStack, JniCache::mid_getItemDamage);
+                 }
+                 
                  env->DeleteLocalRef(itemStack);
                  result.push_back(info);
                  continue; // entity ownership passed to info

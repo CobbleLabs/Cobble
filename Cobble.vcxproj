@@ -99,6 +99,7 @@
     <ClCompile Include="src\sdk\core\minecraft.cpp" />
     <ClCompile Include="src\sdk\player\player.cpp" />
     <ClCompile Include="src\sdk\network\network_probe.cpp" />
+    <ClCompile Include="src\sdk\network\lunar_sender.cpp" />
     <ClCompile Include="src\sdk\network\lunar_packet_listener.cpp" />
     <ClCompile Include="src\sdk\jni\jni_cache.cpp" />
     <ClCompile Include="src\sdk\mc\input.cpp" />
@@ -133,6 +134,7 @@
     <ClCompile Include="src\module\visual\tracers.cpp" />
     <ClCompile Include="src\module\visual\blockesp.cpp" />
     <ClCompile Include="src\module\visual\trajectories.cpp" />
+    <ClCompile Include="src\module\visual\dropped_info.cpp" />
     <!-- UI structure -->
     <ClCompile Include="src\ui\core\overlay.cpp" />
     <ClCompile Include="src\ui\menu\menu.cpp" />
@@ -202,6 +204,10 @@
     <ClInclude Include="src\module\visual\nametags.h" />
     <ClInclude Include="src\module\visual\esp.h" />
     <ClInclude Include="src\module\visual\item_esp.h" />
+    <ClInclude Include="src\module\visual\tracers.h" />
+    <ClInclude Include="src\module\visual\blockesp.h" />
+    <ClInclude Include="src\module\visual\trajectories.h" />
+    <ClInclude Include="src\module\visual\dropped_info.h" />
     <!-- UI -->
     <ClInclude Include="src\ui\core\overlay.h" />
     <ClInclude Include="src\ui\menu\menu.h" />

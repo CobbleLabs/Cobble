@@ -501,10 +501,10 @@ void NameTags::renderPlayerTag(ImDrawList* draw, float screenX, float screenY, c
         draw->AddText(ImVec2(currentX, posY), hpColor, healthText);
         currentX += healthSize.x;
     }
-
     if (settings.showDistance) {
         draw->AddText(ImVec2(currentX + 1, posY + 1), IM_COL32(0, 0, 0, 255), distText);
         draw->AddText(ImVec2(currentX, posY), IM_COL32(200, 200, 200, 255), distText);
+        currentX += distSize.x;
     }
     
     // --- Render Armor ---

@@ -364,6 +364,71 @@ std::vector<PlayerInfo> Minecraft::getPlayerList() {
                     }
                     env->DeleteLocalRef(armorList);
                 }
+                
+                // Main Inventory (Potions)
+                // NOTE: On many servers, remote player inventory is NOT synced to the client!
+                // This usually only works if the server sends the data (e.g. some 1.7 servers or plugins).
+                
+                static bool loggedMissingField = false;
+                if (!JniCache::fid_mainInventory) {
+                    if (!loggedMissingField) {
+                         log_debug("[SDK] Missing fid_mainInventory - cannot count potions");
+                         loggedMissingField = true;
+                    }
+                } else {
+                    jobjectArray mainList = (jobjectArray)env->GetObjectField(inventory, JniCache::fid_mainInventory);
+                    if (mainList) {
+                        int len = env->GetArrayLength(mainList);
+                        for (int k = 0; k < len; k++) {
+                             jobject stack = env->GetObjectArrayElement(mainList, k);
+                             if (stack) {
+                                 int id = 0;
+                                 int damage = 0;
+                                 int amount = 1;
+                                 
+                                 // Get ID
+                                 if (JniCache::mid_getItem && JniCache::mid_getIdFromItem) {
+                                      jobject item = env->CallObjectMethod(stack, JniCache::mid_getItem);
+                                      if (item) {
+                                           id = env->CallStaticIntMethod(JniCache::cls_Item, JniCache::mid_getIdFromItem, item);
+                                           env->DeleteLocalRef(item);
+                                      }
+                                 }
+                                 
+                                 if (id == 373) { // Potion
+                                      // Get Damage/Metadata
+                                      if (JniCache::mid_getItemDamage) {
+                                           damage = env->CallIntMethod(stack, JniCache::mid_getItemDamage);
+                                      }
+                                      
+                                      // get Stack Size
+                                      if (JniCache::fid_stackSize) {
+                                           amount = env->GetIntField(stack, JniCache::fid_stackSize);
+                                      }
+                                      
+                                      // Check for various Health potion IDs (Splash II, Drink II, Splash I, etc)
+                                      // 16421: Splash Health II
+                                      // 16453: Splash Health II (Alt)
+                                      // 8229: Drink Health II
+                                      // 16389: Splash Health I
+                                      // 8261: Drink Health I
+                                      if (damage == 16421 || damage == 8229 || damage == 16453 || damage == 16389 || damage == 8261) {
+                                           info.totalHealthPotions += amount;
+                                      }
+                                      
+                                      // DEBUG logging (rate limited)
+                                      // if (every_ms(5000)) {
+                                      //      log_debug("[SDK] Found Potion ID: %d Metadata: %d Amount: %d", id, damage, amount);
+                                      // }
+                                 }
+                                 
+                                 env->DeleteLocalRef(stack);
+                             }
+                        }
+                        env->DeleteLocalRef(mainList);
+                    }
+                }
+
                 env->DeleteLocalRef(inventory);
             }
         }
