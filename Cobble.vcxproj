@@ -129,6 +129,7 @@
     <ClCompile Include="src\module\utility\inventorymanager.cpp" />
     <ClCompile Include="src\module\visual\nametags.cpp" />
     <ClCompile Include="src\module\visual\esp.cpp" />
+    <ClCompile Include="src\module\visual\item_esp.cpp" />
     <ClCompile Include="src\module\visual\tracers.cpp" />
     <ClCompile Include="src\module\visual\blockesp.cpp" />
     <ClCompile Include="src\module\visual\trajectories.cpp" />
@@ -200,6 +201,7 @@
     <ClInclude Include="src\module\utility\inventorymanager.h" />
     <ClInclude Include="src\module\visual\nametags.h" />
     <ClInclude Include="src\module\visual\esp.h" />
+    <ClInclude Include="src\module\visual\item_esp.h" />
     <!-- UI -->
     <ClInclude Include="src\ui\core\overlay.h" />
     <ClInclude Include="src\ui\menu\menu.h" />

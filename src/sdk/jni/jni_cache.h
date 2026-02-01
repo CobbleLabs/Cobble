@@ -21,6 +21,7 @@ extern jclass cls_Entity;
 extern jclass cls_EntityLivingBase;
 extern jclass cls_EntityPlayer;
 extern jclass cls_EntityArmorStand;
+extern jclass cls_EntityItem;
 
 // Settings & Input
 extern jclass cls_GameSettings;
@@ -145,6 +146,12 @@ extern jfieldID fid_aabb_minZ;
 extern jfieldID fid_aabb_maxX;
 extern jfieldID fid_aabb_maxY;
 extern jfieldID fid_aabb_maxZ;
+
+// =============================================================================
+// EntityItem class IDs
+// =============================================================================
+
+extern jmethodID mid_getEntityItem; // EntityItem.getEntityItem() -> ItemStack
 
 // =============================================================================
 // EntityPlayer class IDs
@@ -296,6 +303,7 @@ extern jfieldID fid_itemDamage;
 // =============================================================================
 
 extern jmethodID mid_getIdFromItem;
+extern jmethodID mid_getItemStackLimit;
 
 // =============================================================================
 // Slot class IDs

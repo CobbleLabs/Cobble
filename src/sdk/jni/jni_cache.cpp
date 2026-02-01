@@ -18,6 +18,7 @@ jclass cls_Entity = nullptr;
 jclass cls_EntityLivingBase = nullptr;
 jclass cls_EntityPlayer = nullptr;
 jclass cls_EntityArmorStand = nullptr;
+jclass cls_EntityItem = nullptr;
 jclass cls_GameSettings = nullptr;
 jclass cls_KeyBinding = nullptr;
 jclass cls_MouseHelper = nullptr;
@@ -198,6 +199,10 @@ jfieldID fid_itemDamage = nullptr;
 
 // Item IDs
 jmethodID mid_getIdFromItem = nullptr;
+jmethodID mid_getItemStackLimit = nullptr;
+
+// EntityItem IDs
+jmethodID mid_getEntityItem = nullptr;
 
 // Slot IDs
 jmethodID mid_getStack = nullptr;
@@ -302,6 +307,7 @@ bool Init() {
     CACHE_CLASS(cls_WorldClient, "net.minecraft.client.multiplayer.WorldClient");
     CACHE_CLASS(cls_EntityLivingBase, "net.minecraft.entity.EntityLivingBase");
     CACHE_CLASS(cls_EntityArmorStand, "net.minecraft.entity.item.EntityArmorStand");
+    CACHE_CLASS(cls_EntityItem, "net.minecraft.entity.item.EntityItem");
     CACHE_CLASS(cls_GameSettings, "net.minecraft.client.settings.GameSettings");
     CACHE_CLASS(cls_KeyBinding, "net.minecraft.client.settings.KeyBinding");
     CACHE_CLASS(cls_MouseHelper, "net.minecraft.util.MouseHelper");
@@ -441,6 +447,18 @@ bool Init() {
         TRY_FIELD(fid_aabb_maxX, cls_AxisAlignedBB, "maxX", "D");
         TRY_FIELD(fid_aabb_maxY, cls_AxisAlignedBB, "maxY", "D");
         TRY_FIELD(fid_aabb_maxZ, cls_AxisAlignedBB, "maxZ", "D");
+    }
+
+    // =========================================================================
+    // EntityItem class IDs
+    // =========================================================================
+
+    if (cls_EntityItem) {
+        TRY_METHOD(mid_getEntityItem, cls_EntityItem, "getEntityItem", "()Lnet/minecraft/item/ItemStack;");
+        if (!mid_getEntityItem) {
+             // Obfuscated fallback for 1.7.10/1.8.8 if needed (func_92059_d)
+             TRY_METHOD(mid_getEntityItem, cls_EntityItem, "func_92059_d", "()Lnet/minecraft/item/ItemStack;");
+        }
     }
 
     // =========================================================================
@@ -764,6 +782,10 @@ bool Init() {
 
     if (cls_Item) {
         TRY_STATIC_METHOD(mid_getIdFromItem, cls_Item, "getIdFromItem", "(Lnet/minecraft/item/Item;)I");
+        TRY_METHOD(mid_getItemStackLimit, cls_Item, "getItemStackLimit", "()I");
+        if (!mid_getItemStackLimit) {
+            TRY_METHOD(mid_getItemStackLimit, cls_Item, "func_77639_j", "()I");
+        }
     }
 
     // =========================================================================

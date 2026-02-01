@@ -22,6 +22,7 @@
 #include "module/utility/inventorymanager.h"
 #include "module/visual/blockesp.h"
 #include "module/visual/esp.h"
+#include "module/visual/item_esp.h"
 #include "module/visual/nametags.h"
 #include "module/visual/tracers.h"
 #include "module/visual/trajectories.h"
@@ -152,6 +153,7 @@ void cobble::context::initialize(HMODULE hModule) {
     inventoryManager = new InventoryManager();
     nameTags = new NameTags();
     esp = new ESP();
+    itemEsp = new ItemESP();
     tracers = new Tracers();
     blockESP = new BlockESP();
     trajectories = new Trajectories();
@@ -180,6 +182,7 @@ void cobble::context::initialize(HMODULE hModule) {
     moduleManager->registerModule(inventoryManager);
     moduleManager->registerModule(nameTags);
     moduleManager->registerModule(esp);
+    moduleManager->registerModule(itemEsp);
     moduleManager->registerModule(tracers);
     moduleManager->registerModule(blockESP);
     moduleManager->registerModule(trajectories);
@@ -388,6 +391,8 @@ void cobble::context::shutdown() {
         nameTags->setEnabled(false);
     if (esp)
         esp->setEnabled(false);
+    if (itemEsp)
+        itemEsp->setEnabled(false);
     if (tracers)
         tracers->setEnabled(false);
     if (blockESP)
@@ -483,6 +488,10 @@ void cobble::context::shutdown() {
     if (esp) {
         delete esp;
         esp = nullptr;
+    }
+    if (itemEsp) {
+        delete itemEsp;
+        itemEsp = nullptr;
     }
     if (tracers) {
         delete tracers;

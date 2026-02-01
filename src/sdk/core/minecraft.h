@@ -47,6 +47,15 @@ struct PlayerInfo {
     float getEyeHeight() const { return isSneaking ? 1.54f : 1.62f; }
 };
 
+struct ItemEntityInfo {
+    jobject instance = nullptr; // Caller must delete
+    double posX = 0, posY = 0, posZ = 0;
+    int itemId = 0;
+    int stackSize = 0;
+    int maxStackSize = 64;
+    bool isStackable() const { return maxStackSize > 1; }
+};
+
 // Render position for WorldToScreen calculations
 struct RenderPos {
     double x = 0.0;
@@ -92,6 +101,9 @@ struct Minecraft {
 
     // Get all players in the world (excluding local player)
     std::vector<PlayerInfo> getPlayerList();
+
+    // Get all item entities
+    std::vector<ItemEntityInfo> getItemEntityList();
 
     // Find a specific player by name and return their info (including UUID)
     // Returns empty PlayerInfo if not found

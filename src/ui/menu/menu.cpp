@@ -23,6 +23,7 @@
 #include "../../module/utility/inventorymanager.h"
 #include "../../module/visual/blockesp.h"
 #include "../../module/visual/esp.h"
+#include "../../module/visual/item_esp.h"
 #include "../../module/visual/nametags.h"
 #include "../../module/visual/tracers.h"
 #include "../../module/visual/trajectories.h"
@@ -71,14 +72,16 @@ Module* getModuleForSubtab(int tabIdx, int subtabIdx) {
             case 1:
                 return esp;
             case 2:
-                return tracers;
+                return itemEsp;
             case 3:
-                return blockESP;
+                return tracers;
             case 4:
-                return trajectories;
+                return blockESP;
             case 5:
-                return nullptr;  // ArrayList - special handling
+                return trajectories;
             case 6:
+                return nullptr;  // ArrayList - special handling
+            case 7:
                 return nullptr;  // Notifications - special handling
         }
     }
@@ -362,7 +365,7 @@ static void renderPage() {
     // Special pages (ArrayList, Notifications) - no Module, render inline
     else if (ui::cur_tab == 1) {
         // Visuals tab
-        if (tab.cur_subtab == 5) {
+        if (tab.cur_subtab == 6) {
             // ArrayList settings
             ui::two_column(
                 "Settings",
@@ -392,7 +395,7 @@ static void renderPage() {
                         ui::color("Color", ArrayListRenderer::color);
                     }
                 });
-        } else if (tab.cur_subtab == 6) {
+        } else if (tab.cur_subtab == 7) {
             // Notifications settings
             ui::section("Settings", []() { ui::Checkbox("Enabled", &NotificationManager::enabled); });
         }

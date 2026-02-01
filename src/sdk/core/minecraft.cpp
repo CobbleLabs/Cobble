@@ -114,6 +114,93 @@ bool Minecraft::isInGui() {
     return result;
 }
 
+// =============================================================================
+// getItemEntityList - Get all item entities
+// =============================================================================
+
+std::vector<ItemEntityInfo> Minecraft::getItemEntityList() {
+    std::vector<ItemEntityInfo> result;
+    if (!isValid())
+        return result;
+
+    JNIEnv* env = Java::Env();
+    if (!env)
+        return result;
+
+    jobject world = getWorld();
+    if (!world)
+        return result;
+
+    // Use loadedEntityList (contains all entities)
+    if (!JniCache::fid_loadedEntityList) {
+        env->DeleteLocalRef(world);
+        return result;
+    }
+
+    jobject entityList = env->GetObjectField(world, JniCache::fid_loadedEntityList);
+    env->DeleteLocalRef(world);
+
+    if (!entityList)
+        return result;
+
+    int size = env->CallIntMethod(entityList, JniCache::mid_listSize);
+    if (size <= 0) {
+        env->DeleteLocalRef(entityList);
+        return result;
+    }
+
+    result.reserve(size / 4); // Heuristic
+
+    for (int i = 0; i < size; i++) {
+        jobject entity = env->CallObjectMethod(entityList, JniCache::mid_listGet, i);
+        if (!entity)
+            continue;
+
+        // Check if EntityItem
+        if (JniCache::cls_EntityItem && env->IsInstanceOf(entity, JniCache::cls_EntityItem)) {
+             jobject itemStack = env->CallObjectMethod(entity, JniCache::mid_getEntityItem);
+             if (itemStack) {
+                 ItemEntityInfo info;
+                 info.instance = entity; // Caller must delete
+
+                 // Position
+                 if (JniCache::fid_posX) info.posX = env->GetDoubleField(entity, JniCache::fid_posX);
+                 if (JniCache::fid_posY) info.posY = env->GetDoubleField(entity, JniCache::fid_posY);
+                 if (JniCache::fid_posZ) info.posZ = env->GetDoubleField(entity, JniCache::fid_posZ);
+
+                 // Stack Size
+                 if (JniCache::fid_stackSize) {
+                     info.stackSize = env->GetIntField(itemStack, JniCache::fid_stackSize);
+                 }
+
+                 // Item ID and Max Stack
+                 if (JniCache::mid_getItem) {
+                     jobject item = env->CallObjectMethod(itemStack, JniCache::mid_getItem);
+                     if (item) {
+                         if (JniCache::mid_getIdFromItem) {
+                             info.itemId = env->CallStaticIntMethod(JniCache::cls_Item, JniCache::mid_getIdFromItem, item);
+                         }
+                         if (JniCache::mid_getItemStackLimit) {
+                             info.maxStackSize = env->CallIntMethod(item, JniCache::mid_getItemStackLimit);
+                         }
+                         env->DeleteLocalRef(item);
+                     }
+                 }
+                 
+                 env->DeleteLocalRef(itemStack);
+                 result.push_back(info);
+                 continue; // entity ownership passed to info
+             }
+        }
+        
+        // If we reached here, we didn't use the entity
+        env->DeleteLocalRef(entity);
+    }
+
+    env->DeleteLocalRef(entityList);
+    return result;
+}
+
 void Minecraft::clickMouse() {
     if (!isValid() || !mid_clickMouse)
         return;
