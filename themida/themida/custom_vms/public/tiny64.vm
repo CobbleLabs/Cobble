@@ -1,0 +1,67 @@
+/*********************************************************/
+/* Machine: TINY64 
+/*
+/* File generated automatically from Oreans VM Generator
+/* Please, do not edit
+/*
+/* (c) 2023 Oreans Technologies
+/*********************************************************/
+
+[Main Machine Info]
+
+CustomPriority = 0
+Name = (Teeny)
+MachineId = 0xAE0EB102
+MachineSignature = 0xFD7AE0AB
+ProductSupport = WinLicense, Virtualizer, Themida
+FileVersionEncoded = 0x76281934
+HardwareEncryption = Not available
+
+
+[Main Machine Architecture]
+
+Name = TINY64
+Bits = 64
+MaxCPUs = 8
+Emulates = IA64
+
+
+[Main Machine Stats]
+
+MemoryUsage = 26 KB
+Speed = 100
+Complexity = 1
+ScoreMultiplier = 1
+
+
+[Main Machine Processor]
+
+InternalConversor = 0xA6439B31
+InternalConversorLevel = 1
+InternalConversorInProlog = Yes
+UsingMicroRegs = Yes
+RelocateRegs = No
+RelocateStages = No
+OpcodePermutation = No
+RelocateHandlers = No
+JoinUndefinedOpcodes = No
+AllowAvidFields = No
+ExpandedInstructionSet = No
+MergeStages = No
+EnableRevirtualization = No
+EnableJoinHandlers = Yes
+JoinHandlersInterval = [1..1]
+ForceJoinedHandlers = Yes
+EnableStageGarbage = No
+EnableMicroInstructions = No
+SmartInstructionsRelocation = No
+EnableHandlerTimes = No
+EnableBreakPoints = Yes
+EnableDebugMode = No
+EnableInterruptTrace = No
+EnableFakeJumps = No
+EnableFakeConditionalJumps = No
+PermutateHandlers = No
+MutateHandlers = No
+
+

@@ -60,6 +60,7 @@ void DroppedInfo::onUpdate() {
     }
     
 
+    {
         std::lock_guard<std::mutex> lock(mutex);
         potionCount = total;
         

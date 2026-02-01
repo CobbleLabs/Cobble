@@ -222,40 +222,7 @@ void cobble::context::initialize(HMODULE hModule) {
     LunarPacketListener::Init();
     LunarSender::Init();
 
-    // Combat
-    modules.push_back(new AutoClicker());
-    modules.push_back(new AimAssist());
-    modules.push_back(new Velocity());
-    modules.push_back(new Reach());
-    modules.push_back(new HitSelect());
-    modules.push_back(new Hitbox());
-    modules.push_back(new NoHitDelay());
-    modules.push_back(new Backtrack());
 
-    // Visuals
-    modules.push_back(new NameTags());
-    modules.push_back(new ESP());
-    modules.push_back(new ItemESP());
-    modules.push_back(new Tracers());
-    modules.push_back(new BlockESP());
-    modules.push_back(new Trajectories());
-    modules.push_back(new DroppedInfo());
-    modules.push_back(new ArrayList());
-    modules.push_back(new Notifications());
-    
-    // Movement
-    modules.push_back(new Timer());
-    modules.push_back(new NoJumpDelay());
-    modules.push_back(new Blink());
-    
-    // Utility
-    modules.push_back(new ArmorSwitch());
-    modules.push_back(new AutoRefill());
-    modules.push_back(new FastPlace());
-    modules.push_back(new NoItemRelease());
-    modules.push_back(new BridgeAssist());
-    modules.push_back(new AutoTool());
-    modules.push_back(new InvManager());
 
     // Create Named Mutex for Injection Detection
     DWORD pid = GetCurrentProcessId();

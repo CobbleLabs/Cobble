@@ -1,0 +1,62 @@
+/*********************************************************/
+/* Machine: FALCON32 
+/*
+/* File generated automatically from Oreans VM Generator
+/* Please, do not edit
+/*
+/* (c) 2023 Oreans Technologies
+/*********************************************************/
+
+[Main Machine Info]
+
+CustomPriority = 0
+Name = (Tiny)
+MachineId = 0x7887EE02
+MachineSignature = 0x6A51EEFB
+ProductSupport = WinLicense, Virtualizer, Themida
+FileVersionEncoded = 0x76281934
+HardwareEncryption = Not available
+
+
+[Main Machine Architecture]
+
+Name = FALCON32
+Bits = 32
+MaxCPUs = 8
+Emulates = IA32
+
+
+[Main Machine Stats]
+
+MemoryUsage = 80 KB
+Speed = 100
+Complexity = 1
+ScoreMultiplier = 1
+
+
+[Main Machine Processor]
+
+RelocateRegs = No
+RelocateStages = No
+OpcodePermutation = No
+RelocateHandlers = No
+JoinUndefinedOpcodes = No
+AllowAvidFields = No
+ExpandedInstructionSet = No
+MergeStages = No
+EnableRevirtualization = No
+EnableJoinHandlers = No
+EnableStageGarbage = No
+EnableMicroInstructions = No
+SmartInstructionsRelocation = No
+EnableHandlerTimes = No
+EnableBreakPoints = Yes
+EnableDebugMode = No
+EnableInterruptTrace = No
+EnableFakeJumps = No
+EnableFakeConditionalJumps = No
+PermutateHandlers = No
+MutateHandlers = No
+
+
+

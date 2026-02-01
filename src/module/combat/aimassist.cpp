@@ -351,6 +351,14 @@ void AimAssist::onUpdate() {
 
     bool mouseDown = (GetAsyncKeyState(VK_LBUTTON) & 0x8000) != 0;
 
+    if (!mouseDown && settings.lockAim) {
+        if (cachedTarget) {
+            Java::Env()->DeleteGlobalRef(cachedTarget);
+            cachedTarget = nullptr;
+        }
+        hasLockedTarget = false;
+    }
+
     if (!settings.alwaysAim && !mouseDown) {
         return;
     }
@@ -1351,6 +1359,9 @@ void AimAssist::onRenderMenu() {
             ImGui::Spacing();
             if (ImGui::Combo("Target Mode", &currentMode, targetModes, IM_ARRAYSIZE(targetModes))) {
                 settings.targetMode = static_cast<TargetMode>(currentMode);
+            }
+            if (settings.targetMode == TargetMode::DISTANCE || settings.targetMode == TargetMode::FOV) {
+                ui::Checkbox("Lock Aim", &settings.lockAim);
             }
             // Show Sort By option only when Switch mode is selected
             if (settings.targetMode == TargetMode::SWITCH) {

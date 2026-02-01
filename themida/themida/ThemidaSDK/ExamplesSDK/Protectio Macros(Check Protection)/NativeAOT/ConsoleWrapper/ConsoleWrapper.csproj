@@ -1,0 +1,42 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <OutputType>Exe</OutputType>
+        <TargetFramework>net7.0</TargetFramework>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <Nullable>disable</Nullable>
+        <RootNamespace>ExampleAotApp</RootNamespace>
+    </PropertyGroup>
+
+    <ItemGroup>
+      <Folder Include="ExternalDependencies\" />
+    </ItemGroup>
+
+    <ItemGroup>        
+        <ContentWithTargetPath Include="ExternalDependencies\SecureEngineSDK64.dll">
+            <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+            <TargetPath>SecureEngineSDK64.dll</TargetPath>
+        </ContentWithTargetPath>
+        <ContentWithTargetPath Include="ExternalDependencies\NativeAotLib.dll">
+            <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+            <TargetPath>NativeAotLib.dll</TargetPath>
+        </ContentWithTargetPath>
+        <ContentWithTargetPath Include="ExternalDependencies\password.txt">
+            <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+            <TargetPath>password.txt</TargetPath>
+        </ContentWithTargetPath>
+    </ItemGroup>
+
+    <Target Name="BuildWithExternalDependencies">
+        <Message Text="Executing: dotnet publish -c $(Configuration) -r win-x64" Importance="High" />
+        <Exec Command="dotnet publish -c $(Configuration) -r win-x64" WorkingDirectory="..\NativeAotLib\" />
+        <ItemGroup>
+            <PublishedNativeLib Include="..\NativeAotLib\bin\$(Configuration)\net7.0\win-x64\publish\*.dll" />
+            <PublishedNativeLib Include="..\NativeAotLib\bin\$(Configuration)\net7.0\win-x64\publish\*.txt" />
+        </ItemGroup>
+        <Copy SourceFiles="@(PublishedNativeLib)" DestinationFolder="ExternalDependencies" />
+        
+        <Exec Command="dotnet build -c $(Configuration)" />
+    </Target>
+
+</Project>
