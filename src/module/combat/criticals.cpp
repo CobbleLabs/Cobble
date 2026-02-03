@@ -39,10 +39,11 @@ bool Criticals::initJNI() {
     if (!env)
         return false;
 
-    // Find C04PacketPlayerPosition class
+    // Try to find C04PacketPlayerPosition class (different names in different versions)
     jclass localCls = nullptr;
     
-    if (Java::AssignClass("net.minecraft.network.play.client.C03PacketPlayer$C04PacketPlayerPosition", localCls)) {
+    // Try 1.8+ MCP names first
+    if (!localCls && Java::AssignClass("net.minecraft.network.play.client.C03PacketPlayer$C04PacketPlayerPosition", localCls)) {
         cls_C04Packet = (jclass)env->NewGlobalRef(localCls);
         env->DeleteLocalRef(localCls);
     }
@@ -53,8 +54,19 @@ bool Criticals::initJNI() {
         return false;
     }
 
-    // Get constructor: (double x, double y, double z, boolean onGround)
+    // Try 1.8+ constructor first: (double x, double y, double z, boolean onGround)
     mid_C04Init = env->GetMethodID(cls_C04Packet, "<init>", "(DDDZ)V");
+    if (mid_C04Init) {
+        is17 = false;
+    } else {
+        env->ExceptionClear();
+        // Try 1.7.10 constructor: (double x, double y, double stance, double z, boolean onGround)
+        mid_C04Init = env->GetMethodID(cls_C04Packet, "<init>", "(DDDDZ)V");
+        if (mid_C04Init) {
+            is17 = true;
+        }
+    }
+    
     if (!mid_C04Init) {
         env->ExceptionClear();
     }
@@ -138,7 +150,22 @@ void Criticals::sendCriticalPackets(double x, double y, double z) {
     // Minimal packet sequence - just 2 packets instead of 4
     // Packet 1: tiny jump (on ground)
     // Packet 2: back to ground (falling)
-    jobject packet1 = env->NewObject(cls_C04Packet, mid_C04Init, x, y + smallOffset, z, true);
+    
+    jobject packet1 = nullptr;
+    jobject packet2 = nullptr;
+    
+    if (is17) {
+        // 1.7.10: (x, y, stance, z, onGround) - stance is y + 1.62 (eye height)
+        double stance = y + 1.62;
+        double stanceUp = y + smallOffset + 1.62;
+        packet1 = env->NewObject(cls_C04Packet, mid_C04Init, x, y + smallOffset, stanceUp, z, (jboolean)true);
+        packet2 = env->NewObject(cls_C04Packet, mid_C04Init, x, y, stance, z, (jboolean)false);
+    } else {
+        // 1.8+: (x, y, z, onGround)
+        packet1 = env->NewObject(cls_C04Packet, mid_C04Init, x, y + smallOffset, z, (jboolean)true);
+        packet2 = env->NewObject(cls_C04Packet, mid_C04Init, x, y, z, (jboolean)false);
+    }
+    
     if (packet1) {
         mc.sendPacket(packet1);
         env->DeleteLocalRef(packet1);
@@ -147,7 +174,6 @@ void Criticals::sendCriticalPackets(double x, double y, double z) {
         env->ExceptionClear();
     }
 
-    jobject packet2 = env->NewObject(cls_C04Packet, mid_C04Init, x, y, z, false);
     if (packet2) {
         mc.sendPacket(packet2);
         env->DeleteLocalRef(packet2);

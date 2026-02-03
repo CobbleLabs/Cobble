@@ -29,6 +29,7 @@ private:
     bool jniInitialized = false;
     jclass cls_C04Packet = nullptr;
     jmethodID mid_C04Init = nullptr;
+    bool is17 = false;  // True if 1.7.10 constructor (5 params)
     
     // Helper methods
     bool initJNI();
