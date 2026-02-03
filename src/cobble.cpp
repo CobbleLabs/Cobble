@@ -6,6 +6,7 @@
 #include "module/combat/hitbox.h"
 #include "module/combat/hitselect.h"
 #include "module/combat/nohitdelay.h"
+#include "module/combat/criticals.h"
 
 #include "module/combat/reach.h"
 #include "module/combat/velocity.h"
@@ -146,6 +147,7 @@ void cobble::context::initialize(HMODULE hModule) {
     hitSelect = new HitSelect();
     hitbox = new Hitbox();
     noHitDelay = new NoHitDelay();
+    criticals = new Criticals();
     noJumpDelay = new NoJumpDelay();
     noItemRelease = new NoItemRelease();
     bridgeAssist = new BridgeAssist();
@@ -176,6 +178,7 @@ void cobble::context::initialize(HMODULE hModule) {
     moduleManager->registerModule(hitSelect);
     moduleManager->registerModule(hitbox);
     moduleManager->registerModule(noHitDelay);
+    moduleManager->registerModule(criticals);
     moduleManager->registerModule(noJumpDelay);
     moduleManager->registerModule(noItemRelease);
     moduleManager->registerModule(bridgeAssist);
@@ -380,6 +383,8 @@ void cobble::context::shutdown() {
         hitbox->setEnabled(false);
     if (noHitDelay)
         noHitDelay->setEnabled(false);
+    if (criticals)
+        criticals->setEnabled(false);
     if (noJumpDelay)
         noJumpDelay->setEnabled(false);
     if (noItemRelease)
@@ -457,6 +462,10 @@ void cobble::context::shutdown() {
     if (noHitDelay) {
         delete noHitDelay;
         noHitDelay = nullptr;
+    }
+    if (criticals) {
+        delete criticals;
+        criticals = nullptr;
     }
     if (noJumpDelay) {
         delete noJumpDelay;

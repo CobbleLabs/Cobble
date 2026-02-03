@@ -119,6 +119,7 @@
     <ClCompile Include="src\module\combat\hitselect.cpp" />
     <ClCompile Include="src\module\combat\hitbox.cpp" />
     <ClCompile Include="src\module\combat\nohitdelay.cpp" />
+    <ClCompile Include="src\module\combat\criticals.cpp" />
     <ClCompile Include="src\hooks\winsock_hooks.cpp" />
     <ClCompile Include="src\module\movement\nojumpdelay.cpp" />
     <ClCompile Include="src\module\utility\noitemrelease.cpp" />
@@ -193,6 +194,7 @@
     <ClInclude Include="src\module\combat\hitselect.h" />
     <ClInclude Include="src\module\combat\hitbox.h" />
     <ClInclude Include="src\module\combat\nohitdelay.h" />
+    <ClInclude Include="src\module\combat\criticals.h" />
     <ClInclude Include="src\hooks\winsock_hooks.h" />
     <ClInclude Include="src\module\movement\nojumpdelay.h" />
     <ClInclude Include="src\module\utility\bridgeassist.h" />
