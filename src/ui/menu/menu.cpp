@@ -28,6 +28,7 @@
 #include "../../module/visual/nametags.h"
 #include "../../module/visual/tracers.h"
 #include "../../module/visual/trajectories.h"
+#include "../../module/visual/dropped_info.h"
 #include "../../sdk/core/minecraft.h"
 #include "../../util/logger.hpp"
 #include "../../util/network/http.hpp"
@@ -85,6 +86,8 @@ Module* getModuleForSubtab(int tabIdx, int subtabIdx) {
             case 6:
                 return nullptr;  // ArrayList - special handling
             case 7:
+                return droppedInfo;  // DroppedInfo
+            case 8:
                 return nullptr;  // Notifications - special handling
         }
     }
@@ -398,7 +401,7 @@ static void renderPage() {
                         ui::color("Color", ArrayListRenderer::color);
                     }
                 });
-        } else if (tab.cur_subtab == 7) {
+        } else if (tab.cur_subtab == 8) {
             // Notifications settings
             ui::section("Settings", []() { ui::Checkbox("Enabled", &NotificationManager::enabled); });
         }

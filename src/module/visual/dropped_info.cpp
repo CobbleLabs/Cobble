@@ -25,6 +25,8 @@ void DroppedInfo::onEnable() {
 }
 
 void DroppedInfo::onUpdate() {
+    if (!enabled)
+        return;
     if (!Java::Env() || !Java::Initialized)
         return;
     
