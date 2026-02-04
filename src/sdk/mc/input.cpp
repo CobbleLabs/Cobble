@@ -71,6 +71,17 @@ int Minecraft::getSneakKey() {
 }
 
 // =============================================================================
+// getSprintKey - Get the keycode for the sprint keybind
+// =============================================================================
+
+int Minecraft::getSprintKey() {
+    if (!isValid())
+        return 29;  // LCTRL default (LWJGL key code)
+    JNIEnv* env = Java::Env();
+    return env ? getKeyBindCode(env, instance, JniCache::fid_keyBindSprint, 29) : 29;
+}
+
+// =============================================================================
 // getInventoryKey - Get the keycode for the inventory keybind
 // =============================================================================
 

@@ -15,6 +15,7 @@
 #include "../../module/movement/nojumpdelay.h"
 #include "../../module/movement/blink.h"
 #include "../../module/movement/timer.h"
+#include "../../module/movement/sprint.h"
 #include "../../module/utility/armorswitch.h"
 #include "../../module/utility/autorefill.h"
 #include "../../module/utility/autotool.h"
@@ -100,6 +101,8 @@ Module* getModuleForSubtab(int tabIdx, int subtabIdx) {
                 return noJumpDelay;
             case 2:
                 return blink;
+            case 3:
+                return sprint;
         }
     }
     // Utility Tab (3): ArmorSwitch, AutoRefill, FastPlace, NoItemRelease, BridgeAssist, AutoTool

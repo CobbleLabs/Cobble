@@ -127,6 +127,7 @@
 
     <ClCompile Include="src\module\utility\fastplace.cpp" />
     <ClCompile Include="src\module\movement\timer.cpp" />
+    <ClCompile Include="src\module\movement\sprint.cpp" />
     <ClCompile Include="src\module\utility\autotool.cpp" />
     <ClCompile Include="src\module\utility\inventorymanager.cpp" />
     <ClCompile Include="src\module\visual\nametags.cpp" />
@@ -201,6 +202,7 @@
 
     <ClInclude Include="src\module\utility\fastplace.h" />
     <ClInclude Include="src\module\movement\timer.h" />
+    <ClInclude Include="src\module\movement\sprint.h" />
     <ClInclude Include="src\module\utility\autotool.h" />
     <ClInclude Include="src\module\utility\inventorymanager.h" />
     <ClInclude Include="src\module\visual\nametags.h" />

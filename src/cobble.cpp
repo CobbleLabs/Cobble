@@ -14,6 +14,7 @@
 #include "module/movement/nojumpdelay.h"
 #include "module/movement/blink.h"
 #include "module/movement/timer.h"
+#include "module/movement/sprint.h"
 #include "module/utility/armorswitch.h"
 #include "module/utility/autorefill.h"
 #include "module/utility/autotool.h"
@@ -154,6 +155,7 @@ void cobble::context::initialize(HMODULE hModule) {
     blink = new Blink();
     fastPlace = new FastPlace();
     timerModule = new TimerMod();
+    sprint = new Sprint();
     autoTool = new AutoTool();
     inventoryManager = new InventoryManager();
     nameTags = new NameTags();
@@ -185,6 +187,7 @@ void cobble::context::initialize(HMODULE hModule) {
     moduleManager->registerModule(blink);
     moduleManager->registerModule(fastPlace);
     moduleManager->registerModule(timerModule);
+    moduleManager->registerModule(sprint);
     moduleManager->registerModule(autoTool);
     moduleManager->registerModule(inventoryManager);
     moduleManager->registerModule(nameTags);
@@ -397,6 +400,8 @@ void cobble::context::shutdown() {
         fastPlace->setEnabled(false);
     if (timerModule)
         timerModule->setEnabled(false);
+    if (sprint)
+        sprint->setEnabled(false);
     if (autoTool)
         autoTool->setEnabled(false);
     if (inventoryManager)
@@ -490,6 +495,10 @@ void cobble::context::shutdown() {
     if (timerModule) {
         delete timerModule;
         timerModule = nullptr;
+    }
+    if (sprint) {
+        delete sprint;
+        sprint = nullptr;
     }
     if (autoTool) {
         delete autoTool;

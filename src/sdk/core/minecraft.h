@@ -196,6 +196,7 @@ struct Minecraft {
     // Input control (JNI)
     void setKeyBindState(int keyCode, bool pressed);
     int getSneakKey();      // Returns key code for sneak keybind
+    int getSprintKey();     // Returns key code for sprint keybind
     int getInventoryKey();  // Returns key code for inventory keybind (default 'E')
 
     // Mouse grab control (for menu open/close)
