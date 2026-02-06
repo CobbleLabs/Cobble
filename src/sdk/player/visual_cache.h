@@ -5,8 +5,10 @@
 
 #include "../core/minecraft.h"
 #include "player.h"
+#include "effect_tracker.h"
 
 struct VisualPlayer {
+    int entityId = 0;
     std::string uuid;
     std::string name;
     int teamColor = -1;
@@ -60,6 +62,9 @@ inline void Update() {
         return;
     }
 
+    // Keep tracked effects progressing even if the server doesn't send duration updates.
+    EffectTracker::Tick();
+
     RenderPos renderPos = mc.getRenderPos();
     float partialTicks = mc.getPartialTicks();
 
@@ -76,6 +81,7 @@ inline void Update() {
 
     for (auto& p : players) {
         VisualPlayer cached;
+        cached.entityId = p.entityId;
         cached.uuid = p.uuid;
         cached.name = p.name;
         cached.teamColor = p.teamColor;

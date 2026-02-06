@@ -4,7 +4,6 @@
 #include <mutex>
 #include <string>
 #include <vector>
-#include <chrono>
 #include "../../jni/java.h"
 #include "../../sdk/core/minecraft.h"
 #include "../module.h"
@@ -17,6 +16,7 @@ struct CachedPlayer {
     std::string name;                                 // Display name (may be obfuscated)
     std::string uuid;                                 // Player UUID for Mojang lookup
     std::string mojangName;                           // Real name from Mojang API (empty if not resolved)
+    int entityId = 0;
     double posX = 0, posY = 0, posZ = 0;              // Current position
     double lastPosX = 0, lastPosY = 0, lastPosZ = 0;  // Last tick position
     float distance = 0;
@@ -50,6 +50,7 @@ public:
         bool showDistance = true;
         bool showArmor = true;
         bool showEffects = true;
+        bool debugEffects = false;
     } settings;
 
 private:
@@ -79,14 +80,8 @@ private:
     std::map<std::string, MojangEntry> mojangCache;
     void checkWorldChange();
 
-    // Client-side potion ticking state
-    struct PotionState {
-        int lastJavaDuration = 0;           // Last duration seen from Java (ticks)
-        float currentDuration = 0.0f;       // Interpolated duration (ticks)
-        std::chrono::steady_clock::time_point lastUpdate; // Last time we ticked this
-    };
-    // Map<PlayerUUID, Map<PotionID, State>>
-    std::map<std::string, std::map<int, PotionState>> potionStates;
+    // Debug: last emitted potion signature per player key (uuid preferred, otherwise entityId).
+    std::map<std::string, std::string> lastPotionSig;
 
     void renderPlayerTag(ImDrawList* draw, float screenX, float screenY, const char* name, float distance, float health,
                          float maxHealth, const std::vector<PlayerInfo::ArmorItem>& armor,

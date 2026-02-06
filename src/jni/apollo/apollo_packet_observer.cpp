@@ -11,6 +11,8 @@
 #include <unordered_set>
 #include <vector>
 #include "../../sdk/network/lunar_packet_listener.hpp"
+#include "../../sdk/player/effect_tracker.h"
+#include "../../sdk/jni/jni_cache.h"
 #include "../../util/logger.hpp"
 #include "../../util/team/friends_manager.h"
 #include "../../module/movement/blink.h"
@@ -19,6 +21,10 @@
 static std::atomic<int> g_typeLogBudget{0};
 // Force nametag logs even if color didn't change (manual refresh)
 static std::atomic<int> g_forceNametagLogs{0};
+static std::atomic<bool> g_debugEntityEffects{false};
+static std::atomic<int> g_effectLogBudget{0};
+static std::atomic<int> g_equipLogBudget{0};
+static std::atomic<int> g_animLogBudget{0};
 
 namespace {
 
@@ -210,18 +216,1019 @@ inline bool isServerPosLookPacket(JNIEnv* env, jobject packet) {
     return cls_S08PacketPlayerPosLook && env->IsInstanceOf(packet, cls_S08PacketPlayerPosLook);
 }
 
+struct EffectAddFields {
+    jclass cls = nullptr;
+    jobject fInt0 = nullptr;   // entityId
+    jobject fInt1 = nullptr;   // duration
+    jobject fByte0 = nullptr;  // effectId
+    jobject fByte1 = nullptr;  // amplifier
+    bool ok = false;
+};
+
+struct EffectRemoveFields {
+    jclass cls = nullptr;
+    jobject fInt0 = nullptr;   // entityId
+    jobject fByte0 = nullptr;  // effectId
+    bool ok = false;
+};
+
+static EffectAddFields g_effAdd;
+static EffectRemoveFields g_effRemove;
+
+// Minimal Java reflection cache for Field access
+struct ReflectCache {
+    jclass cls_Class = nullptr;
+    jclass cls_Field = nullptr;
+    jmethodID mid_getDeclaredFields = nullptr;  // Class.getDeclaredFields() -> Field[]
+    jmethodID mid_getName = nullptr;            // Class.getName() -> String
+    jmethodID mid_fieldGetName = nullptr;       // Field.getName() -> String
+    jmethodID mid_getType = nullptr;            // Field.getType() -> Class
+    jmethodID mid_setAccessible = nullptr;      // Field.setAccessible(boolean)
+    jmethodID mid_getInt = nullptr;             // Field.getInt(Object) -> int
+    jmethodID mid_getByte = nullptr;            // Field.getByte(Object) -> byte
+    jmethodID mid_getShort = nullptr;           // Field.getShort(Object) -> short
+    jmethodID mid_getObj = nullptr;             // Field.get(Object) -> Object
+    bool ok = false;
+};
+
+static ReflectCache g_reflect;
+
+static bool init_reflect(JNIEnv* env) {
+    if (g_reflect.ok)
+        return true;
+
+    jclass localClass = env->FindClass("java/lang/Class");
+    jclass localField = env->FindClass("java/lang/reflect/Field");
+    if (!localClass || !localField) {
+        env->ExceptionClear();
+        return false;
+    }
+
+    g_reflect.cls_Class = (jclass)env->NewGlobalRef(localClass);
+    g_reflect.cls_Field = (jclass)env->NewGlobalRef(localField);
+    env->DeleteLocalRef(localClass);
+    env->DeleteLocalRef(localField);
+
+    if (!g_reflect.cls_Class || !g_reflect.cls_Field) {
+        env->ExceptionClear();
+        return false;
+    }
+
+    g_reflect.mid_getDeclaredFields = env->GetMethodID(g_reflect.cls_Class, "getDeclaredFields", "()[Ljava/lang/reflect/Field;");
+    g_reflect.mid_getName = env->GetMethodID(g_reflect.cls_Class, "getName", "()Ljava/lang/String;");
+    g_reflect.mid_fieldGetName = env->GetMethodID(g_reflect.cls_Field, "getName", "()Ljava/lang/String;");
+    g_reflect.mid_getType = env->GetMethodID(g_reflect.cls_Field, "getType", "()Ljava/lang/Class;");
+    g_reflect.mid_setAccessible = env->GetMethodID(g_reflect.cls_Field, "setAccessible", "(Z)V");
+    g_reflect.mid_getInt = env->GetMethodID(g_reflect.cls_Field, "getInt", "(Ljava/lang/Object;)I");
+    g_reflect.mid_getByte = env->GetMethodID(g_reflect.cls_Field, "getByte", "(Ljava/lang/Object;)B");
+    g_reflect.mid_getShort = env->GetMethodID(g_reflect.cls_Field, "getShort", "(Ljava/lang/Object;)S");
+    g_reflect.mid_getObj = env->GetMethodID(g_reflect.cls_Field, "get", "(Ljava/lang/Object;)Ljava/lang/Object;");
+
+    env->ExceptionClear();
+
+    g_reflect.ok = g_reflect.mid_getDeclaredFields && g_reflect.mid_getName && g_reflect.mid_getType &&
+                   g_reflect.mid_fieldGetName && g_reflect.mid_setAccessible && g_reflect.mid_getInt && g_reflect.mid_getByte &&
+                   g_reflect.mid_getShort && g_reflect.mid_getObj;
+    return g_reflect.ok;
+}
+
+static std::string jstringToStd(JNIEnv* env, jstring s) {
+    if (!s)
+        return "";
+    const char* c = env->GetStringUTFChars(s, nullptr);
+    std::string out = c ? c : "";
+    if (c)
+        env->ReleaseStringUTFChars(s, c);
+    return out;
+}
+
+static bool build_effect_add_cache(JNIEnv* env, jclass packetCls) {
+    if (!init_reflect(env) || !packetCls)
+        return false;
+
+    jobjectArray fields = (jobjectArray)env->CallObjectMethod(packetCls, g_reflect.mid_getDeclaredFields);
+    if (!fields || env->ExceptionCheck()) {
+        env->ExceptionClear();
+        return false;
+    }
+
+    jobject intEntity = nullptr;
+    jobject intDuration = nullptr;
+    jobject byteEffect = nullptr;
+    jobject byteAmp = nullptr;
+
+    std::vector<jobject> ints;
+    std::vector<jobject> bytes;
+
+    int len = env->GetArrayLength(fields);
+    ints.reserve(4);
+    bytes.reserve(4);
+
+    for (int i = 0; i < len; i++) {
+        jobject f = env->GetObjectArrayElement(fields, i);
+        if (!f)
+            continue;
+
+        env->CallVoidMethod(f, g_reflect.mid_setAccessible, JNI_TRUE);
+
+        std::string fieldName;
+        {
+            jstring jf = (jstring)env->CallObjectMethod(f, g_reflect.mid_fieldGetName);
+            fieldName = jstringToStd(env, jf);
+            if (jf) env->DeleteLocalRef(jf);
+            env->ExceptionClear();
+        }
+
+        jobject typeCls = env->CallObjectMethod(f, g_reflect.mid_getType);
+        if (typeCls) {
+            jstring jname = (jstring)env->CallObjectMethod(typeCls, g_reflect.mid_getName);
+            std::string name = jstringToStd(env, jname);
+            if (jname) env->DeleteLocalRef(jname);
+            env->DeleteLocalRef(typeCls);
+
+            if (name == "int") {
+                if (!intEntity && (fieldName.find("entity") != std::string::npos || fieldName.find("Entity") != std::string::npos)) {
+                    intEntity = env->NewGlobalRef(f);
+                } else if (!intDuration && (fieldName.find("dur") != std::string::npos || fieldName.find("Dur") != std::string::npos)) {
+                    intDuration = env->NewGlobalRef(f);
+                } else {
+                    ints.push_back(env->NewGlobalRef(f));
+                }
+            } else if (name == "byte") {
+                if (!byteEffect && (fieldName.find("effect") != std::string::npos || fieldName.find("Effect") != std::string::npos)) {
+                    byteEffect = env->NewGlobalRef(f);
+                } else if (!byteAmp && (fieldName.find("amp") != std::string::npos || fieldName.find("Amp") != std::string::npos)) {
+                    byteAmp = env->NewGlobalRef(f);
+                } else {
+                    bytes.push_back(env->NewGlobalRef(f));
+                }
+            }
+        }
+
+        env->DeleteLocalRef(f);
+        env->ExceptionClear();
+    }
+
+    env->DeleteLocalRef(fields);
+
+    if (!intEntity && ints.size() >= 1) {
+        intEntity = ints[0];
+        ints[0] = nullptr;
+    }
+    if (!intDuration && ints.size() >= 2) {
+        // pick next non-null
+        for (auto& r : ints) {
+            if (r) {
+                intDuration = r;
+                r = nullptr;
+                break;
+            }
+        }
+    }
+    if (!byteEffect && bytes.size() >= 1) {
+        byteEffect = bytes[0];
+        bytes[0] = nullptr;
+    }
+    if (!byteAmp && bytes.size() >= 2) {
+        for (auto& r : bytes) {
+            if (r) {
+                byteAmp = r;
+                r = nullptr;
+                break;
+            }
+        }
+    }
+
+    if (intEntity && intDuration && byteEffect && byteAmp) {
+        g_effAdd.fInt0 = intEntity;
+        g_effAdd.fInt1 = intDuration;
+        g_effAdd.fByte0 = byteEffect;
+        g_effAdd.fByte1 = byteAmp;
+        g_effAdd.ok = true;
+
+        // release any extra cached field refs we won't use
+        for (auto& r : ints) {
+            if (r) env->DeleteGlobalRef(r);
+        }
+        for (auto& r : bytes) {
+            if (r) env->DeleteGlobalRef(r);
+        }
+        return true;
+    }
+
+    // cleanup if not ok
+    if (intEntity) env->DeleteGlobalRef(intEntity);
+    if (intDuration) env->DeleteGlobalRef(intDuration);
+    if (byteEffect) env->DeleteGlobalRef(byteEffect);
+    if (byteAmp) env->DeleteGlobalRef(byteAmp);
+    for (auto& r : ints) {
+        if (r) env->DeleteGlobalRef(r);
+    }
+    for (auto& r : bytes) {
+        if (r) env->DeleteGlobalRef(r);
+    }
+    for (auto* ref : {&g_effAdd.fInt0, &g_effAdd.fInt1, &g_effAdd.fByte0, &g_effAdd.fByte1}) {
+        if (*ref) {
+            env->DeleteGlobalRef(*ref);
+            *ref = nullptr;
+        }
+    }
+    g_effAdd.ok = false;
+    return false;
+}
+
+static bool build_effect_remove_cache(JNIEnv* env, jclass packetCls) {
+    if (!init_reflect(env) || !packetCls)
+        return false;
+
+    jobjectArray fields = (jobjectArray)env->CallObjectMethod(packetCls, g_reflect.mid_getDeclaredFields);
+    if (!fields || env->ExceptionCheck()) {
+        env->ExceptionClear();
+        return false;
+    }
+
+    jobject intEntity = nullptr;
+    jobject byteEffect = nullptr;
+    std::vector<jobject> ints;
+    std::vector<jobject> bytes;
+
+    int len = env->GetArrayLength(fields);
+    for (int i = 0; i < len; i++) {
+        jobject f = env->GetObjectArrayElement(fields, i);
+        if (!f)
+            continue;
+
+        env->CallVoidMethod(f, g_reflect.mid_setAccessible, JNI_TRUE);
+
+        std::string fieldName;
+        {
+            jstring jf = (jstring)env->CallObjectMethod(f, g_reflect.mid_fieldGetName);
+            fieldName = jstringToStd(env, jf);
+            if (jf) env->DeleteLocalRef(jf);
+            env->ExceptionClear();
+        }
+
+        jobject typeCls = env->CallObjectMethod(f, g_reflect.mid_getType);
+        if (typeCls) {
+            jstring jname = (jstring)env->CallObjectMethod(typeCls, g_reflect.mid_getName);
+            std::string name = jstringToStd(env, jname);
+            if (jname) env->DeleteLocalRef(jname);
+            env->DeleteLocalRef(typeCls);
+
+            if (name == "int") {
+                if (!intEntity && (fieldName.find("entity") != std::string::npos || fieldName.find("Entity") != std::string::npos)) {
+                    intEntity = env->NewGlobalRef(f);
+                } else {
+                    ints.push_back(env->NewGlobalRef(f));
+                }
+            } else if (name == "byte") {
+                if (!byteEffect && (fieldName.find("effect") != std::string::npos || fieldName.find("Effect") != std::string::npos)) {
+                    byteEffect = env->NewGlobalRef(f);
+                } else {
+                    bytes.push_back(env->NewGlobalRef(f));
+                }
+            }
+        }
+
+        env->DeleteLocalRef(f);
+        env->ExceptionClear();
+    }
+
+    env->DeleteLocalRef(fields);
+
+    if (!intEntity && ints.size() >= 1) {
+        intEntity = ints[0];
+        ints[0] = nullptr;
+    }
+    if (!byteEffect && bytes.size() >= 1) {
+        byteEffect = bytes[0];
+        bytes[0] = nullptr;
+    }
+
+    if (intEntity && byteEffect) {
+        g_effRemove.fInt0 = intEntity;
+        g_effRemove.fByte0 = byteEffect;
+        g_effRemove.ok = true;
+
+        for (auto& r : ints) {
+            if (r) env->DeleteGlobalRef(r);
+        }
+        for (auto& r : bytes) {
+            if (r) env->DeleteGlobalRef(r);
+        }
+        return true;
+    }
+
+    for (auto& r : ints) {
+        if (r) env->DeleteGlobalRef(r);
+    }
+    for (auto& r : bytes) {
+        if (r) env->DeleteGlobalRef(r);
+    }
+    if (intEntity) env->DeleteGlobalRef(intEntity);
+    if (byteEffect) env->DeleteGlobalRef(byteEffect);
+    if (g_effRemove.fInt0) {
+        env->DeleteGlobalRef(g_effRemove.fInt0);
+        g_effRemove.fInt0 = nullptr;
+    }
+    if (g_effRemove.fByte0) {
+        env->DeleteGlobalRef(g_effRemove.fByte0);
+        g_effRemove.fByte0 = nullptr;
+    }
+    g_effRemove.ok = false;
+    return false;
+}
+
+static bool try_handle_entity_effect_packets(JNIEnv* env, jobject packet) {
+    static jclass clsAdd = nullptr;
+    static jclass clsRemove = nullptr;
+    static ULONGLONG lastTryAddMs = 0;
+    static ULONGLONG lastTryRemoveMs = 0;
+
+    // Use the game's ClassLoader to resolve classes reliably on any thread.
+    if (!clsAdd) {
+        ULONGLONG nowMs = GetTickCount64();
+        if (nowMs - lastTryAddMs > 5000) {
+            lastTryAddMs = nowMs;
+            jclass local = nullptr;
+            if (Java::AssignClass("net.minecraft.network.play.server.S1DPacketEntityEffect", local) && local) {
+                clsAdd = (jclass)env->NewGlobalRef(local);
+                env->DeleteLocalRef(local);
+            }
+            env->ExceptionClear();
+        }
+    }
+    if (!clsRemove) {
+        ULONGLONG nowMs = GetTickCount64();
+        if (nowMs - lastTryRemoveMs > 5000) {
+            lastTryRemoveMs = nowMs;
+            jclass local = nullptr;
+            if (Java::AssignClass("net.minecraft.network.play.server.S1EPacketRemoveEntityEffect", local) && local) {
+                clsRemove = (jclass)env->NewGlobalRef(local);
+                env->DeleteLocalRef(local);
+            }
+            env->ExceptionClear();
+        }
+    }
+
+    if (clsAdd && env->IsInstanceOf(packet, clsAdd)) {
+        if (!g_effAdd.ok) {
+            build_effect_add_cache(env, clsAdd);
+        }
+        if (!g_effAdd.ok)
+            return true;
+
+        int entityId = env->CallIntMethod(g_effAdd.fInt0, g_reflect.mid_getInt, packet);
+        int duration = env->CallIntMethod(g_effAdd.fInt1, g_reflect.mid_getInt, packet);
+        int effectId = (int)env->CallByteMethod(g_effAdd.fByte0, g_reflect.mid_getByte, packet);
+        int amp = (int)env->CallByteMethod(g_effAdd.fByte1, g_reflect.mid_getByte, packet);
+        env->ExceptionClear();
+
+        if (entityId > 0 && effectId > 0) {
+            EffectTracker::OnEffectAdd(entityId, effectId, amp, duration);
+            int budget = g_effectLogBudget.load();
+            if (g_debugEntityEffects.load() || budget > 0) {
+                if (budget > 0) g_effectLogBudget.store(budget - 1);
+                log_debug("[ApolloPacketObserver][S1D] entityId=%d eff=%d amp=%d dur=%d", entityId, effectId, amp, duration);
+            }
+        }
+        return true;
+    }
+
+    if (clsRemove && env->IsInstanceOf(packet, clsRemove)) {
+        if (!g_effRemove.ok) {
+            build_effect_remove_cache(env, clsRemove);
+        }
+        if (!g_effRemove.ok)
+            return true;
+
+        int entityId = env->CallIntMethod(g_effRemove.fInt0, g_reflect.mid_getInt, packet);
+        int effectId = (int)env->CallByteMethod(g_effRemove.fByte0, g_reflect.mid_getByte, packet);
+        env->ExceptionClear();
+
+        if (entityId > 0 && effectId > 0) {
+            EffectTracker::OnEffectRemove(entityId, effectId);
+            int budget = g_effectLogBudget.load();
+            if (g_debugEntityEffects.load() || budget > 0) {
+                if (budget > 0) g_effectLogBudget.store(budget - 1);
+                log_debug("[ApolloPacketObserver][S1E] entityId=%d eff=%d", entityId, effectId);
+            }
+        }
+        return true;
+    }
+
+    return false;
+}
+
+// =============================================================================
+// Equipment/Animation based potion inference (fallback when servers don't send S1D while tracked)
+// =============================================================================
+
+struct EquipmentFields {
+    jclass cls = nullptr;
+    jobject fEntityId = nullptr;  // Field (int)
+    jobject fSlot = nullptr;      // Field (int)
+    bool slotIsShort = false;
+    jobject fStack = nullptr;     // Field (ItemStack)
+    bool ok = false;
+};
+
+struct AnimationFields {
+    jclass cls = nullptr;
+    jobject fEntityId = nullptr;  // Field (int)
+    jobject fTypeInt = nullptr;   // Field (int) or nullptr
+    jobject fTypeByte = nullptr;  // Field (byte) or nullptr
+    bool ok = false;
+};
+
+static EquipmentFields g_equip;
+static AnimationFields g_anim;
+static std::mutex g_heldMutex;
+static std::unordered_map<int, jobject> g_heldByEntity;  // entityId -> GlobalRef(ItemStack)
+
+static void clear_held_items(JNIEnv* env) {
+    std::lock_guard<std::mutex> lock(g_heldMutex);
+    for (auto& kv : g_heldByEntity) {
+        if (kv.second) {
+            env->DeleteGlobalRef(kv.second);
+        }
+    }
+    g_heldByEntity.clear();
+}
+
+static void set_held_item(JNIEnv* env, int entityId, jobject stackLocal) {
+    if (entityId <= 0)
+        return;
+
+    jobject newGlobal = nullptr;
+    if (stackLocal) {
+        newGlobal = env->NewGlobalRef(stackLocal);
+    }
+
+    std::lock_guard<std::mutex> lock(g_heldMutex);
+    auto it = g_heldByEntity.find(entityId);
+    if (it != g_heldByEntity.end()) {
+        if (it->second) {
+            env->DeleteGlobalRef(it->second);
+        }
+        if (newGlobal) {
+            it->second = newGlobal;
+        } else {
+            g_heldByEntity.erase(it);
+        }
+    } else if (newGlobal) {
+        g_heldByEntity.emplace(entityId, newGlobal);
+    }
+}
+
+static jobject get_held_item_local(JNIEnv* env, int entityId) {
+    std::lock_guard<std::mutex> lock(g_heldMutex);
+    auto it = g_heldByEntity.find(entityId);
+    if (it == g_heldByEntity.end() || !it->second)
+        return nullptr;
+    return env->NewLocalRef(it->second);
+}
+
+static bool build_equipment_cache(JNIEnv* env, jclass packetCls) {
+    if (!init_reflect(env) || !packetCls)
+        return false;
+
+    jobjectArray fields = (jobjectArray)env->CallObjectMethod(packetCls, g_reflect.mid_getDeclaredFields);
+    if (!fields || env->ExceptionCheck()) {
+        env->ExceptionClear();
+        return false;
+    }
+
+    jobject intEntity = nullptr;
+    jobject intSlot = nullptr;
+    jobject shortSlot = nullptr;
+    jobject stackField = nullptr;
+
+    std::vector<jobject> ints;
+    int len = env->GetArrayLength(fields);
+    for (int i = 0; i < len; i++) {
+        jobject f = env->GetObjectArrayElement(fields, i);
+        if (!f)
+            continue;
+
+        env->CallVoidMethod(f, g_reflect.mid_setAccessible, JNI_TRUE);
+
+        std::string fieldName;
+        {
+            jstring jf = (jstring)env->CallObjectMethod(f, g_reflect.mid_fieldGetName);
+            fieldName = jstringToStd(env, jf);
+            if (jf) env->DeleteLocalRef(jf);
+            env->ExceptionClear();
+        }
+
+        jobject typeCls = env->CallObjectMethod(f, g_reflect.mid_getType);
+        if (typeCls) {
+            jstring jname = (jstring)env->CallObjectMethod(typeCls, g_reflect.mid_getName);
+            std::string typeName = jstringToStd(env, jname);
+            if (jname) env->DeleteLocalRef(jname);
+            env->DeleteLocalRef(typeCls);
+
+            if (typeName == "int") {
+                if (!intEntity && (fieldName.find("entity") != std::string::npos || fieldName.find("Entity") != std::string::npos)) {
+                    intEntity = env->NewGlobalRef(f);
+                } else if (!intSlot && (fieldName.find("slot") != std::string::npos || fieldName.find("Slot") != std::string::npos ||
+                                        fieldName.find("equip") != std::string::npos || fieldName.find("Equip") != std::string::npos)) {
+                    intSlot = env->NewGlobalRef(f);
+                } else {
+                    ints.push_back(env->NewGlobalRef(f));
+                }
+            } else if (typeName == "short") {
+                if (!shortSlot && (fieldName.find("slot") != std::string::npos || fieldName.find("Slot") != std::string::npos ||
+                                   fieldName.find("equip") != std::string::npos || fieldName.find("Equip") != std::string::npos)) {
+                    shortSlot = env->NewGlobalRef(f);
+                }
+            } else if (typeName.find("ItemStack") != std::string::npos) {
+                if (!stackField) {
+                    stackField = env->NewGlobalRef(f);
+                }
+            }
+        }
+
+        env->DeleteLocalRef(f);
+        env->ExceptionClear();
+    }
+
+    env->DeleteLocalRef(fields);
+
+    if (!intEntity && !ints.empty()) {
+        intEntity = ints[0];
+        ints[0] = nullptr;
+    }
+    if (!intSlot) {
+        for (auto& r : ints) {
+            if (r) {
+                intSlot = r;
+                r = nullptr;
+                break;
+            }
+        }
+    }
+
+    for (auto& r : ints) {
+        if (r) env->DeleteGlobalRef(r);
+    }
+
+    if (intEntity && (intSlot || shortSlot) && stackField) {
+        g_equip.fEntityId = intEntity;
+        if (intSlot) {
+            g_equip.fSlot = intSlot;
+            g_equip.slotIsShort = false;
+        } else {
+            g_equip.fSlot = shortSlot;
+            g_equip.slotIsShort = true;
+        }
+        g_equip.fStack = stackField;
+        g_equip.ok = true;
+        return true;
+    }
+
+    if (intEntity) env->DeleteGlobalRef(intEntity);
+    if (intSlot) env->DeleteGlobalRef(intSlot);
+    if (shortSlot) env->DeleteGlobalRef(shortSlot);
+    if (stackField) env->DeleteGlobalRef(stackField);
+    g_equip.ok = false;
+    return false;
+}
+
+static bool build_animation_cache(JNIEnv* env, jclass packetCls) {
+    if (!init_reflect(env) || !packetCls)
+        return false;
+
+    jobjectArray fields = (jobjectArray)env->CallObjectMethod(packetCls, g_reflect.mid_getDeclaredFields);
+    if (!fields || env->ExceptionCheck()) {
+        env->ExceptionClear();
+        return false;
+    }
+
+    jobject intEntity = nullptr;
+    jobject intType = nullptr;
+    jobject byteType = nullptr;
+
+    std::vector<jobject> ints;
+    std::vector<jobject> bytes;
+
+    int len = env->GetArrayLength(fields);
+    for (int i = 0; i < len; i++) {
+        jobject f = env->GetObjectArrayElement(fields, i);
+        if (!f)
+            continue;
+
+        env->CallVoidMethod(f, g_reflect.mid_setAccessible, JNI_TRUE);
+
+        std::string fieldName;
+        {
+            jstring jf = (jstring)env->CallObjectMethod(f, g_reflect.mid_fieldGetName);
+            fieldName = jstringToStd(env, jf);
+            if (jf) env->DeleteLocalRef(jf);
+            env->ExceptionClear();
+        }
+
+        jobject typeCls = env->CallObjectMethod(f, g_reflect.mid_getType);
+        if (typeCls) {
+            jstring jname = (jstring)env->CallObjectMethod(typeCls, g_reflect.mid_getName);
+            std::string typeName = jstringToStd(env, jname);
+            if (jname) env->DeleteLocalRef(jname);
+            env->DeleteLocalRef(typeCls);
+
+            if (typeName == "int") {
+                if (!intEntity && (fieldName.find("entity") != std::string::npos || fieldName.find("Entity") != std::string::npos)) {
+                    intEntity = env->NewGlobalRef(f);
+                } else if (!intType && (fieldName.find("type") != std::string::npos || fieldName.find("Type") != std::string::npos ||
+                                        fieldName.find("anim") != std::string::npos || fieldName.find("Anim") != std::string::npos)) {
+                    intType = env->NewGlobalRef(f);
+                } else {
+                    ints.push_back(env->NewGlobalRef(f));
+                }
+            } else if (typeName == "byte") {
+                if (!byteType && (fieldName.find("type") != std::string::npos || fieldName.find("Type") != std::string::npos ||
+                                  fieldName.find("anim") != std::string::npos || fieldName.find("Anim") != std::string::npos)) {
+                    byteType = env->NewGlobalRef(f);
+                } else {
+                    bytes.push_back(env->NewGlobalRef(f));
+                }
+            }
+        }
+
+        env->DeleteLocalRef(f);
+        env->ExceptionClear();
+    }
+
+    env->DeleteLocalRef(fields);
+
+    if (!intEntity && !ints.empty()) {
+        intEntity = ints[0];
+        ints[0] = nullptr;
+    }
+
+    if (!intType) {
+        for (auto& r : ints) {
+            if (r) {
+                intType = r;
+                r = nullptr;
+                break;
+            }
+        }
+    }
+
+    if (!byteType) {
+        for (auto& r : bytes) {
+            if (r) {
+                byteType = r;
+                r = nullptr;
+                break;
+            }
+        }
+    }
+
+    for (auto& r : ints) {
+        if (r) env->DeleteGlobalRef(r);
+    }
+    for (auto& r : bytes) {
+        if (r) env->DeleteGlobalRef(r);
+    }
+
+    if (intEntity && (intType || byteType)) {
+        g_anim.fEntityId = intEntity;
+        g_anim.fTypeInt = intType;
+        g_anim.fTypeByte = byteType;
+        g_anim.ok = true;
+        return true;
+    }
+
+    if (intEntity) env->DeleteGlobalRef(intEntity);
+    if (intType) env->DeleteGlobalRef(intType);
+    if (byteType) env->DeleteGlobalRef(byteType);
+    g_anim.ok = false;
+    return false;
+}
+
+static bool infer_potion_effects_from_stack(JNIEnv* env, int entityId, jobject stackLocal) {
+    if (!env || entityId <= 0 || !stackLocal)
+        return false;
+
+    if (!JniCache::mid_getItem || !JniCache::mid_getIdFromItem || !JniCache::cls_Item) {
+        return false;
+    }
+
+    jobject itemObj = env->CallObjectMethod(stackLocal, JniCache::mid_getItem);
+    if (!itemObj || env->ExceptionCheck()) {
+        env->ExceptionClear();
+        if (itemObj) env->DeleteLocalRef(itemObj);
+        return false;
+    }
+
+    int itemId = env->CallStaticIntMethod(JniCache::cls_Item, JniCache::mid_getIdFromItem, itemObj);
+    if (env->ExceptionCheck()) {
+        env->ExceptionClear();
+        env->DeleteLocalRef(itemObj);
+        return false;
+    }
+
+    // 1.7/1.8: Potion item id
+    if (itemId != 373) {
+        env->DeleteLocalRef(itemObj);
+        return false;
+    }
+
+    static jclass cls_ItemPotion = nullptr;
+    static jmethodID mid_getEffects = nullptr;
+    static ULONGLONG lastTryMs = 0;
+
+    if (!cls_ItemPotion) {
+        ULONGLONG nowMs = GetTickCount64();
+        if (nowMs - lastTryMs > 5000) {
+            lastTryMs = nowMs;
+            jclass local = nullptr;
+            if (Java::AssignClass("net.minecraft.item.ItemPotion", local) && local) {
+                cls_ItemPotion = (jclass)env->NewGlobalRef(local);
+                env->DeleteLocalRef(local);
+            }
+            env->ExceptionClear();
+        }
+    }
+
+    if (!cls_ItemPotion) {
+        env->DeleteLocalRef(itemObj);
+        return false;
+    }
+
+    if (!mid_getEffects) {
+        // MCP name then obf fallback
+        mid_getEffects = env->GetMethodID(cls_ItemPotion, "getEffects", "(Lnet/minecraft/item/ItemStack;)Ljava/util/List;");
+        if (!mid_getEffects) {
+            env->ExceptionClear();
+            mid_getEffects = env->GetMethodID(cls_ItemPotion, "func_77832_l", "(Lnet/minecraft/item/ItemStack;)Ljava/util/List;");
+        }
+        env->ExceptionClear();
+    }
+
+    if (!mid_getEffects || !env->IsInstanceOf(itemObj, cls_ItemPotion)) {
+        env->DeleteLocalRef(itemObj);
+        return false;
+    }
+
+    jobject list = env->CallObjectMethod(itemObj, mid_getEffects, stackLocal);
+    env->DeleteLocalRef(itemObj);
+
+    if (!list || env->ExceptionCheck()) {
+        env->ExceptionClear();
+        if (list) env->DeleteLocalRef(list);
+        return false;
+    }
+
+    if (!JniCache::mid_listSize || !JniCache::mid_listGet || !JniCache::mid_getPotionID || !JniCache::mid_getDuration ||
+        !JniCache::mid_getAmplifier) {
+        env->DeleteLocalRef(list);
+        return false;
+    }
+
+    int count = env->CallIntMethod(list, JniCache::mid_listSize);
+    if (env->ExceptionCheck()) {
+        env->ExceptionClear();
+        env->DeleteLocalRef(list);
+        return false;
+    }
+
+    bool any = false;
+    for (int i = 0; i < count; i++) {
+        jobject eff = env->CallObjectMethod(list, JniCache::mid_listGet, i);
+        if (!eff) {
+            env->ExceptionClear();
+            continue;
+        }
+
+        int effId = env->CallIntMethod(eff, JniCache::mid_getPotionID);
+        int dur = env->CallIntMethod(eff, JniCache::mid_getDuration);
+        int amp = env->CallIntMethod(eff, JniCache::mid_getAmplifier);
+        env->ExceptionClear();
+
+        if (effId > 0 && dur > 0) {
+            EffectTracker::OnEffectAdd(entityId, effId, amp, dur);
+            any = true;
+        }
+
+        env->DeleteLocalRef(eff);
+    }
+
+    env->DeleteLocalRef(list);
+    return any;
+}
+
+static void try_handle_equipment_packet(JNIEnv* env, jobject packet) {
+    static jclass clsEquip = nullptr;
+    static ULONGLONG lastTryMs = 0;
+    if (!clsEquip) {
+        ULONGLONG nowMs = GetTickCount64();
+        if (nowMs - lastTryMs > 5000) {
+            lastTryMs = nowMs;
+            jclass local = nullptr;
+            if (Java::AssignClass("net.minecraft.network.play.server.S04PacketEntityEquipment", local) && local) {
+                clsEquip = (jclass)env->NewGlobalRef(local);
+                env->DeleteLocalRef(local);
+            }
+            env->ExceptionClear();
+        }
+    }
+
+    if (!clsEquip || !env->IsInstanceOf(packet, clsEquip))
+        return;
+
+    if (!g_equip.ok) {
+        build_equipment_cache(env, clsEquip);
+    }
+    if (!g_equip.ok)
+        return;
+
+    int entityId = env->CallIntMethod(g_equip.fEntityId, g_reflect.mid_getInt, packet);
+    int slot = 0;
+    if (g_equip.slotIsShort) {
+        slot = (int)env->CallShortMethod(g_equip.fSlot, g_reflect.mid_getShort, packet);
+    } else {
+        slot = env->CallIntMethod(g_equip.fSlot, g_reflect.mid_getInt, packet);
+    }
+    jobject stackObj = env->CallObjectMethod(g_equip.fStack, g_reflect.mid_getObj, packet);
+    env->ExceptionClear();
+
+    // Only care about held item slot (0) for potion drinking inference.
+    if (entityId > 0 && slot == 0) {
+        // Compare previous vs new held stack to infer potion consumption on servers that never send S1D while tracked.
+        jobject prevHeld = get_held_item_local(env, entityId);
+
+        int prevId = 0, prevDmg = 0;
+        int newId = 0, newDmg = 0;
+
+        auto readStack = [&](jobject st, int& outId, int& outDmg) {
+            outId = 0;
+            outDmg = 0;
+            if (!st)
+                return;
+
+            jobject itemObj = nullptr;
+            if (JniCache::mid_getItem && JniCache::mid_getIdFromItem && JniCache::cls_Item) {
+                itemObj = env->CallObjectMethod(st, JniCache::mid_getItem);
+                if (itemObj && !env->ExceptionCheck()) {
+                    outId = env->CallStaticIntMethod(JniCache::cls_Item, JniCache::mid_getIdFromItem, itemObj);
+                }
+                env->ExceptionClear();
+            }
+            if (JniCache::mid_getItemDamage) {
+                outDmg = env->CallIntMethod(st, JniCache::mid_getItemDamage);
+                env->ExceptionClear();
+            }
+            if (itemObj)
+                env->DeleteLocalRef(itemObj);
+        };
+
+        readStack(prevHeld, prevId, prevDmg);
+        readStack(stackObj, newId, newDmg);
+
+        int budget = g_equipLogBudget.load();
+        if ((g_debugEntityEffects.load() || budget > 0) && (prevId == 373 || newId == 373 || newId == 374)) {
+            if (budget > 0) g_equipLogBudget.store(budget - 1);
+            log_debug("[ApolloPacketObserver][Equip] entityId=%d slot=%d prev=%d:%d new=%d:%d",
+                      entityId, slot, prevId, prevDmg, newId, newDmg);
+        }
+
+        // Potion -> not potion (often glass bottle or weapon): assume it was consumed.
+        if (prevHeld && prevId == 373 && newId != 373) {
+            bool ok = infer_potion_effects_from_stack(env, entityId, prevHeld);
+            budget = g_equipLogBudget.load();
+            if (g_debugEntityEffects.load() || budget > 0) {
+                if (budget > 0) g_equipLogBudget.store(budget - 1);
+                log_debug("[ApolloPacketObserver][PotionInferEquip] entityId=%d ok=%d prevPotionDmg=%d newId=%d",
+                          entityId, ok ? 1 : 0, prevDmg, newId);
+            }
+        }
+
+        if (prevHeld)
+            env->DeleteLocalRef(prevHeld);
+
+        set_held_item(env, entityId, stackObj);
+    }
+
+    if (stackObj) {
+        env->DeleteLocalRef(stackObj);
+    }
+}
+
+static void try_handle_animation_packet(JNIEnv* env, jobject packet) {
+    static jclass clsAnim = nullptr;
+    static ULONGLONG lastTryMs = 0;
+    if (!clsAnim) {
+        ULONGLONG nowMs = GetTickCount64();
+        if (nowMs - lastTryMs > 5000) {
+            lastTryMs = nowMs;
+            jclass local = nullptr;
+            if (Java::AssignClass("net.minecraft.network.play.server.S0BPacketAnimation", local) && local) {
+                clsAnim = (jclass)env->NewGlobalRef(local);
+                env->DeleteLocalRef(local);
+            }
+            env->ExceptionClear();
+        }
+    }
+
+    if (!clsAnim || !env->IsInstanceOf(packet, clsAnim))
+        return;
+
+    if (!g_anim.ok) {
+        build_animation_cache(env, clsAnim);
+    }
+    if (!g_anim.ok)
+        return;
+
+    int entityId = env->CallIntMethod(g_anim.fEntityId, g_reflect.mid_getInt, packet);
+    int animType = 0;
+    if (g_anim.fTypeInt) {
+        animType = env->CallIntMethod(g_anim.fTypeInt, g_reflect.mid_getInt, packet);
+    } else if (g_anim.fTypeByte) {
+        animType = (int)env->CallByteMethod(g_anim.fTypeByte, g_reflect.mid_getByte, packet);
+    }
+    env->ExceptionClear();
+
+    if (entityId <= 0)
+        return;
+
+    jobject held = get_held_item_local(env, entityId);
+    if (!held)
+        return;
+
+    // Only log when debug is enabled, and we have an item in hand.
+    int budget = g_animLogBudget.load();
+    if (g_debugEntityEffects.load() || budget > 0) {
+        if (budget > 0) g_animLogBudget.store(budget - 1);
+        int heldId = 0;
+        int heldDmg = 0;
+        jobject itemObj = nullptr;
+        if (JniCache::mid_getItem && JniCache::mid_getIdFromItem && JniCache::cls_Item) {
+            itemObj = env->CallObjectMethod(held, JniCache::mid_getItem);
+            if (itemObj && !env->ExceptionCheck()) {
+                heldId = env->CallStaticIntMethod(JniCache::cls_Item, JniCache::mid_getIdFromItem, itemObj);
+            }
+            env->ExceptionClear();
+        }
+        if (JniCache::mid_getItemDamage) {
+            heldDmg = env->CallIntMethod(held, JniCache::mid_getItemDamage);
+            env->ExceptionClear();
+        }
+        if (itemObj) env->DeleteLocalRef(itemObj);
+
+        if (heldId == 373) {
+            log_debug("[ApolloPacketObserver][Anim] entityId=%d type=%d heldId=%d dmg=%d", entityId, animType, heldId, heldDmg);
+        }
+    }
+
+    // In 1.7/1.8, drinking/eating uses a distinct animation type (commonly 3).
+    // When this fires and the held item is a potion, infer its effects from the ItemStack itself.
+    if (animType == 3) {
+        bool ok = infer_potion_effects_from_stack(env, entityId, held);
+        budget = g_animLogBudget.load();
+        if ((g_debugEntityEffects.load() || budget > 0) && ok) {
+            if (budget > 0) g_animLogBudget.store(budget - 1);
+            log_debug("[ApolloPacketObserver][PotionInfer] entityId=%d inferred effects from held potion", entityId);
+        }
+    }
+
+    env->DeleteLocalRef(held);
+}
+
 }  // namespace
 
 namespace ApolloPacketObserver {
+
+void SetDebugEntityEffects(bool enabled) {
+    g_debugEntityEffects.store(enabled);
+    EffectTracker::SetDebug(enabled);
+    if (enabled) {
+        // Print a small burst of packet logs after toggling on to confirm hooks are active.
+        g_effectLogBudget.store(20);
+        g_equipLogBudget.store(20);
+        g_animLogBudget.store(20);
+    }
+}
+
 void JNICALL ApolloPacketObserver::NativeOnReceive(JNIEnv* env, jclass, jobject packet) {
     if (!packet)
         return;
 
     // Removed g_seenApolloSinceWorldChange - serial validation handles stale data
 
+    // Track entity effects (used by NameTags "Show Effects" fallback).
+    try_handle_entity_effect_packets(env, packet);
+
+    // Track held item and "eat/drink" animations for potion inference on servers that don't send S1D while tracked.
+    try_handle_equipment_packet(env, packet);
+    try_handle_animation_packet(env, packet);
+
     if (friendsManager && isWorldChangePacket(env, packet)) {
         friendsManager->notifyWorldChangePacket();
         g_typeLogBudget.store(5);
+        EffectTracker::Clear();
+        clear_held_items(env);
 
         // Send Apollo handshake after world change
         // This triggers servers to send us team/nametag data
@@ -429,30 +1436,6 @@ void JNICALL ApolloPacketObserver::NativeOnReceive(JNIEnv* env, jclass, jobject 
                                     if (g_typeLogBudget.compare_exchange_strong(budget, budget - 1)) {
                                         log_debug("[Apollo] Apollo payload type: %s (block=%d)", typeUrl.c_str(),
                                                   blockActive ? 1 : 0);
-                                    }
-                                }
-
-                                // Enhanced logging for specific message types
-                                static std::atomic<int> debugBudget{20};  // Log first 20 messages
-                                int db = debugBudget.load();
-                                if (db > 0) {
-                                    debugBudget.compare_exchange_strong(db, db - 1);
-
-                                    // Categorize message types for easier reading
-                                    if (typeUrl.find("Team") != std::string::npos) {
-                                        log_ok("[Apollo] TEAM message: %s", typeUrl.c_str());
-                                    } else if (typeUrl.find("Nametag") != std::string::npos) {
-                                        log_ok("[Apollo] NAMETAG message: %s", typeUrl.c_str());
-                                    } else if (typeUrl.find("Glow") != std::string::npos) {
-                                        log_ok("[Apollo] GLOW message: %s", typeUrl.c_str());
-                                    } else if (typeUrl.find("Ping") != std::string::npos) {
-                                        log_ok("[Apollo] PING response: %s", typeUrl.c_str());
-                                    } else if (typeUrl.find("Configurable") != std::string::npos) {
-                                        log_ok("[Apollo] CONFIG message: %s", typeUrl.c_str());
-                                    } else if (typeUrl.find("PlayerWorld") != std::string::npos) {
-                                        log_ok("[Apollo] WORLD message: %s", typeUrl.c_str());
-                                    } else {
-                                        log_debug("[Apollo] OTHER message: %s", typeUrl.c_str());
                                     }
                                 }
 

@@ -11,6 +11,7 @@
 // Data for a remote player in the world
 struct PlayerInfo {
     jobject instance = nullptr;
+    int entityId = 0;
     std::string uuid;  // Stable player identity (Entity.getUniqueID().toString())
     std::string name;
     std::string displayName;

@@ -6,6 +6,7 @@
 #include "../core/minecraft.h"
 #include "../jni/jni_cache.h"
 #include "../jni/jstring_util.h"
+#include "../player/effect_tracker.h"
 
 #include <algorithm>
 #include <cctype>
@@ -35,6 +36,148 @@ static void jni_log_if_exception(const char* where) {
         }
         env->ExceptionClear();
     }
+}
+
+// =============================================================================
+// Helper: Reflection fallback for EntityLivingBase active potion effects map
+// (for environments where we can't resolve activePotionsMap/getActivePotionEffects by name)
+// =============================================================================
+
+struct ReflectPotions {
+    bool inited = false;
+    jclass cls_Class = nullptr;
+    jclass cls_Field = nullptr;
+    jclass cls_AccessibleObject = nullptr;
+    jmethodID mid_getDeclaredFields = nullptr;   // Class.getDeclaredFields() -> Field[]
+    jmethodID mid_fieldGet = nullptr;            // Field.get(Object) -> Object
+    jmethodID mid_setAccessible = nullptr;       // AccessibleObject.setAccessible(boolean)
+    jobject cachedField = nullptr;               // GlobalRef(Field)
+    ULONGLONG lastTryMs = 0;
+};
+
+static ReflectPotions g_refPotions;
+
+static bool init_reflect_potions(JNIEnv* env) {
+    if (g_refPotions.inited)
+        return g_refPotions.mid_getDeclaredFields && g_refPotions.mid_fieldGet && g_refPotions.mid_setAccessible;
+
+    g_refPotions.inited = true;
+
+    jclass localClass = env->FindClass("java/lang/Class");
+    jclass localField = env->FindClass("java/lang/reflect/Field");
+    jclass localAccessible = env->FindClass("java/lang/reflect/AccessibleObject");
+    if (!localClass || !localField || !localAccessible) {
+        env->ExceptionClear();
+        return false;
+    }
+
+    g_refPotions.cls_Class = (jclass)env->NewGlobalRef(localClass);
+    g_refPotions.cls_Field = (jclass)env->NewGlobalRef(localField);
+    g_refPotions.cls_AccessibleObject = (jclass)env->NewGlobalRef(localAccessible);
+    env->DeleteLocalRef(localClass);
+    env->DeleteLocalRef(localField);
+    env->DeleteLocalRef(localAccessible);
+
+    g_refPotions.mid_getDeclaredFields = env->GetMethodID(g_refPotions.cls_Class, "getDeclaredFields", "()[Ljava/lang/reflect/Field;");
+    g_refPotions.mid_fieldGet = env->GetMethodID(g_refPotions.cls_Field, "get", "(Ljava/lang/Object;)Ljava/lang/Object;");
+    g_refPotions.mid_setAccessible = env->GetMethodID(g_refPotions.cls_AccessibleObject, "setAccessible", "(Z)V");
+    env->ExceptionClear();
+
+    return g_refPotions.mid_getDeclaredFields && g_refPotions.mid_fieldGet && g_refPotions.mid_setAccessible;
+}
+
+static jobject try_get_active_potions_map_reflect(JNIEnv* env, jobject entity) {
+    if (!env || !entity)
+        return nullptr;
+    if (!JniCache::mid_mapValues || !JniCache::mid_collectionToArray || !JniCache::cls_PotionEffect)
+        return nullptr;
+    if (!init_reflect_potions(env))
+        return nullptr;
+
+    if (g_refPotions.cachedField) {
+        jobject mapObj = env->CallObjectMethod(g_refPotions.cachedField, g_refPotions.mid_fieldGet, entity);
+        if (env->ExceptionCheck()) {
+            env->ExceptionClear();
+            return nullptr;
+        }
+        return mapObj;  // local ref (or nullptr)
+    }
+
+    ULONGLONG nowMs = GetTickCount64();
+    if (nowMs - g_refPotions.lastTryMs < 5000)
+        return nullptr;
+    g_refPotions.lastTryMs = nowMs;
+
+    jclass entityCls = env->GetObjectClass(entity);
+    if (!entityCls) {
+        env->ExceptionClear();
+        return nullptr;
+    }
+
+    jobjectArray fields = (jobjectArray)env->CallObjectMethod(entityCls, g_refPotions.mid_getDeclaredFields);
+    env->DeleteLocalRef(entityCls);
+    if (!fields || env->ExceptionCheck()) {
+        env->ExceptionClear();
+        return nullptr;
+    }
+
+    int len = env->GetArrayLength(fields);
+    for (int i = 0; i < len; i++) {
+        jobject f = env->GetObjectArrayElement(fields, i);
+        if (!f)
+            continue;
+
+        env->CallVoidMethod(f, g_refPotions.mid_setAccessible, JNI_TRUE);
+        env->ExceptionClear();
+
+        jobject mapObj = env->CallObjectMethod(f, g_refPotions.mid_fieldGet, entity);
+        if (env->ExceptionCheck()) {
+            env->ExceptionClear();
+            env->DeleteLocalRef(f);
+            continue;
+        }
+        if (!mapObj) {
+            env->DeleteLocalRef(f);
+            continue;
+        }
+
+        // Heuristic: treat it as the active potion map if its values() contains PotionEffect instances.
+        jobject values = env->CallObjectMethod(mapObj, JniCache::mid_mapValues);
+        if (!values || env->ExceptionCheck()) {
+            env->ExceptionClear();
+            env->DeleteLocalRef(mapObj);
+            env->DeleteLocalRef(f);
+            continue;
+        }
+        jobjectArray arr = (jobjectArray)env->CallObjectMethod(values, JniCache::mid_collectionToArray);
+        env->DeleteLocalRef(values);
+        if (!arr || env->ExceptionCheck()) {
+            env->ExceptionClear();
+            env->DeleteLocalRef(mapObj);
+            env->DeleteLocalRef(f);
+            continue;
+        }
+
+        int alen = env->GetArrayLength(arr);
+        jobject first = (alen > 0) ? env->GetObjectArrayElement(arr, 0) : nullptr;
+        bool ok = (first && env->IsInstanceOf(first, JniCache::cls_PotionEffect));
+        if (first) env->DeleteLocalRef(first);
+        env->DeleteLocalRef(arr);
+
+        if (ok) {
+            g_refPotions.cachedField = env->NewGlobalRef(f);
+            env->DeleteLocalRef(f);
+            // Keep mapObj for caller
+            env->DeleteLocalRef(fields);
+            return mapObj;
+        }
+
+        env->DeleteLocalRef(mapObj);
+        env->DeleteLocalRef(f);
+    }
+
+    env->DeleteLocalRef(fields);
+    return nullptr;
 }
 
 // =============================================================================
@@ -201,6 +344,15 @@ std::vector<PlayerInfo> Minecraft::getPlayerList() {
 
         PlayerInfo info;
         info.instance = entity;  // Caller must delete later
+
+        // Entity ID (used to match incoming effect packets)
+        if (JniCache::mid_getEntityId) {
+            info.entityId = env->CallIntMethod(entity, JniCache::mid_getEntityId);
+            if (env->ExceptionCheck()) {
+                env->ExceptionClear();
+                info.entityId = 0;
+            }
+        }
 
         // Position data
         if (JniCache::fid_posX)
@@ -461,6 +613,104 @@ std::vector<PlayerInfo> Minecraft::getPlayerList() {
                     env->DeleteLocalRef(values);
                 }
                 env->DeleteLocalRef(potionMap);
+            }
+        }
+
+        // Fallback: some builds/servers may not expose activePotionsMap reliably. Try getActivePotionEffects().
+        if (info.potions.empty() && JniCache::mid_getActivePotionEffects && JniCache::mid_collectionToArray) {
+            jobject coll = env->CallObjectMethod(entity, JniCache::mid_getActivePotionEffects);
+            if (coll) {
+                jobjectArray arr = (jobjectArray)env->CallObjectMethod(coll, JniCache::mid_collectionToArray);
+                if (arr) {
+                    int len = env->GetArrayLength(arr);
+                    for (int k = 0; k < len; k++) {
+                        jobject effect = env->GetObjectArrayElement(arr, k);
+                        if (effect) {
+                            PlayerInfo::PotionEffectInfo effInfo;
+                            if (JniCache::mid_getPotionID)
+                                effInfo.id = env->CallIntMethod(effect, JniCache::mid_getPotionID);
+                            if (JniCache::mid_getDuration)
+                                effInfo.duration = env->CallIntMethod(effect, JniCache::mid_getDuration);
+                            if (JniCache::mid_getAmplifier)
+                                effInfo.amplifier = env->CallIntMethod(effect, JniCache::mid_getAmplifier);
+                            if (effInfo.id > 0 && effInfo.duration > 0) {
+                                info.potions.push_back(effInfo);
+                            }
+                            env->DeleteLocalRef(effect);
+                        }
+                    }
+                    env->DeleteLocalRef(arr);
+                }
+                env->DeleteLocalRef(coll);
+            }
+            env->ExceptionClear();
+        }
+
+        // Reflection fallback for obfuscated environments (Notch-mapped, Lunar, etc.)
+        // Try to locate EntityLivingBase's active potion map by scanning fields and looking for Map values that
+        // contain PotionEffect instances.
+        if (info.potions.empty() && JniCache::mid_mapValues && JniCache::mid_collectionToArray && JniCache::cls_PotionEffect) {
+            jobject potionMap = try_get_active_potions_map_reflect(env, entity);
+            if (potionMap) {
+                jobject values = env->CallObjectMethod(potionMap, JniCache::mid_mapValues);
+                if (values) {
+                    jobjectArray arr = (jobjectArray)env->CallObjectMethod(values, JniCache::mid_collectionToArray);
+                    if (arr) {
+                        int len = env->GetArrayLength(arr);
+                        for (int k = 0; k < len; k++) {
+                            jobject effect = env->GetObjectArrayElement(arr, k);
+                            if (effect) {
+                                PlayerInfo::PotionEffectInfo effInfo;
+                                if (JniCache::mid_getPotionID)
+                                    effInfo.id = env->CallIntMethod(effect, JniCache::mid_getPotionID);
+                                if (JniCache::mid_getDuration)
+                                    effInfo.duration = env->CallIntMethod(effect, JniCache::mid_getDuration);
+                                if (JniCache::mid_getAmplifier)
+                                    effInfo.amplifier = env->CallIntMethod(effect, JniCache::mid_getAmplifier);
+                                if (effInfo.id > 0 && effInfo.duration > 0) {
+                                    info.potions.push_back(effInfo);
+                                }
+                                env->DeleteLocalRef(effect);
+                            }
+                        }
+                        env->DeleteLocalRef(arr);
+                    }
+                    env->DeleteLocalRef(values);
+                }
+                env->DeleteLocalRef(potionMap);
+            }
+            env->ExceptionClear();
+        }
+
+        // If the client isn't updating EntityLivingBase.activePotionsMap for remote players (server-dependent),
+        // fall back to tracking S1D/S1E packets (EffectTracker).
+        if (info.entityId > 0) {
+            if (!info.uuid.empty()) {
+                EffectTracker::AssociateEntity(info.entityId, info.uuid);
+            }
+            auto tracked = EffectTracker::GetEffects(info.entityId);
+            if (!tracked.empty()) {
+                if (info.potions.empty()) {
+                    info.potions = std::move(tracked);
+                } else {
+                    // Merge (prefer longer duration / stronger amp for same effect id)
+                    for (const auto& te : tracked) {
+                        bool found = false;
+                        for (auto& pe : info.potions) {
+                            if (pe.id == te.id) {
+                                found = true;
+                                if (te.amplifier > pe.amplifier ||
+                                    (te.amplifier == pe.amplifier && te.duration > pe.duration)) {
+                                    pe = te;
+                                }
+                                break;
+                            }
+                        }
+                        if (!found) {
+                            info.potions.push_back(te);
+                        }
+                    }
+                }
             }
         }
 

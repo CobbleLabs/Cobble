@@ -106,6 +106,7 @@ extern jfieldID fid_lastTickPosZ;
 // Methods (Entity)
 extern jmethodID mid_isInvisible;
 extern jmethodID mid_getUniqueID;  // Entity.getUniqueID() -> java.util.UUID
+extern jmethodID mid_getEntityId;  // Entity.getEntityId() -> int (or func_145782_y)
 
 // java.util.UUID class
 extern jclass cls_UUID;
@@ -134,6 +135,7 @@ extern jmethodID mid_getNetworkGameProfile;  // getGameProfile() -> GameProfile
 extern jmethodID mid_getHealth;
 extern jmethodID mid_getMaxHealth;
 extern jfieldID fid_activePotionsMap; // Map<Integer, PotionEffect>
+extern jmethodID mid_getActivePotionEffects; // EntityLivingBase.getActivePotionEffects() -> Collection
 extern jfieldID fid_hurtTime;
 extern jfieldID fid_hurtResistantTime;
 extern jfieldID fid_maxHurtResistantTime;

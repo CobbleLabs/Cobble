@@ -6,12 +6,15 @@
 #include "../../util/logger.hpp"
 #include "../../util/math/worldToScreen.h"
 #include "../../util/network/http.hpp"
+#include "../../jni/apollo/apollo_packet_observer.hpp"
 
 #include <cmath>
 #include <cstdio>
 #include <thread>
 #include <iomanip>
 #include <sstream>
+#include <unordered_set>
+#include <algorithm>
 #include "../../../infra/ext/imgui/imgui.h"
 #include "../../util/textures/item_textures.h"
 
@@ -90,6 +93,43 @@ static ImU32 GetDurabilityColor(float percent) {
     return IM_COL32(255, 0, 0, 255);
 }
 
+static std::string potion_key_sig(const std::vector<PlayerInfo::PotionEffectInfo>& potions) {
+    if (potions.empty())
+        return "<none>";
+
+    std::vector<PlayerInfo::PotionEffectInfo> tmp = potions;
+    std::sort(tmp.begin(), tmp.end(), [](const auto& a, const auto& b) {
+        if (a.id != b.id) return a.id < b.id;
+        return a.amplifier < b.amplifier;
+    });
+
+    std::ostringstream ss;
+    for (size_t i = 0; i < tmp.size(); i++) {
+        if (i) ss << ",";
+        ss << tmp[i].id << ":" << tmp[i].amplifier;
+    }
+    return ss.str();
+}
+
+static std::string potion_full_sig(const std::vector<PlayerInfo::PotionEffectInfo>& potions) {
+    if (potions.empty())
+        return "<none>";
+
+    std::vector<PlayerInfo::PotionEffectInfo> tmp = potions;
+    std::sort(tmp.begin(), tmp.end(), [](const auto& a, const auto& b) {
+        if (a.id != b.id) return a.id < b.id;
+        if (a.amplifier != b.amplifier) return a.amplifier < b.amplifier;
+        return a.duration < b.duration;
+    });
+
+    std::ostringstream ss;
+    for (size_t i = 0; i < tmp.size(); i++) {
+        if (i) ss << ",";
+        ss << tmp[i].id << ":" << tmp[i].amplifier << ":" << tmp[i].duration;
+    }
+    return ss.str();
+}
+
 NameTags* nameTags = nullptr;
 
 NameTags::NameTags() : Module("NameTags") {
@@ -103,6 +143,7 @@ void NameTags::onEnable() {
     debugCounter = 0;
     matrixDebugDone = false;
     lastWorldRef = nullptr;  // Force world change detection on first update
+    ApolloPacketObserver::SetDebugEntityEffects(settings.debugEffects);
 
     // Reset RenderData to force fresh matrices
     RenderData::initialized = false;
@@ -113,11 +154,12 @@ void NameTags::onEnable() {
     // Clear any stale cached players
     std::lock_guard<std::mutex> lock(cacheMutex);
     cachedPlayers.clear();
-    potionStates.clear();
+    lastPotionSig.clear();
 }
 
 void NameTags::onDisable() {
     log_ok("NameTags disabled");
+    ApolloPacketObserver::SetDebugEntityEffects(false);
 
     // Clean up world ref
     /*if (lastWorldRef && Java::Env) {
@@ -128,7 +170,7 @@ void NameTags::onDisable() {
     std::lock_guard<std::mutex> lock(cacheMutex);
     cachedPlayers.clear();
     mojangCache.clear();
-    potionStates.clear();
+    lastPotionSig.clear();
 }
 
 // Detect world change (server join/leave, dimension change)
@@ -160,7 +202,7 @@ void NameTags::checkWorldChange() {
         {
             std::lock_guard<std::mutex> lock(cacheMutex);
             cachedPlayers.clear();
-            potionStates.clear();
+            lastPotionSig.clear();
         }
 
         // Force RenderData to reinitialize
@@ -191,6 +233,18 @@ void NameTags::checkWorldChange() {
 
 // Called from MAIN thread - cache player positions and render info
 void NameTags::onUpdate() {
+    // Keep packet-level effect tracking debug in sync with this module's toggle.
+    // This also enables the S1D/S1E fallback path for remote player effects.
+    static bool lastDebugEffects = false;
+    if (settings.debugEffects != lastDebugEffects) {
+        ApolloPacketObserver::SetDebugEntityEffects(settings.debugEffects);
+        if (settings.debugEffects) {
+            std::lock_guard<std::mutex> lock(cacheMutex);
+            lastPotionSig.clear();
+        }
+        lastDebugEffects = settings.debugEffects;
+    }
+
     // Check for world changes first
     // checkWorldChange();
 
@@ -236,6 +290,7 @@ void NameTags::onUpdate() {
         CachedPlayer cached;
         cached.name = p.name;
         cached.uuid = p.uuid;
+        cached.entityId = p.entityId;
         cached.posX = p.posX;
         cached.posY = p.posY;
         cached.posZ = p.posZ;
@@ -245,46 +300,25 @@ void NameTags::onUpdate() {
         cached.distance = dist;
         cached.health = p.health;
         cached.maxHealth = p.maxHealth;
-        cached.health = p.health;
-        cached.maxHealth = p.maxHealth;
         cached.armor = p.armor;      // Copy armor
         cached.potions = p.potions;  // Copy potions
+        cached.valid = true;
 
-        // Client-side potion ticking
-        if (!cached.uuid.empty() && !cached.potions.empty()) {
-            auto& playerPotions = potionStates[cached.uuid];
-            auto now = std::chrono::steady_clock::now();
-
-            for (auto& pot : cached.potions) {
-                // If this is a new potion for this player, it will default construct
-                PotionState& state = playerPotions[pot.id];
-
-                // Only resync if:
-                // 1. New effect (lastJavaDuration == 0)
-                // 2. Effect was renewed/extended (Java duration increased)
-                // Do NOT resync if Java duration decreases - that's just MC ticking visible players
-                if (state.lastJavaDuration == 0 || pot.duration > state.lastJavaDuration) {
-                    // New effect or renewal - sync to Java value
-                    state.lastJavaDuration = pot.duration;
-                    state.currentDuration = (float)pot.duration;
-                    state.lastUpdate = now;
-                } else {
-                    // Tick down locally using real elapsed time
-                    long long elapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(now - state.lastUpdate).count();
-                    
-                    if (elapsedMs > 0) {
-                        // Minecraft runs at 20 ticks/sec, so 1 tick = 50ms
-                        state.currentDuration -= (float)elapsedMs / 50.0f;
-                        state.lastUpdate = now;
-                    }
-                }
-
-                // Apply ticked duration to the visual cache (for rendering this frame)
-                if (state.currentDuration < 0.0f) state.currentDuration = 0.0f;
-                pot.duration = (int)state.currentDuration;
+        if (settings.debugEffects) {
+            std::string key = !cached.uuid.empty() ? cached.uuid : ("#" + std::to_string(cached.entityId));
+            std::string sig = potion_key_sig(cached.potions);
+            auto it = lastPotionSig.find(key);
+            if (it == lastPotionSig.end() || it->second != sig) {
+                lastPotionSig[key] = sig;
+                std::string full = potion_full_sig(cached.potions);
+                log_debug("[NameTags][Effects] %s uuid=%s entityId=%d potions=%zu sig=%s",
+                          cached.name.c_str(),
+                          cached.uuid.empty() ? "<none>" : cached.uuid.c_str(),
+                          cached.entityId,
+                          cached.potions.size(),
+                          full.c_str());
             }
         }
-        cached.valid = true;
 
         // Mojang name resolution for obfuscated GameProfiles
         // Always lookup, but only override display name if different from server name
@@ -318,6 +352,22 @@ void NameTags::onUpdate() {
         }
 
         newCache.push_back(cached);
+    }
+
+    if (settings.debugEffects) {
+        std::unordered_set<std::string> seen;
+        seen.reserve(newCache.size());
+        for (const auto& cp : newCache) {
+            std::string key = !cp.uuid.empty() ? cp.uuid : ("#" + std::to_string(cp.entityId));
+            seen.insert(key);
+        }
+        for (auto it = lastPotionSig.begin(); it != lastPotionSig.end();) {
+            if (seen.find(it->first) == seen.end()) {
+                it = lastPotionSig.erase(it);
+            } else {
+                ++it;
+            }
+        }
     }
 
     // Thread-safe swap
@@ -658,6 +708,10 @@ void NameTags::onRenderMenu() {
             ui::Checkbox("Show Distance", &settings.showDistance);
             ui::Checkbox("Show Armor", &settings.showArmor);
             ui::Checkbox("Show Effects", &settings.showEffects);
+            if (ui::Checkbox("Debug Effects", &settings.debugEffects)) {
+                // Allow debugging packet-level effect tracking even if the module itself isn't enabled yet.
+                ApolloPacketObserver::SetDebugEntityEffects(settings.debugEffects);
+            }
         });
 }
 

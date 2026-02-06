@@ -76,6 +76,7 @@ jfieldID fid_lastTickPosY = nullptr;
 jfieldID fid_lastTickPosZ = nullptr;
 jmethodID mid_isInvisible = nullptr;
 jmethodID mid_getUniqueID = nullptr;
+jmethodID mid_getEntityId = nullptr;
 
 // java.util.UUID IDs
 jclass cls_UUID = nullptr;
@@ -98,6 +99,7 @@ jmethodID mid_canEntityBeSeen = nullptr;
 jfieldID fid_boundingBox = nullptr;
 jmethodID mid_isSneaking = nullptr;
 jfieldID fid_activePotionsMap = nullptr;
+jmethodID mid_getActivePotionEffects = nullptr;
 
 // AxisAlignedBB class and fields
 jclass cls_AxisAlignedBB = nullptr;
@@ -415,6 +417,11 @@ bool Init() {
         TRY_FIELD(fid_lastTickPosZ, cls_Entity, "lastTickPosZ", "D");
         TRY_METHOD(mid_isInvisible, cls_Entity, "isInvisible", "()Z");
         TRY_METHOD(mid_getUniqueID, cls_Entity, "getUniqueID", "()Ljava/util/UUID;");
+        TRY_METHOD(mid_getEntityId, cls_Entity, "getEntityId", "()I");
+        if (!mid_getEntityId) {
+            // SRG/obf fallback commonly used in 1.7/1.8 MCP environments
+            TRY_METHOD(mid_getEntityId, cls_Entity, "func_145782_y", "()I");
+        }
         TRY_FIELD(fid_boundingBox, cls_Entity, "boundingBox", "Lnet/minecraft/util/AxisAlignedBB;");
         if (!fid_boundingBox) {
             TRY_FIELD(fid_boundingBox, cls_Entity, "entityBoundingBox",
@@ -461,6 +468,8 @@ bool Init() {
     // Log Minecraft.getNetHandler status
     log_debug("[JniCache] Minecraft.getNetHandler(): %s", mid_getNetHandler ? "OK" : "FAILED");
     log_debug("[JniCache] GameProfile.getName(): %s", mid_getProfileName ? "OK" : "FAILED");
+    log_debug("[JniCache] Entity.getEntityId(): %s", mid_getEntityId ? "OK" : "FAILED");
+    log_debug("[JniCache] EntityLivingBase.getActivePotionEffects(): %s", mid_getActivePotionEffects ? "OK" : "FAILED");
 
     // AxisAlignedBB class and fields (for hitbox)
     CACHE_CLASS(cls_AxisAlignedBB, "net.minecraft.util.AxisAlignedBB");
@@ -501,6 +510,11 @@ bool Init() {
         if (!fid_activePotionsMap) {
              // 1.7.10 obfuscated
              TRY_FIELD(fid_activePotionsMap, cls_EntityLivingBase, "field_70713_bf", "Ljava/util/Map;");
+        }
+        TRY_METHOD(mid_getActivePotionEffects, cls_EntityLivingBase, "getActivePotionEffects", "()Ljava/util/Collection;");
+        if (!mid_getActivePotionEffects) {
+            // SRG/obf fallback (common mapping name)
+            TRY_METHOD(mid_getActivePotionEffects, cls_EntityLivingBase, "func_70651_bq", "()Ljava/util/Collection;");
         }
     }
 
