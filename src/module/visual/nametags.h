@@ -4,6 +4,7 @@
 #include <mutex>
 #include <string>
 #include <vector>
+#include <chrono>
 #include "../../jni/java.h"
 #include "../../sdk/core/minecraft.h"
 #include "../module.h"
@@ -77,6 +78,15 @@ private:
     };
     std::map<std::string, MojangEntry> mojangCache;
     void checkWorldChange();
+
+    // Client-side potion ticking state
+    struct PotionState {
+        int lastJavaDuration = 0;           // Last duration seen from Java (ticks)
+        float currentDuration = 0.0f;       // Interpolated duration (ticks)
+        std::chrono::steady_clock::time_point lastUpdate; // Last time we ticked this
+    };
+    // Map<PlayerUUID, Map<PotionID, State>>
+    std::map<std::string, std::map<int, PotionState>> potionStates;
 
     void renderPlayerTag(ImDrawList* draw, float screenX, float screenY, const char* name, float distance, float health,
                          float maxHealth, const std::vector<PlayerInfo::ArmorItem>& armor,

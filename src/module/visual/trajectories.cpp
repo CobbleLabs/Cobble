@@ -10,6 +10,7 @@
 #include "../../ui/widgets/widgets.hpp"
 #include "../../util/logger.hpp"
 #include "../../util/math/worldToScreen.h"
+#include "../../sdk/player/visual_cache.h"
 
 Trajectories* trajectories = nullptr;
 
@@ -348,10 +349,10 @@ void Trajectories::simulateTrajectory() {
             relPosZ += vz / subSteps;
 
             // Update velocity for next substep (gravity + drag)
-            vy -= subGravity;
-            vx *= subDrag;
-            vy *= subDrag;
-            vz *= subDrag;
+            vy -= (float)subGravity;
+            vx *= (float)subDrag;
+            vy *= (float)subDrag;
+            vz *= (float)subDrag;
 
             // Add intermediate point for smoother curve
             TrajectoryPoint subPoint;
@@ -384,6 +385,39 @@ void Trajectories::simulateTrajectory() {
                 newTrajectory.back().hitBlock = true;
             }
             break;
+        }
+
+        // Check player collision using AABB intersection
+        auto snap = VisualCache::GetSnapshot();
+        if (snap.valid) {
+            bool hitAnyPlayer = false;
+            for (const auto& p : snap.players) {
+                // Player hitbox: 0.6 wide, 1.8 tall centered on position
+                float halfWidth = 0.3f;
+                float height = 1.8f;
+                
+                float minX = (float)p.posX - halfWidth;
+                float maxX = (float)p.posX + halfWidth;
+                float minY = (float)p.posY;
+                float maxY = (float)p.posY + height;
+                float minZ = (float)p.posZ - halfWidth;
+                float maxZ = (float)p.posZ + halfWidth;
+                
+                // Check if current trajectory point is inside player AABB
+                if (absToX >= minX && absToX <= maxX &&
+                    absToY >= minY && absToY <= maxY &&
+                    absToZ >= minZ && absToZ <= maxZ) {
+                    hitAnyPlayer = true;
+                    break;
+                }
+            }
+            
+            if (hitAnyPlayer) {
+                if (!newTrajectory.empty()) {
+                    newTrajectory.back().hitPlayer = true;
+                }
+                break;
+            }
         }
 
         // Stop if below world or very far (using absolute Y)
@@ -543,7 +577,7 @@ void Trajectories::onRender() {
             // Use natural 3D projection - no artificial offsets
             polylinePoints.push_back(ImVec2(screenPos.x, screenPos.y));
 
-            // Track the first hit block position for marker
+            // Track the first hit BLOCK position for marker (not players)
             if (point.hitBlock && !hasHitMarker) {
                 hitMarkerPos = ImVec2(screenPos.x, screenPos.y);
                 hasHitMarker = true;
@@ -557,7 +591,7 @@ void Trajectories::onRender() {
                           settings.thickness);
     }
 
-    // Draw hit marker (filled circle at impact point)
+    // Draw hit marker only for block hits (not player hits)
     if (hasHitMarker) {
         float markerRadius = settings.thickness * 2.5f;
         draw->AddCircleFilled(hitMarkerPos, markerRadius, lineColor);

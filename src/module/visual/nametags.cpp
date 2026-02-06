@@ -113,6 +113,7 @@ void NameTags::onEnable() {
     // Clear any stale cached players
     std::lock_guard<std::mutex> lock(cacheMutex);
     cachedPlayers.clear();
+    potionStates.clear();
 }
 
 void NameTags::onDisable() {
@@ -127,6 +128,7 @@ void NameTags::onDisable() {
     std::lock_guard<std::mutex> lock(cacheMutex);
     cachedPlayers.clear();
     mojangCache.clear();
+    potionStates.clear();
 }
 
 // Detect world change (server join/leave, dimension change)
@@ -158,6 +160,7 @@ void NameTags::checkWorldChange() {
         {
             std::lock_guard<std::mutex> lock(cacheMutex);
             cachedPlayers.clear();
+            potionStates.clear();
         }
 
         // Force RenderData to reinitialize
@@ -246,6 +249,41 @@ void NameTags::onUpdate() {
         cached.maxHealth = p.maxHealth;
         cached.armor = p.armor;      // Copy armor
         cached.potions = p.potions;  // Copy potions
+
+        // Client-side potion ticking
+        if (!cached.uuid.empty() && !cached.potions.empty()) {
+            auto& playerPotions = potionStates[cached.uuid];
+            auto now = std::chrono::steady_clock::now();
+
+            for (auto& pot : cached.potions) {
+                // If this is a new potion for this player, it will default construct
+                PotionState& state = playerPotions[pot.id];
+
+                // Only resync if:
+                // 1. New effect (lastJavaDuration == 0)
+                // 2. Effect was renewed/extended (Java duration increased)
+                // Do NOT resync if Java duration decreases - that's just MC ticking visible players
+                if (state.lastJavaDuration == 0 || pot.duration > state.lastJavaDuration) {
+                    // New effect or renewal - sync to Java value
+                    state.lastJavaDuration = pot.duration;
+                    state.currentDuration = (float)pot.duration;
+                    state.lastUpdate = now;
+                } else {
+                    // Tick down locally using real elapsed time
+                    long long elapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(now - state.lastUpdate).count();
+                    
+                    if (elapsedMs > 0) {
+                        // Minecraft runs at 20 ticks/sec, so 1 tick = 50ms
+                        state.currentDuration -= (float)elapsedMs / 50.0f;
+                        state.lastUpdate = now;
+                    }
+                }
+
+                // Apply ticked duration to the visual cache (for rendering this frame)
+                if (state.currentDuration < 0.0f) state.currentDuration = 0.0f;
+                pot.duration = (int)state.currentDuration;
+            }
+        }
         cached.valid = true;
 
         // Mojang name resolution for obfuscated GameProfiles
