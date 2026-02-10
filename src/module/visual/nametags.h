@@ -13,9 +13,9 @@ struct ImDrawList;
 
 // Cached player data - stores world positions for interpolation
 struct CachedPlayer {
-    std::string name;                                 // Display name (may be obfuscated)
-    std::string uuid;                                 // Player UUID for Mojang lookup
-    std::string mojangName;                           // Real name from Mojang API (empty if not resolved)
+    std::string name;        // Display name (may be obfuscated)
+    std::string uuid;        // Player UUID for Mojang lookup
+    std::string mojangName;  // Real name from Mojang API (empty if not resolved)
     int entityId = 0;
     double posX = 0, posY = 0, posZ = 0;              // Current position
     double lastPosX = 0, lastPosY = 0, lastPosZ = 0;  // Last tick position
@@ -25,7 +25,6 @@ struct CachedPlayer {
     bool valid = false;
     std::vector<PlayerInfo::ArmorItem> armor;
     std::vector<PlayerInfo::PotionEffectInfo> potions;
-
 
     // Get display name (prefers Mojang real name if available)
     const std::string& getDisplayName() const { return !mojangName.empty() ? mojangName : name; }

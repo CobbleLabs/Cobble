@@ -12,26 +12,257 @@
 #include "../module/module.h"
 #include "../module/module_manager.h"
 #include "../module/movement/nojumpdelay.h"
+#include "../module/movement/timer.h"
 
 #include "../module/movement/blink.h"
 #include "../module/utility/armorswitch.h"
 #include "../module/utility/autorefill.h"
+#include "../module/utility/autotool.h"
 #include "../module/utility/bridgeassist.h"
 #include "../module/utility/fastplace.h"
 #include "../module/utility/noitemrelease.h"
 #include "../module/utility/inventorymanager.h"
 #include "../module/visual/blockesp.h"
 #include "../module/visual/esp.h"
+#include "../module/visual/item_esp.h"
 #include "../module/visual/nametags.h"
 #include "../module/visual/tracers.h"
 #include "../module/visual/trajectories.h"
+#include "../module/visual/dropped_info.h"
 #include "../ui/hud/arraylist.h"
 #include "../ui/hud/notifications.h"
 #include "../ui/menu/menu.h"
 #include "../ui/widgets/theme.hpp"
 #include "../util/team/friends_manager.h"
 
+#include <algorithm>
+#include <cstring>
+#include <cctype>
+
 using namespace ArrayListRenderer;
+
+namespace {
+static std::string trim_copy(std::string s) {
+    auto not_space = [](unsigned char c) { return !std::isspace(c); };
+    s.erase(s.begin(), std::find_if(s.begin(), s.end(), not_space));
+    s.erase(std::find_if(s.rbegin(), s.rend(), not_space).base(), s.end());
+    return s;
+}
+
+static std::string sanitize_user_config_name(const std::string& in) {
+    std::string s = trim_copy(in);
+    std::string out;
+    out.reserve(s.size());
+
+    // Keep this intentionally strict to avoid path traversal and weird FS edge cases.
+    for (unsigned char c : s) {
+        if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == ' ' || c == '_' ||
+            c == '-') {
+            out.push_back((char)c);
+        }
+    }
+
+    out = trim_copy(out);
+    if (out.size() > 48)  // keep filenames manageable
+        out.resize(48);
+
+    return out;
+}
+
+static bool ends_with_case_insensitive(const std::string& s, const char* suffix) {
+    size_t n = s.size();
+    size_t m = strlen(suffix);
+    if (m > n)
+        return false;
+    for (size_t i = 0; i < m; i++) {
+        char a = (char)std::tolower((unsigned char)s[n - m + i]);
+        char b = (char)std::tolower((unsigned char)suffix[i]);
+        if (a != b)
+            return false;
+    }
+    return true;
+}
+}  // namespace
+
+std::string ConfigManager::getUserConfigsDir() const {
+    if (configPath_.empty())
+        return "";
+
+    std::string configDir = configPath_.substr(0, configPath_.find_last_of("\\/"));
+    std::string userDir = configDir + "\\configs";
+
+    CreateDirectoryA(userDir.c_str(), nullptr);  // Ensure directory exists
+    return userDir;
+}
+
+std::vector<std::string> ConfigManager::listUserConfigs() const {
+    std::vector<std::string> out;
+    std::string dir = getUserConfigsDir();
+    if (dir.empty())
+        return out;
+
+    std::string pattern = dir + "\\*.json";
+
+    WIN32_FIND_DATAA ffd{};
+    HANDLE hFind = FindFirstFileA(pattern.c_str(), &ffd);
+    if (hFind == INVALID_HANDLE_VALUE)
+        return out;
+
+    do {
+        if (ffd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
+            continue;
+
+        std::string file = ffd.cFileName;
+        if (!ends_with_case_insensitive(file, ".json"))
+            continue;
+
+        // Strip extension for display
+        file.resize(file.size() - 5);
+        if (file.empty())
+            continue;
+
+        // Only surface configs we can actually address with our name sanitizer.
+        if (sanitize_user_config_name(file) != file)
+            continue;
+
+        out.push_back(file);
+    } while (FindNextFileA(hFind, &ffd) != 0);
+
+    FindClose(hFind);
+
+    std::sort(out.begin(), out.end(), [](const std::string& a, const std::string& b) {
+        auto lower = [](unsigned char c) { return (unsigned char)std::tolower(c); };
+        size_t n = (std::min)(a.size(), b.size());
+        for (size_t i = 0; i < n; i++) {
+            unsigned char ca = lower((unsigned char)a[i]);
+            unsigned char cb = lower((unsigned char)b[i]);
+            if (ca < cb)
+                return true;
+            if (ca > cb)
+                return false;
+        }
+        return a.size() < b.size();
+    });
+
+    return out;
+}
+
+bool ConfigManager::saveUserConfig(const std::string& name, std::string* err) {
+    std::string safe = sanitize_user_config_name(name);
+    if (safe.empty()) {
+        if (err)
+            *err = "Invalid name";
+        return false;
+    }
+
+    std::string dir = getUserConfigsDir();
+    if (dir.empty()) {
+        if (err)
+            *err = "No config directory";
+        return false;
+    }
+
+    std::string path = dir + "\\" + safe + ".json";
+
+    // Snapshot current state into config_ and serialize.
+    buildConfigFromModules();
+
+    std::string content;
+    {
+        std::lock_guard<std::mutex> lock(configMutex_);
+        content = config_.serialize();
+    }
+
+    std::ofstream file(path, std::ios::trunc);
+    if (!file.is_open()) {
+        if (err)
+            *err = "Failed to open file for write";
+        return false;
+    }
+
+    file << content;
+    file.close();
+
+    return true;
+}
+
+bool ConfigManager::loadUserConfig(const std::string& name, std::string* err) {
+    std::string safe = sanitize_user_config_name(name);
+    if (safe.empty()) {
+        if (err)
+            *err = "Invalid name";
+        return false;
+    }
+
+    std::string dir = getUserConfigsDir();
+    if (dir.empty()) {
+        if (err)
+            *err = "No config directory";
+        return false;
+    }
+
+    std::string path = dir + "\\" + safe + ".json";
+
+    std::ifstream file(path);
+    if (!file.is_open()) {
+        if (err)
+            *err = "Config not found";
+        return false;
+    }
+
+    std::string content((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+    file.close();
+
+    json::Value loaded;
+    if (!json::Parser::parse(content, loaded)) {
+        if (err)
+            *err = "Failed to parse JSON";
+        return false;
+    }
+
+    int version = loaded["version"].as_int(0);
+
+    {
+        std::lock_guard<std::mutex> lock(configMutex_);
+        config_ = loaded;
+    }
+
+    if (version < CONFIG_VERSION) {
+        migrateConfig(version);
+    }
+
+    applyConfig();
+
+    // Persist and (if enabled) sync like any other setting change.
+    onSettingChanged();
+
+    return true;
+}
+
+bool ConfigManager::deleteUserConfig(const std::string& name, std::string* err) {
+    std::string safe = sanitize_user_config_name(name);
+    if (safe.empty()) {
+        if (err)
+            *err = "Invalid name";
+        return false;
+    }
+
+    std::string dir = getUserConfigsDir();
+    if (dir.empty()) {
+        if (err)
+            *err = "No config directory";
+        return false;
+    }
+
+    std::string path = dir + "\\" + safe + ".json";
+    if (!DeleteFileA(path.c_str())) {
+        if (err)
+            *err = "Failed to delete file";
+        return false;
+    }
+
+    return true;
+}
 
 // Apply default config (used when no config file exists)
 void ConfigManager::applyDefaults() {
@@ -140,23 +371,31 @@ void ConfigManager::applyConfig() {
                 s.breakBlocks = data["breakBlocks"].as_bool(s.breakBlocks);
                 s.workInInventory = data["workInInventory"].as_bool(s.workInInventory);
                 s.stableCPS = data["stableCps"].as_bool(s.stableCPS);
+                s.stableCPSValue = data["stableCpsValue"].as_float(s.stableCPSValue);
                 s.advancedMode = data["advancedMode"].as_bool(s.advancedMode);
                 s.dropChance = data["dropChance"].as_float(s.dropChance);
                 s.spikeChance = data["spikeChance"].as_float(s.spikeChance);
+                s.spikeMultiplier = data["spikeMultiplier"].as_float(s.spikeMultiplier);
+                s.kurtosis = data["kurtosis"].as_float(s.kurtosis);
                 s.attackingOnly = data["attackingOnly"].as_bool(s.attackingOnly);
             } else if (name == "AimAssist" && aimAssist) {
                 auto& s = aimAssist->settings;
+                s.horizontalOnly = data["horizontalOnly"].as_bool(s.horizontalOnly);
                 s.speed = data["speed"].as_float(s.speed);
                 s.fov = data["fov"].as_int(s.fov);
                 s.distance = data["distance"].as_float(s.distance);
                 s.reactionTime = data["reactionTime"].as_int(s.reactionTime);
                 s.targetMode =
                     static_cast<AimAssist::TargetMode>(data["targetMode"].as_int(static_cast<int>(s.targetMode)));
+                s.switchSortBy =
+                    static_cast<AimAssist::SortBy>(data["switchSortBy"].as_int(static_cast<int>(s.switchSortBy)));
+                s.hurtTimeLock = data["hurtTimeLock"].as_bool(s.hurtTimeLock);
                 s.breakBlocks = data["breakBlocks"].as_bool(s.breakBlocks);
                 s.weaponOnly = data["weaponOnly"].as_bool(s.weaponOnly);
                 s.aimAtClosestPoint = data["aimAtClosestPoint"].as_bool(s.aimAtClosestPoint);
                 s.alwaysAim = data["alwaysAim"].as_bool(s.alwaysAim);
                 s.invisibles = data["invisibles"].as_bool(s.invisibles);
+                s.lockAim = data["lockAim"].as_bool(s.lockAim);
                 s.stopOnHitbox = data["stopOnHitbox"].as_bool(s.stopOnHitbox);
             } else if (name == "Velocity" && velocity) {
                 auto& s = velocity->settings;
@@ -185,6 +424,8 @@ void ConfigManager::applyConfig() {
                 s.background = data["background"].as_bool(s.background);
                 s.showHealth = data["showHealth"].as_bool(s.showHealth);
                 s.showDistance = data["showDistance"].as_bool(s.showDistance);
+                s.showArmor = data["showArmor"].as_bool(s.showArmor);
+                s.showEffects = data["showEffects"].as_bool(s.showEffects);
             } else if (name == "ESP" && esp) {
                 auto& s = esp->settings;
                 s.box = data["box"].as_bool(s.box);
@@ -195,6 +436,24 @@ void ConfigManager::applyConfig() {
                 s.teamColors = data["teamColors"].as_bool(s.teamColors);
                 s.range = data["range"].as_float(s.range);
                 // Load color arrays
+                if (data.has("boxColor")) {
+                    s.boxColor[0] = data["boxColor"]["r"].as_float(s.boxColor[0]);
+                    s.boxColor[1] = data["boxColor"]["g"].as_float(s.boxColor[1]);
+                    s.boxColor[2] = data["boxColor"]["b"].as_float(s.boxColor[2]);
+                    s.boxColor[3] = data["boxColor"]["a"].as_float(s.boxColor[3]);
+                }
+                if (data.has("filledColor")) {
+                    s.filledColor[0] = data["filledColor"]["r"].as_float(s.filledColor[0]);
+                    s.filledColor[1] = data["filledColor"]["g"].as_float(s.filledColor[1]);
+                    s.filledColor[2] = data["filledColor"]["b"].as_float(s.filledColor[2]);
+                    s.filledColor[3] = data["filledColor"]["a"].as_float(s.filledColor[3]);
+                }
+                if (data.has("outlineColor")) {
+                    s.outlineColor[0] = data["outlineColor"]["r"].as_float(s.outlineColor[0]);
+                    s.outlineColor[1] = data["outlineColor"]["g"].as_float(s.outlineColor[1]);
+                    s.outlineColor[2] = data["outlineColor"]["b"].as_float(s.outlineColor[2]);
+                    s.outlineColor[3] = data["outlineColor"]["a"].as_float(s.outlineColor[3]);
+                }
                 if (data.has("friendColor")) {
                     s.friendColor[0] = data["friendColor"]["r"].as_float(s.friendColor[0]);
                     s.friendColor[1] = data["friendColor"]["g"].as_float(s.friendColor[1]);
@@ -206,6 +465,32 @@ void ConfigManager::applyConfig() {
                     s.enemyColor[1] = data["enemyColor"]["g"].as_float(s.enemyColor[1]);
                     s.enemyColor[2] = data["enemyColor"]["b"].as_float(s.enemyColor[2]);
                     s.enemyColor[3] = data["enemyColor"]["a"].as_float(s.enemyColor[3]);
+                }
+            } else if (name == "ItemESP" && itemEsp) {
+                auto& s = itemEsp->settings;
+                s.box = data["box"].as_bool(s.box);
+                s.box3D = data["box3D"].as_bool(s.box3D);
+                s.filled = data["filled"].as_bool(s.filled);
+                s.outline = data["outline"].as_bool(s.outline);
+                s.showQuantity = data["showQuantity"].as_bool(s.showQuantity);
+                s.range = data["range"].as_float(s.range);
+                if (data.has("boxColor")) {
+                    s.boxColor[0] = data["boxColor"]["r"].as_float(s.boxColor[0]);
+                    s.boxColor[1] = data["boxColor"]["g"].as_float(s.boxColor[1]);
+                    s.boxColor[2] = data["boxColor"]["b"].as_float(s.boxColor[2]);
+                    s.boxColor[3] = data["boxColor"]["a"].as_float(s.boxColor[3]);
+                }
+                if (data.has("filledColor")) {
+                    s.filledColor[0] = data["filledColor"]["r"].as_float(s.filledColor[0]);
+                    s.filledColor[1] = data["filledColor"]["g"].as_float(s.filledColor[1]);
+                    s.filledColor[2] = data["filledColor"]["b"].as_float(s.filledColor[2]);
+                    s.filledColor[3] = data["filledColor"]["a"].as_float(s.filledColor[3]);
+                }
+                if (data.has("outlineColor")) {
+                    s.outlineColor[0] = data["outlineColor"]["r"].as_float(s.outlineColor[0]);
+                    s.outlineColor[1] = data["outlineColor"]["g"].as_float(s.outlineColor[1]);
+                    s.outlineColor[2] = data["outlineColor"]["b"].as_float(s.outlineColor[2]);
+                    s.outlineColor[3] = data["outlineColor"]["a"].as_float(s.outlineColor[3]);
                 }
             } else if (name == "Bridge Assist" && bridgeAssist) {
                 auto& s = bridgeAssist->settings;
@@ -242,9 +527,14 @@ void ConfigManager::applyConfig() {
                 s.set1Material = data["set1Material"].as_int(s.set1Material);
                 s.set2Material = data["set2Material"].as_int(s.set2Material);
                 s.switchDelay = data["switchDelay"].as_int(s.switchDelay);
+                s.retryMinDelay = data["retryMinDelay"].as_int(s.retryMinDelay);
                 s.preferProtection = data["preferProtection"].as_bool(s.preferProtection);
                 s.onInventoryOpen = data["onInventoryOpen"].as_bool(s.onInventoryOpen);
                 s.retryOnFail = data["retryOnFail"].as_bool(s.retryOnFail);
+                s.silentMode = data["silentMode"].as_bool(s.silentMode);
+                s.autoBalance = data["autoBalance"].as_bool(s.autoBalance);
+                s.maxDurabilityDiff = data["maxDurabilityDiff"].as_int(s.maxDurabilityDiff);
+                s.checkInterval = data["checkInterval"].as_int(s.checkInterval);
             } else if (name == "AutoRefill" && autoRefill) {
                 auto& s = autoRefill->settings;
                 s.refillSoup = data["refillSoup"].as_bool(s.refillSoup);
@@ -273,6 +563,12 @@ void ConfigManager::applyConfig() {
                 s.thickness = data["thickness"].as_float(s.thickness);
                 s.range = data["range"].as_float(s.range);
                 s.lineFrom = data["lineFrom"].as_int(s.lineFrom);
+                if (data.has("tracerColor")) {
+                    s.tracerColor[0] = data["tracerColor"]["r"].as_float(s.tracerColor[0]);
+                    s.tracerColor[1] = data["tracerColor"]["g"].as_float(s.tracerColor[1]);
+                    s.tracerColor[2] = data["tracerColor"]["b"].as_float(s.tracerColor[2]);
+                    s.tracerColor[3] = data["tracerColor"]["a"].as_float(s.tracerColor[3]);
+                }
             } else if (name == "Trajectories" && trajectories) {
                 auto& s = trajectories->settings;
                 s.thickness = data["thickness"].as_float(s.thickness);
@@ -296,6 +592,10 @@ void ConfigManager::applyConfig() {
                     static_cast<ItemReleaseMode>(data["mode"].as_int(static_cast<int>(noItemRelease->settings.mode)));
             } else if (name == "FastPlace" && fastPlace) {
                 fastPlace->settings.blocksOnly = data["blocksOnly"].as_bool(fastPlace->settings.blocksOnly);
+            } else if (name == "Auto Tool" && autoTool) {
+                auto& s = autoTool->settings;
+                s.switchBack = data["switchBack"].as_bool(s.switchBack);
+                s.autoSword = data["autoSword"].as_bool(s.autoSword);
             } else if (name == "NoHitDelay" && noHitDelay) {
                 noHitDelay->settings.weaponOnly = data["weaponOnly"].as_bool(noHitDelay->settings.weaponOnly);
             } else if (name == "Criticals" && criticals) {
@@ -342,6 +642,17 @@ void ConfigManager::applyConfig() {
                     s.blinkColor[2] = data["blinkColor"]["b"].as_float(s.blinkColor[2]);
                     s.blinkColor[3] = data["blinkColor"]["a"].as_float(s.blinkColor[3]);
                 }
+            } else if (name == "Timer" && timerModule) {
+                auto& s = timerModule->settings;
+                s.speed = (double)data["speed"].as_float((float)s.speed);
+                s.mousePressed = data["mousePressed"].as_bool(s.mousePressed);
+                s.weaponOnly = data["weaponOnly"].as_bool(s.weaponOnly);
+            } else if (name == "DroppedInfo" && droppedInfo) {
+                auto& s = droppedInfo->settings;
+                s.x = data["x"].as_float(s.x);
+                s.y = data["y"].as_float(s.y);
+                s.scale = data["scale"].as_float(s.scale);
+                s.background = data["background"].as_bool(s.background);
             } else if (name == "InvManager" && inventoryManager) {
                 inventoryManager->settings.swapDelay = data["swapDelay"].as_int(inventoryManager->settings.swapDelay);
                 inventoryManager->settings.retryOnFail =
@@ -435,22 +746,29 @@ void ConfigManager::buildConfigFromModules() {
             config_["modules"][name]["breakBlocks"] = s.breakBlocks;
             config_["modules"][name]["workInInventory"] = s.workInInventory;
             config_["modules"][name]["stableCps"] = s.stableCPS;
+            config_["modules"][name]["stableCpsValue"] = s.stableCPSValue;
             config_["modules"][name]["advancedMode"] = s.advancedMode;
             config_["modules"][name]["dropChance"] = s.dropChance;
             config_["modules"][name]["spikeChance"] = s.spikeChance;
+            config_["modules"][name]["spikeMultiplier"] = s.spikeMultiplier;
+            config_["modules"][name]["kurtosis"] = s.kurtosis;
             config_["modules"][name]["attackingOnly"] = s.attackingOnly;
         } else if (name == "AimAssist" && aimAssist) {
             const auto& s = aimAssist->settings;
+            config_["modules"][name]["horizontalOnly"] = s.horizontalOnly;
             config_["modules"][name]["speed"] = s.speed;
             config_["modules"][name]["fov"] = s.fov;
             config_["modules"][name]["distance"] = s.distance;
             config_["modules"][name]["reactionTime"] = s.reactionTime;
             config_["modules"][name]["targetMode"] = static_cast<int>(s.targetMode);
+            config_["modules"][name]["switchSortBy"] = static_cast<int>(s.switchSortBy);
+            config_["modules"][name]["hurtTimeLock"] = s.hurtTimeLock;
             config_["modules"][name]["breakBlocks"] = s.breakBlocks;
             config_["modules"][name]["weaponOnly"] = s.weaponOnly;
             config_["modules"][name]["aimAtClosestPoint"] = s.aimAtClosestPoint;
             config_["modules"][name]["alwaysAim"] = s.alwaysAim;
             config_["modules"][name]["invisibles"] = s.invisibles;
+            config_["modules"][name]["lockAim"] = s.lockAim;
             config_["modules"][name]["stopOnHitbox"] = s.stopOnHitbox;
         } else if (name == "Velocity" && velocity) {
             const auto& s = velocity->settings;
@@ -478,6 +796,8 @@ void ConfigManager::buildConfigFromModules() {
             config_["modules"][name]["background"] = s.background;
             config_["modules"][name]["showHealth"] = s.showHealth;
             config_["modules"][name]["showDistance"] = s.showDistance;
+            config_["modules"][name]["showArmor"] = s.showArmor;
+            config_["modules"][name]["showEffects"] = s.showEffects;
         } else if (name == "ESP" && esp) {
             const auto& s = esp->settings;
             config_["modules"][name]["box"] = s.box;
@@ -488,6 +808,21 @@ void ConfigManager::buildConfigFromModules() {
             config_["modules"][name]["teamColors"] = s.teamColors;
             config_["modules"][name]["range"] = s.range;
             // Save color arrays
+            config_["modules"][name]["boxColor"]["r"] = s.boxColor[0];
+            config_["modules"][name]["boxColor"]["g"] = s.boxColor[1];
+            config_["modules"][name]["boxColor"]["b"] = s.boxColor[2];
+            config_["modules"][name]["boxColor"]["a"] = s.boxColor[3];
+
+            config_["modules"][name]["filledColor"]["r"] = s.filledColor[0];
+            config_["modules"][name]["filledColor"]["g"] = s.filledColor[1];
+            config_["modules"][name]["filledColor"]["b"] = s.filledColor[2];
+            config_["modules"][name]["filledColor"]["a"] = s.filledColor[3];
+
+            config_["modules"][name]["outlineColor"]["r"] = s.outlineColor[0];
+            config_["modules"][name]["outlineColor"]["g"] = s.outlineColor[1];
+            config_["modules"][name]["outlineColor"]["b"] = s.outlineColor[2];
+            config_["modules"][name]["outlineColor"]["a"] = s.outlineColor[3];
+
             config_["modules"][name]["friendColor"]["r"] = s.friendColor[0];
             config_["modules"][name]["friendColor"]["g"] = s.friendColor[1];
             config_["modules"][name]["friendColor"]["b"] = s.friendColor[2];
@@ -496,6 +831,29 @@ void ConfigManager::buildConfigFromModules() {
             config_["modules"][name]["enemyColor"]["g"] = s.enemyColor[1];
             config_["modules"][name]["enemyColor"]["b"] = s.enemyColor[2];
             config_["modules"][name]["enemyColor"]["a"] = s.enemyColor[3];
+        } else if (name == "ItemESP" && itemEsp) {
+            const auto& s = itemEsp->settings;
+            config_["modules"][name]["box"] = s.box;
+            config_["modules"][name]["box3D"] = s.box3D;
+            config_["modules"][name]["filled"] = s.filled;
+            config_["modules"][name]["outline"] = s.outline;
+            config_["modules"][name]["showQuantity"] = s.showQuantity;
+            config_["modules"][name]["range"] = s.range;
+
+            config_["modules"][name]["boxColor"]["r"] = s.boxColor[0];
+            config_["modules"][name]["boxColor"]["g"] = s.boxColor[1];
+            config_["modules"][name]["boxColor"]["b"] = s.boxColor[2];
+            config_["modules"][name]["boxColor"]["a"] = s.boxColor[3];
+
+            config_["modules"][name]["filledColor"]["r"] = s.filledColor[0];
+            config_["modules"][name]["filledColor"]["g"] = s.filledColor[1];
+            config_["modules"][name]["filledColor"]["b"] = s.filledColor[2];
+            config_["modules"][name]["filledColor"]["a"] = s.filledColor[3];
+
+            config_["modules"][name]["outlineColor"]["r"] = s.outlineColor[0];
+            config_["modules"][name]["outlineColor"]["g"] = s.outlineColor[1];
+            config_["modules"][name]["outlineColor"]["b"] = s.outlineColor[2];
+            config_["modules"][name]["outlineColor"]["a"] = s.outlineColor[3];
         } else if (name == "Bridge Assist" && bridgeAssist) {
             const auto& s = bridgeAssist->settings;
             config_["modules"][name]["onlyLookingDown"] = s.onlyLookingDown;
@@ -529,9 +887,14 @@ void ConfigManager::buildConfigFromModules() {
             config_["modules"][name]["set1Material"] = s.set1Material;
             config_["modules"][name]["set2Material"] = s.set2Material;
             config_["modules"][name]["switchDelay"] = s.switchDelay;
+            config_["modules"][name]["retryMinDelay"] = s.retryMinDelay;
             config_["modules"][name]["preferProtection"] = s.preferProtection;
             config_["modules"][name]["onInventoryOpen"] = s.onInventoryOpen;
             config_["modules"][name]["retryOnFail"] = s.retryOnFail;
+            config_["modules"][name]["silentMode"] = s.silentMode;
+            config_["modules"][name]["autoBalance"] = s.autoBalance;
+            config_["modules"][name]["maxDurabilityDiff"] = s.maxDurabilityDiff;
+            config_["modules"][name]["checkInterval"] = s.checkInterval;
         } else if (name == "AutoRefill" && autoRefill) {
             const auto& s = autoRefill->settings;
             config_["modules"][name]["refillSoup"] = s.refillSoup;
@@ -560,6 +923,10 @@ void ConfigManager::buildConfigFromModules() {
             config_["modules"][name]["thickness"] = s.thickness;
             config_["modules"][name]["range"] = s.range;
             config_["modules"][name]["lineFrom"] = s.lineFrom;
+            config_["modules"][name]["tracerColor"]["r"] = s.tracerColor[0];
+            config_["modules"][name]["tracerColor"]["g"] = s.tracerColor[1];
+            config_["modules"][name]["tracerColor"]["b"] = s.tracerColor[2];
+            config_["modules"][name]["tracerColor"]["a"] = s.tracerColor[3];
         } else if (name == "Trajectories" && trajectories) {
             const auto& s = trajectories->settings;
             config_["modules"][name]["thickness"] = s.thickness;
@@ -580,6 +947,10 @@ void ConfigManager::buildConfigFromModules() {
             config_["modules"][name]["mode"] = static_cast<int>(noItemRelease->settings.mode);
         } else if (name == "FastPlace" && fastPlace) {
             config_["modules"][name]["blocksOnly"] = fastPlace->settings.blocksOnly;
+        } else if (name == "Auto Tool" && autoTool) {
+            const auto& s = autoTool->settings;
+            config_["modules"][name]["switchBack"] = s.switchBack;
+            config_["modules"][name]["autoSword"] = s.autoSword;
         } else if (name == "NoHitDelay" && noHitDelay) {
             config_["modules"][name]["weaponOnly"] = noHitDelay->settings.weaponOnly;
         } else if (name == "Criticals" && criticals) {
@@ -620,6 +991,17 @@ void ConfigManager::buildConfigFromModules() {
             config_["modules"][name]["blinkColor"]["g"] = s.blinkColor[1];
             config_["modules"][name]["blinkColor"]["b"] = s.blinkColor[2];
             config_["modules"][name]["blinkColor"]["a"] = s.blinkColor[3];
+        } else if (name == "Timer" && timerModule) {
+            const auto& s = timerModule->settings;
+            config_["modules"][name]["speed"] = (float)s.speed;
+            config_["modules"][name]["mousePressed"] = s.mousePressed;
+            config_["modules"][name]["weaponOnly"] = s.weaponOnly;
+        } else if (name == "DroppedInfo" && droppedInfo) {
+            const auto& s = droppedInfo->settings;
+            config_["modules"][name]["x"] = s.x;
+            config_["modules"][name]["y"] = s.y;
+            config_["modules"][name]["scale"] = s.scale;
+            config_["modules"][name]["background"] = s.background;
         } else if (name == "InvManager" && inventoryManager) {
             config_["modules"][name]["swapDelay"] = inventoryManager->settings.swapDelay;
             config_["modules"][name]["retryOnFail"] = inventoryManager->settings.retryOnFail;

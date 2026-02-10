@@ -8,6 +8,7 @@
 #include <mutex>
 #include <string>
 #include <thread>
+#include <vector>
 
 #include "../util/hwid.hpp"
 #include "../util/logger.hpp"
@@ -74,6 +75,13 @@ public:
 
     // Force save (called periodically or on explicit save)
     void save() { saveLocal(); }
+
+    // User configs (stored under %APPDATA%/Cobble/configs/*.json)
+    std::string getUserConfigsDir() const;
+    std::vector<std::string> listUserConfigs() const;
+    bool saveUserConfig(const std::string& name, std::string* err = nullptr);
+    bool loadUserConfig(const std::string& name, std::string* err = nullptr);
+    bool deleteUserConfig(const std::string& name, std::string* err = nullptr);
 
     // Get current config as JSON (for debugging)
     std::string getConfigJson() const {

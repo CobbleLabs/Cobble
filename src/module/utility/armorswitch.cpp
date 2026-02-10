@@ -689,47 +689,47 @@ void ArmorSwitch::scanForSwaps() {
 }
 
 void ArmorSwitch::onRenderMenu() {
-    ui::section("Settings", [this]() {
-        ui::Binder("Keybind", &keybind);
-        ImGui::Spacing();
+    ui::two_column(
+        "Settings",
+        [this]() {
+            ui::Binder("Keybind", &keybind);
+            ImGui::Spacing();
 
-        ui::Combo("Set 1", &settings.set1Material, materialNames, MATERIAL_COUNT);
-        ui::Combo("Set 2", &settings.set2Material, materialNames, MATERIAL_COUNT);
+            ui::Combo("Set 1", &settings.set1Material, materialNames, MATERIAL_COUNT);
+            ui::Combo("Set 2", &settings.set2Material, materialNames, MATERIAL_COUNT);
 
-        ImGui::Spacing();
+            ImGui::Spacing();
 
-        int delay = settings.switchDelay;
-        if (ui::SliderInt("Delay (ms)", &delay, 0, 200, "%d"))
-            settings.switchDelay = delay;
-
-        ImGui::Spacing();
-        bool wasOnInventoryOpen = settings.onInventoryOpen;
-        ui::Checkbox("On Inventory Open", &settings.onInventoryOpen);
-        // Auto-enable/disable module when setting changes
-        if (settings.onInventoryOpen != wasOnInventoryOpen) {
-            if (settings.onInventoryOpen) {
-                // Turning ON passive mode - enable module
-                if (!enabled) {
-                    enabled = true;
-                    wasInventoryOpen = mc.isInventoryOpen();
-                }
-            } else {
-                // Turning OFF passive mode - disable module if idle
-                if (enabled && state == State::Idle) {
-                    enabled = false;
+            int delay = settings.switchDelay;
+            if (ui::SliderInt("Delay (ms)", &delay, 0, 200, "%d"))
+                settings.switchDelay = delay;
+        },
+        "Options",
+        [this]() {
+            bool wasOnInventoryOpen = settings.onInventoryOpen;
+            ui::Checkbox("On Inventory Open", &settings.onInventoryOpen);
+            if (settings.onInventoryOpen != wasOnInventoryOpen) {
+                if (settings.onInventoryOpen) {
+                    if (!enabled) {
+                        enabled = true;
+                        wasInventoryOpen = mc.isInventoryOpen();
+                    }
+                } else {
+                    if (enabled && state == State::Idle) {
+                        enabled = false;
+                    }
                 }
             }
-        }
-        ui::Checkbox("Prefer Protection", &settings.preferProtection);
-        ui::Checkbox("Retry on Fail", &settings.retryOnFail);
-        if (ImGui::IsItemHovered()) {
-            ImGui::SetTooltip("Use if armor swaps fail on some servers");
-        }
-        ui::Checkbox("Silent Mode", &settings.silentMode);
-        if (ImGui::IsItemHovered()) {
-            ImGui::SetTooltip("Swaps armor silently without opening the inventory");
-        }
-    });
+            ui::Checkbox("Prefer Protection", &settings.preferProtection);
+            ui::Checkbox("Retry on Fail", &settings.retryOnFail);
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("Use if armor swaps fail on some servers");
+            }
+            ui::Checkbox("Silent Mode", &settings.silentMode);
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("Swaps armor silently without opening the inventory");
+            }
+        });
 }
 
 std::string ArmorSwitch::getDisplayInfo() {

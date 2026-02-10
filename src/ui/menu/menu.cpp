@@ -41,7 +41,12 @@
 #include "../widgets/widgets.hpp"
 
 #include <algorithm>
+#include <cstring>
 #include <string>
+#include <vector>
+
+// One-shot refresh trigger for Configs page (set when user enters the tab).
+static bool g_configsNeedsRefresh = false;
 
 // Module lookup by tab and subtab index
 // Returns the module that corresponds to the current subtab
@@ -124,7 +129,7 @@ Module* getModuleForSubtab(int tabIdx, int subtabIdx) {
                 return inventoryManager;
         }
     }
-    // Settings Tab (4) - no module, handled specially
+    // Configs/Settings tabs - no module, handled specially
 
     return nullptr;
 }
@@ -287,15 +292,139 @@ static void renderSettingsPage() {
     ImGui::EndGroup();
 }
 
+// Configs tab content - special case (not a module)
+static void renderConfigsPage() {
+    static bool didInit = false;
+    static std::vector<std::string> configs;
+    static int selected = -1;
+    static char nameBuf[64] = "";
+    static double lastPollTime = 0.0;
+    constexpr double kPollIntervalSec = 6.0;
+
+    auto refresh = [&]() {
+        std::string selectedName;
+        if (selected >= 0 && selected < (int)configs.size())
+            selectedName = configs[selected];
+
+        configs = ConfigManager::get().listUserConfigs();
+
+        selected = -1;
+        if (!selectedName.empty()) {
+            for (int i = 0; i < (int)configs.size(); i++) {
+                if (configs[i] == selectedName) {
+                    selected = i;
+                    break;
+                }
+            }
+        }
+    };
+
+    if (!didInit) {
+        refresh();
+        didInit = true;
+    }
+
+    // Refresh on tab entry or periodic polling.
+    if (g_configsNeedsRefresh) {
+        refresh();
+        g_configsNeedsRefresh = false;
+        lastPollTime = ImGui::GetTime();
+    } else {
+        double now = ImGui::GetTime();
+        if (now - lastPollTime >= kPollIntervalSec) {
+            refresh();
+            lastPollTime = now;
+        }
+    }
+
+    ui::two_column(
+        "Saved",
+        [&]() {
+            if (ImGui::BeginListBox("##configlist", ImVec2(ImGui::GetContentRegionAvail().x, ui::s(280)))) {
+                for (int i = 0; i < (int)configs.size(); i++) {
+                    const bool isSel = (i == selected);
+                    if (ImGui::Selectable(configs[i].c_str(), isSel)) {
+                        selected = i;
+                        strncpy_s(nameBuf, sizeof(nameBuf), configs[i].c_str(), _TRUNCATE);
+                    }
+                }
+                ImGui::EndListBox();
+            }
+        },
+        "Actions",
+        [&]() {
+            ImGui::Text("Name");
+            ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
+            ImGui::InputText("##configname", nameBuf, sizeof(nameBuf));
+
+            ImGui::Spacing();
+
+            std::string err;
+            std::string n = nameBuf[0] != '\0'
+                                ? std::string(nameBuf)
+                                : (selected >= 0 && selected < (int)configs.size() ? configs[selected] : std::string());
+
+            if (ImGui::Button("Save", ImVec2(ImGui::GetContentRegionAvail().x, 0))) {
+                if (n.empty()) {
+                    NotificationManager::addSystem("Error: enter a name");
+                } else if (ConfigManager::get().saveUserConfig(n, &err)) {
+                    NotificationManager::addSystem("Saved config: " + n);
+                    refresh();
+                } else {
+                    NotificationManager::addSystem("Error: " + (err.empty() ? std::string("save failed") : err));
+                }
+            }
+
+            if (ImGui::Button("Load", ImVec2(ImGui::GetContentRegionAvail().x, 0))) {
+                if (n.empty()) {
+                    NotificationManager::addSystem("Error: select a config");
+                } else if (ConfigManager::get().loadUserConfig(n, &err)) {
+                    NotificationManager::addSystem("Loaded config: " + n);
+                } else {
+                    NotificationManager::addSystem("Error: " + (err.empty() ? std::string("load failed") : err));
+                }
+            }
+
+            if (ImGui::Button("Delete", ImVec2(ImGui::GetContentRegionAvail().x, 0))) {
+                if (n.empty()) {
+                    NotificationManager::addSystem("Error: select a config");
+                } else if (ConfigManager::get().deleteUserConfig(n, &err)) {
+                    NotificationManager::addSystem("Deleted config: " + n);
+                    if (selected >= 0 && selected < (int)configs.size() && configs[selected] == n)
+                        selected = -1;
+                    if (std::string(nameBuf) == n)
+                        nameBuf[0] = '\0';
+                    refresh();
+                } else {
+                    NotificationManager::addSystem("Error: " + (err.empty() ? std::string("delete failed") : err));
+                }
+            }
+        });
+}
+
 // Render current page - calls module's onRenderMenu() dynamically
 static void renderPage() {
     if (ui::cur_tab >= ui::tabs.size())
         return;
     auto& tab = ui::tabs[ui::cur_tab];
 
-    // Settings tab (no subtabs)
-    if (ui::cur_tab == 4) {
+    // Special tabs (no subtabs)
+    const int settingsIdx = (int)ui::tabs.size() - 1;
+    const int configsIdx = settingsIdx - 1;
+
+    // Used to trigger a one-shot refresh when entering the Configs tab.
+    static int s_prevTab = -1;
+    if (s_prevTab != ui::cur_tab && ui::cur_tab == configsIdx) {
+        g_configsNeedsRefresh = true;
+    }
+    s_prevTab = ui::cur_tab;
+
+    if (ui::cur_tab == settingsIdx) {
         renderSettingsPage();
+        return;
+    }
+    if (ui::cur_tab == configsIdx) {
+        renderConfigsPage();
         return;
     }
 
@@ -418,6 +547,10 @@ void Menu::ApplyStyle() {
 void Menu::Render() {
     // Reset binder state at start of each frame
     ui::ResetBinderState();
+
+    // If hidden (e.g. during HUD drag), skip rendering but keep state
+    if (hidden && isOpen)
+        return;
 
     // Animate open/close
     float targetAnim = isOpen ? 1.f : 0.f;

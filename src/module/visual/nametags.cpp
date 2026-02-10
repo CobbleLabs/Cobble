@@ -575,15 +575,7 @@ void NameTags::renderPlayerTag(ImDrawList* draw, float screenX, float screenY, c
     if (!draw)
         return;
 
-    // Scale compensates for distance so nametags stay a consistent visual size
-    // Reference distance: at 10 blocks the tag appears at exactly settings.scale
-    float distScale = 1.0f;
-    if (distance > 0.5f) {
-        float refDist = 10.0f;
-        distScale = refDist / distance;
-        distScale = (std::max)(0.4f, (std::min)(3.0f, distScale));
-    }
-    float displayScale = settings.scale * distScale;
+    float displayScale = settings.scale;
     ImGui::SetWindowFontScale(displayScale);
 
     char nameText[256];
