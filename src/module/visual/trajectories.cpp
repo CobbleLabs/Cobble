@@ -395,23 +395,22 @@ void Trajectories::simulateTrajectory() {
                 // Player hitbox: 0.6 wide, 1.8 tall centered on position
                 float halfWidth = 0.3f;
                 float height = 1.8f;
-                
+
                 float minX = (float)p.posX - halfWidth;
                 float maxX = (float)p.posX + halfWidth;
                 float minY = (float)p.posY;
                 float maxY = (float)p.posY + height;
                 float minZ = (float)p.posZ - halfWidth;
                 float maxZ = (float)p.posZ + halfWidth;
-                
+
                 // Check if current trajectory point is inside player AABB
-                if (absToX >= minX && absToX <= maxX &&
-                    absToY >= minY && absToY <= maxY &&
-                    absToZ >= minZ && absToZ <= maxZ) {
+                if (absToX >= minX && absToX <= maxX && absToY >= minY && absToY <= maxY && absToZ >= minZ &&
+                    absToZ <= maxZ) {
                     hitAnyPlayer = true;
                     break;
                 }
             }
-            
+
             if (hitAnyPlayer) {
                 if (!newTrajectory.empty()) {
                     newTrajectory.back().hitPlayer = true;
@@ -614,14 +613,12 @@ void Trajectories::onRenderMenu() {
         },
         "Projectiles",
         [this]() {
-            ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(8, 2));
-            ImGui::Checkbox("Bow", &settings.showBow);
-            ImGui::Checkbox("Ender Pearl", &settings.showEnderPearl);
-            ImGui::Checkbox("Egg", &settings.showEgg);
-            ImGui::Checkbox("Snowball", &settings.showSnowball);
-            ImGui::Checkbox("Healing II", &settings.showPotionHealing);
-            ImGui::Checkbox("Poison", &settings.showPotionPoison);
-            ImGui::Checkbox("Slowness", &settings.showPotionSlowness);
-            ImGui::PopStyleVar();
+            ui::Checkbox("Bow", &settings.showBow);
+            ui::Checkbox("Ender Pearl", &settings.showEnderPearl);
+            ui::Checkbox("Egg", &settings.showEgg);
+            ui::Checkbox("Snowball", &settings.showSnowball);
+            ui::Checkbox("Healing II", &settings.showPotionHealing);
+            ui::Checkbox("Poison", &settings.showPotionPoison);
+            ui::Checkbox("Slowness", &settings.showPotionSlowness);
         });
 }

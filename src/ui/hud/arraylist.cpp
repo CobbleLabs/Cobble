@@ -215,7 +215,7 @@ void ArrayListRenderer::render() {
         }
 
         // Calculate X position based on anchor
-        float edgePadding = colorBar ? barWidth + 5.0f * scale : 8.0f * scale;
+        float edgePadding = colorBar ? barWidth + 5.0f * scale : 3.0f * scale;
         float itemWidth = totalWidth + padding + edgePadding;
         float x, rectX1, rectX2, textX, barX1, barX2;
 
@@ -241,6 +241,17 @@ void ArrayListRenderer::render() {
         draw->AddRectFilled(ImVec2(rectX1, y), ImVec2(rectX2, y + lineHeight), bgColor,
                             4.0f * scale  // Rounded corners
         );
+
+        // Text shadow for readability when background is off
+        if (!showBackground) {
+            ImU32 shadowColor = IM_COL32(0, 0, 0, 200);
+            float sd = 1.0f * scale;
+            draw->AddText(arrayFont, fontSize, ImVec2(textX + sd, y + sd), shadowColor, entry.name.c_str());
+            if (!entry.info.empty()) {
+                draw->AddText(arrayFont, fontSize, ImVec2(textX + entry.nameSize.x + sd, y + sd), shadowColor,
+                              entry.infoText.c_str());
+            }
+        }
 
         // Draw name with module color
         draw->AddText(arrayFont, fontSize, ImVec2(textX, y), moduleColor, entry.name.c_str());

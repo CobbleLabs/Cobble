@@ -40,25 +40,16 @@ void Sprint::onUpdate() {
     if (!player.isValid())
         return;
 
-    // Toggle Sprint: simulate sprint key being held down
-    // This is how Lunar Client does it - it's legit because
-    // the game processes it as a normal key press
     if (sprintKeyCode == 0) {
         sprintKeyCode = mc.getSprintKey();
     }
 
     // Set the sprint key as pressed
-    // The game will handle all the normal sprint logic (food check, blindness, etc)
     mc.setKeyBindState(sprintKeyCode, true);
 }
 
 void Sprint::onRenderMenu() {
     ui::two_column(
-        "General", [this]() { 
-            ui::CheckboxBind("Enabled", &enabled, &keybind); 
-        }, 
-        "Info",
-        [this]() { 
-            ImGui::TextWrapped("Toggle Sprint - automatically holds the sprint key");
-        });
+        "General", [this]() { ui::CheckboxBind("Enabled", &enabled, &keybind); }, "Info",
+        [this]() { ImGui::TextWrapped("Maintains continuous sprint during movement."); });
 }

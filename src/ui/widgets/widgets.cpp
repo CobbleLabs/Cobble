@@ -20,10 +20,11 @@ void ui::ResetBinderState() {
 }
 
 // ==================== GLOBAL SCHEME COLOR ====================
-float g_SchemeColor[4] = {0.843f, 0.376f, 0.078f, 1.0f};
+float (&g_SchemeColor)[4] = ui::theme::accentColor;
 
 inline ImU32 GetSchemeColor(float alpha) {
-    ImVec4 col = ImVec4(g_SchemeColor[0], g_SchemeColor[1], g_SchemeColor[2], g_SchemeColor[3]);
+    ImVec4 col = ImVec4(ui::theme::accentColor[0], ui::theme::accentColor[1], ui::theme::accentColor[2],
+                        ui::theme::accentColor[3]);
     col.w *= alpha * ImGui::GetStyle().Alpha * ui::alpha_mod;
     return ImGui::ColorConvertFloat4ToU32(col);
 }
@@ -33,7 +34,10 @@ std::vector<ui::tab_t> ui::tabs = {
     {ICON_FA_CROSSHAIRS,
      "Combat",
      {"AutoClicker", "AimAssist", "Velocity", "Reach", "HitSelect", "Hitbox", "NoHitDelay", "Criticals", "Backtrack"}},
-    {ICON_FA_EYE, "Visuals", {"NameTags", "ESP", "ItemESP", "Tracers", "BlockESP", "Trajectories", "ArrayList", "DroppedInfo", "Notifications"}},
+    {ICON_FA_EYE,
+     "Visuals",
+     {"NameTags", "ESP", "ItemESP", "Tracers", "BlockESP", "Trajectories", "ArrayList", "DroppedInfo",
+      "Notifications"}},
     {ICON_FA_RUNNING, "Movement", {"Timer", "NoJumpDelay", "Blink", "Sprint"}},
     {ICON_FA_KEYBOARD,
      "Utility",
@@ -285,9 +289,10 @@ bool ui::CheckboxBind(const char* label, bool* v, int* key) {
 
     bool bindHovered = ItemHoverable(bindBox, bId, 0);
     bool bindActive = GetActiveID() == bId;
-    
+
     // Update global binder state for ESC handling in overlay
-    if (bindActive) g_BinderActive = true;
+    if (bindActive)
+        g_BinderActive = true;
 
     struct bind_s {
         float anim;
@@ -1001,9 +1006,10 @@ bool ui::Binder(const char* label, int* key) {
 
     bool hovered = ItemHoverable(bb, id, 0);
     bool active = GetActiveID() == id;
-    
+
     // Update global binder state for ESC handling in overlay
-    if (active) g_BinderActive = true;
+    if (active)
+        g_BinderActive = true;
 
     struct binder_state {
         float anim;

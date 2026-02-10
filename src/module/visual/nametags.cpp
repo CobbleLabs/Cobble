@@ -22,59 +22,107 @@
 // Helper for potion names
 static const char* getPotionName(int id) {
     switch (id) {
-        case 1: return "Speed";
-        case 2: return "Slowness";
-        case 3: return "Haste";
-        case 4: return "Mining Fatigue";
-        case 5: return "Strength";
-        case 6: return "Instant Health";
-        case 7: return "Instant Damage";
-        case 8: return "Jump Boost";
-        case 9: return "Nausea";
-        case 10: return "Regeneration";
-        case 11: return "Resistance";
-        case 12: return "Fire Res";
-        case 13: return "Water Breathing";
-        case 14: return "Invisibility";
-        case 15: return "Blindness";
-        case 16: return "Night Vision";
-        case 17: return "Hunger";
-        case 18: return "Weakness";
-        case 19: return "Poison";
-        case 20: return "Wither";
-        case 21: return "Health Boost";
-        case 22: return "Absorption";
-        case 23: return "Saturation";
-        default: return "Unknown";
+        case 1:
+            return "Speed";
+        case 2:
+            return "Slowness";
+        case 3:
+            return "Haste";
+        case 4:
+            return "Mining Fatigue";
+        case 5:
+            return "Strength";
+        case 6:
+            return "Instant Health";
+        case 7:
+            return "Instant Damage";
+        case 8:
+            return "Jump Boost";
+        case 9:
+            return "Nausea";
+        case 10:
+            return "Regeneration";
+        case 11:
+            return "Resistance";
+        case 12:
+            return "Fire Res";
+        case 13:
+            return "Water Breathing";
+        case 14:
+            return "Invisibility";
+        case 15:
+            return "Blindness";
+        case 16:
+            return "Night Vision";
+        case 17:
+            return "Hunger";
+        case 18:
+            return "Weakness";
+        case 19:
+            return "Poison";
+        case 20:
+            return "Wither";
+        case 21:
+            return "Health Boost";
+        case 22:
+            return "Absorption";
+        case 23:
+            return "Saturation";
+        default:
+            return "Unknown";
     }
 }
 
 static ImU32 GetPotionColor(int id) {
     switch (id) {
-        case 1: return IM_COL32(124, 175, 198, 255); // Speed - Light Blue
-        case 2: return IM_COL32(90, 108, 129, 255);  // Slowness - Gray Blue
-        case 3: return IM_COL32(217, 192, 67, 255);  // Haste - Gold
-        case 4: return IM_COL32(74, 66, 23, 255);    // Fatigue - Brown
-        case 5: return IM_COL32(147, 36, 35, 255);   // Strength - Red
-        case 6: return IM_COL32(67, 10, 9, 255);     // Health - Dark Red
-        case 7: return IM_COL32(67, 10, 9, 255);     // Damage - Dark Red
-        case 8: return IM_COL32(34, 255, 76, 255);   // Jump - Green
-        case 9: return IM_COL32(85, 29, 74, 255);    // Nausea - Purple
-        case 10: return IM_COL32(205, 92, 171, 255); // Regen - Pink
-        case 11: return IM_COL32(153, 69, 58, 255);  // Resistance - Red/Brown
-        case 12: return IM_COL32(228, 154, 58, 255); // Fire Res - Orange
-        case 13: return IM_COL32(46, 82, 153, 255);  // Water Breathing - Blue
-        case 14: return IM_COL32(127, 131, 146, 255); // Invis - Gray
-        case 15: return IM_COL32(31, 31, 35, 255);    // Blindness - Black
-        case 16: return IM_COL32(31, 31, 161, 255);   // Night Vision - Dark Blue
-        case 17: return IM_COL32(88, 118, 83, 255);   // Hunger - Green/Brown
-        case 18: return IM_COL32(72, 77, 72, 255);    // Weakness - Dark Gray
-        case 19: return IM_COL32(78, 147, 49, 255);   // Poison - Green
-        case 20: return IM_COL32(53, 42, 39, 255);    // Wither - Dark Brown
-        case 21: return IM_COL32(248, 125, 35, 255);  // Health Boost - Orange
-        case 22: return IM_COL32(37, 82, 165, 255);   // Absorption - Blue
-        case 23: return IM_COL32(248, 36, 35, 255);   // Saturation - Red
-        default: return IM_COL32(255, 255, 255, 255);
+        case 1:
+            return IM_COL32(124, 175, 198, 255);  // Speed - Light Blue
+        case 2:
+            return IM_COL32(90, 108, 129, 255);  // Slowness - Gray Blue
+        case 3:
+            return IM_COL32(217, 192, 67, 255);  // Haste - Gold
+        case 4:
+            return IM_COL32(74, 66, 23, 255);  // Fatigue - Brown
+        case 5:
+            return IM_COL32(147, 36, 35, 255);  // Strength - Red
+        case 6:
+            return IM_COL32(67, 10, 9, 255);  // Health - Dark Red
+        case 7:
+            return IM_COL32(67, 10, 9, 255);  // Damage - Dark Red
+        case 8:
+            return IM_COL32(34, 255, 76, 255);  // Jump - Green
+        case 9:
+            return IM_COL32(85, 29, 74, 255);  // Nausea - Purple
+        case 10:
+            return IM_COL32(205, 92, 171, 255);  // Regen - Pink
+        case 11:
+            return IM_COL32(153, 69, 58, 255);  // Resistance - Red/Brown
+        case 12:
+            return IM_COL32(228, 154, 58, 255);  // Fire Res - Orange
+        case 13:
+            return IM_COL32(46, 82, 153, 255);  // Water Breathing - Blue
+        case 14:
+            return IM_COL32(127, 131, 146, 255);  // Invis - Gray
+        case 15:
+            return IM_COL32(31, 31, 35, 255);  // Blindness - Black
+        case 16:
+            return IM_COL32(31, 31, 161, 255);  // Night Vision - Dark Blue
+        case 17:
+            return IM_COL32(88, 118, 83, 255);  // Hunger - Green/Brown
+        case 18:
+            return IM_COL32(72, 77, 72, 255);  // Weakness - Dark Gray
+        case 19:
+            return IM_COL32(78, 147, 49, 255);  // Poison - Green
+        case 20:
+            return IM_COL32(53, 42, 39, 255);  // Wither - Dark Brown
+        case 21:
+            return IM_COL32(248, 125, 35, 255);  // Health Boost - Orange
+        case 22:
+            return IM_COL32(37, 82, 165, 255);  // Absorption - Blue
+        case 23:
+            return IM_COL32(248, 36, 35, 255);  // Saturation - Red
+        default:
+            return IM_COL32(255, 255, 255, 255);
     }
 }
 
@@ -88,8 +136,10 @@ static std::string formatDuration(int ticks) {
 }
 
 static ImU32 GetDurabilityColor(float percent) {
-    if (percent > 0.5f) return IM_COL32(0, 255, 0, 255);
-    if (percent > 0.25f) return IM_COL32(255, 255, 0, 255);
+    if (percent > 0.5f)
+        return IM_COL32(0, 255, 0, 255);
+    if (percent > 0.25f)
+        return IM_COL32(255, 255, 0, 255);
     return IM_COL32(255, 0, 0, 255);
 }
 
@@ -99,13 +149,15 @@ static std::string potion_key_sig(const std::vector<PlayerInfo::PotionEffectInfo
 
     std::vector<PlayerInfo::PotionEffectInfo> tmp = potions;
     std::sort(tmp.begin(), tmp.end(), [](const auto& a, const auto& b) {
-        if (a.id != b.id) return a.id < b.id;
+        if (a.id != b.id)
+            return a.id < b.id;
         return a.amplifier < b.amplifier;
     });
 
     std::ostringstream ss;
     for (size_t i = 0; i < tmp.size(); i++) {
-        if (i) ss << ",";
+        if (i)
+            ss << ",";
         ss << tmp[i].id << ":" << tmp[i].amplifier;
     }
     return ss.str();
@@ -117,14 +169,17 @@ static std::string potion_full_sig(const std::vector<PlayerInfo::PotionEffectInf
 
     std::vector<PlayerInfo::PotionEffectInfo> tmp = potions;
     std::sort(tmp.begin(), tmp.end(), [](const auto& a, const auto& b) {
-        if (a.id != b.id) return a.id < b.id;
-        if (a.amplifier != b.amplifier) return a.amplifier < b.amplifier;
+        if (a.id != b.id)
+            return a.id < b.id;
+        if (a.amplifier != b.amplifier)
+            return a.amplifier < b.amplifier;
         return a.duration < b.duration;
     });
 
     std::ostringstream ss;
     for (size_t i = 0; i < tmp.size(); i++) {
-        if (i) ss << ",";
+        if (i)
+            ss << ",";
         ss << tmp[i].id << ":" << tmp[i].amplifier << ":" << tmp[i].duration;
     }
     return ss.str();
@@ -311,11 +366,8 @@ void NameTags::onUpdate() {
             if (it == lastPotionSig.end() || it->second != sig) {
                 lastPotionSig[key] = sig;
                 std::string full = potion_full_sig(cached.potions);
-                log_debug("[NameTags][Effects] %s uuid=%s entityId=%d potions=%zu sig=%s",
-                          cached.name.c_str(),
-                          cached.uuid.empty() ? "<none>" : cached.uuid.c_str(),
-                          cached.entityId,
-                          cached.potions.size(),
+                log_debug("[NameTags][Effects] %s uuid=%s entityId=%d potions=%zu sig=%s", cached.name.c_str(),
+                          cached.uuid.empty() ? "<none>" : cached.uuid.c_str(), cached.entityId, cached.potions.size(),
                           full.c_str());
             }
         }
@@ -523,7 +575,15 @@ void NameTags::renderPlayerTag(ImDrawList* draw, float screenX, float screenY, c
     if (!draw)
         return;
 
-    float displayScale = settings.scale;
+    // Scale compensates for distance so nametags stay a consistent visual size
+    // Reference distance: at 10 blocks the tag appears at exactly settings.scale
+    float distScale = 1.0f;
+    if (distance > 0.5f) {
+        float refDist = 10.0f;
+        distScale = refDist / distance;
+        distScale = (std::max)(0.4f, (std::min)(3.0f, distScale));
+    }
+    float displayScale = settings.scale * distScale;
     ImGui::SetWindowFontScale(displayScale);
 
     char nameText[256];
@@ -555,13 +615,13 @@ void NameTags::renderPlayerTag(ImDrawList* draw, float screenX, float screenY, c
 
     float posX = screenX - totalWidth / 2.0f;
     float posY = screenY - totalHeight;
-    
+
     // Adjust logic for stacked elements (Armor/Effects above Name)
     // We will build up the stack from bottom to top
     // Base Y is posY (top of nametag text). We subtract directly for elements above.
-    
-    float currentY = posY; // Top of the name tag
-    
+
+    float currentY = posY;  // Top of the name tag
+
     // Background covers NAME only? Or everything?
     // Standard clients cover Name + Health. Armor is usually separate or floating.
     // User said: "Show armor ... arriba del nametag ... opcion show effects ... arriba de la armadura"
@@ -594,103 +654,104 @@ void NameTags::renderPlayerTag(ImDrawList* draw, float screenX, float screenY, c
         draw->AddText(ImVec2(currentX, posY), IM_COL32(200, 200, 200, 255), distText);
         currentX += distSize.x;
     }
-    
+
     // --- Render Armor ---
-    
+
     if (settings.showArmor && !armor.empty()) {
         float armorSize = 16.0f * displayScale;
         float padding = 2.0f * displayScale;
         float totalArmorWidth = armor.size() * armorSize + (armor.size() - 1) * padding;
-        
+
         float armorX = screenX - totalArmorWidth / 2.0f;
-        float armorY = currentY - armorSize - 4.0f * displayScale; // Above name
-        
-        currentY = armorY; // Update top Y for effects
-        
+        float armorY = currentY - armorSize - 4.0f * displayScale;  // Above name
+
+        currentY = armorY;  // Update top Y for effects
+
         for (const auto& item : armor) {
-             if (item.id > 0) {
-                 unsigned int texId = ItemTextureManager::get().getTexture(item.id, item.damage);
-                 if (texId > 0) {
-                      draw->AddImage((ImTextureID)(intptr_t)texId, ImVec2(armorX, armorY), ImVec2(armorX + armorSize, armorY + armorSize));
-                 }
-                 
-                 // Durability Bar
-                 if (item.maxDamage > 0) {
-                      float damagePercent = 1.0f - (float)item.damage / (float)item.maxDamage;
-                      ImU32 barColor = GetDurabilityColor(damagePercent);
-                      
-                      float barHeight = 2.0f * displayScale;
-                      float barY = armorY + armorSize - barHeight;
-                      float barWidth = armorSize * damagePercent;
-                      
-                      // Background bar (black)
-                      draw->AddRectFilled(ImVec2(armorX, barY), ImVec2(armorX + armorSize, barY + barHeight), IM_COL32(0, 0, 0, 255));
-                      // Foreground bar
-                      draw->AddRectFilled(ImVec2(armorX, barY), ImVec2(armorX + barWidth, barY + barHeight), barColor);
-                 }
-             }
-             armorX += armorSize + padding;
+            if (item.id > 0) {
+                unsigned int texId = ItemTextureManager::get().getTexture(item.id, item.damage);
+                if (texId > 0) {
+                    draw->AddImage((ImTextureID)(intptr_t)texId, ImVec2(armorX, armorY),
+                                   ImVec2(armorX + armorSize, armorY + armorSize));
+                }
+
+                // Durability Bar
+                if (item.maxDamage > 0) {
+                    float damagePercent = 1.0f - (float)item.damage / (float)item.maxDamage;
+                    ImU32 barColor = GetDurabilityColor(damagePercent);
+
+                    float barHeight = 2.0f * displayScale;
+                    float barY = armorY + armorSize - barHeight;
+                    float barWidth = armorSize * damagePercent;
+
+                    // Background bar (black)
+                    draw->AddRectFilled(ImVec2(armorX, barY), ImVec2(armorX + armorSize, barY + barHeight),
+                                        IM_COL32(0, 0, 0, 255));
+                    // Foreground bar
+                    draw->AddRectFilled(ImVec2(armorX, barY), ImVec2(armorX + barWidth, barY + barHeight), barColor);
+                }
+            }
+            armorX += armorSize + padding;
         }
     }
-    
-    // --- Render Effects ---
-    
-    if (settings.showEffects && !potions.empty()) {
-         // Render as list of text or icons. User asked for "Show Effects".
-         // Stack them vertically upwards from currentY
-         
-         float effectLineHeight = 10.0f * displayScale; // Small text
-         float effectY = currentY - effectLineHeight;
-         
-         ImGui::SetWindowFontScale(displayScale * 0.7f); // Smaller font for effects
-         
-         for (const auto& pot : potions) {
-             // Filter expired or very short effects (less than 1s)
-             if (pot.duration < 20) 
-                 continue;
 
-             std::string name = getPotionName(pot.id);
-             std::string dur = formatDuration(pot.duration);
-             std::string amp = "";
-             if (pot.amplifier > 0) {
-                 char ampBuf[8];
-                 snprintf(ampBuf, sizeof(ampBuf), " %d", pot.amplifier + 1);
-                 amp = ampBuf;
-             }
-             
-             std::string textFull = name + amp + " (" + dur + ")";
-             ImVec2 textSize = ImGui::CalcTextSize(textFull.c_str());
-             
-             // Draw formatted text: Color(Name + Amp) + Gray(Duration)
-             // We need to calculate size of name+amp separately to offset duration
-             
-             std::string nameAmp = name + amp;
-             std::string durText = " (" + dur + ")";
-             
-             ImVec2 nameSize = ImGui::CalcTextSize(nameAmp.c_str());
-             ImVec2 durSize = ImGui::CalcTextSize(durText.c_str());
-             
-             float fullWidth = nameSize.x + durSize.x;
-             float effectX = screenX - fullWidth / 2.0f;
-             
-             // Draw Name + Amp with Color
-             ImU32 color = GetPotionColor(pot.id);
-             draw->AddText(ImVec2(effectX + 1, effectY + 1), IM_COL32(0, 0, 0, 255), nameAmp.c_str());
-             draw->AddText(ImVec2(effectX, effectY), color, nameAmp.c_str());
-             
-             // Draw Duration in Gray/White
-             draw->AddText(ImVec2(effectX + nameSize.x + 1, effectY + 1), IM_COL32(0, 0, 0, 255), durText.c_str());
-             draw->AddText(ImVec2(effectX + nameSize.x, effectY), IM_COL32(200, 200, 200, 255), durText.c_str());
-             
-             effectY -= effectLineHeight;
-         }
-         
-         ImGui::SetWindowFontScale(displayScale); // Restore scale
+    // --- Render Effects ---
+
+    if (settings.showEffects && !potions.empty()) {
+        // Render as list of text or icons. User asked for "Show Effects".
+        // Stack them vertically upwards from currentY
+
+        float effectLineHeight = 10.0f * displayScale;  // Small text
+        float effectY = currentY - effectLineHeight;
+
+        ImGui::SetWindowFontScale(displayScale * 0.7f);  // Smaller font for effects
+
+        for (const auto& pot : potions) {
+            // Filter expired or very short effects (less than 1s)
+            if (pot.duration < 20)
+                continue;
+
+            std::string name = getPotionName(pot.id);
+            std::string dur = formatDuration(pot.duration);
+            std::string amp = "";
+            if (pot.amplifier > 0) {
+                char ampBuf[8];
+                snprintf(ampBuf, sizeof(ampBuf), " %d", pot.amplifier + 1);
+                amp = ampBuf;
+            }
+
+            std::string textFull = name + amp + " (" + dur + ")";
+            ImVec2 textSize = ImGui::CalcTextSize(textFull.c_str());
+
+            // Draw formatted text: Color(Name + Amp) + Gray(Duration)
+            // We need to calculate size of name+amp separately to offset duration
+
+            std::string nameAmp = name + amp;
+            std::string durText = " (" + dur + ")";
+
+            ImVec2 nameSize = ImGui::CalcTextSize(nameAmp.c_str());
+            ImVec2 durSize = ImGui::CalcTextSize(durText.c_str());
+
+            float fullWidth = nameSize.x + durSize.x;
+            float effectX = screenX - fullWidth / 2.0f;
+
+            // Draw Name + Amp with Color
+            ImU32 color = GetPotionColor(pot.id);
+            draw->AddText(ImVec2(effectX + 1, effectY + 1), IM_COL32(0, 0, 0, 255), nameAmp.c_str());
+            draw->AddText(ImVec2(effectX, effectY), color, nameAmp.c_str());
+
+            // Draw Duration in Gray/White
+            draw->AddText(ImVec2(effectX + nameSize.x + 1, effectY + 1), IM_COL32(0, 0, 0, 255), durText.c_str());
+            draw->AddText(ImVec2(effectX + nameSize.x, effectY), IM_COL32(200, 200, 200, 255), durText.c_str());
+
+            effectY -= effectLineHeight;
+        }
+
+        ImGui::SetWindowFontScale(displayScale);  // Restore scale
     }
-    
+
     // END OF RENDER
     return;
-    
 }
 
 void NameTags::onRenderMenu() {
@@ -708,10 +769,6 @@ void NameTags::onRenderMenu() {
             ui::Checkbox("Show Distance", &settings.showDistance);
             ui::Checkbox("Show Armor", &settings.showArmor);
             ui::Checkbox("Show Effects", &settings.showEffects);
-            if (ui::Checkbox("Debug Effects", &settings.debugEffects)) {
-                // Allow debugging packet-level effect tracking even if the module itself isn't enabled yet.
-                ApolloPacketObserver::SetDebugEntityEffects(settings.debugEffects);
-            }
         });
 }
 

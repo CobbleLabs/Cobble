@@ -24,7 +24,7 @@
 #define font(n) ImGui::GetIO().Fonts->Fonts[n]
 
 // ==================== COLOR SCHEME ====================
-extern float g_SchemeColor[4];
+extern float (&g_SchemeColor)[4];
 
 inline ImU32 GetSchemeColor(float alpha = 1.0f);
 
@@ -97,7 +97,7 @@ bool SliderInt(const char* label, int* v, int v_min, int v_max, const char* form
 // Keybind capture
 bool Binder(const char* label, int* key);
 const char* GetKeyName(int vk);
-bool IsBinderActive();  // Returns true if any keybind widget is currently capturing input
+bool IsBinderActive();    // Returns true if any keybind widget is currently capturing input
 void ResetBinderState();  // Call at start of each frame
 
 // Color picker

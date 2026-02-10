@@ -98,6 +98,7 @@
     <ClCompile Include="src\module\movement\blink.cpp" />
     <ClCompile Include="src\sdk\core\minecraft.cpp" />
     <ClCompile Include="src\sdk\player\player.cpp" />
+    <ClCompile Include="src\sdk\player\effect_tracker.cpp" />
     <ClCompile Include="src\sdk\network\network_probe.cpp" />
     <ClCompile Include="src\sdk\network\lunar_sender.cpp" />
     <ClCompile Include="src\sdk\network\lunar_packet_listener.cpp" />
@@ -178,6 +179,7 @@
     <ClInclude Include="src\sdk\jni\jstring_util.h" />
     <ClInclude Include="src\sdk\core\minecraft.h" />
     <ClInclude Include="src\sdk\player\player.h" />
+    <ClInclude Include="src\sdk\player\effect_tracker.h" />
     <ClInclude Include="src\sdk\player\render_data.h" />
     <ClInclude Include="src\sdk\network\network_probe.hpp" />
     <ClInclude Include="src\sdk\network\lunar_packet_listener.hpp" />
