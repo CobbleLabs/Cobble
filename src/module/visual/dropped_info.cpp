@@ -126,10 +126,15 @@ void DroppedInfo::onRender() {
 }
 
 void DroppedInfo::onRenderMenu() {
+    bool enabledValue = enabled;
     ui::two_column(
         "Settings",
-        [this]() {
-            ui::CheckboxBind("Enabled", &enabled, &keybind);
+        [this, &enabledValue]() {
+            if (ui::CheckboxBind("Enabled", &enabledValue, &keybind)) {
+                if (enabledValue != enabled) {
+                    setEnabled(enabledValue);
+                }
+            }
             ImGui::Spacing();
             ui::SliderFloat("Scale", &settings.scale, 0.5f, 3.0f, "%.1f");
             ui::SliderFloat("X", &settings.x, 0.0f, 1000.0f, "%.0f");

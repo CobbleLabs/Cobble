@@ -46,6 +46,9 @@ static bool isHoldingWeapon() {
 void TimerMod::onUpdate() {
     // Always reset to normal first if disabled
     if (!enabled) {
+        // UI toggles `enabled` directly (does not call onDisable), so we must
+        // ensure timer speed is restored even when the module is simply "off".
+        mc.setTimerSpeed(1.0f);
         return;
     }
 
@@ -85,10 +88,15 @@ void TimerMod::onUpdate() {
 }
 
 void TimerMod::onRenderMenu() {
+    bool enabledValue = enabled;
     ui::two_column(
         "General",
-        [this]() {
-            ui::CheckboxBind("Enabled", &enabled, &keybind);
+        [this, &enabledValue]() {
+            if (ui::CheckboxBind("Enabled", &enabledValue, &keybind)) {
+                if (enabledValue != enabled) {
+                    setEnabled(enabledValue);
+                }
+            }
             ImGui::Spacing();
 
             // Store old value to detect slider drag vs manual input

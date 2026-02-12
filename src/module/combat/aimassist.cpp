@@ -1338,10 +1338,15 @@ void AimAssist::onRenderMenu() {
     int currentMode = static_cast<int>(settings.targetMode);
     int currentSortBy = static_cast<int>(settings.switchSortBy);
 
+    bool enabledValue = enabled;
     ui::two_column(
         "Settings",
-        [this, &currentMode, &currentSortBy]() {
-            ui::CheckboxBind("Enabled", &enabled, &keybind);
+        [this, &currentMode, &currentSortBy, &enabledValue]() {
+            if (ui::CheckboxBind("Enabled", &enabledValue, &keybind)) {
+                if (enabledValue != enabled) {
+                    setEnabled(enabledValue);
+                }
+            }
             ImGui::Spacing();
             ui::SliderFloat("Speed", &settings.speed, 1.0f, 120.0f, "%.0f", true);
             ui::SliderInt("FOV", &settings.fov, 10, 360, "%d");

@@ -278,11 +278,16 @@ void ItemESP::onRender() {
 void ItemESP::onRenderMenu() {
     bool prevBox2D = settings.box;
     bool prevBox3D = settings.box3D;
+    bool enabledValue = enabled;
 
     ui::two_column(
         "Settings",
-        [this]() {
-            ui::CheckboxBind("Enabled", &enabled, &keybind);
+        [this, &enabledValue]() {
+            if (ui::CheckboxBind("Enabled", &enabledValue, &keybind)) {
+                if (enabledValue != enabled) {
+                    setEnabled(enabledValue);
+                }
+            }
             ImGui::Spacing();
             ui::Checkbox("Box 2D", &settings.box);
             ui::Checkbox("Box 3D", &settings.box3D);

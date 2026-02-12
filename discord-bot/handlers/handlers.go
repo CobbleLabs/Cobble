@@ -48,5 +48,7 @@ func handleCommand(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		commands.ShowStats(s, i)
 	case "nuke":
 		commands.NukeChannel(s, i)
+	case "checkwallet":
+		commands.CheckWalletCommand(s, i)
 	}
 }

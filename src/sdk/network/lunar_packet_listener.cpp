@@ -180,13 +180,14 @@ static bool cacheClasses(JNIEnv* env) {
                 jint methodCount = 0;
                 jmethodID* methods = nullptr;
                 if (Java::tiEnv->GetClassMethods(localClass, &methodCount, &methods) == JVMTI_ERROR_NONE) {
-                    log_debug("[LunarPacketListener] Handler has %d methods:", methodCount);
+                    // log_debug("[LunarPacketListener] [PacketInterceptor] NetworkManager method:Handler has %d
+                    // methods:", methodCount);
                     for (int j = 0; j < methodCount && j < 20; j++) {
                         char* name = nullptr;
                         char* sig = nullptr;
                         Java::tiEnv->GetMethodName(methods[j], &name, &sig, nullptr);
                         if (name && sig) {
-                            log_debug("  Method: %s %s", name, sig);
+                            // log_debug("  Method: %s %s", name, sig);
                         }
                         if (name)
                             Java::tiEnv->Deallocate((unsigned char*)name);

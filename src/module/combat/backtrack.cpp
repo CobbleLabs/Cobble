@@ -541,10 +541,15 @@ void Backtrack::onRender() {
 }
 
 void Backtrack::onRenderMenu() {
+    bool enabledValue = enabled;
     ui::two_column(
         "Settings",
-        [this]() {
-            ui::CheckboxBind("Enabled", &enabled, &keybind);
+        [this, &enabledValue]() {
+            if (ui::CheckboxBind("Enabled", &enabledValue, &keybind)) {
+                if (enabledValue != enabled) {
+                    setEnabled(enabledValue);
+                }
+            }
             ImGui::Spacing();
 
             // Mode selector

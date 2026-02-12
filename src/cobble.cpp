@@ -3,7 +3,6 @@
 #include "module/combat/aimassist.h"
 #include "module/combat/autoclicker.h"
 #include "module/combat/backtrack.h"
-#include "module/combat/hitbox.h"
 #include "module/combat/hitselect.h"
 #include "module/combat/nohitdelay.h"
 #include "module/combat/criticals.h"
@@ -146,7 +145,6 @@ void cobble::context::initialize(HMODULE hModule) {
 
     backtrack = new Backtrack();
     hitSelect = new HitSelect();
-    hitbox = new Hitbox();
     noHitDelay = new NoHitDelay();
     criticals = new Criticals();
     noJumpDelay = new NoJumpDelay();
@@ -178,7 +176,6 @@ void cobble::context::initialize(HMODULE hModule) {
 
     moduleManager->registerModule(backtrack);
     moduleManager->registerModule(hitSelect);
-    moduleManager->registerModule(hitbox);
     moduleManager->registerModule(noHitDelay);
     moduleManager->registerModule(criticals);
     moduleManager->registerModule(noJumpDelay);
@@ -382,8 +379,6 @@ void cobble::context::shutdown() {
         backtrack->setEnabled(false);
     if (hitSelect)
         hitSelect->setEnabled(false);
-    if (hitbox)
-        hitbox->setEnabled(false);
     if (noHitDelay)
         noHitDelay->setEnabled(false);
     if (criticals)
@@ -459,10 +454,6 @@ void cobble::context::shutdown() {
     if (hitSelect) {
         delete hitSelect;
         hitSelect = nullptr;
-    }
-    if (hitbox) {
-        delete hitbox;
-        hitbox = nullptr;
     }
     if (noHitDelay) {
         delete noHitDelay;

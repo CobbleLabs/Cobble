@@ -25,7 +25,7 @@ func SetupPanel(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseChannelMessageWithSource,
 			Data: &discordgo.InteractionResponseData{
-				Content: "❌ Only admins can use this command.",
+				Content: "Only admins can use this command.",
 				Flags:   discordgo.MessageFlagsEphemeral,
 			},
 		})
@@ -51,7 +51,7 @@ func SetupPanel(s *discordgo.Session, i *discordgo.InteractionCreate) {
 func CloseTicket(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	// This is now handled by the button, but keep for slash command compatibility
 	cfg := config.Get()
-	
+
 	hasRole := false
 	for _, role := range i.Member.Roles {
 		if role == cfg.StaffRoleID || role == cfg.AdminRoleID {
@@ -120,7 +120,7 @@ func CloseTicket(s *discordgo.Session, i *discordgo.InteractionCreate) {
 
 func ClaimTicket(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	cfg := config.Get()
-	
+
 	hasRole := false
 	for _, role := range i.Member.Roles {
 		if role == cfg.StaffRoleID || role == cfg.AdminRoleID {
@@ -189,7 +189,7 @@ func ClaimTicket(s *discordgo.Session, i *discordgo.InteractionCreate) {
 
 func TransferTicket(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	cfg := config.Get()
-	
+
 	hasRole := false
 	for _, role := range i.Member.Roles {
 		if role == cfg.StaffRoleID || role == cfg.AdminRoleID {
@@ -249,7 +249,7 @@ func TransferTicket(s *discordgo.Session, i *discordgo.InteractionCreate) {
 
 func ShowStats(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	cfg := config.Get()
-	
+
 	hasRole := false
 	for _, role := range i.Member.Roles {
 		if role == cfg.StaffRoleID || role == cfg.AdminRoleID {
@@ -277,7 +277,7 @@ func ShowStats(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	database.DB.QueryRow("SELECT COUNT(*) FROM tickets WHERE status = 'open'").Scan(&open)
 	database.DB.QueryRow("SELECT COUNT(*) FROM tickets WHERE status = 'claimed'").Scan(&claimed)
 	database.DB.QueryRow("SELECT COUNT(*) FROM tickets WHERE status = 'closed'").Scan(&closed)
-	
+
 	database.DB.QueryRow("SELECT COUNT(*) FROM tickets WHERE category = 'bug'").Scan(&bugCount)
 	database.DB.QueryRow("SELECT COUNT(*) FROM tickets WHERE category = 'support'").Scan(&supportCount)
 	database.DB.QueryRow("SELECT COUNT(*) FROM tickets WHERE category = 'media'").Scan(&mediaCount)
@@ -322,7 +322,7 @@ func NukeChannel(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseChannelMessageWithSource,
 			Data: &discordgo.InteractionResponseData{
-				Content: "❌ Only admins can use this command.",
+				Content: "Only admins can use this command.",
 				Flags:   discordgo.MessageFlagsEphemeral,
 			},
 		})

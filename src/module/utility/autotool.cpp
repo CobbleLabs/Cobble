@@ -333,8 +333,17 @@ void AutoTool::onUpdate() {
 // =============================================================================
 
 void AutoTool::onRenderMenu() {
+    bool enabledValue = enabled;
     ui::two_column(
-        "General", [this]() { ui::CheckboxBind("Enabled", &enabled, &keybind); }, "Options",
+        "General",
+        [this, &enabledValue]() {
+            if (ui::CheckboxBind("Enabled", &enabledValue, &keybind)) {
+                if (enabledValue != enabled) {
+                    setEnabled(enabledValue);
+                }
+            }
+        },
+        "Options",
         [this]() {
             ui::Checkbox("Auto Sword (Attack)", &settings.autoSword);
             ui::Checkbox("Switch Back", &settings.switchBack);

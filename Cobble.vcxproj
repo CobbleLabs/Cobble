@@ -118,7 +118,6 @@
 
     <ClCompile Include="src\module\combat\backtrack.cpp" />
     <ClCompile Include="src\module\combat\hitselect.cpp" />
-    <ClCompile Include="src\module\combat\hitbox.cpp" />
     <ClCompile Include="src\module\combat\nohitdelay.cpp" />
     <ClCompile Include="src\module\combat\criticals.cpp" />
     <ClCompile Include="src\hooks\winsock_hooks.cpp" />
@@ -195,7 +194,6 @@
 
     <ClInclude Include="src\module\combat\backtrack.h" />
     <ClInclude Include="src\module\combat\hitselect.h" />
-    <ClInclude Include="src\module\combat\hitbox.h" />
     <ClInclude Include="src\module\combat\nohitdelay.h" />
     <ClInclude Include="src\module\combat\criticals.h" />
     <ClInclude Include="src\hooks\winsock_hooks.h" />

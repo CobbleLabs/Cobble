@@ -2,7 +2,6 @@
 #include "../module/combat/aimassist.h"
 #include "../module/combat/autoclicker.h"
 #include "../module/combat/backtrack.h"
-#include "../module/combat/hitbox.h"
 #include "../module/combat/hitselect.h"
 #include "../module/combat/nohitdelay.h"
 #include "../module/combat/criticals.h"
@@ -511,17 +510,6 @@ void ConfigManager::applyConfig() {
                 s.waitForFirstHit = data["waitForFirstHit"].as_bool(s.waitForFirstHit);
                 s.waitDuration = data["waitDuration"].as_int(s.waitDuration);
                 s.weaponOnly = data["weaponOnly"].as_bool(s.weaponOnly);
-            } else if (name == "Hitbox" && hitbox) {
-                auto& s = hitbox->settings;
-                s.expansion = data["expansion"].as_float(s.expansion);
-                s.showHitbox = data["showHitbox"].as_bool(s.showHitbox);
-                s.filled = data["filled"].as_bool(s.filled);
-                if (data.has("hitboxColor")) {
-                    s.hitboxColor[0] = data["hitboxColor"]["r"].as_float(s.hitboxColor[0]);
-                    s.hitboxColor[1] = data["hitboxColor"]["g"].as_float(s.hitboxColor[1]);
-                    s.hitboxColor[2] = data["hitboxColor"]["b"].as_float(s.hitboxColor[2]);
-                    s.hitboxColor[3] = data["hitboxColor"]["a"].as_float(s.hitboxColor[3]);
-                }
             } else if (name == "ArmorSwitch" && armorSwitch) {
                 auto& s = armorSwitch->settings;
                 s.set1Material = data["set1Material"].as_int(s.set1Material);
@@ -873,15 +861,6 @@ void ConfigManager::buildConfigFromModules() {
             config_["modules"][name]["waitForFirstHit"] = s.waitForFirstHit;
             config_["modules"][name]["waitDuration"] = s.waitDuration;
             config_["modules"][name]["weaponOnly"] = s.weaponOnly;
-        } else if (name == "Hitbox" && hitbox) {
-            const auto& s = hitbox->settings;
-            config_["modules"][name]["expansion"] = s.expansion;
-            config_["modules"][name]["showHitbox"] = s.showHitbox;
-            config_["modules"][name]["filled"] = s.filled;
-            config_["modules"][name]["hitboxColor"]["r"] = s.hitboxColor[0];
-            config_["modules"][name]["hitboxColor"]["g"] = s.hitboxColor[1];
-            config_["modules"][name]["hitboxColor"]["b"] = s.hitboxColor[2];
-            config_["modules"][name]["hitboxColor"]["a"] = s.hitboxColor[3];
         } else if (name == "ArmorSwitch" && armorSwitch) {
             const auto& s = armorSwitch->settings;
             config_["modules"][name]["set1Material"] = s.set1Material;

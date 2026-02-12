@@ -56,8 +56,13 @@ void NoHitDelay::onUpdate() {
 }
 
 void NoHitDelay::onRenderMenu() {
-    ui::section("Settings", [this]() {
-        ui::CheckboxBind("Enabled", &enabled, &keybind);
+    bool enabledValue = enabled;
+    ui::section("Settings", [this, &enabledValue]() {
+        if (ui::CheckboxBind("Enabled", &enabledValue, &keybind)) {
+            if (enabledValue != enabled) {
+                setEnabled(enabledValue);
+            }
+        }
         ImGui::Spacing();
         ui::Checkbox("Weapon Only", &settings.weaponOnly);
     });

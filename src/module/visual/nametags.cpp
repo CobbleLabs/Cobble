@@ -747,10 +747,15 @@ void NameTags::renderPlayerTag(ImDrawList* draw, float screenX, float screenY, c
 }
 
 void NameTags::onRenderMenu() {
+    bool enabledValue = enabled;
     ui::two_column(
         "Settings",
-        [this]() {
-            ui::CheckboxBind("Enabled", &enabled, &keybind);
+        [this, &enabledValue]() {
+            if (ui::CheckboxBind("Enabled", &enabledValue, &keybind)) {
+                if (enabledValue != enabled) {
+                    setEnabled(enabledValue);
+                }
+            }
             ImGui::Spacing();
             ui::SliderFloat("Scale", &settings.scale, 0.5f, 2.0f, "%.1f");
             ui::Checkbox("Background", &settings.background);

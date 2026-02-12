@@ -4,7 +4,6 @@
 #include "../../module/combat/aimassist.h"
 #include "../../module/combat/autoclicker.h"
 #include "../../module/combat/backtrack.h"
-#include "../../module/combat/hitbox.h"
 #include "../../module/combat/hitselect.h"
 #include "../../module/combat/nohitdelay.h"
 #include "../../module/combat/criticals.h"
@@ -51,7 +50,7 @@ static bool g_configsNeedsRefresh = false;
 // Module lookup by tab and subtab index
 // Returns the module that corresponds to the current subtab
 Module* getModuleForSubtab(int tabIdx, int subtabIdx) {
-    // Combat Tab (0): AutoClicker, AimAssist, Velocity, Reach, HitSelect, Hitbox, NoHitDelay, Criticals, Backtrack
+    // Combat Tab (0): AutoClicker, AimAssist, Velocity, Reach, HitSelect, NoHitDelay, Criticals, Backtrack
     if (tabIdx == 0) {
         switch (subtabIdx) {
             case 0:
@@ -65,12 +64,10 @@ Module* getModuleForSubtab(int tabIdx, int subtabIdx) {
             case 4:
                 return hitSelect;
             case 5:
-                return hitbox;
-            case 6:
                 return noHitDelay;
-            case 7:
+            case 6:
                 return criticals;
-            case 8:
+            case 7:
                 return backtrack;
         }
     }

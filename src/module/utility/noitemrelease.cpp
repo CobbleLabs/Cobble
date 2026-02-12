@@ -187,10 +187,15 @@ void NoItemRelease::onUpdate() {
 }
 
 void NoItemRelease::onRenderMenu() {
+    bool enabledValue = enabled;
     ui::two_column(
         "General",
-        [this]() {
-            ui::CheckboxBind("Enabled", &enabled, &keybind);
+        [this, &enabledValue]() {
+            if (ui::CheckboxBind("Enabled", &enabledValue, &keybind)) {
+                if (enabledValue != enabled) {
+                    setEnabled(enabledValue);
+                }
+            }
 
             const char* modeNames[] = {"Consumable", "Sword", "All"};
             int currentMode = (int)settings.mode;

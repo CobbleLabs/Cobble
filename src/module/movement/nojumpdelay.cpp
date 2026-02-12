@@ -36,7 +36,16 @@ void NoJumpDelay::onUpdate() {
 }
 
 void NoJumpDelay::onRenderMenu() {
+    bool enabledValue = enabled;
     ui::two_column(
-        "General", [this]() { ui::CheckboxBind("Enabled", &enabled, &keybind); }, "Info",
+        "General",
+        [this, &enabledValue]() {
+            if (ui::CheckboxBind("Enabled", &enabledValue, &keybind)) {
+                if (enabledValue != enabled) {
+                    setEnabled(enabledValue);
+                }
+            }
+        },
+        "Info",
         [this]() { ImGui::TextWrapped("Removes jump delay."); });
 }

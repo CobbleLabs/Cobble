@@ -600,10 +600,15 @@ void Trajectories::onRender() {
 }
 
 void Trajectories::onRenderMenu() {
+    bool enabledValue = enabled;
     ui::two_column(
         "General",
-        [this]() {
-            ui::CheckboxBind("Enabled", &enabled, &keybind);
+        [this, &enabledValue]() {
+            if (ui::CheckboxBind("Enabled", &enabledValue, &keybind)) {
+                if (enabledValue != enabled) {
+                    setEnabled(enabledValue);
+                }
+            }
             ui::SliderFloat("Line Thickness", &settings.thickness, 1.0f, 5.0f, "%.1f");
 
             ImGui::Spacing();

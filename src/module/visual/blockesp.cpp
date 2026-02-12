@@ -369,10 +369,15 @@ void BlockESP::onRender() {
 }
 
 void BlockESP::onRenderMenu() {
+    bool enabledValue = enabled;
     ui::two_column(
         "Block Types",
-        [this]() {
-            ui::CheckboxBind("Enabled", &enabled, &keybind);
+        [this, &enabledValue]() {
+            if (ui::CheckboxBind("Enabled", &enabledValue, &keybind)) {
+                if (enabledValue != enabled) {
+                    setEnabled(enabledValue);
+                }
+            }
             ImGui::Spacing();
 
             ui::Checkbox("Diamond Ore", &settings.drawDiamond);

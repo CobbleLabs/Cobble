@@ -156,10 +156,15 @@ int HitSelect::getHeldItemId() {
 }
 
 void HitSelect::onRenderMenu() {
+    bool enabledValue = enabled;
     ui::two_column(
         "Combo",
-        [this]() {
-            ui::CheckboxBind("Enabled", &enabled, &keybind);
+        [this, &enabledValue]() {
+            if (ui::CheckboxBind("Enabled", &enabledValue, &keybind)) {
+                if (enabledValue != enabled) {
+                    setEnabled(enabledValue);
+                }
+            }
 
             ImGui::Spacing();
 

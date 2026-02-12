@@ -219,10 +219,15 @@ void Reach::onUpdate() {
 }
 
 void Reach::onRenderMenu() {
+    bool enabledValue = enabled;
     ui::two_column(
         "General",
-        [this]() {
-            ui::CheckboxBind("Enabled", &enabled, &keybind);
+        [this, &enabledValue]() {
+            if (ui::CheckboxBind("Enabled", &enabledValue, &keybind)) {
+                if (enabledValue != enabled) {
+                    setEnabled(enabledValue);
+                }
+            }
             ImGui::Spacing();
             
             ui::SliderFloat("Distance", &settings.distance, 3.0f, 6.0f, "%.2f");

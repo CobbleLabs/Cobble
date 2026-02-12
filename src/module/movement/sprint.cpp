@@ -49,7 +49,16 @@ void Sprint::onUpdate() {
 }
 
 void Sprint::onRenderMenu() {
+    bool enabledValue = enabled;
     ui::two_column(
-        "General", [this]() { ui::CheckboxBind("Enabled", &enabled, &keybind); }, "Info",
+        "General",
+        [this, &enabledValue]() {
+            if (ui::CheckboxBind("Enabled", &enabledValue, &keybind)) {
+                if (enabledValue != enabled) {
+                    setEnabled(enabledValue);
+                }
+            }
+        },
+        "Info",
         [this]() { ImGui::TextWrapped("Maintains continuous sprint during movement."); });
 }

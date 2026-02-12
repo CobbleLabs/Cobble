@@ -9,11 +9,11 @@ import (
 var commandList = []*discordgo.ApplicationCommand{
 	{
 		Name:        "setup",
-		Description: "Setup ticket panel (Admin only)",
+		Description: "Setup ticket panel",
 	},
 	{
 		Name:        "close",
-		Description: "Close current ticket (Staff only)",
+		Description: "Close current ticket",
 		Options: []*discordgo.ApplicationCommandOption{
 			{
 				Type:        discordgo.ApplicationCommandOptionString,
@@ -25,11 +25,11 @@ var commandList = []*discordgo.ApplicationCommand{
 	},
 	{
 		Name:        "claim",
-		Description: "Claim current ticket (Staff only)",
+		Description: "Claim current ticket",
 	},
 	{
 		Name:        "transfer",
-		Description: "Transfer ticket to another staff member (Staff only)",
+		Description: "Transfer ticket to another staff member",
 		Options: []*discordgo.ApplicationCommandOption{
 			{
 				Type:        discordgo.ApplicationCommandOptionUser,
@@ -41,11 +41,31 @@ var commandList = []*discordgo.ApplicationCommand{
 	},
 	{
 		Name:        "stats",
-		Description: "Show ticket statistics (Staff only)",
+		Description: "Show ticket statistics",
 	},
 	{
 		Name:        "nuke",
-		Description: "Nuke channel - recreates the channel (Admin only)",
+		Description: "Nuke channel - recreates the channel",
+	},
+	{
+		Name:        "checkwallet",
+		Description: "Check recent Litecoin transactions for a wallet",
+		Options: []*discordgo.ApplicationCommandOption{
+			{
+				Type:        discordgo.ApplicationCommandOptionString,
+				Name:        "wallet",
+				Description: "Litecoin wallet address (ltc1..., L..., M..., 3...)",
+				Required:    true,
+			},
+			{
+				Type:        discordgo.ApplicationCommandOptionInteger,
+				Name:        "hours",
+				Description: "Look back window in hours (default: 1, max: 168)",
+				Required:    false,
+				MinValue:    floatPtr(1),
+				MaxValue:    168,
+			},
+		},
 	},
 }
 
@@ -67,4 +87,8 @@ func Register(s *discordgo.Session, guildID string) {
 	}
 
 	log.Printf("Registered %d commands successfully", len(commandList))
+}
+
+func floatPtr(v float64) *float64 {
+	return &v
 }

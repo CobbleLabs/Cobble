@@ -334,10 +334,15 @@ float Velocity::getAttackerAngle() {
 }
 
 void Velocity::onRenderMenu() {
+    bool enabledValue = enabled;
     ui::two_column(
         "General",
-        [this]() {
-            ui::CheckboxBind("Enabled", &enabled, &keybind);
+        [this, &enabledValue]() {
+            if (ui::CheckboxBind("Enabled", &enabledValue, &keybind)) {
+                if (enabledValue != enabled) {
+                    setEnabled(enabledValue);
+                }
+            }
             ImGui::Spacing();
 
             // Mode selector

@@ -238,17 +238,6 @@ void AutoClicker::onUpdate() {
         }
         stableClickCount++;
         stableLastClick = now;
-
-        // Debug: log actual CPS every 5 seconds
-        double elapsedMs = std::chrono::duration<double, std::milli>(now - stableTimelineStart).count();
-        if (elapsedMs >= 5000.0) {
-            double actualCps = static_cast<double>(stableClickCount) * 1000.0 / elapsedMs;
-            log_debug("[AutoClicker] Stable: %.2f CPS (target: %.0f)", actualCps, targetCps);
-            // Reset timeline to prevent overflow on long sessions
-            stableTimelineStart = now;
-            stableClickCount = 0;
-        }
-
         return;
     }
 
@@ -472,7 +461,6 @@ bool AutoClicker::isTargetingPlayer() {
     return found;
 }
 
-
 int AutoClicker::getHeldItemId() {
     return player.getHeldItemId();
 }
@@ -580,10 +568,15 @@ void AutoClicker::updateJitterMode() {
 }
 
 void AutoClicker::onRenderMenu() {
+    bool enabledValue = enabled;
     ui::two_column(
         "General",
-        [this]() {
-            ui::CheckboxBind("Enabled", &enabled, &keybind);
+        [this, &enabledValue]() {
+            if (ui::CheckboxBind("Enabled", &enabledValue, &keybind)) {
+                if (enabledValue != enabled) {
+                    setEnabled(enabledValue);
+                }
+            }
             ImGui::Spacing();
 
             if (settings.stableCPS) {

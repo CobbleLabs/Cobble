@@ -118,8 +118,17 @@ void BridgeAssist::onUpdate() {
 }
 
 void BridgeAssist::onRenderMenu() {
+    bool enabledValue = enabled;
     ui::two_column(
-        "General", [this]() { ui::CheckboxBind("Enabled", &enabled, &keybind); }, "Mode",
+        "General",
+        [this, &enabledValue]() {
+            if (ui::CheckboxBind("Enabled", &enabledValue, &keybind)) {
+                if (enabledValue != enabled) {
+                    setEnabled(enabledValue);
+                }
+            }
+        },
+        "Mode",
         [this]() {
             ui::Checkbox("Only When Sneaking", &settings.onlyWhenSneaking);
             ui::Checkbox("Only When Looking Down", &settings.onlyLookingDown);
