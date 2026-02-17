@@ -1,3 +1,4 @@
+#define IMGUI_DEFINE_MATH_OPERATORS
 #include "tracers.h"
 #include <algorithm>
 #include <cmath>

@@ -70,7 +70,9 @@ inline int SeverityScore(Severity s) {
 inline std::string getTimestamp() {
     time_t now = time(nullptr);
     char buf[64];
-    strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M:%S", localtime(&now));
+    struct tm timeinfo;
+    localtime_s(&timeinfo, &now);
+    strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M:%S", &timeinfo);
     return std::string(buf);
 }
 

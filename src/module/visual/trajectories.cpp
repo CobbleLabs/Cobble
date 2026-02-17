@@ -1,3 +1,4 @@
+#define IMGUI_DEFINE_MATH_OPERATORS
 #include "trajectories.h"
 #include <Windows.h>
 #include <algorithm>

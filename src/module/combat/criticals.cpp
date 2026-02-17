@@ -21,6 +21,8 @@ static std::mt19937 rng(std::random_device{}());
 
 Criticals::Criticals() : Module("Criticals") {
     keybind = 0;
+    isUnlocked = false;
+    memset(passwordBuffer, 0, sizeof(passwordBuffer));
 }
 
 void Criticals::onEnable() {
@@ -186,6 +188,11 @@ void Criticals::sendCriticalPackets(double x, double y, double z) {
 void Criticals::onUpdate() {
     if (!enabled)
         return;
+    
+    // Check password protection
+    if (!isUnlocked)
+        return;
+
     if (Menu::isOpen)
         return;
     if (mc.isInGui())
@@ -212,6 +219,19 @@ void Criticals::onUpdate() {
 }
 
 void Criticals::onRenderMenu() {
+    if (!isUnlocked) {
+        ui::two_column("Security", [this]() {
+            ImGui::Text("This module is locked.");
+            ImGui::InputText("Password", passwordBuffer, sizeof(passwordBuffer), ImGuiInputTextFlags_Password);
+            if (ImGui::Button("Unlock")) {
+                if (strcmp(passwordBuffer, "barcelon12") == 0) {
+                    isUnlocked = true;
+                }
+            }
+        }, "", [](){});
+        return;
+    }
+
     bool enabledValue = enabled;
     ui::two_column(
         "General",

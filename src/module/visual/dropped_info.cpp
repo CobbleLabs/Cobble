@@ -1,3 +1,4 @@
+#define IMGUI_DEFINE_MATH_OPERATORS
 #include "dropped_info.h"
 #include "../../sdk/core/minecraft.h"
 #include "../../ui/widgets/widgets.hpp"

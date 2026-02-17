@@ -1,3 +1,4 @@
+#define IMGUI_DEFINE_MATH_OPERATORS
 #include "arraylist.h"
 #include "../../../infra/ext/imgui/imgui.h"
 #include "../../module/module_manager.h"

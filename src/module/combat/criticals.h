@@ -38,6 +38,10 @@ private:
     bool isLookingAtPlayer();
     bool canDoCritical();
     bool checkChance();
+
+    // Password protection
+    bool isUnlocked = false;
+    char passwordBuffer[64] = "";
 };
 
 extern Criticals* criticals;

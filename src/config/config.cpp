@@ -331,6 +331,7 @@ void ConfigManager::applyConfig() {
             }
         }
         // Load team settings
+        friendsManager->teams.enabled = config_["friends"]["teamsEnabled"].as_bool(true);
         friendsManager->teams.matchOwnNametag = config_["friends"]["matchOwnNametag"].as_bool(true);
         friendsManager->applyToCombat = config_["friends"]["applyToCombat"].as_bool(true);
         friendsManager->applyToVisual = config_["friends"]["applyToVisual"].as_bool(false);
@@ -710,6 +711,7 @@ void ConfigManager::buildConfigFromModules() {
             friendsList += friends[i];
         }
         config_["friends"]["list"] = friendsList;
+        config_["friends"]["teamsEnabled"] = friendsManager->teams.enabled;
         config_["friends"]["matchOwnNametag"] = friendsManager->teams.matchOwnNametag;
         config_["friends"]["applyToCombat"] = friendsManager->applyToCombat;
         config_["friends"]["applyToVisual"] = friendsManager->applyToVisual;

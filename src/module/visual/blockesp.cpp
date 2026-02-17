@@ -1,3 +1,4 @@
+#define IMGUI_DEFINE_MATH_OPERATORS
 #include "blockesp.h"
 #include <Windows.h>
 #include <cmath>

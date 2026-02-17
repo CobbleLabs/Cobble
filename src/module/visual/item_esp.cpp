@@ -1,3 +1,4 @@
+#define IMGUI_DEFINE_MATH_OPERATORS
 #include "item_esp.h"
 #include <algorithm>
 #include <cfloat>

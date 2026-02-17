@@ -1,3 +1,4 @@
+#define IMGUI_DEFINE_MATH_OPERATORS
 #include "notifications.h"
 #include "../../../infra/ext/imgui/imgui.h"
 #include "../../sdk/player/render_data.h"
