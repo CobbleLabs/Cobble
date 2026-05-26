@@ -351,18 +351,40 @@ if ($PrepareRelease) {
 package main
 import (
     "crypto/ed25519"
+    "fmt"
     "os"
 )
 func main() {
-    key, _ := os.ReadFile("$($privateKeyPath -replace '\\', '/')")
-    manifest, _ := os.ReadFile("$($releaseDir -replace '\\', '/')/manifest.json")
-    sig := ed25519.Sign(ed25519.PrivateKey(key), manifest)
-    os.WriteFile("$($releaseDir -replace '\\', '/')/manifest.sig", sig, 0644)
+    key, err := os.ReadFile("$($privateKeyPath -replace '\\', '/')")
+    if err != nil {
+        fmt.Fprintln(os.Stderr, "read key:", err)
+        os.Exit(1)
+    }
+    manifest, err := os.ReadFile("$($releaseDir -replace '\\', '/')/manifest.json")
+    if err != nil {
+        fmt.Fprintln(os.Stderr, "read manifest:", err)
+        os.Exit(1)
+    }
+    var priv ed25519.PrivateKey
+    switch len(key) {
+    case ed25519.PrivateKeySize: // 64
+        priv = ed25519.PrivateKey(key)
+    case ed25519.SeedSize: // 32
+        priv = ed25519.NewKeyFromSeed(key)
+    default:
+        fmt.Fprintf(os.Stderr, "unexpected key length: %d (want 32 seed or 64 priv)\n", len(key))
+        os.Exit(1)
+    }
+    sig := ed25519.Sign(priv, manifest)
+    if err := os.WriteFile("$($releaseDir -replace '\\', '/')/manifest.sig", sig, 0644); err != nil {
+        fmt.Fprintln(os.Stderr, "write sig:", err)
+        os.Exit(1)
+    }
 }
 "@
     $goSign | Set-Content "$RepoRoot\temp_sign.go"
     Push-Location $RepoRoot
-    go run temp_sign.go 2>$null
+    go run temp_sign.go
     $signResult = $LASTEXITCODE
     Pop-Location
     Remove-Item "$RepoRoot\temp_sign.go" -ErrorAction SilentlyContinue
@@ -397,14 +419,38 @@ if ($Deploy) {
     $sshKey = $cobbleConfig.deploy.ssh_key -replace '~', $env:USERPROFILE
     $remotePath = $cobbleConfig.deploy.releases_path
 
-    $sshOpts = "-o StrictHostKeyChecking=no -o UserKnownHostsFile=NUL -i `"$sshKey`""
+    # -o LogLevel=ERROR silences the "Permanently added to known_hosts" notice
+    # that PowerShell otherwise treats as a fatal exception.
+    $sshOpts = @(
+        "-o", "StrictHostKeyChecking=no"
+        "-o", "UserKnownHostsFile=NUL"
+        "-o", "LogLevel=ERROR"
+        "-i", $sshKey
+    )
 
-    # Upload loader + DLL
-    $scpCmd = "scp $sshOpts `"$LoaderOutput`" `"$DLLOutput`" ${vpsUser}@${vpsHost}:${remotePath}/"
-    Invoke-Expression $scpCmd 2>$null
+    # Make sure the remote dir exists (first deploy or after volume migration).
+    & ssh @sshOpts "${vpsUser}@${vpsHost}" "mkdir -p '$remotePath'"
+    if ($LASTEXITCODE -ne 0) {
+        Write-Fail "Could not ensure remote dir $remotePath"
+        return
+    }
+
+    # Always push the binaries. If we just produced a signed manifest, push
+    # it (and its signature) too so the loader's update flow stays consistent.
+    $files = @($LoaderOutput, $DLLOutput)
+    if ($PrepareRelease) {
+        $manifestPath = Join-Path "$RepoRoot\out\releases\latest" "manifest.json"
+        $sigPath = Join-Path "$RepoRoot\out\releases\latest" "manifest.sig"
+        if ((Test-Path $manifestPath) -and (Test-Path $sigPath)) {
+            $files += $manifestPath
+            $files += $sigPath
+        }
+    }
+
+    & scp @sshOpts $files "${vpsUser}@${vpsHost}:${remotePath}/"
 
     if ($LASTEXITCODE -eq 0) {
-        Write-Success "Deployed to ${vpsUser}@${vpsHost}:${remotePath}"
+        Write-Success "Deployed $($files.Count) file(s) to ${vpsUser}@${vpsHost}:${remotePath}"
     } else {
         Write-Fail "Deploy failed (scp exit code: $LASTEXITCODE)"
     }
