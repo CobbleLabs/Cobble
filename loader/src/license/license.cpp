@@ -54,7 +54,6 @@ namespace License {
 static std::string g_LastError;
 static bool g_NeedsUpdate = false;
 static bool g_RequiresLogin = false;
-static std::string g_MinVersion;
 static std::string g_Username;
 static std::string g_SessionToken;
 static std::string g_InjectionSecret;
@@ -122,10 +121,6 @@ std::string GetLastError() {
 
 bool NeedsUpdate() {
     return g_NeedsUpdate;
-}
-
-std::string GetMinVersion() {
-    return g_MinVersion;
 }
 
 std::string GetUsername() {

@@ -17,7 +17,6 @@ bool FetchPayloadKey(const std::string& serverUrl);
 // Status getters
 std::string GetLastError();
 bool NeedsUpdate();
-std::string GetMinVersion();
 std::string GetUsername();
 int GetDaysRemaining();
 std::string GetSessionToken();
