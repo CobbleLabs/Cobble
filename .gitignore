@@ -37,7 +37,6 @@ Thumbs.db
 
 # Personal launchers (contain secrets)
 cc.bat
-CLAUDE.md
 
 # Update System (sensitive)
 infra/keys/
