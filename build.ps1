@@ -1,14 +1,17 @@
 # Cobble Build Script
-# Compiles DLL, calculates hash, embeds in loader, compiles loader
-# Run from repository root: .\build.ps1
+#
+#   .\build.ps1                    — Debug build (dev/test, no Themida, no manifest)
+#   .\build.ps1 -PrepareRelease    — Release + Themida + signed manifest (only deployable build)
+#   .\build.ps1 -PrepareRelease -Deploy  — same + scp to VPS
+#   .\build.ps1 -Clean             — wipe out/, generated/, .enc, hash headers
+#   .\build.ps1 -SkipDLL           — loader-only rebuild (skips DLL compile)
 
 param(
-    [switch]$Release,
     [switch]$Clean,
     [switch]$SkipDLL,
     [switch]$Verbose,
-    [switch]$PrepareRelease,  # Also generate signed release in releases/latest/
-    [switch]$Deploy,          # Upload release to VPS after build
+    [switch]$PrepareRelease,
+    [switch]$Deploy,
     [string]$ReleaseNotes = ""
 )
 
@@ -17,7 +20,7 @@ $ErrorActionPreference = "Stop"
 # Paths
 $RepoRoot = $PSScriptRoot
 $MSBuild = "C:\Program Files\Microsoft Visual Studio\2022\Community\MSBuild\Current\Bin\MSBuild.exe"
-$Configuration = if ($Release -or $PrepareRelease) { "Release" } else { "Debug" }
+$Configuration = if ($PrepareRelease) { "Release" } else { "Debug" }
 $Platform = "x64"
 
 # Output paths
@@ -316,66 +319,108 @@ if ($PrepareRelease) {
 
     # ── Themida enforcement ──────────────────────────────────────────────────
     # A -PrepareRelease build MUST go through Themida. No exceptions.
-    # If the SDK is missing, the manifest is never produced and the deploy
-    # cannot proceed. This guarantees no unprotected binary ever reaches the
-    # web from a -PrepareRelease invocation.
-
-    # Themida path: read from cobble.json (per-machine, gitignored).
-    # cobble.json.example has a "themida_path" key — set it to your local install.
-    $ThemidaDir = $null
-    if ($cobbleConfig.themida_path) {
-        $ThemidaDir = $cobbleConfig.themida_path -replace '/', '\'
-    }
-    # Fallback: check submodule path (only works if Themida is installed there)
-    if (-not $ThemidaDir -or -not (Test-Path $ThemidaDir)) {
-        $ThemidaDir = "$RepoRoot\themida"
-    }
+    # Themida binaries live in the themida/ submodule — no per-machine config needed.
+    $ThemidaDir = "$RepoRoot\themida"
 
     $ThemidaExe = $null
     foreach ($candidate in @("$ThemidaDir\Themida64.exe", "$ThemidaDir\Themida.exe")) {
         if (Test-Path $candidate) { $ThemidaExe = $candidate; break }
     }
     if (-not $ThemidaExe) {
-        Write-Fail "FATAL: Themida executable not found. Release aborted."
-        Write-Host "  Searched: $ThemidaDir" -ForegroundColor Red
-        Write-Host "  Set `"themida_path`": `"D:\\Syra\\Cobble\\themida`" in cobble.json" -ForegroundColor Yellow
+        Write-Fail "FATAL: Themida executable not found in themida/ submodule. Release aborted."
+        Write-Host "  Run: git submodule update --init themida" -ForegroundColor Yellow
         Write-Host "  A -PrepareRelease build without Themida CANNOT be deployed." -ForegroundColor Red
         exit 1
     }
-
     $LicenseFile = "$ThemidaDir\TMLicenseA1.dat"
     if (-not (Test-Path $LicenseFile)) {
-        Write-Fail "FATAL: Themida license not found at $LicenseFile. Release aborted."
-        Write-Host "  A -PrepareRelease build without Themida CANNOT be deployed." -ForegroundColor Red
+        Write-Fail "FATAL: TMLicenseA1.dat not found in themida/ submodule. Release aborted."
         exit 1
     }
-
-    # .tmd project: prefer the one in ThemidaDir, fallback to submodule
-    $TmdProject = Get-ChildItem "$ThemidaDir\*.tmd" -ErrorAction SilentlyContinue | Select-Object -First 1
-    if (-not $TmdProject) {
-        $TmdProject = Get-ChildItem "$RepoRoot\themida\*.tmd" -ErrorAction SilentlyContinue | Select-Object -First 1
+    $TmdSource = "$ThemidaDir\cobble.tmd"
+    if (-not (Test-Path $TmdSource)) {
+        Write-Fail "FATAL: cobble.tmd not found in themida/ submodule. Release aborted."
+        exit 1
     }
 
     Write-Step "Applying Themida protection..."
     Write-Host "  Themida: $ThemidaExe" -ForegroundColor Gray
+
+    # Themida always uses the INPUT/OUTPUT paths baked into the .tmd, ignoring
+    # any /inputfile /outputfile flags. The .tmd shipped in the submodule has
+    # paths from the original dev machine, so rewrite them for this clone.
     $ProtectedLoader = "$RepoRoot\out\bin\Release\CobbleLoader_protected.exe"
+    $TmdPatched      = "$RepoRoot\out\bin\Release\_cobble_patched.tmd"
+    New-Item -ItemType Directory -Force -Path (Split-Path $TmdPatched) | Out-Null
+
+    (Get-Content $TmdSource -Raw) `
+        -replace 'INPUT_FILE_NAME=.*',  "INPUT_FILE_NAME=$LoaderOutput" `
+        -replace 'OUTPUT_FILE_NAME=.*', "OUTPUT_FILE_NAME=$ProtectedLoader" |
+        Set-Content $TmdPatched -NoNewline
+
+    Write-Host "  Input:  $LoaderOutput" -ForegroundColor Gray
+    Write-Host "  Output: $ProtectedLoader" -ForegroundColor Gray
+
     if (Test-Path $ProtectedLoader) { Remove-Item $ProtectedLoader -Force }
-    if ($TmdProject) {
-        Write-Host "  Project: $($TmdProject.FullName)" -ForegroundColor Gray
-        & $ThemidaExe /protect_project $TmdProject.FullName /outputfile $ProtectedLoader /license $LicenseFile
-    } else {
-        Write-Host "  No .tmd project found, using direct CLI mode" -ForegroundColor Gray
-        & $ThemidaExe /protect $LoaderOutput /outputfile $ProtectedLoader /license $LicenseFile
+
+    # Run Themida through CMD using the canonical pattern from Oreans' docs:
+    #
+    #     start /w Themida /protect project.tmd
+    #
+    # `start /w` blocks until the spawned Themida process exits, and the BAT
+    # propagates its errorlevel back via `exit /b`, so the build no longer
+    # needs to poll for the output file. Documented Themida exit codes:
+    #   0 success            | 1 invalid project file
+    #   2 cannot open input  | 3 already protected
+    #   4 SecureEngine macro | 5 fatal protection error
+    #   6 cannot write       | 7 splash file error
+    #   8 taggant certificate
+    Write-Host "  Protecting via CMD (this takes ~30-60s)..." -ForegroundColor Gray
+
+    $ThemidaBat = "$RepoRoot\out\bin\Release\_run_themida.bat"
+    @(
+        '@echo off'
+        "start /w `"`" `"$ThemidaExe`" /protect `"$TmdPatched`""
+        'exit /b %errorlevel%'
+    ) | Set-Content -Path $ThemidaBat -Encoding ASCII
+
+    & cmd.exe /c $ThemidaBat
+    $themidaExit = $LASTEXITCODE
+
+    Remove-Item $ThemidaBat -ErrorAction SilentlyContinue
+    Remove-Item $TmdPatched -ErrorAction SilentlyContinue
+
+    switch ($themidaExit) {
+        0 { Write-Host "  Themida exit code 0 (protection successful)" -ForegroundColor Gray }
+        1 { Write-Fail "Themida: project file does not exist or invalid"; exit 1 }
+        2 { Write-Fail "Themida: file to protect cannot be opened";       exit 1 }
+        3 { Write-Fail "Themida: file already protected";                 exit 1 }
+        4 { Write-Fail "Themida: error in inserted SecureEngine macros";  exit 1 }
+        5 { Write-Fail "Themida: fatal error while protecting file";      exit 1 }
+        6 { Write-Fail "Themida: cannot write protected file to disk";    exit 1 }
+        7 { Write-Fail "Themida: error opening/reading splash file";      exit 1 }
+        8 { Write-Fail "Themida: taggant certificate cannot be applied";  exit 1 }
+        default {
+            # -1073741510 = STATUS_CONTROL_C_EXIT — user closed the CMD window after
+            # Themida finished. Treat as success if the output file exists.
+            if (Test-Path $ProtectedLoader) {
+                Write-Host "  Themida window closed by user (output exists, treating as success)" -ForegroundColor Gray
+            } else {
+                Write-Fail "Themida: unknown exit code $themidaExit and no output produced"
+                exit 1
+            }
+        }
     }
-    if ($LASTEXITCODE -ne 0 -or -not (Test-Path $ProtectedLoader)) {
-        Write-Fail "FATAL: Themida protection failed (exit=$LASTEXITCODE). Release aborted."
+
+    if (-not (Test-Path $ProtectedLoader)) {
+        Write-Fail "FATAL: Themida produced no output. Release aborted."
         Write-Host "  A -PrepareRelease build without Themida CANNOT be deployed." -ForegroundColor Red
         exit 1
     }
-    # Replace the unprotected loader with the protected one. Manifest hashes
-    # below will reflect the protected binary, so the loader's update flow
-    # validates the same artifact users actually run.
-    Move-Item $ProtectedLoader $LoaderOutput -Force
+    # Copy protected binary over the unprotected one — manifest hashes will
+    # reflect the exact artifact users run.
+    Copy-Item $ProtectedLoader $LoaderOutput -Force
+    Remove-Item $ProtectedLoader -ErrorAction SilentlyContinue
     Write-Success "Themida protection applied"
 
     # Create release directory

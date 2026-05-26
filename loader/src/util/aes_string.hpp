@@ -1,12 +1,16 @@
 #pragma once
-// =============================================================================
-// AES String Obfuscation - Standalone version for Cobble Loader
-// Based on Obfusk8 - Simplified for direct integration
-// =============================================================================
+// AES-128 compile-time string obfuscation. Debug uses no-op macros because
+// MSVC Debug doesn't evaluate sizeof() as a constexpr template argument.
 
 #include <array>
 #include <cstdint>
 #include <string>
+
+#ifdef _DEBUG
+#define OBFUSCATE_STRING(str)        std::string(str)
+#define OBFUSCATE_WSTRING(str)       std::wstring(str)
+#define OBFUSCATE_WSTRING_CSTR(str)  (str)
+#else
 
 #ifdef _MSC_VER
 #pragma optimize("", off)
@@ -14,7 +18,6 @@
 
 namespace aes_obf {
 
-// AES S-Box for encryption/decryption
 constexpr uint8_t sbox[256] = {
     0x63, 0x7c, 0x77, 0x7b, 0xf2, 0x6b, 0x6f, 0xc5, 0x30, 0x01, 0x67, 0x2b, 0xfe, 0xd7, 0xab, 0x76,
     0xca, 0x82, 0xc9, 0x7d, 0xfa, 0x59, 0x47, 0xf0, 0xad, 0xd4, 0xa2, 0xaf, 0x9c, 0xa4, 0x72, 0xc0,
@@ -55,7 +58,6 @@ constexpr uint8_t rsbox[256] = {
 
 constexpr uint8_t rcon[11] = { 0x8d, 0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80, 0x1b, 0x36 };
 
-// Key expansion for AES-128
 constexpr void KeyExpansion(const uint8_t* key, uint8_t* w) {
     for (int i = 0; i < 4; i++) {
         w[4 * i] = key[4 * i];
@@ -173,9 +175,6 @@ constexpr void DecryptBlock(uint8_t* block, const uint8_t* key) {
 
 } // namespace aes_obf
 
-// =============================================================================
-// Compile-time key generation based on string content and location
-// =============================================================================
 #define AES_KEY_MIX(str, line) ((sizeof(str) ^ ((line) * 0x314159)) ^ 0x271828)
 #define AES_K0(str, line) ((uint8_t)(AES_KEY_MIX(str, line) & 0xFF))
 #define AES_K1(str, line) ((uint8_t)((AES_KEY_MIX(str, line) >> 8) & 0xFF))
@@ -211,10 +210,6 @@ struct AESObfString {
     }
 };
 
-// =============================================================================
-// OBFUSCATE_STRING macro - AES encrypted strings at compile-time
-// Usage: OBFUSCATE_STRING("secret").c_str()
-// =============================================================================
 #define OBFUSCATE_STRING(str) \
     ([]() -> std::string { \
         using _Obf = AESObfString<sizeof(str), \
@@ -238,12 +233,6 @@ struct AESObfString {
         return std::string(out); \
     })()
 
-// Alias for backwards compatibility with existing OBFS macro
-#define OBFS_AES(str) OBFUSCATE_STRING(str).c_str()
-
-// =============================================================================
-// Wide String Support (wchar_t) - OBFUSCATE_WSTRING
-// =============================================================================
 template <size_t N, uint8_t K0, uint8_t K1, uint8_t K2, uint8_t K3>
 struct AESObfWString {
     static constexpr uint8_t key[16] = {
@@ -253,7 +242,7 @@ struct AESObfWString {
 
     // N is in bytes (sizeof returns bytes), wchar_t is 2 bytes on Windows
     static constexpr size_t char_count = N / sizeof(wchar_t);
-    static constexpr size_t byte_count = char_count * 2;  // UTF-16 LE
+    static constexpr size_t byte_count = char_count * 2;
     static constexpr size_t num_blocks = (byte_count + 15) / 16;
     
     static constexpr std::array<uint32_t, num_blocks * 4> encrypt(const wchar_t(&plain)[char_count]) {
@@ -266,9 +255,9 @@ struct AESObfWString {
                 if (char_idx < char_count) {
                     wchar_t wc = plain[char_idx];
                     if (byte_idx % 2 == 0)
-                        block[i] = (uint8_t)(wc & 0xFF);        // Low byte
+                        block[i] = (uint8_t)(wc & 0xFF);
                     else
-                        block[i] = (uint8_t)((wc >> 8) & 0xFF); // High byte
+                        block[i] = (uint8_t)((wc >> 8) & 0xFF);
                 }
             }
             aes_obf::EncryptBlock(block, key);
@@ -311,9 +300,10 @@ struct AESObfWString {
         return std::wstring(out); \
     })()
 
-// Convenience macro for C-string usage
 #define OBFUSCATE_WSTRING_CSTR(str) OBFUSCATE_WSTRING(str).c_str()
 
 #ifdef _MSC_VER
 #pragma optimize("", on)
 #endif
+
+#endif // _DEBUG
