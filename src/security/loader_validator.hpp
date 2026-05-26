@@ -14,32 +14,12 @@
 
 namespace LoaderValidator {
 
-// Expected loader signature in memory
-constexpr char LOADER_SIGNATURE[] = "COBBLE_LOADER_V2";
-constexpr DWORD LOADER_SIGNATURE_LEN = 16;
-
 // Validation results
 struct ValidationResult {
     bool passed = false;
     std::string failedValidator;
     std::string details;
 };
-
-// ============================================================================
-// VALIDATOR 1: Shared Memory Exists
-// Check that the loader's shared memory section exists
-// ============================================================================
-inline bool ValidateSharedMemory() {
-    // Use PID-based name: Local\Cobble_<PID>
-    wchar_t sharedMemName[64];
-    swprintf_s(sharedMemName, L"Local\\Cobble_%lu", GetCurrentProcessId());
-    HANDLE hMapping = OpenFileMappingW(FILE_MAP_READ, FALSE, sharedMemName);
-    if (hMapping == nullptr) {
-        return false;
-    }
-    CloseHandle(hMapping);
-    return true;
-}
 
 // ============================================================================
 // VALIDATOR 2: Parent Process Check
@@ -194,15 +174,6 @@ inline bool ValidateNoSuspiciousModules() {
 inline ValidationResult ValidateAll() {
     ValidationResult result;
     result.passed = true;
-
-    // Validator 1: Shared Memory
-    if (!ValidateSharedMemory()) {
-        result.passed = false;
-        result.failedValidator = "SharedMemoryValidator";
-        result.details = "Shared memory not found (PID-based lookup failed)";
-        AuditReporter::ReportLoaderValidationFailed(result.failedValidator, result.details);
-        return result;
-    }
 
     // Validator 2: Loader Process Exists (verifies CobbleLoader.exe is running)
     if (!ValidateLoaderProcessExists()) {

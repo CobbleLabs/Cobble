@@ -26,7 +26,6 @@
 #include "module/visual/item_esp.h"
 #include "module/visual/nametags.h"
 #include "module/visual/tracers.h"
-#include "module/visual/tracers.h"
 #include "module/visual/trajectories.h"
 #include "module/visual/dropped_info.h"
 
@@ -217,15 +216,8 @@ void cobble::context::initialize(HMODULE hModule) {
 
     // Initialize LunarPacketListener for Lunar Client API packet interception
     log_raw("Initializing LunarPacketListener...");
-    // Initialize Network Listeners
-    NetworkProbe::run();
-    log_ok("NetworkProbe ran");
-    
-    // Lunar Integration
     LunarPacketListener::Init();
     LunarSender::Init();
-
-
 
     // Create Named Mutex for Injection Detection
     DWORD pid = GetCurrentProcessId();
