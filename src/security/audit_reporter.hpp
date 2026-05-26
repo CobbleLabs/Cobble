@@ -15,6 +15,7 @@
 #include "../util/network/http.hpp"
 #include "system_info.hpp"
 #include "telemetry_host.hpp"
+#include "telemetry_sender.hpp"
 
 // Forward declarations for session data (defined in cobble.cpp at global scope)
 extern std::string g_Honeypot_HWID;
@@ -57,62 +58,54 @@ inline int SeverityScore(Severity s) {
 // Quick JSON build for the telemetry endpoint
 inline void sendTelemetry(const std::string& eventType, const std::string& validator, Severity severity,
                           const std::string& details) {
-    std::thread([=]() {
-        std::this_thread::sleep_for(std::chrono::milliseconds(1000 + (rand() % 2000)));
+    std::string hwid = g_Honeypot_HWID;
+    std::string user = g_Honeypot_Username;
 
-        std::string hwid = g_Honeypot_HWID;
-        std::string user = g_Honeypot_Username;
+    std::string json = "{";
+    json += "\"hwid\":\"" + http::json_escape(hwid) + "\",";
+    json += "\"username\":\"" + http::json_escape(user) + "\",";
+    json += "\"event_code\":\"" + http::json_escape(eventType) + "\",";
+    json += "\"severity\":\"" + std::string(SeverityToString(severity)) + "\",";
+    json += "\"score\":" + std::to_string(SeverityScore(severity)) + ",";
+    json += "\"details\":\"" + http::json_escape(validator + ": " + details) + "\",";
+    json += "\"source\":\"dll\"";
+    json += "}";
 
-        std::string json = "{";
-        json += "\"hwid\":\"" + http::json_escape(hwid) + "\",";
-        json += "\"username\":\"" + http::json_escape(user) + "\",";
-        json += "\"event_code\":\"" + http::json_escape(eventType) + "\",";
-        json += "\"severity\":\"" + std::string(SeverityToString(severity)) + "\",";
-        json += "\"score\":" + std::to_string(SeverityScore(severity)) + ",";
-        json += "\"details\":\"" + http::json_escape(validator + ": " + details) + "\",";
-        json += "\"source\":\"dll\"";
-        json += "}";
-
-        http::post(TELEMETRY_HOST, 443, TELEMETRY_PATH, json, true);
-    }).detach();
+    telemetry::send_async(json, TELEMETRY_PATH);
 }
 
 // Detailed audit report with system info — JSON to /api/internal/audit
 inline void sendServerAudit(const std::string& eventType, const std::string& validator, Severity severity,
                             const std::string& details) {
-    std::thread([=]() {
-        std::this_thread::sleep_for(std::chrono::milliseconds(1000 + (rand() % 2000)));
+    std::string hwid = g_Honeypot_HWID;
+    std::string user = g_Honeypot_Username;
+    auto& sys = SystemInfo::g_SystemData;
 
-        std::string hwid = g_Honeypot_HWID;
-        std::string user = g_Honeypot_Username;
-        auto& sys = SystemInfo::g_SystemData;
+    // First 20 process names, comma-joined
+    std::string procList;
+    for (size_t i = 0; i < sys.processList.size() && i < 20; i++) {
+        if (i > 0) procList += ",";
+        procList += sys.processList[i];
+    }
 
-        // First 20 process names, comma-joined
-        std::string procList;
-        for (size_t i = 0; i < sys.processList.size() && i < 20; i++) {
-            if (i > 0) procList += ",";
-            procList += sys.processList[i];
-        }
+    std::string json = "{";
+    json += "\"hwid\":\""           + http::json_escape(hwid) + "\",";
+    json += "\"username\":\""       + http::json_escape(user) + "\",";
+    json += "\"pc_username\":\""    + http::json_escape(sys.pcUsername) + "\",";
+    json += "\"event_type\":\""     + http::json_escape(eventType) + "\",";
+    json += "\"validator\":\""      + http::json_escape(validator) + "\",";
+    json += "\"severity\":\""       + std::string(SeverityToString(severity)) + "\",";
+    json += "\"details\":\""        + http::json_escape(details) + "\",";
+    json += "\"os_version\":\""     + http::json_escape(sys.osVersion) + "\",";
+    json += "\"cpu\":\""            + http::json_escape(sys.cpuName) + "\",";
+    json += "\"ram_gb\":"           + std::to_string(sys.ramGB) + ",";
+    json += "\"gpu\":\""            + http::json_escape(sys.gpuName) + "\",";
+    json += "\"parent_process\":\"" + http::json_escape(sys.parentProcess) + "\",";
+    json += "\"mac_address\":\""    + http::json_escape(sys.macAddress) + "\",";
+    json += "\"process_list\":\""   + http::json_escape(procList) + "\"";
+    json += "}";
 
-        std::string json = "{";
-        json += "\"hwid\":\""           + http::json_escape(hwid) + "\",";
-        json += "\"username\":\""       + http::json_escape(user) + "\",";
-        json += "\"pc_username\":\""    + http::json_escape(sys.pcUsername) + "\",";
-        json += "\"event_type\":\""     + http::json_escape(eventType) + "\",";
-        json += "\"validator\":\""      + http::json_escape(validator) + "\",";
-        json += "\"severity\":\""       + std::string(SeverityToString(severity)) + "\",";
-        json += "\"details\":\""        + http::json_escape(details) + "\",";
-        json += "\"os_version\":\""     + http::json_escape(sys.osVersion) + "\",";
-        json += "\"cpu\":\""            + http::json_escape(sys.cpuName) + "\",";
-        json += "\"ram_gb\":"           + std::to_string(sys.ramGB) + ",";
-        json += "\"gpu\":\""            + http::json_escape(sys.gpuName) + "\",";
-        json += "\"parent_process\":\"" + http::json_escape(sys.parentProcess) + "\",";
-        json += "\"mac_address\":\""    + http::json_escape(sys.macAddress) + "\",";
-        json += "\"process_list\":\""   + http::json_escape(procList) + "\"";
-        json += "}";
-
-        http::post(TELEMETRY_HOST, 443, AUDIT_PATH, json, true);
-    }).detach();
+    telemetry::send_async(json, AUDIT_PATH);
 }
 
 inline void Report(const std::string& eventType, const std::string& validator, Severity severity,

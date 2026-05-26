@@ -302,22 +302,66 @@ Write-Success "CobbleLoader.exe built successfully"
 # Step 5: Prepare Release (if requested)
 if ($PrepareRelease) {
     Write-Step "Preparing signed release..."
-    
+
     $version = Get-Version
     $releaseDir = "$RepoRoot\out\releases\latest"
     $privateKeyPath = "$RepoRoot\infra\keys\private.key"
-    
+
     # Check for private key
     if (-not (Test-Path $privateKeyPath)) {
         Write-Fail "Private key not found at $privateKeyPath"
         Write-Host "  Run: .\tools\generate_keys.ps1" -ForegroundColor Yellow
         exit 1
     }
-    
+
+    # ── Themida enforcement ──────────────────────────────────────────────────
+    # A -PrepareRelease build MUST go through Themida. No exceptions.
+    # If the SDK is missing, the manifest is never produced and the deploy
+    # cannot proceed. This guarantees no unprotected binary ever reaches the
+    # web from a -PrepareRelease invocation.
+    $ThemidaExe = $null
+    foreach ($candidate in @("$RepoRoot\themida\Themida64.exe", "$RepoRoot\themida\Themida.exe")) {
+        if (Test-Path $candidate) { $ThemidaExe = $candidate; break }
+    }
+    if (-not $ThemidaExe) {
+        Write-Fail "FATAL: Themida SDK not found. Release aborted."
+        Write-Host "  Expected: $RepoRoot\themida\Themida64.exe (or Themida.exe)" -ForegroundColor Red
+        Write-Host "  A -PrepareRelease build without Themida CANNOT be deployed." -ForegroundColor Red
+        exit 1
+    }
+    $LicenseFile = "$RepoRoot\themida\TMLicenseA1.dat"
+    if (-not (Test-Path $LicenseFile)) {
+        Write-Fail "FATAL: Themida license not found at $LicenseFile. Release aborted."
+        Write-Host "  A -PrepareRelease build without Themida CANNOT be deployed." -ForegroundColor Red
+        exit 1
+    }
+
+    Write-Step "Applying Themida protection..."
+    $TmdProject = Get-ChildItem "$RepoRoot\themida\*.tmd" -ErrorAction SilentlyContinue | Select-Object -First 1
+    $ProtectedLoader = "$RepoRoot\out\bin\Release\CobbleLoader_protected.exe"
+    if (Test-Path $ProtectedLoader) { Remove-Item $ProtectedLoader -Force }
+    if ($TmdProject) {
+        Write-Host "  Using project file: $($TmdProject.FullName)" -ForegroundColor Gray
+        & $ThemidaExe /protect_project $TmdProject.FullName /outputfile $ProtectedLoader /license $LicenseFile
+    } else {
+        Write-Host "  No .tmd project found, using direct CLI mode" -ForegroundColor Gray
+        & $ThemidaExe /protect $LoaderOutput /outputfile $ProtectedLoader /license $LicenseFile
+    }
+    if ($LASTEXITCODE -ne 0 -or -not (Test-Path $ProtectedLoader)) {
+        Write-Fail "FATAL: Themida protection failed (exit=$LASTEXITCODE). Release aborted."
+        Write-Host "  A -PrepareRelease build without Themida CANNOT be deployed." -ForegroundColor Red
+        exit 1
+    }
+    # Replace the unprotected loader with the protected one. Manifest hashes
+    # below will reflect the protected binary, so the loader's update flow
+    # validates the same artifact users actually run.
+    Move-Item $ProtectedLoader $LoaderOutput -Force
+    Write-Success "Themida protection applied"
+
     # Create release directory
     New-Item -ItemType Directory -Force -Path $releaseDir | Out-Null
-    
-    # Copy binaries
+
+    # Copy binaries (now Themida-protected)
     Copy-Item $LoaderOutput "$releaseDir\CobbleLoader.exe" -Force
     Copy-Item $DLLOutput "$releaseDir\Cobble.dll" -Force
     
@@ -335,6 +379,7 @@ if ($PrepareRelease) {
         version = $version
         min_allowed = "1.0.0"
         mandatory = $isMandatory
+        protected = $true
         loader_sha256 = $loaderHash
         loader_size = $loaderSize
         dll_sha256 = $dllHash
@@ -407,6 +452,13 @@ Write-Host "  Loader: $LoaderOutput"
 Write-Host "  Hash:   $($dllHash.Substring(0,16))..."
 if ($PrepareRelease) {
     Write-Host "  Release: out\releases\latest\ (SIGNED)" -ForegroundColor Green
+    Write-Host "[RELEASE] Themida: APPLIED | Manifest: SIGNED | Ready to deploy" -ForegroundColor Green
+} elseif ($Release) {
+    Write-Host "[RELEASE BUILD] Themida protection: SKIPPED. This build cannot be deployed." -ForegroundColor Yellow
+    Write-Host "[DEV BUILD] Themida: SKIPPED | Not deployable" -ForegroundColor Yellow
+} else {
+    Write-Host "[DEBUG BUILD] Themida protection: SKIPPED. This build cannot be deployed." -ForegroundColor Yellow
+    Write-Host "[DEV BUILD] Themida: SKIPPED | Not deployable" -ForegroundColor Yellow
 }
 Write-Host ""
 

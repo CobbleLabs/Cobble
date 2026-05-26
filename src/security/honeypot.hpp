@@ -15,6 +15,7 @@
 
 #include "../util/network/http.hpp"
 #include "telemetry_host.hpp"
+#include "telemetry_sender.hpp"
 
 namespace Honeypot {
 
@@ -64,30 +65,24 @@ inline std::string escapeJson(const std::string& s) {
 // Report to server (async, with random delay) - the server forwards to Discord
 inline void reportToServer(const std::string& eventType, const std::string& details,
                            const std::string& severity = "critical") {
-    std::thread([eventType, details, severity]() {
-        // Random delay 2-5 seconds to avoid detection
-        int delayMs = 2000 + (rand() % 3000);
-        std::this_thread::sleep_for(std::chrono::milliseconds(delayMs));
+    // Access globals from session_validator.hpp (included via cobble.cpp)
+    extern std::string g_Honeypot_HWID;
+    extern std::string g_Honeypot_Username;
+    std::string hwid = g_Honeypot_HWID;
+    std::string user = g_Honeypot_Username;
 
-        // Access globals from session_validator.hpp (included via cobble.cpp)
-        extern std::string g_Honeypot_HWID;
-        extern std::string g_Honeypot_Username;
-        std::string hwid = g_Honeypot_HWID;
-        std::string user = g_Honeypot_Username;
+    // Build JSON payload for server
+    std::string json = "{";
+    json += "\"hwid\":\"" + escapeJson(hwid) + "\",";
+    json += "\"username\":\"" + escapeJson(user) + "\",";
+    json += "\"event_code\":\"HONEYPOT_" + escapeJson(eventType) + "\",";
+    json += "\"severity\":\"" + escapeJson(severity) + "\",";
+    json += "\"score\":100,";
+    json += "\"details\":\"" + escapeJson(details) + "\",";
+    json += "\"source\":\"dll\"";
+    json += "}";
 
-        // Build JSON payload for server
-        std::string json = "{";
-        json += "\"hwid\":\"" + escapeJson(hwid) + "\",";
-        json += "\"username\":\"" + escapeJson(user) + "\",";
-        json += "\"event_code\":\"HONEYPOT_" + escapeJson(eventType) + "\",";
-        json += "\"severity\":\"" + escapeJson(severity) + "\",";
-        json += "\"score\":100,";
-        json += "\"details\":\"" + escapeJson(details) + "\",";
-        json += "\"source\":\"dll\"";
-        json += "}";
-
-        http::post(TELEMETRY_HOST, 443, TELEMETRY_PATH, json, true);
-    }).detach();
+    telemetry::send_async(json, TELEMETRY_PATH);
 }
 
 // Main report function - call this from honeypot triggers
