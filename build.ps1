@@ -319,29 +319,49 @@ if ($PrepareRelease) {
     # If the SDK is missing, the manifest is never produced and the deploy
     # cannot proceed. This guarantees no unprotected binary ever reaches the
     # web from a -PrepareRelease invocation.
+
+    # Themida path: read from cobble.json (per-machine, gitignored).
+    # cobble.json.example has a "themida_path" key — set it to your local install.
+    $ThemidaDir = $null
+    if ($cobbleConfig.themida_path) {
+        $ThemidaDir = $cobbleConfig.themida_path -replace '/', '\'
+    }
+    # Fallback: check submodule path (only works if Themida is installed there)
+    if (-not $ThemidaDir -or -not (Test-Path $ThemidaDir)) {
+        $ThemidaDir = "$RepoRoot\themida"
+    }
+
     $ThemidaExe = $null
-    foreach ($candidate in @("$RepoRoot\themida\Themida64.exe", "$RepoRoot\themida\Themida.exe")) {
+    foreach ($candidate in @("$ThemidaDir\Themida64.exe", "$ThemidaDir\Themida.exe")) {
         if (Test-Path $candidate) { $ThemidaExe = $candidate; break }
     }
     if (-not $ThemidaExe) {
-        Write-Fail "FATAL: Themida SDK not found. Release aborted."
-        Write-Host "  Expected: $RepoRoot\themida\Themida64.exe (or Themida.exe)" -ForegroundColor Red
+        Write-Fail "FATAL: Themida executable not found. Release aborted."
+        Write-Host "  Searched: $ThemidaDir" -ForegroundColor Red
+        Write-Host "  Set `"themida_path`": `"D:\\Syra\\Cobble\\themida`" in cobble.json" -ForegroundColor Yellow
         Write-Host "  A -PrepareRelease build without Themida CANNOT be deployed." -ForegroundColor Red
         exit 1
     }
-    $LicenseFile = "$RepoRoot\themida\TMLicenseA1.dat"
+
+    $LicenseFile = "$ThemidaDir\TMLicenseA1.dat"
     if (-not (Test-Path $LicenseFile)) {
         Write-Fail "FATAL: Themida license not found at $LicenseFile. Release aborted."
         Write-Host "  A -PrepareRelease build without Themida CANNOT be deployed." -ForegroundColor Red
         exit 1
     }
 
+    # .tmd project: prefer the one in ThemidaDir, fallback to submodule
+    $TmdProject = Get-ChildItem "$ThemidaDir\*.tmd" -ErrorAction SilentlyContinue | Select-Object -First 1
+    if (-not $TmdProject) {
+        $TmdProject = Get-ChildItem "$RepoRoot\themida\*.tmd" -ErrorAction SilentlyContinue | Select-Object -First 1
+    }
+
     Write-Step "Applying Themida protection..."
-    $TmdProject = Get-ChildItem "$RepoRoot\themida\*.tmd" -ErrorAction SilentlyContinue | Select-Object -First 1
+    Write-Host "  Themida: $ThemidaExe" -ForegroundColor Gray
     $ProtectedLoader = "$RepoRoot\out\bin\Release\CobbleLoader_protected.exe"
     if (Test-Path $ProtectedLoader) { Remove-Item $ProtectedLoader -Force }
     if ($TmdProject) {
-        Write-Host "  Using project file: $($TmdProject.FullName)" -ForegroundColor Gray
+        Write-Host "  Project: $($TmdProject.FullName)" -ForegroundColor Gray
         & $ThemidaExe /protect_project $TmdProject.FullName /outputfile $ProtectedLoader /license $LicenseFile
     } else {
         Write-Host "  No .tmd project found, using direct CLI mode" -ForegroundColor Gray

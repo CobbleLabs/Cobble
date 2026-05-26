@@ -15,6 +15,9 @@
     "_public_key_help": "Ed25519 public key (32 bytes hex). Derived from cobble-server's /opt/cobble-server/secrets/private.key. Run tools/generate_keys.ps1 against the seed to produce it.",
     "public_key_hex": "0000000000000000000000000000000000000000000000000000000000000000",
 
+    "_themida_path_help": "Absolute path to your local Themida installation. Required for -PrepareRelease builds.",
+    "themida_path": "D:\\Syra\\Cobble\\themida",
+
     "deploy": {
         "vps_host": "100.27.226.125",
         "vps_user": "root",
