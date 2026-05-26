@@ -22,9 +22,11 @@
 // Use centralized version
 #define CLIENT_VERSION COBBLE_VERSION
 
-// Helper: configure SSL flags for Cloudflare compatibility
+// Configure WinInet SSL: keep cert-chain validation. We only ignore
+// revocation because Cloudflare's OCSP can be slow / blocked, but we
+// still REQUIRE a trusted root and matching CN. Anything weaker = MITM.
 inline void ConfigureSSLFlags(HINTERNET hRequest) {
-    DWORD secFlags = SECURITY_FLAG_IGNORE_UNKNOWN_CA | SECURITY_FLAG_IGNORE_CERT_CN_INVALID | SECURITY_FLAG_IGNORE_REVOCATION;
+    DWORD secFlags = SECURITY_FLAG_IGNORE_REVOCATION;
     InternetSetOptionA(hRequest, INTERNET_OPTION_SECURITY_FLAGS, &secFlags, sizeof(secFlags));
 }
 namespace License {

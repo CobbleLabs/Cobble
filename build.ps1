@@ -139,7 +139,7 @@ if (-not $env:PAYLOAD_KEY) {
     Write-Fail "PAYLOAD_KEY not set! All builds require secure encryption."
     Write-Host "  Set: `$env:PAYLOAD_KEY = '<64-char-hex-key>'" -ForegroundColor Yellow
     Write-Host "  Generate with: openssl rand -hex 32" -ForegroundColor Yellow
-    Write-Host "  See: SECURITY.md for details" -ForegroundColor Yellow
+    Write-Host "  Or set it in cobble.json (build.ps1 reads it from there)." -ForegroundColor Yellow
     exit 1
 }
 

@@ -6,7 +6,54 @@
 param([string]$ConfigPath = "$PSScriptRoot\cobble.json")
 
 $ErrorActionPreference = "Stop"
-$config = Get-Content $ConfigPath -Raw | ConvertFrom-Json
+
+if (!(Test-Path $ConfigPath)) {
+    Write-Host "[CONFIG] cobble.json not found at $ConfigPath" -ForegroundColor Red
+    Write-Host "  Copy cobble.json.example to cobble.json and fill in values." -ForegroundColor Yellow
+    exit 1
+}
+
+try {
+    $config = Get-Content $ConfigPath -Raw | ConvertFrom-Json
+} catch {
+    Write-Host "[CONFIG] Failed to parse $ConfigPath as JSON: $($_.Exception.Message)" -ForegroundColor Red
+    exit 1
+}
+
+# ============================================================================
+# Validate required fields. Better to fail loudly than to compile a binary
+# with empty/wrong secrets that fails opaquely at runtime.
+# ============================================================================
+function Assert-HexString {
+    param([string]$Value, [int]$ExpectedLen, [string]$Name)
+    if ([string]::IsNullOrEmpty($Value)) {
+        Write-Host "[CONFIG] $Name is missing in cobble.json" -ForegroundColor Red
+        exit 1
+    }
+    if ($Value.Length -ne $ExpectedLen) {
+        Write-Host "[CONFIG] $Name must be $ExpectedLen hex chars (got $($Value.Length))" -ForegroundColor Red
+        exit 1
+    }
+    if ($Value -notmatch '^[0-9a-fA-F]+$') {
+        Write-Host "[CONFIG] $Name contains non-hex characters" -ForegroundColor Red
+        exit 1
+    }
+}
+
+if (-not $config.server -or [string]::IsNullOrEmpty($config.server.host)) {
+    Write-Host "[CONFIG] server.host is missing in cobble.json" -ForegroundColor Red
+    exit 1
+}
+if ([string]::IsNullOrEmpty($config.version)) {
+    Write-Host "[CONFIG] version is missing in cobble.json" -ForegroundColor Red
+    exit 1
+}
+if ($config.version -notmatch '^\d+\.\d+\.\d+$') {
+    Write-Host "[CONFIG] version must be semver (major.minor.patch); got '$($config.version)'" -ForegroundColor Red
+    exit 1
+}
+Assert-HexString -Value $config.payload_key -ExpectedLen 64 -Name "payload_key (must be a 32-byte AES key in hex)"
+Assert-HexString -Value $config.public_key_hex -ExpectedLen 64 -Name "public_key_hex (must be a 32-byte Ed25519 public key in hex)"
 
 $host_ = $config.server.host
 $port = $config.server.port

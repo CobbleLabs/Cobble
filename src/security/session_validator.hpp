@@ -4,6 +4,7 @@
 #include <Windows.h>
 #include <atomic>
 #include <ctime>
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -40,14 +41,33 @@ struct InjectionData {
 
 // Ed25519 public key decoded from generated header at runtime
 
-// Cached session data (set after successful validation)
+// Cached session data (set after successful validation).
+// Tokens are read by the heartbeat thread and written on rotation, so we
+// gate them with a mutex. std::string is NOT thread-safe for r/w concurrency.
 inline std::string g_Username;
 inline std::string g_InjectionSecret;
 inline std::string g_HWID;
 inline std::string g_HandshakeSig;  // For server-side validation
 inline std::string g_SessionToken;  // For heartbeat
 inline std::string g_SyncToken;     // For sync hash validation
+inline std::mutex g_SessionMutex;
 inline std::atomic<bool> g_SessionValid{false};
+
+// Wipe the buffer underlying a std::string before clearing. .clear() leaves
+// the secret in the heap; this overwrites it first.
+inline void zeroAndClear(std::string& s) {
+    if (!s.empty()) {
+        SecureZeroMemory(&s[0], s.size());
+    }
+    s.clear();
+    s.shrink_to_fit();
+}
+
+// Snapshot a token under the lock so we can hand a stable copy to network code.
+inline std::string snapshotToken(const std::string& src) {
+    std::lock_guard<std::mutex> lock(g_SessionMutex);
+    return src;
+}
 
 // Internal state tracking (for recovery logic)
 inline std::atomic<bool> g_stateCorrupted{false};
@@ -164,12 +184,15 @@ inline bool ValidateInjection() {
     }
 
     // Cache the validated data
-    g_Username = data.username;
-    g_InjectionSecret = data.secret;
-    g_HWID = data.hwid;
-    g_HandshakeSig = data.handshakeSig;
-    g_SessionToken = data.sessionToken;
-    g_SyncToken = data.syncToken;
+    {
+        std::lock_guard<std::mutex> lock(g_SessionMutex);
+        g_Username = data.username;
+        g_InjectionSecret = data.secret;
+        g_HWID = data.hwid;
+        g_HandshakeSig = data.handshakeSig;
+        g_SessionToken = data.sessionToken;
+        g_SyncToken = data.syncToken;
+    }
     g_SessionValid = true;
 
     // Record timing for state validation
@@ -184,17 +207,23 @@ inline bool ValidateInjection() {
 
 // Get validated username (empty if not validated)
 inline std::string GetUsername() {
-    return g_SessionValid ? g_Username : "";
+    if (!g_SessionValid) return "";
+    std::lock_guard<std::mutex> lock(g_SessionMutex);
+    return g_Username;
 }
 
 // Get injection secret for server validation
 inline std::string GetInjectionSecret() {
-    return g_SessionValid ? g_InjectionSecret : "";
+    if (!g_SessionValid) return "";
+    std::lock_guard<std::mutex> lock(g_SessionMutex);
+    return g_InjectionSecret;
 }
 
 // Get HWID for server calls
 inline std::string GetHWID() {
-    return g_SessionValid ? g_HWID : "";
+    if (!g_SessionValid) return "";
+    std::lock_guard<std::mutex> lock(g_SessionMutex);
+    return g_HWID;
 }
 
 // Check if session is currently valid
@@ -202,12 +231,17 @@ inline bool IsSessionValid() {
     return g_SessionValid;
 }
 
-// Invalidate the session (e.g., server returned invalid)
+// Invalidate the session (e.g., server returned invalid).
+// Wipes secrets from the heap before clearing.
 inline void InvalidateSession() {
     g_SessionValid = false;
-    g_Username.clear();
-    g_InjectionSecret.clear();
-    g_HWID.clear();
+    std::lock_guard<std::mutex> lock(g_SessionMutex);
+    zeroAndClear(g_Username);
+    zeroAndClear(g_InjectionSecret);
+    zeroAndClear(g_HWID);
+    zeroAndClear(g_HandshakeSig);
+    zeroAndClear(g_SessionToken);
+    zeroAndClear(g_SyncToken);
 }
 
 // Generate hex nonce using Windows CSPRNG
@@ -291,11 +325,17 @@ inline std::string sha256hex(const std::string& input) {
 // Format: SHA256(sync_token + hwid + time_bucket)
 // Uses 60-second buckets for tolerance
 inline std::string computeSyncHash() {
-    if (g_SyncToken.empty() || g_HWID.empty()) {
+    std::string syncTokenCopy, hwidCopy;
+    {
+        std::lock_guard<std::mutex> lock(g_SessionMutex);
+        syncTokenCopy = g_SyncToken;
+        hwidCopy = g_HWID;
+    }
+    if (syncTokenCopy.empty() || hwidCopy.empty()) {
         return "";
     }
     int64_t bucket = std::time(nullptr) / 60;  // 1 minute buckets
-    std::string input = g_SyncToken + g_HWID + std::to_string(bucket);
+    std::string input = syncTokenCopy + hwidCopy + std::to_string(bucket);
     return sha256hex(input);
 }
 
@@ -311,12 +351,30 @@ inline bool ValidateWithServer() {
         return false;
     }
 
+    // Snapshot under lock so concurrent rotation can't tear the strings.
+    std::string hwidCopy, secretCopy;
+    {
+        std::lock_guard<std::mutex> lock(g_SessionMutex);
+        hwidCopy = g_HWID;
+        secretCopy = g_InjectionSecret;
+    }
+
     // JSON body — Cloudflare WAF rejects form-encoded.
-    std::string body = "{\"hwid\":\"" + http::json_escape(g_HWID) +
-                       "\",\"secret\":\"" + http::json_escape(g_InjectionSecret) +
+    std::string body = "{\"hwid\":\"" + http::json_escape(hwidCopy) +
+                       "\",\"secret\":\"" + http::json_escape(secretCopy) +
                        "\",\"nonce\":\"" + http::json_escape(nonce) + "\"}";
 
     auto response = http::post(cobble_config::GetServerHostW().c_str(), 443, L"/api/dll/validate", body, true);
+
+    // We're done with the secret after this round-trip — wipe it from
+    // memory so a memscan can't lift it from the heap later.
+    SecureZeroMemory(&body[0], body.size());
+    SecureZeroMemory(&secretCopy[0], secretCopy.size());
+    {
+        std::lock_guard<std::mutex> lock(g_SessionMutex);
+        zeroAndClear(g_InjectionSecret);
+    }
+
     if (!response.success) {
         InvalidateSession();
         return false;
@@ -399,20 +457,27 @@ inline std::string GetServerUrl() {
 // Returns true ONLY if server explicitly says ok:true
 // Returns false on ANY error (network, parse, server rejection) - FAIL CLOSED
 inline bool DoHeartbeat() {
-    if (g_SessionToken.empty() || g_HWID.empty()) {
-        return false;  // Invalid state
+    // Snapshot session state once under the lock so we don't see torn writes
+    // while the previous heartbeat's rotation lands in another thread.
+    std::string sessionTokenCopy, hwidCopy, usernameCopy, syncHashLocal;
+    {
+        std::lock_guard<std::mutex> lock(g_SessionMutex);
+        if (g_SessionToken.empty() || g_HWID.empty()) {
+            return false;
+        }
+        sessionTokenCopy = g_SessionToken;
+        hwidCopy = g_HWID;
+        usernameCopy = g_Username;
     }
-
-    // Calculate sync hash for runtime validation (may be empty on first heartbeat)
-    std::string syncHash = computeSyncHash();
+    syncHashLocal = computeSyncHash();
 
     // Build JSON body. Cloudflare WAF rejects form-encoded.
-    std::string body = std::string("{\"session_token\":\"") + http::json_escape(g_SessionToken) +
-                       "\",\"hwid\":\"" + http::json_escape(g_HWID) +
-                       "\",\"username\":\"" + http::json_escape(g_Username) +
+    std::string body = std::string("{\"session_token\":\"") + http::json_escape(sessionTokenCopy) +
+                       "\",\"hwid\":\"" + http::json_escape(hwidCopy) +
+                       "\",\"username\":\"" + http::json_escape(usernameCopy) +
                        "\",\"version\":\"" + http::json_escape(cobble_config::VERSION) + "\"";
-    if (!syncHash.empty()) {
-        body += ",\"sync_hash\":\"" + http::json_escape(syncHash) + "\"";
+    if (!syncHashLocal.empty()) {
+        body += ",\"sync_hash\":\"" + http::json_escape(syncHashLocal) + "\"";
     }
     body += "}";
 
@@ -448,15 +513,15 @@ inline bool DoHeartbeat() {
     } else {
         log_ok("Heartbeat success");
 
-        // TOKEN ROTATION: Server sends new token on each successful heartbeat
-        // This prevents replay attacks - stolen tokens become useless after one use
+        // TOKEN ROTATION: Server sends new token on each successful heartbeat.
+        // Stolen tokens become useless after one use. Update under lock so
+        // concurrent readers always see a coherent state.
         std::string newToken = resp["new_token"].as_string("");
+        std::string newSyncToken = resp["new_sync_token"].as_string("");
+        std::lock_guard<std::mutex> lock(g_SessionMutex);
         if (!newToken.empty()) {
             g_SessionToken = newToken;
         }
-
-        // Sync token rotation - update for next heartbeat
-        std::string newSyncToken = resp["new_sync_token"].as_string("");
         if (!newSyncToken.empty()) {
             g_SyncToken = newSyncToken;
         }
