@@ -332,7 +332,7 @@ inline bool ValidateWithServer() {
                        "&nonce=" + http::urlencode(nonce);
 
     // HTTPS only
-    auto response = http::post(L"api.cobble.vip", 443, L"/api/dll/validate", body, true);
+    auto response = http::post(L"api.syra.club", 443, L"/api/dll/validate", body, true);
     if (!response.success) {
         InvalidateSession();
         return false;
@@ -403,7 +403,7 @@ inline HANDLE g_HeartbeatThread = nullptr;
 
 // Get server URL
 inline std::string GetServerUrl() {
-    return "https://api.cobble.vip";
+    return "https://api.syra.club";
 }
 
 // Perform a single heartbeat check
@@ -426,9 +426,9 @@ inline bool DoHeartbeat() {
         body += "&sync_hash=" + http::urlencode(syncHash);
     }
 
-    // Make HTTP POST request to api.cobble.vip:443/api/heartbeat
+    // Make HTTP POST request to api.syra.club:443/api/heartbeat
     log_debug("Sending heartbeat");
-    http::Response response = http::post(L"api.cobble.vip", 443, L"/api/heartbeat", body, true);
+    http::Response response = http::post(L"api.syra.club", 443, L"/api/heartbeat", body, true);
 
     // CRITICAL: Network errors count as failures
     // If server is down, this should fail and eventually kill the DLL

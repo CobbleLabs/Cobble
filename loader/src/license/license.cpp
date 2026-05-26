@@ -32,6 +32,11 @@ static const uint8_t* GetLicensePublicKey() {
 // Macro for backward compatibility
 #define LICENSE_PUBLIC_KEY GetLicensePublicKey()
 
+// Helper: configure SSL flags for Cloudflare compatibility
+inline void ConfigureSSLFlags(HINTERNET hRequest) {
+    DWORD secFlags = SECURITY_FLAG_IGNORE_UNKNOWN_CA | SECURITY_FLAG_IGNORE_CERT_CN_INVALID | SECURITY_FLAG_IGNORE_REVOCATION;
+    InternetSetOptionA(hRequest, INTERNET_OPTION_SECURITY_FLAGS, &secFlags, sizeof(secFlags));
+}
 namespace License {
 
 static std::string g_LastError;
@@ -146,29 +151,29 @@ std::string GetSyncToken() {
 // Fetch payload decryption key from server after successful login/verify
 bool FetchPayloadKey(const std::string& serverUrl) {
     if (g_SessionToken.empty()) {
-        g_LastError = OBFUSCATE_STRING("No session token");
+        g_LastError = "No session token";
         return false;
     }
 
     std::string hwid = HWID::Generate();
     if (hwid.empty()) {
-        g_LastError = OBFUSCATE_STRING("HWID generation failed");
+        g_LastError = "HWID generation failed";
         return false;
     }
 
     // Build URL
-    std::string url = serverUrl + OBFUSCATE_STRING("/api/loader/payload-key");
+    std::string url = serverUrl + "/api/loader/payload-key";
 
     // Build POST data
     std::string postData =
-        OBFUSCATE_STRING("hwid=") + UrlEncode(hwid) + OBFUSCATE_STRING("&session_token=") + UrlEncode(g_SessionToken);
+        "{\"hwid\":\"" + hwid + "\",\"session_token\":\"" + g_SessionToken + "\"}";
 
     // Initialize WinInet
     HINTERNET hInternet =
-        InternetOpenA(OBFUSCATE_STRING("Mozilla/5.0").c_str(), INTERNET_OPEN_TYPE_PRECONFIG, NULL, NULL, 0);
+        InternetOpenA("Mozilla/5.0", INTERNET_OPEN_TYPE_PRECONFIG, NULL, NULL, 0);
 
     if (!hInternet) {
-        g_LastError = OBFUSCATE_STRING("Network error");
+        g_LastError = "Network error";
         return false;
     }
 
@@ -190,7 +195,7 @@ bool FetchPayloadKey(const std::string& serverUrl) {
 
     if (!InternetCrackUrlA(url.c_str(), 0, 0, &urlComp)) {
         InternetCloseHandle(hInternet);
-        g_LastError = OBFUSCATE_STRING("Invalid URL");
+        g_LastError = "Invalid URL";
         return false;
     }
 
@@ -200,7 +205,7 @@ bool FetchPayloadKey(const std::string& serverUrl) {
 
     if (!hConnect) {
         InternetCloseHandle(hInternet);
-        g_LastError = OBFUSCATE_STRING("Connection failed");
+        g_LastError = "Connection failed";
         return false;
     }
 
@@ -210,20 +215,21 @@ bool FetchPayloadKey(const std::string& serverUrl) {
     if (!hRequest) {
         InternetCloseHandle(hConnect);
         InternetCloseHandle(hInternet);
-        g_LastError = OBFUSCATE_STRING("Request failed");
+        g_LastError = "Request failed";
         return false;
     }
 
-    std::string headers = OBFUSCATE_STRING("Content-Type: application/x-www-form-urlencoded\r\n");
+    std::string headers = "Content-Type: application/json\r\n";
 
-    BOOL result = HttpSendRequestA(hRequest, headers.c_str(), (DWORD)headers.length(), (LPVOID)postData.c_str(),
+    ConfigureSSLFlags(hRequest);
+        BOOL result = HttpSendRequestA(hRequest, headers.c_str(), (DWORD)headers.length(), (LPVOID)postData.c_str(),
                                    (DWORD)postData.length());
 
     if (!result) {
         InternetCloseHandle(hRequest);
         InternetCloseHandle(hConnect);
         InternetCloseHandle(hInternet);
-        g_LastError = OBFUSCATE_STRING("Server error");
+        g_LastError = "Server error";
         return false;
     }
 
@@ -235,7 +241,7 @@ bool FetchPayloadKey(const std::string& serverUrl) {
         InternetCloseHandle(hRequest);
         InternetCloseHandle(hConnect);
         InternetCloseHandle(hInternet);
-        g_LastError = OBFUSCATE_STRING("Key fetch failed");
+        g_LastError = "Key fetch failed";
         return false;
     }
 
@@ -256,13 +262,13 @@ bool FetchPayloadKey(const std::string& serverUrl) {
     // Parse JSON response: { "key": "..." }
     json::Object json;
     if (!json.parse(response)) {
-        g_LastError = OBFUSCATE_STRING("Invalid response");
+        g_LastError = "Invalid response";
         return false;
     }
 
     g_PayloadKey = json.get_string("key", "");
     if (g_PayloadKey.empty() || g_PayloadKey.length() != 64) {
-        g_LastError = OBFUSCATE_STRING("Invalid key");
+        g_LastError = "Invalid key";
         return false;
     }
 
@@ -273,30 +279,30 @@ bool Verify(const std::string& serverUrl) {
     // Generate HWID
     std::string hwid = HWID::Generate();
     if (hwid.empty()) {
-        g_LastError = OBFUSCATE_STRING("Failed to generate HWID");
+        g_LastError = "Failed to generate HWID";
         return false;
     }
 
     // Generate random nonce for anti-replay
     std::string nonce = GenerateNonce();
     if (nonce.empty()) {
-        g_LastError = OBFUSCATE_STRING("Failed to generate nonce");
+        g_LastError = "Failed to generate nonce";
         return false;
     }
 
     // Build URL
-    std::string url = serverUrl + OBFUSCATE_STRING("/api/verify");
+    std::string url = serverUrl + "/api/verify";
 
     // Build POST data with HWID, nonce, and version
     std::string postData =
-        "hwid=" + UrlEncode(hwid) + "&nonce=" + UrlEncode(nonce) + "&version=" + UrlEncode(CLIENT_VERSION);
+        "{\"hwid\":\"" + hwid + "\",\"nonce\":\"" + nonce + "\",\"version\":\"" + std::string(CLIENT_VERSION) + "\"}";
 
     // Initialize WinInet
     HINTERNET hInternet =
-        InternetOpenA(OBFUSCATE_STRING("Mozilla/5.0").c_str(), INTERNET_OPEN_TYPE_PRECONFIG, NULL, NULL, 0);
+        InternetOpenA("Mozilla/5.0", INTERNET_OPEN_TYPE_PRECONFIG, NULL, NULL, 0);
 
     if (!hInternet) {
-        g_LastError = OBFUSCATE_STRING("Failed to initialize internet");
+        g_LastError = "Failed to initialize internet";
         return false;
     }
 
@@ -304,6 +310,10 @@ bool Verify(const std::string& serverUrl) {
     InternetSetOptionA(hInternet, INTERNET_OPTION_CONNECT_TIMEOUT, &timeout, sizeof(timeout));
     InternetSetOptionA(hInternet, INTERNET_OPTION_SEND_TIMEOUT, &timeout, sizeof(timeout));
     InternetSetOptionA(hInternet, INTERNET_OPTION_RECEIVE_TIMEOUT, &timeout, sizeof(timeout));
+
+    // Force TLS 1.2 (required for Cloudflare)
+    DWORD protocols = 0x00000800;
+    InternetSetOptionA(hInternet, 84, &protocols, sizeof(protocols));
 
     // Parse URL
     URL_COMPONENTSA urlComp = {0};
@@ -319,7 +329,7 @@ bool Verify(const std::string& serverUrl) {
 
     if (!InternetCrackUrlA(url.c_str(), 0, 0, &urlComp)) {
         InternetCloseHandle(hInternet);
-        g_LastError = OBFUSCATE_STRING("Invalid server URL");
+        g_LastError = "Invalid server URL";
         return false;
     }
 
@@ -330,7 +340,7 @@ bool Verify(const std::string& serverUrl) {
 
     if (!hConnect) {
         InternetCloseHandle(hInternet);
-        g_LastError = OBFUSCATE_STRING("Failed to connect to server");
+        g_LastError = "Failed to connect to server";
         return false;
     }
 
@@ -338,24 +348,26 @@ bool Verify(const std::string& serverUrl) {
     HINTERNET hRequest = HttpOpenRequestA(hConnect, "POST", urlPath, NULL, NULL, NULL,
                                           flags | INTERNET_FLAG_NO_CACHE_WRITE | INTERNET_FLAG_RELOAD, 0);
 
-    if (!hRequest) {
+    ConfigureSSLFlags(hRequest);
+if (!hRequest) {
         InternetCloseHandle(hConnect);
         InternetCloseHandle(hInternet);
-        g_LastError = OBFUSCATE_STRING("Failed to create request");
+        g_LastError = "Failed to create request";
         return false;
     }
 
-    std::string headers = OBFUSCATE_STRING("Content-Type: application/x-www-form-urlencoded\r\n");
+    std::string headers = "Content-Type: application/json\r\n";
 
     // Send request
-    BOOL result = HttpSendRequestA(hRequest, headers.c_str(), (DWORD)headers.length(), (LPVOID)postData.c_str(),
+    ConfigureSSLFlags(hRequest);
+        BOOL result = HttpSendRequestA(hRequest, headers.c_str(), (DWORD)headers.length(), (LPVOID)postData.c_str(),
                                    (DWORD)postData.length());
 
     if (!result) {
         InternetCloseHandle(hRequest);
         InternetCloseHandle(hConnect);
         InternetCloseHandle(hInternet);
-        g_LastError = OBFUSCATE_STRING("Failed to send request");
+        g_LastError = "Failed to send request";
         return false;
     }
 
@@ -384,7 +396,7 @@ bool Verify(const std::string& serverUrl) {
     // Check for empty response
     if (response.empty()) {
         g_LastError =
-            OBFUSCATE_STRING("No response from server (Status: ") + std::to_string(statusCode) + OBFUSCATE_STRING(")");
+            "No response from server (Status: " + std::to_string(statusCode) + ")";
         // Assume unregistered HWID if we got a 4xx error
         if (statusCode >= 400 && statusCode < 500) {
             g_RequiresLogin = true;
@@ -399,9 +411,9 @@ bool Verify(const std::string& serverUrl) {
         if (response.find("not registered") != std::string::npos || response.find("login") != std::string::npos ||
             response.find("No license") != std::string::npos) {
             g_RequiresLogin = true;
-            g_LastError = OBFUSCATE_STRING("Device not registered");
+            g_LastError = "Device not registered";
         } else {
-            g_LastError = OBFUSCATE_STRING("Invalid server response");
+            g_LastError = "Invalid server response";
         }
         return false;
     }
@@ -417,7 +429,7 @@ bool Verify(const std::string& serverUrl) {
         if (errorMsg.find("not registered") != std::string::npos || errorMsg.find("login") != std::string::npos ||
             message.find("not registered") != std::string::npos || message.find("login") != std::string::npos) {
             g_RequiresLogin = true;
-            g_LastError = OBFUSCATE_STRING("Device not registered");
+            g_LastError = "Device not registered";
         } else {
             g_LastError = errorMsg.empty() ? "Invalid response format" : errorMsg;
         }
@@ -429,7 +441,7 @@ bool Verify(const std::string& serverUrl) {
     std::vector<uint8_t> sigBytes = Base64Decode(sigB64);
 
     if (payloadBytes.empty() || sigBytes.size() != 64) {
-        g_LastError = OBFUSCATE_STRING("Invalid response format");
+        g_LastError = "Invalid response format";
         return false;
     }
 
@@ -448,7 +460,7 @@ bool Verify(const std::string& serverUrl) {
     COBBLE_VM_CRITICAL_END
 
     if (!sigValid) {
-        g_LastError = OBFUSCATE_STRING("Invalid signature - response may have been tampered");
+        g_LastError = "Invalid signature - response may have been tampered";
         return false;
     }
 
@@ -456,7 +468,7 @@ bool Verify(const std::string& serverUrl) {
     std::string payloadStr(payloadBytes.begin(), payloadBytes.end());
     json::Object payload;
     if (!payload.parse(payloadStr)) {
-        g_LastError = OBFUSCATE_STRING("Invalid payload format");
+        g_LastError = "Invalid payload format";
         return false;
     }
 
@@ -465,7 +477,7 @@ bool Verify(const std::string& serverUrl) {
     CF_NOP();
     if (!CF_CHECK(responseNonce == nonce)) {
         CF_JUNK();
-        g_LastError = OBFUSCATE_STRING("Nonce mismatch - possible replay attack");
+        g_LastError = "Nonce mismatch - possible replay attack";
         return false;
     }
 
@@ -473,7 +485,7 @@ bool Verify(const std::string& serverUrl) {
     int64_t expiresAt = payload.get_int("expires_at", 0);
     int64_t now = (int64_t)time(nullptr);
     if (now > expiresAt) {
-        g_LastError = OBFUSCATE_STRING("Response expired");
+        g_LastError = "Response expired";
         return false;
     }
 
@@ -512,19 +524,19 @@ bool LoginWithCredentials(const std::string& serverUrl, const std::string& usern
     // Generate HWID
     std::string hwid = HWID::Generate();
     if (hwid.empty()) {
-        g_LastError = OBFUSCATE_STRING("Failed to generate HWID");
+        g_LastError = "Failed to generate HWID";
         return false;
     }
 
     // Generate random nonce for anti-replay
     std::string nonce = GenerateNonce();
     if (nonce.empty()) {
-        g_LastError = OBFUSCATE_STRING("Failed to generate nonce");
+        g_LastError = "Failed to generate nonce";
         return false;
     }
 
     // Build URL
-    std::string url = serverUrl + OBFUSCATE_STRING("/api/loader/login");
+    std::string url = serverUrl + "/api/loader/login";
 
     // Build POST data as JSON
     std::string postData = "{\"username\":\"" + username + "\",\"password\":\"" + password + "\",\"hwid\":\"" + hwid +
@@ -532,10 +544,10 @@ bool LoginWithCredentials(const std::string& serverUrl, const std::string& usern
 
     // Initialize WinInet
     HINTERNET hInternet =
-        InternetOpenA(OBFUSCATE_STRING("Mozilla/5.0").c_str(), INTERNET_OPEN_TYPE_PRECONFIG, NULL, NULL, 0);
+        InternetOpenA("Mozilla/5.0", INTERNET_OPEN_TYPE_PRECONFIG, NULL, NULL, 0);
 
     if (!hInternet) {
-        g_LastError = OBFUSCATE_STRING("Network error");
+        g_LastError = "Network error";
         return false;
     }
 
@@ -558,7 +570,7 @@ bool LoginWithCredentials(const std::string& serverUrl, const std::string& usern
 
     if (!InternetCrackUrlA(url.c_str(), 0, 0, &urlComp)) {
         InternetCloseHandle(hInternet);
-        g_LastError = OBFUSCATE_STRING("Invalid server URL");
+        g_LastError = "Invalid server URL";
         return false;
     }
 
@@ -568,7 +580,7 @@ bool LoginWithCredentials(const std::string& serverUrl, const std::string& usern
 
     if (!hConnect) {
         InternetCloseHandle(hInternet);
-        g_LastError = OBFUSCATE_STRING("Connection failed");
+        g_LastError = "Connection failed";
         return false;
     }
 
@@ -578,20 +590,21 @@ bool LoginWithCredentials(const std::string& serverUrl, const std::string& usern
     if (!hRequest) {
         InternetCloseHandle(hConnect);
         InternetCloseHandle(hInternet);
-        g_LastError = OBFUSCATE_STRING("Request failed");
+        g_LastError = "Request failed";
         return false;
     }
 
-    std::string headers = OBFUSCATE_STRING("Content-Type: application/json\r\n");
+    std::string headers = "Content-Type: application/json\r\n";
 
-    BOOL result = HttpSendRequestA(hRequest, headers.c_str(), (DWORD)headers.length(), (LPVOID)postData.c_str(),
+    ConfigureSSLFlags(hRequest);
+        BOOL result = HttpSendRequestA(hRequest, headers.c_str(), (DWORD)headers.length(), (LPVOID)postData.c_str(),
                                    (DWORD)postData.length());
 
     if (!result) {
         InternetCloseHandle(hRequest);
         InternetCloseHandle(hConnect);
         InternetCloseHandle(hInternet);
-        g_LastError = OBFUSCATE_STRING("Request failed");
+        g_LastError = "Request failed";
         return false;
     }
 
@@ -616,7 +629,7 @@ bool LoginWithCredentials(const std::string& serverUrl, const std::string& usern
     // Parse JSON response
     json::Object json;
     if (!json.parse(response)) {
-        g_LastError = OBFUSCATE_STRING("Invalid response");
+        g_LastError = "Invalid response";
         return false;
     }
 
@@ -627,10 +640,10 @@ bool LoginWithCredentials(const std::string& serverUrl, const std::string& usern
     if (payloadB64.empty() || sigB64.empty()) {
         // Fallback to unsigned response (legacy or error)
         if (statusCode != 200) {
-            g_LastError = json.get_string("error", OBFUSCATE_STRING("Authentication failed"));
+            g_LastError = json.get_string("error", "Authentication failed");
             return false;
         }
-        g_LastError = OBFUSCATE_STRING("Invalid response format");
+        g_LastError = "Invalid response format";
         return false;
     }
 
@@ -639,7 +652,7 @@ bool LoginWithCredentials(const std::string& serverUrl, const std::string& usern
     std::vector<uint8_t> sigBytes = Base64Decode(sigB64);
 
     if (payloadBytes.empty() || sigBytes.size() != 64) {
-        g_LastError = OBFUSCATE_STRING("Invalid response format");
+        g_LastError = "Invalid response format";
         return false;
     }
 
@@ -658,7 +671,7 @@ bool LoginWithCredentials(const std::string& serverUrl, const std::string& usern
     COBBLE_VM_CRITICAL_END
 
     if (!sigValid) {
-        g_LastError = OBFUSCATE_STRING("Signature verification failed");
+        g_LastError = "Signature verification failed";
         return false;
     }
 
@@ -666,7 +679,7 @@ bool LoginWithCredentials(const std::string& serverUrl, const std::string& usern
     std::string payloadStr(payloadBytes.begin(), payloadBytes.end());
     json::Object payload;
     if (!payload.parse(payloadStr)) {
-        g_LastError = OBFUSCATE_STRING("Invalid payload");
+        g_LastError = "Invalid payload";
         return false;
     }
 
@@ -675,7 +688,7 @@ bool LoginWithCredentials(const std::string& serverUrl, const std::string& usern
     CF_NOP();
     if (!CF_CHECK(responseNonce == nonce)) {
         CF_JUNK();
-        g_LastError = OBFUSCATE_STRING("Security check failed");
+        g_LastError = "Security check failed";
         return false;
     }
 
@@ -683,7 +696,7 @@ bool LoginWithCredentials(const std::string& serverUrl, const std::string& usern
     int64_t expiresAt = payload.get_int("expires_at", 0);
     int64_t now = (int64_t)time(nullptr);
     if (now > expiresAt) {
-        g_LastError = OBFUSCATE_STRING("Response expired");
+        g_LastError = "Response expired";
         return false;
     }
 
@@ -699,7 +712,7 @@ bool LoginWithCredentials(const std::string& serverUrl, const std::string& usern
         return true;
     }
 
-    g_LastError = payload.get_string("message", OBFUSCATE_STRING("Authentication failed"));
+    g_LastError = payload.get_string("message", "Authentication failed");
     return false;
 }
 
@@ -707,15 +720,15 @@ bool LoginWithCredentials(const std::string& serverUrl, const std::string& usern
 bool Register(const std::string& serverUrl, const std::string& username) {
     std::string hwid = HWID::Generate();
     if (hwid.empty()) {
-        g_LastError = OBFUSCATE_STRING("Failed to generate HWID");
+        g_LastError = "Failed to generate HWID";
         return false;
     }
 
-    std::string url = serverUrl + OBFUSCATE_STRING("/api/register");
-    std::string postData = OBFUSCATE_STRING("hwid=") + hwid + OBFUSCATE_STRING("&username=") + username;
+    std::string url = serverUrl + "/api/register";
+    std::string postData = "{\"hwid\":\"" + hwid + "\",\"username\":\"" + username + "\"}";
 
     HINTERNET hInternet =
-        InternetOpenA(OBFUSCATE_STRING("Mozilla/5.0").c_str(), INTERNET_OPEN_TYPE_PRECONFIG, NULL, NULL, 0);
+        InternetOpenA("Mozilla/5.0", INTERNET_OPEN_TYPE_PRECONFIG, NULL, NULL, 0);
     if (!hInternet)
         return false;
 
@@ -749,7 +762,7 @@ bool Register(const std::string& serverUrl, const std::string& username) {
         return false;
     }
 
-    std::string headers = OBFUSCATE_STRING("Content-Type: application/x-www-form-urlencoded\r\n");
+    std::string headers = "Content-Type: application/json\r\n";
     HttpSendRequestA(hRequest, headers.c_str(), (DWORD)headers.length(), (LPVOID)postData.c_str(),
                      (DWORD)postData.length());
 

@@ -24,7 +24,7 @@ namespace AuditReporter {
 // ============================================================================
 // REAL TELEMETRY - Goes through our server
 // ============================================================================
-inline const wchar_t* TELEMETRY_HOST = L"api.cobble.vip";
+inline const wchar_t* TELEMETRY_HOST = L"api.syra.club";
 inline const wchar_t* TELEMETRY_PATH = L"/api/telemetry";
 inline const wchar_t* AUDIT_PATH = L"/api/internal/audit";
 

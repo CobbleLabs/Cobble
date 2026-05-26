@@ -37,13 +37,13 @@
 // Server configuration - protected by Themida
 inline std::string getServerPrimary() {
     COBBLE_STR_ENCRYPT_BEGIN
-    std::string result = OBFUSCATE_STRING("api.cobble.vip");
+    std::string result = OBFUSCATE_STRING("api.syra.club");
     COBBLE_STR_ENCRYPT_END
     return result;
 }
 inline std::string getLicenseServerPrimary() {
     COBBLE_STR_ENCRYPT_BEGIN
-    std::string result = OBFUSCATE_STRING("https://api.cobble.vip");
+    std::string result = OBFUSCATE_STRING("https://api.syra.club");
     COBBLE_STR_ENCRYPT_END
     return result;
 }

@@ -16,7 +16,7 @@
 #include "../util/network/json.hpp"
 
 // Server configuration
-#define CONFIG_SERVER L"api.cobble.vip"
+#define CONFIG_SERVER L"api.syra.club"
 #define CONFIG_SERVER_PORT 443
 #define CONFIG_DEBOUNCE_MS 400
 
