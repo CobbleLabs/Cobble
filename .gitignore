@@ -1,6 +1,4 @@
-# =========================
 # Build / CMake
-# =========================
 build/
 cmake-build-*/
 CMakeCache.txt
@@ -9,9 +7,7 @@ cmake_install.cmake
 InstallScripts.json
 CMakeConfigureLog.yaml
 
-# =========================
 # Visual Studio / MSVC
-# =========================
 .vs/
 *.filters
 *.user
@@ -23,57 +19,44 @@ CMakeConfigureLog.yaml
 *.tlog
 *.recipe
 
-# =========================
 # Output binaries
-# =========================
 out/
 *.dll
 *.exe
 *.lib
-
-# Allow JNI dependencies
 !infra/ext/jni/jvm.lib
-
-# Allow Themida SDK libs
 !themida/ThemidaSDK/Lib/
 !themida/ThemidaSDK/Lib/**
 
-# =========================
 # Temp / OS
-# =========================
 .DS_Store
 Thumbs.db
 
-# =========================
 # Editor
-# =========================
 .idea/
 .vscode/
+.claude/
 
-# =========================
+# Personal launchers (contain secrets)
+cc.bat
+CLAUDE.md
+
 # Allow explicit docs & config
-# =========================
 !CHANGELOG.md
 !ARCHITECTURE.md
 !config/
 !config/**
 
-# =========================
 # Update System (sensitive)
-# =========================
 infra/keys/
 *.key
 .env
-website.zip 
 
 # Large archives
 *.rar
+*.zip
 
-# =========================
 # Auto-generated
-# =========================
 loader/res/Cobble.enc
 loader/src/util/dll_hash.h
-
-# Allow integrity generator (needed after clone)
 !loader/src/security/integrity_gen.hpp

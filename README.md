@@ -1,6 +1,6 @@
 # Cobble
 
-Ghost client for Lunar Client via JNI injection.
+Ghost client for Lunar Client (Minecraft 1.8.9) via JNI injection.
 
 ## Features
 
@@ -9,92 +9,79 @@ Ghost client for Lunar Client via JNI injection.
 - **Utility**: NoJumpDelay
 - **UI**: Custom ImGui overlay with modular settings
 
-## Quick Start
+## Quick start
 
 ```powershell
-# Build everything
+$env:PAYLOAD_KEY = "<64-char-hex>"   # must match the server's PAYLOAD_KEY
 .\build.ps1 -Release
 
 # Output
-out/bin/Release/CobbleLoader.exe  # Injector
-out/bin/Release/Cobble.dll        # Client (embedded in loader)
+out/bin/Release/CobbleLoader.exe
+out/bin/Release/Cobble.dll
+```
+
+> Without `-PayloadKey` / `$env:PAYLOAD_KEY`, the build uses a legacy hardcoded key (insecure, dev only).
+
+## Repos
+
+This client only — backend/website/bot live in separate repos:
+
+| Repo | Stack | Purpose |
+|---|---|---|
+| `cobble`            | C++20 / MSBuild       | This repo: client DLL + injector |
+| `cobble-server`     | Go 1.22 + PostgreSQL  | License API, payload-key delivery, telemetry, signed updates |
+| `cobble-web`        | Next.js 16 / React 19 | Public site, registration, dashboard |
+| `cobble-bot`        | Go + discordgo + SQLite | Discord ticket bot |
+
+## Layout
+
+```
+.
+├── Cobble.sln
+├── Cobble.vcxproj
+├── build.ps1
+├── CLAUDE.md            instructions for Claude Code (gitignored)
+├── CHANGELOG.md
+├── docs/
+│   ├── ARCHITECTURE.md
+│   ├── DEVELOPMENT.md
+│   └── UPDATE_WORKFLOW.md
+├── src/                 client DLL (modules, JNI bridge, hooks, overlay, security)
+├── loader/              injector (D3D11 + ImGui, security, updater)
+├── infra/ext/           vendored: imgui, minhook, jni, stb
+├── tools/               build helpers (encrypt, sign, generate keys, code quality)
+└── themida/             Themida SDK + project (local-only; do not commit license file)
 ```
 
 ## Documentation
 
-- [Architecture](docs/ARCHITECTURE.md) – System design and technical decisions
-- [Development](docs/DEVELOPMENT.md) – How to create modules and work in the codebase
-- [TODO](docs/TODO.md) – Roadmap and improvements
-- [Changelog](CHANGELOG.md) – Version history
-
-## Project Structure
-
-```
-Cobble/
-├── loader/           # Injector (C++)
-├── license-server/   # Backend API (Go + PostgreSQL)
-├── website/          # Frontend (Next.js)
-├── src/              # Client DLL
-│   ├── module/       # Feature modules
-│   ├── ui/           # ImGui overlay
-│   ├── sdk/          # Minecraft wrappers
-│   └── jni/          # JVM bridge
-├── docs/             # Documentation
-└── out/bin/Release/  # Build output
-```
+- [Architecture](docs/ARCHITECTURE.md) – system design and threading model
+- [Development](docs/DEVELOPMENT.md) – module template and conventions
+- [Update workflow](docs/UPDATE_WORKFLOW.md) – release pipeline, signed manifests
+- [CLAUDE.md](CLAUDE.md) – constraints summary for AI tooling (gitignored)
+- [Changelog](CHANGELOG.md)
 
 ## Requirements
 
-- Visual Studio 2022
+- Visual Studio 2022 (with MSBuild at `C:\Program Files\Microsoft Visual Studio\2022\Community\MSBuild\Current\Bin\MSBuild.exe`, or edit `build.ps1`)
 - Windows 10/11 x64
-- Lunar Client (Minecraft 1.8.9)
+- Lunar Client (Minecraft 1.8.9) for runtime
 
-## Server Deployment
+## Production build
 
-```bash
-# License Server
-cd license-server
-sudo bash deploy/deploy.sh
+The DLL is encrypted with `PAYLOAD_KEY` and the server hands the decryption key to the loader at runtime.
 
-# Website (on VPS)
-cd website
-npm install
-npm run build
-pm2 start npm --name "cobble-web" -- start
-```
-
-## Security Build (Production)
-
-For secure production builds, the DLL is encrypted with a server-side key:
-
-### 1. Generate key (once, on server):
-```bash
-openssl rand -hex 32
-# Save this key - it goes in both server .env AND build command
-```
-
-### 2. Configure server:
-```bash
-# Add to /opt/cobble/.env:
-PAYLOAD_KEY=<your-64-char-hex-key>
-
-systemctl restart cobble
-```
-
-### 3. Build with secure key:
 ```powershell
-$env:PAYLOAD_KEY = "<your-64-char-hex-key>"
+# 1. Generate the key once (server + client must use the same value)
+openssl rand -hex 32
+
+# 2. Set on server (cobble-server/.env): PAYLOAD_KEY=<hex>
+
+# 3. Build the client with the same value
+$env:PAYLOAD_KEY = "<hex>"
 .\build.ps1 -Release
 ```
 
-Or encrypt manually:
-```powershell
-.\tools\encrypt_payload.ps1 -InputDll out\bin\Release\Cobble.dll -PayloadKey "<key>"
-```
-
-> **Without `-PayloadKey`**: Uses legacy hardcoded key (insecure, for dev only).  
-> **With `-PayloadKey`**: Key comes from server at runtime (secure).
-
 ## License
 
-Private
+Private.
