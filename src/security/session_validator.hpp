@@ -311,10 +311,11 @@ inline bool ValidateWithServer() {
         return false;
     }
 
-    std::string body = "hwid=" + http::urlencode(g_HWID) + "&secret=" + http::urlencode(g_InjectionSecret) +
-                       "&nonce=" + http::urlencode(nonce);
+    // JSON body — Cloudflare WAF rejects form-encoded.
+    std::string body = "{\"hwid\":\"" + http::json_escape(g_HWID) +
+                       "\",\"secret\":\"" + http::json_escape(g_InjectionSecret) +
+                       "\",\"nonce\":\"" + http::json_escape(nonce) + "\"}";
 
-    // HTTPS only
     auto response = http::post(cobble_config::GetServerHostW().c_str(), 443, L"/api/dll/validate", body, true);
     if (!response.success) {
         InvalidateSession();
@@ -402,19 +403,19 @@ inline bool DoHeartbeat() {
         return false;  // Invalid state
     }
 
-    // Calculate sync hash for runtime validation
+    // Calculate sync hash for runtime validation (may be empty on first heartbeat)
     std::string syncHash = computeSyncHash();
 
-    // Build request body with URL encoding for safety
-    std::string body = "session_token=" + http::urlencode(g_SessionToken) + "&hwid=" + http::urlencode(g_HWID) +
-                       "&username=" + http::urlencode(g_Username) + "&version=1.0.30";
-
-    // Include sync hash if available
+    // Build JSON body. Cloudflare WAF rejects form-encoded.
+    std::string body = std::string("{\"session_token\":\"") + http::json_escape(g_SessionToken) +
+                       "\",\"hwid\":\"" + http::json_escape(g_HWID) +
+                       "\",\"username\":\"" + http::json_escape(g_Username) +
+                       "\",\"version\":\"" + http::json_escape(cobble_config::VERSION) + "\"";
     if (!syncHash.empty()) {
-        body += "&sync_hash=" + http::urlencode(syncHash);
+        body += ",\"sync_hash\":\"" + http::json_escape(syncHash) + "\"";
     }
+    body += "}";
 
-    // Make HTTP POST request to server
     log_debug("Sending heartbeat");
     http::Response response = http::post(cobble_config::GetServerHostW().c_str(), 443, L"/api/heartbeat", body, true);
 

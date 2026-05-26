@@ -11,9 +11,6 @@ bool LoginWithCredentials(const std::string& serverUrl, const std::string& usern
 // Check if last Verify failure was due to unregistered HWID
 bool RequiresLogin();
 
-// Legacy registration (deprecated)
-bool Register(const std::string& serverUrl, const std::string& username);
-
 // Fetch payload decryption key from server (requires valid session)
 bool FetchPayloadKey(const std::string& serverUrl);
 

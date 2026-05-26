@@ -26,7 +26,7 @@ $LoaderProject = "$RepoRoot\loader\CobbleLoader.vcxproj"
 $DLLOutput = "$RepoRoot\out\bin\$Configuration\Cobble.dll"
 $HashHeader = "$RepoRoot\loader\src\util\dll_hash.h"
 $LoaderOutput = "$RepoRoot\out\bin\$Configuration\CobbleLoader.exe"
-$VersionHeader = "$RepoRoot\loader\src\version.h"
+$VersionHeader = "$RepoRoot\generated\version.h"
 
 function Write-Step($msg) {
     Write-Host "`n[ BUILD ] " -ForegroundColor Cyan -NoNewline

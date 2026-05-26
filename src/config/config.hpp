@@ -182,7 +182,8 @@ private:
         if (!syncEnabled_ || hwid_.empty() || sessionToken_.empty())
             return;
 
-        std::string body = "hwid=" + http::urlencode(hwid_) + "&token=" + http::urlencode(sessionToken_);
+        std::string body = "{\"hwid\":\"" + http::json_escape(hwid_) +
+                           "\",\"token\":\"" + http::json_escape(sessionToken_) + "\"}";
 
         // HTTPS only - encrypted traffic
         auto response = http::post(cobble_config::GetServerHostW().c_str(), CONFIG_SERVER_PORT, L"/api/config", body, true);
@@ -231,8 +232,11 @@ private:
             configJson = config_.serialize();
         }
 
-        std::string body = "hwid=" + http::urlencode(hwid_) + "&token=" + http::urlencode(sessionToken_) +
-                           "&config=" + http::urlencode(configJson);
+        // Server expects: { "hwid": ..., "token": ..., "config": <raw JSON> }
+        // configJson is already a JSON object string, so embed it as-is.
+        std::string body = "{\"hwid\":\"" + http::json_escape(hwid_) +
+                           "\",\"token\":\"" + http::json_escape(sessionToken_) +
+                           "\",\"config\":" + configJson + "}";
 
         // HTTPS only - encrypted traffic
         auto response = http::post(cobble_config::GetServerHostW().c_str(), CONFIG_SERVER_PORT, L"/api/config/save", body, true);

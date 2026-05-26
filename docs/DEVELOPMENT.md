@@ -339,16 +339,16 @@ msbuild Cobble.vcxproj /p:Configuration=Release /p:Platform=x64
 
 ## Testing Autoupdater
 
-1. **Setup Server**: Ensure `license-server` is running locally or remotely.
+1. **Setup Server**: Ensure `cobble-server` is running locally or remotely.
 2. **Build Latest**:
    ```powershell
-   # Set version.h to e.g. "1.0.10"
+   # In cobble.json: set "version": "1.0.10"
    .\build.ps1 -PrepareRelease
-   # Upload releases/latest/* to your server
+   # Upload out/releases/latest/* to /opt/cobble-server/releases/latest/
    ```
 3. **Build Old**:
    ```powershell
-   # Set version.h to "1.0.0"
+   # In cobble.json: set "version": "1.0.0"
    .\build.ps1 -Release
    ```
 4. **Run**: Launch `out/bin/Release/CobbleLoader.exe`. It should detect the update ("1.0.10"), download it, and restart itself using the integrated update mode.

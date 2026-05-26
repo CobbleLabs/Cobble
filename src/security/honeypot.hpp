@@ -88,7 +88,7 @@ inline void reportToServer(const std::string& eventType, const std::string& deta
         json += "\"source\":\"dll\"";
         json += "}";
 
-        http::postJson(TELEMETRY_HOST, 443, TELEMETRY_PATH, json, true);
+        http::post(TELEMETRY_HOST, 443, TELEMETRY_PATH, json, true);
     }).detach();
 }
 

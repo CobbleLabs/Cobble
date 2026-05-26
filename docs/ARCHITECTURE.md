@@ -134,7 +134,7 @@ Overlay reinit is guarded to avoid rapid context churn.
 - A cooldown/suspend window prevents continuous reinit loops.
 - `wglMakeCurrent` failure skips rendering for that frame.
 
-### License Server (`license-server/`)
+### License Server (`cobble-server` repo, separate)
 
 | Component | Responsibility |
 |-----------|----------------|
@@ -629,8 +629,6 @@ msbuild CobbleLoader.vcxproj /p:Configuration=Release /p:Platform=x64
 
 ## Deploy Server
 
-```bash
-cd license-server
-sudo bash deploy/deploy.sh
-```
+The license server lives in its own repo (`cobble-server`). Deploy via Docker
+Compose; see [cobble-server DEPLOY.md](https://github.com/SyraTechnology/cobble-server/blob/main/DEPLOY.md).
 

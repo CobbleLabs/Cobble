@@ -13,8 +13,8 @@
 #include "../util/json.h"
 #include "../security/themida.h"
 #include "hwid.h"
-#include "version.h"
 #include "generated/keys.h"
+#include "generated/version.h"
 
 #pragma comment(lib, "wininet.lib")
 #pragma comment(lib, "crypt32.lib")
@@ -713,82 +713,4 @@ bool LoginWithCredentials(const std::string& serverUrl, const std::string& usern
 }
 
 // Register new user (returns true if successful)
-bool Register(const std::string& serverUrl, const std::string& username) {
-    std::string hwid = HWID::Generate();
-    if (hwid.empty()) {
-        g_LastError = "Failed to generate HWID";
-        return false;
-    }
-
-    std::string url = serverUrl + "/api/register";
-    std::string postData = "{\"hwid\":\"" + hwid + "\",\"username\":\"" + username + "\"}";
-
-    HINTERNET hInternet =
-        InternetOpenA("Mozilla/5.0", INTERNET_OPEN_TYPE_PRECONFIG, NULL, NULL, 0);
-    if (!hInternet)
-        return false;
-
-    URL_COMPONENTSA urlComp = {0};
-    urlComp.dwStructSize = sizeof(urlComp);
-    char hostName[256] = {0};
-    char urlPath[1024] = {0};
-    urlComp.lpszHostName = hostName;
-    urlComp.dwHostNameLength = sizeof(hostName);
-    urlComp.lpszUrlPath = urlPath;
-    urlComp.dwUrlPathLength = sizeof(urlPath);
-
-    if (!InternetCrackUrlA(url.c_str(), 0, 0, &urlComp)) {
-        InternetCloseHandle(hInternet);
-        return false;
-    }
-
-    DWORD flags = (urlComp.nScheme == INTERNET_SCHEME_HTTPS) ? INTERNET_FLAG_SECURE : 0;
-
-    HINTERNET hConnect = InternetConnectA(hInternet, hostName, urlComp.nPort, NULL, NULL, INTERNET_SERVICE_HTTP, 0, 0);
-    if (!hConnect) {
-        InternetCloseHandle(hInternet);
-        return false;
-    }
-
-    HINTERNET hRequest =
-        HttpOpenRequestA(hConnect, "POST", urlPath, NULL, NULL, NULL, flags | INTERNET_FLAG_NO_CACHE_WRITE, 0);
-    if (!hRequest) {
-        InternetCloseHandle(hConnect);
-        InternetCloseHandle(hInternet);
-        return false;
-    }
-
-    std::string headers = "Content-Type: application/json\r\n";
-    HttpSendRequestA(hRequest, headers.c_str(), (DWORD)headers.length(), (LPVOID)postData.c_str(),
-                     (DWORD)postData.length());
-
-    char buffer[1024] = {0};
-    DWORD bytesRead = 0;
-    std::string response;
-    while (InternetReadFile(hRequest, buffer, sizeof(buffer) - 1, &bytesRead) && bytesRead > 0) {
-        buffer[bytesRead] = '\0';
-        response += buffer;
-    }
-
-    InternetCloseHandle(hRequest);
-    InternetCloseHandle(hConnect);
-    InternetCloseHandle(hInternet);
-
-    if (response.find("\"success\":true") != std::string::npos) {
-        return true;
-    }
-
-    // Extract error
-    size_t errStart = response.find("\"error\":\"");
-    if (errStart != std::string::npos) {
-        errStart += 9;
-        size_t errEnd = response.find("\"", errStart);
-        if (errEnd != std::string::npos) {
-            g_LastError = response.substr(errStart, errEnd - errStart);
-        }
-    }
-
-    return false;
-}
-
 }  // namespace License

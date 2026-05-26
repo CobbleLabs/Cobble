@@ -79,7 +79,7 @@ Cobble uses an **integrated autoupdater** that allows the loader to update itsel
 | Download & Verify | `loader/src/update/download.h` | Download file, SHA256+size check |
 | Update Mode | `loader/main.cpp` | Self-replace logic (integrated stub) |
 | Manifest Signing | `tools/sign_manifest.go` | Ed25519 signing |
-| Server Endpoints | `license-server/handlers/update.go` | Serve manifest and binaries |
+| Server Endpoints | `cobble-server/internal/handlers/update.go` | Serve manifest and binaries |
 
 ---
 
@@ -91,8 +91,8 @@ Cobble uses an **integrated autoupdater** that allows the loader to update itsel
 
 This automatically:
 - Generates Ed25519 keypair in `infra/keys/`
-- Updates `updater.h` with the public key
-- Creates private key for signing releases
+- Updates `cobble.json` with the new public key (or copy it manually)
+- Creates the private key for signing releases (`infra/keys/private.key`)
 
 ---
 
@@ -100,10 +100,12 @@ This automatically:
 
 ### 1. Update version
 
-Edit `loader/src/version.h`:
-```cpp
-#define COBBLE_VERSION "1.0.15"
+Edit `cobble.json`:
+```json
+{ "version": "1.0.15", ... }
 ```
+
+`generate_config.ps1` produces `generated/version.h` from this on every build.
 
 ### 2. Build + Sign + Set Mandatory
 

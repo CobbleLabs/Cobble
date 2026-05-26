@@ -23,12 +23,12 @@
 #include "src/update/updater.h"
 #include "src/util/dll_hash.h"
 #include "src/util/hash.h"
-#include "version.h"
 #include "xor.h"
 
-// Generated config (per-build obfuscated)
+// Generated config (per-build obfuscated, sourced from cobble.json)
 #include "generated/server_config.h"
 #include "generated/keys.h"
+#include "generated/version.h"
 
 // Protection system
 #include "src/license/telemetry.hpp"

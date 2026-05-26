@@ -3,11 +3,12 @@
 #include <Windows.h>
 #include <winhttp.h>
 #include <string>
+#include <vector>
 
 #pragma comment(lib, "winhttp.lib")
 
-// Simple HTTP client for config sync
-// Uses WinHTTP (built into Windows)
+// Tiny WinHTTP wrapper. JSON-only POST (server requires it; Cloudflare WAF
+// rejects form-encoded). Plus a couple of JSON / URL helpers used everywhere.
 
 namespace http {
 
@@ -18,240 +19,98 @@ struct Response {
     std::string error;
 };
 
+namespace _detail {
+
+inline HINTERNET openSession() {
+    HINTERNET h = WinHttpOpen(L"Cobble/1.0", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, WINHTTP_NO_PROXY_NAME,
+                              WINHTTP_NO_PROXY_BYPASS, 0);
+    if (!h) return nullptr;
+    DWORD timeout = 5000;
+    WinHttpSetOption(h, WINHTTP_OPTION_CONNECT_TIMEOUT, &timeout, sizeof(timeout));
+    WinHttpSetOption(h, WINHTTP_OPTION_SEND_TIMEOUT, &timeout, sizeof(timeout));
+    WinHttpSetOption(h, WINHTTP_OPTION_RECEIVE_TIMEOUT, &timeout, sizeof(timeout));
+    return h;
+}
+
+inline void readBody(HINTERNET hRequest, Response& res) {
+    DWORD statusCode = 0;
+    DWORD statusCodeSize = sizeof(statusCode);
+    WinHttpQueryHeaders(hRequest, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER, nullptr, &statusCode,
+                        &statusCodeSize, nullptr);
+    res.statusCode = static_cast<int>(statusCode);
+
+    DWORD bytesAvailable = 0;
+    while (WinHttpQueryDataAvailable(hRequest, &bytesAvailable) && bytesAvailable > 0) {
+        std::vector<char> buffer(bytesAvailable + 1);
+        DWORD bytesRead = 0;
+        if (WinHttpReadData(hRequest, buffer.data(), bytesAvailable, &bytesRead)) {
+            res.body.append(buffer.data(), bytesRead);
+        }
+    }
+
+    res.success = (statusCode >= 200 && statusCode < 300);
+}
+
+}  // namespace _detail
+
 inline Response get(const std::wstring& host, int port, const std::wstring& path, bool https = false) {
     Response res;
+    HINTERNET session = _detail::openSession();
+    if (!session) { res.error = "WinHttpOpen failed"; return res; }
 
-    HINTERNET hSession = WinHttpOpen(L"Cobble/1.0", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, WINHTTP_NO_PROXY_NAME,
-                                     WINHTTP_NO_PROXY_BYPASS, 0);
-
-    if (!hSession) {
-        res.error = "WinHttpOpen failed";
-        return res;
-    }
-
-    // Set timeout (5 seconds)
-    DWORD timeout = 5000;
-    WinHttpSetOption(hSession, WINHTTP_OPTION_CONNECT_TIMEOUT, &timeout, sizeof(timeout));
-    WinHttpSetOption(hSession, WINHTTP_OPTION_SEND_TIMEOUT, &timeout, sizeof(timeout));
-    WinHttpSetOption(hSession, WINHTTP_OPTION_RECEIVE_TIMEOUT, &timeout, sizeof(timeout));
-
-    HINTERNET hConnect = WinHttpConnect(hSession, host.c_str(), static_cast<INTERNET_PORT>(port), 0);
-    if (!hConnect) {
-        res.error = "WinHttpConnect failed";
-        WinHttpCloseHandle(hSession);
-        return res;
-    }
+    HINTERNET connect = WinHttpConnect(session, host.c_str(), static_cast<INTERNET_PORT>(port), 0);
+    if (!connect) { res.error = "WinHttpConnect failed"; WinHttpCloseHandle(session); return res; }
 
     DWORD flags = https ? WINHTTP_FLAG_SECURE : 0;
-    HINTERNET hRequest = WinHttpOpenRequest(hConnect, L"GET", path.c_str(), nullptr, WINHTTP_NO_REFERER,
-                                            WINHTTP_DEFAULT_ACCEPT_TYPES, flags);
+    HINTERNET request = WinHttpOpenRequest(connect, L"GET", path.c_str(), nullptr, WINHTTP_NO_REFERER,
+                                           WINHTTP_DEFAULT_ACCEPT_TYPES, flags);
+    if (!request) { res.error = "WinHttpOpenRequest failed"; WinHttpCloseHandle(connect); WinHttpCloseHandle(session); return res; }
 
-    if (!hRequest) {
-        res.error = "WinHttpOpenRequest failed";
-        WinHttpCloseHandle(hConnect);
-        WinHttpCloseHandle(hSession);
+    if (!WinHttpSendRequest(request, WINHTTP_NO_ADDITIONAL_HEADERS, 0, WINHTTP_NO_REQUEST_DATA, 0, 0, 0) ||
+        !WinHttpReceiveResponse(request, nullptr)) {
+        res.error = "request failed";
+        WinHttpCloseHandle(request); WinHttpCloseHandle(connect); WinHttpCloseHandle(session);
         return res;
     }
 
-    if (!WinHttpSendRequest(hRequest, WINHTTP_NO_ADDITIONAL_HEADERS, 0, WINHTTP_NO_REQUEST_DATA, 0, 0, 0)) {
-        res.error = "WinHttpSendRequest failed";
-        WinHttpCloseHandle(hRequest);
-        WinHttpCloseHandle(hConnect);
-        WinHttpCloseHandle(hSession);
-        return res;
-    }
+    _detail::readBody(request, res);
 
-    if (!WinHttpReceiveResponse(hRequest, nullptr)) {
-        res.error = "WinHttpReceiveResponse failed";
-        WinHttpCloseHandle(hRequest);
-        WinHttpCloseHandle(hConnect);
-        WinHttpCloseHandle(hSession);
-        return res;
-    }
-
-    DWORD statusCode = 0;
-    DWORD statusCodeSize = sizeof(statusCode);
-    WinHttpQueryHeaders(hRequest, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER, nullptr, &statusCode,
-                        &statusCodeSize, nullptr);
-    res.statusCode = static_cast<int>(statusCode);
-
-    // Read body
-    DWORD bytesAvailable = 0;
-    while (WinHttpQueryDataAvailable(hRequest, &bytesAvailable) && bytesAvailable > 0) {
-        std::vector<char> buffer(bytesAvailable + 1);
-        DWORD bytesRead = 0;
-        if (WinHttpReadData(hRequest, buffer.data(), bytesAvailable, &bytesRead)) {
-            res.body.append(buffer.data(), bytesRead);
-        }
-    }
-
-    res.success = (statusCode >= 200 && statusCode < 300);
-
-    WinHttpCloseHandle(hRequest);
-    WinHttpCloseHandle(hConnect);
-    WinHttpCloseHandle(hSession);
-
+    WinHttpCloseHandle(request); WinHttpCloseHandle(connect); WinHttpCloseHandle(session);
     return res;
 }
 
-inline Response post(const std::wstring& host, int port, const std::wstring& path, const std::string& body,
+// JSON POST — the only POST we make to our server. Cloudflare WAF blocks
+// form-encoded so this is the canonical path.
+inline Response post(const std::wstring& host, int port, const std::wstring& path, const std::string& jsonBody,
                      bool https = false) {
     Response res;
+    HINTERNET session = _detail::openSession();
+    if (!session) { res.error = "WinHttpOpen failed"; return res; }
 
-    HINTERNET hSession = WinHttpOpen(L"Cobble/1.0", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, WINHTTP_NO_PROXY_NAME,
-                                     WINHTTP_NO_PROXY_BYPASS, 0);
-
-    if (!hSession) {
-        res.error = "WinHttpOpen failed";
-        return res;
-    }
-
-    DWORD timeout = 5000;
-    WinHttpSetOption(hSession, WINHTTP_OPTION_CONNECT_TIMEOUT, &timeout, sizeof(timeout));
-    WinHttpSetOption(hSession, WINHTTP_OPTION_SEND_TIMEOUT, &timeout, sizeof(timeout));
-    WinHttpSetOption(hSession, WINHTTP_OPTION_RECEIVE_TIMEOUT, &timeout, sizeof(timeout));
-
-    HINTERNET hConnect = WinHttpConnect(hSession, host.c_str(), static_cast<INTERNET_PORT>(port), 0);
-    if (!hConnect) {
-        res.error = "WinHttpConnect failed";
-        WinHttpCloseHandle(hSession);
-        return res;
-    }
+    HINTERNET connect = WinHttpConnect(session, host.c_str(), static_cast<INTERNET_PORT>(port), 0);
+    if (!connect) { res.error = "WinHttpConnect failed"; WinHttpCloseHandle(session); return res; }
 
     DWORD flags = https ? WINHTTP_FLAG_SECURE : 0;
-    HINTERNET hRequest = WinHttpOpenRequest(hConnect, L"POST", path.c_str(), nullptr, WINHTTP_NO_REFERER,
-                                            WINHTTP_DEFAULT_ACCEPT_TYPES, flags);
-
-    if (!hRequest) {
-        res.error = "WinHttpOpenRequest failed";
-        WinHttpCloseHandle(hConnect);
-        WinHttpCloseHandle(hSession);
-        return res;
-    }
-
-    const wchar_t* headers = L"Content-Type: application/x-www-form-urlencoded\r\n";
-
-    if (!WinHttpSendRequest(hRequest, headers, static_cast<DWORD>(-1L), (LPVOID)body.c_str(),
-                            static_cast<DWORD>(body.length()), static_cast<DWORD>(body.length()), 0)) {
-        res.error = "WinHttpSendRequest failed";
-        WinHttpCloseHandle(hRequest);
-        WinHttpCloseHandle(hConnect);
-        WinHttpCloseHandle(hSession);
-        return res;
-    }
-
-    if (!WinHttpReceiveResponse(hRequest, nullptr)) {
-        res.error = "WinHttpReceiveResponse failed";
-        WinHttpCloseHandle(hRequest);
-        WinHttpCloseHandle(hConnect);
-        WinHttpCloseHandle(hSession);
-        return res;
-    }
-
-    DWORD statusCode = 0;
-    DWORD statusCodeSize = sizeof(statusCode);
-    WinHttpQueryHeaders(hRequest, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER, nullptr, &statusCode,
-                        &statusCodeSize, nullptr);
-    res.statusCode = static_cast<int>(statusCode);
-
-    DWORD bytesAvailable = 0;
-    while (WinHttpQueryDataAvailable(hRequest, &bytesAvailable) && bytesAvailable > 0) {
-        std::vector<char> buffer(bytesAvailable + 1);
-        DWORD bytesRead = 0;
-        if (WinHttpReadData(hRequest, buffer.data(), bytesAvailable, &bytesRead)) {
-            res.body.append(buffer.data(), bytesRead);
-        }
-    }
-
-    res.success = (statusCode >= 200 && statusCode < 300);
-
-    WinHttpCloseHandle(hRequest);
-    WinHttpCloseHandle(hConnect);
-    WinHttpCloseHandle(hSession);
-
-    return res;
-}
-
-// POST with JSON content type (for webhooks etc)
-inline Response postJson(const std::wstring& host, int port, const std::wstring& path, const std::string& body,
-                         bool https = false) {
-    Response res;
-
-    HINTERNET hSession = WinHttpOpen(L"Cobble/1.0", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, WINHTTP_NO_PROXY_NAME,
-                                     WINHTTP_NO_PROXY_BYPASS, 0);
-
-    if (!hSession) {
-        res.error = "WinHttpOpen failed";
-        return res;
-    }
-
-    DWORD timeout = 5000;
-    WinHttpSetOption(hSession, WINHTTP_OPTION_CONNECT_TIMEOUT, &timeout, sizeof(timeout));
-    WinHttpSetOption(hSession, WINHTTP_OPTION_SEND_TIMEOUT, &timeout, sizeof(timeout));
-    WinHttpSetOption(hSession, WINHTTP_OPTION_RECEIVE_TIMEOUT, &timeout, sizeof(timeout));
-
-    HINTERNET hConnect = WinHttpConnect(hSession, host.c_str(), static_cast<INTERNET_PORT>(port), 0);
-    if (!hConnect) {
-        res.error = "WinHttpConnect failed";
-        WinHttpCloseHandle(hSession);
-        return res;
-    }
-
-    DWORD flags = https ? WINHTTP_FLAG_SECURE : 0;
-    HINTERNET hRequest = WinHttpOpenRequest(hConnect, L"POST", path.c_str(), nullptr, WINHTTP_NO_REFERER,
-                                            WINHTTP_DEFAULT_ACCEPT_TYPES, flags);
-
-    if (!hRequest) {
-        res.error = "WinHttpOpenRequest failed";
-        WinHttpCloseHandle(hConnect);
-        WinHttpCloseHandle(hSession);
-        return res;
-    }
+    HINTERNET request = WinHttpOpenRequest(connect, L"POST", path.c_str(), nullptr, WINHTTP_NO_REFERER,
+                                           WINHTTP_DEFAULT_ACCEPT_TYPES, flags);
+    if (!request) { res.error = "WinHttpOpenRequest failed"; WinHttpCloseHandle(connect); WinHttpCloseHandle(session); return res; }
 
     const wchar_t* headers = L"Content-Type: application/json\r\n";
-
-    if (!WinHttpSendRequest(hRequest, headers, static_cast<DWORD>(-1L), (LPVOID)body.c_str(),
-                            static_cast<DWORD>(body.length()), static_cast<DWORD>(body.length()), 0)) {
-        res.error = "WinHttpSendRequest failed";
-        WinHttpCloseHandle(hRequest);
-        WinHttpCloseHandle(hConnect);
-        WinHttpCloseHandle(hSession);
+    if (!WinHttpSendRequest(request, headers, static_cast<DWORD>(-1L), (LPVOID)jsonBody.c_str(),
+                            static_cast<DWORD>(jsonBody.length()), static_cast<DWORD>(jsonBody.length()), 0) ||
+        !WinHttpReceiveResponse(request, nullptr)) {
+        res.error = "request failed";
+        WinHttpCloseHandle(request); WinHttpCloseHandle(connect); WinHttpCloseHandle(session);
         return res;
     }
 
-    if (!WinHttpReceiveResponse(hRequest, nullptr)) {
-        res.error = "WinHttpReceiveResponse failed";
-        WinHttpCloseHandle(hRequest);
-        WinHttpCloseHandle(hConnect);
-        WinHttpCloseHandle(hSession);
-        return res;
-    }
+    _detail::readBody(request, res);
 
-    DWORD statusCode = 0;
-    DWORD statusCodeSize = sizeof(statusCode);
-    WinHttpQueryHeaders(hRequest, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER, nullptr, &statusCode,
-                        &statusCodeSize, nullptr);
-    res.statusCode = static_cast<int>(statusCode);
-
-    DWORD bytesAvailable = 0;
-    while (WinHttpQueryDataAvailable(hRequest, &bytesAvailable) && bytesAvailable > 0) {
-        std::vector<char> buffer(bytesAvailable + 1);
-        DWORD bytesRead = 0;
-        if (WinHttpReadData(hRequest, buffer.data(), bytesAvailable, &bytesRead)) {
-            res.body.append(buffer.data(), bytesRead);
-        }
-    }
-
-    res.success = (statusCode >= 200 && statusCode < 300);
-
-    WinHttpCloseHandle(hRequest);
-    WinHttpCloseHandle(hConnect);
-    WinHttpCloseHandle(hSession);
-
+    WinHttpCloseHandle(request); WinHttpCloseHandle(connect); WinHttpCloseHandle(session);
     return res;
 }
 
-// URL encode a string
+// URL-encode (still needed for Mojang GET path segments).
 inline std::string urlencode(const std::string& str) {
     std::string result;
     for (char c : str) {
@@ -266,63 +125,64 @@ inline std::string urlencode(const std::string& str) {
     return result;
 }
 
+// Escape a string for inclusion inside a JSON string literal.
+inline std::string json_escape(const std::string& s) {
+    std::string out;
+    out.reserve(s.size() + 8);
+    for (char c : s) {
+        switch (c) {
+            case '"':  out += "\\\""; break;
+            case '\\': out += "\\\\"; break;
+            case '\n': out += "\\n";  break;
+            case '\r': out += "\\r";  break;
+            case '\t': out += "\\t";  break;
+            default:
+                if (static_cast<unsigned char>(c) < 0x20) {
+                    char buf[8];
+                    snprintf(buf, sizeof(buf), "\\u%04x", c);
+                    out += buf;
+                } else {
+                    out += c;
+                }
+        }
+    }
+    return out;
+}
+
 // ============================================================
 // Mojang API - Username to UUID lookup
 // ============================================================
 
-// Response from Mojang API: {"id":"uuid_without_dashes","name":"Username"}
 struct MojangProfile {
     std::string uuid;  // UUID with dashes
-    std::string name;  // Exact capitalized name from Mojang
+    std::string name;  // exact-case name
     bool found = false;
 };
 
-// Convert UUID without dashes to standard format with dashes
 inline std::string formatUUID(const std::string& raw) {
-    if (raw.length() != 32)
-        return raw;
-    // xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
-    return raw.substr(0, 8) + "-" + raw.substr(8, 4) + "-" + raw.substr(12, 4) + "-" + raw.substr(16, 4) + "-" +
-           raw.substr(20);
+    if (raw.length() != 32) return raw;
+    return raw.substr(0, 8) + "-" + raw.substr(8, 4) + "-" + raw.substr(12, 4) + "-" + raw.substr(16, 4) + "-" + raw.substr(20);
 }
 
-// Lookup Minecraft username -> UUID via Mojang API
-// API: GET https://api.mojang.com/users/profiles/minecraft/{username}
-// Returns: {"id":"uuid_no_dashes","name":"ExactName"} or 204 No Content if not found
 inline MojangProfile lookupMojangUUID(const std::string& username) {
     MojangProfile profile;
-
-    // Build path: /users/profiles/minecraft/{username}
     std::wstring path = L"/users/profiles/minecraft/";
-    for (char c : username) {
-        path += static_cast<wchar_t>(c);
-    }
+    for (char c : username) path += static_cast<wchar_t>(c);
 
-    // Call Mojang API (HTTPS on port 443)
     auto response = get(L"api.mojang.com", 443, path, true);
+    if (!response.success) return profile;
 
-    if (!response.success) {
-        return profile;  // API error or user not found
-    }
-
-    // Parse simple JSON: {"id":"uuid","name":"Name"}
-    // Simple parsing since we control the format
-    std::string& body = response.body;
-
-    // Find "id":"value"
+    const std::string& body = response.body;
     size_t idPos = body.find("\"id\":");
     if (idPos != std::string::npos) {
         size_t start = body.find('\"', idPos + 5);
         if (start != std::string::npos) {
             size_t end = body.find('\"', start + 1);
             if (end != std::string::npos) {
-                std::string rawUUID = body.substr(start + 1, end - start - 1);
-                profile.uuid = formatUUID(rawUUID);
+                profile.uuid = formatUUID(body.substr(start + 1, end - start - 1));
             }
         }
     }
-
-    // Find "name":"value"
     size_t namePos = body.find("\"name\":");
     if (namePos != std::string::npos) {
         size_t start = body.find('\"', namePos + 7);
@@ -333,43 +193,24 @@ inline MojangProfile lookupMojangUUID(const std::string& username) {
             }
         }
     }
-
     profile.found = !profile.uuid.empty();
     return profile;
 }
 
-// Lookup Minecraft UUID -> Username via Mojang API
-// API: GET https://sessionserver.mojang.com/session/minecraft/profile/{uuid}
-// Returns: {"id":"uuid_no_dashes","name":"ExactName",...}
 inline std::string lookupMojangName(const std::string& uuid) {
-    // Remove dashes from UUID for API
-    std::string cleanUUID;
-    for (char c : uuid) {
-        if (c != '-')
-            cleanUUID += c;
-    }
+    std::string clean;
+    for (char c : uuid) if (c != '-') clean += c;
+    if (clean.length() != 32) return "";
 
-    if (cleanUUID.length() != 32)
-        return "";
-
-    // Build path: /session/minecraft/profile/{uuid}
     std::wstring path = L"/session/minecraft/profile/";
-    for (char c : cleanUUID) {
-        path += static_cast<wchar_t>(c);
-    }
+    for (char c : clean) path += static_cast<wchar_t>(c);
 
-    // Call Mojang Session API (HTTPS on port 443)
     auto response = get(L"sessionserver.mojang.com", 443, path, true);
+    if (!response.success) return "";
 
-    if (!response.success) {
-        return "";  // API error or user not found
-    }
-
-    // Parse JSON for "name" : "value" (note: Mojang uses spaces around colon)
-    std::string& body = response.body;
+    const std::string& body = response.body;
     size_t namePos = body.find("\"name\"");
     if (namePos != std::string::npos) {
-        // Skip past "name", any whitespace, colon, any whitespace
         size_t colonPos = body.find(':', namePos + 6);
         if (colonPos != std::string::npos) {
             size_t start = body.find('\"', colonPos + 1);
@@ -381,7 +222,6 @@ inline std::string lookupMojangName(const std::string& uuid) {
             }
         }
     }
-
     return "";
 }
 

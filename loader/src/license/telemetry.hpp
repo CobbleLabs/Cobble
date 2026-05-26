@@ -12,7 +12,7 @@
 #include <string>
 #include <unordered_map>
 #include "../util/aes_string.hpp"
-#include "../version.h"
+#include "generated/version.h"
 #include "generated/server_config.h"
 #include "hwid.h"
 

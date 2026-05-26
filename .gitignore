@@ -56,3 +56,4 @@ loader/src/util/dll_hash.h
 # Auto-generated config headers
 generated/
 cobble.json
+!cobble.json.example
