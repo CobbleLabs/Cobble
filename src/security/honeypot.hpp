@@ -20,7 +20,9 @@ namespace Honeypot {
 // ============================================================================
 // REAL TELEMETRY - Goes through our server
 // ============================================================================
-inline const wchar_t* TELEMETRY_HOST = L"api.syra.club";
+#include "generated/server_config.h"
+inline std::wstring GetHoneypotHost() { return cobble_config::GetServerHostW(); }
+#define TELEMETRY_HOST GetHoneypotHost().c_str()
 inline const wchar_t* TELEMETRY_PATH = L"/api/telemetry";
 
 // ============================================================================

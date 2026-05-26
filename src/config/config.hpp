@@ -14,9 +14,9 @@
 #include "../util/logger.hpp"
 #include "../util/network/http.hpp"
 #include "../util/network/json.hpp"
+#include "generated/server_config.h"
 
 // Server configuration
-#define CONFIG_SERVER L"api.syra.club"
 #define CONFIG_SERVER_PORT 443
 #define CONFIG_DEBOUNCE_MS 400
 
@@ -185,7 +185,7 @@ private:
         std::string body = "hwid=" + http::urlencode(hwid_) + "&token=" + http::urlencode(sessionToken_);
 
         // HTTPS only - encrypted traffic
-        auto response = http::post(CONFIG_SERVER, CONFIG_SERVER_PORT, L"/api/config", body, true);
+        auto response = http::post(cobble_config::GetServerHostW().c_str(), CONFIG_SERVER_PORT, L"/api/config", body, true);
 
         if (!response.success) {
             log_debug("ConfigManager: Server fetch failed: %s", response.error.c_str());
@@ -235,7 +235,7 @@ private:
                            "&config=" + http::urlencode(configJson);
 
         // HTTPS only - encrypted traffic
-        auto response = http::post(CONFIG_SERVER, CONFIG_SERVER_PORT, L"/api/config/save", body, true);
+        auto response = http::post(cobble_config::GetServerHostW().c_str(), CONFIG_SERVER_PORT, L"/api/config/save", body, true);
 
         if (response.success) {
             log_debug("ConfigManager: Synced to server");

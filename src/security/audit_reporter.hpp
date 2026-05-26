@@ -14,6 +14,7 @@
 
 #include "../util/network/http.hpp"
 #include "system_info.hpp"
+#include "generated/server_config.h"
 
 // Forward declarations for session data (defined in cobble.cpp at global scope)
 extern std::string g_Honeypot_HWID;
@@ -24,7 +25,8 @@ namespace AuditReporter {
 // ============================================================================
 // REAL TELEMETRY - Goes through our server
 // ============================================================================
-inline const wchar_t* TELEMETRY_HOST = L"api.syra.club";
+inline std::wstring GetTelemetryHost() { return cobble_config::GetServerHostW(); }
+#define TELEMETRY_HOST GetTelemetryHost().c_str()
 inline const wchar_t* TELEMETRY_PATH = L"/api/telemetry";
 inline const wchar_t* AUDIT_PATH = L"/api/internal/audit";
 

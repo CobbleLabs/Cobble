@@ -52,3 +52,7 @@ infra/keys/
 loader/res/Cobble.enc
 loader/src/util/dll_hash.h
 !loader/src/security/integrity_gen.hpp
+
+# Auto-generated config headers
+generated/
+cobble.json

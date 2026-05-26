@@ -8,6 +8,7 @@ param(
     [switch]$SkipDLL,
     [switch]$Verbose,
     [switch]$PrepareRelease,  # Also generate signed release in releases/latest/
+    [switch]$Deploy,          # Upload release to VPS after build
     [string]$ReleaseNotes = ""
 )
 
@@ -74,6 +75,26 @@ if ($Clean) {
     if (Test-Path $HashHeader) { Remove-Item -Force $HashHeader }
     Write-Success "Clean complete"
 }
+
+# Step 0: Generate config headers from cobble.json
+Write-Step "Generating config headers..."
+$configJson = "$RepoRoot\cobble.json"
+if (!(Test-Path $configJson)) {
+    Write-Fail "cobble.json not found! Copy cobble.json.example and fill in values."
+    exit 1
+}
+& "$RepoRoot\generate_config.ps1" -ConfigPath $configJson
+if (!(Test-Path "$RepoRoot\generated\server_config.h")) {
+    Write-Fail "Config generation failed!"
+    exit 1
+}
+
+# Read PAYLOAD_KEY from cobble.json (no more env var needed)
+$cobbleConfig = Get-Content $configJson -Raw | ConvertFrom-Json
+if (-not $env:PAYLOAD_KEY) {
+    $env:PAYLOAD_KEY = $cobbleConfig.payload_key
+}
+Write-Success "Config generated (PAYLOAD_KEY from cobble.json)"
 
 # Step 1: Build Cobble.dll
 if (-not $SkipDLL) {
@@ -366,3 +387,25 @@ if ($PrepareRelease) {
     Write-Host "  Release: out\releases\latest\ (SIGNED)" -ForegroundColor Green
 }
 Write-Host ""
+
+# Deploy to VPS
+if ($Deploy) {
+    Write-Step "Deploying to VPS..."
+    $cobbleConfig = Get-Content "$RepoRoot\cobble.json" -Raw | ConvertFrom-Json
+    $vpsHost = $cobbleConfig.deploy.vps_host
+    $vpsUser = $cobbleConfig.deploy.vps_user
+    $sshKey = $cobbleConfig.deploy.ssh_key -replace '~', $env:USERPROFILE
+    $remotePath = $cobbleConfig.deploy.releases_path
+
+    $sshOpts = "-o StrictHostKeyChecking=no -o UserKnownHostsFile=NUL -i `"$sshKey`""
+
+    # Upload loader + DLL
+    $scpCmd = "scp $sshOpts `"$LoaderOutput`" `"$DLLOutput`" ${vpsUser}@${vpsHost}:${remotePath}/"
+    Invoke-Expression $scpCmd 2>$null
+
+    if ($LASTEXITCODE -eq 0) {
+        Write-Success "Deployed to ${vpsUser}@${vpsHost}:${remotePath}"
+    } else {
+        Write-Fail "Deploy failed (scp exit code: $LASTEXITCODE)"
+    }
+}

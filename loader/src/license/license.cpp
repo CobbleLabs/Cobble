@@ -14,23 +14,13 @@
 #include "../security/themida.h"
 #include "hwid.h"
 #include "version.h"
+#include "generated/keys.h"
 
 #pragma comment(lib, "wininet.lib")
 #pragma comment(lib, "crypt32.lib")
 
 // Use centralized version
 #define CLIENT_VERSION COBBLE_VERSION
-
-// Ed25519 public key (derived from server signing seed)
-static const uint8_t* GetLicensePublicKey() {
-    static const uint8_t key[32] = {0x28, 0x41, 0xeb, 0xcd, 0xdb, 0x1d, 0xa0, 0x7a, 0x8c, 0xcd, 0x4b,
-                                    0x96, 0x57, 0x64, 0x29, 0xd1, 0x58, 0xa8, 0xe8, 0xfd, 0x0e, 0x1e,
-                                    0x81, 0x43, 0x84, 0x56, 0x25, 0x4d, 0xd9, 0xed, 0x29, 0x7d};
-    return key;
-}
-
-// Macro for backward compatibility
-#define LICENSE_PUBLIC_KEY GetLicensePublicKey()
 
 // Helper: configure SSL flags for Cloudflare compatibility
 inline void ConfigureSSLFlags(HINTERNET hRequest) {
@@ -452,10 +442,13 @@ if (!hRequest) {
 
     COBBLE_VM_CRITICAL_START
 
+    uint8_t pubkey[32];
+    cobble_keys::GetPublicKey(pubkey);
     CF_CRITICAL_BEGIN();
-    sigValid = tweetnacl::verify(sigBytes.data(), payloadBytes.data(), payloadBytes.size(), LICENSE_PUBLIC_KEY);
+    sigValid = tweetnacl::verify(sigBytes.data(), payloadBytes.data(), payloadBytes.size(), pubkey);
     CF_NOP();
     CF_CRITICAL_END();
+    SecureZeroMemory(pubkey, 32);
 
     COBBLE_VM_CRITICAL_END
 
@@ -663,10 +656,13 @@ bool LoginWithCredentials(const std::string& serverUrl, const std::string& usern
 
     COBBLE_VM_CRITICAL_START
 
+    uint8_t pubkey[32];
+    cobble_keys::GetPublicKey(pubkey);
     CF_CRITICAL_BEGIN();
-    sigValid = tweetnacl::verify(sigBytes.data(), payloadBytes.data(), payloadBytes.size(), LICENSE_PUBLIC_KEY);
+    sigValid = tweetnacl::verify(sigBytes.data(), payloadBytes.data(), payloadBytes.size(), pubkey);
     CF_NOP();
     CF_CRITICAL_END();
+    SecureZeroMemory(pubkey, 32);
 
     COBBLE_VM_CRITICAL_END
 

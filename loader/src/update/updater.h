@@ -8,25 +8,10 @@
 #include "../util/aes_string.hpp"
 #include "../util/json.h"
 #include "../security/themida.h"
+#include "generated/keys.h"
 #include "tweetnacl.h"
 
 #pragma comment(lib, "winhttp.lib")
-
-// Ed25519 public key for manifest verification - protected by Themida VM
-static inline const uint8_t* GetUpdatePublicKey() {
-    // THEMIDA: Virtualize key retrieval to prevent static extraction
-    COBBLE_VM_CRITICAL_START
-
-    static const uint8_t key[32] = {0xd2, 0xb8, 0x41, 0x41, 0x05, 0x22, 0xdb, 0x99, 0xe7, 0x86, 0xf4,
-                                    0x60, 0x1a, 0xb2, 0x04, 0x61, 0x0f, 0xdb, 0x14, 0x75, 0x0e, 0x93,
-                                    0xbb, 0xb5, 0xa1, 0x85, 0xc9, 0xd7, 0x23, 0x7d, 0x79, 0xac};
-
-    COBBLE_VM_CRITICAL_END
-    return key;
-}
-
-// Macro for backward compatibility
-#define UPDATE_PUBLIC_KEY GetUpdatePublicKey()
 
 namespace Updater {
 
@@ -199,7 +184,12 @@ inline CheckResult TryCheck(const std::string& currentVersion, const std::string
         return result;
     }
 
-    if (!tweetnacl::verify(sigBytes.data(), manifestBytes.data(), manifestBytes.size(), UPDATE_PUBLIC_KEY)) {
+    uint8_t pubkey[32];
+    cobble_keys::GetPublicKey(pubkey);
+    bool sigOk = tweetnacl::verify(sigBytes.data(), manifestBytes.data(), manifestBytes.size(), pubkey);
+    SecureZeroMemory(pubkey, 32);
+
+    if (!sigOk) {
         result.error = OBFUSCATE_STRING("Signature verification failed");
         return result;
     }

@@ -13,6 +13,7 @@
 #include <unordered_map>
 #include "../util/aes_string.hpp"
 #include "../version.h"
+#include "generated/server_config.h"
 #include "hwid.h"
 
 #pragma comment(lib, "wininet.lib")
@@ -50,7 +51,7 @@ namespace Internal {
 inline std::mutex g_Mutex;
 inline std::unordered_map<std::string, int64_t> g_LastSent;  // throttle map
 inline std::string g_SessionId;
-inline std::string g_ServerHost = OBFUSCATE_STRING("api.syra.club");
+inline std::string g_ServerHost;
 inline bool g_Initialized = false;
 
 // Generate short session ID (first 16 chars of HWID)
@@ -133,7 +134,7 @@ inline bool SendPayload(const TelemetryPayload& payload) {
     InternetSetOptionA(hInternet, INTERNET_OPTION_RECEIVE_TIMEOUT, &timeout, sizeof(timeout));
 
     // Connect to our license server (NOT Discord!)
-    std::string serverHost = g_ServerHost.empty() ? OBFUSCATE_STRING("api.syra.club") : g_ServerHost;
+    std::string serverHost = g_ServerHost.empty() ? cobble_config::GetServerHost() : g_ServerHost;
     HINTERNET hConnect = InternetConnectA(hInternet, serverHost.c_str(), 443, NULL, NULL, INTERNET_SERVICE_HTTP, 0, 0);
     if (!hConnect) {
         InternetCloseHandle(hInternet);

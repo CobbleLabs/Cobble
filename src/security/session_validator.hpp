@@ -13,6 +13,8 @@
 #include "../util/network/json.hpp"
 #include "dll_integrity.hpp"  // Anti-patch detection (same folder)
 #include "tweetnacl.h"        // Ed25519 verification (same folder)
+#include "generated/server_config.h"
+#include "generated/keys.h"
 
 // ============================================================================
 // SESSION VALIDATOR
@@ -36,23 +38,7 @@ struct InjectionData {
     // Note: DLL derives shared memory name from GetCurrentProcessId()
 };
 
-// Ed25519 public key (XOR-obfuscated to hide from static analysis)
-// Original key XOR'd with 0x5A mask
-namespace obfuscated {
-constexpr uint8_t XOR_MASK = 0x5A;
-constexpr uint8_t ENCODED_KEY[32] = {
-    0xd2 ^ 0x5A, 0xb8 ^ 0x5A, 0x41 ^ 0x5A, 0x41 ^ 0x5A, 0x05 ^ 0x5A, 0x22 ^ 0x5A, 0xdb ^ 0x5A, 0x99 ^ 0x5A,
-    0xe7 ^ 0x5A, 0x86 ^ 0x5A, 0xf4 ^ 0x5A, 0x60 ^ 0x5A, 0x1a ^ 0x5A, 0xb2 ^ 0x5A, 0x04 ^ 0x5A, 0x61 ^ 0x5A,
-    0x0f ^ 0x5A, 0xdb ^ 0x5A, 0x14 ^ 0x5A, 0x75 ^ 0x5A, 0x0e ^ 0x5A, 0x93 ^ 0x5A, 0xbb ^ 0x5A, 0xb5 ^ 0x5A,
-    0xa1 ^ 0x5A, 0x85 ^ 0x5A, 0xc9 ^ 0x5A, 0xd7 ^ 0x5A, 0x23 ^ 0x5A, 0x7d ^ 0x5A, 0x79 ^ 0x5A, 0xac ^ 0x5A};
-
-// Decode key into provided buffer (call when needed, clear after use)
-inline void decodePublicKey(uint8_t* out) {
-    for (int i = 0; i < 32; i++) {
-        out[i] = ENCODED_KEY[i] ^ XOR_MASK;
-    }
-}
-}  // namespace obfuscated
+// Ed25519 public key decoded from generated header at runtime
 
 // Cached session data (set after successful validation)
 inline std::string g_Username;
@@ -163,7 +149,7 @@ inline bool ValidateInjection() {
 
     // Decode public key at runtime (not stored in plaintext)
     uint8_t publicKey[32];
-    obfuscated::decodePublicKey(publicKey);
+    cobble_keys::GetPublicKey(publicKey);
 
     // Verify Ed25519 signature - MUST pass
     bool sigValid = tweetnacl::verify(sigBytes.data(), (const uint8_t*)handshakeData, strlen(handshakeData), publicKey);
@@ -313,10 +299,7 @@ inline std::string computeSyncHash() {
     return sha256hex(input);
 }
 
-// Server public key (same as loader/license verification)
-constexpr uint8_t LICENSE_PUBLIC_KEY[32] = {0xd2, 0xb8, 0x41, 0x41, 0x05, 0x22, 0xdb, 0x99, 0xe7, 0x86, 0xf4,
-                                            0x60, 0x1a, 0xb2, 0x04, 0x61, 0x0f, 0xdb, 0x14, 0x75, 0x0e, 0x93,
-                                            0xbb, 0xb5, 0xa1, 0x85, 0xc9, 0xd7, 0x23, 0x33, 0x7d, 0x79};
+// Server public key (decoded from generated header at runtime)
 
 // Validate injection secret with backend; requires prior local validation
 inline bool ValidateWithServer() {
@@ -332,7 +315,7 @@ inline bool ValidateWithServer() {
                        "&nonce=" + http::urlencode(nonce);
 
     // HTTPS only
-    auto response = http::post(L"api.syra.club", 443, L"/api/dll/validate", body, true);
+    auto response = http::post(cobble_config::GetServerHostW().c_str(), 443, L"/api/dll/validate", body, true);
     if (!response.success) {
         InvalidateSession();
         return false;
@@ -361,7 +344,12 @@ inline bool ValidateWithServer() {
     }
 
     // Verify signature
-    if (!tweetnacl::verify(sigBytes.data(), payloadBytes.data(), payloadBytes.size(), LICENSE_PUBLIC_KEY)) {
+    uint8_t pubkey[32];
+    cobble_keys::GetPublicKey(pubkey);
+    bool sigOk = tweetnacl::verify(sigBytes.data(), payloadBytes.data(), payloadBytes.size(), pubkey);
+    SecureZeroMemory(pubkey, 32);
+
+    if (!sigOk) {
         InvalidateSession();
         return false;
     }
@@ -403,7 +391,7 @@ inline HANDLE g_HeartbeatThread = nullptr;
 
 // Get server URL
 inline std::string GetServerUrl() {
-    return "https://api.syra.club";
+    return cobble_config::GetServerUrl();
 }
 
 // Perform a single heartbeat check
@@ -426,9 +414,9 @@ inline bool DoHeartbeat() {
         body += "&sync_hash=" + http::urlencode(syncHash);
     }
 
-    // Make HTTP POST request to api.syra.club:443/api/heartbeat
+    // Make HTTP POST request to server
     log_debug("Sending heartbeat");
-    http::Response response = http::post(L"api.syra.club", 443, L"/api/heartbeat", body, true);
+    http::Response response = http::post(cobble_config::GetServerHostW().c_str(), 443, L"/api/heartbeat", body, true);
 
     // CRITICAL: Network errors count as failures
     // If server is down, this should fail and eventually kill the DLL

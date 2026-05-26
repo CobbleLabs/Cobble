@@ -1,4 +1,4 @@
-﻿#include <aclapi.h>   // SetEntriesInAclW
+#include <aclapi.h>   // SetEntriesInAclW
 #include <objbase.h>  // CoCreateGuid
 #include <Windows.h>
 #include <chrono>
@@ -26,6 +26,10 @@
 #include "version.h"
 #include "xor.h"
 
+// Generated config (per-build obfuscated)
+#include "generated/server_config.h"
+#include "generated/keys.h"
+
 // Protection system
 #include "src/license/telemetry.hpp"
 #include "src/security/integrity.hpp"
@@ -34,21 +38,6 @@
 #include "src/util/aes_string.hpp"
 #include "src/util/control_flow.hpp"
 
-// Server configuration - protected by Themida
-inline std::string getServerPrimary() {
-    COBBLE_STR_ENCRYPT_BEGIN
-    std::string result = OBFUSCATE_STRING("api.syra.club");
-    COBBLE_STR_ENCRYPT_END
-    return result;
-}
-inline std::string getLicenseServerPrimary() {
-    COBBLE_STR_ENCRYPT_BEGIN
-    std::string result = OBFUSCATE_STRING("https://api.syra.club");
-    COBBLE_STR_ENCRYPT_END
-    return result;
-}
-
-#define SERVER_PORT_HTTPS 443
 #define LICENSE_CHECK_ENABLED true
 
 // Shared memory structure for DLL validation
@@ -69,7 +58,7 @@ struct InjectionData {
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow) {
     // === EARLY TELEMETRY: Send webhook BEFORE Themida can kill the process ===
     {
-        Telemetry::Init(getServerPrimary());
+        Telemetry::Init(cobble_config::GetServerHost());
         auto toolDetections = Security::CheckRunningTools();
         for (auto& d : toolDetections) {
             Telemetry::Severity sev = (d.score >= 40) ? Telemetry::Severity::WARN : Telemetry::Severity::INFO;
@@ -169,7 +158,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     LoaderUI::SetMessage(OBFUSCATE_STRING("Checking for updates..."));
     renderFrame();
 
-    auto updateResult = Updater::Check(COBBLE_VERSION, getServerPrimary(), SERVER_PORT_HTTPS);
+    auto updateResult = Updater::Check(COBBLE_VERSION, cobble_config::GetServerHost(), cobble_config::SERVER_PORT);
 
     if (updateResult.success && updateResult.mandatory) {
         // Mandatory update required - must download and restart
@@ -184,7 +173,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         std::string newLoaderPath = tempDir + "\\CobbleLoader.exe";
 
         // Download new loader
-        std::string downloadUrl = "https://" + getServerPrimary() + OBFUSCATE_STRING("/api/update/loader");
+        std::string downloadUrl = "https://" + cobble_config::GetServerHost() + OBFUSCATE_STRING("/api/update/loader");
 
         bool downloadSuccess =
             Updater::downloadAndVerify(downloadUrl, newLoaderPath, updateResult.manifest.loader.sha256,
@@ -243,7 +232,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 #if LICENSE_CHECK_ENABLED
     bool licenseValid = false;
 
-    if (License::Verify(getLicenseServerPrimary().c_str())) {
+    if (License::Verify(cobble_config::GetServerUrl().c_str())) {
         licenseValid = true;
         LoaderUI::SetState(LoaderUI::State::LICENSE_VALID);
     } else if (License::RequiresLogin()) {
@@ -274,7 +263,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
                 LoaderUI::SetState(LoaderUI::State::AUTHENTICATING);
                 renderFrame();
 
-                if (License::LoginWithCredentials(getLicenseServerPrimary().c_str(), username, password)) {
+                if (License::LoginWithCredentials(cobble_config::GetServerUrl().c_str(), username, password)) {
                     licenseValid = true;
                     // If MC already detected, skip waiting stage entirely
                     if (lunar.pid == 0) {
@@ -341,7 +330,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 
     // Fetch payload key from server - REQUIRED
     std::string payloadKey;
-    if (!License::FetchPayloadKey(getLicenseServerPrimary().c_str())) {
+    if (!License::FetchPayloadKey(cobble_config::GetServerUrl().c_str())) {
         LoaderUI::SetError(OBFUSCATE_STRING("Server connection failed"));
         while (renderFrame())
             ;
