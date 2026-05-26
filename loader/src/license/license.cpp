@@ -22,12 +22,32 @@
 // Use centralized version
 #define CLIENT_VERSION COBBLE_VERSION
 
-// Configure WinInet SSL: keep cert-chain validation. We only ignore
-// revocation because Cloudflare's OCSP can be slow / blocked, but we
-// still REQUIRE a trusted root and matching CN. Anything weaker = MITM.
+// Helper: configure WinInet SSL flags. We keep cert chain validation but
+// tolerate revocation timeouts (Cloudflare OCSP can be flaky).
 inline void ConfigureSSLFlags(HINTERNET hRequest) {
     DWORD secFlags = SECURITY_FLAG_IGNORE_REVOCATION;
     InternetSetOptionA(hRequest, INTERNET_OPTION_SECURITY_FLAGS, &secFlags, sizeof(secFlags));
+}
+
+// Helper: send an HTTP request, retrying once if Cloudflare demands an
+// optional client certificate (ERROR_INTERNET_CLIENT_AUTH_CERT_NEEDED = 12044).
+// We tell WinInet "I have no client cert" and retry; CF accepts the empty
+// cert list as long as its mTLS rule was set to "optional".
+inline BOOL SendWithCertRetry(HINTERNET hRequest, const std::string& headers, const std::string& body) {
+    BOOL result = HttpSendRequestA(hRequest, headers.c_str(), (DWORD)headers.length(),
+                                   (LPVOID)body.c_str(), (DWORD)body.length());
+    if (result) {
+        return TRUE;
+    }
+    DWORD err = ::GetLastError();
+    if (err == ERROR_INTERNET_CLIENT_AUTH_CERT_NEEDED) {
+        // 12044 — server (Cloudflare) requested an optional client cert.
+        // Tell WinInet to send an empty cert list and retry once.
+        InternetSetOptionA(hRequest, INTERNET_OPTION_CLIENT_CERT_CONTEXT, NULL, 0);
+        result = HttpSendRequestA(hRequest, headers.c_str(), (DWORD)headers.length(),
+                                  (LPVOID)body.c_str(), (DWORD)body.length());
+    }
+    return result;
 }
 namespace License {
 
@@ -214,14 +234,14 @@ bool FetchPayloadKey(const std::string& serverUrl) {
     std::string headers = "Content-Type: application/json\r\n";
 
     ConfigureSSLFlags(hRequest);
-        BOOL result = HttpSendRequestA(hRequest, headers.c_str(), (DWORD)headers.length(), (LPVOID)postData.c_str(),
-                                   (DWORD)postData.length());
+        BOOL result = SendWithCertRetry(hRequest, headers, postData);
 
     if (!result) {
+        DWORD err = ::GetLastError();
         InternetCloseHandle(hRequest);
         InternetCloseHandle(hConnect);
         InternetCloseHandle(hInternet);
-        g_LastError = "Server error";
+        g_LastError = "Server error (E" + std::to_string(err) + ")";
         return false;
     }
 
@@ -387,14 +407,14 @@ if (!hRequest) {
 
     // Send request
     ConfigureSSLFlags(hRequest);
-        BOOL result = HttpSendRequestA(hRequest, headers.c_str(), (DWORD)headers.length(), (LPVOID)postData.c_str(),
-                                   (DWORD)postData.length());
+        BOOL result = SendWithCertRetry(hRequest, headers, postData);
 
     if (!result) {
+        DWORD err = ::GetLastError();
         InternetCloseHandle(hRequest);
         InternetCloseHandle(hConnect);
         InternetCloseHandle(hInternet);
-        g_LastError = "Failed to send request";
+        g_LastError = "Failed to send request (E" + std::to_string(err) + ")";
         return false;
     }
 
@@ -627,14 +647,14 @@ bool LoginWithCredentials(const std::string& serverUrl, const std::string& usern
     std::string headers = "Content-Type: application/json\r\n";
 
     ConfigureSSLFlags(hRequest);
-        BOOL result = HttpSendRequestA(hRequest, headers.c_str(), (DWORD)headers.length(), (LPVOID)postData.c_str(),
-                                   (DWORD)postData.length());
+        BOOL result = SendWithCertRetry(hRequest, headers, postData);
 
     if (!result) {
+        DWORD err = ::GetLastError();
         InternetCloseHandle(hRequest);
         InternetCloseHandle(hConnect);
         InternetCloseHandle(hInternet);
-        g_LastError = "Request failed";
+        g_LastError = "Request failed (E" + std::to_string(err) + ")";
         return false;
     }
 
