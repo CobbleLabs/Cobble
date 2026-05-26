@@ -12,7 +12,7 @@ Ghost client for Lunar Client (Minecraft 1.8.9) via JNI injection.
 ## Quick start
 
 ```powershell
-# Clone with submodule
+# Clone with submodule (includes Themida binaries)
 git clone --recursive https://github.com/SyraTechnology/cobble
 cd cobble
 
@@ -22,11 +22,11 @@ copy cobble.json.example cobble.json
 #   payload_key MUST match $PAYLOAD_KEY in the cobble-server .env
 #   public_key_hex MUST be derived from cobble-server's secrets/private.key
 
-# Themida license (personal, not in git)
-copy <your_license>\TMLicenseA1.dat themida\TMLicenseA1.dat
+# Build (Debug — no Themida needed)
+.\build.ps1
 
-# Build
-.\build.ps1 -Release
+# Production release (requires infra/keys/private.key — get from team lead)
+.\build.ps1 -PrepareRelease
 ```
 
 If you cloned without `--recursive`:
@@ -35,7 +35,7 @@ If you cloned without `--recursive`:
 git submodule update --init themida
 ```
 
-Output: `out/bin/Release/CobbleLoader.exe`, `out/bin/Release/Cobble.dll`.
+Output: `out/bin/Debug/CobbleLoader.exe`, `out/bin/Debug/Cobble.dll`.
 
 ## Repos
 
@@ -78,9 +78,10 @@ Output: `out/bin/Release/CobbleLoader.exe`, `out/bin/Release/Cobble.dll`.
 
 ## Requirements
 
-- Visual Studio 2022 (with MSBuild at the path baked into `build.ps1`)
+- Visual Studio 2022 with C++ workload (Community, Professional, or Enterprise)
+- Go 1.22+ (required for `-PrepareRelease` manifest signing — `go run` is called inline)
 - Windows 10/11 x64
-- Themida (license at `themida/TMLicenseA1.dat`)
+- `infra/keys/private.key` — Ed25519 seed from the VPS (`/opt/cobble-server/secrets/private.key`). Get from team lead. Only needed for `-PrepareRelease`.
 
 ## Production build
 

@@ -19,7 +19,24 @@ $ErrorActionPreference = "Stop"
 
 # Paths
 $RepoRoot = $PSScriptRoot
-$MSBuild = "C:\Program Files\Microsoft Visual Studio\2022\Community\MSBuild\Current\Bin\MSBuild.exe"
+
+# Auto-detect MSBuild via vswhere (works on Community, Professional, Enterprise)
+$vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+$MSBuild = $null
+if (Test-Path $vswhere) {
+    $vsPath = & $vswhere -latest -products * -requires Microsoft.Component.MSBuild -property installationPath 2>$null
+    if ($vsPath) {
+        $MSBuild = Join-Path $vsPath "MSBuild\Current\Bin\MSBuild.exe"
+    }
+}
+if (-not $MSBuild -or -not (Test-Path $MSBuild)) {
+    # Fallback to hardcoded Community path
+    $MSBuild = "C:\Program Files\Microsoft Visual Studio\2022\Community\MSBuild\Current\Bin\MSBuild.exe"
+}
+if (-not (Test-Path $MSBuild)) {
+    Write-Fail "MSBuild not found. Install Visual Studio 2022 with C++ workload."
+    exit 1
+}
 $Configuration = if ($PrepareRelease) { "Release" } else { "Debug" }
 $Platform = "x64"
 
