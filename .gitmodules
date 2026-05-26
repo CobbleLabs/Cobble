@@ -1,0 +1,3 @@
+[submodule "themida"]
+	path = themida
+	url = https://github.com/SyraTechnology/cobble-themida.git

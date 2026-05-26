@@ -1,23 +1,16 @@
-# =============================================================================
-# Git Attributes - Merge strategies for auto-generated files
-# =============================================================================
-
-# Auto-generated files: always keep OUR version in merge conflicts
-# This prevents constant conflicts on files that are regenerated during build
+# Auto-generated files: keep ours on merge
 loader/src/security/integrity_gen.hpp merge=ours
-themida/ThemidaGuiSettings.ini merge=ours
-themida/Themida.ini merge=ours
-themida/bugreport.txt merge=ours
 
-# Ensure consistent line endings
-*.cpp text eol=lf
-*.hpp text eol=lf
-*.h text eol=lf
-*.c text eol=lf
+# Line endings
+*.cpp  text eol=lf
+*.hpp  text eol=lf
+*.h    text eol=lf
+*.c    text eol=lf
 *.java text eol=lf
 *.json text eol=lf
-*.md text eol=lf
-*.txt text eol=lf
-*.ini text eol=crlf
-*.bat text eol=crlf
-*.ps1 text eol=crlf
+*.md   text eol=lf
+*.txt  text eol=lf
+*.ini  text eol=crlf
+*.bat  text eol=crlf
+*.ps1  text eol=crlf
+*.sh   text eol=lf

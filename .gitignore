@@ -25,8 +25,6 @@ out/
 *.exe
 *.lib
 !infra/ext/jni/jvm.lib
-!themida/ThemidaSDK/Lib/
-!themida/ThemidaSDK/Lib/**
 
 # Temp / OS
 .DS_Store
@@ -40,12 +38,6 @@ Thumbs.db
 # Personal launchers (contain secrets)
 cc.bat
 CLAUDE.md
-
-# Allow explicit docs & config
-!CHANGELOG.md
-!ARCHITECTURE.md
-!config/
-!config/**
 
 # Update System (sensitive)
 infra/keys/
