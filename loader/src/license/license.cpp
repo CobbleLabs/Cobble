@@ -251,9 +251,44 @@ bool FetchPayloadKey(const std::string& serverUrl) {
     InternetCloseHandle(hConnect);
     InternetCloseHandle(hInternet);
 
-    // Parse JSON response: { "key": "..." }
+    // Parse signed envelope {payload_b64, sig_b64}
+    json::Object envelope;
+    if (!envelope.parse(response)) {
+        g_LastError = "Invalid response";
+        return false;
+    }
+
+    std::string payloadB64 = envelope.get_string("payload_b64", "");
+    std::string sigB64 = envelope.get_string("sig_b64", "");
+
+    if (payloadB64.empty() || sigB64.empty()) {
+        g_LastError = "Invalid response";
+        return false;
+    }
+
+    // Verify Ed25519 signature
+    std::vector<uint8_t> payloadBytes = Base64Decode(payloadB64);
+    std::vector<uint8_t> sigBytes = Base64Decode(sigB64);
+
+    if (payloadBytes.empty() || sigBytes.size() != 64) {
+        g_LastError = "Invalid response";
+        return false;
+    }
+
+    uint8_t pubkey[32];
+    cobble_keys::GetPublicKey(pubkey);
+    bool sigValid = tweetnacl::verify(sigBytes.data(), payloadBytes.data(), payloadBytes.size(), pubkey);
+    SecureZeroMemory(pubkey, 32);
+
+    if (!sigValid) {
+        g_LastError = "Invalid response";
+        return false;
+    }
+
+    // Parse verified inner payload
+    std::string payloadStr(payloadBytes.begin(), payloadBytes.end());
     json::Object json;
-    if (!json.parse(response)) {
+    if (!json.parse(payloadStr)) {
         g_LastError = "Invalid response";
         return false;
     }

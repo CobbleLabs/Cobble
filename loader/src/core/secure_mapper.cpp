@@ -166,8 +166,7 @@ void __stdcall ShellcodeEntry(SecureMapper::MAPPER_CONTEXT* ctx) {
     }
 
     // -------------------------------------------------------------------------
-    // 5. ANTI-DUMP: Erase PE headers to prevent memory dumps
-    // Without headers, tools like Scylla/PE-Sieve can't reconstruct the PE
+    // 5. ANTI-DUMP: Capture section info, erase headers, apply correct perms
     // -------------------------------------------------------------------------
     {
         // Get VirtualProtect from kernel32
@@ -183,20 +182,55 @@ void __stdcall ShellcodeEntry(SecureMapper::MAPPER_CONTEXT* ctx) {
         }
 
         if (pVirtualProtect) {
+            // --- Capture section info BEFORE wiping headers ---
+            struct SectionInfo {
+                DWORD rva;
+                DWORD size;
+                DWORD characteristics;
+            };
+
+            SectionInfo sections[16];
+            WORD numSections = pNt->FileHeader.NumberOfSections;
+            if (numSections > 16) numSections = 16;
+
+            auto* pSec = IMAGE_FIRST_SECTION(pNt);
+            for (WORD i = 0; i < numSections; i++) {
+                sections[i].rva = pSec[i].VirtualAddress;
+                sections[i].size = pSec[i].Misc.VirtualSize;
+                sections[i].characteristics = pSec[i].Characteristics;
+            }
+
+            // --- Wipe PE headers ---
             DWORD oldProtect = 0;
             SIZE_T headerSize = pOpt->SizeOfHeaders;
 
-            // Make headers writable
             if (pVirtualProtect(pBase, headerSize, PAGE_READWRITE, &oldProtect)) {
-                // Zero out all headers (DOS, NT, Section headers)
                 volatile BYTE* p = (volatile BYTE*)pBase;
                 for (SIZE_T i = 0; i < headerSize; i++) {
                     p[i] = 0;
                 }
 
-                // Mark headers as PAGE_NOACCESS - any read attempt will crash
-                // This prevents dump tools from reading the headers
+                // Mark headers as PAGE_NOACCESS
                 pVirtualProtect(pBase, headerSize, PAGE_NOACCESS, &oldProtect);
+            }
+
+            // --- Apply correct permissions per section ---
+            for (WORD i = 0; i < numSections; i++) {
+                DWORD chars = sections[i].characteristics;
+                DWORD prot;
+
+                if ((chars & IMAGE_SCN_MEM_EXECUTE) && (chars & IMAGE_SCN_MEM_READ)) {
+                    prot = PAGE_EXECUTE_READ;
+                } else if ((chars & IMAGE_SCN_MEM_READ) && (chars & IMAGE_SCN_MEM_WRITE)) {
+                    prot = PAGE_READWRITE;
+                } else if (chars & IMAGE_SCN_MEM_READ) {
+                    prot = PAGE_READONLY;
+                } else {
+                    prot = PAGE_NOACCESS;
+                }
+
+                DWORD old = 0;
+                pVirtualProtect(pBase + sections[i].rva, sections[i].size, prot, &old);
             }
         }
     }

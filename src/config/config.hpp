@@ -2,6 +2,7 @@
 
 #include <ShlObj.h>
 #include <Windows.h>
+#include <wincrypt.h>
 #include <atomic>
 #include <chrono>
 #include <fstream>
@@ -14,7 +15,11 @@
 #include "../util/logger.hpp"
 #include "../util/network/http.hpp"
 #include "../util/network/json.hpp"
+#include "../security/tweetnacl.h"
+#include "generated/keys.h"
 #include "generated/server_config.h"
+
+#pragma comment(lib, "crypt32.lib")
 
 // Server configuration
 #define CONFIG_SERVER_PORT 443
@@ -178,6 +183,18 @@ private:
         }
     }
 
+    // Base64 decode helper (WinCrypt)
+    static std::vector<uint8_t> b64decode(const std::string& input) {
+        DWORD outLen = 0;
+        if (!CryptStringToBinaryA(input.c_str(), (DWORD)input.length(), CRYPT_STRING_BASE64, nullptr, &outLen, nullptr, nullptr))
+            return {};
+        std::vector<uint8_t> output(outLen);
+        if (!CryptStringToBinaryA(input.c_str(), (DWORD)input.length(), CRYPT_STRING_BASE64, output.data(), &outLen, nullptr, nullptr))
+            return {};
+        output.resize(outLen);
+        return output;
+    }
+
     void fetchServerConfig() {
         if (!syncEnabled_ || hwid_.empty() || sessionToken_.empty())
             return;
@@ -193,9 +210,43 @@ private:
             return;
         }
 
-        json::Value serverResponse;
-        if (!json::Parser::parse(response.body, serverResponse)) {
+        // Parse signed envelope
+        json::Value envelope;
+        if (!json::Parser::parse(response.body, envelope)) {
             log_warn("ConfigManager: Invalid server response");
+            return;
+        }
+
+        std::string payloadB64 = envelope["payload_b64"].as_string("");
+        std::string sigB64 = envelope["sig_b64"].as_string("");
+
+        if (payloadB64.empty() || sigB64.empty()) {
+            log_warn("ConfigManager: Missing signature - response tampered");
+            return;
+        }
+
+        auto payloadBytes = b64decode(payloadB64);
+        auto sigBytes = b64decode(sigB64);
+
+        if (payloadBytes.empty() || sigBytes.size() != 64) {
+            log_warn("ConfigManager: Invalid sig format");
+            return;
+        }
+
+        uint8_t pubkey[32];
+        cobble_keys::GetPublicKey(pubkey);
+        bool sigOk = tweetnacl::verify(sigBytes.data(), payloadBytes.data(), payloadBytes.size(), pubkey);
+        SecureZeroMemory(pubkey, 32);
+
+        if (!sigOk) {
+            log_warn("ConfigManager: Signature invalid - response tampered");
+            return;
+        }
+
+        // Parse verified inner payload
+        json::Value serverResponse;
+        if (!json::Parser::parse(std::string(payloadBytes.begin(), payloadBytes.end()), serverResponse)) {
+            log_warn("ConfigManager: Invalid payload JSON");
             return;
         }
 
@@ -241,8 +292,35 @@ private:
         // HTTPS only - encrypted traffic
         auto response = http::post(cobble_config::GetServerHostW().c_str(), CONFIG_SERVER_PORT, L"/api/config/save", body, true);
 
-        if (response.success) {
+        if (!response.success) {
+            log_debug("ConfigManager: Sync push failed");
+            return;
+        }
+
+        // Verify signed envelope (fail silently on tampered response)
+        json::Value envelope;
+        if (!json::Parser::parse(response.body, envelope)) return;
+
+        std::string payloadB64 = envelope["payload_b64"].as_string("");
+        std::string sigB64 = envelope["sig_b64"].as_string("");
+        if (payloadB64.empty() || sigB64.empty()) {
+            log_warn("ConfigManager: Save response missing signature");
+            return;
+        }
+
+        auto payloadBytes = b64decode(payloadB64);
+        auto sigBytes = b64decode(sigB64);
+        if (payloadBytes.empty() || sigBytes.size() != 64) return;
+
+        uint8_t pubkey[32];
+        cobble_keys::GetPublicKey(pubkey);
+        bool sigOk = tweetnacl::verify(sigBytes.data(), payloadBytes.data(), payloadBytes.size(), pubkey);
+        SecureZeroMemory(pubkey, 32);
+
+        if (sigOk) {
             log_debug("ConfigManager: Synced to server");
+        } else {
+            log_warn("ConfigManager: Save response signature invalid");
         }
     }
 

@@ -491,11 +491,48 @@ inline bool DoHeartbeat() {
         return false;  // FAIL - count as failure
     }
 
-    // Parse response - parse errors also count as failures
-    json::Value resp;
-    if (!json::Parser::parse(response.body, resp)) {
+    // Parse signed envelope {payload_b64, sig_b64}
+    json::Value envelope;
+    if (!json::Parser::parse(response.body, envelope)) {
         log_err("Heartbeat JSON parse fail");
-        return false;  // FAIL - malformed response
+        return false;
+    }
+
+    std::string payloadB64 = envelope["payload_b64"].as_string("");
+    std::string sigB64 = envelope["sig_b64"].as_string("");
+
+    if (payloadB64.empty() || sigB64.empty()) {
+        log_err("Heartbeat missing signature envelope");
+        InvalidateSession();
+        return false;  // FAIL CLOSED - unsigned response = tampered
+    }
+
+    auto payloadBytes = Base64Decode(payloadB64);
+    auto sigBytes = Base64Decode(sigB64);
+
+    if (payloadBytes.empty() || sigBytes.size() != 64) {
+        log_err("Heartbeat invalid sig format");
+        InvalidateSession();
+        return false;
+    }
+
+    // Verify Ed25519 signature
+    uint8_t pubkey[32];
+    cobble_keys::GetPublicKey(pubkey);
+    bool sigOk = tweetnacl::verify(sigBytes.data(), payloadBytes.data(), payloadBytes.size(), pubkey);
+    SecureZeroMemory(pubkey, 32);
+
+    if (!sigOk) {
+        log_err("Heartbeat signature invalid - response tampered");
+        InvalidateSession();
+        return false;  // FAIL CLOSED
+    }
+
+    // Parse verified inner payload
+    json::Value resp;
+    if (!json::Parser::parse(std::string(payloadBytes.begin(), payloadBytes.end()), resp)) {
+        log_err("Heartbeat payload parse fail");
+        return false;
     }
 
     // Only return true if server explicitly says ok:true
