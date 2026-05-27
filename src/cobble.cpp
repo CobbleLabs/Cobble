@@ -51,7 +51,12 @@
 #include <algorithm>
 
 // Signature for loader detection (cleared on shutdown for re-injection support)
-volatile char COBBLE_SIGNATURE[] = "COBBLE_LOADED_V1";
+volatile char COBBLE_SIGNATURE[17] = {};
+static const bool _sig_init = []() {
+    auto s = OBFUSCATE_STRING("COBBLE_LOADED_V1");
+    memcpy((void*)COBBLE_SIGNATURE, s.c_str(), 16);
+    return true;
+}();
 
 // Honeypot global variables (for async reporting from other threads)
 std::string g_Honeypot_HWID;
@@ -221,7 +226,7 @@ void cobble::context::initialize(HMODULE hModule) {
 
     // Create Named Mutex for Injection Detection
     DWORD pid = GetCurrentProcessId();
-    std::wstring mutexName = L"Global\\Cobble_Instance_" + std::to_wstring(pid);
+    std::wstring mutexName = OBFUSCATE_WSTRING(L"Global\\Cobble_Instance_") + std::to_wstring(pid);
     hInstanceMutex = CreateMutexW(nullptr, TRUE, mutexName.c_str());
     if (GetLastError() == ERROR_ALREADY_EXISTS) {
         log_warn("Cobble instance mutex already exists! (Double Injection?)");

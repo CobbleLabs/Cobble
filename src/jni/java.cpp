@@ -1,23 +1,24 @@
 #include "java.h"
 #include "../sdk/jni/jstring_util.h"
 #include "../util/logger.hpp"
+#include "../util/aes_string.hpp"
 
 void setupClassLoader() {
     JNIEnv* env = Java::Env();
     if (!env) return;
 
-    jclass c_Thread = env->FindClass("java/lang/Thread");
-    jclass c_Map = env->FindClass("java/util/Map");
-    jclass c_Set = env->FindClass("java/util/Set");
-    jclass c_ClassLoader = env->FindClass("java/lang/ClassLoader");
+    jclass c_Thread = env->FindClass(OBFUSCATE_STRING("java/lang/Thread").c_str());
+    jclass c_Map = env->FindClass(OBFUSCATE_STRING("java/util/Map").c_str());
+    jclass c_Set = env->FindClass(OBFUSCATE_STRING("java/util/Set").c_str());
+    jclass c_ClassLoader = env->FindClass(OBFUSCATE_STRING("java/lang/ClassLoader").c_str());
 
-    jmethodID mid_getAllStackTraces = env->GetStaticMethodID(c_Thread, "getAllStackTraces", "()Ljava/util/Map;");
-    jmethodID mid_keySet = env->GetMethodID(c_Map, "keySet", "()Ljava/util/Set;");
-    jmethodID mid_toArray = env->GetMethodID(c_Set, "toArray", "()[Ljava/lang/Object;");
+    jmethodID mid_getAllStackTraces = env->GetStaticMethodID(c_Thread, OBFUSCATE_STRING("getAllStackTraces").c_str(), OBFUSCATE_STRING("()Ljava/util/Map;").c_str());
+    jmethodID mid_keySet = env->GetMethodID(c_Map, OBFUSCATE_STRING("keySet").c_str(), OBFUSCATE_STRING("()Ljava/util/Set;").c_str());
+    jmethodID mid_toArray = env->GetMethodID(c_Set, OBFUSCATE_STRING("toArray").c_str(), OBFUSCATE_STRING("()[Ljava/lang/Object;").c_str());
     jmethodID mid_getContextClassLoader =
-        env->GetMethodID(c_Thread, "getContextClassLoader", "()Ljava/lang/ClassLoader;");
-    Java::MidFindClass = env->GetMethodID(c_ClassLoader, "findClass", "(Ljava/lang/String;)Ljava/lang/Class;");
-    jmethodID mid_currentThread = env->GetStaticMethodID(c_Thread, "currentThread", "()Ljava/lang/Thread;");
+        env->GetMethodID(c_Thread, OBFUSCATE_STRING("getContextClassLoader").c_str(), OBFUSCATE_STRING("()Ljava/lang/ClassLoader;").c_str());
+    Java::MidFindClass = env->GetMethodID(c_ClassLoader, OBFUSCATE_STRING("findClass").c_str(), OBFUSCATE_STRING("(Ljava/lang/String;)Ljava/lang/Class;").c_str());
+    jmethodID mid_currentThread = env->GetStaticMethodID(c_Thread, OBFUSCATE_STRING("currentThread").c_str(), OBFUSCATE_STRING("()Ljava/lang/Thread;").c_str());
 
     jobject obj_stackTracesMap = env->CallStaticObjectMethod(c_Thread, mid_getAllStackTraces);
     jobject obj_threadsSet = env->CallObjectMethod(obj_stackTracesMap, mid_keySet);
@@ -30,7 +31,7 @@ void setupClassLoader() {
         jobject classLoaderObj = env->CallObjectMethod(thread, mid_getContextClassLoader);
 
         if (classLoaderObj) {
-            jstring className = env->NewStringUTF("net.minecraft.client.Minecraft");
+            jstring className = env->NewStringUTF(OBFUSCATE_STRING("net.minecraft.client.Minecraft").c_str());
             jobject minecraftClass = env->CallObjectMethod(classLoaderObj, Java::MidFindClass, className);
 
             if (minecraftClass) {
@@ -161,11 +162,12 @@ void Java::GetMinecraftVersion() {
     if (!env) return;
 
     jclass minecraftClass = nullptr;
-    if (!AssignClass("net.minecraft.client.Minecraft", minecraftClass))
+    if (!AssignClass(OBFUSCATE_STRING("net.minecraft.client.Minecraft"), minecraftClass))
         return;
 
     jmethodID getMinecraft =
-        env->GetStaticMethodID(minecraftClass, "getMinecraft", "()Lnet/minecraft/client/Minecraft;");
+        env->GetStaticMethodID(minecraftClass, OBFUSCATE_STRING("getMinecraft").c_str(),
+                               OBFUSCATE_STRING("()Lnet/minecraft/client/Minecraft;").c_str());
     if (!getMinecraft)
         return;
 
@@ -173,7 +175,8 @@ void Java::GetMinecraftVersion() {
     if (!minecraft)
         return;
 
-    jfieldID launchedVersionField = env->GetFieldID(minecraftClass, "launchedVersion", "Ljava/lang/String;");
+    jfieldID launchedVersionField = env->GetFieldID(minecraftClass, OBFUSCATE_STRING("launchedVersion").c_str(),
+                                                    OBFUSCATE_STRING("Ljava/lang/String;").c_str());
     if (!launchedVersionField)
         return;
 

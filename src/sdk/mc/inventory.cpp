@@ -1,6 +1,7 @@
 // Inventory-related functions for Minecraft SDK
 // Handles inventory slots, window click, and inventory screens
 
+#include "../../util/aes_string.hpp"
 #include "../../util/logger.hpp"
 #include "../core/minecraft.h"
 #include "../jni/jni_cache.h"
@@ -60,7 +61,8 @@ std::vector<SlotInfo> Minecraft::getInventorySlots() {
     }
 
     // Get mainInventory array field
-    jfieldID fid_mainInventory = env->GetFieldID(inventoryCls, "mainInventory", "[Lnet/minecraft/item/ItemStack;");
+    jfieldID fid_mainInventory = env->GetFieldID(inventoryCls, OBFUSCATE_STRING("mainInventory").c_str(),
+                                                 OBFUSCATE_STRING("[Lnet/minecraft/item/ItemStack;").c_str());
     if (!fid_mainInventory) {
         env->ExceptionClear();
         env->DeleteLocalRef(inventoryCls);
@@ -79,15 +81,16 @@ std::vector<SlotInfo> Minecraft::getInventorySlots() {
 
     // Get NBT classes for enchantment reading
     jclass nbtCompoundCls = nullptr;
-    Java::AssignClass("net.minecraft.nbt.NBTTagCompound", nbtCompoundCls);
+    Java::AssignClass(OBFUSCATE_STRING("net.minecraft.nbt.NBTTagCompound"), nbtCompoundCls);
     jmethodID mid_getShort = nullptr;
     if (nbtCompoundCls) {
-        mid_getShort = env->GetMethodID(nbtCompoundCls, "getShort", "(Ljava/lang/String;)S");
+        mid_getShort = env->GetMethodID(nbtCompoundCls, OBFUSCATE_STRING("getShort").c_str(),
+                                        OBFUSCATE_STRING("(Ljava/lang/String;)S").c_str());
     }
 
     // Cache strings for enchantment lookup
-    jstring strId = env->NewStringUTF("id");
-    jstring strLvl = env->NewStringUTF("lvl");
+    jstring strId = env->NewStringUTF(OBFUSCATE_STRING("id").c_str());
+    jstring strLvl = env->NewStringUTF(OBFUSCATE_STRING("lvl").c_str());
 
     int arrayLen = env->GetArrayLength(mainInventory);
 
@@ -143,15 +146,18 @@ std::vector<SlotInfo> Minecraft::getInventorySlots() {
         // Get Protection enchantment level for armor items (IDs 298-317)
         if (slot.itemId >= 298 && slot.itemId <= 317 && mid_getShort && nbtCompoundCls) {
             jclass stackCls = env->GetObjectClass(itemStack);
-            jmethodID mid_getEnchantTagList = env->GetMethodID(stackCls, "getEnchantmentTagList", "()Lnet/minecraft/nbt/NBTTagList;");
+            jmethodID mid_getEnchantTagList = env->GetMethodID(stackCls, OBFUSCATE_STRING("getEnchantmentTagList").c_str(),
+                                                               OBFUSCATE_STRING("()Lnet/minecraft/nbt/NBTTagList;").c_str());
             env->DeleteLocalRef(stackCls);
-            
+
             if (mid_getEnchantTagList) {
                 jobject tagList = env->CallObjectMethod(itemStack, mid_getEnchantTagList);
                 if (tagList && !env->ExceptionCheck()) {
                     jclass tagListCls = env->GetObjectClass(tagList);
-                    jmethodID mid_tagCount = env->GetMethodID(tagListCls, "tagCount", "()I");
-                    jmethodID mid_getCompoundAt = env->GetMethodID(tagListCls, "getCompoundTagAt", "(I)Lnet/minecraft/nbt/NBTTagCompound;");
+                    jmethodID mid_tagCount = env->GetMethodID(tagListCls, OBFUSCATE_STRING("tagCount").c_str(),
+                                                              OBFUSCATE_STRING("()I").c_str());
+                    jmethodID mid_getCompoundAt = env->GetMethodID(tagListCls, OBFUSCATE_STRING("getCompoundTagAt").c_str(),
+                                                                   OBFUSCATE_STRING("(I)Lnet/minecraft/nbt/NBTTagCompound;").c_str());
                     env->DeleteLocalRef(tagListCls);
                     
                     if (mid_tagCount && mid_getCompoundAt) {
@@ -222,7 +228,8 @@ std::vector<SlotInfo> Minecraft::getArmorSlots() {
     }
 
     jclass inventoryCls = env->GetObjectClass(inventory);
-    jfieldID fid_armorInventory = env->GetFieldID(inventoryCls, "armorInventory", "[Lnet/minecraft/item/ItemStack;");
+    jfieldID fid_armorInventory = env->GetFieldID(inventoryCls, OBFUSCATE_STRING("armorInventory").c_str(),
+                                                  OBFUSCATE_STRING("[Lnet/minecraft/item/ItemStack;").c_str());
     if (!fid_armorInventory) {
         env->ExceptionClear();
         env->DeleteLocalRef(inventoryCls);
@@ -241,13 +248,14 @@ std::vector<SlotInfo> Minecraft::getArmorSlots() {
 
     // NBT for enchantment reading
     jclass nbtCompoundCls = nullptr;
-    Java::AssignClass("net.minecraft.nbt.NBTTagCompound", nbtCompoundCls);
+    Java::AssignClass(OBFUSCATE_STRING("net.minecraft.nbt.NBTTagCompound"), nbtCompoundCls);
     jmethodID mid_getShort = nullptr;
     if (nbtCompoundCls) {
-        mid_getShort = env->GetMethodID(nbtCompoundCls, "getShort", "(Ljava/lang/String;)S");
+        mid_getShort = env->GetMethodID(nbtCompoundCls, OBFUSCATE_STRING("getShort").c_str(),
+                                        OBFUSCATE_STRING("(Ljava/lang/String;)S").c_str());
     }
-    jstring strId = env->NewStringUTF("id");
-    jstring strLvl = env->NewStringUTF("lvl");
+    jstring strId = env->NewStringUTF(OBFUSCATE_STRING("id").c_str());
+    jstring strLvl = env->NewStringUTF(OBFUSCATE_STRING("lvl").c_str());
 
     // armorInventory indices: 0=boots, 1=legs, 2=chest, 3=helmet
     // We return: 0=helmet, 1=chest, 2=legs, 3=boots
@@ -281,15 +289,18 @@ std::vector<SlotInfo> Minecraft::getArmorSlots() {
         // Get Protection enchantment
         if (mid_getShort && nbtCompoundCls) {
             jclass stackCls = env->GetObjectClass(itemStack);
-            jmethodID mid_getEnchantTagList = env->GetMethodID(stackCls, "getEnchantmentTagList", "()Lnet/minecraft/nbt/NBTTagList;");
+            jmethodID mid_getEnchantTagList = env->GetMethodID(stackCls, OBFUSCATE_STRING("getEnchantmentTagList").c_str(),
+                                                               OBFUSCATE_STRING("()Lnet/minecraft/nbt/NBTTagList;").c_str());
             env->DeleteLocalRef(stackCls);
 
             if (mid_getEnchantTagList) {
                 jobject tagList = env->CallObjectMethod(itemStack, mid_getEnchantTagList);
                 if (tagList && !env->ExceptionCheck()) {
                     jclass tagListCls = env->GetObjectClass(tagList);
-                    jmethodID mid_tagCount = env->GetMethodID(tagListCls, "tagCount", "()I");
-                    jmethodID mid_getCompoundAt = env->GetMethodID(tagListCls, "getCompoundTagAt", "(I)Lnet/minecraft/nbt/NBTTagCompound;");
+                    jmethodID mid_tagCount = env->GetMethodID(tagListCls, OBFUSCATE_STRING("tagCount").c_str(),
+                                                              OBFUSCATE_STRING("()I").c_str());
+                    jmethodID mid_getCompoundAt = env->GetMethodID(tagListCls, OBFUSCATE_STRING("getCompoundTagAt").c_str(),
+                                                                   OBFUSCATE_STRING("(I)Lnet/minecraft/nbt/NBTTagCompound;").c_str());
                     env->DeleteLocalRef(tagListCls);
 
                     if (mid_tagCount && mid_getCompoundAt) {
@@ -382,7 +393,8 @@ void Minecraft::windowClick(int slotId, int button) {
 
     // windowClick(int windowId, int slotId, int mouseButton, int mode, EntityPlayer player)
     jmethodID mid_windowClick = env->GetMethodID(
-        controllerCls, "windowClick", "(IIIILnet/minecraft/entity/player/EntityPlayer;)Lnet/minecraft/item/ItemStack;");
+        controllerCls, OBFUSCATE_STRING("windowClick").c_str(),
+        OBFUSCATE_STRING("(IIIILnet/minecraft/entity/player/EntityPlayer;)Lnet/minecraft/item/ItemStack;").c_str());
 
     if (!mid_windowClick) {
         env->DeleteLocalRef(controllerCls);
@@ -468,7 +480,8 @@ void Minecraft::windowClickSwap(int containerSlot, int hotbarIndex) {
 
     // windowClick(int windowId, int slotId, int mouseButton, int mode, EntityPlayer player)
     jmethodID mid_windowClick = env->GetMethodID(
-        controllerCls, "windowClick", "(IIIILnet/minecraft/entity/player/EntityPlayer;)Lnet/minecraft/item/ItemStack;");
+        controllerCls, OBFUSCATE_STRING("windowClick").c_str(),
+        OBFUSCATE_STRING("(IIIILnet/minecraft/entity/player/EntityPlayer;)Lnet/minecraft/item/ItemStack;").c_str());
 
     if (!mid_windowClick) {
         env->DeleteLocalRef(controllerCls);
@@ -514,8 +527,8 @@ void Minecraft::openInventory() {
         return;
     }
 
-    jmethodID mid_init =
-        env->GetMethodID(JniCache::cls_GuiInventory, "<init>", "(Lnet/minecraft/entity/player/EntityPlayer;)V");
+    jmethodID mid_init = env->GetMethodID(JniCache::cls_GuiInventory, OBFUSCATE_STRING("<init>").c_str(),
+                                          OBFUSCATE_STRING("(Lnet/minecraft/entity/player/EntityPlayer;)V").c_str());
     if (!mid_init) {
         env->DeleteLocalRef(localPlayer);
         return;
@@ -528,11 +541,12 @@ void Minecraft::openInventory() {
     }
 
     // Display the GUI
-    jmethodID mid_displayGuiScreen =
-        env->GetMethodID(cls, "displayGuiScreen", "(Lnet/minecraft/client/gui/GuiScreen;)V");
+    jmethodID mid_displayGuiScreen = env->GetMethodID(cls, OBFUSCATE_STRING("displayGuiScreen").c_str(),
+                                                      OBFUSCATE_STRING("(Lnet/minecraft/client/gui/GuiScreen;)V").c_str());
     if (!mid_displayGuiScreen) {
         env->ExceptionClear();
-        mid_displayGuiScreen = env->GetMethodID(cls, "func_147108_a", "(Lnet/minecraft/client/gui/GuiScreen;)V");
+        mid_displayGuiScreen = env->GetMethodID(cls, OBFUSCATE_STRING("func_147108_a").c_str(),
+                                                OBFUSCATE_STRING("(Lnet/minecraft/client/gui/GuiScreen;)V").c_str());
     }
 
     if (mid_displayGuiScreen) {
@@ -565,7 +579,8 @@ void Minecraft::closeInventory() {
         return;
     }
 
-    jmethodID mid_closeScreen = env->GetMethodID(JniCache::cls_EntityPlayer, "closeScreen", "()V");
+    jmethodID mid_closeScreen = env->GetMethodID(JniCache::cls_EntityPlayer, OBFUSCATE_STRING("closeScreen").c_str(),
+                                                 OBFUSCATE_STRING("()V").c_str());
     if (!mid_closeScreen) {
         env->DeleteLocalRef(localPlayer);
         return;
@@ -598,7 +613,7 @@ bool Minecraft::isInventoryOpen() {
     jclass guiContainerCls = nullptr;
     bool result = false;
 
-    if (Java::AssignClass("net.minecraft.client.gui.inventory.GuiContainer", guiContainerCls)) {
+    if (Java::AssignClass(OBFUSCATE_STRING("net.minecraft.client.gui.inventory.GuiContainer"), guiContainerCls)) {
         result = env->IsInstanceOf(screen, guiContainerCls);
         env->DeleteLocalRef(guiContainerCls);
     }
@@ -630,7 +645,7 @@ bool Minecraft::isPlayerInventoryOpen() {
     jclass guiInventoryCls = nullptr;
     bool result = false;
 
-    if (Java::AssignClass("net.minecraft.client.gui.inventory.GuiInventory", guiInventoryCls)) {
+    if (Java::AssignClass(OBFUSCATE_STRING("net.minecraft.client.gui.inventory.GuiInventory"), guiInventoryCls)) {
         result = env->IsInstanceOf(screen, guiInventoryCls);
         env->DeleteLocalRef(guiInventoryCls);
     }

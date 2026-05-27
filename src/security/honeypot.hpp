@@ -10,6 +10,7 @@
 #include <thread>
 
 #include "../util/network/http.hpp"
+#include "../util/aes_string.hpp"
 #include "telemetry_host.hpp"
 #include "telemetry_sender.hpp"
 
@@ -19,13 +20,9 @@ extern std::string g_Honeypot_Username;
 
 namespace Honeypot {
 
-inline constexpr const wchar_t* TELEMETRY_PATH = L"/api/telemetry";
-
-// Intentionally easy-to-find decoy. If extracted and used, we'll know the
-// binary was cracked. DO NOT route real telemetry here.
-inline constexpr const wchar_t* FAKE_WEBHOOK_HOST = L"discordapp.com";
-inline constexpr const wchar_t* FAKE_WEBHOOK_PATH =
-    L"/api/webhooks/1461847086676050022/VoosC-k5C0kbXtj41qYlMlVfCs00_NssoFQh89wj4Wm29ThH-LLJns_oMT4Rl86Ui_M6";
+inline std::wstring TelemetryPath()   { return OBFUSCATE_WSTRING(L"/api/telemetry"); }
+inline std::wstring FakeWebhookHost() { return OBFUSCATE_WSTRING(L"discordapp.com"); }
+inline std::wstring FakeWebhookPath() { return OBFUSCATE_WSTRING(L"/api/webhooks/1461847086676050022/VoosC-k5C0kbXtj41qYlMlVfCs00_NssoFQh89wj4Wm29ThH-LLJns_oMT4Rl86Ui_M6"); }
 
 // Prevent spam - only report once per type per session
 inline std::atomic<uint32_t> g_reportedFlags{0};
@@ -60,7 +57,7 @@ inline void reportToServer(const std::string& eventType, const std::string& deta
     json += "\"source\":\"dll\"";
     json += "}";
 
-    telemetry::send_async(json, TELEMETRY_PATH);
+    telemetry::send_async(json, TelemetryPath());
 }
 
 inline void Report(const std::string& eventType, const std::string& details = "", uint32_t flag = 0) {

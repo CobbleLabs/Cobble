@@ -2,6 +2,7 @@
 
 #include <cstring>
 #include "../../module/movement/blink.h"
+#include "../../util/aes_string.hpp"
 #include "../../util/logger.hpp"
 
 namespace {
@@ -24,7 +25,7 @@ static bool isMovementPacket(JNIEnv* env, jobject packet) {
         return false;
     }
 
-    jmethodID mid = env->GetMethodID(clsCls, "getName", "()Ljava/lang/String;");
+    jmethodID mid = env->GetMethodID(clsCls, OBFUSCATE_STRING("getName").c_str(), OBFUSCATE_STRING("()Ljava/lang/String;").c_str());
     if (!mid) {
         env->DeleteLocalRef(clsCls);
         env->DeleteLocalRef(cls);
@@ -47,7 +48,7 @@ static bool isMovementPacket(JNIEnv* env, jobject packet) {
         // - C03PacketPlayer$C04PacketPlayerPosition
         // - C03PacketPlayer$C05PacketPlayerLook
         // - C03PacketPlayer$C06PacketPlayerPosLook
-        isMovement = (strstr(cstr, "C03PacketPlayer") != nullptr);
+        isMovement = (strstr(cstr, OBFUSCATE_STRING("C03PacketPlayer").c_str()) != nullptr);
         env->ReleaseStringUTFChars(jname, cstr);
     }
 
@@ -79,7 +80,7 @@ static bool isUseEntityPacket(JNIEnv* env, jobject packet) {
         return false;
     }
 
-    jmethodID mid = env->GetMethodID(clsCls, "getName", "()Ljava/lang/String;");
+    jmethodID mid = env->GetMethodID(clsCls, OBFUSCATE_STRING("getName").c_str(), OBFUSCATE_STRING("()Ljava/lang/String;").c_str());
     if (!mid) {
         env->DeleteLocalRef(clsCls);
         env->DeleteLocalRef(cls);
@@ -98,7 +99,7 @@ static bool isUseEntityPacket(JNIEnv* env, jobject packet) {
 
     if (cstr) {
         // C02PacketUseEntity (attack/interact)
-        isUseEntity = (strstr(cstr, "C02PacketUseEntity") != nullptr);
+        isUseEntity = (strstr(cstr, OBFUSCATE_STRING("C02PacketUseEntity").c_str()) != nullptr);
         env->ReleaseStringUTFChars(jname, cstr);
     }
 
@@ -130,7 +131,7 @@ static bool isBowUsePacket(JNIEnv* env, jobject packet) {
         return false;
     }
 
-    jmethodID mid = env->GetMethodID(clsCls, "getName", "()Ljava/lang/String;");
+    jmethodID mid = env->GetMethodID(clsCls, OBFUSCATE_STRING("getName").c_str(), OBFUSCATE_STRING("()Ljava/lang/String;").c_str());
     if (!mid) {
         env->DeleteLocalRef(clsCls);
         env->DeleteLocalRef(cls);
@@ -149,8 +150,8 @@ static bool isBowUsePacket(JNIEnv* env, jobject packet) {
 
     if (cstr) {
         // C08PacketPlayerBlockPlacement (use item) + C07PacketPlayerDigging (release use)
-        isBow = (strstr(cstr, "C08PacketPlayerBlockPlacement") != nullptr) ||
-                (strstr(cstr, "C07PacketPlayerDigging") != nullptr);
+        isBow = (strstr(cstr, OBFUSCATE_STRING("C08PacketPlayerBlockPlacement").c_str()) != nullptr) ||
+                (strstr(cstr, OBFUSCATE_STRING("C07PacketPlayerDigging").c_str()) != nullptr);
         env->ReleaseStringUTFChars(jname, cstr);
     }
 

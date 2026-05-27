@@ -2,6 +2,7 @@
 #include <string>
 #include <vector>
 #include "../../jni/java.h"
+#include "../../util/aes_string.hpp"
 #include "../../util/logger.hpp"
 #include "../jni/jstring_util.h"
 
@@ -15,7 +16,7 @@
 namespace NetworkProbe {
 
 // Helper: Check if class can be loaded by name
-static bool tryLoadClass(const char* name, jclass& out) {
+static bool tryLoadClass(const std::string& name, jclass& out) {
     // Use Java::AssignClass which handles the class loader internally
     return Java::AssignClass(name, out);
 }
@@ -45,27 +46,26 @@ static std::string getFieldSignature(jclass cls, jfieldID field) {
 void probeMCPNames() {
     // log_debug("=== PROBE 1: MCP Names ===");
 
-    const char* classNames[] = {// Standard MCP names
-                                "net.minecraft.network.NetworkManager",
-                                "net.minecraft.client.network.NetHandlerPlayClient",
-                                "net.minecraft.client.entity.EntityPlayerSP", "net.minecraft.network.Packet",
+    const std::string classNames[] = {// Standard MCP names
+                                       OBFUSCATE_STRING("net.minecraft.network.NetworkManager"),
+                                       OBFUSCATE_STRING("net.minecraft.client.network.NetHandlerPlayClient"),
+                                       OBFUSCATE_STRING("net.minecraft.client.entity.EntityPlayerSP"),
+                                       OBFUSCATE_STRING("net.minecraft.network.Packet"),
 
-                                // Possible obfuscated patterns (common in Forge/Lunar)
-                                "ave",  // NetworkManager in some mappings
-                                "bcy",  // Another possibility
-                                "ej",   // Packet base
+                                       // Possible obfuscated patterns (common in Forge/Lunar)
+                                       OBFUSCATE_STRING("ave"),  // NetworkManager in some mappings
+                                       OBFUSCATE_STRING("bcy"),  // Another possibility
+                                       OBFUSCATE_STRING("ej")};  // Packet base
 
-                                nullptr};
-
-    for (int i = 0; classNames[i] != nullptr; i++) {
+    for (const auto& className : classNames) {
         jclass cls = nullptr;
-        bool found = tryLoadClass(classNames[i], cls);
+        bool found = tryLoadClass(className, cls);
 
         if (found) {
-            log_ok("[MCP] FOUND: %s", classNames[i]);
+            log_ok("[MCP] FOUND: %s", className.c_str());
             Java::Env()->DeleteLocalRef(cls);
         } else {
-            log_debug("[MCP] not found: %s", classNames[i]);
+            log_debug("[MCP] not found: %s", className.c_str());
         }
     }
 }
@@ -83,7 +83,7 @@ void probePlayerFields() {
 
     // Try to get EntityPlayerSP
     jclass entityPlayerSP = nullptr;
-    if (!tryLoadClass("net.minecraft.client.entity.EntityPlayerSP", entityPlayerSP)) {
+    if (!tryLoadClass(OBFUSCATE_STRING("net.minecraft.client.entity.EntityPlayerSP"), entityPlayerSP)) {
         log_warn("[Fields] EntityPlayerSP not found by MCP name");
         return;
     }
@@ -115,8 +115,10 @@ void probePlayerFields() {
                 log_debug("[Fields] %s -> %s", name ? name : "?", sig);
 
                 // Highlight potential network handler fields
-                if (strstr(sig, "Net") || strstr(sig, "Handler") || strstr(sig, "network") ||
-                    strstr(sig, "Connection")) {
+                if (strstr(sig, OBFUSCATE_STRING("Net").c_str()) ||
+                    strstr(sig, OBFUSCATE_STRING("Handler").c_str()) ||
+                    strstr(sig, OBFUSCATE_STRING("network").c_str()) ||
+                    strstr(sig, OBFUSCATE_STRING("Connection").c_str())) {
                     log_ok("[Fields] POTENTIAL NETWORK HANDLER: %s -> %s", name, sig);
                 }
             }
@@ -155,13 +157,20 @@ void probeNetworkClasses() {
     // log_debug("[Classes] Total loaded classes: %d", classCount);
 
     // Keywords to search for
-    const char* keywords[] = {"Network",    "network",    "Packet", "packet",
-                              "sendPacket", "SendPacket", "C03",    "C0E",  // Movement packets
-                              "NetHandler", "netHandler", nullptr};
+    const std::vector<std::string> keywords = {
+        OBFUSCATE_STRING("Network"),    OBFUSCATE_STRING("network"),
+        OBFUSCATE_STRING("Packet"),     OBFUSCATE_STRING("packet"),
+        OBFUSCATE_STRING("sendPacket"), OBFUSCATE_STRING("SendPacket"),
+        OBFUSCATE_STRING("C03"),        OBFUSCATE_STRING("C0E"),  // Movement packets
+        OBFUSCATE_STRING("NetHandler"), OBFUSCATE_STRING("netHandler")};
 
     // Lunar/Apollo specific patterns
-    const char* lunarKeywords[] = {"lunar", "Lunar", "apollo",     "Apollo",     "moonsworth", "Moonsworth",
-                                   "team",  "Team",  "TeamMember", "UpdateTeam", nullptr};
+    const std::vector<std::string> lunarKeywords = {
+        OBFUSCATE_STRING("lunar"),      OBFUSCATE_STRING("Lunar"),
+        OBFUSCATE_STRING("apollo"),     OBFUSCATE_STRING("Apollo"),
+        OBFUSCATE_STRING("moonsworth"), OBFUSCATE_STRING("Moonsworth"),
+        OBFUSCATE_STRING("team"),       OBFUSCATE_STRING("Team"),
+        OBFUSCATE_STRING("TeamMember"), OBFUSCATE_STRING("UpdateTeam")};
 
     int foundCount = 0;
     int lunarCount = 0;
@@ -173,9 +182,9 @@ void probeNetworkClasses() {
         if (sig) {
             // Check network keywords (limited output)
             if (foundCount < 50) {
-                for (int k = 0; keywords[k] != nullptr; k++) {
-                    if (strstr(sig, keywords[k])) {
-                        // log_ok("[Classes] MATCH '%s': %s", keywords[k], sig);
+                for (const auto& kw : keywords) {
+                    if (strstr(sig, kw.c_str())) {
+                        // log_ok("[Classes] MATCH '%s': %s", kw.c_str(), sig);
                         foundCount++;
                         break;  // Don't log same class twice
                     }
@@ -183,8 +192,8 @@ void probeNetworkClasses() {
             }
 
             // Check Lunar/Apollo keywords (log ALL of these)
-            for (int k = 0; lunarKeywords[k] != nullptr; k++) {
-                if (strstr(sig, lunarKeywords[k])) {
+            for (const auto& kw : lunarKeywords) {
+                if (strstr(sig, kw.c_str())) {
                     // log_ok("[Lunar] FOUND: %s", sig);
                     lunarCount++;
                     break;
@@ -219,22 +228,18 @@ void probeNettyHandlers() {
     // Try to find Netty base class
     jclass channelHandler = nullptr;
 
-    const char* nettyClasses[] = {"io.netty.channel.ChannelInboundHandler",
-                                  "io.netty.channel.SimpleChannelInboundHandler", "io.netty.channel.ChannelHandler",
-                                  nullptr};
+    const std::vector<std::string> nettyClasses = {OBFUSCATE_STRING("io.netty.channel.ChannelInboundHandler"),
+                                                   OBFUSCATE_STRING("io.netty.channel.SimpleChannelInboundHandler"),
+                                                   OBFUSCATE_STRING("io.netty.channel.ChannelHandler")};
 
-    for (int i = 0; nettyClasses[i] != nullptr; i++) {
-        // Try standard FindClass for Netty (not obfuscated)
-        jclass cls = Java::Env()->FindClass(
-            // Convert dot notation to slash for FindClass
-            [](const char* name) -> std::string {
-                std::string result = name;
-                for (char& c : result)
-                    if (c == '.')
-                        c = '/';
-                return result;
-            }(nettyClasses[i])
-                                        .c_str());
+    for (const auto& nc : nettyClasses) {
+        // Convert dot notation to slash for FindClass
+        std::string slashName = nc;
+        for (char& c : slashName)
+            if (c == '.')
+                c = '/';
+
+        jclass cls = Java::Env()->FindClass(slashName.c_str());
 
         if (Java::Env()->ExceptionCheck()) {
             Java::Env()->ExceptionClear();
@@ -242,7 +247,7 @@ void probeNettyHandlers() {
         }
 
         if (cls) {
-            // log_ok("[Netty] Found base class: %s", nettyClasses[i]);
+            // log_ok("[Netty] Found base class: %s", nc.c_str());
             channelHandler = cls;
             break;
         }
@@ -252,12 +257,12 @@ void probeNettyHandlers() {
         // log_warn("[Netty] No Netty base classes found - Lunar may use shaded Netty");
 
         // Try shaded netty paths
-        const char* shadedPaths[] = {"com.lunarclient.libs.netty.channel.ChannelHandler",
-                                     "shaded.netty.channel.ChannelHandler", nullptr};
+        const std::string shadedPaths[] = {OBFUSCATE_STRING("com.lunarclient.libs.netty.channel.ChannelHandler"),
+                                             OBFUSCATE_STRING("shaded.netty.channel.ChannelHandler")};
 
-        for (int i = 0; shadedPaths[i] != nullptr; i++) {
-            if (tryLoadClass(shadedPaths[i], channelHandler)) {
-                // log_ok("[Netty] Found shaded: %s", shadedPaths[i]);
+        for (const auto& sp : shadedPaths) {
+            if (tryLoadClass(sp, channelHandler)) {
+                // log_ok("[Netty] Found shaded: %s", sp.c_str());
                 break;
             }
         }
@@ -280,7 +285,7 @@ static void probeNetHandlerFields() {
     }
 
     jclass netHandlerPlayClient = nullptr;
-    if (!tryLoadClass("net.minecraft.client.network.NetHandlerPlayClient", netHandlerPlayClient)) {
+    if (!tryLoadClass(OBFUSCATE_STRING("net.minecraft.client.network.NetHandlerPlayClient"), netHandlerPlayClient)) {
         // log_warn("[NetHandler] NetHandlerPlayClient not found");
         return;
     }
@@ -309,7 +314,8 @@ static void probeNetHandlerFields() {
             // log_debug("[NetHandler] %s -> %s", name ? name : "?", sig);
 
             // Highlight NetworkManager field
-            if (strstr(sig, "NetworkManager") || strstr(sig, "network/Network")) {
+            if (strstr(sig, OBFUSCATE_STRING("NetworkManager").c_str()) ||
+                strstr(sig, OBFUSCATE_STRING("network/Network").c_str())) {
                 // log_ok("[NetHandler] FOUND NETWORK MANAGER FIELD: %s -> %s", name, sig);
             }
         }
@@ -331,7 +337,7 @@ static void probeSendPacket() {
     // log_debug("=== PROBE 6: NetworkManager.sendPacket() ===");
 
     jclass networkManager = nullptr;
-    if (!tryLoadClass("net.minecraft.network.NetworkManager", networkManager)) {
+    if (!tryLoadClass(OBFUSCATE_STRING("net.minecraft.network.NetworkManager"), networkManager)) {
         // log_warn("[sendPacket] NetworkManager not found");
         return;
     }
@@ -342,7 +348,8 @@ static void probeSendPacket() {
     // Signature: (Lnet/minecraft/network/Packet;)V
     JNIEnv* env = Java::Env();
 
-    jmethodID sendPacket = env->GetMethodID(networkManager, "sendPacket", "(Lnet/minecraft/network/Packet;)V");
+    jmethodID sendPacket = env->GetMethodID(networkManager, OBFUSCATE_STRING("sendPacket").c_str(),
+                                            OBFUSCATE_STRING("(Lnet/minecraft/network/Packet;)V").c_str());
 
     if (env->ExceptionCheck()) {
         env->ExceptionClear();
@@ -352,9 +359,9 @@ static void probeSendPacket() {
     }
 
     // Also check for overloaded version with GenericFutureListener
-    jmethodID sendPacketFuture =
-        env->GetMethodID(networkManager, "sendPacket",
-                         "(Lnet/minecraft/network/Packet;Lio/netty/util/concurrent/GenericFutureListener;)V");
+    jmethodID sendPacketFuture = env->GetMethodID(
+        networkManager, OBFUSCATE_STRING("sendPacket").c_str(),
+        OBFUSCATE_STRING("(Lnet/minecraft/network/Packet;Lio/netty/util/concurrent/GenericFutureListener;)V").c_str());
 
     if (env->ExceptionCheck()) {
         env->ExceptionClear();
@@ -363,9 +370,9 @@ static void probeSendPacket() {
     }
 
     // Check for scheduleOutboundPacket (alternative entry point)
-    jmethodID schedulePacket =
-        env->GetMethodID(networkManager, "scheduleOutboundPacket",
-                         "(Lnet/minecraft/network/Packet;[Lio/netty/util/concurrent/GenericFutureListener;)V");
+    jmethodID schedulePacket = env->GetMethodID(
+        networkManager, OBFUSCATE_STRING("scheduleOutboundPacket").c_str(),
+        OBFUSCATE_STRING("(Lnet/minecraft/network/Packet;[Lio/netty/util/concurrent/GenericFutureListener;)V").c_str());
 
     if (env->ExceptionCheck()) {
         env->ExceptionClear();
@@ -388,8 +395,10 @@ static void probeSendPacket() {
                 Java::tiEnv->GetMethodName(methods[i], &name, &sig, nullptr);
 
                 // Only log packet-related methods
-                if (name && (strstr(name, "send") || strstr(name, "Packet") || strstr(name, "schedule") ||
-                             strstr(name, "dispatch"))) {
+                if (name && (strstr(name, OBFUSCATE_STRING("send").c_str()) ||
+                             strstr(name, OBFUSCATE_STRING("Packet").c_str()) ||
+                             strstr(name, OBFUSCATE_STRING("schedule").c_str()) ||
+                             strstr(name, OBFUSCATE_STRING("dispatch").c_str()))) {
                     // log_debug("[sendPacket] Method: %s%s", name, sig ? sig : "");
                 }
 
@@ -413,7 +422,7 @@ static void probeLastReportedPos() {
     // log_debug("=== PROBE 7: lastReportedPos Fields ===");
 
     jclass entityPlayerSP = nullptr;
-    if (!tryLoadClass("net.minecraft.client.entity.EntityPlayerSP", entityPlayerSP)) {
+    if (!tryLoadClass(OBFUSCATE_STRING("net.minecraft.client.entity.EntityPlayerSP"), entityPlayerSP)) {
         // log_warn("[lastReportedPos] EntityPlayerSP not found");
         return;
     }
@@ -421,29 +430,28 @@ static void probeLastReportedPos() {
     JNIEnv* env = Java::Env();
 
     // Try MCP names first
-    const char* fieldNames[] = {"lastReportedPosX",
-                                "lastReportedPosY",
-                                "lastReportedPosZ",
-                                "lastReportedYaw",
-                                "lastReportedPitch",
-                                "field_175170_bN",
-                                "field_175166_bO",
-                                "field_175167_bP",  // SRG names
-                                nullptr};
+    const std::vector<std::string> fieldNames = {OBFUSCATE_STRING("lastReportedPosX"),
+                                                 OBFUSCATE_STRING("lastReportedPosY"),
+                                                 OBFUSCATE_STRING("lastReportedPosZ"),
+                                                 OBFUSCATE_STRING("lastReportedYaw"),
+                                                 OBFUSCATE_STRING("lastReportedPitch"),
+                                                 OBFUSCATE_STRING("field_175170_bN"),
+                                                 OBFUSCATE_STRING("field_175166_bO"),
+                                                 OBFUSCATE_STRING("field_175167_bP")};  // SRG names
 
-    for (int i = 0; fieldNames[i] != nullptr; i++) {
-        jfieldID field = env->GetFieldID(entityPlayerSP, fieldNames[i], "D");
+    for (const auto& fn : fieldNames) {
+        jfieldID field = env->GetFieldID(entityPlayerSP, fn.c_str(), "D");
         if (env->ExceptionCheck()) {
             env->ExceptionClear();
             // Try float
-            field = env->GetFieldID(entityPlayerSP, fieldNames[i], "F");
+            field = env->GetFieldID(entityPlayerSP, fn.c_str(), "F");
             if (env->ExceptionCheck()) {
                 env->ExceptionClear();
                 continue;
             }
         }
         if (field) {
-            // log_ok("[lastReportedPos] FOUND FIELD: %s", fieldNames[i]);
+            // log_ok("[lastReportedPos] FOUND FIELD: %s", fn.c_str());
         }
     }
 
@@ -463,9 +471,14 @@ static void probeLastReportedPos() {
 
                 // Only log double (D) or float (F) fields that might be position
                 if (name && sig && (sig[0] == 'D' || sig[0] == 'F')) {
-                    if (strstr(name, "last") || strstr(name, "Last") || strstr(name, "reported") ||
-                        strstr(name, "Reported") || strstr(name, "pos") || strstr(name, "Pos") ||
-                        strstr(name, "prev") || strstr(name, "Prev")) {
+                    if (strstr(name, OBFUSCATE_STRING("last").c_str()) ||
+                        strstr(name, OBFUSCATE_STRING("Last").c_str()) ||
+                        strstr(name, OBFUSCATE_STRING("reported").c_str()) ||
+                        strstr(name, OBFUSCATE_STRING("Reported").c_str()) ||
+                        strstr(name, OBFUSCATE_STRING("pos").c_str()) ||
+                        strstr(name, OBFUSCATE_STRING("Pos").c_str()) ||
+                        strstr(name, OBFUSCATE_STRING("prev").c_str()) ||
+                        strstr(name, OBFUSCATE_STRING("Prev").c_str())) {
                         // log_ok("[lastReportedPos] POTENTIAL: %s (%s)", name, sig);
                     }
                 }

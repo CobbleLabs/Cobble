@@ -4,6 +4,7 @@
 #include <string>
 #include <vector>
 #include "../../jni/java.h"
+#include "../../util/aes_string.hpp"
 #include "../../util/logger.hpp"
 #include "../../util/math/geometry.h"
 
@@ -57,7 +58,7 @@ struct RenderData {
         }
 
         // ActiveRenderInfo - use Java::AssignClass like other SDK classes
-        if (!Java::AssignClass("net.minecraft.client.renderer.ActiveRenderInfo", activeRenderInfoClass)) {
+        if (!Java::AssignClass(OBFUSCATE_STRING("net.minecraft.client.renderer.ActiveRenderInfo"), activeRenderInfoClass)) {
             log_err("RenderData: ActiveRenderInfo class not found");
             initFailed = true;
             return false;
@@ -66,14 +67,16 @@ struct RenderData {
 
         // Try uppercase first (1.8.9), then lowercase (1.7.10)
         bool foundUpperCase = false;
-        projectionField = Java::Env()->GetStaticFieldID(activeRenderInfoClass, "PROJECTION", "Ljava/nio/FloatBuffer;");
+        projectionField = Java::Env()->GetStaticFieldID(activeRenderInfoClass, OBFUSCATE_STRING("PROJECTION").c_str(),
+                                                        OBFUSCATE_STRING("Ljava/nio/FloatBuffer;").c_str());
         if (projectionField) {
             log_debug("RenderData: Found PROJECTION (1.8.x style)");
             foundUpperCase = true;
         } else {
             Java::Env()->ExceptionClear();
             projectionField =
-                Java::Env()->GetStaticFieldID(activeRenderInfoClass, "projection", "Ljava/nio/FloatBuffer;");
+                Java::Env()->GetStaticFieldID(activeRenderInfoClass, OBFUSCATE_STRING("projection").c_str(),
+                                              OBFUSCATE_STRING("Ljava/nio/FloatBuffer;").c_str());
             if (projectionField) {
                 log_debug("RenderData: Found projection (1.7.x style)");
             } else {
@@ -81,13 +84,15 @@ struct RenderData {
             }
         }
 
-        modelViewField = Java::Env()->GetStaticFieldID(activeRenderInfoClass, "MODELVIEW", "Ljava/nio/FloatBuffer;");
+        modelViewField = Java::Env()->GetStaticFieldID(activeRenderInfoClass, OBFUSCATE_STRING("MODELVIEW").c_str(),
+                                                       OBFUSCATE_STRING("Ljava/nio/FloatBuffer;").c_str());
         if (modelViewField) {
             log_debug("RenderData: Found MODELVIEW (1.8.x style)");
         } else {
             Java::Env()->ExceptionClear();
             modelViewField =
-                Java::Env()->GetStaticFieldID(activeRenderInfoClass, "modelview", "Ljava/nio/FloatBuffer;");
+                Java::Env()->GetStaticFieldID(activeRenderInfoClass, OBFUSCATE_STRING("modelview").c_str(),
+                                              OBFUSCATE_STRING("Ljava/nio/FloatBuffer;").c_str());
             if (modelViewField) {
                 log_debug("RenderData: Found modelview (1.7.x style)");
             } else {
@@ -103,7 +108,7 @@ struct RenderData {
         }
 
         // FloatBuffer
-        jclass fbLocal = Java::Env()->FindClass("java/nio/FloatBuffer");
+        jclass fbLocal = Java::Env()->FindClass(OBFUSCATE_STRING("java/nio/FloatBuffer").c_str());
         if (!fbLocal) {
             initFailed = true;
             return false;
@@ -111,7 +116,8 @@ struct RenderData {
         floatBufferClass = (jclass)Java::Env()->NewGlobalRef(fbLocal);
         Java::Env()->DeleteLocalRef(fbLocal);
 
-        floatBufferGet = Java::Env()->GetMethodID(floatBufferClass, "get", "(I)F");
+        floatBufferGet = Java::Env()->GetMethodID(floatBufferClass, OBFUSCATE_STRING("get").c_str(),
+                                                  OBFUSCATE_STRING("(I)F").c_str());
         if (!floatBufferGet) {
             initFailed = true;
             return false;

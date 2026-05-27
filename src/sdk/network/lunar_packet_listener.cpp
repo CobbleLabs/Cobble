@@ -1,5 +1,6 @@
 #include "lunar_packet_listener.hpp"
 #include "../../jni/java.h"
+#include "../../util/aes_string.hpp"
 #include "../../util/logger.hpp"
 
 #include <atomic>
@@ -75,7 +76,7 @@ static bool cacheClasses(JNIEnv* env) {
     jclass localClass = nullptr;
 
     // LCPacketNametagsUpdate
-    if (Java::AssignClass("com.lunarclient.bukkitapi.nethandler.client.LCPacketNametagsUpdate", localClass)) {
+    if (Java::AssignClass(OBFUSCATE_STRING("com.lunarclient.bukkitapi.nethandler.client.LCPacketNametagsUpdate"), localClass)) {
         cls_LCPacketNametagsUpdate = (jclass)env->NewGlobalRef(localClass);
         env->DeleteLocalRef(localClass);
         log_ok("[LunarPacketListener] Found LCPacketNametagsUpdate class");
@@ -87,7 +88,7 @@ static bool cacheClasses(JNIEnv* env) {
 
     // LCPacketNametagsOverride
     localClass = nullptr;
-    if (Java::AssignClass("com.lunarclient.bukkitapi.nethandler.client.LCPacketNametagsOverride", localClass)) {
+    if (Java::AssignClass(OBFUSCATE_STRING("com.lunarclient.bukkitapi.nethandler.client.LCPacketNametagsOverride"), localClass)) {
         cls_LCPacketNametagsOverride = (jclass)env->NewGlobalRef(localClass);
         env->DeleteLocalRef(localClass);
         log_ok("[LunarPacketListener] Found LCPacketNametagsOverride class");
@@ -99,81 +100,80 @@ static bool cacheClasses(JNIEnv* env) {
 
     // Standard Java classes for iteration
     localClass = nullptr;
-    if (Java::AssignClass("java.util.Map", localClass)) {
+    if (Java::AssignClass(OBFUSCATE_STRING("java.util.Map"), localClass)) {
         cls_Map = (jclass)env->NewGlobalRef(localClass);
         env->DeleteLocalRef(localClass);
 
-        mid_Map_entrySet = env->GetMethodID(cls_Map, "entrySet", "()Ljava/util/Set;");
+        mid_Map_entrySet = env->GetMethodID(cls_Map, OBFUSCATE_STRING("entrySet").c_str(), OBFUSCATE_STRING("()Ljava/util/Set;").c_str());
         if (env->ExceptionCheck())
             env->ExceptionClear();
     }
 
     localClass = nullptr;
-    if (Java::AssignClass("java.util.Set", localClass)) {
+    if (Java::AssignClass(OBFUSCATE_STRING("java.util.Set"), localClass)) {
         cls_Set = (jclass)env->NewGlobalRef(localClass);
         env->DeleteLocalRef(localClass);
 
-        mid_Set_iterator = env->GetMethodID(cls_Set, "iterator", "()Ljava/util/Iterator;");
+        mid_Set_iterator = env->GetMethodID(cls_Set, OBFUSCATE_STRING("iterator").c_str(), OBFUSCATE_STRING("()Ljava/util/Iterator;").c_str());
         if (env->ExceptionCheck())
             env->ExceptionClear();
     }
 
     localClass = nullptr;
-    if (Java::AssignClass("java.util.Iterator", localClass)) {
+    if (Java::AssignClass(OBFUSCATE_STRING("java.util.Iterator"), localClass)) {
         cls_Iterator = (jclass)env->NewGlobalRef(localClass);
         env->DeleteLocalRef(localClass);
 
-        mid_Iterator_hasNext = env->GetMethodID(cls_Iterator, "hasNext", "()Z");
-        mid_Iterator_next = env->GetMethodID(cls_Iterator, "next", "()Ljava/lang/Object;");
+        mid_Iterator_hasNext = env->GetMethodID(cls_Iterator, OBFUSCATE_STRING("hasNext").c_str(), OBFUSCATE_STRING("()Z").c_str());
+        mid_Iterator_next = env->GetMethodID(cls_Iterator, OBFUSCATE_STRING("next").c_str(), OBFUSCATE_STRING("()Ljava/lang/Object;").c_str());
         if (env->ExceptionCheck())
             env->ExceptionClear();
     }
 
     localClass = nullptr;
-    if (Java::AssignClass("java.util.Map$Entry", localClass)) {
+    if (Java::AssignClass(OBFUSCATE_STRING("java.util.Map$Entry"), localClass)) {
         cls_MapEntry = (jclass)env->NewGlobalRef(localClass);
         env->DeleteLocalRef(localClass);
 
-        mid_MapEntry_getKey = env->GetMethodID(cls_MapEntry, "getKey", "()Ljava/lang/Object;");
-        mid_MapEntry_getValue = env->GetMethodID(cls_MapEntry, "getValue", "()Ljava/lang/Object;");
+        mid_MapEntry_getKey = env->GetMethodID(cls_MapEntry, OBFUSCATE_STRING("getKey").c_str(), OBFUSCATE_STRING("()Ljava/lang/Object;").c_str());
+        mid_MapEntry_getValue = env->GetMethodID(cls_MapEntry, OBFUSCATE_STRING("getValue").c_str(), OBFUSCATE_STRING("()Ljava/lang/Object;").c_str());
         if (env->ExceptionCheck())
             env->ExceptionClear();
     }
 
     localClass = nullptr;
-    if (Java::AssignClass("java.util.UUID", localClass)) {
+    if (Java::AssignClass(OBFUSCATE_STRING("java.util.UUID"), localClass)) {
         cls_UUID = (jclass)env->NewGlobalRef(localClass);
         env->DeleteLocalRef(localClass);
 
-        mid_UUID_toString = env->GetMethodID(cls_UUID, "toString", "()Ljava/lang/String;");
+        mid_UUID_toString = env->GetMethodID(cls_UUID, OBFUSCATE_STRING("toString").c_str(), OBFUSCATE_STRING("()Ljava/lang/String;").c_str());
         if (env->ExceptionCheck())
             env->ExceptionClear();
     }
 
     localClass = nullptr;
-    if (Java::AssignClass("java.util.List", localClass)) {
+    if (Java::AssignClass(OBFUSCATE_STRING("java.util.List"), localClass)) {
         cls_List = (jclass)env->NewGlobalRef(localClass);
         env->DeleteLocalRef(localClass);
 
-        mid_List_size = env->GetMethodID(cls_List, "size", "()I");
-        mid_List_get = env->GetMethodID(cls_List, "get", "(I)Ljava/lang/Object;");
+        mid_List_size = env->GetMethodID(cls_List, OBFUSCATE_STRING("size").c_str(), OBFUSCATE_STRING("()I").c_str());
+        mid_List_get = env->GetMethodID(cls_List, OBFUSCATE_STRING("get").c_str(), OBFUSCATE_STRING("(I)Ljava/lang/Object;").c_str());
         if (env->ExceptionCheck())
             env->ExceptionClear();
     }
 
     // Try to find Lunar Client's internal net handler that processes nametag packets
     // This is where the LCPacket instances are created after deserialization
-    const char* lunarHandlerNames[] = {"com.lunarclient.bukkitapi.nethandler.LCNetHandler",
-                                       "com.lunarclient.bukkitapi.nethandler.client.LCNetHandlerClient",
-                                       "com.lunarclient.bukkitapi.LunarClientAPI",
-                                       "com.lunarclient.bukkitapi.nethandler.LCPacketHandler",
-                                       "com.lunarclient.bukkitapi.nethandler.shared.LCPacketHandler",
-                                       nullptr};
+    const std::string lunarHandlerNames[] = {OBFUSCATE_STRING("com.lunarclient.bukkitapi.nethandler.LCNetHandler"),
+                                              OBFUSCATE_STRING("com.lunarclient.bukkitapi.nethandler.client.LCNetHandlerClient"),
+                                              OBFUSCATE_STRING("com.lunarclient.bukkitapi.LunarClientAPI"),
+                                              OBFUSCATE_STRING("com.lunarclient.bukkitapi.nethandler.LCPacketHandler"),
+                                              OBFUSCATE_STRING("com.lunarclient.bukkitapi.nethandler.shared.LCPacketHandler")};
 
-    for (int i = 0; lunarHandlerNames[i] != nullptr; i++) {
+    for (const auto& handlerName : lunarHandlerNames) {
         localClass = nullptr;
-        if (Java::AssignClass(lunarHandlerNames[i], localClass)) {
-            log_ok("[LunarPacketListener] Found Lunar handler: %s", lunarHandlerNames[i]);
+        if (Java::AssignClass(handlerName, localClass)) {
+            log_ok("[LunarPacketListener] Found Lunar handler: %s", handlerName.c_str());
 
             // Dump all methods using JVMTI
             if (Java::tiEnv) {
@@ -213,11 +213,11 @@ static bool cacheFields(JNIEnv* env) {
     // Cache fields for NametagsUpdate
     if (cls_LCPacketNametagsUpdate) {
         // Try to find the playersMap field
-        fid_NametagsUpdate_playersMap = env->GetFieldID(cls_LCPacketNametagsUpdate, "playersMap", "Ljava/util/Map;");
+        fid_NametagsUpdate_playersMap = env->GetFieldID(cls_LCPacketNametagsUpdate, OBFUSCATE_STRING("playersMap").c_str(), OBFUSCATE_STRING("Ljava/util/Map;").c_str());
         if (env->ExceptionCheck()) {
             env->ExceptionClear();
             // Try alternative field names
-            fid_NametagsUpdate_playersMap = env->GetFieldID(cls_LCPacketNametagsUpdate, "players", "Ljava/util/Map;");
+            fid_NametagsUpdate_playersMap = env->GetFieldID(cls_LCPacketNametagsUpdate, OBFUSCATE_STRING("players").c_str(), OBFUSCATE_STRING("Ljava/util/Map;").c_str());
             if (env->ExceptionCheck())
                 env->ExceptionClear();
         }
@@ -251,15 +251,15 @@ static bool cacheFields(JNIEnv* env) {
 
     // Cache fields for NametagsOverride
     if (cls_LCPacketNametagsOverride) {
-        fid_NametagsOverride_player = env->GetFieldID(cls_LCPacketNametagsOverride, "player", "Ljava/util/UUID;");
+        fid_NametagsOverride_player = env->GetFieldID(cls_LCPacketNametagsOverride, OBFUSCATE_STRING("player").c_str(), OBFUSCATE_STRING("Ljava/util/UUID;").c_str());
         if (env->ExceptionCheck())
             env->ExceptionClear();
 
-        fid_NametagsOverride_nametag = env->GetFieldID(cls_LCPacketNametagsOverride, "tags", "Ljava/util/List;");
+        fid_NametagsOverride_nametag = env->GetFieldID(cls_LCPacketNametagsOverride, OBFUSCATE_STRING("tags").c_str(), OBFUSCATE_STRING("Ljava/util/List;").c_str());
         if (env->ExceptionCheck()) {
             env->ExceptionClear();
             // Try alternative names
-            fid_NametagsOverride_nametag = env->GetFieldID(cls_LCPacketNametagsOverride, "nametag", "Ljava/util/List;");
+            fid_NametagsOverride_nametag = env->GetFieldID(cls_LCPacketNametagsOverride, OBFUSCATE_STRING("nametag").c_str(), OBFUSCATE_STRING("Ljava/util/List;").c_str());
             if (env->ExceptionCheck())
                 env->ExceptionClear();
         }

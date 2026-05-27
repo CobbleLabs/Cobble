@@ -1,5 +1,6 @@
 #include "jni_cache.h"
 #include "../../util/logger.hpp"
+#include "../../util/aes_string.hpp"
 
 namespace JniCache {
 
@@ -248,52 +249,60 @@ jmethodID mid_setGrabbed = nullptr;
 // Helper macros for cleaner initialization
 // =============================================================================
 
-#define CACHE_CLASS(var, name)                      \
-    do {                                            \
-        jclass local = nullptr;                     \
-        if (Java::AssignClass(name, local)) {       \
-            var = (jclass)env->NewGlobalRef(local); \
-            env->DeleteLocalRef(local);             \
-        }                                           \
+#define CACHE_CLASS(var, name)                                      \
+    do {                                                            \
+        jclass local = nullptr;                                     \
+        if (Java::AssignClass(OBFUSCATE_STRING(name), local)) {     \
+            var = (jclass)env->NewGlobalRef(local);                 \
+            env->DeleteLocalRef(local);                             \
+        }                                                           \
     } while (0)
 
 #define CACHE_CLASS_CRITICAL(var, name)                                \
     do {                                                               \
         jclass local = nullptr;                                        \
-        if (!Java::AssignClass(name, local)) {                         \
-            log_err("JniCache: Failed to find critical class: " name); \
+        if (!Java::AssignClass(OBFUSCATE_STRING(name), local)) {       \
+            log_err("JniCache: Failed to find critical class");        \
             return false;                                              \
         }                                                              \
         var = (jclass)env->NewGlobalRef(local);                        \
         env->DeleteLocalRef(local);                                    \
     } while (0)
 
-#define TRY_METHOD(var, cls, name, sig)         \
-    do {                                        \
-        var = env->GetMethodID(cls, name, sig); \
-        if (!var)                               \
-            env->ExceptionClear();              \
+#define TRY_METHOD(var, cls, name, sig)                     \
+    do {                                                    \
+        std::string _mn = OBFUSCATE_STRING(name);           \
+        std::string _ms = OBFUSCATE_STRING(sig);            \
+        var = env->GetMethodID(cls, _mn.c_str(), _ms.c_str()); \
+        if (!var)                                           \
+            env->ExceptionClear();                          \
     } while (0)
 
-#define TRY_STATIC_METHOD(var, cls, name, sig)        \
-    do {                                              \
-        var = env->GetStaticMethodID(cls, name, sig); \
-        if (!var)                                     \
-            env->ExceptionClear();                    \
+#define TRY_STATIC_METHOD(var, cls, name, sig)                        \
+    do {                                                              \
+        std::string _mn = OBFUSCATE_STRING(name);                     \
+        std::string _ms = OBFUSCATE_STRING(sig);                      \
+        var = env->GetStaticMethodID(cls, _mn.c_str(), _ms.c_str());  \
+        if (!var)                                                     \
+            env->ExceptionClear();                                    \
     } while (0)
 
-#define TRY_FIELD(var, cls, name, sig)         \
-    do {                                       \
-        var = env->GetFieldID(cls, name, sig); \
-        if (!var)                              \
-            env->ExceptionClear();             \
+#define TRY_FIELD(var, cls, name, sig)                      \
+    do {                                                    \
+        std::string _fn = OBFUSCATE_STRING(name);           \
+        std::string _fs = OBFUSCATE_STRING(sig);            \
+        var = env->GetFieldID(cls, _fn.c_str(), _fs.c_str()); \
+        if (!var)                                           \
+            env->ExceptionClear();                          \
     } while (0)
 
-#define TRY_STATIC_FIELD(var, cls, name, sig)        \
-    do {                                             \
-        var = env->GetStaticFieldID(cls, name, sig); \
-        if (!var)                                    \
-            env->ExceptionClear();                   \
+#define TRY_STATIC_FIELD(var, cls, name, sig)                        \
+    do {                                                             \
+        std::string _fn = OBFUSCATE_STRING(name);                    \
+        std::string _fs = OBFUSCATE_STRING(sig);                     \
+        var = env->GetStaticFieldID(cls, _fn.c_str(), _fs.c_str()); \
+        if (!var)                                                    \
+            env->ExceptionClear();                                   \
     } while (0)
 
 // =============================================================================
@@ -356,7 +365,7 @@ bool Init() {
     }
 
     // Java classes
-    cls_List = env->FindClass("java/util/List");
+    cls_List = env->FindClass(OBFUSCATE_STRING("java/util/List").c_str());
     if (cls_List) cls_List = (jclass)env->NewGlobalRef(cls_List);
 
     cls_Map = env->FindClass("java/util/Map");
@@ -366,7 +375,7 @@ bool Init() {
     if (cls_Collection) cls_Collection = (jclass)env->NewGlobalRef(cls_Collection);
 
     // LWJGL (may not be available)
-    jclass mouseLocal = env->FindClass("org/lwjgl/input/Mouse");
+    jclass mouseLocal = env->FindClass(OBFUSCATE_STRING("org/lwjgl/input/Mouse").c_str());
     if (mouseLocal) {
         cls_Mouse = (jclass)env->NewGlobalRef(mouseLocal);
         env->DeleteLocalRef(mouseLocal);
@@ -755,7 +764,7 @@ bool Init() {
         if (!fid_loadedEntityList) {
             // Try parent class World
             jclass cls_World = nullptr;
-            if (Java::AssignClass("net.minecraft.world.World", cls_World) && cls_World) {
+            if (Java::AssignClass(OBFUSCATE_STRING("net.minecraft.world.World"), cls_World) && cls_World) {
                 TRY_FIELD(fid_loadedEntityList, cls_World, "loadedEntityList", "Ljava/util/List;");
                 env->DeleteLocalRef(cls_World);
             }

@@ -8,6 +8,8 @@
 #include <string>
 #include <vector>
 
+#include "../util/aes_string.hpp"
+
 #pragma comment(lib, "crypt32.lib")
 
 #include "../util/network/http.hpp"
@@ -83,7 +85,8 @@ inline bool ReadInjectionData(InjectionData* outData) {
     // Open the shared memory created by the loader
     // Uses PID-based name: Local\Cobble_<PID>
     wchar_t sharedMemName[64];
-    swprintf_s(sharedMemName, L"Local\\Cobble_%lu", GetCurrentProcessId());
+    std::wstring sharedMemFmt = OBFUSCATE_WSTRING(L"Local\\Cobble_%lu");
+    swprintf_s(sharedMemName, sharedMemFmt.c_str(), GetCurrentProcessId());
     HANDLE hMapFile = OpenFileMappingW(FILE_MAP_ALL_ACCESS, FALSE, sharedMemName);
 
     if (!hMapFile) {
@@ -123,7 +126,8 @@ inline bool ValidateInjection() {
     }
 
     // Verify magic signature
-    if (memcmp(data.signature, "COBBLE_INJ_V1", 13) != 0) {
+    std::string injSig = OBFUSCATE_STRING("COBBLE_INJ_V1");
+    if (memcmp(data.signature, injSig.c_str(), injSig.size()) != 0) {
         // Invalid signature = tampered or fake shared memory
         return false;
     }
@@ -164,7 +168,8 @@ inline bool ValidateInjection() {
     // Reconstruct handshake data that was signed
     // Use %lld to match Go's %d for int64 (issued_at is int64 on server)
     char handshakeData[512];
-    snprintf(handshakeData, sizeof(handshakeData), "COBBLE_HANDSHAKE|%s|%s|%lld|%s", data.username, data.hwid,
+    std::string handshakeFmt = OBFUSCATE_STRING("COBBLE_HANDSHAKE|%s|%s|%lld|%s");
+    snprintf(handshakeData, sizeof(handshakeData), handshakeFmt.c_str(), data.username, data.hwid,
              (long long)data.timestamp, data.secret);
 
     // Decode public key at runtime (not stored in plaintext)
@@ -364,7 +369,7 @@ inline bool ValidateWithServer() {
                        "\",\"secret\":\"" + http::json_escape(secretCopy) +
                        "\",\"nonce\":\"" + http::json_escape(nonce) + "\"}";
 
-    auto response = http::post(cobble_config::GetServerHostW().c_str(), 443, L"/api/dll/validate", body, true);
+    auto response = http::post(cobble_config::GetServerHostW().c_str(), 443, OBFUSCATE_WSTRING(L"/api/dll/validate").c_str(), body, true);
 
     // We're done with the secret after this round-trip — wipe it from
     // memory so a memscan can't lift it from the heap later.
@@ -482,7 +487,7 @@ inline bool DoHeartbeat() {
     body += "}";
 
     log_debug("Sending heartbeat");
-    http::Response response = http::post(cobble_config::GetServerHostW().c_str(), 443, L"/api/heartbeat", body, true);
+    http::Response response = http::post(cobble_config::GetServerHostW().c_str(), 443, OBFUSCATE_WSTRING(L"/api/heartbeat").c_str(), body, true);
 
     // CRITICAL: Network errors count as failures
     // If server is down, this should fail and eventually kill the DLL

@@ -9,6 +9,7 @@
 #include "../../sdk/core/minecraft.h"
 #include "../../sdk/jni/jni_cache.h"
 #include "../../util/logger.hpp"
+#include "../../util/aes_string.hpp"
 #include "../java.h"
 #include "apollo_packet_observer.hpp"
 
@@ -244,14 +245,14 @@ static bool initSendPacketMethod(JNIEnv* env, jobject netHandler) {
         return false;
 
     // Try different method names
-    g_midAddToSendQueue = env->GetMethodID(cls, "addToSendQueue", "(Lnet/minecraft/network/Packet;)V");
+    g_midAddToSendQueue = env->GetMethodID(cls, OBFUSCATE_STRING("addToSendQueue").c_str(), OBFUSCATE_STRING("(Lnet/minecraft/network/Packet;)V").c_str());
     if (!g_midAddToSendQueue) {
         env->ExceptionClear();
-        g_midAddToSendQueue = env->GetMethodID(cls, "func_147297_a", "(Lnet/minecraft/network/Packet;)V");
+        g_midAddToSendQueue = env->GetMethodID(cls, OBFUSCATE_STRING("func_147297_a").c_str(), OBFUSCATE_STRING("(Lnet/minecraft/network/Packet;)V").c_str());
     }
     if (!g_midAddToSendQueue) {
         env->ExceptionClear();
-        g_midAddToSendQueue = env->GetMethodID(cls, "sendPacket", "(Lnet/minecraft/network/Packet;)V");
+        g_midAddToSendQueue = env->GetMethodID(cls, OBFUSCATE_STRING("sendPacket").c_str(), OBFUSCATE_STRING("(Lnet/minecraft/network/Packet;)V").c_str());
     }
 
     env->DeleteLocalRef(cls);
@@ -263,7 +264,7 @@ static bool initPacketClasses(JNIEnv* env) {
         return true;
 
     // Find C17PacketCustomPayload
-    jclass c17Local = env->FindClass("net/minecraft/network/play/client/C17PacketCustomPayload");
+    jclass c17Local = env->FindClass(OBFUSCATE_STRING("net/minecraft/network/play/client/C17PacketCustomPayload").c_str());
     if (env->ExceptionCheck()) {
         env->ExceptionClear();
         log_warn("[ApolloHandshake] C17PacketCustomPayload class not found");
@@ -279,11 +280,10 @@ static bool initPacketClasses(JNIEnv* env) {
 
     // Get constructor: C17PacketCustomPayload(String channel, PacketBuffer data)
     g_midC17Ctor =
-        env->GetMethodID(g_clsC17Packet, "<init>", "(Ljava/lang/String;Lnet/minecraft/network/PacketBuffer;)V");
+        env->GetMethodID(g_clsC17Packet, OBFUSCATE_STRING("<init>").c_str(), OBFUSCATE_STRING("(Ljava/lang/String;Lnet/minecraft/network/PacketBuffer;)V").c_str());
     if (!g_midC17Ctor) {
         env->ExceptionClear();
-        // Try obfuscated name or different signature
-        g_midC17Ctor = env->GetMethodID(g_clsC17Packet, "<init>", "(Ljava/lang/String;Lio/netty/buffer/ByteBuf;)V");
+        g_midC17Ctor = env->GetMethodID(g_clsC17Packet, OBFUSCATE_STRING("<init>").c_str(), OBFUSCATE_STRING("(Ljava/lang/String;Lio/netty/buffer/ByteBuf;)V").c_str());
     }
     if (!g_midC17Ctor) {
         env->ExceptionClear();
@@ -292,7 +292,7 @@ static bool initPacketClasses(JNIEnv* env) {
     }
 
     // Find PacketBuffer
-    jclass pbLocal = env->FindClass("net/minecraft/network/PacketBuffer");
+    jclass pbLocal = env->FindClass(OBFUSCATE_STRING("net/minecraft/network/PacketBuffer").c_str());
     if (env->ExceptionCheck()) {
         env->ExceptionClear();
         log_warn("[ApolloHandshake] PacketBuffer class not found");
@@ -303,14 +303,14 @@ static bool initPacketClasses(JNIEnv* env) {
         env->DeleteLocalRef(pbLocal);
 
         // Constructor: PacketBuffer(ByteBuf wrapped)
-        g_midPacketBufferCtor = env->GetMethodID(g_clsPacketBuffer, "<init>", "(Lio/netty/buffer/ByteBuf;)V");
+        g_midPacketBufferCtor = env->GetMethodID(g_clsPacketBuffer, OBFUSCATE_STRING("<init>").c_str(), OBFUSCATE_STRING("(Lio/netty/buffer/ByteBuf;)V").c_str());
         if (!g_midPacketBufferCtor) {
             env->ExceptionClear();
         }
     }
 
     // Find Unpooled.wrappedBuffer for creating ByteBuf from bytes
-    jclass unpooledLocal = env->FindClass("io/netty/buffer/Unpooled");
+    jclass unpooledLocal = env->FindClass(OBFUSCATE_STRING("io/netty/buffer/Unpooled").c_str());
     if (env->ExceptionCheck()) {
         env->ExceptionClear();
         log_warn("[ApolloHandshake] Unpooled class not found");
@@ -321,7 +321,7 @@ static bool initPacketClasses(JNIEnv* env) {
         env->DeleteLocalRef(unpooledLocal);
 
         // Static method: wrappedBuffer(byte[])
-        g_midWrappedBuffer = env->GetStaticMethodID(g_clsUnpooled, "wrappedBuffer", "([B)Lio/netty/buffer/ByteBuf;");
+        g_midWrappedBuffer = env->GetStaticMethodID(g_clsUnpooled, OBFUSCATE_STRING("wrappedBuffer").c_str(), OBFUSCATE_STRING("([B)Lio/netty/buffer/ByteBuf;").c_str());
         if (!g_midWrappedBuffer) {
             env->ExceptionClear();
             log_warn("[ApolloHandshake] Unpooled.wrappedBuffer not found");
@@ -502,7 +502,7 @@ bool SendHandshake(JNIEnv* env) {
     }*/
 
     // Wrap in google.protobuf.Any
-    const char* typeUrl = "type.googleapis.com/lunarclient.apollo.player.v1.PlayerHandshakeMessage";
+    std::string typeUrl = OBFUSCATE_STRING("type.googleapis.com/lunarclient.apollo.player.v1.PlayerHandshakeMessage");
     auto anyWrapper = buildAnyWrapper(typeUrl, handshakePayload);
     /*
     if (debug) {
@@ -510,7 +510,7 @@ bool SendHandshake(JNIEnv* env) {
     }*/
 
     // Create and send the packet
-    jobject packet = createCustomPayloadPacket(env, "lunar:apollo", anyWrapper);
+    jobject packet = createCustomPayloadPacket(env, OBFUSCATE_STRING("lunar:apollo").c_str(), anyWrapper);
     if (!packet) {
         log_warn("[ApolloHandshake] Failed to create handshake packet");
         return false;
@@ -545,7 +545,7 @@ bool SendPingRequest(JNIEnv* env) {
     std::vector<uint8_t> pingPayload;  // Empty message
 
     // Wrap in Any
-    const char* typeUrl = "type.googleapis.com/lunarclient.apollo.common.v1.PingRequest";
+    std::string typeUrl = OBFUSCATE_STRING("type.googleapis.com/lunarclient.apollo.common.v1.PingRequest");
     auto anyWrapper = buildAnyWrapper(typeUrl, pingPayload);
 
     /*if (debug) {
@@ -553,7 +553,7 @@ bool SendPingRequest(JNIEnv* env) {
     }*/
 
     // Create and send
-    jobject packet = createCustomPayloadPacket(env, "lunar:apollo", anyWrapper);
+    jobject packet = createCustomPayloadPacket(env, OBFUSCATE_STRING("lunar:apollo").c_str(), anyWrapper);
     if (!packet) {
         return false;
     }
@@ -701,14 +701,14 @@ bool SendConfigurableSettings(JNIEnv* env) {
     }
 
     // Wrap in google.protobuf.Any
-    const char* typeUrl = "type.googleapis.com/lunarclient.apollo.configurable.v1.OverrideConfigurableSettingsMessage";
+    std::string typeUrl = OBFUSCATE_STRING("type.googleapis.com/lunarclient.apollo.configurable.v1.OverrideConfigurableSettingsMessage");
     auto anyWrapper = buildAnyWrapper(typeUrl, configPayload);
     if (debug) {
         //log_debug("[ApolloHandshake] Any wrapper built: %zu bytes", anyWrapper.size());
     }
 
     // Create and send the packet
-    jobject packet = createCustomPayloadPacket(env, "lunar:apollo", anyWrapper);
+    jobject packet = createCustomPayloadPacket(env, OBFUSCATE_STRING("lunar:apollo").c_str(), anyWrapper);
     if (!packet) {
         //log_warn("[ApolloHandshake] Failed to create config packet");
         return false;

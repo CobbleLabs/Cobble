@@ -1,4 +1,5 @@
 #include "lunar_sender.hpp"
+#include "../../util/aes_string.hpp"
 #include "../../util/logger.hpp"
 #include "../../jni/java.h"
 #include <mutex>
@@ -27,11 +28,11 @@ namespace LunarSender {
 
         // Find LunarClientAPI
         jclass localAPI = nullptr;
-        if (Java::AssignClass("com.lunarclient.bukkitapi.LunarClientAPI", localAPI)) {
+        if (Java::AssignClass(OBFUSCATE_STRING("com.lunarclient.bukkitapi.LunarClientAPI"), localAPI)) {
             cls_LunarClientAPI = (jclass)env->NewGlobalRef(localAPI);
             env->DeleteLocalRef(localAPI);
-            
-            mid_getInstance = env->GetStaticMethodID(cls_LunarClientAPI, "getInstance", "()Lcom/lunarclient/bukkitapi/LunarClientAPI;");
+
+            mid_getInstance = env->GetStaticMethodID(cls_LunarClientAPI, OBFUSCATE_STRING("getInstance").c_str(), OBFUSCATE_STRING("()Lcom/lunarclient/bukkitapi/LunarClientAPI;").c_str());
             if (mid_getInstance) {
                  obj_LunarClientAPI = env->NewGlobalRef(env->CallStaticObjectMethod(cls_LunarClientAPI, mid_getInstance));
             }
@@ -42,17 +43,17 @@ namespace LunarSender {
             // But checking exact signature requires knowing the package of LCPacket.
             // Usually com.lunarclient.bukkitapi.nethandler.LCPacket
             
-            mid_sendPacket = env->GetMethodID(cls_LunarClientAPI, "sendPacket", "(Lcom/lunarclient/bukkitapi/nethandler/LCPacket;)V");
+            mid_sendPacket = env->GetMethodID(cls_LunarClientAPI, OBFUSCATE_STRING("sendPacket").c_str(), OBFUSCATE_STRING("(Lcom/lunarclient/bukkitapi/nethandler/LCPacket;)V").c_str());
             if (!mid_sendPacket) {
                 env->ExceptionClear();
                 // Try alternate signature
-                mid_sendPacket = env->GetMethodID(cls_LunarClientAPI, "sendPacket", "(Lcom/lunarclient/bukkitapi/nethandler/shared/LCPacket;)V");
+                mid_sendPacket = env->GetMethodID(cls_LunarClientAPI, OBFUSCATE_STRING("sendPacket").c_str(), OBFUSCATE_STRING("(Lcom/lunarclient/bukkitapi/nethandler/shared/LCPacket;)V").c_str());
             }
         }
         
         // WaypointAdd
         jclass localAdd = nullptr;
-        if (Java::AssignClass("com.lunarclient.bukkitapi.nethandler.client.LCPacketWaypointAdd", localAdd)) {
+        if (Java::AssignClass(OBFUSCATE_STRING("com.lunarclient.bukkitapi.nethandler.client.LCPacketWaypointAdd"), localAdd)) {
             cls_WaypointAdd = (jclass)env->NewGlobalRef(localAdd);
             env->DeleteLocalRef(localAdd);
             
@@ -64,17 +65,17 @@ namespace LunarSender {
             // (Ljava/lang/String;Ljava/lang/String;IIIIZZ)V ? (Name, World, Color, X, Y, Z, Forced, Visible)
             
             // Common: (String name, String world, int color, int x, int y, int z, boolean forced, boolean visible)
-            mid_ctor_WaypointAdd = env->GetMethodID(cls_WaypointAdd, "<init>", "(Ljava/lang/String;Ljava/lang/String;IIIIZZ)V");
+            mid_ctor_WaypointAdd = env->GetMethodID(cls_WaypointAdd, OBFUSCATE_STRING("<init>").c_str(), OBFUSCATE_STRING("(Ljava/lang/String;Ljava/lang/String;IIIIZZ)V").c_str());
         }
 
         // WaypointRemove
         jclass localRemove = nullptr;
-        if (Java::AssignClass("com.lunarclient.bukkitapi.nethandler.client.LCPacketWaypointRemove", localRemove)) {
+        if (Java::AssignClass(OBFUSCATE_STRING("com.lunarclient.bukkitapi.nethandler.client.LCPacketWaypointRemove"), localRemove)) {
              cls_WaypointRemove = (jclass)env->NewGlobalRef(localRemove);
              env->DeleteLocalRef(localRemove);
-             
+
              // Constructor: Name, World(String)
-             mid_ctor_WaypointRemove = env->GetMethodID(cls_WaypointRemove, "<init>", "(Ljava/lang/String;Ljava/lang/String;)V");
+             mid_ctor_WaypointRemove = env->GetMethodID(cls_WaypointRemove, OBFUSCATE_STRING("<init>").c_str(), OBFUSCATE_STRING("(Ljava/lang/String;Ljava/lang/String;)V").c_str());
         }
         
         return (obj_LunarClientAPI && mid_sendPacket && cls_WaypointAdd && cls_WaypointRemove);

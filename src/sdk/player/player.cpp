@@ -1,5 +1,6 @@
 #include "player.h"
 #include "../../util/logger.hpp"
+#include "../../util/aes_string.hpp"
 #include "../core/minecraft.h"
 #include "../jni/jni_cache.h"
 
@@ -11,68 +12,68 @@ void LocalPlayer::initFields() {
 
     // Get Entity class (base class with position, motion, rotation)
     // Must use AssignClass because Minecraft uses custom ClassLoader
-    if (!Java::AssignClass("net.minecraft.entity.Entity", entityCls)) {
+    if (!Java::AssignClass(OBFUSCATE_STRING("net.minecraft.entity.Entity"), entityCls)) {
         log_err("LocalPlayer: failed to find Entity class");
         return;
     }
 
     // Get EntityLivingBase class (has health, hurtTime, jump)
-    Java::AssignClass("net.minecraft.entity.EntityLivingBase", livingCls);
+    Java::AssignClass(OBFUSCATE_STRING("net.minecraft.entity.EntityLivingBase"), livingCls);
 
     // Position fields (in Entity)
-    fid_posX = Java::Env()->GetFieldID(entityCls, "posX", "D");
-    fid_posY = Java::Env()->GetFieldID(entityCls, "posY", "D");
-    fid_posZ = Java::Env()->GetFieldID(entityCls, "posZ", "D");
+    fid_posX = Java::Env()->GetFieldID(entityCls, OBFUSCATE_STRING("posX").c_str(), OBFUSCATE_STRING("D").c_str());
+    fid_posY = Java::Env()->GetFieldID(entityCls, OBFUSCATE_STRING("posY").c_str(), OBFUSCATE_STRING("D").c_str());
+    fid_posZ = Java::Env()->GetFieldID(entityCls, OBFUSCATE_STRING("posZ").c_str(), OBFUSCATE_STRING("D").c_str());
 
     // Last tick position fields (for interpolation)
-    fid_lastPosX = Java::Env()->GetFieldID(entityCls, "lastTickPosX", "D");
-    fid_lastPosY = Java::Env()->GetFieldID(entityCls, "lastTickPosY", "D");
-    fid_lastPosZ = Java::Env()->GetFieldID(entityCls, "lastTickPosZ", "D");
+    fid_lastPosX = Java::Env()->GetFieldID(entityCls, OBFUSCATE_STRING("lastTickPosX").c_str(), OBFUSCATE_STRING("D").c_str());
+    fid_lastPosY = Java::Env()->GetFieldID(entityCls, OBFUSCATE_STRING("lastTickPosY").c_str(), OBFUSCATE_STRING("D").c_str());
+    fid_lastPosZ = Java::Env()->GetFieldID(entityCls, OBFUSCATE_STRING("lastTickPosZ").c_str(), OBFUSCATE_STRING("D").c_str());
 
     // Motion fields (in Entity)
-    fid_motionX = Java::Env()->GetFieldID(entityCls, "motionX", "D");
-    fid_motionY = Java::Env()->GetFieldID(entityCls, "motionY", "D");
-    fid_motionZ = Java::Env()->GetFieldID(entityCls, "motionZ", "D");
+    fid_motionX = Java::Env()->GetFieldID(entityCls, OBFUSCATE_STRING("motionX").c_str(), OBFUSCATE_STRING("D").c_str());
+    fid_motionY = Java::Env()->GetFieldID(entityCls, OBFUSCATE_STRING("motionY").c_str(), OBFUSCATE_STRING("D").c_str());
+    fid_motionZ = Java::Env()->GetFieldID(entityCls, OBFUSCATE_STRING("motionZ").c_str(), OBFUSCATE_STRING("D").c_str());
 
     // Rotation fields (in Entity)
-    fid_rotationYaw = Java::Env()->GetFieldID(entityCls, "rotationYaw", "F");
-    fid_rotationPitch = Java::Env()->GetFieldID(entityCls, "rotationPitch", "F");
-    fid_prevRotationYaw = Java::Env()->GetFieldID(entityCls, "prevRotationYaw", "F");
-    fid_prevRotationPitch = Java::Env()->GetFieldID(entityCls, "prevRotationPitch", "F");
+    fid_rotationYaw = Java::Env()->GetFieldID(entityCls, OBFUSCATE_STRING("rotationYaw").c_str(), OBFUSCATE_STRING("F").c_str());
+    fid_rotationPitch = Java::Env()->GetFieldID(entityCls, OBFUSCATE_STRING("rotationPitch").c_str(), OBFUSCATE_STRING("F").c_str());
+    fid_prevRotationYaw = Java::Env()->GetFieldID(entityCls, OBFUSCATE_STRING("prevRotationYaw").c_str(), OBFUSCATE_STRING("F").c_str());
+    fid_prevRotationPitch = Java::Env()->GetFieldID(entityCls, OBFUSCATE_STRING("prevRotationPitch").c_str(), OBFUSCATE_STRING("F").c_str());
 
     // On ground (in Entity)
-    fid_onGround = Java::Env()->GetFieldID(entityCls, "onGround", "Z");
+    fid_onGround = Java::Env()->GetFieldID(entityCls, OBFUSCATE_STRING("onGround").c_str(), OBFUSCATE_STRING("Z").c_str());
 
     // Sprint/sneak methods (in Entity)
-    mid_isSprinting = Java::Env()->GetMethodID(entityCls, "isSprinting", "()Z");
-    mid_setSprinting = Java::Env()->GetMethodID(entityCls, "setSprinting", "(Z)V");
-    mid_isSneaking = Java::Env()->GetMethodID(entityCls, "isSneaking", "()Z");
+    mid_isSprinting = Java::Env()->GetMethodID(entityCls, OBFUSCATE_STRING("isSprinting").c_str(), OBFUSCATE_STRING("()Z").c_str());
+    mid_setSprinting = Java::Env()->GetMethodID(entityCls, OBFUSCATE_STRING("setSprinting").c_str(), OBFUSCATE_STRING("(Z)V").c_str());
+    mid_isSneaking = Java::Env()->GetMethodID(entityCls, OBFUSCATE_STRING("isSneaking").c_str(), OBFUSCATE_STRING("()Z").c_str());
 
     if (livingCls) {
         // Health (in EntityLivingBase)
-        mid_getHealth = Java::Env()->GetMethodID(livingCls, "getHealth", "()F");
+        mid_getHealth = Java::Env()->GetMethodID(livingCls, OBFUSCATE_STRING("getHealth").c_str(), OBFUSCATE_STRING("()F").c_str());
 
         // HurtTime (in EntityLivingBase)
-        fid_hurtTime = Java::Env()->GetFieldID(livingCls, "hurtTime", "I");
+        fid_hurtTime = Java::Env()->GetFieldID(livingCls, OBFUSCATE_STRING("hurtTime").c_str(), OBFUSCATE_STRING("I").c_str());
 
         // Jump (in EntityLivingBase)
-        mid_jump = Java::Env()->GetMethodID(livingCls, "jump", "()V");
+        mid_jump = Java::Env()->GetMethodID(livingCls, OBFUSCATE_STRING("jump").c_str(), OBFUSCATE_STRING("()V").c_str());
 
         // JumpTicks (in EntityLivingBase) - controls jump delay
-        fid_jumpTicks = Java::Env()->GetFieldID(livingCls, "jumpTicks", "I");
+        fid_jumpTicks = Java::Env()->GetFieldID(livingCls, OBFUSCATE_STRING("jumpTicks").c_str(), OBFUSCATE_STRING("I").c_str());
 
         // isUsingItem (in EntityLivingBase) - true when eating/drinking
-        mid_isUsingItem = Java::Env()->GetMethodID(livingCls, "isUsingItem", "()Z");
+        mid_isUsingItem = Java::Env()->GetMethodID(livingCls, OBFUSCATE_STRING("isUsingItem").c_str(), OBFUSCATE_STRING("()Z").c_str());
     }
 
     // Need to get EntityPlayerSP class for these
     jclass playerSPCls = nullptr;
-    if (Java::AssignClass("net.minecraft.client.entity.EntityPlayerSP", playerSPCls)) {
-        fid_lastReportedPosX = Java::Env()->GetFieldID(playerSPCls, "lastReportedPosX", "D");
-        fid_lastReportedPosY = Java::Env()->GetFieldID(playerSPCls, "lastReportedPosY", "D");
-        fid_lastReportedPosZ = Java::Env()->GetFieldID(playerSPCls, "lastReportedPosZ", "D");
-        fid_lastReportedYaw = Java::Env()->GetFieldID(playerSPCls, "lastReportedYaw", "F");
-        fid_lastReportedPitch = Java::Env()->GetFieldID(playerSPCls, "lastReportedPitch", "F");
+    if (Java::AssignClass(OBFUSCATE_STRING("net.minecraft.client.entity.EntityPlayerSP"), playerSPCls)) {
+        fid_lastReportedPosX = Java::Env()->GetFieldID(playerSPCls, OBFUSCATE_STRING("lastReportedPosX").c_str(), OBFUSCATE_STRING("D").c_str());
+        fid_lastReportedPosY = Java::Env()->GetFieldID(playerSPCls, OBFUSCATE_STRING("lastReportedPosY").c_str(), OBFUSCATE_STRING("D").c_str());
+        fid_lastReportedPosZ = Java::Env()->GetFieldID(playerSPCls, OBFUSCATE_STRING("lastReportedPosZ").c_str(), OBFUSCATE_STRING("D").c_str());
+        fid_lastReportedYaw = Java::Env()->GetFieldID(playerSPCls, OBFUSCATE_STRING("lastReportedYaw").c_str(), OBFUSCATE_STRING("F").c_str());
+        fid_lastReportedPitch = Java::Env()->GetFieldID(playerSPCls, OBFUSCATE_STRING("lastReportedPitch").c_str(), OBFUSCATE_STRING("F").c_str());
 
         if (fid_lastReportedPosX && fid_lastReportedPosY && fid_lastReportedPosZ) {
             log_ok("LocalPlayer: lastReportedPos fields initialized (Blink ready)");
@@ -93,16 +94,16 @@ void LocalPlayer::initFields() {
     jclass itemStackCls = nullptr;
     jclass itemCls = nullptr;
 
-    if (Java::AssignClass("net.minecraft.entity.player.EntityPlayer", playerCls) &&
-        Java::AssignClass("net.minecraft.entity.player.InventoryPlayer", inventoryCls) &&
-        Java::AssignClass("net.minecraft.item.ItemStack", itemStackCls) &&
-        Java::AssignClass("net.minecraft.item.Item", itemCls)) {
+    if (Java::AssignClass(OBFUSCATE_STRING("net.minecraft.entity.player.EntityPlayer"), playerCls) &&
+        Java::AssignClass(OBFUSCATE_STRING("net.minecraft.entity.player.InventoryPlayer"), inventoryCls) &&
+        Java::AssignClass(OBFUSCATE_STRING("net.minecraft.item.ItemStack"), itemStackCls) &&
+        Java::AssignClass(OBFUSCATE_STRING("net.minecraft.item.Item"), itemCls)) {
 
-        fid_playerInventory = Java::Env()->GetFieldID(playerCls, "inventory", "Lnet/minecraft/entity/player/InventoryPlayer;");
-        mid_getCurrentItem = Java::Env()->GetMethodID(inventoryCls, "getCurrentItem", "()Lnet/minecraft/item/ItemStack;");
-        mid_getItem = Java::Env()->GetMethodID(itemStackCls, "getItem", "()Lnet/minecraft/item/Item;");
-        mid_getIdFromItem = Java::Env()->GetStaticMethodID(itemCls, "getIdFromItem", "(Lnet/minecraft/item/Item;)I");
-        mid_getMetadata = Java::Env()->GetMethodID(itemStackCls, "getMetadata", "()I");
+        fid_playerInventory = Java::Env()->GetFieldID(playerCls, OBFUSCATE_STRING("inventory").c_str(), OBFUSCATE_STRING("Lnet/minecraft/entity/player/InventoryPlayer;").c_str());
+        mid_getCurrentItem = Java::Env()->GetMethodID(inventoryCls, OBFUSCATE_STRING("getCurrentItem").c_str(), OBFUSCATE_STRING("()Lnet/minecraft/item/ItemStack;").c_str());
+        mid_getItem = Java::Env()->GetMethodID(itemStackCls, OBFUSCATE_STRING("getItem").c_str(), OBFUSCATE_STRING("()Lnet/minecraft/item/Item;").c_str());
+        mid_getIdFromItem = Java::Env()->GetStaticMethodID(itemCls, OBFUSCATE_STRING("getIdFromItem").c_str(), OBFUSCATE_STRING("(Lnet/minecraft/item/Item;)I").c_str());
+        mid_getMetadata = Java::Env()->GetMethodID(itemStackCls, OBFUSCATE_STRING("getMetadata").c_str(), OBFUSCATE_STRING("()I").c_str());
 
         // Keep Item class as GlobalRef for static method calls
         cls_Item = (jclass)Java::Env()->NewGlobalRef(itemCls);
@@ -385,19 +386,19 @@ int LocalPlayer::getHeldItemDamage() {
 
     // Get EntityPlayer class for inventory field
     jclass playerCls = nullptr;
-    if (!Java::AssignClass("net.minecraft.entity.player.EntityPlayer", playerCls))
+    if (!Java::AssignClass(OBFUSCATE_STRING("net.minecraft.entity.player.EntityPlayer"), playerCls))
         return -1;
 
     // Get InventoryPlayer class
     jclass inventoryCls = nullptr;
-    if (!Java::AssignClass("net.minecraft.entity.player.InventoryPlayer", inventoryCls)) {
+    if (!Java::AssignClass(OBFUSCATE_STRING("net.minecraft.entity.player.InventoryPlayer"), inventoryCls)) {
         Java::Env()->DeleteLocalRef(playerCls);
         return -1;
     }
 
     // Get ItemStack class
     jclass itemStackCls = nullptr;
-    if (!Java::AssignClass("net.minecraft.item.ItemStack", itemStackCls)) {
+    if (!Java::AssignClass(OBFUSCATE_STRING("net.minecraft.item.ItemStack"), itemStackCls)) {
         Java::Env()->DeleteLocalRef(playerCls);
         Java::Env()->DeleteLocalRef(inventoryCls);
         return -1;
@@ -407,7 +408,7 @@ int LocalPlayer::getHeldItemDamage() {
 
     // player.inventory field
     jfieldID fid_inventory =
-        Java::Env()->GetFieldID(playerCls, "inventory", "Lnet/minecraft/entity/player/InventoryPlayer;");
+        Java::Env()->GetFieldID(playerCls, OBFUSCATE_STRING("inventory").c_str(), OBFUSCATE_STRING("Lnet/minecraft/entity/player/InventoryPlayer;").c_str());
     if (!fid_inventory)
         goto cleanup_damage;
 
@@ -418,7 +419,7 @@ int LocalPlayer::getHeldItemDamage() {
 
         // inventory.getCurrentItem()
         jmethodID mid_getCurrentItem =
-            Java::Env()->GetMethodID(inventoryCls, "getCurrentItem", "()Lnet/minecraft/item/ItemStack;");
+            Java::Env()->GetMethodID(inventoryCls, OBFUSCATE_STRING("getCurrentItem").c_str(), OBFUSCATE_STRING("()Lnet/minecraft/item/ItemStack;").c_str());
         if (!mid_getCurrentItem) {
             Java::Env()->DeleteLocalRef(inventory);
             goto cleanup_damage;
@@ -431,7 +432,7 @@ int LocalPlayer::getHeldItemDamage() {
             goto cleanup_damage;  // Empty hand
 
         // itemStack.getMetadata() - returns the damage/metadata value
-        jmethodID mid_getMetadata = Java::Env()->GetMethodID(itemStackCls, "getMetadata", "()I");
+        jmethodID mid_getMetadata = Java::Env()->GetMethodID(itemStackCls, OBFUSCATE_STRING("getMetadata").c_str(), OBFUSCATE_STRING("()I").c_str());
         if (!mid_getMetadata) {
             Java::Env()->DeleteLocalRef(itemStack);
             goto cleanup_damage;
@@ -457,7 +458,7 @@ int LocalPlayer::getItemInSlot(int slot) {
 
     // Get InventoryPlayer class
     jclass inventoryCls = nullptr;
-    if (!Java::AssignClass("net.minecraft.entity.player.InventoryPlayer", inventoryCls)) {
+    if (!Java::AssignClass(OBFUSCATE_STRING("net.minecraft.entity.player.InventoryPlayer"), inventoryCls)) {
         if (Java::Env()->ExceptionCheck())
             Java::Env()->ExceptionClear();
         return -1;
@@ -465,7 +466,7 @@ int LocalPlayer::getItemInSlot(int slot) {
 
     // Get ItemStack class
     jclass itemStackCls = nullptr;
-    if (!Java::AssignClass("net.minecraft.item.ItemStack", itemStackCls)) {
+    if (!Java::AssignClass(OBFUSCATE_STRING("net.minecraft.item.ItemStack"), itemStackCls)) {
         Java::Env()->DeleteLocalRef(inventoryCls);
         if (Java::Env()->ExceptionCheck())
             Java::Env()->ExceptionClear();
@@ -474,7 +475,7 @@ int LocalPlayer::getItemInSlot(int slot) {
 
     // Get Item class
     jclass itemCls = nullptr;
-    if (!Java::AssignClass("net.minecraft.item.Item", itemCls)) {
+    if (!Java::AssignClass(OBFUSCATE_STRING("net.minecraft.item.Item"), itemCls)) {
         Java::Env()->DeleteLocalRef(inventoryCls);
         Java::Env()->DeleteLocalRef(itemStackCls);
         if (Java::Env()->ExceptionCheck())
@@ -501,7 +502,7 @@ int LocalPlayer::getItemInSlot(int slot) {
 
     // Get inventory.mainInventory field (array of ItemStack)
     jfieldID fid_mainInventory =
-        Java::Env()->GetFieldID(inventoryCls, "mainInventory", "[Lnet/minecraft/item/ItemStack;");
+        Java::Env()->GetFieldID(inventoryCls, OBFUSCATE_STRING("mainInventory").c_str(), OBFUSCATE_STRING("[Lnet/minecraft/item/ItemStack;").c_str());
     if (!fid_mainInventory || Java::Env()->ExceptionCheck()) {
         Java::Env()->ExceptionClear();
         Java::Env()->DeleteLocalRef(inventory);
@@ -555,7 +556,7 @@ int LocalPlayer::getItemInSlot(int slot) {
     }
 
     // Get itemStack.getItem() method
-    jmethodID mid_getItem = Java::Env()->GetMethodID(itemStackCls, "getItem", "()Lnet/minecraft/item/Item;");
+    jmethodID mid_getItem = Java::Env()->GetMethodID(itemStackCls, OBFUSCATE_STRING("getItem").c_str(), OBFUSCATE_STRING("()Lnet/minecraft/item/Item;").c_str());
     if (!mid_getItem || Java::Env()->ExceptionCheck()) {
         Java::Env()->ExceptionClear();
         Java::Env()->DeleteLocalRef(itemStack);
@@ -591,7 +592,7 @@ int LocalPlayer::getItemInSlot(int slot) {
 
     // Get Item.getIdFromItem static method
     jmethodID mid_getIdFromItem =
-        Java::Env()->GetStaticMethodID(itemCls, "getIdFromItem", "(Lnet/minecraft/item/Item;)I");
+        Java::Env()->GetStaticMethodID(itemCls, OBFUSCATE_STRING("getIdFromItem").c_str(), OBFUSCATE_STRING("(Lnet/minecraft/item/Item;)I").c_str());
     if (!mid_getIdFromItem || Java::Env()->ExceptionCheck()) {
         Java::Env()->ExceptionClear();
         Java::Env()->DeleteLocalRef(item);
@@ -633,7 +634,7 @@ int LocalPlayer::getCurrentSlot() {
 
     // Get InventoryPlayer class
     jclass inventoryCls = nullptr;
-    if (!Java::AssignClass("net.minecraft.entity.player.InventoryPlayer", inventoryCls)) {
+    if (!Java::AssignClass(OBFUSCATE_STRING("net.minecraft.entity.player.InventoryPlayer"), inventoryCls)) {
         if (Java::Env()->ExceptionCheck())
             Java::Env()->ExceptionClear();
         return 0;
@@ -653,7 +654,7 @@ int LocalPlayer::getCurrentSlot() {
     }
 
     // Get currentItem field from inventory
-    jfieldID fid_currentItem = Java::Env()->GetFieldID(inventoryCls, "currentItem", "I");
+    jfieldID fid_currentItem = Java::Env()->GetFieldID(inventoryCls, OBFUSCATE_STRING("currentItem").c_str(), OBFUSCATE_STRING("I").c_str());
     if (!fid_currentItem || Java::Env()->ExceptionCheck()) {
         Java::Env()->ExceptionClear();
         Java::Env()->DeleteLocalRef(inventory);
@@ -677,7 +678,7 @@ void LocalPlayer::setCurrentSlot(int slot) {
 
     // Get InventoryPlayer class
     jclass inventoryCls = nullptr;
-    if (!Java::AssignClass("net.minecraft.entity.player.InventoryPlayer", inventoryCls)) {
+    if (!Java::AssignClass(OBFUSCATE_STRING("net.minecraft.entity.player.InventoryPlayer"), inventoryCls)) {
         if (Java::Env()->ExceptionCheck())
             Java::Env()->ExceptionClear();
         return;
@@ -697,7 +698,7 @@ void LocalPlayer::setCurrentSlot(int slot) {
     }
 
     // Get currentItem field from inventory
-    jfieldID fid_currentItem = Java::Env()->GetFieldID(inventoryCls, "currentItem", "I");
+    jfieldID fid_currentItem = Java::Env()->GetFieldID(inventoryCls, OBFUSCATE_STRING("currentItem").c_str(), OBFUSCATE_STRING("I").c_str());
     if (!fid_currentItem || Java::Env()->ExceptionCheck()) {
         Java::Env()->ExceptionClear();
         Java::Env()->DeleteLocalRef(inventory);

@@ -24,7 +24,7 @@ static std::string resolveMojangUUID(const std::string& username) {
     // GET https://api.mojang.com/users/profiles/minecraft/{username}
     std::wstring path = L"/users/profiles/minecraft/" + std::wstring(username.begin(), username.end());
 
-    auto response = http::get(L"api.mojang.com", 443, path, true);  // HTTPS
+    auto response = http::get(OBFUSCATE_WSTRING(L"api.mojang.com").c_str(), 443, path, true);  // HTTPS
 
     if (!response.success || response.statusCode != 200) {
         log_debug("[Friends] Mojang API failed for '%s': %s (status: %d)", username.c_str(), response.error.c_str(),
@@ -68,7 +68,7 @@ static std::string resolveMojangUsername(const std::string& uuid) {
 
     log_debug("[Friends] Resolving UUID %s via Mojang...", uuid.c_str());
 
-    auto response = http::get(L"sessionserver.mojang.com", 443, path, true);  // HTTPS
+    auto response = http::get(OBFUSCATE_WSTRING(L"sessionserver.mojang.com").c_str(), 443, path, true);  // HTTPS
 
     if (!response.success || response.statusCode != 200) {
         log_debug("[Friends] Mojang session API failed for UUID '%s': %s (status: %d)", uuid.c_str(),

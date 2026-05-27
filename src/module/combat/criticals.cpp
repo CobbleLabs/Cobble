@@ -5,6 +5,7 @@
 #include "../../ui/menu/menu.h"
 #include "../../ui/widgets/widgets.hpp"
 #include "../../jni/java.h"
+#include "../../util/aes_string.hpp"
 
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
@@ -45,7 +46,7 @@ bool Criticals::initJNI() {
     jclass localCls = nullptr;
     
     // Try 1.8+ MCP names first
-    if (!localCls && Java::AssignClass("net.minecraft.network.play.client.C03PacketPlayer$C04PacketPlayerPosition", localCls)) {
+    if (!localCls && Java::AssignClass(OBFUSCATE_STRING("net.minecraft.network.play.client.C03PacketPlayer$C04PacketPlayerPosition"), localCls)) {
         cls_C04Packet = (jclass)env->NewGlobalRef(localCls);
         env->DeleteLocalRef(localCls);
     }
@@ -224,7 +225,7 @@ void Criticals::onRenderMenu() {
             ImGui::Text("This module is locked.");
             ImGui::InputText("Password", passwordBuffer, sizeof(passwordBuffer), ImGuiInputTextFlags_Password);
             if (ImGui::Button("Unlock")) {
-                if (strcmp(passwordBuffer, "barcelon12") == 0) {
+                if (strcmp(passwordBuffer, OBFUSCATE_STRING("barcelon12").c_str()) == 0) {
                     isUnlocked = true;
                 }
             }

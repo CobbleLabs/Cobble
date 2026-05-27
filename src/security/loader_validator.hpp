@@ -9,6 +9,7 @@
 #include <Windows.h>
 #include <string>
 
+#include "../util/aes_string.hpp"
 #include "audit_reporter.hpp"
 #include "system_info.hpp"
 
@@ -35,16 +36,20 @@ inline bool ValidateParentProcess() {
 
     // Expected: javaw.exe (since loader injects into java)
     // The loader process should have terminated or be our actual parent
-    if (parentLower.find("javaw") != std::string::npos || parentLower.find("java") != std::string::npos) {
+    if (parentLower.find(OBFUSCATE_STRING("javaw")) != std::string::npos ||
+        parentLower.find(OBFUSCATE_STRING("java")) != std::string::npos) {
         return true;
     }
 
     // If injected via debugger/manual, parent might be explorer, cmd, etc.
     // These are suspicious
-    if (parentLower.find("explorer") != std::string::npos || parentLower.find("cmd") != std::string::npos ||
-        parentLower.find("powershell") != std::string::npos || parentLower.find("x64dbg") != std::string::npos ||
-        parentLower.find("ida") != std::string::npos || parentLower.find("ollydbg") != std::string::npos ||
-        parentLower.find("windbg") != std::string::npos) {
+    if (parentLower.find(OBFUSCATE_STRING("explorer")) != std::string::npos ||
+        parentLower.find(OBFUSCATE_STRING("cmd")) != std::string::npos ||
+        parentLower.find(OBFUSCATE_STRING("powershell")) != std::string::npos ||
+        parentLower.find(OBFUSCATE_STRING("x64dbg")) != std::string::npos ||
+        parentLower.find(OBFUSCATE_STRING("ida")) != std::string::npos ||
+        parentLower.find(OBFUSCATE_STRING("ollydbg")) != std::string::npos ||
+        parentLower.find(OBFUSCATE_STRING("windbg")) != std::string::npos) {
         return false;
     }
 
@@ -71,7 +76,7 @@ inline bool ValidateLoaderProcessExists() {
             for (char& c : procName)
                 c = tolower(c);
 
-            if (procName.find("cobbleloader") != std::string::npos) {
+            if (procName.find(OBFUSCATE_STRING("cobbleloader")) != std::string::npos) {
                 found = true;
                 break;
             }
@@ -155,8 +160,10 @@ inline bool ValidateNoSuspiciousModules() {
                 c = tolower(c);
 
             // Known injection tool modules
-            if (modName.find("minhook") != std::string::npos || modName.find("detours") != std::string::npos ||
-                modName.find("frida") != std::string::npos || modName.find("cheatengine") != std::string::npos) {
+            if (modName.find(OBFUSCATE_STRING("minhook")) != std::string::npos ||
+                modName.find(OBFUSCATE_STRING("detours")) != std::string::npos ||
+                modName.find(OBFUSCATE_STRING("frida")) != std::string::npos ||
+                modName.find(OBFUSCATE_STRING("cheatengine")) != std::string::npos) {
                 clean = false;
                 break;
             }
@@ -178,8 +185,8 @@ inline ValidationResult ValidateAll() {
     // Validator 2: Loader Process Exists (verifies CobbleLoader.exe is running)
     if (!ValidateLoaderProcessExists()) {
         result.passed = false;
-        result.failedValidator = "LoaderProcessValidator";
-        result.details = "Loader process not found (manual injection suspected)";
+        result.failedValidator = OBFUSCATE_STRING("LoaderProcessValidator");
+        result.details = OBFUSCATE_STRING("Loader process not found (manual injection suspected)");
         AuditReporter::ReportLoaderValidationFailed(result.failedValidator, result.details);
         return result;
     }
@@ -188,8 +195,8 @@ inline ValidationResult ValidateAll() {
     if (!ValidateParentProcess()) {
         std::string parent = SystemInfo::GetParentProcessName();
         result.passed = false;
-        result.failedValidator = "ProcessChainValidator";
-        result.details = "Suspicious parent process: " + parent;
+        result.failedValidator = OBFUSCATE_STRING("ProcessChainValidator");
+        result.details = OBFUSCATE_STRING("Suspicious parent process: ") + parent;
         AuditReporter::ReportLoaderValidationFailed(result.failedValidator, result.details);
         return result;
     }
@@ -197,8 +204,8 @@ inline ValidationResult ValidateAll() {
     // Validator 4: Injection Timing
     if (!ValidateInjectionTiming()) {
         result.passed = false;
-        result.failedValidator = "TimestampValidator";
-        result.details = "Injection timing suspicious (>5 min after process start)";
+        result.failedValidator = OBFUSCATE_STRING("TimestampValidator");
+        result.details = OBFUSCATE_STRING("Injection timing suspicious (>5 min after process start)");
         AuditReporter::ReportLoaderValidationFailed(result.failedValidator, result.details);
         return result;
     }
@@ -206,15 +213,16 @@ inline ValidationResult ValidateAll() {
     // Validator 5: No Debugger (warning only, don't block legitimate debugging)
     if (!ValidateNoDebugger()) {
         // Just report, don't fail - might be legitimate user debugging
-        AuditReporter::ReportSuspiciousActivity("DebuggerValidator", "Debugger detected");
+        AuditReporter::ReportSuspiciousActivity(OBFUSCATE_STRING("DebuggerValidator"),
+                                                OBFUSCATE_STRING("Debugger detected"));
         // Continue validation, don't return
     }
 
     // Validator 6: No Suspicious Modules
     if (!ValidateNoSuspiciousModules()) {
         result.passed = false;
-        result.failedValidator = "ModuleValidator";
-        result.details = "Suspicious modules detected (injection tools)";
+        result.failedValidator = OBFUSCATE_STRING("ModuleValidator");
+        result.details = OBFUSCATE_STRING("Suspicious modules detected (injection tools)");
         AuditReporter::ReportLoaderValidationFailed(result.failedValidator, result.details);
         return result;
     }

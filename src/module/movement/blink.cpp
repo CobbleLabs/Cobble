@@ -1,6 +1,7 @@
 #include "blink.h"
 #include "../../ui/menu/menu.h"
 #include "../../ui/widgets/widgets.hpp"
+#include "../../util/aes_string.hpp"
 #include "../../util/logger.hpp"
 #include "../../sdk/core/minecraft.h"
 #include "../../sdk/jni/jni_cache.h"
@@ -23,14 +24,17 @@ static jmethodID getSendPacketMethod(JNIEnv* env, jobject netHandler) {
     if (!cls)
         return nullptr;
 
-    mid_sendPacket = env->GetMethodID(cls, "addToSendQueue", "(Lnet/minecraft/network/Packet;)V");
+    mid_sendPacket = env->GetMethodID(cls, OBFUSCATE_STRING("addToSendQueue").c_str(),
+                                      OBFUSCATE_STRING("(Lnet/minecraft/network/Packet;)V").c_str());
     if (!mid_sendPacket) {
         env->ExceptionClear();
-        mid_sendPacket = env->GetMethodID(cls, "func_147297_a", "(Lnet/minecraft/network/Packet;)V");
+        mid_sendPacket = env->GetMethodID(cls, OBFUSCATE_STRING("func_147297_a").c_str(),
+                                          OBFUSCATE_STRING("(Lnet/minecraft/network/Packet;)V").c_str());
     }
     if (!mid_sendPacket) {
         env->ExceptionClear();
-        mid_sendPacket = env->GetMethodID(cls, "sendPacket", "(Lnet/minecraft/network/Packet;)V");
+        mid_sendPacket = env->GetMethodID(cls, OBFUSCATE_STRING("sendPacket").c_str(),
+                                          OBFUSCATE_STRING("(Lnet/minecraft/network/Packet;)V").c_str());
     }
     env->DeleteLocalRef(cls);
     return mid_sendPacket;

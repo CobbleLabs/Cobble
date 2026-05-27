@@ -7,46 +7,32 @@
 #include <string>
 #include <vector>
 #include "../../util/logger.hpp"
+#include "../../util/aes_string.hpp"
 
 namespace BytecodePatcher {
 namespace {
 
-constexpr const char* kTargetClassSlash = "net/minecraft/network/NetworkManager";
-constexpr const char* kTargetClassDot = "net.minecraft.network.NetworkManager";
+static inline std::string kTargetClassSlash()          { return OBFUSCATE_STRING("net/minecraft/network/NetworkManager"); }
+static inline std::string kTargetClassDot()            { return OBFUSCATE_STRING("net.minecraft.network.NetworkManager"); }
+static inline std::string kHookClassSlash()            { return OBFUSCATE_STRING("com/cobble/agent/PacketHook"); }
+static inline std::string kHookClassDot()              { return OBFUSCATE_STRING("com.cobble.agent.PacketHook"); }
+static inline std::string kHookMethodName()            { return OBFUSCATE_STRING("shouldSend"); }
+static inline std::string kHookMethodDesc()            { return OBFUSCATE_STRING("(Ljava/lang/Object;)Z"); }
+static inline std::string kIncomingTargetClassSlash()  { return OBFUSCATE_STRING("net/minecraft/client/network/NetHandlerPlayClient"); }
+static inline std::string kIncomingTargetClassDot()    { return OBFUSCATE_STRING("net.minecraft.client.network.NetHandlerPlayClient"); }
+static inline std::string kHandleCustomPayload()       { return OBFUSCATE_STRING("handleCustomPayload"); }
+static inline std::string kHandleTeams()               { return OBFUSCATE_STRING("handleTeams"); }
+static inline std::string kLunarNetHandlerSlash()      { return OBFUSCATE_STRING("com/lunarclient/bukkitapi/nethandler/client/LCNetHandlerClient"); }
+static inline std::string kLunarHandleNametagsUpdate() { return OBFUSCATE_STRING("handleNametagsUpdate"); }
+static inline std::string kLunarHandleOverrideNametags(){ return OBFUSCATE_STRING("handleOverrideNametags"); }
+static inline std::string kOnReceiveMethodName()       { return OBFUSCATE_STRING("onReceive"); }
+static inline std::string kOnReceiveMethodDesc()       { return OBFUSCATE_STRING("(Ljava/lang/Object;)V"); }
 
 static HookTargets g_targets{};
 static std::atomic<bool> bytecodeHookInstalled{false};
 static std::atomic<bool> hooksRegistered{false};
 static jclass cls_PacketHook = nullptr;
-constexpr const char* kHookClassSlash = "com/cobble/agent/PacketHook";
-constexpr const char* kHookClassDot = "com.cobble.agent.PacketHook";
-constexpr const char* kHookMethodName = "shouldSend";
-constexpr const char* kHookMethodDesc = "(Ljava/lang/Object;)Z";
 constexpr int kPrefixLen = 8;
-
-// Incoming packet hook for plugin messages (Lunar API)
-constexpr const char* kIncomingTargetClassSlash = "net/minecraft/client/network/NetHandlerPlayClient";
-constexpr const char* kIncomingTargetClassDot = "net.minecraft.client.network.NetHandlerPlayClient";
-constexpr const char* kHandleCustomPayload = "handleCustomPayload";  // S3FPacketCustomPayload
-constexpr const char* kHandleTeams = "handleTeams";                  // S3EPacketTeams (scoreboard teams)
-constexpr const char* kIncomingHookClassSlash = "com/cobble/agent/PluginMsgHook";
-constexpr const char* kIncomingHookClassDot = "com.cobble.agent.PluginMsgHook";
-constexpr const char* kIncomingHookMethodName = "onPluginMessage";
-constexpr const char* kIncomingHookMethodDesc = "(Ljava/lang/Object;)V";
-
-// Incoming packet hook via channelRead0
-constexpr const char* kIncomingPacketHookClassSlash = "com/cobble/agent/IncomingPacketHook";
-constexpr const char* kIncomingPacketHookClassDot = "com.cobble.agent.IncomingPacketHook";
-constexpr const char* kIncomingPacketHookMethodName = "onReceive";
-constexpr const char* kIncomingPacketHookMethodDesc = "(Ljava/lang/Object;)V";
-
-// Lunar Client nametag handler - this is where nametag packets are processed
-constexpr const char* kLunarNetHandlerSlash = "com/lunarclient/bukkitapi/nethandler/client/LCNetHandlerClient";
-constexpr const char* kLunarHandleNametagsUpdate = "handleNametagsUpdate";
-constexpr const char* kLunarHandleOverrideNametags = "handleOverrideNametags";
-// Incoming method descriptor for onReceive(Object)V
-constexpr const char* kOnReceiveMethodName = "onReceive";
-constexpr const char* kOnReceiveMethodDesc = "(Ljava/lang/Object;)V";
 
 // PacketHook class with both methods:
 // - public static native boolean shouldSend(Object packet);  // for outgoing (can block)
@@ -378,7 +364,7 @@ static bool isHookMethodRef(const std::vector<CpEntry>& cp, const std::vector<st
     std::string desc;
     if (!resolveMethodRef(cp, utf8, index, cls, name, desc))
         return false;
-    return cls == kHookClassSlash && name == kHookMethodName && desc == kHookMethodDesc;
+    return cls == kHookClassSlash() && name == kHookMethodName() && desc == kHookMethodDesc();
 }
 
 static bool parseStackMapTable(Reader& r, std::vector<StackMapFrame>& frames) {
@@ -921,16 +907,19 @@ static int patchNetworkManagerClass(const uint8_t* data, size_t len, std::vector
 
     // shouldSend entries
     w.WriteU1(1);  // CONSTANT_Utf8
-    w.WriteU2(static_cast<uint16_t>(strlen(kHookClassSlash)));
-    w.WriteBytes(reinterpret_cast<const uint8_t*>(kHookClassSlash), strlen(kHookClassSlash));
+    { std::string _s = kHookClassSlash();
+    w.WriteU2(static_cast<uint16_t>(_s.size()));
+    w.WriteBytes(reinterpret_cast<const uint8_t*>(_s.data()), _s.size()); }
     w.WriteU1(7);  // CONSTANT_Class
     w.WriteU2(idx_utf8_class);
     w.WriteU1(1);  // CONSTANT_Utf8
-    w.WriteU2(static_cast<uint16_t>(strlen(kHookMethodName)));
-    w.WriteBytes(reinterpret_cast<const uint8_t*>(kHookMethodName), strlen(kHookMethodName));
+    { std::string _s = kHookMethodName();
+    w.WriteU2(static_cast<uint16_t>(_s.size()));
+    w.WriteBytes(reinterpret_cast<const uint8_t*>(_s.data()), _s.size()); }
     w.WriteU1(1);  // CONSTANT_Utf8
-    w.WriteU2(static_cast<uint16_t>(strlen(kHookMethodDesc)));
-    w.WriteBytes(reinterpret_cast<const uint8_t*>(kHookMethodDesc), strlen(kHookMethodDesc));
+    { std::string _s = kHookMethodDesc();
+    w.WriteU2(static_cast<uint16_t>(_s.size()));
+    w.WriteBytes(reinterpret_cast<const uint8_t*>(_s.data()), _s.size()); }
     w.WriteU1(12);  // CONSTANT_NameAndType
     w.WriteU2(idx_utf8_name);
     w.WriteU2(idx_utf8_desc);
@@ -940,11 +929,13 @@ static int patchNetworkManagerClass(const uint8_t* data, size_t len, std::vector
 
     // onReceive entries (reuses idx_class)
     w.WriteU1(1);  // CONSTANT_Utf8
-    w.WriteU2(static_cast<uint16_t>(strlen(kOnReceiveMethodName)));
-    w.WriteBytes(reinterpret_cast<const uint8_t*>(kOnReceiveMethodName), strlen(kOnReceiveMethodName));
+    { std::string _s = kOnReceiveMethodName();
+    w.WriteU2(static_cast<uint16_t>(_s.size()));
+    w.WriteBytes(reinterpret_cast<const uint8_t*>(_s.data()), _s.size()); }
     w.WriteU1(1);  // CONSTANT_Utf8
-    w.WriteU2(static_cast<uint16_t>(strlen(kOnReceiveMethodDesc)));
-    w.WriteBytes(reinterpret_cast<const uint8_t*>(kOnReceiveMethodDesc), strlen(kOnReceiveMethodDesc));
+    { std::string _s = kOnReceiveMethodDesc();
+    w.WriteU2(static_cast<uint16_t>(_s.size()));
+    w.WriteBytes(reinterpret_cast<const uint8_t*>(_s.data()), _s.size()); }
     w.WriteU1(12);  // CONSTANT_NameAndType
     w.WriteU2(idx_utf8_recv_name);
     w.WriteU2(idx_utf8_recv_desc);
@@ -1032,10 +1023,11 @@ static int patchNetworkManagerClass(const uint8_t* data, size_t len, std::vector
                 log_debug("[PacketInterceptor] NetworkManager method: %s %s", name.c_str(), desc.c_str());
             }
 
-            if (g_targets.outgoing && (name == "sendPacket" || name == "scheduleOutboundPacket") &&
+            if (g_targets.outgoing &&
+                (name == OBFUSCATE_STRING("sendPacket") || name == OBFUSCATE_STRING("scheduleOutboundPacket")) &&
                 desc.size() >= 3 && desc.back() == 'V' && desc[desc.size() - 2] == ')') {
                 // Accept either full MCP name or obfuscated single-letter class name
-                if (desc.rfind("(Lnet/minecraft/network/Packet;", 0) == 0) {
+                if (desc.rfind(OBFUSCATE_STRING("(Lnet/minecraft/network/Packet;"), 0) == 0) {
                     is_target = true;
                     log_debug("[PacketInterceptor] Found %s with MCP signature: %s", name.c_str(), desc.c_str());
                 } else if (desc[0] == '(' && desc[1] == 'L' && desc.find(';') != std::string::npos) {
@@ -1066,7 +1058,7 @@ static int patchNetworkManagerClass(const uint8_t* data, size_t len, std::vector
             // handleNametagsUpdate(LCPacketNametagsUpdate)V - packet is first param (slot 1)
             // handleOverrideNametags(LCPacketNametagsOverride)V - packet is first param (slot 1)
             if (g_targets.lunarNametags &&
-                (name == kLunarHandleNametagsUpdate || name == kLunarHandleOverrideNametags)) {
+                (name == kLunarHandleNametagsUpdate() || name == kLunarHandleOverrideNametags())) {
                 // Single param that takes LCPacket and returns void
                 if (desc.back() == 'V' && desc.find(';') != std::string::npos) {
                     is_incoming_target = true;
@@ -1086,7 +1078,7 @@ static int patchNetworkManagerClass(const uint8_t* data, size_t len, std::vector
             // Detect handleCustomPayload for incoming custom payloads (Lunar packets)
             // handleCustomPayload(S3FPacketCustomPayload packetIn) -> void
             // Packet is the first param (slot 1 for instance method)
-            if (g_targets.customPayload && name == kHandleCustomPayload) {
+            if (g_targets.customPayload && name == kHandleCustomPayload()) {
                 // Must take one reference param and return void
                 if (desc.back() == 'V' && desc.find(';') != std::string::npos) {
                     is_incoming_target = true;
@@ -1098,7 +1090,7 @@ static int patchNetworkManagerClass(const uint8_t* data, size_t len, std::vector
 
             // Detect handleTeams for scoreboard team packets (S3EPacketTeams)
             // handleTeams(S3EPacketTeams packetIn) -> void
-            if (g_targets.teams && name == kHandleTeams) {
+            if (g_targets.teams && name == kHandleTeams()) {
                 if (desc.back() == 'V' && desc.find(';') != std::string::npos) {
                     is_incoming_target = true;
                     incoming_packet_slot = 1;
@@ -1206,7 +1198,7 @@ static void JNICALL onClassFileLoadHook(jvmtiEnv* jvmti_env, JNIEnv* jni_env, jc
         return;
 
     // Handle NetworkManager hooks (outgoing/incoming)
-    if (strcmp(name, kTargetClassSlash) == 0 && (g_targets.outgoing || g_targets.incoming)) {
+    if (strcmp(name, kTargetClassSlash().c_str()) == 0 && (g_targets.outgoing || g_targets.incoming)) {
         log_debug("[PacketInterceptor] onClassFileLoadHook triggered for NetworkManager");
         std::vector<uint8_t> patched;
         int patched_methods = patchNetworkManagerClass(class_data, static_cast<size_t>(class_data_len), patched);
@@ -1238,7 +1230,7 @@ static void JNICALL onClassFileLoadHook(jvmtiEnv* jvmti_env, JNIEnv* jni_env, jc
     }
 
     // Hook LCNetHandlerClient methods for Lunar nametag packet interception
-    if (g_targets.lunarNametags && strcmp(name, kLunarNetHandlerSlash) == 0) {
+    if (g_targets.lunarNametags && strcmp(name, kLunarNetHandlerSlash().c_str()) == 0) {
         log_debug("[PacketInterceptor] LCNetHandlerClient loaded - patching nametag handlers");
         std::vector<uint8_t> patched;
         int patched_methods = patchNetworkManagerClass(class_data, static_cast<size_t>(class_data_len), patched);
@@ -1263,7 +1255,7 @@ static void JNICALL onClassFileLoadHook(jvmtiEnv* jvmti_env, JNIEnv* jni_env, jc
     }
 
     // Hook NetHandlerPlayClient.handleCustomPayload for incoming Lunar packets
-    if ((g_targets.customPayload || g_targets.teams) && strcmp(name, kIncomingTargetClassSlash) == 0) {
+    if ((g_targets.customPayload || g_targets.teams) && strcmp(name, kIncomingTargetClassSlash().c_str()) == 0) {
         log_debug("[PacketInterceptor] NetHandlerPlayClient loaded - patching handleCustomPayload");
         std::vector<uint8_t> patched;
         int patched_methods = patchNetworkManagerClass(class_data, static_cast<size_t>(class_data_len), patched);
@@ -1285,7 +1277,8 @@ static void JNICALL onClassFileLoadHook(jvmtiEnv* jvmti_env, JNIEnv* jni_env, jc
     }
 
     // Debug: Log Lunar-related classes
-    if (strstr(name, "lunar") != nullptr || strstr(name, "apollo") != nullptr) {
+    if (strstr(name, OBFUSCATE_STRING("lunar").c_str()) != nullptr ||
+        strstr(name, OBFUSCATE_STRING("apollo").c_str()) != nullptr) {
         // log_debug("[PacketInterceptor] Lunar class loaded: %s", name);
     }
 }
@@ -1307,7 +1300,7 @@ static bool ensureHookClass(JNIEnv* env, jboolean(JNICALL* shouldSend)(JNIEnv*, 
     }
 
     jclass hook = nullptr;
-    if (!Java::AssignClass(kHookClassDot, hook)) {
+    if (!Java::AssignClass(kHookClassDot(), hook)) {
         if (env->ExceptionCheck()) {
             env->ExceptionClear();
         }
@@ -1318,13 +1311,13 @@ static bool ensureHookClass(JNIEnv* env, jboolean(JNICALL* shouldSend)(JNIEnv*, 
             return false;
         }
         hook =
-            env->DefineClass(kHookClassSlash, Java::ClassLoader, reinterpret_cast<const jbyte*>(kPacketHookClassBytes),
+            env->DefineClass(kHookClassSlash().c_str(), Java::ClassLoader, reinterpret_cast<const jbyte*>(kPacketHookClassBytes),
                              static_cast<jint>(sizeof(kPacketHookClassBytes)));
         if (!hook) {
             if (env->ExceptionCheck()) {
                 env->ExceptionClear();
             }
-            if (Java::AssignClass(kHookClassDot, hook)) {
+            if (Java::AssignClass(kHookClassDot(), hook)) {
                 if (env->ExceptionCheck()) {
                     env->ExceptionClear();
                 }
@@ -1336,12 +1329,16 @@ static bool ensureHookClass(JNIEnv* env, jboolean(JNICALL* shouldSend)(JNIEnv*, 
     }
 
     JNINativeMethod methods[2];
-    methods[0].name = const_cast<char*>(kHookMethodName);
-    methods[0].signature = const_cast<char*>(kHookMethodDesc);
+    std::string _hmn = kHookMethodName();
+    std::string _hmd = kHookMethodDesc();
+    std::string _orn = kOnReceiveMethodName();
+    std::string _ord = kOnReceiveMethodDesc();
+    methods[0].name = const_cast<char*>(_hmn.c_str());
+    methods[0].signature = const_cast<char*>(_hmd.c_str());
     methods[0].fnPtr = reinterpret_cast<void*>(shouldSend);
 
-    methods[1].name = const_cast<char*>(kOnReceiveMethodName);
-    methods[1].signature = const_cast<char*>(kOnReceiveMethodDesc);
+    methods[1].name = const_cast<char*>(_orn.c_str());
+    methods[1].signature = const_cast<char*>(_ord.c_str());
     methods[1].fnPtr = reinterpret_cast<void*>(onReceive);
 
     if (env->RegisterNatives(hook, methods, 2) != 0) {
@@ -1393,7 +1390,7 @@ bool InstallBytecodeHook(JNIEnv* env) {
 
     if (g_targets.outgoing || g_targets.incoming) {
         jclass nm = nullptr;
-        if (Java::AssignClass(kTargetClassDot, nm)) {
+        if (Java::AssignClass(kTargetClassDot(), nm)) {
             jclass classes[1] = {nm};
             err = Java::tiEnv->RetransformClasses(1, classes);
             if (err == JVMTI_ERROR_NONE) {
@@ -1412,7 +1409,7 @@ bool InstallBytecodeHook(JNIEnv* env) {
 
     if (g_targets.lunarNametags) {
         jclass lunarHandler = nullptr;
-        if (Java::AssignClass("com.lunarclient.bukkitapi.nethandler.client.LCNetHandlerClient", lunarHandler)) {
+        if (Java::AssignClass(OBFUSCATE_STRING("com.lunarclient.bukkitapi.nethandler.client.LCNetHandlerClient"), lunarHandler)) {
             jclass classes[1] = {lunarHandler};
             err = Java::tiEnv->RetransformClasses(1, classes);
             if (err == JVMTI_ERROR_NONE) {
@@ -1431,7 +1428,7 @@ bool InstallBytecodeHook(JNIEnv* env) {
 
     if (g_targets.customPayload || g_targets.teams) {
         jclass netHandler = nullptr;
-        if (Java::AssignClass(kIncomingTargetClassDot, netHandler)) {
+        if (Java::AssignClass(kIncomingTargetClassDot(), netHandler)) {
             jclass classes[1] = {netHandler};
             err = Java::tiEnv->RetransformClasses(1, classes);
             if (err == JVMTI_ERROR_NONE) {

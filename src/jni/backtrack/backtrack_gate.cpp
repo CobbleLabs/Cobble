@@ -1,5 +1,6 @@
 #include "backtrack_gate.hpp"
 #include "../../module/combat/backtrack.h"
+#include "../../util/aes_string.hpp"
 #include "../../util/logger.hpp"
 
 #include <mutex>
@@ -29,7 +30,7 @@ bool isEntityPositionPacket(JNIEnv* env, jobject packet) {
         return false;
     }
 
-    jmethodID mid = env->GetMethodID(clsCls, "getName", "()Ljava/lang/String;");
+    jmethodID mid = env->GetMethodID(clsCls, OBFUSCATE_STRING("getName").c_str(), OBFUSCATE_STRING("()Ljava/lang/String;").c_str());
     if (!mid) {
         env->DeleteLocalRef(clsCls);
         env->DeleteLocalRef(cls);
@@ -49,8 +50,8 @@ bool isEntityPositionPacket(JNIEnv* env, jobject packet) {
     if (cstr) {
         // S14PacketEntity (relative move) and S18PacketEntityTeleport (absolute)
         // Also S14$S15, S14$S16, S14$S17 (subclasses with position/rotation)
-        isEntityPacket = (strstr(cstr, "S14PacketEntity") != nullptr) ||
-                         (strstr(cstr, "S18PacketEntityTeleport") != nullptr);
+        isEntityPacket = (strstr(cstr, OBFUSCATE_STRING("S14PacketEntity").c_str()) != nullptr) ||
+                         (strstr(cstr, OBFUSCATE_STRING("S18PacketEntityTeleport").c_str()) != nullptr);
         env->ReleaseStringUTFChars(jname, cstr);
     }
 

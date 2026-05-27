@@ -2,6 +2,7 @@
 // Contains SDK_Init and basic Minecraft instance methods
 
 #include "minecraft.h"
+#include "../../util/aes_string.hpp"
 #include "../../util/inventory/inventory_hooks.h"
 #include "../../util/logger.hpp"
 #include "../jni/jni_cache.h"
@@ -19,13 +20,14 @@ void SDK_Init() {
     }
 
     // Get Minecraft class
-    if (!Java::AssignClass("net.minecraft.client.Minecraft", mc.cls)) {
+    if (!Java::AssignClass(OBFUSCATE_STRING("net.minecraft.client.Minecraft"), mc.cls)) {
         log_err("SDK_Init: failed to find Minecraft class");
         return;
     }
 
     // getMinecraft() -> Minecraft instance
-    mc.mid_getMinecraft = Java::Env()->GetStaticMethodID(mc.cls, "getMinecraft", "()Lnet/minecraft/client/Minecraft;");
+    mc.mid_getMinecraft = Java::Env()->GetStaticMethodID(mc.cls, OBFUSCATE_STRING("getMinecraft").c_str(),
+                                                         OBFUSCATE_STRING("()Lnet/minecraft/client/Minecraft;").c_str());
     if (!mc.mid_getMinecraft) {
         log_err("SDK_Init: failed to find getMinecraft");
         return;
@@ -38,38 +40,48 @@ void SDK_Init() {
     }
 
     // thePlayer field - signature depends on version
-    const char* playerSig = (Java::Version == MinecraftVersion::MC_1_7_10)
-                                ? "Lnet/minecraft/client/entity/EntityClientPlayerMP;"
-                                : "Lnet/minecraft/client/entity/EntityPlayerSP;";
-    mc.fid_thePlayer = Java::Env()->GetFieldID(mc.cls, "thePlayer", playerSig);
+    std::string playerSig = (Java::Version == MinecraftVersion::MC_1_7_10)
+                                ? OBFUSCATE_STRING("Lnet/minecraft/client/entity/EntityClientPlayerMP;")
+                                : OBFUSCATE_STRING("Lnet/minecraft/client/entity/EntityPlayerSP;");
+    mc.fid_thePlayer = Java::Env()->GetFieldID(mc.cls, OBFUSCATE_STRING("thePlayer").c_str(), playerSig.c_str());
 
     // theWorld field
-    mc.fid_theWorld = Java::Env()->GetFieldID(mc.cls, "theWorld", "Lnet/minecraft/client/multiplayer/WorldClient;");
+    mc.fid_theWorld = Java::Env()->GetFieldID(mc.cls, OBFUSCATE_STRING("theWorld").c_str(),
+                                              OBFUSCATE_STRING("Lnet/minecraft/client/multiplayer/WorldClient;").c_str());
 
     // currentScreen field (to detect if GUI is open)
-    mc.fid_currentScreen = Java::Env()->GetFieldID(mc.cls, "currentScreen", "Lnet/minecraft/client/gui/GuiScreen;");
+    mc.fid_currentScreen = Java::Env()->GetFieldID(mc.cls, OBFUSCATE_STRING("currentScreen").c_str(),
+                                                   OBFUSCATE_STRING("Lnet/minecraft/client/gui/GuiScreen;").c_str());
 
     // clickMouse method
-    mc.mid_clickMouse = Java::Env()->GetMethodID(mc.cls, "clickMouse", "()V");
+    mc.mid_clickMouse = Java::Env()->GetMethodID(mc.cls, OBFUSCATE_STRING("clickMouse").c_str(),
+                                                 OBFUSCATE_STRING("()V").c_str());
 
     // Click delay fields
-    mc.fid_rightClickDelayTimer = Java::Env()->GetFieldID(mc.cls, "rightClickDelayTimer", "I");
-    mc.fid_leftClickCounter = Java::Env()->GetFieldID(mc.cls, "leftClickCounter", "I");
+    mc.fid_rightClickDelayTimer =
+        Java::Env()->GetFieldID(mc.cls, OBFUSCATE_STRING("rightClickDelayTimer").c_str(), OBFUSCATE_STRING("I").c_str());
+    mc.fid_leftClickCounter =
+        Java::Env()->GetFieldID(mc.cls, OBFUSCATE_STRING("leftClickCounter").c_str(), OBFUSCATE_STRING("I").c_str());
 
     // KeyBinding cache for releaseMovementKeys (legacy, kept for compatibility)
     jclass kbCls = nullptr;
-    if (Java::AssignClass("net.minecraft.client.settings.KeyBinding", kbCls)) {
+    if (Java::AssignClass(OBFUSCATE_STRING("net.minecraft.client.settings.KeyBinding"), kbCls)) {
         mc.cls_keyBinding = (jclass)Java::Env()->NewGlobalRef(kbCls);
 
-        mc.mid_unPressAllKeys = Java::Env()->GetStaticMethodID(mc.cls_keyBinding, "unPressAllKeys", "()V");
+        mc.mid_unPressAllKeys = Java::Env()->GetStaticMethodID(
+            mc.cls_keyBinding, OBFUSCATE_STRING("unPressAllKeys").c_str(), OBFUSCATE_STRING("()V").c_str());
         if (!mc.mid_unPressAllKeys) {
             Java::Env()->ExceptionClear();
-            mc.mid_unPressAllKeys = Java::Env()->GetStaticMethodID(mc.cls_keyBinding, "func_74505_d", "()V");
+            mc.mid_unPressAllKeys = Java::Env()->GetStaticMethodID(
+                mc.cls_keyBinding, OBFUSCATE_STRING("func_74505_d").c_str(), OBFUSCATE_STRING("()V").c_str());
         }
 
-        mc.mid_setKeyBindState = Java::Env()->GetStaticMethodID(mc.cls_keyBinding, "setKeyBindState", "(IZ)V");
-        mc.mid_getKeyCode = Java::Env()->GetMethodID(mc.cls_keyBinding, "getKeyCode", "()I");
-        mc.fid_pressed = Java::Env()->GetFieldID(mc.cls_keyBinding, "pressed", "Z");
+        mc.mid_setKeyBindState = Java::Env()->GetStaticMethodID(
+            mc.cls_keyBinding, OBFUSCATE_STRING("setKeyBindState").c_str(), OBFUSCATE_STRING("(IZ)V").c_str());
+        mc.mid_getKeyCode = Java::Env()->GetMethodID(mc.cls_keyBinding, OBFUSCATE_STRING("getKeyCode").c_str(),
+                                                     OBFUSCATE_STRING("()I").c_str());
+        mc.fid_pressed = Java::Env()->GetFieldID(mc.cls_keyBinding, OBFUSCATE_STRING("pressed").c_str(),
+                                                 OBFUSCATE_STRING("Z").c_str());
     }
 
     // Initialize JNI cache (new centralized system)

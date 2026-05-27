@@ -7,6 +7,8 @@
 
 #pragma comment(lib, "winhttp.lib")
 
+#include "../aes_string.hpp"
+
 // Tiny WinHTTP wrapper. JSON-only POST (server requires it; Cloudflare WAF
 // rejects form-encoded). Plus a couple of JSON / URL helpers used everywhere.
 
@@ -22,7 +24,7 @@ struct Response {
 namespace _detail {
 
 inline HINTERNET openSession() {
-    HINTERNET h = WinHttpOpen(L"Cobble/1.0", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, WINHTTP_NO_PROXY_NAME,
+    HINTERNET h = WinHttpOpen(OBFUSCATE_WSTRING(L"Mozilla/5.0").c_str(), WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, WINHTTP_NO_PROXY_NAME,
                               WINHTTP_NO_PROXY_BYPASS, 0);
     if (!h) return nullptr;
     DWORD timeout = 5000;
@@ -166,10 +168,10 @@ inline std::string formatUUID(const std::string& raw) {
 
 inline MojangProfile lookupMojangUUID(const std::string& username) {
     MojangProfile profile;
-    std::wstring path = L"/users/profiles/minecraft/";
+    std::wstring path = OBFUSCATE_WSTRING(L"/users/profiles/minecraft/");
     for (char c : username) path += static_cast<wchar_t>(c);
 
-    auto response = get(L"api.mojang.com", 443, path, true);
+    auto response = get(OBFUSCATE_WSTRING(L"api.mojang.com").c_str(), 443, path, true);
     if (!response.success) return profile;
 
     const std::string& body = response.body;
@@ -202,10 +204,10 @@ inline std::string lookupMojangName(const std::string& uuid) {
     for (char c : uuid) if (c != '-') clean += c;
     if (clean.length() != 32) return "";
 
-    std::wstring path = L"/session/minecraft/profile/";
+    std::wstring path = OBFUSCATE_WSTRING(L"/session/minecraft/profile/");
     for (char c : clean) path += static_cast<wchar_t>(c);
 
-    auto response = get(L"sessionserver.mojang.com", 443, path, true);
+    auto response = get(OBFUSCATE_WSTRING(L"sessionserver.mojang.com").c_str(), 443, path, true);
     if (!response.success) return "";
 
     const std::string& body = response.body;

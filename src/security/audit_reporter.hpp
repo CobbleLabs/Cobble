@@ -13,6 +13,7 @@
 #include <thread>
 
 #include "../util/network/http.hpp"
+#include "../util/aes_string.hpp"
 #include "system_info.hpp"
 #include "telemetry_host.hpp"
 #include "telemetry_sender.hpp"
@@ -23,17 +24,10 @@ extern std::string g_Honeypot_Username;
 
 namespace AuditReporter {
 
-inline const wchar_t* TELEMETRY_PATH = L"/api/telemetry";
-inline const wchar_t* AUDIT_PATH = L"/api/internal/audit";
-
-// ============================================================================
-// FAKE HONEYPOT WEBHOOK - INTENTIONALLY EASY TO FIND
-// If someone extracts this and uses it, we'll know they cracked the binary.
-// DO NOT USE THIS - It's a decoy!
-// ============================================================================
-inline const wchar_t* FAKE_WEBHOOK_HOST = L"discordapp.com";
-inline const wchar_t* FAKE_WEBHOOK_PATH =
-    L"/api/webhooks/1461847187783946522/86AFNLLAOiH8qzMqR-6P-lG67uUKCZajpjT1z6ypFrxhiltl7V5LvjR56V5o1J6lqGjX";
+inline std::wstring TelemetryPath()    { return OBFUSCATE_WSTRING(L"/api/telemetry"); }
+inline std::wstring AuditPath()        { return OBFUSCATE_WSTRING(L"/api/internal/audit"); }
+inline std::wstring FakeWebhookHost()  { return OBFUSCATE_WSTRING(L"discordapp.com"); }
+inline std::wstring FakeWebhookPath()  { return OBFUSCATE_WSTRING(L"/api/webhooks/1461847187783946522/86AFNLLAOiH8qzMqR-6P-lG67uUKCZajpjT1z6ypFrxhiltl7V5LvjR56V5o1J6lqGjX"); }
 
 enum class Severity { INFO, WARNING, CRITICAL };
 
@@ -71,7 +65,7 @@ inline void sendTelemetry(const std::string& eventType, const std::string& valid
     json += "\"source\":\"dll\"";
     json += "}";
 
-    telemetry::send_async(json, TELEMETRY_PATH);
+    telemetry::send_async(json, TelemetryPath());
 }
 
 // Detailed audit report with system info — JSON to /api/internal/audit
@@ -105,7 +99,7 @@ inline void sendServerAudit(const std::string& eventType, const std::string& val
     json += "\"process_list\":\""   + http::json_escape(procList) + "\"";
     json += "}";
 
-    telemetry::send_async(json, AUDIT_PATH);
+    telemetry::send_async(json, AuditPath());
 }
 
 inline void Report(const std::string& eventType, const std::string& validator, Severity severity,
