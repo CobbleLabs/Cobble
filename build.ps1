@@ -1,12 +1,13 @@
-﻿#Requires -Version 5.1
+#Requires -Version 5.1
 <#
 .SYNOPSIS
     Cobble build pipeline.
 
 .DESCRIPTION
-    .\build.ps1                          Debug build (dev/test, no Themida)
-    .\build.ps1 -PrepareRelease          Release + Themida + signed manifest
-    .\build.ps1 -PrepareRelease -Deploy  Same, then scp to VPS
+    .\build.ps1                          Interactive mode selector
+    .\build.ps1 -Debug                   Debug build (dev/test, no Themida)
+    .\build.ps1 -Release                 Release + Themida + signed manifest
+    .\build.ps1 -Release -Deploy         Release + deploy to VPS
     .\build.ps1 -Clean                   Wipe out/, generated/, hash headers
     .\build.ps1 -SkipDLL                 Loader-only rebuild
 #>
@@ -14,7 +15,8 @@
 param(
     [switch]$Clean,
     [switch]$SkipDLL,
-    [switch]$PrepareRelease,
+    [switch]$Debug,
+    [switch]$Release,
     [switch]$Deploy,
     [string]$ReleaseNotes = ""
 )
@@ -34,7 +36,7 @@ function Write-Log {
     $time  = Get-Date -Format "HH:mm:ss"
     $color = switch ($Level) {
         "STEP" { "Cyan"    }
-        "OK"   { "Green"   }
+        " OK "   { "Green"   }
         "WARN" { "Yellow"  }
         "FAIL" { "Red"     }
         default{ "Gray"    }
@@ -81,12 +83,48 @@ function Get-Version {
     return "0.0.0"
 }
 
-# --- Paths -------------------------------------------------------------------
+# --- Interactive mode selector -----------------------------------------------
+
+Clear-Host
+Write-Host ""
+Write-Host "  +----------------------------------+" -ForegroundColor Cyan
+Write-Host "  |     COBBLE BUILD PIPELINE        |" -ForegroundColor Cyan
+Write-Host "  +----------------------------------+" -ForegroundColor Cyan
+Write-Host ""
+
+if (-not $Clean -and -not $Debug -and -not $Release -and -not $SkipDLL) {
+Write-Host "  Select build mode:" -ForegroundColor Cyan
+Write-Host "    [1]  Debug" -ForegroundColor Green
+Write-Host "    [2]  Release" -ForegroundColor Yellow
+Write-Host "    [3]  Release + Deploy" -ForegroundColor Blue
+Write-Host "    [4]  Clean" -ForegroundColor Red
+    Write-Host ""
+    $choice = Read-Host "  Choice [1-4]"
+    switch ($choice.Trim()) {
+        "1" { $Debug   = $true }
+        "2" { $Release = $true }
+        "3" { $Release = $true; $Deploy = $true }
+        "4" { $Clean   = $true }
+        default {
+            Write-Host "  Invalid choice. Defaulting to Debug." -ForegroundColor Yellow
+            $Debug = $true
+        }
+    }
+    Write-Host ""
+}
+
+# Normalize: -Debug is the default when neither flag is set after selection
+$PrepareRelease = $Release
 
 $Configuration = if ($PrepareRelease) { "Release" } else { "Debug" }
 $Platform      = "x64"
 
-# Auto-detect MSBuild via vswhere - works on Community, Professional, Enterprise
+Write-Host "  Config : $Configuration | Platform: $Platform"
+Write-Host "  Release: $PrepareRelease | Deploy: $Deploy"
+Write-Host ""
+
+# --- Paths -------------------------------------------------------------------
+
 $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
 $msbuildExe = $null
 if (Test-Path $vswhere) {
@@ -101,33 +139,23 @@ if (-not (Test-Path $msbuildExe)) {
 }
 
 $Paths = @{
-    Root           = $PSScriptRoot
-    MSBuild        = $msbuildExe
-    DllProject     = "$PSScriptRoot\Cobble.vcxproj"
-    LoaderProject  = "$PSScriptRoot\loader\CobbleLoader.vcxproj"
-    DllOutput      = "$PSScriptRoot\out\bin\$Configuration\Cobble.dll"
-    LoaderOutput   = "$PSScriptRoot\out\bin\$Configuration\CobbleLoader.exe"
-    EncOutput      = "$PSScriptRoot\loader\res\Cobble.enc"
-    DllHashHeader  = "$PSScriptRoot\loader\src\util\dll_hash.h"
-    IntegrityHeader= "$PSScriptRoot\loader\src\security\integrity_gen.hpp"
-    VersionHeader  = "$PSScriptRoot\generated\version.h"
-    ConfigJson     = "$PSScriptRoot\cobble.json"
-    ReleaseDir     = "$PSScriptRoot\out\releases\latest"
-    PrivateKey     = "$PSScriptRoot\infra\keys\private.key"
-    ThemidaDir     = "$PSScriptRoot\themida"
-    SignScript     = "$PSScriptRoot\tools\sign_manifest.go"
+    Root            = $PSScriptRoot
+    MSBuild         = $msbuildExe
+    DllProject      = "$PSScriptRoot\Cobble.vcxproj"
+    LoaderProject   = "$PSScriptRoot\loader\CobbleLoader.vcxproj"
+    DllOutput       = "$PSScriptRoot\out\bin\$Configuration\Cobble.dll"
+    LoaderOutput    = "$PSScriptRoot\out\bin\$Configuration\CobbleLoader.exe"
+    EncOutput       = "$PSScriptRoot\loader\res\Cobble.enc"
+    DllHashHeader   = "$PSScriptRoot\loader\src\util\dll_hash.h"
+    IntegrityHeader = "$PSScriptRoot\loader\src\security\integrity_gen.hpp"
+    VersionHeader   = "$PSScriptRoot\generated\version.h"
+    ConfigJson      = "$PSScriptRoot\cobble.json"
+    ReleaseDir      = "$PSScriptRoot\out\releases\latest"
+    PrivateKey      = "$PSScriptRoot\infra\keys\private.key"
+    ThemidaDir      = "$PSScriptRoot\themida"
+    SignScript      = "$PSScriptRoot\tools\sign_manifest.go"
+    TempDir         = "$PSScriptRoot\out\bin\Release\_tmp"
 }
-
-# --- Banner ------------------------------------------------------------------
-
-Clear-Host
-Write-Host ""
-Write-Host "  +==================================+" -ForegroundColor DarkGray
-Write-Host "  |     COBBLE BUILD PIPELINE        |" -ForegroundColor Cyan
-Write-Host "  +==================================+" -ForegroundColor DarkGray
-Write-Host "  Config : $Configuration | Platform: $Platform"
-Write-Host "  Release: $PrepareRelease | Deploy: $Deploy"
-Write-Host ""
 
 # --- Clean -------------------------------------------------------------------
 
@@ -138,11 +166,10 @@ if ($Clean) {
     if (Test-Path $Paths.DllHashHeader)   { Remove-Item -Force $Paths.DllHashHeader }
     if (Test-Path $Paths.IntegrityHeader) { Remove-Item -Force $Paths.IntegrityHeader }
     Write-Log "Clean complete" OK
+    exit 0
 }
 
 # --- Config generation -------------------------------------------------------
-
-#region Config
 
 Write-Log "Generating config headers from cobble.json..." STEP
 Assert-File $Paths.ConfigJson "cobble.json not found - copy cobble.json.example and fill in values"
@@ -157,11 +184,7 @@ if (-not $env:PAYLOAD_KEY) {
 }
 Write-Log "Config headers generated" OK
 
-#endregion
-
 # --- DLL build ---------------------------------------------------------------
-
-#region DLL
 
 if (-not $SkipDLL) {
     Invoke-MSBuild $Paths.DllProject "Cobble.dll ($Configuration)"
@@ -169,18 +192,14 @@ if (-not $SkipDLL) {
     Write-Log "Cobble.dll built  [$($Paths.DllOutput)]" OK
 }
 
-#endregion
-
 # --- Payload encryption ------------------------------------------------------
-
-#region Encryption
 
 Write-Log "Encrypting DLL payload (AES-256-CBC)..." STEP
 $resDir = Split-Path $Paths.EncOutput -Parent
 if (-not (Test-Path $resDir)) { New-Item -ItemType Directory -Path $resDir -Force | Out-Null }
 
 & "$($Paths.Root)\tools\encrypt_payload.ps1" `
-    -InputDll  $Paths.DllOutput `
+    -InputDll   $Paths.DllOutput `
     -OutputFile $Paths.EncOutput `
     -PayloadKey $env:PAYLOAD_KEY `
     -Quiet
@@ -188,18 +207,14 @@ if (-not (Test-Path $resDir)) { New-Item -ItemType Directory -Path $resDir -Forc
 Assert-File $Paths.EncOutput "Payload encryption failed"
 Write-Log "Payload encrypted  [$([Math]::Round((Get-Item $Paths.EncOutput).Length/1KB)) KB]" OK
 
-#endregion
-
 # --- DLL hash header ---------------------------------------------------------
 
-#region DLL Hash
-
 Write-Log "Computing DLL hash..." STEP
-Assert-File $Paths.DllOutput "Cobble.dll not found - build it first or remove -SkipDLL"
+Assert-File $Paths.DllOutput "Cobble.dll not found"
 
-$dllHash      = Get-SHA256 $Paths.DllOutput
-$dllSize      = (Get-Item $Paths.DllOutput).Length
-$buildTs      = [int][double]::Parse((Get-Date -UFormat %s))
+$dllHash  = Get-SHA256 $Paths.DllOutput
+$dllSize  = (Get-Item $Paths.DllOutput).Length
+$buildTs  = [int][double]::Parse((Get-Date -UFormat %s))
 
 @"
 #pragma once
@@ -216,11 +231,7 @@ $buildTs      = [int][double]::Parse((Get-Date -UFormat %s))
 
 Write-Log "dll_hash.h written  [$($dllHash.Substring(0,16))...]" OK
 
-#endregion
-
-# --- Loader build (two-pass for self-integrity) -------------------------------
-
-#region Loader
+# --- Loader build (two-pass for self-integrity) ------------------------------
 
 function Build-Loader {
     param([string]$Pass)
@@ -231,14 +242,13 @@ function Build-Loader {
 
 Build-Loader "Pass 1"
 
-# Compute chunked integrity hashes of Pass-1 binary
 Write-Log "Computing loader integrity hashes..." STEP
 $loaderBytes = [System.IO.File]::ReadAllBytes($Paths.LoaderOutput)
 $loaderSize  = $loaderBytes.Length
 $chunk       = [Math]::Floor($loaderSize / 3)
-$h1 = Get-ChunkHash $loaderBytes 0       $chunk
-$h2 = Get-ChunkHash $loaderBytes $chunk  $chunk
-$h3 = Get-ChunkHash $loaderBytes ($chunk*2) ($loaderSize - $chunk*2)
+$h1 = Get-ChunkHash $loaderBytes 0            $chunk
+$h2 = Get-ChunkHash $loaderBytes $chunk       $chunk
+$h3 = Get-ChunkHash $loaderBytes ($chunk * 2) ($loaderSize - $chunk * 2)
 Write-Log "Chunks: $h1  $h2  $h3" INFO
 
 @"
@@ -255,18 +265,13 @@ Write-Log "integrity_gen.hpp written" OK
 
 Build-Loader "Pass 2"
 
-#endregion
-
 # --- Release packaging -------------------------------------------------------
-
-#region Release
 
 if ($PrepareRelease) {
 
     Write-Log "Starting release packaging..." STEP
     $version = Get-Version
 
-    # Pre-flight checks
     Assert-File $Paths.PrivateKey "infra/keys/private.key not found - get it from the team lead"
 
     $ThemidaExe = $null
@@ -279,43 +284,52 @@ if ($PrepareRelease) {
     Assert-File "$($Paths.ThemidaDir)\TMLicenseA1.dat" "TMLicenseA1.dat missing from themida/ submodule"
     Assert-File "$($Paths.ThemidaDir)\cobble.tmd"      "cobble.tmd missing from themida/ submodule"
 
-    # Themida - patch .tmd with current repo paths, run via cmd start /w
-    Write-Log "Applying Themida protection (~30-60s)..." STEP
-    $ProtectedLoader = "$($Paths.Root)\out\bin\Release\CobbleLoader_protected.exe"
-    $TmdPatched      = "$($Paths.Root)\out\bin\Release\_cobble_patched.tmd"
-    New-Item -ItemType Directory -Force -Path (Split-Path $TmdPatched) | Out-Null
+    # Temp files — always cleaned up via finally
+    New-Item -ItemType Directory -Force -Path $Paths.TempDir | Out-Null
+    $ProtectedLoader = "$($Paths.TempDir)\CobbleLoader_protected.exe"
+    $TmdPatched      = "$($Paths.TempDir)\cobble_patched.tmd"
+    $ThemidaBat      = "$($Paths.TempDir)\run_themida.bat"
 
-    (Get-Content "$($Paths.ThemidaDir)\cobble.tmd" -Raw) `
-        -replace 'INPUT_FILE_NAME=.*',  "INPUT_FILE_NAME=$($Paths.LoaderOutput)" `
-        -replace 'OUTPUT_FILE_NAME=.*', "OUTPUT_FILE_NAME=$ProtectedLoader" |
-        Set-Content $TmdPatched -NoNewline
+    try {
+        Write-Log "Applying Themida protection (~30-60s)..." STEP
 
-    if (Test-Path $ProtectedLoader) { Remove-Item $ProtectedLoader -Force }
+        (Get-Content "$($Paths.ThemidaDir)\cobble.tmd" -Raw) `
+            -replace 'INPUT_FILE_NAME=.*',  "INPUT_FILE_NAME=$($Paths.LoaderOutput)" `
+            -replace 'OUTPUT_FILE_NAME=.*', "OUTPUT_FILE_NAME=$ProtectedLoader" |
+            Set-Content $TmdPatched -NoNewline
 
-    # Oreans docs: "start /w Themida /protect project.tmd" - blocks until done
-    $bat = "$($Paths.Root)\out\bin\Release\_run_themida.bat"
-    @('@echo off', "start /w `"`" `"$ThemidaExe`" /protect `"$TmdPatched`"", 'exit /b %errorlevel%') |
-        Set-Content -Path $bat -Encoding ASCII
-    & cmd.exe /c $bat
-    $themidaExit = $LASTEXITCODE
-    Remove-Item $bat      -ErrorAction SilentlyContinue
-    Remove-Item $TmdPatched -ErrorAction SilentlyContinue
+        if (Test-Path $ProtectedLoader) { Remove-Item $ProtectedLoader -Force }
 
-    $themidaErrors = @{
-        1="invalid project file"; 2="cannot open input"; 3="already protected"
-        4="SecureEngine macro error"; 5="fatal protection error"
-        6="cannot write output"; 7="splash file error"; 8="taggant certificate error"
+        @('@echo off', "start /w `"`" `"$ThemidaExe`" /protect `"$TmdPatched`"", 'exit /b %errorlevel%') |
+            Set-Content -Path $ThemidaBat -Encoding ASCII
+
+        & cmd.exe /c $ThemidaBat
+        $themidaExit = $LASTEXITCODE
+
+        $themidaErrors = @{
+            1="invalid project file"; 2="cannot open input"; 3="already protected"
+            4="SecureEngine macro error"; 5="fatal protection error"
+            6="cannot write output"; 7="splash file error"; 8="taggant certificate error"
+        }
+        if ($themidaErrors.ContainsKey($themidaExit)) {
+            Write-Log "Themida failed: $($themidaErrors[$themidaExit])" FAIL; exit 1
+        }
+        if (-not (Test-Path $ProtectedLoader)) {
+            Write-Log "Themida produced no output (exit=$themidaExit)" FAIL; exit 1
+        }
+
+        Copy-Item $ProtectedLoader $Paths.LoaderOutput -Force
+        Write-Log "Themida protection applied" OK
+
+    } finally {
+        # Always clean up temp files regardless of success or failure
+        @($ProtectedLoader, $TmdPatched, $ThemidaBat) | ForEach-Object {
+            if (Test-Path $_) { Remove-Item $_ -Force -ErrorAction SilentlyContinue }
+        }
+        if ((Get-ChildItem $Paths.TempDir -ErrorAction SilentlyContinue | Measure-Object).Count -eq 0) {
+            Remove-Item $Paths.TempDir -Force -ErrorAction SilentlyContinue
+        }
     }
-    if ($themidaErrors.ContainsKey($themidaExit)) {
-        Write-Log "Themida failed: $($themidaErrors[$themidaExit])" FAIL; exit 1
-    }
-    # STATUS_CONTROL_C_EXIT (-1073741510): user closed CMD after Themida finished - check output
-    if (-not (Test-Path $ProtectedLoader)) {
-        Write-Log "Themida produced no output (exit=$themidaExit)" FAIL; exit 1
-    }
-    Copy-Item $ProtectedLoader $Paths.LoaderOutput -Force
-    Remove-Item $ProtectedLoader -ErrorAction SilentlyContinue
-    Write-Log "Themida protection applied" OK
 
     # Assemble release directory
     New-Item -ItemType Directory -Force -Path $Paths.ReleaseDir | Out-Null
@@ -323,7 +337,7 @@ if ($PrepareRelease) {
     Copy-Item $Paths.DllOutput    "$($Paths.ReleaseDir)\Cobble.dll"       -Force
 
     $loaderHash = Get-SHA256 "$($Paths.ReleaseDir)\CobbleLoader.exe"
-    $loaderSize = (Get-Item "$($Paths.ReleaseDir)\CobbleLoader.exe").Length
+    $loaderSize = (Get-Item  "$($Paths.ReleaseDir)\CobbleLoader.exe").Length
 
     $isMandatory = ($Host.UI.PromptForChoice("Release", "Mark as MANDATORY update?",
         @("&Yes","&No"), 1) -eq 0)
@@ -342,7 +356,6 @@ if ($PrepareRelease) {
     $manifestBytes = [System.Text.Encoding]::UTF8.GetBytes(($manifest | ConvertTo-Json -Compress))
     [System.IO.File]::WriteAllBytes("$($Paths.ReleaseDir)\manifest.json", $manifestBytes)
 
-    # Sign manifest - tools/sign_manifest.go is the canonical signer
     Write-Log "Signing manifest with Ed25519..." STEP
     Assert-File $Paths.SignScript "tools/sign_manifest.go not found"
     go run $Paths.SignScript `
@@ -354,15 +367,11 @@ if ($PrepareRelease) {
     Write-Log "Release v$version signed" OK
 }
 
-#endregion
-
 # --- Deploy ------------------------------------------------------------------
-
-#region Deploy
 
 if ($Deploy) {
     if (-not $PrepareRelease) {
-        Write-Log "-Deploy requires -PrepareRelease" FAIL; exit 1
+        Write-Log "-Deploy requires -Release" FAIL; exit 1
     }
     Write-Log "Deploying to VPS..." STEP
 
@@ -387,16 +396,16 @@ if ($Deploy) {
     Write-Log "Deployed $($files.Count) files to ${vpsUser}@${vpsHost}:${remotePath}" OK
 }
 
-#endregion
-
 # --- Summary -----------------------------------------------------------------
 
-$elapsed = (Get-Date) - $BuildStart
+$elapsed     = (Get-Date) - $BuildStart
+$elapsed_str = $elapsed.ToString("mm\:ss")
 
 Write-Host ""
-Write-Host "  +==================================+" -ForegroundColor DarkGray
+Write-Host "  +----------------------------------+" -ForegroundColor Green
 Write-Host "  |       BUILD SUCCEEDED            |" -ForegroundColor Green
-Write-Host "  +==================================+" -ForegroundColor DarkGray
+Write-Host "  +----------------------------------+" -ForegroundColor Green
+
 Write-Host ""
 Write-Host "  Artifacts"
 Write-Host "  ---------"
@@ -420,6 +429,5 @@ if ($PrepareRelease) {
 }
 
 Write-Host ""
-$elapsed_str = $elapsed.ToString("mm\:ss")
 Write-Host "  Build time: $elapsed_str" -ForegroundColor DarkGray
 Write-Host ""
