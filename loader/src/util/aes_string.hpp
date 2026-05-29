@@ -6,7 +6,7 @@
 #include <cstdint>
 #include <string>
 
-#ifdef _DEBUG
+#ifdef COBBLE_DEBUG
 #define OBFUSCATE_STRING(str)        std::string(str)
 #define OBFUSCATE_WSTRING(str)       std::wstring(str)
 #define OBFUSCATE_WSTRING_CSTR(str)  (str)
@@ -306,4 +306,4 @@ struct AESObfWString {
 #pragma optimize("", on)
 #endif
 
-#endif // _DEBUG
+#endif // COBBLE_DEBUG

@@ -13,9 +13,14 @@
 #pragma code_seg(push, ".shell")
 #pragma runtime_checks("", off)
 #pragma optimize("", off)
+#pragma strict_gs_check(push, off)
 
-// Shellcode entry point - called via CreateRemoteThread
-void __stdcall ShellcodeEntry(SecureMapper::MAPPER_CONTEXT* ctx) {
+// Shellcode entry — called via CreateRemoteThread in the target process.
+// __declspec(safebuffers) is REQUIRED: it suppresses /GS cookie emission so
+// the function contains no RIP-relative refs to __security_cookie /
+// __security_check_cookie in the loader's address space (those would AV when
+// the shellcode is byte-copied into javaw.exe). Do not remove.
+__declspec(safebuffers) void __stdcall ShellcodeEntry(SecureMapper::MAPPER_CONTEXT* ctx) {
     if (!ctx || !ctx->moduleBase) {
         ctx->lastError = 1;
         ctx->completionFlag = 0xDEAD;
@@ -167,7 +172,10 @@ void __stdcall ShellcodeEntry(SecureMapper::MAPPER_CONTEXT* ctx) {
 
     // -------------------------------------------------------------------------
     // 5. ANTI-DUMP: Capture section info, erase headers, apply correct perms
+    // Skipped in Debug: wiping headers / stripping write perms can crash
+    // javaw.exe shortly after DllMain when code touches its own image.
     // -------------------------------------------------------------------------
+#ifndef COBBLE_DEBUG
     {
         // Get VirtualProtect from kernel32
         using VirtualProtect_t = BOOL(__stdcall*)(LPVOID, SIZE_T, DWORD, PDWORD);
@@ -234,13 +242,15 @@ void __stdcall ShellcodeEntry(SecureMapper::MAPPER_CONTEXT* ctx) {
             }
         }
     }
+#endif  // !COBBLE_DEBUG
 
     // Signal completion
     ctx->completionFlag = 0xC0BB1E;
 }
 
-void __stdcall ShellcodeEnd() {}
+__declspec(safebuffers) void __stdcall ShellcodeEnd() {}
 
+#pragma strict_gs_check(pop)
 #pragma optimize("", on)
 #pragma runtime_checks("", restore)
 #pragma code_seg(pop)
@@ -288,24 +298,33 @@ bool SecureMapper::SecureManualMap(DWORD pid, BYTE* pData, size_t dataSize) {
 
     // Validate PE
     auto* pDos = (IMAGE_DOS_HEADER*)pData;
-    if (pDos->e_magic != 0x5A4D)
+    if (pDos->e_magic != 0x5A4D) {
         return false;
+    }
 
     auto* pNt = (IMAGE_NT_HEADERS*)(pData + pDos->e_lfanew);
-    if (pNt->Signature != 0x4550)
+    if (pNt->Signature != 0x4550) {
         return false;
+    }
 
     SIZE_T imageSize = pNt->OptionalHeader.SizeOfImage;
     SIZE_T contextSize = sizeof(MAPPER_CONTEXT);
+    // Debug builds may reorder ShellcodeEnd before ShellcodeEntry, making the
+    // subtraction wrap. Use a fixed upper bound there instead.
+#ifdef COBBLE_DEBUG
+    SIZE_T shellcodeSize = 0x3000;
+#else
     SIZE_T shellcodeSize = (SIZE_T)ShellcodeEnd - (SIZE_T)ShellcodeEntry;
+#endif
     SIZE_T totalSize = imageSize + contextSize + shellcodeSize + 0x1000;  // Extra padding
 
     // Open target process with MINIMAL rights to avoid anti-cheat detection
     // PROCESS_ALL_ACCESS is a red flag for many security tools
     HANDLE hProcess = OpenProcess(
         PROCESS_VM_OPERATION | PROCESS_VM_WRITE | PROCESS_CREATE_THREAD | PROCESS_QUERY_INFORMATION, FALSE, pid);
-    if (!hProcess)
+    if (!hProcess) {
         return false;
+    }
 
     // -------------------------------------------------------------------------
     // Create Shared Memory Section

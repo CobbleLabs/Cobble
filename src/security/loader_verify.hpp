@@ -153,6 +153,9 @@ inline bool verify(HMODULE hModule) {
 
 // Silent exit if verification fails (don't give hints to crackers)
 inline void verifyOrDie(HMODULE hModule) {
+#ifdef COBBLE_DEBUG
+    return;  // Skip verification in Debug builds
+#endif
     if (!verify(hModule)) {
         // Don't show any error - just corrupt state and crash later
         // This makes debugging harder for crackers

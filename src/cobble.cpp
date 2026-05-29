@@ -69,13 +69,12 @@ static void invalidateSignature() {
 }
 
 void cobble::context::initialize(HMODULE hModule) {
+#ifndef COBBLE_DEBUG
     // CRITICAL: Verify we were loaded by legitimate loader, not via LoadLibrary
     LoaderVerify::verifyOrDie(hModule);
 
     // CRITICAL: Validate injection secret from loader's shared memory
-    // Without this, the DLL refuses to run - this is the primary security gate
     if (!SessionValidator::ValidateInjection()) {
-        // Corrupt memory and exit to frustrate reverse engineering
         DWORD oldProtect;
         if (VirtualProtect(hModule, 0x1000, PAGE_READWRITE, &oldProtect)) {
             memset(hModule, 0xCC, 0x1000);
@@ -90,21 +89,13 @@ void cobble::context::initialize(HMODULE hModule) {
     g_Honeypot_HWID = SessionValidator::g_HWID;
     g_Honeypot_Username = SessionValidator::g_Username;
 
-    // Phase 4: Run multiple loader validators
-    // This validates shared memory, parent process, timing, modules
-    // Failures are reported to Discord and server
     if (!LoaderValidator::RunStartupValidation()) {
-        // Validation failed - trigger JNI poison
         sdk::internal::markCorrupted();
     }
 
-    // Initialize DLL integrity check (hash .text section for anti-patch detection)
-    // Must be done BEFORE any JIT/hooks that would modify code
     DllIntegrity::Initialize(hModule);
-
-    // Start heartbeat thread for runtime validation
-    // Session token was cached from shared memory during ValidateInjection()
     SessionValidator::StartHeartbeatThread("");
+#endif
 
     // Initialize logging console immediately
     c_logger::initialize();
@@ -291,14 +282,16 @@ void cobble::context::initialize(HMODULE hModule) {
             // Process pending Apollo handshakes
             ApolloHandshake::Tick();
 
-            // Check if SDK state needs recovery
+#ifndef COBBLE_DEBUG
+            // Recover stale/corrupted SDK state. Skipped in Debug because
+            // ValidateInjection() didn't run, so g_initTimestamp == 0 and
+            // isStateStale() would fire forever, NULLing JniCache.
             if (SessionValidator::isStateCorrupted() || SessionValidator::isStateStale()) {
-                // Attempt recovery - may cause instability
                 sdk::internal::attemptRecovery();
             }
 
-            // Check devOverride honeypot
             internal::checkDevOverride();
+#endif
             lastSessionRefresh = now;
         }
 

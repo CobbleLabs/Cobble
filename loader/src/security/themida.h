@@ -3,11 +3,11 @@
 // In Debug, skip the SDK entirely — ThemidaSDK.h has a #pragma comment(lib)
 // that auto-links SecureEngineSDK64.lib regardless of vcxproj settings,
 // causing a missing DLL at runtime. All macros below are no-ops in Debug.
-#ifndef _DEBUG
+#ifndef COBBLE_DEBUG
 #include <ThemidaSDK.h>
 #endif
 
-#ifdef _DEBUG
+#ifdef COBBLE_DEBUG
 #define COBBLE_VM_CRITICAL_START
 #define COBBLE_VM_CRITICAL_END
 #define COBBLE_VM_HIGH_START
