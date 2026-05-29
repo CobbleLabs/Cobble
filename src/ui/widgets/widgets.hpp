@@ -16,7 +16,7 @@
 
 #include <functional>
 #include <string>
-#include <unordered_map>
+#include <utility>
 #include <vector>
 
 // ==================== FONT ACCESSOR ====================
@@ -45,17 +45,28 @@ ImU32 GetColor(ImGuiCol idx, float alpha_mult = 1.0f);
 
 // ==================== ANIMATION SYSTEM ====================
 
-// Animation object storage - use for persistent animation state
+// Animation object storage - use for persistent animation state.
+//
+// Originally backed by std::unordered_map, but on the GL render thread inside
+// a DLL injected via JNI we hit consistent SEH faults inside find() on a
+// freshly-default-constructed map. The hashtable internals (buckets / proxy
+// nodes / hash) misbehave in this environment — possibly a magic-statics /
+// _Init_thread_header timing issue across threads, possibly something in
+// MSVC's static-CRT STL that doesn't survive the manual-loader env we run in.
+// Switched to a plain vector of pairs: O(N) lookup, but N is the total widget
+// count per UI screen (small, < 100) and we only call this once per widget per
+// frame, so the constant-factor cost is irrelevant compared to the actual
+// rendering. Vector default-ctor is empty and allocates nothing, sidestepping
+// whatever unordered_map's first-call init was tripping on.
 template <typename T>
 T& anim_obj(const char* label, int id, T default_value) {
-    static std::unordered_map<std::string, T> storage;
+    static std::vector<std::pair<std::string, T>> storage;
     std::string key = std::string(label) + std::to_string(id);
-    auto it = storage.find(key);
-    if (it == storage.end()) {
-        storage[key] = default_value;
-        it = storage.find(key);
+    for (auto& entry : storage) {
+        if (entry.first == key) return entry.second;
     }
-    return it->second;
+    storage.emplace_back(std::move(key), std::move(default_value));
+    return storage.back().second;
 }
 
 // Smooth float animation

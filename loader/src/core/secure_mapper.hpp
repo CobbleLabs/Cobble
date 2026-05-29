@@ -16,11 +16,13 @@ struct MAPPER_CONTEXT {
     uint64_t ntdllBase;     // ntdll.dll base in target
     uint64_t kernel32Base;  // kernel32.dll base in target
 
-    // Function pointers resolved in target
-    void* pLdrLoadDll;
-    void* pLdrGetProcedureAddress;
-    void* pRtlInitAnsiString;
-    void* pRtlInitUnicodeString;
+    // Function pointers resolved by the host before launching the shellcode.
+    // ntdll.dll has the same base address in every process on a given boot,
+    // so a pointer resolved in the loader is valid in the target.
+    void* pRtlAddFunctionTable;  // Registers .pdata so x64 stack unwinding works
+    void* pLdrGetProcedureAddress;  // (reserved for future use)
+    void* pRtlInitAnsiString;       // (reserved for future use)
+    void* pRtlInitUnicodeString;    // (reserved for future use)
 
     // Completion flag
     volatile uint64_t completionFlag;

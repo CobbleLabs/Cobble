@@ -547,8 +547,10 @@ void Menu::Render() {
     ui::ResetBinderState();
 
     // If hidden (e.g. during HUD drag), skip rendering but keep state
-    if (hidden && isOpen)
+    if (hidden && isOpen) {
+        COBBLE_TRACE("Menu::Render skip: hidden");
         return;
+    }
 
     // Animate open/close
     float targetAnim = isOpen ? 1.f : 0.f;
@@ -558,8 +560,9 @@ void Menu::Render() {
     }
     openAnim = ImLerp(openAnim, targetAnim, 15.f * dt);
 
-    if (openAnim < 0.01f && !isOpen)
+    if (openAnim < 0.01f && !isOpen) {
         return;
+    }
 
     // Apply style properly (set alpha etc)
     ApplyStyle();

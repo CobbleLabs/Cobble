@@ -141,7 +141,14 @@ class Parser {
 public:
     static bool parse(const std::string& json, Value& out) {
         size_t pos = 0;
-        return parseValue(json, pos, out);
+        // Defensive top-level catch: a malformed config (e.g. number that
+        // std::stod can't parse, truncated string) should fall back to
+        // defaults, never propagate to MainThread which has no handler.
+        try {
+            return parseValue(json, pos, out);
+        } catch (...) {
+            return false;
+        }
     }
 
 private:
@@ -187,7 +194,7 @@ private:
     }
 
     static bool parseObject(const std::string& json, size_t& pos, Value& out) {
-        if (json[pos] != '{')
+        if (pos >= json.length() || json[pos] != '{')
             return false;
         pos++;
 
@@ -196,6 +203,8 @@ private:
 
         while (pos < json.length()) {
             skipWhitespace(json, pos);
+            if (pos >= json.length())
+                return false;
             if (json[pos] == '}') {
                 pos++;
                 return true;
@@ -217,6 +226,8 @@ private:
             out.object_[key] = val;
 
             skipWhitespace(json, pos);
+            if (pos >= json.length())
+                return false;
             if (json[pos] == ',')
                 pos++;
         }
@@ -224,13 +235,15 @@ private:
     }
 
     static bool parseArray(const std::string& json, size_t& pos, Value& out) {
-        if (json[pos] != '[')
+        if (pos >= json.length() || json[pos] != '[')
             return false;
         pos++;
         out.type_ = Value::Array;
 
         while (pos < json.length()) {
             skipWhitespace(json, pos);
+            if (pos >= json.length())
+                return false;
             if (json[pos] == ']') {
                 pos++;
                 return true;
@@ -242,6 +255,8 @@ private:
             // Skip storing array values for now
 
             skipWhitespace(json, pos);
+            if (pos >= json.length())
+                return false;
             if (json[pos] == ',')
                 pos++;
         }
@@ -250,7 +265,7 @@ private:
 
     static bool parseString(const std::string& json, size_t& pos, Value& out) {
         skipWhitespace(json, pos);
-        if (json[pos] != '"')
+        if (pos >= json.length() || json[pos] != '"')
             return false;
         pos++;
 
@@ -293,7 +308,7 @@ private:
 
     static bool parseNumber(const std::string& json, size_t& pos, Value& out) {
         size_t start = pos;
-        if (json[pos] == '-')
+        if (pos < json.length() && json[pos] == '-')
             pos++;
         while (pos < json.length() && json[pos] >= '0' && json[pos] <= '9')
             pos++;
@@ -302,8 +317,28 @@ private:
             while (pos < json.length() && json[pos] >= '0' && json[pos] <= '9')
                 pos++;
         }
+        // Tolerate scientific notation (1e5, 2.3E-4) — consume but don't require.
+        if (pos < json.length() && (json[pos] == 'e' || json[pos] == 'E')) {
+            pos++;
+            if (pos < json.length() && (json[pos] == '+' || json[pos] == '-'))
+                pos++;
+            while (pos < json.length() && json[pos] >= '0' && json[pos] <= '9')
+                pos++;
+        }
+
+        if (pos == start)
+            return false;
+
         std::string numStr = json.substr(start, pos - start);
-        out = Value(std::stod(numStr));
+        // Reject lone '-' / '-.' / '.' which std::stod would throw on.
+        if (numStr == "-" || numStr == "." || numStr == "-.")
+            return false;
+
+        try {
+            out = Value(std::stod(numStr));
+        } catch (...) {
+            return false;
+        }
         return true;
     }
 };

@@ -265,18 +265,31 @@ bool ConfigManager::deleteUserConfig(const std::string& name, std::string* err) 
 
 // Apply default config (used when no config file exists)
 void ConfigManager::applyDefaults() {
+    COBBLE_TRACE("applyDefaults:enter");
     std::lock_guard<std::mutex> lock(configMutex_);
+    COBBLE_TRACE("applyDefaults:got mutex");
+
+    // Reset to a clean object. A failed parse can leave config_ with partial
+    // state whose destructor faults; sehResetValue catches that and
+    // placement-new's a fresh Value over the corrupt bytes (intentional
+    // small leak rather than tearing down javaw).
+    sehResetValue(config_);
+    COBBLE_TRACE("applyDefaults:config_ reset");
 
     config_["version"] = CONFIG_VERSION;
+    COBBLE_TRACE("applyDefaults:version set");
 
     // Settings
     config_["settings"]["cloudSync"] = false;
+    COBBLE_TRACE("applyDefaults:cloudSync set");
 
     // HUD
     config_["hud"]["arrayList"] = true;
     config_["hud"]["notifications"] = true;
+    COBBLE_TRACE("applyDefaults:hud set");
 
     // Default module configs (all disabled with default keybinds)
+    COBBLE_TRACE("applyDefaults:exit");
 }
 
 // Apply loaded config to modules

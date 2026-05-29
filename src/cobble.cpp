@@ -44,6 +44,7 @@
 #include "ui/core/overlay.h"
 #include "ui/hud/notifications.h"
 #include "util/diagnostics.hpp"
+#include "util/inject_trace.hpp"
 #include "util/state.hpp"
 #include "util/team/friends_manager.h"
 #include "jni/apollo/apollo_handshake.hpp"
@@ -69,6 +70,7 @@ static void invalidateSignature() {
 }
 
 void cobble::context::initialize(HMODULE hModule) {
+    COBBLE_TRACE("ctx::initialize:enter");
 #ifndef COBBLE_DEBUG
     // CRITICAL: Verify we were loaded by legitimate loader, not via LoadLibrary
     LoaderVerify::verifyOrDie(hModule);
@@ -98,10 +100,14 @@ void cobble::context::initialize(HMODULE hModule) {
 #endif
 
     // Initialize logging console immediately
+    COBBLE_TRACE("before c_logger::initialize");
     c_logger::initialize();
+    COBBLE_TRACE("after c_logger::initialize");
 
     // Install crash handler (watchdog starts after main loop begins)
+    COBBLE_TRACE("before Diagnostics::installCrashHandler");
     Diagnostics::installCrashHandler();
+    COBBLE_TRACE("after Diagnostics::installCrashHandler");
 
     log_raw("========================================");
     log_ok("Cobble injected! Build: %s", __DATE__);
@@ -111,8 +117,11 @@ void cobble::context::initialize(HMODULE hModule) {
     moduleHandle = hModule;
 
     log_raw("Initializing Java...");
+    COBBLE_TRACE("before Java::Init");
     Java::Init();
+    COBBLE_TRACE("after Java::Init");
     if (!Java::Initialized) {
+        COBBLE_TRACE("Java::Initialized=false -> exit");
         log_err("Java initialization failed!");
         FreeLibraryAndExitThread(moduleHandle, 0);
         return;
@@ -120,46 +129,80 @@ void cobble::context::initialize(HMODULE hModule) {
     log_ok("Java initialized");
 
     log_raw("Initializing SDK...");
+    COBBLE_TRACE("before SDK_Init");
     SDK_Init();
+    COBBLE_TRACE("after SDK_Init");
     sdk::internal::onCacheReady();  // Capture SDK state baseline
+    COBBLE_TRACE("after onCacheReady");
     log_ok("SDK initialized");
 
     // Run NetworkManager discovery probe (debug only)
     log_raw("Running NetworkManager probe...");
+    COBBLE_TRACE("before NetworkProbe::run");
     NetworkProbe::run();
+    COBBLE_TRACE("after NetworkProbe::run");
 
     log_raw("Allocating modules...");
     // Dynamically allocate modules to avoid static initialization order issues
+    COBBLE_TRACE("alloc:ModuleManager");
     moduleManager = new ModuleManager();
+    COBBLE_TRACE("alloc:AutoClicker");
     autoClicker = new AutoClicker();
+    COBBLE_TRACE("alloc:AimAssist");
     aimAssist = new AimAssist();
+    COBBLE_TRACE("alloc:ArmorSwitch");
     armorSwitch = new ArmorSwitch();
+    COBBLE_TRACE("alloc:AutoRefill");
     autoRefill = new AutoRefill();
+    COBBLE_TRACE("alloc:Velocity");
     velocity = new Velocity();
+    COBBLE_TRACE("alloc:Reach");
     reach = new Reach();
 
+    COBBLE_TRACE("alloc:Backtrack");
     backtrack = new Backtrack();
+    COBBLE_TRACE("alloc:HitSelect");
     hitSelect = new HitSelect();
+    COBBLE_TRACE("alloc:NoHitDelay");
     noHitDelay = new NoHitDelay();
+    COBBLE_TRACE("alloc:Criticals");
     criticals = new Criticals();
+    COBBLE_TRACE("alloc:NoJumpDelay");
     noJumpDelay = new NoJumpDelay();
+    COBBLE_TRACE("alloc:NoItemRelease");
     noItemRelease = new NoItemRelease();
+    COBBLE_TRACE("alloc:BridgeAssist");
     bridgeAssist = new BridgeAssist();
+    COBBLE_TRACE("alloc:Blink");
     blink = new Blink();
+    COBBLE_TRACE("alloc:FastPlace");
     fastPlace = new FastPlace();
+    COBBLE_TRACE("alloc:TimerMod");
     timerModule = new TimerMod();
+    COBBLE_TRACE("alloc:Sprint");
     sprint = new Sprint();
+    COBBLE_TRACE("alloc:AutoTool");
     autoTool = new AutoTool();
+    COBBLE_TRACE("alloc:InventoryManager");
     inventoryManager = new InventoryManager();
+    COBBLE_TRACE("alloc:NameTags");
     nameTags = new NameTags();
+    COBBLE_TRACE("alloc:ESP");
     esp = new ESP();
+    COBBLE_TRACE("alloc:ItemESP");
     itemEsp = new ItemESP();
+    COBBLE_TRACE("alloc:Tracers");
     tracers = new Tracers();
+    COBBLE_TRACE("alloc:BlockESP");
     blockESP = new BlockESP();
+    COBBLE_TRACE("alloc:Trajectories");
     trajectories = new Trajectories();
+    COBBLE_TRACE("alloc:DroppedInfo");
     droppedInfo = new DroppedInfo();
+    COBBLE_TRACE("alloc:FriendsManager");
     friendsManager = new FriendsManager();
     log_ok("Modules allocated");
+    COBBLE_TRACE("modules allocated");
 
     log_raw("Registering modules...");
     moduleManager->registerModule(autoClicker);
@@ -190,30 +233,40 @@ void cobble::context::initialize(HMODULE hModule) {
     moduleManager->registerModule(trajectories);
     moduleManager->registerModule(droppedInfo);
     log_ok("Modules registered");
+    COBBLE_TRACE("modules registered");
 
     // Initialize config (loads local, applies to modules, async fetch from server)
     log_raw("Initializing Config...");
+    COBBLE_TRACE("before ConfigManager::init");
     ConfigManager::get().init();
+    COBBLE_TRACE("after ConfigManager::init");
 
     log_raw("Initializing WSA hooks...");
+    COBBLE_TRACE("before WinsockHooks::Init");
     if (WinsockHooks::Init()) {
         log_ok("WSA hooks initialized");
     } else {
         log_warn("WSA hooks failed - using PacketInterceptor only");
     }
+    COBBLE_TRACE("after WinsockHooks::Init");
 
     // Initialize PacketInterceptor for Java-level packet filtering (primary)
     log_raw("Initializing PacketInterceptor...");
+    COBBLE_TRACE("before PacketInterceptor::Init");
     if (PacketInterceptor::Init()) {
         log_ok("PacketInterceptor initialized");
     } else {
         log_warn("PacketInterceptor failed");
     }
+    COBBLE_TRACE("after PacketInterceptor::Init");
 
     // Initialize LunarPacketListener for Lunar Client API packet interception
     log_raw("Initializing LunarPacketListener...");
+    COBBLE_TRACE("before LunarPacketListener::Init");
     LunarPacketListener::Init();
+    COBBLE_TRACE("after LunarPacketListener::Init");
     LunarSender::Init();
+    COBBLE_TRACE("after LunarSender::Init");
 
     // Create Named Mutex for Injection Detection
     DWORD pid = GetCurrentProcessId();
@@ -248,6 +301,7 @@ void cobble::context::initialize(HMODULE hModule) {
     Diagnostics::tick();
     Diagnostics::startWatchdog();
     log_ok("Main loop starting...");
+    COBBLE_TRACE("main loop:enter");
 
     while (is_running) {
         // Update watchdog tick timestamp
@@ -257,13 +311,16 @@ void cobble::context::initialize(HMODULE hModule) {
 
         if (!overlayInitialized && now - startTime >= OVERLAY_INIT_DELAY) {
             DIAG_SCOPE("Overlay::Init");
+            COBBLE_TRACE("before Overlay::Init");
             Overlay::Init();
+            COBBLE_TRACE("after Overlay::Init");
             overlayInitialized = true;
         }
 
         if (overlayInitialized && !notificationShown && now - startTime >= NOTIFICATION_DELAY) {
             NotificationManager::addSystem("Cobble loaded");
             notificationShown = true;
+            COBBLE_TRACE("notification posted");
         }
 
         // Refresh SDK state periodically (keeps timing in sync)

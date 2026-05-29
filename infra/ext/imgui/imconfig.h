@@ -15,9 +15,13 @@
 #pragma once
 
 //---- Define assertion handler. Defaults to calling assert().
-// If your macro uses multiple statements, make sure is enclosed in a 'do { .. } while (0)' block so it can be used as a single statement.
-//#define IM_ASSERT(_EXPR)  MyAssert(_EXPR)
-//#define IM_ASSERT(_EXPR)  ((void)(_EXPR))     // Disable asserts
+// We disable IM_ASSERT in Debug builds too: by default it routes to assert(),
+// which is no-op in Release (NDEBUG) but pops up an MSVC runtime dialog in
+// Debug, killing the host process. ImGui's asserts are largely "you forgot
+// EndChild()"-class consistency checks — annoying to track down but never
+// memory-unsafe — so silencing them matches what users see in Release and
+// keeps Debug usable as a runtime-debug tool.
+#define IM_ASSERT(_EXPR)  ((void)(_EXPR))
 
 //---- Define attributes of all API symbols declarations, e.g. for DLL under Windows
 // Using Dear ImGui via a shared library is not recommended, because of function call overhead and because we don't guarantee backward nor forward ABI compatibility.

@@ -271,6 +271,21 @@ BOOL __stdcall HookedSwapBuffers(HDC hdc) {
     if (shutdownRequested)
         return originalSwapBuffers(hdc);
 
+    // Track whether the previous frame opened ImGui state but failed to close
+    // it (typically because Overlay::Render or Menu::Render faulted and the
+    // SEH below swallowed the exception). If so, drain it before NewFrame()
+    // or ImGui asserts in Debug ("Forgot to call Render() or EndFrame()...")
+    // and silently mis-tracks frame counts in Release.
+    static bool s_frameLeaked = false;
+    if (s_frameLeaked && Overlay::initialized) {
+        COBBLE_TRACE("HookedSwapBuffers: draining leaked frame");
+        __try {
+            ImGui::EndFrame();
+        } __except (EXCEPTION_EXECUTE_HANDLER) {}
+        s_frameLeaked = false;
+    }
+
+    bool frameStarted = false;
     __try {
         if (!hdc)
             return originalSwapBuffers(hdc);
@@ -409,6 +424,7 @@ BOOL __stdcall HookedSwapBuffers(HDC hdc) {
         ImGui_ImplOpenGL2_NewFrame();
         ImGui_ImplWin32_NewFrame();
         ImGui::NewFrame();
+        frameStarted = true;
 
         ImGui::SetNextWindowPos(ImVec2(0, 0));
         ImGui::SetNextWindowSize(ImVec2((float)RenderData::screenWidth, (float)RenderData::screenHeight));
@@ -425,9 +441,20 @@ BOOL __stdcall HookedSwapBuffers(HDC hdc) {
         Menu::Render();
 
         ImGui::EndFrame();
+        frameStarted = false;
         ImGui::Render();
         ImGui_ImplOpenGL2_RenderDrawData(ImGui::GetDrawData());
-    } __except (EXCEPTION_EXECUTE_HANDLER) {}
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        // SEH unwinding can't run C++ destructors. Just record that the frame
+        // is mid-flight; next invocation drains it before NewFrame() so ImGui
+        // doesn't assert (Debug) or silently corrupt FrameCount (Release).
+        if (frameStarted) {
+            COBBLE_TRACE("HookedSwapBuffers: SEH caught mid-frame, marking leak");
+            s_frameLeaked = true;
+        } else {
+            COBBLE_TRACE("HookedSwapBuffers: SEH caught pre-frame");
+        }
+    }
 
     return originalSwapBuffers(hdc);
 }

@@ -147,7 +147,39 @@ __declspec(safebuffers) void __stdcall ShellcodeEntry(SecureMapper::MAPPER_CONTE
     }
 
     // -------------------------------------------------------------------------
-    // 3. Execute TLS Callbacks
+    // 3. Register Exception Unwind Tables (.pdata)
+    //
+    // x64 Windows uses table-driven exception handling — RtlLookupFunctionEntry
+    // walks ntdll's per-process function-table list to find the unwind info for
+    // any RIP. A manually mapped image is invisible to that list, so any C++
+    // throw or SEH unwind across a frame in this DLL fast-fails via
+    // RaiseFailFastException, terminating the host process.
+    //
+    // Debug builds amplify the failure: /RTC1 helpers and unoptimized prologues
+    // produce far more unwind sites than Release, so Debug crashes javaw.exe
+    // shortly after DllMain while Release survives long enough to look fine.
+    //
+    // Register the .pdata before TLS callbacks (which run CRT _initterm and
+    // C++ thread_local constructors — both can throw).
+    //
+    // CAVEAT: ntdll keeps a pointer to the table forever; if the DLL is ever
+    // unmapped, RtlDeleteFunctionTable must be called first or the next
+    // exception in the host will fault on a freed VA. Cobble currently never
+    // unmaps, so we don't track the table pointer for teardown.
+    // -------------------------------------------------------------------------
+    if (ctx->pRtlAddFunctionTable) {
+        auto& excDir = pOpt->DataDirectory[IMAGE_DIRECTORY_ENTRY_EXCEPTION];
+        if (excDir.Size && excDir.VirtualAddress) {
+            using RtlAddFunctionTable_t = BOOLEAN(__stdcall*)(PRUNTIME_FUNCTION, DWORD, DWORD64);
+            auto pAdd = (RtlAddFunctionTable_t)ctx->pRtlAddFunctionTable;
+            auto* pFunc = (PRUNTIME_FUNCTION)(pBase + excDir.VirtualAddress);
+            DWORD count = excDir.Size / sizeof(RUNTIME_FUNCTION);
+            pAdd(pFunc, count, (DWORD64)pBase);
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // 4. Execute TLS Callbacks
     // -------------------------------------------------------------------------
     if (pOpt->DataDirectory[IMAGE_DIRECTORY_ENTRY_TLS].Size) {
         auto* pTls = (IMAGE_TLS_DIRECTORY*)(pBase + pOpt->DataDirectory[IMAGE_DIRECTORY_ENTRY_TLS].VirtualAddress);
@@ -162,7 +194,7 @@ __declspec(safebuffers) void __stdcall ShellcodeEntry(SecureMapper::MAPPER_CONTE
     }
 
     // -------------------------------------------------------------------------
-    // 4. Call DllMain
+    // 5. Call DllMain
     // -------------------------------------------------------------------------
     if (pOpt->AddressOfEntryPoint) {
         using DllMain_t = BOOL(__stdcall*)(HINSTANCE, DWORD, LPVOID);
@@ -171,7 +203,7 @@ __declspec(safebuffers) void __stdcall ShellcodeEntry(SecureMapper::MAPPER_CONTE
     }
 
     // -------------------------------------------------------------------------
-    // 5. ANTI-DUMP: Capture section info, erase headers, apply correct perms
+    // 6. ANTI-DUMP: Capture section info, erase headers, apply correct perms
     // Skipped in Debug: wiping headers / stripping write perms can crash
     // javaw.exe shortly after DllMain when code touches its own image.
     // -------------------------------------------------------------------------
@@ -408,6 +440,19 @@ bool SecureMapper::SecureManualMap(DWORD pid, BYTE* pData, size_t dataSize) {
     ctx->kernel32Base = GetRemoteModuleBase(hProcess, L"kernel32.dll");
     ctx->completionFlag = 0;
     ctx->lastError = 0;
+
+    // Resolve RtlAddFunctionTable from the loader's own ntdll. Because ntdll
+    // is mapped at the same base address in every process on a given boot,
+    // this pointer is valid in the target — no per-target resolution needed.
+    // Without this the shellcode skips .pdata registration and any unwind
+    // inside the mapped DLL fast-fails the host. See step 3 in ShellcodeEntry.
+    ctx->pRtlAddFunctionTable = nullptr;
+    if (HMODULE hLocalNtdll = GetModuleHandleW(L"ntdll.dll")) {
+        ctx->pRtlAddFunctionTable = (void*)GetProcAddress(hLocalNtdll, "RtlAddFunctionTable");
+    }
+    ctx->pLdrGetProcedureAddress = nullptr;
+    ctx->pRtlInitAnsiString = nullptr;
+    ctx->pRtlInitUnicodeString = nullptr;
 
     if (!ctx->kernel32Base) {
         nt::g_Syscalls.NtUnmapViewOfSection(GetCurrentProcess(), pLocalBase);

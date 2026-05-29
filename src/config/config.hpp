@@ -7,11 +7,13 @@
 #include <chrono>
 #include <fstream>
 #include <mutex>
+#include <new>
 #include <string>
 #include <thread>
 #include <vector>
 
 #include "../util/hwid.hpp"
+#include "../util/inject_trace.hpp"
 #include "../util/logger.hpp"
 #include "../util/aes_string.hpp"
 #include "../util/network/http.hpp"
@@ -31,6 +33,30 @@ struct Module;
 class ModuleManager;
 extern ModuleManager* moduleManager;
 
+// SEH-protected parse helper. Lives at namespace scope (and has no C++ locals
+// with destructors) because MSVC forbids __try inside functions that need
+// stack unwinding. Catches hard faults (AV, stack overflow) that C++
+// try/catch can't see, so a corrupted config can't tear down javaw.
+inline bool sehParse(const std::string& content, json::Value& out) {
+    bool ok = false;
+    __try {
+        ok = json::Parser::parse(content, out);
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        ok = false;
+    }
+    return ok;
+}
+
+// Reset config_ to an empty json::Value WITHOUT running the destructor on the
+// previous state. A failed parse can leave the internal std::map in a state
+// whose destructor faults (corrupt node pointers from a partial walk).
+// Placement-new overwrites the bytes with a fresh Value, intentionally
+// leaking whatever memory the broken state was holding — better than
+// crashing the host process. Acceptable: this path runs once at startup.
+inline void sehResetValue(json::Value& target) {
+    new (&target) json::Value();
+}
+
 class ConfigManager {
 public:
     static ConfigManager& get() {
@@ -40,30 +66,41 @@ public:
 
     // Startup: load local â†’ apply â†’ async fetch server
     void init() {
+        COBBLE_TRACE("ConfigMgr:init enter");
         // Get HWID once at startup
+        COBBLE_TRACE("ConfigMgr:before hwid::generate");
         hwid_ = hwid::generate();
+        COBBLE_TRACE("ConfigMgr:after hwid::generate");
         if (hwid_.empty()) {
             log_warn("ConfigManager: Failed to generate HWID, sync disabled");
             syncEnabled_ = false;
         }
 
         // Get config file path (%APPDATA%/Cobble/config.json)
+        COBBLE_TRACE("ConfigMgr:before getConfigPath");
         configPath_ = getConfigPath();
+        COBBLE_TRACE("ConfigMgr:after getConfigPath");
 
         // Load session token from loader (for cloud sync auth)
+        COBBLE_TRACE("ConfigMgr:before loadSessionToken");
         loadSessionToken();
+        COBBLE_TRACE("ConfigMgr:after loadSessionToken");
 
         // Load local config (always first)
+        COBBLE_TRACE("ConfigMgr:before loadLocal");
         loadLocal();
+        COBBLE_TRACE("ConfigMgr:after loadLocal");
 
         // Apply to modules immediately (done by loadLocal -> applyConfig)
 
         // Async fetch from server (non-blocking)
         if (syncEnabled_ && !sessionToken_.empty()) {
+            COBBLE_TRACE("ConfigMgr:spawning fetchServerConfig thread");
             std::thread([this] { fetchServerConfig(); }).detach();
         }
 
         log_ok("ConfigManager initialized");
+        COBBLE_TRACE("ConfigMgr:init exit");
     }
 
     // Shutdown: save config
@@ -133,37 +170,92 @@ private:
     }
 
     void loadLocal() {
+        COBBLE_TRACE("loadLocal:enter");
         if (configPath_.empty()) {
+            COBBLE_TRACE("loadLocal:no path -> applyDefaults");
             log_warn("ConfigManager: No config path, using defaults");
             applyDefaults();
+            COBBLE_TRACE("loadLocal:applyDefaults done (no path)");
             return;
         }
 
+        COBBLE_TRACE("loadLocal:opening ifstream");
         std::ifstream file(configPath_);
+        COBBLE_TRACE("loadLocal:after ifstream ctor");
         if (!file.is_open()) {
+            COBBLE_TRACE("loadLocal:file not open -> applyDefaults");
             log_raw("ConfigManager: No local config found, using defaults");
             applyDefaults();
+            COBBLE_TRACE("loadLocal:applyDefaults done (no file)");
             saveLocal();  // Create default config file
+            COBBLE_TRACE("loadLocal:saveLocal done (no file)");
             return;
         }
 
+        COBBLE_TRACE("loadLocal:reading file content");
         std::string content((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
         file.close();
 
-        if (!json::Parser::parse(content, config_)) {
+#ifdef COBBLE_DEBUG
+        // Dump enough about the file content that, if the parser hard-faults,
+        // we can see what input triggered it.
+        {
+            char sizeMsg[64];
+            wsprintfA(sizeMsg, "loadLocal:content size=%lu", (unsigned long)content.size());
+            COBBLE_TRACE(sizeMsg);
+
+            // First 120 chars (truncated, NUL-terminated)
+            char head[160] = {0};
+            size_t hn = content.size() < 120 ? content.size() : 120;
+            for (size_t i = 0; i < hn; ++i) {
+                char c = content[i];
+                head[i] = (c >= 32 && c < 127) ? c : '?';
+            }
+            COBBLE_TRACE(head);
+
+            // Last 120 chars
+            if (content.size() > 120) {
+                char tail[160] = {0};
+                size_t off = content.size() - 120;
+                for (size_t i = 0; i < 120; ++i) {
+                    char c = content[off + i];
+                    tail[i] = (c >= 32 && c < 127) ? c : '?';
+                }
+                COBBLE_TRACE(tail);
+            }
+        }
+#endif
+
+        COBBLE_TRACE("loadLocal:content read, parsing");
+
+        // Belt-and-suspenders: parse() already catches C++ exceptions, but a
+        // hard fault (AV from corrupted memory, stack overflow on deep
+        // recursion, etc.) bypasses C++ try/catch entirely. Route through a
+        // helper that wraps with SEH so a malformed config NEVER tears down
+        // javaw — at worst we fall back to defaults.
+        bool parseOk = sehParse(content, config_);
+
+        if (!parseOk) {
+            COBBLE_TRACE("loadLocal:parse failed -> applyDefaults");
             log_warn("ConfigManager: Failed to parse config, using defaults");
             applyDefaults();
+            COBBLE_TRACE("loadLocal:applyDefaults done (parse fail)");
             return;
         }
+        COBBLE_TRACE("loadLocal:parse ok");
 
         // Check version for migrations
         int version = config_["version"].as_int(0);
         if (version < CONFIG_VERSION) {
+            COBBLE_TRACE("loadLocal:migrating");
             log_raw("ConfigManager: Migrating config from v%d to v%d", version, CONFIG_VERSION);
             migrateConfig(version);
+            COBBLE_TRACE("loadLocal:migrate done");
         }
 
+        COBBLE_TRACE("loadLocal:before applyConfig");
         applyConfig();
+        COBBLE_TRACE("loadLocal:after applyConfig");
         log_ok("ConfigManager: Loaded local config");
     }
 
