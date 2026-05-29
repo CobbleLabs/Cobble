@@ -53,9 +53,6 @@ public:
     } settings;
 
 private:
-    int debugCounter = 0;
-    bool matrixDebugDone = false;
-
     // Thread-safe player cache
     std::mutex cacheMutex;
     std::vector<CachedPlayer> cachedPlayers;

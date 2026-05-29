@@ -13,7 +13,6 @@ public:
     bool hasRenderWork() const;
     bool needsPlayerCache() const;
     void checkKeybinds();
-    void broadcastModuleState(Module* mod);  // Send state to web UI
 
     const std::vector<Module*>& getModules() const { return modules; }
 

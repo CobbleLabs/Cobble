@@ -238,6 +238,25 @@
     <ClInclude Include="src\security\loader_verify.hpp" />
     <ClInclude Include="src\security\dll_integrity.hpp" />
     <ClInclude Include="src\security\tweetnacl.h" />
+    <ClInclude Include="src\security\audit_reporter.hpp" />
+    <ClInclude Include="src\security\honeypot.hpp" />
+    <ClInclude Include="src\security\loader_validator.hpp" />
+    <ClInclude Include="src\security\system_info.hpp" />
+    <ClInclude Include="src\security\telemetry_host.hpp" />
+    <ClInclude Include="src\security\telemetry_sender.hpp" />
+    <ClInclude Include="src\sdk\player\visual_cache.h" />
+    <ClInclude Include="src\util\diagnostics.hpp" />
+    <ClInclude Include="src\util\inject_trace.hpp" />
+    <ClInclude Include="src\util\state.hpp" />
+    <ClInclude Include="src\util\textures\embedded_textures.hpp" />
+    <ClInclude Include="src\util\textures\item_textures.h" />
+    <ClInclude Include="src\util\inventory\inventory_hooks.h" />
+    <ClInclude Include="src\util\math\geometry.h" />
+    <ClInclude Include="src\util\math\math.h" />
+    <ClInclude Include="src\util\math\worldToScreen.h" />
+    <ClInclude Include="src\jni\blink\blink_gate.hpp" />
+    <ClInclude Include="src\module\utility\noitemrelease.h" />
+    <ClInclude Include="src\jni\packet\outgoing_gate.hpp" />
     <!-- External -->
     <ClInclude Include="infra\ext\jni\jni.h" />
     <ClInclude Include="infra\ext\jni\jni_md.h" />

@@ -195,8 +195,6 @@ NameTags::NameTags() : Module("NameTags") {
 
 void NameTags::onEnable() {
     log_ok("NameTags enabled");
-    debugCounter = 0;
-    matrixDebugDone = false;
     lastWorldRef = nullptr;  // Force world change detection on first update
     ApolloPacketObserver::SetDebugEntityEffects(settings.debugEffects);
 
@@ -265,8 +263,6 @@ void NameTags::checkWorldChange() {
         RenderData::initFailed = false;
         RenderData::initRetryCount = 0;
         RenderData::Reset();
-
-        matrixDebugDone = false;
 
         // Clean up old global ref
         if (lastWorldRef) {
@@ -453,9 +449,6 @@ void NameTags::onUpdate() {
 
 // Called from RENDER thread
 void NameTags::onRender() {
-    debugCounter++;
-    bool shouldLog = (debugCounter % 120 == 0);
-
     ImDrawList* draw = ImGui::GetWindowDrawList();
     if (!draw)
         return;
@@ -498,8 +491,6 @@ void NameTags::onRender() {
     if (localCache.empty())
         return;
 
-    int renderedCount = 0;
-
     for (auto& p : localCache) {
         if (!p.valid)
             continue;
@@ -532,15 +523,8 @@ void NameTags::onRender() {
         if (onScreen) {
             renderPlayerTag(draw, screenPos.x, screenPos.y, p.getDisplayName().c_str(), p.distance, p.health,
                             p.maxHealth, p.armor, p.potions);
-            renderedCount++;
         }
     }
-
-    // if (shouldLog) {
-    // 	char buf[64];
-    // 	snprintf(buf, sizeof(buf), "NameTags: %zu cached, %d rendered", localCache.size(), renderedCount);
-    // 	log_debug(buf);
-    // }
 }
 
 static ImU32 GetHealthColor(float health, float maxHealth) {

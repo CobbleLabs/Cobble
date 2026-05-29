@@ -460,6 +460,8 @@ void cobble::context::shutdown() {
         blockESP->setEnabled(false);
     if (trajectories)
         trajectories->setEnabled(false);
+    if (droppedInfo)
+        droppedInfo->setEnabled(false);
 
     LunarPacketListener::Shutdown();
     PacketInterceptor::Shutdown();

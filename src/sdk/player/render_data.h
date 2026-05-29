@@ -183,9 +183,6 @@ struct RenderData {
         return m.m00 != 0.0f || m.m11 != 0.0f || m.m22 != 0.0f || m.m33 != 0.0f;
     }
 
-    // Debug logging counter
-    static inline int debugLogCounter = 0;
-
     // Update render data
     static void Update() {
         if (!initialized && !Init())

@@ -38,8 +38,6 @@
 #include "src/util/aes_string.hpp"
 #include "src/util/control_flow.hpp"
 
-#define LICENSE_CHECK_ENABLED true
-
 // Shared memory structure for DLL validation
 // This is passed from loader to DLL via named shared memory
 struct InjectionData {
@@ -229,7 +227,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     // Pre-declare lunar so we can detect MC during login
     ProcessInfo lunar = {};
 
-#if LICENSE_CHECK_ENABLED
     bool licenseValid = false;
 
     if (License::Verify(cobble_config::GetServerUrl().c_str())) {
@@ -365,8 +362,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 
     // Zero key from memory immediately
     SecureZeroMemory(&payloadKey[0], payloadKey.size());
-
-#endif
 
     if (decryptedDll.empty() || !PayloadCrypto::ValidatePE(decryptedDll)) {
         LoaderUI::SetError(OBFUSCATE_STRING("Launch failed"));

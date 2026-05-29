@@ -70,7 +70,7 @@ void DroppedInfo::onRender() {
 
     // Always render text if enabled, or if menu is open (for positioning)
     if (!enabled && open) {
-        snprintf(buf, sizeof(buf), "Dropped Pots: 0");  // Example text
+        snprintf(buf, sizeof(buf), "Dropped Pots: 0");
     } else if (!enabled) {
         return;
     }
