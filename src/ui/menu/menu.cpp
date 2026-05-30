@@ -23,6 +23,7 @@
 #include "../../module/utility/fastplace.h"
 #include "../../module/utility/noitemrelease.h"
 #include "../../module/utility/inventorymanager.h"
+#include "../../module/utility/altmanager.h"
 #include "../../module/visual/blockesp.h"
 #include "../../module/visual/esp.h"
 #include "../../module/visual/item_esp.h"
@@ -108,7 +109,7 @@ Module* getModuleForSubtab(int tabIdx, int subtabIdx) {
                 return sprint;
         }
     }
-    // Utility Tab (3): ArmorSwitch, AutoRefill, FastPlace, NoItemRelease, BridgeAssist, AutoTool
+    // Utility Tab (3): ArmorSwitch, AutoRefill, FastPlace, NoItemRelease, BridgeAssist, AutoTool, InvManager, AltManager
     else if (tabIdx == 3) {
         switch (subtabIdx) {
             case 0:
@@ -125,6 +126,8 @@ Module* getModuleForSubtab(int tabIdx, int subtabIdx) {
                 return autoTool;
             case 6:
                 return inventoryManager;
+            case 7:
+                return altManager;
         }
     }
     // Configs/Settings tabs - no module, handled specially

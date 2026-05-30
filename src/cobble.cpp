@@ -21,6 +21,7 @@
 #include "module/utility/fastplace.h"
 #include "module/utility/noitemrelease.h"
 #include "module/utility/inventorymanager.h"
+#include "module/utility/altmanager.h"
 #include "module/visual/blockesp.h"
 #include "module/visual/esp.h"
 #include "module/visual/item_esp.h"
@@ -185,6 +186,8 @@ void cobble::context::initialize(HMODULE hModule) {
     autoTool = new AutoTool();
     COBBLE_TRACE("alloc:InventoryManager");
     inventoryManager = new InventoryManager();
+    COBBLE_TRACE("alloc:AltManager");
+    altManager = new AltManager();
     COBBLE_TRACE("alloc:NameTags");
     nameTags = new NameTags();
     COBBLE_TRACE("alloc:ESP");
@@ -225,6 +228,7 @@ void cobble::context::initialize(HMODULE hModule) {
     moduleManager->registerModule(sprint);
     moduleManager->registerModule(autoTool);
     moduleManager->registerModule(inventoryManager);
+    moduleManager->registerModule(altManager);
     moduleManager->registerModule(nameTags);
     moduleManager->registerModule(esp);
     moduleManager->registerModule(itemEsp);
@@ -447,6 +451,8 @@ void cobble::context::shutdown() {
         autoTool->setEnabled(false);
     if (inventoryManager)
         inventoryManager->setEnabled(false);
+    if (altManager)
+        altManager->setEnabled(false);
     if (nameTags)
         nameTags->setEnabled(false);
     if (esp)
@@ -546,6 +552,10 @@ void cobble::context::shutdown() {
     if (inventoryManager) {
         delete inventoryManager;
         inventoryManager = nullptr;
+    }
+    if (altManager) {
+        delete altManager;
+        altManager = nullptr;
     }
     if (nameTags) {
         delete nameTags;

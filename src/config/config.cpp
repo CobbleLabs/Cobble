@@ -21,6 +21,7 @@
 #include "../module/utility/fastplace.h"
 #include "../module/utility/noitemrelease.h"
 #include "../module/utility/inventorymanager.h"
+#include "../module/utility/altmanager.h"
 #include "../module/visual/blockesp.h"
 #include "../module/visual/esp.h"
 #include "../module/visual/item_esp.h"
@@ -592,6 +593,11 @@ void ConfigManager::applyConfig() {
             } else if (name == "NoItemRelease" && noItemRelease) {
                 noItemRelease->settings.mode =
                     static_cast<ItemReleaseMode>(data["mode"].as_int(static_cast<int>(noItemRelease->settings.mode)));
+            } else if (name == "AltManager" && altManager) {
+                std::string n = data["spoofedName"].as_string(altManager->settings.spoofedName);
+                size_t copyLen = (std::min)(n.size(), (size_t)AltManager::MAX_NAME_LEN);
+                memcpy(altManager->settings.spoofedName, n.data(), copyLen);
+                altManager->settings.spoofedName[copyLen] = '\0';
             } else if (name == "FastPlace" && fastPlace) {
                 fastPlace->settings.blocksOnly = data["blocksOnly"].as_bool(fastPlace->settings.blocksOnly);
             } else if (name == "Auto Tool" && autoTool) {
@@ -939,6 +945,8 @@ void ConfigManager::buildConfigFromModules() {
             config_["modules"][name]["showExpBottle"] = s.showExpBottle;
         } else if (name == "NoItemRelease" && noItemRelease) {
             config_["modules"][name]["mode"] = static_cast<int>(noItemRelease->settings.mode);
+        } else if (name == "AltManager" && altManager) {
+            config_["modules"][name]["spoofedName"] = std::string(altManager->settings.spoofedName);
         } else if (name == "FastPlace" && fastPlace) {
             config_["modules"][name]["blocksOnly"] = fastPlace->settings.blocksOnly;
         } else if (name == "Auto Tool" && autoTool) {
