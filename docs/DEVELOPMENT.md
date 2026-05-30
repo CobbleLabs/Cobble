@@ -367,10 +367,11 @@ The loader has an integrated "Update Mode" triggered by CLI args. You generally 
 
 ### Enable Debug Console
 
-In `src/util/logger.hpp`:
-```cpp
-#define DEBUG_CONSOLE 1
-```
+The console allocates automatically in dev builds (the default `build.ps1`
+without `-Pack`). It's gated on `COBBLE_DEV_BUILD` via `generated/build_flags.h`.
+If you need it forced on inside a Pack build, define `DEBUG_CONSOLE=1` on the
+compiler command line — the macro in `src/util/logger.hpp` falls back to that
+when the dev flag is absent.
 
 ### Useful Log Points
 

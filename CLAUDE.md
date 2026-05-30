@@ -28,6 +28,7 @@ four obfuscated headers in `generated/` (gitignored):
 - `generated/keys.h` — XOR-encoded Ed25519 public key with random per-build mask
 - `generated/payload_key.h` — XOR-encoded AES-256 payload key (loader only)
 - `generated/version.h` — `#define COBBLE_VERSION` from `cobble.json`
+- `generated/build_flags.h` — written by `build.ps1`, force-included into every TU. Defines `COBBLE_DEV_BUILD` for dev builds; left empty for `-Pack` builds.
 
 Per-build random masks change every compile (polymorphic, anti-pattern-matching).
 **Do not add a hardcoded host or key anywhere — always go through `cobble_config::*`.**
@@ -37,31 +38,57 @@ in `cobble.json`, never in code.
 
 ## Build
 
+There is **only one MSBuild configuration** (`Release|x64`). The previous
+"Debug" configuration was removed — it was a mock build that bypassed
+validation and silently diverged from production. `build.ps1` controls
+whether Themida wraps the binary via the `-Pack` flag. The two modes write
+to different output directories so they don't overwrite each other:
+
+- Dev (default): `out/bin/Dev/{Cobble.dll, CobbleLoader.exe}`
+- Pack:          `out/bin/Pack/{Cobble.dll, CobbleLoader.exe}`
+
+The split is driven by an MSBuild property `CobbleBuildMode` that
+`build.ps1` injects via `/p:CobbleBuildMode=Dev|Pack`. Visual Studio IDE
+builds (no script) default to `Dev`.
+
 ```powershell
-.\build.ps1 -Release           # Release
-.\build.ps1                    # Debug
-.\build.ps1 -Clean             # Wipe out/, generated/, .enc, hash headers
-.\build.ps1 -PrepareRelease    # Release + sign manifest with Ed25519
-.\build.ps1 -PrepareRelease -Deploy   # Build + scp to VPS
-.\build.ps1 -SkipDLL           # Loader-only rebuild
+.\build.ps1                    Interactive selector
+.\build.ps1 -Build              Plain dev build (no Themida, console + file tracer enabled)
+.\build.ps1 -Pack               Build + Themida + signed manifest (release-quality)
+.\build.ps1 -Pack -Deploy       Pack + scp to VPS
+.\build.ps1 -Clean              Wipe out/bin/{Dev,Pack}, generated/, hash headers
+.\build.ps1 -SkipDLL            Loader-only rebuild
 ```
+
+`-Release` and `-PrepareRelease` are kept as aliases of `-Pack` for backwards
+compatibility with old scripts/muscle memory.
 
 Order of operations inside `build.ps1`:
 
 1. `generate_config.ps1` — produce `generated/*.h` from `cobble.json`
-2. Compile `Cobble.dll`
-3. AES-256-CBC encrypt → `loader/res/Cobble.enc`
-4. Generate `loader/src/util/dll_hash.h` (SHA256 of DLL)
-5. Build `CobbleLoader.exe` (Pass 1)
-6. Hash the loader in 3 chunks → `loader/src/security/integrity_gen.hpp`
-7. Rebuild `CobbleLoader.exe` (Pass 2, self-aware)
+2. Write `generated/build_flags.h` (defines `COBBLE_DEV_BUILD` unless `-Pack`)
+3. Compile `Cobble.dll`
+4. AES-256-CBC encrypt → `loader/res/Cobble.enc`
+5. Generate `loader/src/util/dll_hash.h` (SHA256 of DLL)
+6. Build `CobbleLoader.exe` (Pass 1)
+7. Hash the loader in 3 chunks → `loader/src/security/integrity_gen.hpp`
+8. Rebuild `CobbleLoader.exe` (Pass 2, self-aware)
+9. (only on `-Pack`) Apply Themida → sign manifest with Ed25519
+10. (only on `-Pack -Deploy`) `scp` to VPS
 
 `PAYLOAD_KEY` is read from `cobble.json` automatically; the env var override is
 still respected for CI but no longer required. The same key must match the
 server's `.env`.
 
-**Release build is intentionally un-optimized.** Themida (TIGER64/SHARK64)
-post-processes the binary; don't "fix" `Optimization=Disabled`.
+`COBBLE_DEV_BUILD` gates **only** cosmetic dev features (console output,
+`COBBLE_TRACE` file logging in `%TEMP%\cobble_trace.log`, plaintext
+`OBFUSCATE_STRING`, `DIAG_SCOPE` markers). It **must never** gate
+validation, handshake, integrity, or any other security-relevant code path —
+those run identically in dev and pack builds.
+
+**DLL is intentionally un-optimized in MSBuild** (`Optimization=Disabled`).
+Themida (TIGER64/SHARK64) post-processes the binary; don't "fix" it.
+The loader keeps `Optimization=MaxSpeed`.
 
 MSBuild path is hardcoded in `build.ps1` — adjust if VS lives elsewhere.
 
@@ -184,9 +211,11 @@ All `jclass`/`jmethodID`/`jfieldID` cached as GlobalRefs once in `Init()`. **Nev
 
 `CobbleLoader.exe` doubles as its own self-replacer. With `--update-pid <PID> --update-old <path> --update-new <path>` it skips its normal flow, waits for the old PID to exit, swaps the binary, relaunches with `CREATE_NEW_CONSOLE`. See `docs/UPDATE_WORKFLOW.md`.
 
-## Diagnostics (Debug only)
+## Diagnostics (dev builds only)
 
-`src/util/diagnostics.hpp`: 3s freeze watchdog, `DIAG_SCOPE("name")` markers. **`DIAG_SCOPE` is a no-op in Release.** `Diagnostics::g_currentOperation` is set per-module in `module_manager.cpp`.
+`src/util/diagnostics.hpp`: 3s freeze watchdog, `DIAG_SCOPE("name")` markers. **`DIAG_SCOPE` is a no-op in Pack builds** (gated by `COBBLE_DEV_BUILD`). `Diagnostics::g_currentOperation` is set per-module in `module_manager.cpp`. The watchdog and crash handler also auto-enable in dev builds.
+
+`src/util/inject_trace.hpp` writes a step-by-step trace to `%TEMP%\cobble_trace.log` in dev builds (also gated by `COBBLE_DEV_BUILD`). Useful for diagnosing inject-time issues that happen before the logger is initialized.
 
 ## Server endpoints used by loader/DLL
 

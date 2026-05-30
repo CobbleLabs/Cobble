@@ -7,13 +7,14 @@
 //
 // Output: %TEMP%\cobble_trace.log
 //
-// The whole subsystem compiles to nothing in Release: the macro expands to
-// `((void)0)` so there's zero overhead and no string literals leaked into the
-// shipped binary.
+// Compiles to nothing in Pack builds: the macro expands to `((void)0)` so
+// there's zero overhead and no string literals leaked into the shipped
+// binary. Active only in dev builds (COBBLE_DEV_BUILD defined via
+// generated/build_flags.h).
 
 #include <Windows.h>
 
-#ifdef COBBLE_DEBUG
+#ifdef COBBLE_DEV_BUILD
 
 namespace cobble_trace {
 
@@ -74,7 +75,7 @@ inline void clear() {
         }                                        \
     } while (0)
 
-#else  // !COBBLE_DEBUG
+#else  // !COBBLE_DEV_BUILD
 
 #define COBBLE_TRACE(step) ((void)0)
 #define COBBLE_TRACE_RESET() ((void)0)

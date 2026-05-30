@@ -155,10 +155,6 @@ __declspec(safebuffers) void __stdcall ShellcodeEntry(SecureMapper::MAPPER_CONTE
     // throw or SEH unwind across a frame in this DLL fast-fails via
     // RaiseFailFastException, terminating the host process.
     //
-    // Debug builds amplify the failure: /RTC1 helpers and unoptimized prologues
-    // produce far more unwind sites than Release, so Debug crashes javaw.exe
-    // shortly after DllMain while Release survives long enough to look fine.
-    //
     // Register the .pdata before TLS callbacks (which run CRT _initterm and
     // C++ thread_local constructors — both can throw).
     //
@@ -203,11 +199,8 @@ __declspec(safebuffers) void __stdcall ShellcodeEntry(SecureMapper::MAPPER_CONTE
     }
 
     // -------------------------------------------------------------------------
-    // 6. ANTI-DUMP: Capture section info, erase headers, apply correct perms
-    // Skipped in Debug: wiping headers / stripping write perms can crash
-    // javaw.exe shortly after DllMain when code touches its own image.
+    // 6. ANTI-DUMP: Capture section info, erase headers, apply correct perms.
     // -------------------------------------------------------------------------
-#ifndef COBBLE_DEBUG
     {
         // Get VirtualProtect from kernel32
         using VirtualProtect_t = BOOL(__stdcall*)(LPVOID, SIZE_T, DWORD, PDWORD);
@@ -274,7 +267,6 @@ __declspec(safebuffers) void __stdcall ShellcodeEntry(SecureMapper::MAPPER_CONTE
             }
         }
     }
-#endif  // !COBBLE_DEBUG
 
     // Signal completion
     ctx->completionFlag = 0xC0BB1E;
@@ -341,13 +333,7 @@ bool SecureMapper::SecureManualMap(DWORD pid, BYTE* pData, size_t dataSize) {
 
     SIZE_T imageSize = pNt->OptionalHeader.SizeOfImage;
     SIZE_T contextSize = sizeof(MAPPER_CONTEXT);
-    // Debug builds may reorder ShellcodeEnd before ShellcodeEntry, making the
-    // subtraction wrap. Use a fixed upper bound there instead.
-#ifdef COBBLE_DEBUG
-    SIZE_T shellcodeSize = 0x3000;
-#else
     SIZE_T shellcodeSize = (SIZE_T)ShellcodeEnd - (SIZE_T)ShellcodeEntry;
-#endif
     SIZE_T totalSize = imageSize + contextSize + shellcodeSize + 0x1000;  // Extra padding
 
     // Open target process with MINIMAL rights to avoid anti-cheat detection

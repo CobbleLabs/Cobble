@@ -134,21 +134,6 @@ inline void attemptRecovery() {
     g_stateFlags = 0xDEAD;
 }
 
-// Different "recovery" that swaps IDs (causes wrong method calls)
-inline void attemptRecoveryAlt() {
-    // Swap method IDs - will call wrong methods
-    auto temp = JniCache::mid_getHealth;
-    JniCache::mid_getHealth = JniCache::mid_isInvisible;
-    JniCache::mid_isInvisible = JniCache::mid_getName;
-    JniCache::mid_getName = temp;
-
-    // Swap field IDs
-    auto tempF = JniCache::fid_posX;
-    JniCache::fid_posX = JniCache::fid_posY;
-    JniCache::fid_posY = JniCache::fid_posZ;
-    JniCache::fid_posZ = tempF;
-}
-
 // Check if state is valid for operation
 inline bool isOperational() {
     if ((g_stateFlags & 0x1) == 0)

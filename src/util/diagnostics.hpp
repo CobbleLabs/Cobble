@@ -1,7 +1,7 @@
 #pragma once
 
 // Debug diagnostics for freeze/crash detection
-// Only active when DEBUG_CONSOLE is 1
+// Active in dev builds only (COBBLE_DEV_BUILD).
 
 #include <atomic>
 #include <chrono>
@@ -43,10 +43,10 @@ private:
     const char* prev_;
 };
 
-#ifdef NDEBUG
-#define DIAG_SCOPE(name) ((void)0)  // No-op in Release builds
-#else
+#ifdef COBBLE_DEV_BUILD
 #define DIAG_SCOPE(name) Diagnostics::ScopeMarker _scope_##__LINE__(name)
+#else
+#define DIAG_SCOPE(name) ((void)0)  // No-op in Pack builds
 #endif
 
 // Update tick timestamp (call from main loop)
@@ -66,7 +66,7 @@ inline void endWorldChange() {
     log_ok("[DIAG] World change completed");
 }
 
-#if DEBUG_CONSOLE
+#ifdef COBBLE_DEV_BUILD
 
 // Watchdog thread - detects freezes
 inline void watchdogThread() {
@@ -231,12 +231,12 @@ inline void installCrashHandler() {
     log_ok("[DIAG] Crash handler installed");
 }
 
-#else  // !DEBUG_CONSOLE
+#else  // !COBBLE_DEV_BUILD
 
 inline void startWatchdog() {}
 inline void stopWatchdog() {}
 inline void installCrashHandler() {}
 
-#endif  // DEBUG_CONSOLE
+#endif  // COBBLE_DEV_BUILD
 
 }  // namespace Diagnostics

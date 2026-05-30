@@ -84,7 +84,9 @@ void HideThread(HANDLE hThread) {
 }
 
 bool ShouldApplyAntiAttach() {
-#ifdef NDEBUG
+    // Themida CHECK_PROTECTION returns 1 only when the binary has been
+    // packed; in dev builds (build.ps1 without -Pack) it returns 0 and we
+    // skip anti-attach entirely.
     int protectedResult = 0;
     CHECK_PROTECTION(protectedResult, 1);
     if (protectedResult != 1) {
@@ -94,9 +96,6 @@ bool ShouldApplyAntiAttach() {
     int debugResult = 0;
     CHECK_DEBUGGER(debugResult, 0);
     return debugResult != 0;
-#else
-    return false;
-#endif
 }
 
 #pragma endregion
@@ -422,9 +421,8 @@ std::vector<Detection> CheckRunningTools() {
 std::vector<Detection> CheckThemida() {
     std::vector<Detection> detections;
 
-#ifndef NDEBUG
-    return detections;
-#else
+    // CHECK_PROTECTION is 1 only when the binary has been Themida-packed.
+    // In dev builds it returns 0 and we leave detections empty.
     int protectedResult = 0;
     CHECK_PROTECTION(protectedResult, 1);
     if (protectedResult != 1) {
@@ -444,7 +442,6 @@ std::vector<Detection> CheckThemida() {
     }
 
     return detections;
-#endif
 }
 
 // Check VM indicators (score 30 = ALLOW, info severity)

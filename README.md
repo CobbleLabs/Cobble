@@ -22,11 +22,15 @@ copy cobble.json.example cobble.json
 #   payload_key MUST match $PAYLOAD_KEY in the cobble-server .env
 #   public_key_hex MUST be derived from cobble-server's secrets/private.key
 
-# Build (Debug — no Themida needed)
+# Build (default = dev: no Themida, console + file tracer enabled)
 .\build.ps1
+.\build.ps1 -Build
 
-# Production release (requires infra/keys/private.key — get from team lead)
-.\build.ps1 -PrepareRelease
+# Pack: Themida + signed manifest. Use this for any binary you ship.
+.\build.ps1 -Pack
+
+# Pack + scp to VPS
+.\build.ps1 -Pack -Deploy
 ```
 
 If you cloned without `--recursive`:
@@ -35,7 +39,11 @@ If you cloned without `--recursive`:
 git submodule update --init themida
 ```
 
-Output: `out/bin/Debug/CobbleLoader.exe`, `out/bin/Debug/Cobble.dll`.
+Output:
+- Dev build: `out/bin/Dev/{Cobble.dll, CobbleLoader.exe}`
+- Pack build: `out/bin/Pack/{Cobble.dll, CobbleLoader.exe}`
+
+There is no separate Debug build — every build is Release; `-Pack` controls whether Themida wraps the binary and whether the manifest is signed for distribution. The two modes use different output dirs so they don't clobber each other.
 
 ## Repos
 
@@ -79,16 +87,16 @@ Output: `out/bin/Debug/CobbleLoader.exe`, `out/bin/Debug/Cobble.dll`.
 ## Requirements
 
 - Visual Studio 2022 with C++ workload (Community, Professional, or Enterprise)
-- Go 1.22+ (required for `-PrepareRelease` manifest signing — `go run` is called inline)
+- Go 1.22+ (required for `-Pack` manifest signing — `go run` is called inline)
 - Windows 10/11 x64
-- `infra/keys/private.key` — Ed25519 seed from the VPS (`/opt/cobble-server/secrets/private.key`). Get from team lead. Only needed for `-PrepareRelease`.
+- `infra/keys/private.key` — Ed25519 seed from the VPS (`/opt/cobble-server/secrets/private.key`). Get from team lead. Only needed for `-Pack`.
 
 ## Production build
 
 ```powershell
 # cobble.json must already have payload_key + public_key_hex matching the server
-.\build.ps1 -PrepareRelease           # builds + signs the update manifest
-.\build.ps1 -PrepareRelease -Deploy   # also scp's loader+DLL to the VPS
+.\build.ps1 -Pack            # builds + Themida + signs the update manifest
+.\build.ps1 -Pack -Deploy    # also scp's loader+DLL to the VPS
 ```
 
 ## License

@@ -196,7 +196,7 @@ private:
         std::string content((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
         file.close();
 
-#ifdef COBBLE_DEBUG
+#ifdef COBBLE_DEV_BUILD
         // Dump enough about the file content that, if the parser hard-faults,
         // we can see what input triggered it.
         {

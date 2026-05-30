@@ -1,12 +1,14 @@
 #pragma once
-// AES-128 compile-time string obfuscation. Debug uses no-op macros because
-// MSVC Debug doesn't evaluate sizeof() as a constexpr template argument.
+// AES-128 compile-time string obfuscation. Dev builds use no-op macros
+// because (a) MSVC at /Od occasionally fails the constexpr template
+// argument deduction here, and (b) plaintext strings make iteration easier.
+// COBBLE_DEV_BUILD is force-included via generated/build_flags.h.
 
 #include <array>
 #include <cstdint>
 #include <string>
 
-#ifdef COBBLE_DEBUG
+#ifdef COBBLE_DEV_BUILD
 #define OBFUSCATE_STRING(str)        std::string(str)
 #define OBFUSCATE_WSTRING(str)       std::wstring(str)
 #define OBFUSCATE_WSTRING_CSTR(str)  (str)
@@ -306,4 +308,4 @@ struct AESObfWString {
 #pragma optimize("", on)
 #endif
 
-#endif // COBBLE_DEBUG
+#endif // COBBLE_DEV_BUILD

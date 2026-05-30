@@ -12,9 +12,17 @@
 
 #include <Windows.h>
 
-// Set to 1 to enable debug console allocation and stdout logging
+// DEBUG_CONSOLE controls allocation of a console window for stdout logging.
+// In dev builds (COBBLE_DEV_BUILD defined via generated/build_flags.h) the
+// console is on by default. Pack builds default to off so the shipped
+// binary doesn't pop a console at runtime. You can still override by
+// defining DEBUG_CONSOLE explicitly on the compiler command line.
 #ifndef DEBUG_CONSOLE
-#define DEBUG_CONSOLE 0
+#  ifdef COBBLE_DEV_BUILD
+#    define DEBUG_CONSOLE 1
+#  else
+#    define DEBUG_CONSOLE 0
+#  endif
 #endif
 
 enum class message_type : unsigned int { none = 0, success = 10, debug = 9, warning = 14, prompt = 11, error = 12 };

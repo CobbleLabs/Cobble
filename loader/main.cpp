@@ -64,8 +64,11 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         }
     }
 
-    // === THEMIDA PROTECTION CHECKS (Release only, when protected) ===
-#ifdef NDEBUG
+    // === THEMIDA PROTECTION CHECKS ===
+    // These macros are inert in dev builds (CHECK_PROTECTION returns 0
+    // because the binary hasn't been Themida-packed). In Pack builds the
+    // checks become real and the inner block runs the integrity/debugger
+    // verification.
     {
         int protectionCheck = 0;
         CHECK_PROTECTION(protectionCheck, 1);
@@ -89,7 +92,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
             }
         }
     }
-#endif
 
     // Initialize security patches (anti-attach, etc.)
     Security::Initialize();

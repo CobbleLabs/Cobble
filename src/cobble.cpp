@@ -72,7 +72,6 @@ static void invalidateSignature() {
 
 void cobble::context::initialize(HMODULE hModule) {
     COBBLE_TRACE("ctx::initialize:enter");
-#ifndef COBBLE_DEBUG
     // CRITICAL: Verify we were loaded by legitimate loader, not via LoadLibrary
     LoaderVerify::verifyOrDie(hModule);
 
@@ -98,7 +97,6 @@ void cobble::context::initialize(HMODULE hModule) {
 
     DllIntegrity::Initialize(hModule);
     SessionValidator::StartHeartbeatThread(hModule);
-#endif
 
     // Initialize logging console immediately
     COBBLE_TRACE("before c_logger::initialize");
@@ -138,7 +136,7 @@ void cobble::context::initialize(HMODULE hModule) {
     COBBLE_TRACE("after onCacheReady");
     log_ok("SDK initialized");
 
-    // Run NetworkManager discovery probe (debug only)
+    // Run NetworkManager discovery probe (output goes to dev console)
     log_raw("Running NetworkManager probe...");
     COBBLE_TRACE("before NetworkProbe::run");
     NetworkProbe::run();
@@ -341,16 +339,15 @@ void cobble::context::initialize(HMODULE hModule) {
             // Process pending Apollo handshakes
             ApolloHandshake::Tick();
 
-#ifndef COBBLE_DEBUG
-            // Recover stale/corrupted SDK state. Skipped in Debug because
-            // ValidateInjection() didn't run, so g_initTimestamp == 0 and
-            // isStateStale() would fire forever, NULLing JniCache.
+            // Recover stale/corrupted SDK state. Now runs unconditionally —
+            // dev builds go through the same handshake as release, so
+            // g_initTimestamp is always set and isStateStale() behaves
+            // correctly.
             if (SessionValidator::isStateCorrupted() || SessionValidator::isStateStale()) {
                 sdk::internal::attemptRecovery();
             }
 
             internal::checkDevOverride();
-#endif
             lastSessionRefresh = now;
         }
 
