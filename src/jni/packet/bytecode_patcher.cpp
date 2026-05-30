@@ -8,6 +8,7 @@
 #include <vector>
 #include "../../util/logger.hpp"
 #include "../../util/aes_string.hpp"
+#include "packet_hook_enc.hpp"
 
 namespace BytecodePatcher {
 namespace {
@@ -44,79 +45,20 @@ constexpr int kPrefixLen = 8;
 //     public static native boolean shouldSend(Object packet);
 //     public static native void onReceive(Object packet);
 // }
-static const unsigned char kPacketHookClassBytes[] = {
-    // Magic + Version
-    0xca, 0xfe, 0xba, 0xbe, 0x00, 0x00, 0x00, 0x34,
-    // Constant pool count = 14 (0x000e)
-    0x00, 0x0e,
-    // Constant pool entries:
-    // #1 = Utf8 "com/cobble/agent/PacketHook"
-    0x01, 0x00, 0x1b, 0x63, 0x6f, 0x6d, 0x2f, 0x63, 0x6f, 0x62, 0x62, 0x6c, 0x65, 0x2f, 0x61, 0x67, 0x65, 0x6e, 0x74,
-    0x2f, 0x50, 0x61, 0x63, 0x6b, 0x65, 0x74, 0x48, 0x6f, 0x6f, 0x6b,
-    // #2 = Class -> #1
-    0x07, 0x00, 0x01,
-    // #3 = Utf8 "java/lang/Object"
-    0x01, 0x00, 0x10, 0x6a, 0x61, 0x76, 0x61, 0x2f, 0x6c, 0x61, 0x6e, 0x67, 0x2f, 0x4f, 0x62, 0x6a, 0x65, 0x63, 0x74,
-    // #4 = Class -> #3
-    0x07, 0x00, 0x03,
-    // #5 = Utf8 "<init>"
-    0x01, 0x00, 0x06, 0x3c, 0x69, 0x6e, 0x69, 0x74, 0x3e,
-    // #6 = Utf8 "()V"
-    0x01, 0x00, 0x03, 0x28, 0x29, 0x56,
-    // #7 = NameAndType -> #5, #6
-
-    0x0c, 0x00, 0x05, 0x00, 0x06,
-    // #8 = Methodref -> #4, #7
-    0x0a, 0x00, 0x04, 0x00, 0x07,
-    // #9 = Utf8 "Code"
-    0x01, 0x00, 0x04, 0x43, 0x6f, 0x64, 0x65,
-    // #10 = Utf8 "shouldSend"
-    0x01, 0x00, 0x0a, 0x73, 0x68, 0x6f, 0x75, 0x6c, 0x64, 0x53, 0x65, 0x6e, 0x64,
-    // #11 = Utf8 "(Ljava/lang/Object;)Z"
-    0x01, 0x00, 0x15, 0x28, 0x4c, 0x6a, 0x61, 0x76, 0x61, 0x2f, 0x6c, 0x61, 0x6e, 0x67, 0x2f, 0x4f, 0x62, 0x6a, 0x65,
-    0x63, 0x74, 0x3b, 0x29, 0x5a,
-    // #12 = Utf8 "onReceive"
-    0x01, 0x00, 0x09, 0x6f, 0x6e, 0x52, 0x65, 0x63, 0x65, 0x69, 0x76, 0x65,
-    // #13 = Utf8 "(Ljava/lang/Object;)V"
-    0x01, 0x00, 0x15, 0x28, 0x4c, 0x6a, 0x61, 0x76, 0x61, 0x2f, 0x6c, 0x61, 0x6e, 0x67, 0x2f, 0x4f, 0x62, 0x6a, 0x65,
-    0x63, 0x74, 0x3b, 0x29, 0x56,
-    // Access flags (public) = 0x0031 (ACC_PUBLIC | ACC_SUPER)
-    0x00, 0x31,
-    // This class = #2
-    0x00, 0x02,
-    // Super class = #4
-    0x00, 0x04,
-    // Interfaces count = 0
-    0x00, 0x00,
-    // Fields count = 0
-    0x00, 0x00,
-    // Methods count = 3
-    0x00, 0x03,
-    // Method 1: <init>()V - constructor (ACC_PUBLIC = 0x0001)
-    0x00, 0x01, 0x00, 0x05, 0x00, 0x06,
-    // Attributes count = 1
-    0x00, 0x01,
-    // Code attribute
-    0x00, 0x09,              // name index -> #9 "Code"
-    0x00, 0x00, 0x00, 0x11,  // length = 17
-    0x00, 0x01,              // max_stack = 1
-    0x00, 0x01,              // max_locals = 1
-    0x00, 0x00, 0x00, 0x05,  // code_length = 5
-    0x2a,                    // aload_0
-    0xb7, 0x00, 0x08,        // invokespecial #8 (Object.<init>)
-    0xb1,                    // return
-    0x00, 0x00,              // exception table length = 0
-    0x00, 0x00,              // attributes count = 0
-    // Method 2: shouldSend(Object)Z - native (ACC_PUBLIC | ACC_STATIC | ACC_NATIVE = 0x0109)
-    0x01, 0x09, 0x00, 0x0a, 0x00, 0x0b,
-    // Attributes count = 0
-    0x00, 0x00,
-    // Method 3: onReceive(Object)V - native (ACC_PUBLIC | ACC_STATIC | ACC_NATIVE = 0x0109)
-    0x01, 0x09, 0x00, 0x0c, 0x00, 0x0d,
-    // Attributes count = 0
-    0x00, 0x00,
-    // Class attributes count = 0
-    0x00, 0x00};
+// PacketHook class bytecode lives encrypted in packet_hook_enc.hpp. The
+// constant pool entries (class names, descriptors, "Code") would otherwise
+// be plaintext in .rdata and a dead-giveaway anchor for any reverser
+// grepping the binary. Decoded into a transient buffer and zeroed after
+// DefineClass returns. See packet_hook_enc.hpp for the key schedule.
+inline std::vector<uint8_t> DecodeHookClassBytes() {
+    std::vector<uint8_t> out(detail::kHookEncSize);
+    constexpr uint8_t key_seed = 0x5A;
+    for (size_t i = 0; i < detail::kHookEncSize; ++i) {
+        uint8_t k = static_cast<uint8_t>(key_seed + i * 0x9D + (i * i) * 0x37);
+        out[i] = detail::kHookEnc[i] ^ k;
+    }
+    return out;
+}
 
 struct Reader {
     const uint8_t* data;
@@ -1310,9 +1252,13 @@ static bool ensureHookClass(JNIEnv* env, jboolean(JNICALL* shouldSend)(JNIEnv*, 
         if (!Java::ClassLoader) {
             return false;
         }
+        // Decoded only for the duration of DefineClass; zeroed before
+        // returning so a memory scan after init can't lift the cleartext.
+        std::vector<uint8_t> decoded = DecodeHookClassBytes();
         hook =
-            env->DefineClass(kHookClassSlash().c_str(), Java::ClassLoader, reinterpret_cast<const jbyte*>(kPacketHookClassBytes),
-                             static_cast<jint>(sizeof(kPacketHookClassBytes)));
+            env->DefineClass(kHookClassSlash().c_str(), Java::ClassLoader, reinterpret_cast<const jbyte*>(decoded.data()),
+                             static_cast<jint>(decoded.size()));
+        SecureZeroMemory(decoded.data(), decoded.size());
         if (!hook) {
             if (env->ExceptionCheck()) {
                 env->ExceptionClear();

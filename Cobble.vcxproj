@@ -60,6 +60,7 @@
       <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
       <BasicRuntimeChecks>Default</BasicRuntimeChecks>
       <BufferSecurityCheck>false</BufferSecurityCheck>
+      <RuntimeTypeInfo>false</RuntimeTypeInfo>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
@@ -81,6 +82,7 @@
       <Optimization>Disabled</Optimization>
       <AdditionalOptions>/FS %(AdditionalOptions)</AdditionalOptions>
       <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
+      <RuntimeTypeInfo>false</RuntimeTypeInfo>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
@@ -176,6 +178,7 @@
     <ClInclude Include="src\jni\apollo\apollo_packet_observer.hpp" />
     <ClInclude Include="src\jni\apollo\apollo_handshake.hpp" />
     <ClInclude Include="src\jni\packet\bytecode_patcher.hpp" />
+    <ClInclude Include="src\jni\packet\packet_hook_enc.hpp" />
     <ClInclude Include="src\jni\java.h" />
     <ClInclude Include="src\jni\noitemrelease\noitemrelease_gate.hpp" />
     <ClInclude Include="src\jni\packet\packet_interceptor.hpp" />
@@ -248,6 +251,7 @@
     <ClInclude Include="src\util\diagnostics.hpp" />
     <ClInclude Include="src\util\inject_trace.hpp" />
     <ClInclude Include="src\util\state.hpp" />
+    <ClInclude Include="src\util\state_check.hpp" />
     <ClInclude Include="src\util\textures\embedded_textures.hpp" />
     <ClInclude Include="src\util\textures\item_textures.h" />
     <ClInclude Include="src\util\inventory\inventory_hooks.h" />

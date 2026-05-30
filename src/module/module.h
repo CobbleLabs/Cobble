@@ -2,6 +2,7 @@
 
 #include <string>
 #include "../ui/hud/notifications.h"
+#include "../util/aes_string.hpp"
 #include "../util/state.hpp"
 
 struct Module {
@@ -14,7 +15,20 @@ struct Module {
 
     // Global unlock for experimental modules (Velocity, Reach)
     static inline bool experimentalUnlocked = false;
-    static inline const char* unlockCode = "CityboyKirkificationsahurnigger";  // Type this in menu to unlock
+
+    // Unlock code is computed at runtime via OBFUSCATE_STRING so the literal
+    // never lives in .rdata. Compare with checkUnlockCode() — never expose it.
+    static std::string unlockCodeMaterialized() {
+        return OBFUSCATE_STRING("CityboyKirkificationsahurnigger");
+    }
+    static bool checkUnlockCode(const char* candidate) {
+        if (!candidate)
+            return false;
+        std::string expected = unlockCodeMaterialized();
+        bool ok = (expected.size() == strlen(candidate)) && (memcmp(expected.data(), candidate, expected.size()) == 0);
+        SecureZeroMemory(&expected[0], expected.size());
+        return ok;
+    }
 
     Module(const char* name) : name(name) {}
     virtual ~Module() = default;

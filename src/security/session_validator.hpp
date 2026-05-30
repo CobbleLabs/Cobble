@@ -14,8 +14,10 @@
 
 #include "../util/network/http.hpp"
 #include "../util/network/json.hpp"
-#include "dll_integrity.hpp"  // Anti-patch detection (same folder)
-#include "tweetnacl.h"        // Ed25519 verification (same folder)
+#include "anti_attach.hpp"     // Runtime debugger detection (same folder)
+#include "dll_integrity.hpp"   // Anti-patch detection (same folder)
+#include "loader_verify.hpp"   // PEB-list reverification (same folder)
+#include "tweetnacl.h"         // Ed25519 verification (same folder)
 #include "generated/server_config.h"
 #include "generated/keys.h"
 
@@ -249,27 +251,6 @@ inline void InvalidateSession() {
     zeroAndClear(g_SyncToken);
 }
 
-// Generate hex nonce using Windows CSPRNG
-inline std::string GenerateNonce() {
-    HCRYPTPROV hProv = 0;
-    if (!CryptAcquireContextW(&hProv, nullptr, nullptr, PROV_RSA_FULL, CRYPT_VERIFYCONTEXT)) {
-        return "";
-    }
-
-    uint8_t bytes[16] = {0};
-    if (!CryptGenRandom(hProv, sizeof(bytes), bytes)) {
-        CryptReleaseContext(hProv, 0);
-        return "";
-    }
-    CryptReleaseContext(hProv, 0);
-
-    char buf[33] = {0};
-    for (int i = 0; i < 16; i++) {
-        sprintf_s(buf + (i * 2), 3, "%02x", bytes[i]);
-    }
-    return std::string(buf, 32);
-}
-
 // Base64 decode helper (uses WinCrypt)
 inline std::vector<uint8_t> Base64Decode(const std::string& input) {
     DWORD outLen = 0;
@@ -346,112 +327,19 @@ inline std::string computeSyncHash() {
 
 // Server public key (decoded from generated header at runtime)
 
-// Validate injection secret with backend; requires prior local validation
-inline bool ValidateWithServer() {
-    if (!g_SessionValid)
-        return false;
-
-    std::string nonce = GenerateNonce();
-    if (nonce.empty()) {
-        return false;
-    }
-
-    // Snapshot under lock so concurrent rotation can't tear the strings.
-    std::string hwidCopy, secretCopy;
-    {
-        std::lock_guard<std::mutex> lock(g_SessionMutex);
-        hwidCopy = g_HWID;
-        secretCopy = g_InjectionSecret;
-    }
-
-    // JSON body — Cloudflare WAF rejects form-encoded.
-    std::string body = "{\"hwid\":\"" + http::json_escape(hwidCopy) +
-                       "\",\"secret\":\"" + http::json_escape(secretCopy) +
-                       "\",\"nonce\":\"" + http::json_escape(nonce) + "\"}";
-
-    auto response = http::post(cobble_config::GetServerHostW().c_str(), 443, OBFUSCATE_WSTRING(L"/api/dll/validate").c_str(), body, true);
-
-    // We're done with the secret after this round-trip — wipe it from
-    // memory so a memscan can't lift it from the heap later.
-    SecureZeroMemory(&body[0], body.size());
-    SecureZeroMemory(&secretCopy[0], secretCopy.size());
-    {
-        std::lock_guard<std::mutex> lock(g_SessionMutex);
-        zeroAndClear(g_InjectionSecret);
-    }
-
-    if (!response.success) {
-        InvalidateSession();
-        return false;
-    }
-
-    json::Value root;
-    if (!json::Parser::parse(response.body, root)) {
-        InvalidateSession();
-        return false;
-    }
-
-    std::string payloadB64 = root["payload_b64"].as_string("");
-    std::string sigB64 = root["sig_b64"].as_string("");
-
-    if (payloadB64.empty() || sigB64.empty()) {
-        InvalidateSession();
-        return false;
-    }
-
-    auto payloadBytes = Base64Decode(payloadB64);
-    auto sigBytes = Base64Decode(sigB64);
-
-    if (payloadBytes.empty() || sigBytes.size() != 64) {
-        InvalidateSession();
-        return false;
-    }
-
-    // Verify signature
-    uint8_t pubkey[32];
-    cobble_keys::GetPublicKey(pubkey);
-    bool sigOk = tweetnacl::verify(sigBytes.data(), payloadBytes.data(), payloadBytes.size(), pubkey);
-    SecureZeroMemory(pubkey, 32);
-
-    if (!sigOk) {
-        InvalidateSession();
-        return false;
-    }
-
-    json::Value payloadJson;
-    if (!json::Parser::parse(std::string(payloadBytes.begin(), payloadBytes.end()), payloadJson)) {
-        InvalidateSession();
-        return false;
-    }
-
-    // Validate nonce and expiry
-    if (payloadJson["nonce"].as_string("") != nonce) {
-        InvalidateSession();
-        return false;
-    }
-
-    uint32_t issuedAt = static_cast<uint32_t>(payloadJson["issued_at"].as_int(0));
-    uint32_t expiresAt = static_cast<uint32_t>(payloadJson["expires_at"].as_int(0));
-    uint32_t now = static_cast<uint32_t>(time(nullptr));
-    if (now < issuedAt || now > expiresAt) {
-        InvalidateSession();
-        return false;
-    }
-
-    if (!payloadJson["valid"].as_bool(false)) {
-        InvalidateSession();
-        return false;
-    }
-
-    return true;
-}
-
 // ============================================================================
 // Periodically validates session with server. Kill DLL if session invalid.
 // ============================================================================
 
 inline std::atomic<bool> g_HeartbeatRunning{false};
 inline HANDLE g_HeartbeatThread = nullptr;
+inline HMODULE g_DllModule = nullptr;          // Captured at startup, used by reverify().
+inline std::atomic<int> g_AttachStrikes{0};    // Counter for runtime anti-debug detections.
+
+// Threshold + jitter so the corruption doesn't fire on the same heartbeat
+// every time. The reverser can't associate "I patched X → cheat broke now"
+// because the break is delayed and probabilistic.
+constexpr int ATTACH_STRIKE_THRESHOLD = 4;
 
 // Get server URL
 inline std::string GetServerUrl() {
@@ -585,19 +473,35 @@ inline DWORD WINAPI HeartbeatThreadProc(LPVOID lpParam) {
     const int maxFailures = 3;  // Trigger recovery after 3 failed heartbeats
 
     while (g_HeartbeatRunning && g_SessionValid) {
-        // Anti-patch check: verify .text section hasn't been modified
-        // Runs every heartbeat iteration (~2-3 min) - less frequent than main loop = less cache pollution
-        log_debug("Running integrity check...");
+        // Anti-patch check: verify .text section hasn't been modified.
+        // Runs every heartbeat iteration (~2-3 min) - less frequent than the
+        // main loop = less cache pollution.
         DllIntegrity::Check();  // Crashes silently if patched
+
+        // Re-verify the DLL is still NOT in the PEB module list. If a cracker
+        // dumped the DLL and re-loaded it via LoadLibrary, we surface here.
+        // Same delayed-corruption response as anti-debug — don't tip our hand.
+        if (g_DllModule && !LoaderVerify::reverify(g_DllModule)) {
+            g_AttachStrikes.fetch_add(2, std::memory_order_relaxed);
+        }
+
+        // Anti-debug runtime sweep. quickCheck() is cheap (~5 NtQip calls +
+        // a CONTEXT read) so it's fine to fire each heartbeat. Each detection
+        // adds a strike; corruption only kicks in past the threshold so a
+        // single false positive (e.g. AV scan) doesn't take the user down.
+        if (AntiAttach::quickCheck()) {
+            g_AttachStrikes.fetch_add(1, std::memory_order_relaxed);
+        }
+        if (g_AttachStrikes.load(std::memory_order_relaxed) >= ATTACH_STRIKE_THRESHOLD) {
+            g_stateCorrupted = true;
+        }
 
         bool success = DoHeartbeat();
 
         if (!success) {
             consecutiveFailures++;
-            log_warn("Heartbeat failed (attempt %d/%d)", consecutiveFailures, maxFailures);
             if (consecutiveFailures >= maxFailures) {
                 // Attempt to recover session state - may not succeed
-                log_warn("Session state unstable, attempting recovery...");
                 g_SessionValid = false;
                 InvalidateSession();
 
@@ -622,11 +526,14 @@ inline DWORD WINAPI HeartbeatThreadProc(LPVOID lpParam) {
     return 0;
 }
 
-// Start heartbeat thread (call after successful validation)
-// Session token should already be cached in g_SessionToken from ValidateInjection
-inline void StartHeartbeatThread(const std::string& optionalToken = "") {
+// Start heartbeat thread (call after successful validation).
+// Pass the DLL's HMODULE so the periodic reverify() can re-walk the PEB list.
+// Session token should already be cached in g_SessionToken from ValidateInjection.
+inline void StartHeartbeatThread(HMODULE hModule, const std::string& optionalToken = "") {
     if (g_HeartbeatRunning)
         return;  // Already running
+
+    g_DllModule = hModule;
 
     // Use provided token or fall back to cached token
     if (!optionalToken.empty()) {
@@ -673,11 +580,6 @@ inline bool isStateStale() {
 // Check if state is corrupted (recovery was triggered)
 inline bool isStateCorrupted() {
     return g_stateCorrupted.load();
-}
-
-// Mark state as needing recovery
-inline void markStateCorrupted() {
-    g_stateCorrupted = true;
 }
 
 }  // namespace SessionValidator

@@ -87,9 +87,18 @@ inline void onCacheReady() {
     g_stateFlags = 0x1;  // Mark as initialized
 }
 
-// Mark state as corrupted - will trigger poison on next check
+// Mark state as corrupted - will trigger poison on next check.
+// Used by the loader-validation gate when startup checks (parent process,
+// timing, suspicious modules) fire. Sets multiple independent state bits so
+// patching one doesn't restore operation.
 inline void markCorrupted() {
-    g_stateFlags = 0xBAD;  // Special flag that triggers poison
+    g_stateFlags = 0xBAD;
+    // Clobber the baseline so gateB() (checksum invariance) and the explicit
+    // validateState() check both fail, even if a cracker pinned g_stateFlags.
+    g_initialChecksum = 0xDEADBEEF;
+    // Push the staleness clock far into the past so gateC() trips immediately
+    // on the next tick.
+    g_lastSync = 0;
 }
 
 // Sync timer - must be called periodically
@@ -138,18 +147,6 @@ inline void attemptRecoveryAlt() {
     JniCache::fid_posX = JniCache::fid_posY;
     JniCache::fid_posY = JniCache::fid_posZ;
     JniCache::fid_posZ = tempF;
-}
-
-// Gradual degradation - disables features one by one
-inline int g_degradeLevel = 0;
-
-inline void degradeStep() {
-    g_degradeLevel++;
-    // Caller checks this and disables modules progressively
-}
-
-inline int getDegradeLevel() {
-    return g_degradeLevel;
 }
 
 // Check if state is valid for operation

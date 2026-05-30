@@ -16,15 +16,6 @@ public:
 
     const std::vector<Module*>& getModules() const { return modules; }
 
-    template <typename T>
-    T* get() {
-        for (auto* mod : modules) {
-            if (auto* casted = dynamic_cast<T*>(mod))
-                return casted;
-        }
-        return nullptr;
-    }
-
 private:
     std::vector<Module*> modules;
 

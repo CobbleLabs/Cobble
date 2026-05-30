@@ -151,6 +151,13 @@ inline bool verify(HMODULE hModule) {
     return true;
 }
 
+// Lightweight re-verifier for periodic checks. Doesn't tear down the process —
+// returns false so the caller (heartbeat thread, hot module path) decides how
+// to react. Keeps the loud destructive path concentrated in verifyOrDie().
+inline bool reverify(HMODULE hModule) {
+    return verify(hModule);
+}
+
 // Silent exit if verification fails (don't give hints to crackers)
 inline void verifyOrDie(HMODULE hModule) {
 #ifdef COBBLE_DEBUG

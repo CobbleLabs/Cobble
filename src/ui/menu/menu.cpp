@@ -483,7 +483,7 @@ static void renderPage() {
 
             ImGui::SetCursorPosX((width - ui::s(100)) / 2);
             if (ImGui::Button("Unlock", {ui::s(100), ui::s(30)}) || enterPressed) {
-                if (strcmp(buf, Module::unlockCode) == 0) {
+                if (Module::checkUnlockCode(buf)) {
                     Module::experimentalUnlocked = true;
                     incorrect = false;
                     memset(buf, 0, sizeof(buf));

@@ -46,6 +46,7 @@
 #include "util/diagnostics.hpp"
 #include "util/inject_trace.hpp"
 #include "util/state.hpp"
+#include "util/state_check.hpp"
 #include "util/team/friends_manager.h"
 #include "jni/apollo/apollo_handshake.hpp"
 
@@ -96,7 +97,7 @@ void cobble::context::initialize(HMODULE hModule) {
     }
 
     DllIntegrity::Initialize(hModule);
-    SessionValidator::StartHeartbeatThread("");
+    SessionValidator::StartHeartbeatThread(hModule);
 #endif
 
     // Initialize logging console immediately
@@ -133,6 +134,7 @@ void cobble::context::initialize(HMODULE hModule) {
     SDK_Init();
     COBBLE_TRACE("after SDK_Init");
     sdk::internal::onCacheReady();  // Capture SDK state baseline
+    sdk::internal::wireGateD();      // Wire distributed-check function pointer.
     COBBLE_TRACE("after onCacheReady");
     log_ok("SDK initialized");
 

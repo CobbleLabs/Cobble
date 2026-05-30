@@ -2,6 +2,7 @@
 #include "../sdk/core/minecraft.h"
 #include "../ui/menu/menu.h"
 #include "../util/diagnostics.hpp"
+#include "../util/state_check.hpp"
 #include "utility/autorefill.h"
 
 #include <unordered_map>
@@ -39,6 +40,13 @@ void ModuleManager::update() {
     if (!isMinecraftFocused())
         return;
 
+    // Distributed state check #1: gateAB combines stateFlags + checksum
+    // invariance. If a cracker stubs Module::shouldUpdate() / isOperational(),
+    // this still guards the entire update loop. Picked AB rather than ABC
+    // because gateC (timing) needs the heartbeat thread alive.
+    if (!sdk::internal::gateAB())
+        return;
+
     checkKeybinds();
 
     for (auto* mod : modules) {
@@ -58,6 +66,11 @@ void ModuleManager::update() {
 }
 
 void ModuleManager::onRender() {
+    // Distributed state check #2: gateD uses an indirect function pointer
+    // wired at boot. The render loop has its own enforcement so a patch to
+    // ::update() doesn't leak rendering artifacts.
+    if (!sdk::internal::gateD())
+        return;
     for (auto* mod : modules) {
         if (mod->enabled)
             mod->onRender();

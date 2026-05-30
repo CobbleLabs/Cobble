@@ -109,15 +109,11 @@ inline void Report(const std::string& eventType, const std::string& validator, S
 }
 
 inline void ReportLoaderValidationFailed(const std::string& validator, const std::string& details = "") {
-    Report("loader_validation_failed", validator, Severity::CRITICAL, details);
+    Report(OBFUSCATE_STRING("loader_validation_failed"), validator, Severity::CRITICAL, details);
 }
 
 inline void ReportSuspiciousActivity(const std::string& validator, const std::string& details = "") {
-    Report("suspicious_activity", validator, Severity::WARNING, details);
-}
-
-inline void ReportSecurityEvent(const std::string& eventType, const std::string& details = "") {
-    Report(eventType, "system", Severity::INFO, details);
+    Report(OBFUSCATE_STRING("suspicious_activity"), validator, Severity::WARNING, details);
 }
 
 }  // namespace AuditReporter
