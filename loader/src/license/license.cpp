@@ -2,7 +2,9 @@
 #include <Windows.h>
 #include <wincrypt.h>
 #include <wininet.h>
+#include <cctype>
 #include <ctime>
+#include <cstdio>
 #include <iomanip>
 #include <sstream>
 #include <string>
@@ -115,6 +117,179 @@ std::vector<uint8_t> Base64Decode(const std::string& input) {
     return output;
 }
 
+void WipeString(std::string& value) {
+    if (!value.empty()) {
+        SecureZeroMemory(&value[0], value.size());
+    }
+    value.clear();
+    value.shrink_to_fit();
+}
+
+void WipeVector(std::vector<uint8_t>& value) {
+    if (!value.empty()) {
+        SecureZeroMemory(value.data(), value.size());
+    }
+    value.clear();
+    value.shrink_to_fit();
+}
+
+class ScopedStringWipe {
+public:
+    explicit ScopedStringWipe(std::string& value) : value_(value) {}
+    ScopedStringWipe(const ScopedStringWipe&) = delete;
+    ScopedStringWipe& operator=(const ScopedStringWipe&) = delete;
+    ~ScopedStringWipe() { WipeString(value_); }
+
+private:
+    std::string& value_;
+};
+
+class ScopedVectorWipe {
+public:
+    explicit ScopedVectorWipe(std::vector<uint8_t>& value) : value_(value) {}
+    ScopedVectorWipe(const ScopedVectorWipe&) = delete;
+    ScopedVectorWipe& operator=(const ScopedVectorWipe&) = delete;
+    ~ScopedVectorWipe() { WipeVector(value_); }
+
+private:
+    std::vector<uint8_t>& value_;
+};
+
+std::string JsonEscape(const std::string& value) {
+    std::string out;
+    out.reserve(value.size() + 8);
+
+    for (char c : value) {
+        switch (c) {
+            case '"':
+                out += "\\\"";
+                break;
+            case '\\':
+                out += "\\\\";
+                break;
+            case '\b':
+                out += "\\b";
+                break;
+            case '\f':
+                out += "\\f";
+                break;
+            case '\n':
+                out += "\\n";
+                break;
+            case '\r':
+                out += "\\r";
+                break;
+            case '\t':
+                out += "\\t";
+                break;
+            default:
+                if (static_cast<unsigned char>(c) < 0x20) {
+                    char buf[7] = {};
+                    sprintf_s(buf, "\\u%04x", static_cast<unsigned char>(c));
+                    out += buf;
+                } else {
+                    out += c;
+                }
+                break;
+        }
+    }
+
+    return out;
+}
+
+std::string JsonHeaders() {
+    return "Content-Type: application/json\r\n"
+           "Accept: application/json\r\n"
+           "Cache-Control: no-store\r\n"
+           "Pragma: no-cache\r\n";
+}
+
+bool RequireHttps(const URL_COMPONENTSA& urlComp) {
+    if (urlComp.nScheme != INTERNET_SCHEME_HTTPS) {
+        g_LastError = "HTTPS required";
+        return false;
+    }
+    return true;
+}
+
+void ConfigureInternet(HINTERNET hInternet, DWORD timeout) {
+    InternetSetOptionA(hInternet, INTERNET_OPTION_CONNECT_TIMEOUT, &timeout, sizeof(timeout));
+    InternetSetOptionA(hInternet, INTERNET_OPTION_SEND_TIMEOUT, &timeout, sizeof(timeout));
+    InternetSetOptionA(hInternet, INTERNET_OPTION_RECEIVE_TIMEOUT, &timeout, sizeof(timeout));
+
+    constexpr DWORD kInternetOptionSecureProtocols = 84;
+    constexpr DWORD kSecureProtocolTls12 = 0x00000800;
+    DWORD protocols = kSecureProtocolTls12;
+    InternetSetOptionA(hInternet, kInternetOptionSecureProtocols, &protocols, sizeof(protocols));
+}
+
+bool IsHexString(const std::string& value, size_t expectedLen) {
+    if (value.size() != expectedLen) {
+        return false;
+    }
+    for (unsigned char c : value) {
+        if (!std::isxdigit(c)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool IsAsciiToken(const std::string& value, size_t maxLen) {
+    if (value.empty() || value.size() > maxLen) {
+        return false;
+    }
+    for (unsigned char c : value) {
+        if (c < 0x21 || c > 0x7e) {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool IsBase64Signature64(const std::string& value) {
+    if (value.empty() || value.size() > 127) {
+        return false;
+    }
+    std::vector<uint8_t> decoded = Base64Decode(value);
+    ScopedVectorWipe decodedWipe(decoded);
+    return decoded.size() == 64;
+}
+
+void StoreProtectedString(std::string& dst, const std::string& src) {
+    WipeString(dst);
+    dst = src;
+}
+
+bool StoreSessionMaterial(const json::Object& payload) {
+    std::string username = payload.get_string("username", "");
+    std::string sessionToken = payload.get_string("session_token", "");
+    std::string injectionSecret = payload.get_string("injection_secret", "");
+    std::string handshakeSig = payload.get_string("handshake_sig", "");
+    std::string syncToken = payload.get_string("sync_token", "");
+    int64_t issuedAt = payload.get_int("issued_at", 0);
+
+    ScopedStringWipe sessionTokenWipe(sessionToken);
+    ScopedStringWipe injectionSecretWipe(injectionSecret);
+    ScopedStringWipe syncTokenWipe(syncToken);
+
+    if (!IsAsciiToken(username, 63) || !IsAsciiToken(sessionToken, 127) ||
+        !IsHexString(injectionSecret, 64) || !IsBase64Signature64(handshakeSig) ||
+        !IsHexString(syncToken, 64) || issuedAt <= 0) {
+        g_LastError = "Invalid session";
+        return false;
+    }
+
+    g_Username = username;
+    g_DaysRemaining = payload.get_int("days_remaining", -1);
+    StoreProtectedString(g_SessionToken, sessionToken);
+    StoreProtectedString(g_InjectionSecret, injectionSecret);
+    g_HandshakeSig = handshakeSig;
+    g_HandshakeTimestamp = issuedAt;
+    StoreProtectedString(g_SyncToken, syncToken);
+    return true;
+}
+
 std::string GetLastError() {
     return g_LastError;
 }
@@ -167,15 +342,14 @@ bool FetchPayloadKey(const std::string& serverUrl) {
         g_LastError = "HWID generation failed";
         return false;
     }
+    ScopedStringWipe hwidWipe(hwid);
 
-    // Build URL
     std::string url = serverUrl + "/api/loader/payload-key";
 
-    // Build POST data
     std::string postData =
-        "{\"hwid\":\"" + hwid + "\",\"session_token\":\"" + g_SessionToken + "\"}";
+        "{\"hwid\":\"" + JsonEscape(hwid) + "\",\"session_token\":\"" + JsonEscape(g_SessionToken) + "\"}";
+    ScopedStringWipe postDataWipe(postData);
 
-    // Initialize WinInet
     HINTERNET hInternet =
         InternetOpenA("Mozilla/5.0", INTERNET_OPEN_TYPE_PRECONFIG, NULL, NULL, 0);
 
@@ -185,10 +359,8 @@ bool FetchPayloadKey(const std::string& serverUrl) {
     }
 
     DWORD timeout = 5000;
-    InternetSetOptionA(hInternet, INTERNET_OPTION_CONNECT_TIMEOUT, &timeout, sizeof(timeout));
-    InternetSetOptionA(hInternet, INTERNET_OPTION_RECEIVE_TIMEOUT, &timeout, sizeof(timeout));
+    ConfigureInternet(hInternet, timeout);
 
-    // Parse URL
     URL_COMPONENTSA urlComp = {0};
     urlComp.dwStructSize = sizeof(urlComp);
 
@@ -206,7 +378,12 @@ bool FetchPayloadKey(const std::string& serverUrl) {
         return false;
     }
 
-    DWORD flags = (urlComp.nScheme == INTERNET_SCHEME_HTTPS) ? INTERNET_FLAG_SECURE : 0;
+    if (!RequireHttps(urlComp)) {
+        InternetCloseHandle(hInternet);
+        return false;
+    }
+
+    DWORD flags = INTERNET_FLAG_SECURE;
 
     HINTERNET hConnect = InternetConnectA(hInternet, hostName, urlComp.nPort, NULL, NULL, INTERNET_SERVICE_HTTP, 0, 0);
 
@@ -226,10 +403,10 @@ bool FetchPayloadKey(const std::string& serverUrl) {
         return false;
     }
 
-    std::string headers = "Content-Type: application/json\r\n";
+    std::string headers = JsonHeaders();
 
     ConfigureSSLFlags(hRequest);
-        BOOL result = SendWithCertRetry(hRequest, headers, postData);
+    BOOL result = SendWithCertRetry(hRequest, headers, postData);
 
     if (!result) {
         DWORD err = ::GetLastError();
@@ -252,10 +429,10 @@ bool FetchPayloadKey(const std::string& serverUrl) {
         return false;
     }
 
-    // Read response
     char buffer[4096] = {0};
     DWORD bytesRead = 0;
     std::string response;
+    ScopedStringWipe responseWipe(response);
 
     while (InternetReadFile(hRequest, buffer, sizeof(buffer) - 1, &bytesRead) && bytesRead > 0) {
         buffer[bytesRead] = '\0';
@@ -266,7 +443,6 @@ bool FetchPayloadKey(const std::string& serverUrl) {
     InternetCloseHandle(hConnect);
     InternetCloseHandle(hInternet);
 
-    // Parse signed envelope {payload_b64, sig_b64}
     json::Object envelope;
     if (!envelope.parse(response)) {
         g_LastError = "Invalid response";
@@ -281,8 +457,8 @@ bool FetchPayloadKey(const std::string& serverUrl) {
         return false;
     }
 
-    // Verify Ed25519 signature
     std::vector<uint8_t> payloadBytes = Base64Decode(payloadB64);
+    ScopedVectorWipe payloadBytesWipe(payloadBytes);
     std::vector<uint8_t> sigBytes = Base64Decode(sigB64);
 
     if (payloadBytes.empty() || sigBytes.size() != 64) {
@@ -300,19 +476,21 @@ bool FetchPayloadKey(const std::string& serverUrl) {
         return false;
     }
 
-    // Parse verified inner payload
     std::string payloadStr(payloadBytes.begin(), payloadBytes.end());
+    ScopedStringWipe payloadStrWipe(payloadStr);
     json::Object json;
     if (!json.parse(payloadStr)) {
         g_LastError = "Invalid response";
         return false;
     }
 
-    g_PayloadKey = json.get_string("key", "");
-    if (g_PayloadKey.empty() || g_PayloadKey.length() != 64) {
+    std::string payloadKey = json.get_string("key", "");
+    ScopedStringWipe payloadKeyWipe(payloadKey);
+    if (!IsHexString(payloadKey, 64)) {
         g_LastError = "Invalid key";
         return false;
     }
+    StoreProtectedString(g_PayloadKey, payloadKey);
 
     return true;
 }
@@ -324,22 +502,21 @@ bool Verify(const std::string& serverUrl) {
         g_LastError = "Failed to generate HWID";
         return false;
     }
+    ScopedStringWipe hwidWipe(hwid);
 
-    // Generate random nonce for anti-replay
     std::string nonce = GenerateNonce();
     if (nonce.empty()) {
         g_LastError = "Failed to generate nonce";
         return false;
     }
 
-    // Build URL
     std::string url = serverUrl + "/api/verify";
 
-    // Build POST data with HWID, nonce, and version
     std::string postData =
-        "{\"hwid\":\"" + hwid + "\",\"nonce\":\"" + nonce + "\",\"version\":\"" + std::string(CLIENT_VERSION) + "\"}";
+        "{\"hwid\":\"" + JsonEscape(hwid) + "\",\"nonce\":\"" + JsonEscape(nonce) + "\",\"version\":\"" +
+        JsonEscape(std::string(CLIENT_VERSION)) + "\"}";
+    ScopedStringWipe postDataWipe(postData);
 
-    // Initialize WinInet
     HINTERNET hInternet =
         InternetOpenA("Mozilla/5.0", INTERNET_OPEN_TYPE_PRECONFIG, NULL, NULL, 0);
 
@@ -348,16 +525,9 @@ bool Verify(const std::string& serverUrl) {
         return false;
     }
 
-    DWORD timeout = 5000;  // 5s timeout for crypto operations
-    InternetSetOptionA(hInternet, INTERNET_OPTION_CONNECT_TIMEOUT, &timeout, sizeof(timeout));
-    InternetSetOptionA(hInternet, INTERNET_OPTION_SEND_TIMEOUT, &timeout, sizeof(timeout));
-    InternetSetOptionA(hInternet, INTERNET_OPTION_RECEIVE_TIMEOUT, &timeout, sizeof(timeout));
+    DWORD timeout = 5000;
+    ConfigureInternet(hInternet, timeout);
 
-    // Force TLS 1.2 (required for Cloudflare)
-    DWORD protocols = 0x00000800;
-    InternetSetOptionA(hInternet, 84, &protocols, sizeof(protocols));
-
-    // Parse URL
     URL_COMPONENTSA urlComp = {0};
     urlComp.dwStructSize = sizeof(urlComp);
 
@@ -375,8 +545,12 @@ bool Verify(const std::string& serverUrl) {
         return false;
     }
 
-    // Connect to server
-    DWORD flags = (urlComp.nScheme == INTERNET_SCHEME_HTTPS) ? INTERNET_FLAG_SECURE : 0;
+    if (!RequireHttps(urlComp)) {
+        InternetCloseHandle(hInternet);
+        return false;
+    }
+
+    DWORD flags = INTERNET_FLAG_SECURE;
 
     HINTERNET hConnect = InternetConnectA(hInternet, hostName, urlComp.nPort, NULL, NULL, INTERNET_SERVICE_HTTP, 0, 0);
 
@@ -386,23 +560,20 @@ bool Verify(const std::string& serverUrl) {
         return false;
     }
 
-    // Create request
     HINTERNET hRequest = HttpOpenRequestA(hConnect, "POST", urlPath, NULL, NULL, NULL,
                                           flags | INTERNET_FLAG_NO_CACHE_WRITE | INTERNET_FLAG_RELOAD, 0);
 
-    ConfigureSSLFlags(hRequest);
-if (!hRequest) {
+    if (!hRequest) {
         InternetCloseHandle(hConnect);
         InternetCloseHandle(hInternet);
         g_LastError = "Failed to create request";
         return false;
     }
 
-    std::string headers = "Content-Type: application/json\r\n";
+    std::string headers = JsonHeaders();
 
-    // Send request
     ConfigureSSLFlags(hRequest);
-        BOOL result = SendWithCertRetry(hRequest, headers, postData);
+    BOOL result = SendWithCertRetry(hRequest, headers, postData);
 
     if (!result) {
         DWORD err = ::GetLastError();
@@ -420,10 +591,10 @@ if (!hRequest) {
     // Note: We don't return early on non-200 anymore - the server sends signed
     // error responses that we need to parse to determine if login is required
 
-    // Read response
     char buffer[4096] = {0};
     DWORD bytesRead = 0;
     std::string response;
+    ScopedStringWipe responseWipe(response);
 
     while (InternetReadFile(hRequest, buffer, sizeof(buffer) - 1, &bytesRead) && bytesRead > 0) {
         buffer[bytesRead] = '\0';
@@ -478,8 +649,8 @@ if (!hRequest) {
         return false;
     }
 
-    // Decode payload and signature
     std::vector<uint8_t> payloadBytes = Base64Decode(payloadB64);
+    ScopedVectorWipe payloadBytesWipe(payloadBytes);
     std::vector<uint8_t> sigBytes = Base64Decode(sigB64);
 
     if (payloadBytes.empty() || sigBytes.size() != 64) {
@@ -509,8 +680,8 @@ if (!hRequest) {
         return false;
     }
 
-    // Parse verified payload
     std::string payloadStr(payloadBytes.begin(), payloadBytes.end());
+    ScopedStringWipe payloadStrWipe(payloadStr);
     json::Object payload;
     if (!payload.parse(payloadStr)) {
         g_LastError = "Invalid payload format";
@@ -536,14 +707,7 @@ if (!hRequest) {
 
     // All cryptographic checks passed - now check business logic
     if (payload.get_bool("valid", false)) {
-        g_Username = payload.get_string("username", "");
-        g_DaysRemaining = payload.get_int("days_remaining", -1);
-        g_SessionToken = payload.get_string("session_token", "");
-        g_InjectionSecret = payload.get_string("injection_secret", "");
-        g_HandshakeSig = payload.get_string("handshake_sig", "");
-        g_HandshakeTimestamp = payload.get_int("issued_at", 0);
-        g_SyncToken = payload.get_string("sync_token", "");
-        return true;
+        return StoreSessionMaterial(payload);
     }
 
     // Extract error message
@@ -572,22 +736,21 @@ bool LoginWithCredentials(const std::string& serverUrl, const std::string& usern
         g_LastError = "Failed to generate HWID";
         return false;
     }
+    ScopedStringWipe hwidWipe(hwid);
 
-    // Generate random nonce for anti-replay
     std::string nonce = GenerateNonce();
     if (nonce.empty()) {
         g_LastError = "Failed to generate nonce";
         return false;
     }
 
-    // Build URL
     std::string url = serverUrl + "/api/loader/login";
 
-    // Build POST data as JSON
-    std::string postData = "{\"username\":\"" + username + "\",\"password\":\"" + password + "\",\"hwid\":\"" + hwid +
-                           "\",\"nonce\":\"" + nonce + "\",\"version\":\"" + std::string(CLIENT_VERSION) + "\"}";
+    std::string postData = "{\"username\":\"" + JsonEscape(username) + "\",\"password\":\"" + JsonEscape(password) +
+                           "\",\"hwid\":\"" + JsonEscape(hwid) + "\",\"nonce\":\"" + JsonEscape(nonce) +
+                           "\",\"version\":\"" + JsonEscape(std::string(CLIENT_VERSION)) + "\"}";
+    ScopedStringWipe postDataWipe(postData);
 
-    // Initialize WinInet
     HINTERNET hInternet =
         InternetOpenA("Mozilla/5.0", INTERNET_OPEN_TYPE_PRECONFIG, NULL, NULL, 0);
 
@@ -597,11 +760,8 @@ bool LoginWithCredentials(const std::string& serverUrl, const std::string& usern
     }
 
     DWORD timeout = 8000;
-    InternetSetOptionA(hInternet, INTERNET_OPTION_CONNECT_TIMEOUT, &timeout, sizeof(timeout));
-    InternetSetOptionA(hInternet, INTERNET_OPTION_SEND_TIMEOUT, &timeout, sizeof(timeout));
-    InternetSetOptionA(hInternet, INTERNET_OPTION_RECEIVE_TIMEOUT, &timeout, sizeof(timeout));
+    ConfigureInternet(hInternet, timeout);
 
-    // Parse URL
     URL_COMPONENTSA urlComp = {0};
     urlComp.dwStructSize = sizeof(urlComp);
 
@@ -619,7 +779,12 @@ bool LoginWithCredentials(const std::string& serverUrl, const std::string& usern
         return false;
     }
 
-    DWORD flags = (urlComp.nScheme == INTERNET_SCHEME_HTTPS) ? INTERNET_FLAG_SECURE : 0;
+    if (!RequireHttps(urlComp)) {
+        InternetCloseHandle(hInternet);
+        return false;
+    }
+
+    DWORD flags = INTERNET_FLAG_SECURE;
 
     HINTERNET hConnect = InternetConnectA(hInternet, hostName, urlComp.nPort, NULL, NULL, INTERNET_SERVICE_HTTP, 0, 0);
 
@@ -639,10 +804,10 @@ bool LoginWithCredentials(const std::string& serverUrl, const std::string& usern
         return false;
     }
 
-    std::string headers = "Content-Type: application/json\r\n";
+    std::string headers = JsonHeaders();
 
     ConfigureSSLFlags(hRequest);
-        BOOL result = SendWithCertRetry(hRequest, headers, postData);
+    BOOL result = SendWithCertRetry(hRequest, headers, postData);
 
     if (!result) {
         DWORD err = ::GetLastError();
@@ -657,10 +822,10 @@ bool LoginWithCredentials(const std::string& serverUrl, const std::string& usern
     DWORD statusCodeSize = sizeof(statusCode);
     HttpQueryInfoA(hRequest, HTTP_QUERY_STATUS_CODE | HTTP_QUERY_FLAG_NUMBER, &statusCode, &statusCodeSize, NULL);
 
-    // Read response
     char buffer[4096] = {0};
     DWORD bytesRead = 0;
     std::string response;
+    ScopedStringWipe responseWipe(response);
 
     while (InternetReadFile(hRequest, buffer, sizeof(buffer) - 1, &bytesRead) && bytesRead > 0) {
         buffer[bytesRead] = '\0';
@@ -692,8 +857,8 @@ bool LoginWithCredentials(const std::string& serverUrl, const std::string& usern
         return false;
     }
 
-    // Decode payload and signature
     std::vector<uint8_t> payloadBytes = Base64Decode(payloadB64);
+    ScopedVectorWipe payloadBytesWipe(payloadBytes);
     std::vector<uint8_t> sigBytes = Base64Decode(sigB64);
 
     if (payloadBytes.empty() || sigBytes.size() != 64) {
@@ -723,8 +888,8 @@ bool LoginWithCredentials(const std::string& serverUrl, const std::string& usern
         return false;
     }
 
-    // Parse verified payload
     std::string payloadStr(payloadBytes.begin(), payloadBytes.end());
+    ScopedStringWipe payloadStrWipe(payloadStr);
     json::Object payload;
     if (!payload.parse(payloadStr)) {
         g_LastError = "Invalid payload";
@@ -750,14 +915,7 @@ bool LoginWithCredentials(const std::string& serverUrl, const std::string& usern
 
     // Check business logic
     if (payload.get_bool("valid", false)) {
-        g_Username = payload.get_string("username", username);
-        g_DaysRemaining = payload.get_int("days_remaining", -1);
-        g_SessionToken = payload.get_string("session_token", "");
-        g_InjectionSecret = payload.get_string("injection_secret", "");
-        g_HandshakeSig = payload.get_string("handshake_sig", "");
-        g_HandshakeTimestamp = payload.get_int("issued_at", 0);
-        g_SyncToken = payload.get_string("sync_token", "");
-        return true;
+        return StoreSessionMaterial(payload);
     }
 
     g_LastError = payload.get_string("message", "Authentication failed");

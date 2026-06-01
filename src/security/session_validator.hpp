@@ -3,6 +3,8 @@
 #include <wincrypt.h>
 #include <Windows.h>
 #include <atomic>
+#include <cstdio>
+#include <cstring>
 #include <ctime>
 #include <mutex>
 #include <string>
@@ -115,6 +117,39 @@ inline bool ReadInjectionData(InjectionData* outData) {
     return true;
 }
 
+inline bool hasNullTerminator(const char* value, size_t len) {
+    return memchr(value, '\0', len) != nullptr;
+}
+
+inline bool isHexString(const char* value, size_t expectedLen) {
+    if (!hasNullTerminator(value, expectedLen + 1)) {
+        return false;
+    }
+    for (size_t i = 0; i < expectedLen; i++) {
+        unsigned char c = static_cast<unsigned char>(value[i]);
+        bool digit = c >= '0' && c <= '9';
+        bool lower = c >= 'a' && c <= 'f';
+        bool upper = c >= 'A' && c <= 'F';
+        if (!digit && !lower && !upper) {
+            return false;
+        }
+    }
+    return value[expectedLen] == '\0';
+}
+
+inline bool isAsciiToken(const char* value, size_t maxLen) {
+    if (!hasNullTerminator(value, maxLen + 1) || value[0] == '\0') {
+        return false;
+    }
+    for (size_t i = 0; i < maxLen && value[i] != '\0'; i++) {
+        unsigned char c = static_cast<unsigned char>(value[i]);
+        if (c < 0x21 || c > 0x7e) {
+            return false;
+        }
+    }
+    return true;
+}
+
 // Validate the injection secret at DLL startup
 // This MUST be called before any other initialization
 // Returns true if validation passed, false if DLL should refuse to run
@@ -144,6 +179,12 @@ inline bool ValidateInjection() {
     // Verify we have a secret
     if (data.secret[0] == '\0') {
         // No secret = incomplete handshake
+        return false;
+    }
+
+    if (!isHexString(data.secret, 64) || !isAsciiToken(data.username, 63) || !isHexString(data.hwid, 64) ||
+        !isAsciiToken(data.handshakeSig, 127) || !isAsciiToken(data.sessionToken, 127) ||
+        !isHexString(data.syncToken, 64)) {
         return false;
     }
 
@@ -448,13 +489,15 @@ inline bool DoHeartbeat() {
         // concurrent readers always see a coherent state.
         std::string newToken = resp["new_token"].as_string("");
         std::string newSyncToken = resp["new_sync_token"].as_string("");
+        if (!isAsciiToken(newToken.c_str(), 127) || !isHexString(newSyncToken.c_str(), 64)) {
+            InvalidateSession();
+            return false;
+        }
         std::lock_guard<std::mutex> lock(g_SessionMutex);
-        if (!newToken.empty()) {
-            g_SessionToken = newToken;
-        }
-        if (!newSyncToken.empty()) {
-            g_SyncToken = newSyncToken;
-        }
+        zeroAndClear(g_SessionToken);
+        zeroAndClear(g_SyncToken);
+        g_SessionToken = newToken;
+        g_SyncToken = newSyncToken;
     }
     return ok;
 }
