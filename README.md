@@ -22,7 +22,7 @@ copy cobble.json.example cobble.json
 #   payload_key MUST match $PAYLOAD_KEY in the cobble-server .env
 #   public_key_hex MUST be derived from cobble-server's secrets/private.key
 
-# Build (default = dev: no Themida, console + file tracer enabled)
+# Build (default = dev: no Themida, file tracer enabled)
 .\build.ps1
 .\build.ps1 -Build
 

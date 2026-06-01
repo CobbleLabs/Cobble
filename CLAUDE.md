@@ -53,7 +53,7 @@ builds (no script) default to `Dev`.
 
 ```powershell
 .\build.ps1                    Interactive selector
-.\build.ps1 -Build              Plain dev build (no Themida, console + file tracer enabled)
+.\build.ps1 -Build              Plain dev build (no Themida, file tracer enabled)
 .\build.ps1 -Pack               Build + Themida + signed manifest (release-quality)
 .\build.ps1 -Pack -Deploy       Pack + scp to VPS
 .\build.ps1 -Clean              Wipe out/bin/{Dev,Pack}, generated/, hash headers
@@ -80,7 +80,7 @@ Order of operations inside `build.ps1`:
 still respected for CI but no longer required. The same key must match the
 server's `.env`.
 
-`COBBLE_DEV_BUILD` gates **only** cosmetic dev features (console output,
+`COBBLE_DEV_BUILD` gates **only** cosmetic dev features (file tracing,
 `COBBLE_TRACE` file logging in `%TEMP%\cobble_trace.log`, plaintext
 `OBFUSCATE_STRING`, `DIAG_SCOPE` markers). It **must never** gate
 validation, handshake, integrity, or any other security-relevant code path —
