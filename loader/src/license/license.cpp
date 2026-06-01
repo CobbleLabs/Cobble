@@ -200,6 +200,7 @@ std::string JsonEscape(const std::string& value) {
 std::string JsonHeaders() {
     return "Content-Type: application/json\r\n"
            "Accept: application/json\r\n"
+           "Accept-Encoding: identity\r\n"
            "Cache-Control: no-store\r\n"
            "Pragma: no-cache\r\n";
 }
@@ -221,6 +222,105 @@ void ConfigureInternet(HINTERNET hInternet, DWORD timeout) {
     constexpr DWORD kSecureProtocolTls12 = 0x00000800;
     DWORD protocols = kSecureProtocolTls12;
     InternetSetOptionA(hInternet, kInternetOptionSecureProtocols, &protocols, sizeof(protocols));
+}
+
+std::string LowerAscii(const std::string& value) {
+    std::string out;
+    out.reserve(value.size());
+    for (unsigned char c : value) {
+        out += static_cast<char>(std::tolower(c));
+    }
+    return out;
+}
+
+bool HasLoginHint(const std::string& value) {
+    std::string lower = LowerAscii(value);
+    return lower.find("not registered") != std::string::npos ||
+           lower.find("no license") != std::string::npos ||
+           lower.find("login") != std::string::npos ||
+           lower.find("hwid_not_registered") != std::string::npos;
+}
+
+bool LooksLikeHtmlOrChallenge(const std::string& value) {
+    std::string lower = LowerAscii(value);
+    return lower.find("<html") != std::string::npos ||
+           lower.find("<!doctype html") != std::string::npos ||
+           lower.find("cloudflare") != std::string::npos ||
+           lower.find("cf-ray") != std::string::npos ||
+           lower.find("just a moment") != std::string::npos ||
+           lower.find("attention required") != std::string::npos;
+}
+
+std::string NormalizeJsonResponse(const std::string& response) {
+    if (response.empty()) {
+        return "";
+    }
+
+    size_t start = 0;
+    if (response.size() >= 3 &&
+        static_cast<unsigned char>(response[0]) == 0xEF &&
+        static_cast<unsigned char>(response[1]) == 0xBB &&
+        static_cast<unsigned char>(response[2]) == 0xBF) {
+        start = 3;
+    }
+
+    while (start < response.size() && std::isspace(static_cast<unsigned char>(response[start]))) {
+        start++;
+    }
+
+    size_t firstObject = response.find('{', start);
+    if (firstObject == std::string::npos) {
+        return response.substr(start);
+    }
+
+    size_t end = response.size();
+    while (end > firstObject && std::isspace(static_cast<unsigned char>(response[end - 1]))) {
+        end--;
+    }
+
+    size_t lastObject = response.rfind('}', end - 1);
+    if (lastObject == std::string::npos || lastObject < firstObject) {
+        return response.substr(firstObject, end - firstObject);
+    }
+
+    return response.substr(firstObject, lastObject - firstObject + 1);
+}
+
+bool ParseResponseObject(const std::string& response, json::Object& out) {
+    std::string normalized = NormalizeJsonResponse(response);
+    ScopedStringWipe normalizedWipe(normalized);
+    return !normalized.empty() && out.parse(normalized);
+}
+
+void SetUnparseableResponseError(int statusCode, const std::string& response) {
+    if (HasLoginHint(response)) {
+        g_RequiresLogin = true;
+        g_LastError = "Device not registered";
+        return;
+    }
+
+    if (LooksLikeHtmlOrChallenge(response)) {
+        g_LastError = (statusCode == 0)
+                          ? "Server returned web challenge"
+                          : "Server returned web challenge (HTTP " + std::to_string(statusCode) + ")";
+        return;
+    }
+
+    if (statusCode == 401 || statusCode == 403) {
+        g_LastError = "Server rejected request (HTTP " + std::to_string(statusCode) + ")";
+        return;
+    }
+    if (statusCode == 429) {
+        g_LastError = "Server rate limited request";
+        return;
+    }
+    if (statusCode >= 500) {
+        g_LastError = "Server unavailable (HTTP " + std::to_string(statusCode) + ")";
+        return;
+    }
+
+    g_LastError = statusCode > 0 ? "Invalid server response (HTTP " + std::to_string(statusCode) + ")"
+                                 : "Invalid server response";
 }
 
 bool IsHexString(const std::string& value, size_t expectedLen) {
@@ -444,8 +544,8 @@ bool FetchPayloadKey(const std::string& serverUrl) {
     InternetCloseHandle(hInternet);
 
     json::Object envelope;
-    if (!envelope.parse(response)) {
-        g_LastError = "Invalid response";
+    if (!ParseResponseObject(response, envelope)) {
+        SetUnparseableResponseError(static_cast<int>(statusCode), response);
         return false;
     }
 
@@ -479,7 +579,7 @@ bool FetchPayloadKey(const std::string& serverUrl) {
     std::string payloadStr(payloadBytes.begin(), payloadBytes.end());
     ScopedStringWipe payloadStrWipe(payloadStr);
     json::Object json;
-    if (!json.parse(payloadStr)) {
+    if (!ParseResponseObject(payloadStr, json)) {
         g_LastError = "Invalid response";
         return false;
     }
@@ -496,6 +596,8 @@ bool FetchPayloadKey(const std::string& serverUrl) {
 }
 
 bool Verify(const std::string& serverUrl) {
+    g_RequiresLogin = false;
+
     // Generate HWID
     std::string hwid = HWID::Generate();
     if (hwid.empty()) {
@@ -619,15 +721,8 @@ bool Verify(const std::string& serverUrl) {
 
     // Parse JSON response
     json::Object json;
-    if (!json.parse(response)) {
-        // Check if raw response indicates login needed
-        if (response.find("not registered") != std::string::npos || response.find("login") != std::string::npos ||
-            response.find("No license") != std::string::npos) {
-            g_RequiresLogin = true;
-            g_LastError = "Device not registered";
-        } else {
-            g_LastError = "Invalid server response";
-        }
+    if (!ParseResponseObject(response, json)) {
+        SetUnparseableResponseError(static_cast<int>(statusCode), response);
         return false;
     }
 
@@ -639,12 +734,12 @@ bool Verify(const std::string& serverUrl) {
         // No signature - check for plain error response with login hint
         std::string errorMsg = json.get_string("error", "");
         std::string message = json.get_string("message", "");
-        if (errorMsg.find("not registered") != std::string::npos || errorMsg.find("login") != std::string::npos ||
-            message.find("not registered") != std::string::npos || message.find("login") != std::string::npos) {
+        std::string code = json.get_string("code", "");
+        if (HasLoginHint(errorMsg) || HasLoginHint(message) || HasLoginHint(code)) {
             g_RequiresLogin = true;
             g_LastError = "Device not registered";
         } else {
-            g_LastError = errorMsg.empty() ? "Invalid response format" : errorMsg;
+            g_LastError = errorMsg.empty() ? (message.empty() ? "Invalid response format" : message) : errorMsg;
         }
         return false;
     }
@@ -683,7 +778,7 @@ bool Verify(const std::string& serverUrl) {
     std::string payloadStr(payloadBytes.begin(), payloadBytes.end());
     ScopedStringWipe payloadStrWipe(payloadStr);
     json::Object payload;
-    if (!payload.parse(payloadStr)) {
+    if (!ParseResponseObject(payloadStr, payload)) {
         g_LastError = "Invalid payload format";
         return false;
     }
@@ -715,9 +810,7 @@ bool Verify(const std::string& serverUrl) {
 
     // Check if this is an unregistered HWID (requires login)
     std::string errCode = payload.get_string("code", "");
-    if (errCode == "HWID_NOT_REGISTERED" || g_LastError.find("not registered") != std::string::npos ||
-        g_LastError.find("No license") != std::string::npos || g_LastError.find("login first") != std::string::npos ||
-        g_LastError.find("Please login") != std::string::npos) {
+    if (HasLoginHint(errCode) || HasLoginHint(g_LastError)) {
         g_RequiresLogin = true;
     }
     return false;
@@ -838,8 +931,8 @@ bool LoginWithCredentials(const std::string& serverUrl, const std::string& usern
 
     // Parse JSON response
     json::Object json;
-    if (!json.parse(response)) {
-        g_LastError = "Invalid response";
+    if (!ParseResponseObject(response, json)) {
+        SetUnparseableResponseError(static_cast<int>(statusCode), response);
         return false;
     }
 
@@ -850,7 +943,15 @@ bool LoginWithCredentials(const std::string& serverUrl, const std::string& usern
     if (payloadB64.empty() || sigB64.empty()) {
         // Fallback to unsigned response (legacy or error)
         if (statusCode != 200) {
-            g_LastError = json.get_string("error", "Authentication failed");
+            std::string errorMsg = json.get_string("error", "");
+            std::string message = json.get_string("message", "");
+            std::string code = json.get_string("code", "");
+            if (HasLoginHint(errorMsg) || HasLoginHint(message) || HasLoginHint(code)) {
+                g_RequiresLogin = true;
+                g_LastError = "Device not registered";
+            } else {
+                g_LastError = errorMsg.empty() ? (message.empty() ? "Authentication failed" : message) : errorMsg;
+            }
             return false;
         }
         g_LastError = "Invalid response format";
@@ -891,7 +992,7 @@ bool LoginWithCredentials(const std::string& serverUrl, const std::string& usern
     std::string payloadStr(payloadBytes.begin(), payloadBytes.end());
     ScopedStringWipe payloadStrWipe(payloadStr);
     json::Object payload;
-    if (!payload.parse(payloadStr)) {
+    if (!ParseResponseObject(payloadStr, payload)) {
         g_LastError = "Invalid payload";
         return false;
     }
