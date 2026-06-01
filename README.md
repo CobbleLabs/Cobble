@@ -99,6 +99,19 @@ There is no separate Debug build — every build is Release; `-Pack` controls wh
 .\build.ps1 -Pack -Deploy    # also scp's loader+DLL to the VPS
 ```
 
+## External VMProtect flow
+
+```powershell
+# Step 1: key holder builds production binaries without Themida
+.\build.ps1 -Pack -Protector None
+
+# Step 2: protect out/bin/Pack/Cobble.dll and CobbleLoader.exe with VMProtect
+#         and place the protected files in out/vmprotect/
+
+# Step 3: key holder signs the protected files and deploys them
+.\build.ps1 -SignExisting -ExistingReleaseDir out\vmprotect -Deploy
+```
+
 ## License
 
 Private.

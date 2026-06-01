@@ -7,16 +7,17 @@
     .\build.ps1                          Interactive mode selector
     .\build.ps1 -Build                   Plain build (dev, no Themida, no signed manifest)
     .\build.ps1 -Pack                    Plain build + Themida + signed manifest (release-quality)
+    .\build.ps1 -Pack -Protector None    Production build + signed manifest, no built-in protector
+    .\build.ps1 -SignExisting -Deploy    Sign/deploy externally protected binaries
     .\build.ps1 -Pack -Deploy            Pack + scp to VPS
     .\build.ps1 -Clean                   Wipe out/, generated/, hash headers
     .\build.ps1 -SkipDLL                 Loader-only rebuild
 
 .NOTES
     There is no longer a separate "Debug" configuration. Every build is Release.
-    `-Pack` is the only flag that changes whether Themida wraps the binary and
-    whether the manifest is signed for distribution. Dev iteration (without
-    `-Pack`) still produces a binary that exercises the full validation path
-    against the live server — there is no mock mode.
+    `-Pack` builds production-mode binaries and signs a release manifest.
+    `-Protector Themida` applies the built-in Themida step. `-Protector None`
+    leaves protection to an external tool such as VMProtect.
 #>
 
 param(
@@ -24,6 +25,12 @@ param(
     [switch]$SkipDLL,
     [switch]$Build,
     [switch]$Pack,
+    [ValidateSet("Themida", "None")][string]$Protector = "Themida",
+    [switch]$SignExisting,
+    [string]$ExistingReleaseDir = "",
+    [string]$ExistingLoader = "",
+    [string]$ExistingDll = "",
+    [switch]$Mandatory,
     [Alias("Release", "PrepareRelease")][switch]$ReleaseAlias,
     [switch]$Deploy,
     [string]$ReleaseNotes = ""
@@ -54,6 +61,15 @@ function Write-Log {
     }
     $tag = $Level.PadRight(4)
     Write-Host "[$time][$tag] $Message" -ForegroundColor $color
+}
+
+if ($SignExisting -and ($Build -or $Pack -or $SkipDLL)) {
+    Write-Log "-SignExisting cannot be combined with -Build, -Pack, or -SkipDLL" FAIL
+    exit 1
+}
+if ($Pack -and $Protector -eq "None" -and $Deploy) {
+    Write-Log "-Pack -Protector None -Deploy would publish unprotected binaries. Run -SignExisting -Deploy after VMProtect." FAIL
+    exit 1
 }
 
 # --- Helpers -----------------------------------------------------------------
@@ -131,19 +147,21 @@ Write-Host "  |     COBBLE BUILD PIPELINE        |" -ForegroundColor Cyan
 Write-Host "  +----------------------------------+" -ForegroundColor Cyan
 Write-Host ""
 
-if (-not $Clean -and -not $Build -and -not $Pack -and -not $SkipDLL) {
+if (-not $Clean -and -not $Build -and -not $Pack -and -not $SkipDLL -and -not $SignExisting) {
 Write-Host "  Select build mode:" -ForegroundColor Cyan
 Write-Host "    [1]  Build (dev, no Themida)" -ForegroundColor Green
 Write-Host "    [2]  Build + Pack (Themida + signed manifest)" -ForegroundColor Yellow
 Write-Host "    [3]  Build + Pack + Deploy" -ForegroundColor Blue
-Write-Host "    [4]  Clean" -ForegroundColor Red
+Write-Host "    [4]  Sign/deploy externally protected binaries" -ForegroundColor Magenta
+Write-Host "    [5]  Clean" -ForegroundColor Red
     Write-Host ""
     $choice = Read-Host "  Choice [1-4]"
     switch ($choice.Trim()) {
         "1" { $Build = $true }
         "2" { $Pack  = $true }
         "3" { $Pack  = $true; $Deploy = $true }
-        "4" { $Clean = $true }
+        "4" { $SignExisting = $true; $Deploy = $true }
+        "5" { $Clean = $true }
         default {
             Write-Host "  Invalid choice. Defaulting to plain Build." -ForegroundColor Yellow
             $Build = $true
@@ -154,10 +172,10 @@ Write-Host "    [4]  Clean" -ForegroundColor Red
 
 $Configuration = "Release"
 $Platform      = "x64"
-$BuildMode     = if ($Pack) { "Pack" } else { "Dev" }
+$BuildMode     = if ($Pack -or $SignExisting) { "Pack" } else { "Dev" }
 
 Write-Host "  Config : $Configuration | Platform: $Platform | Mode: $BuildMode"
-Write-Host "  Pack   : $Pack | Deploy: $Deploy"
+Write-Host "  Pack   : $Pack | Protector: $Protector | SignExisting: $SignExisting | Deploy: $Deploy"
 Write-Host ""
 
 # --- Paths -------------------------------------------------------------------
@@ -210,8 +228,9 @@ if ($Clean) {
 
 # --- Build flags header (force-included into every TU) -----------------------
 
-Write-Log "Writing generated/build_flags.h (DevBuild=$([bool](-not $Pack)))..." STEP
-Write-BuildFlags -DevBuild:(-not $Pack)
+$DevBuild = (-not $Pack -and -not $SignExisting)
+Write-Log "Writing generated/build_flags.h (DevBuild=$([bool]$DevBuild))..." STEP
+Write-BuildFlags -DevBuild:$DevBuild
 
 # --- Config generation -------------------------------------------------------
 
@@ -227,6 +246,134 @@ if (-not $env:PAYLOAD_KEY) {
     Write-Log "PAYLOAD_KEY not set - add payload_key to cobble.json or set the env var" FAIL; exit 1
 }
 Write-Log "Config headers generated" OK
+
+function New-SignedRelease {
+    param(
+        [string]$SourceLoader,
+        [string]$SourceDll,
+        [bool]$Protected
+    )
+
+    Assert-File $Paths.PrivateKey "infra/keys/private.key not found - get it from the team lead"
+    Assert-File $SourceLoader "CobbleLoader.exe not found at $SourceLoader"
+    Assert-File $SourceDll "Cobble.dll not found at $SourceDll"
+
+    $version = Get-Version
+
+    New-Item -ItemType Directory -Force -Path $Paths.ReleaseDir | Out-Null
+    $releaseLoader = "$($Paths.ReleaseDir)\CobbleLoader.exe"
+    $releaseDll    = "$($Paths.ReleaseDir)\Cobble.dll"
+
+    Copy-Item -LiteralPath $SourceLoader -Destination $releaseLoader -Force
+    Copy-Item -LiteralPath $SourceDll    -Destination $releaseDll    -Force
+
+    $loaderHash = Get-SHA256 $releaseLoader
+    $loaderSize = (Get-Item $releaseLoader).Length
+    $releaseDllHash = Get-SHA256 $releaseDll
+    $releaseDllSize = (Get-Item $releaseDll).Length
+
+    $isMandatory = $false
+    if ($Mandatory) {
+        $isMandatory = $true
+    } else {
+        $isMandatory = ($Host.UI.PromptForChoice("Release", "Mark as MANDATORY update?",
+            @("&Yes","&No"), 1) -eq 0)
+    }
+
+    $manifest = [ordered]@{
+        version       = $version
+        min_allowed   = "1.0.0"
+        mandatory     = $isMandatory
+        protected     = $Protected
+        loader_sha256 = $loaderHash
+        loader_size   = $loaderSize
+        dll_sha256    = $releaseDllHash
+        dll_size      = $releaseDllSize
+        notes         = $ReleaseNotes
+    }
+    $manifestBytes = [System.Text.Encoding]::UTF8.GetBytes(($manifest | ConvertTo-Json -Compress))
+    [System.IO.File]::WriteAllBytes("$($Paths.ReleaseDir)\manifest.json", $manifestBytes)
+
+    Write-Log "Signing manifest with Ed25519..." STEP
+    Assert-File $Paths.SignScript "tools/sign_manifest.go not found"
+    go run $Paths.SignScript `
+        -key      $Paths.PrivateKey `
+        -manifest "$($Paths.ReleaseDir)\manifest.json" `
+        -out      "$($Paths.ReleaseDir)\manifest.sig"
+    if ($LASTEXITCODE -ne 0) { Write-Log "Manifest signing failed - is Go installed?" FAIL; exit 1 }
+    Assert-File "$($Paths.ReleaseDir)\manifest.sig" "manifest.sig not produced"
+    Write-Log "Release v$version signed" OK
+
+    return [pscustomobject]@{
+        LoaderPath = $releaseLoader
+        DllPath    = $releaseDll
+        LoaderHash = $loaderHash
+        DllHash    = $releaseDllHash
+        DllSize    = $releaseDllSize
+    }
+}
+
+function Deploy-Release {
+    param([string[]]$Files)
+
+    Write-Log "Deploying to VPS..." STEP
+
+    $vpsHost    = $cobbleConfig.deploy.vps_host
+    $vpsUser    = $cobbleConfig.deploy.vps_user
+    $sshKey     = $cobbleConfig.deploy.ssh_key -replace '~', $env:USERPROFILE
+    $remotePath = $cobbleConfig.deploy.releases_path
+
+    $sshOpts = @("-o","StrictHostKeyChecking=no","-o","UserKnownHostsFile=NUL","-o","LogLevel=ERROR","-i",$sshKey)
+
+    & ssh @sshOpts "${vpsUser}@${vpsHost}" "mkdir -p '$remotePath'"
+    if ($LASTEXITCODE -ne 0) { Write-Log "Cannot reach remote dir $remotePath" FAIL; exit 1 }
+
+    & scp @sshOpts $Files "${vpsUser}@${vpsHost}:${remotePath}/"
+    if ($LASTEXITCODE -ne 0) { Write-Log "scp failed" FAIL; exit 1 }
+    Write-Log "Deployed $($Files.Count) files to ${vpsUser}@${vpsHost}:${remotePath}" OK
+}
+
+if ($SignExisting) {
+    $existingDir = if ($ExistingReleaseDir) { $ExistingReleaseDir } else { "$PSScriptRoot\out\vmprotect" }
+    $sourceLoader = if ($ExistingLoader) { $ExistingLoader } else { Join-Path $existingDir "CobbleLoader.exe" }
+    $sourceDll = if ($ExistingDll) { $ExistingDll } else { Join-Path $existingDir "Cobble.dll" }
+
+    Write-Log "Signing externally protected binaries..." STEP
+    Write-Log "Loader: $sourceLoader" INFO
+    Write-Log "DLL   : $sourceDll" INFO
+
+    $releaseInfo = New-SignedRelease -SourceLoader $sourceLoader -SourceDll $sourceDll -Protected:$true
+    if ($Deploy) {
+        Deploy-Release -Files @(
+            $releaseInfo.LoaderPath,
+            $releaseInfo.DllPath,
+            "$($Paths.ReleaseDir)\manifest.json",
+            "$($Paths.ReleaseDir)\manifest.sig"
+        )
+    }
+
+    $elapsed     = (Get-Date) - $BuildStart
+    $elapsed_str = $elapsed.ToString("mm\:ss")
+
+    Write-Host ""
+    Write-Host "  +----------------------------------+" -ForegroundColor Green
+    Write-Host "  |       SIGN/DEPLOY SUCCEEDED      |" -ForegroundColor Green
+    Write-Host "  +----------------------------------+" -ForegroundColor Green
+    Write-Host ""
+    Write-Host "  Release"
+    Write-Host "  -------"
+    Write-Host "  DLL      : $($releaseInfo.DllPath)"
+    Write-Host "  Loader   : $($releaseInfo.LoaderPath)"
+    Write-Host "  Hash     : $($releaseInfo.DllHash.Substring(0,16))..."
+    Write-Host "  Manifest : SIGNED" -ForegroundColor Green
+    if ($Deploy) {
+        Write-Host "  Deployed : YES" -ForegroundColor Green
+    }
+    Write-Host ""
+    Write-Host "  Build time: $elapsed_str" -ForegroundColor DarkGray
+    Write-Host ""
+    exit 0
+}
 
 # --- DLL build ---------------------------------------------------------------
 
@@ -330,11 +477,12 @@ Build-Loader "Pass 2"
 
 if ($Pack) {
 
-    Write-Log "Starting Pack pipeline (Themida + signed manifest)..." STEP
+    Write-Log "Starting Pack pipeline (protector=$Protector + signed manifest)..." STEP
     $version = Get-Version
 
     Assert-File $Paths.PrivateKey "infra/keys/private.key not found - get it from the team lead"
 
+    if ($Protector -eq "Themida") {
     $ThemidaExe = $null
     foreach ($c in @("$($Paths.ThemidaDir)\Themida64.exe", "$($Paths.ThemidaDir)\Themida.exe")) {
         if (Test-Path $c) { $ThemidaExe = $c; break }
@@ -391,6 +539,9 @@ if ($Pack) {
             Remove-Item $Paths.TempDir -Force -ErrorAction SilentlyContinue
         }
     }
+    } else {
+        Write-Log "Skipping built-in protector; use external VMProtect before publishing this release" WARN
+    }
 
     # Assemble release directory
     New-Item -ItemType Directory -Force -Path $Paths.ReleaseDir | Out-Null
@@ -407,7 +558,7 @@ if ($Pack) {
         version       = $version
         min_allowed   = "1.0.0"
         mandatory     = $isMandatory
-        protected     = $true
+        protected     = ($Protector -ne "None")
         loader_sha256 = $loaderHash
         loader_size   = $loaderSize
         dll_sha256    = $dllHash
@@ -479,9 +630,14 @@ if ($Pack) {
     Write-Host "  Pack" -ForegroundColor Green
     Write-Host "  -------" -ForegroundColor Green
     Write-Host "  Version    : $(Get-Version)" -ForegroundColor Green
-    Write-Host "  Themida    : APPLIED" -ForegroundColor Green
+    if ($Protector -eq "Themida") {
+        Write-Host "  Protector  : Themida APPLIED" -ForegroundColor Green
+    } else {
+        Write-Host "  Protector  : NONE - run VMProtect, then -SignExisting" -ForegroundColor Yellow
+    }
     Write-Host "  Manifest   : SIGNED" -ForegroundColor Green
-    Write-Host "  Deployable : YES" -ForegroundColor Green
+    $deployableLabel = if ($Protector -eq "Themida") { "YES" } else { "AFTER -SignExisting" }
+    Write-Host "  Deployable : $deployableLabel" -ForegroundColor Green
     if ($Deploy) {
         Write-Host "  Deployed   : YES" -ForegroundColor Green
     }
