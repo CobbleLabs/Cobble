@@ -351,15 +351,18 @@ void AimAssist::onUpdate() {
 
     bool mouseDown = (GetAsyncKeyState(VK_LBUTTON) & 0x8000) != 0;
 
-    if (!mouseDown && settings.lockAim) {
-        if (cachedTarget) {
-            Java::Env()->DeleteGlobalRef(cachedTarget);
-            cachedTarget = nullptr;
-        }
-        hasLockedTarget = false;
-    }
-
     if (!settings.alwaysAim && !mouseDown) {
+        // Entity Lock keeps the target between clicks. Without it, the next
+        // click starts with a fresh target selection.
+        if (!settings.entityLock) {
+            if (cachedTarget) {
+                Java::Env()->DeleteGlobalRef(cachedTarget);
+                cachedTarget = nullptr;
+            }
+            hasLockedTarget = false;
+            targetHasHitbox = false;
+        }
+        lastMouseDown = false;
         return;
     }
 
@@ -390,23 +393,9 @@ void AimAssist::onUpdate() {
     double localZ = player.getPosZ();
     targetChangedThisFrame = false;
 
-    bool getNewTarget = true;
-
-    // Switch mode: ALWAYS get a new target (evaluates every frame)
-    // Other modes: Check if locked target is still valid
-    if (settings.targetMode == TargetMode::SWITCH) {
-        getNewTarget = true;  // Always evaluate for better target
-    } else if (settings.lockAim && hasLockedTarget) {
-        float yawToTarget = getAngles(localX, localY, localZ, lockedTargetX, lockedTargetY, lockedTargetZ).first;
-        float yawDiff = std::abs(wrapTo180(-(localYaw - yawToTarget)));
-        double dist = std::sqrt((lockedTargetX - localX) * (lockedTargetX - localX) +
-                                (lockedTargetY - localY) * (lockedTargetY - localY) +
-                                (lockedTargetZ - localZ) * (lockedTargetZ - localZ));
-
-        if (yawDiff <= settings.fov && dist <= settings.distance) {
-            getNewTarget = false;
-        }
-    }
+    // Scans are rate-limited inside findTarget. Entity Lock uses them to
+    // validate the current entity without allowing a better candidate to take it.
+    const bool getNewTarget = true;
 
     double targetX = lockedTargetX;
     double targetY = lockedTargetY;
@@ -591,7 +580,7 @@ bool AimAssist::findTarget(double& targetX, double& targetY, double& targetZ) {
         log_warn("[AimAssist] Cleared JNI exception - cache reset");
     }
 
-    bool wantHitboxRefresh = settings.lockAim && cachedTarget && hitboxRefreshTimer.Elapsed<>() >= hitboxRefreshMs;
+    bool wantHitboxRefresh = settings.entityLock && cachedTarget && hitboxRefreshTimer.Elapsed<>() >= hitboxRefreshMs;
 
     // FAST PATH: If we have a cached target, update its position & validate
     if (cachedTarget && scanTimer.Elapsed<>() < 50 && !wantHitboxRefresh)  // Rescan every 50ms
@@ -692,6 +681,13 @@ bool AimAssist::findTarget(double& targetX, double& targetY, double& targetZ) {
     jobject bestPlayerObjLocal = nullptr;
     PlayerInfo closestPlayer;
     bool refreshedHitbox = false;
+    bool lockedEntityFound = false;
+    auto releasePlayerRef = [env](PlayerInfo& candidate) {
+        if (candidate.instance && env) {
+            env->DeleteLocalRef(candidate.instance);
+            candidate.instance = nullptr;
+        }
+    };
 
     for (auto& p : players) {
         bool sameAsLocked = false;
@@ -704,8 +700,8 @@ bool AimAssist::findTarget(double& targetX, double& targetY, double& targetZ) {
             }
         }
 
-        // Refresh stored hitbox for lockAim to avoid stale dimensions
-        if (sameAsLocked && settings.lockAim) {
+        // Refresh stored hitbox for Entity Lock to avoid stale dimensions.
+        if (sameAsLocked && settings.entityLock) {
             targetHitboxMinX = p.hitboxMinX;
             targetHitboxMinY = p.hitboxMinY;
             targetHitboxMinZ = p.hitboxMinZ;
@@ -724,23 +720,37 @@ bool AimAssist::findTarget(double& targetX, double& targetY, double& targetZ) {
         float dist = (float)std::sqrt(dx * dx + dy * dy + dz * dz);
 
         if (dist > settings.distance || dist < 0.2f) {
+            releasePlayerRef(p);
             continue;
         }
         if (p.isInvisible && !settings.invisibles) {
+            releasePlayerRef(p);
             continue;
         }
         if (p.isNPC) {
+            releasePlayerRef(p);
+            continue;
+        }
+        if (p.health <= 0.0f) {
+            releasePlayerRef(p);
             continue;
         }
 
         if (friendsManager) {
+            if (p.isOnLocalTeam) {
+                releasePlayerRef(p);
+                continue;
+            }
+
             bool isApolloTeam = !p.uuid.empty() && friendsManager->isLunarTeammate(p.uuid);
             if (isApolloTeam) {
+                releasePlayerRef(p);
                 continue;
             }
 
             bool isApolloNametag = !p.uuid.empty() && friendsManager->isApolloTeammate(p.uuid);
             if (isApolloNametag) {
+                releasePlayerRef(p);
                 continue;
             }
 
@@ -748,6 +758,7 @@ bool AimAssist::findTarget(double& targetX, double& targetY, double& targetZ) {
             bool isFriendByUUID = !p.uuid.empty() && friendsManager->isFriendByUUID(p.uuid);
             bool isFriendByName = friendsManager->isFriend(FriendsManager::stripColorCodes(p.name));
             if (isFriendByUUID || isFriendByName) {
+                releasePlayerRef(p);
                 continue;
             }
 
@@ -762,8 +773,18 @@ bool AimAssist::findTarget(double& targetX, double& targetY, double& targetZ) {
 
             ChatColor playerColor = static_cast<ChatColor>(p.teamColor);
             ChatColor localColor = static_cast<ChatColor>(localTeamColor);
-            bool isScoreboardTeammate = friendsManager->isTeammate(p.uuid, playerColor, localColor);
+            static std::string localPlayerName;
+            static Timer nameRefreshTimer;
+            if (localPlayerName.empty() || nameRefreshTimer.Elapsed<>() > 1000) {
+                localPlayerName = mc.getLocalPlayerName();
+                nameRefreshTimer.Start();
+            }
+            bool isScoreboardTeammate =
+                friendsManager->isScoreboardTeammate(localPlayerName,
+                                                     p.profileName.empty() ? p.name : p.profileName) ||
+                friendsManager->isTeammate(p.uuid, playerColor, localColor);
             if (isScoreboardTeammate) {
+                releasePlayerRef(p);
                 continue;
             }
         }
@@ -772,10 +793,21 @@ bool AimAssist::findTarget(double& targetX, double& targetY, double& targetZ) {
         float yawDiff = std::abs(wrapTo180(-(localYaw - yawToTarget)));
 
         if ((int)yawDiff > settings.fov / 2) {
+            releasePlayerRef(p);
             continue;
         }
 
-        if (settings.targetMode == TargetMode::DISTANCE) {
+        // A valid locked entity wins regardless of target or switch sort mode.
+        if (settings.entityLock && sameAsLocked) {
+            if (bestPlayerObjLocal && env)
+                env->DeleteLocalRef(bestPlayerObjLocal);
+            bestPlayerObjLocal = env && p.instance ? env->NewLocalRef(p.instance) : nullptr;
+            closestPlayer = p;
+            found = true;
+            lockedEntityFound = true;
+        } else if (lockedEntityFound) {
+            // Do not let later candidates replace the locked entity.
+        } else if (settings.targetMode == TargetMode::DISTANCE) {
             if (dist < closestDistance) {
                 closestDistance = dist;
                 closestPlayer = p;
@@ -852,9 +884,7 @@ bool AimAssist::findTarget(double& targetX, double& targetY, double& targetZ) {
             }
         }
 
-        if (p.instance && env) {
-            env->DeleteLocalRef(p.instance);
-        }
+        releasePlayerRef(p);
     }
 
     if (found) {
@@ -1361,16 +1391,14 @@ void AimAssist::onRenderMenu() {
             ui::Checkbox("Aim Closest Point", &settings.aimAtClosestPoint);
             ui::Checkbox("Target Invisibles", &settings.invisibles);
             ui::Checkbox("Stop On Hitbox", &settings.stopOnHitbox);
+            ui::Checkbox("Entity Lock", &settings.entityLock);
             ImGui::Spacing();
-            if (ImGui::Combo("Target Mode", &currentMode, targetModes, IM_ARRAYSIZE(targetModes))) {
+            if (ui::Combo("Target Mode", &currentMode, targetModes, IM_ARRAYSIZE(targetModes))) {
                 settings.targetMode = static_cast<TargetMode>(currentMode);
-            }
-            if (settings.targetMode == TargetMode::DISTANCE || settings.targetMode == TargetMode::FOV) {
-                ui::Checkbox("Lock Aim", &settings.lockAim);
             }
             // Show Sort By option only when Switch mode is selected
             if (settings.targetMode == TargetMode::SWITCH) {
-                if (ImGui::Combo("Sort By", &currentSortBy, sortByModes, IM_ARRAYSIZE(sortByModes))) {
+                if (ui::Combo("Sort By", &currentSortBy, sortByModes, IM_ARRAYSIZE(sortByModes))) {
                     settings.switchSortBy = static_cast<SortBy>(currentSortBy);
                 }
                 // Show Lock option only when Hurt Time is selected

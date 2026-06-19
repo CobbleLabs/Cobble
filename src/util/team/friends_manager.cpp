@@ -345,6 +345,25 @@ void FriendsManager::addFriendByUUID(const std::string& uuid, const std::string&
     }).detach();
 }
 
+void FriendsManager::restoreFriend(const std::string& uuid, const std::string& displayName) {
+    std::string cleanName = stripColorCodes(displayName);
+    std::string lowerName = toLower(cleanName);
+    if (uuid.empty() && lowerName.empty())
+        return;
+
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (!uuid.empty()) {
+        FriendData data;
+        data.uuid = uuid;
+        data.displayName = cleanName.empty() ? uuid.substr(0, 8) : cleanName;
+        friendsByUUID_[uuid] = data;
+        friendsByName_.insert(toLower(data.displayName));
+    } else {
+        friendsByName_.insert(lowerName);
+        pendingNames_.insert(lowerName);
+    }
+}
+
 void FriendsManager::removeFriendByUUID(const std::string& uuid) {
     std::lock_guard<std::mutex> lock(mutex_);
     // Also remove from friendsByName_ using the displayName
@@ -393,8 +412,15 @@ void FriendsManager::updateFriendName(const std::string& uuid, const std::string
 std::vector<FriendData> FriendsManager::getFriends() const {
     std::lock_guard<std::mutex> lock(mutex_);
     std::vector<FriendData> result;
+    std::set<std::string> resolvedNames;
     for (const auto& pair : friendsByUUID_) {
         result.push_back(pair.second);
+        resolvedNames.insert(toLower(stripColorCodes(pair.second.displayName)));
+    }
+    for (const auto& name : friendsByName_) {
+        if (resolvedNames.find(name) == resolvedNames.end()) {
+            result.push_back({"", name});
+        }
     }
     return result;
 }
@@ -440,11 +466,11 @@ void FriendsManager::addFriend(const std::string& name) {
             pendingNames_.erase(lower);
             log_ok("[Friends] Added '%s' (UUID: %s)", cleanName.c_str(), uuid.c_str());
         } else {
-            // Failed - remove from lists (player not found)
+            // Keep the name-only entry. Offline-mode and protected servers may not
+            // expose a Mojang profile, but the friend must still persist and match by name.
             std::lock_guard<std::mutex> lock(mutex_);
-            friendsByName_.erase(lower);
-            pendingNames_.erase(lower);
-            log_warn("[Friends] '%s' not found - removed from list", cleanName.c_str());
+            pendingNames_.insert(lower);
+            log_warn("[Friends] '%s' not found by Mojang - keeping name-only entry", cleanName.c_str());
         }
     }).detach();
 }
@@ -517,20 +543,6 @@ bool FriendsManager::isTeammate(const std::string& playerUUID, ChatColor playerC
         }
     }
 
-    // Check if ANY Lunar teammates exist for current world
-    // If yes, ONLY use Lunar API (ignore color matching to avoid false positives)
-    if (teams.lunarApiEnabled) {
-        std::lock_guard<std::mutex> lock(mutex_);
-        for (const auto& entry : lunarTeammates_) {
-            if (entry.second.registeredAtSerial == currentSerial) {
-                // Lunar API is active - don't use color matching as fallback
-                // This prevents false positives from servers that give same color to non-teammates
-                return false;
-            }
-        }
-    }
-
-    // Only use color matching as FALLBACK when no Lunar API data exists
     // Auto color: match own nametag color
     if (teams.matchOwnNametag && localColor != ChatColor::UNKNOWN && playerColor == localColor) {
         return true;
@@ -541,6 +553,60 @@ bool FriendsManager::isTeammate(const std::string& playerUUID, ChatColor playerC
         return true;
     }
 
+    return false;
+}
+
+void FriendsManager::updateScoreboardTeam(const std::string& teamName, int action,
+                                          const std::vector<std::string>& players) {
+    if (teamName.empty())
+        return;
+
+    std::lock_guard<std::mutex> lock(mutex_);
+    std::string normalizedTeam = toLower(teamName);
+
+    if (action == 1) {
+        scoreboardTeams_.erase(normalizedTeam);
+        return;
+    }
+
+    auto& members = scoreboardTeams_[normalizedTeam];
+    if (action == 0) {
+        members.clear();
+    }
+
+    for (const auto& playerName : players) {
+        std::string normalized = toLower(stripColorCodes(playerName));
+        normalized.erase(0, normalized.find_first_not_of(" \t\r\n"));
+        size_t end = normalized.find_last_not_of(" \t\r\n");
+        if (end != std::string::npos)
+            normalized.erase(end + 1);
+        if (normalized.empty())
+            continue;
+
+        if (action == 4)
+            members.erase(normalized);
+        else if (action == 0 || action == 3)
+            members.insert(normalized);
+    }
+}
+
+void FriendsManager::clearScoreboardTeams() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    scoreboardTeams_.clear();
+}
+
+bool FriendsManager::isScoreboardTeammate(const std::string& localName, const std::string& playerName) const {
+    if (!teams.enabled || localName.empty() || playerName.empty())
+        return false;
+
+    std::string local = toLower(stripColorCodes(localName));
+    std::string target = toLower(stripColorCodes(playerName));
+    std::lock_guard<std::mutex> lock(mutex_);
+    for (const auto& team : scoreboardTeams_) {
+        const auto& members = team.second;
+        if (members.find(local) != members.end() && members.find(target) != members.end())
+            return true;
+    }
     return false;
 }
 
@@ -826,6 +892,7 @@ void FriendsManager::notifyWorldChangePacket() {
     log_ok("[FriendsManager] World change detected (packet) - clearing teammate data");
     clearLunarTeammates();
     clearApolloNametags();
+    clearScoreboardTeams();
     clearVisualFriends();
     worldChangeSerial_.fetch_add(1, std::memory_order_relaxed);
 }
@@ -871,6 +938,7 @@ bool FriendsManager::checkWorldChange() {
             // Clear all session-based teammate data
             clearLunarTeammates();
             clearApolloNametags();
+            clearScoreboardTeams();
             clearVisualFriends();
             worldChangeSerial_.fetch_add(1, std::memory_order_relaxed);
         }

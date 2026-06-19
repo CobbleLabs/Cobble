@@ -6,13 +6,16 @@
 #include "module/combat/hitselect.h"
 #include "module/combat/nohitdelay.h"
 #include "module/combat/criticals.h"
+#include "module/combat/piercing.h"
 
 #include "module/combat/reach.h"
 #include "module/combat/velocity.h"
 #include "module/module_manager.h"
 #include "module/movement/nojumpdelay.h"
+#include "module/movement/no_slow_down.h"
 #include "module/movement/blink.h"
 #include "module/movement/timer.h"
+#include "module/movement/timerrange.h"
 #include "module/movement/sprint.h"
 #include "module/utility/armorswitch.h"
 #include "module/utility/autorefill.h"
@@ -26,6 +29,7 @@
 #include "module/visual/esp.h"
 #include "module/visual/item_esp.h"
 #include "module/visual/nametags.h"
+#include "module/visual/anti_debuff.h"
 #include "module/visual/tracers.h"
 #include "module/visual/trajectories.h"
 #include "module/visual/dropped_info.h"
@@ -159,6 +163,8 @@ void cobble::context::initialize(HMODULE hModule) {
     velocity = new Velocity();
     COBBLE_TRACE("alloc:Reach");
     reach = new Reach();
+    COBBLE_TRACE("alloc:Piercing");
+    piercing = new Piercing();
 
     COBBLE_TRACE("alloc:Backtrack");
     backtrack = new Backtrack();
@@ -168,6 +174,8 @@ void cobble::context::initialize(HMODULE hModule) {
     noHitDelay = new NoHitDelay();
     COBBLE_TRACE("alloc:Criticals");
     criticals = new Criticals();
+    COBBLE_TRACE("alloc:NoSlowDown");
+    noSlowDown = new NoSlowDown();
     COBBLE_TRACE("alloc:NoJumpDelay");
     noJumpDelay = new NoJumpDelay();
     COBBLE_TRACE("alloc:NoItemRelease");
@@ -180,6 +188,8 @@ void cobble::context::initialize(HMODULE hModule) {
     fastPlace = new FastPlace();
     COBBLE_TRACE("alloc:TimerMod");
     timerModule = new TimerMod();
+    COBBLE_TRACE("alloc:TimerRange");
+    timerRange = new TimerRange();
     COBBLE_TRACE("alloc:Sprint");
     sprint = new Sprint();
     COBBLE_TRACE("alloc:AutoTool");
@@ -190,6 +200,8 @@ void cobble::context::initialize(HMODULE hModule) {
     altManager = new AltManager();
     COBBLE_TRACE("alloc:NameTags");
     nameTags = new NameTags();
+    COBBLE_TRACE("alloc:AntiDebuff");
+    antiDebuff = new AntiDebuff();
     COBBLE_TRACE("alloc:ESP");
     esp = new ESP();
     COBBLE_TRACE("alloc:ItemESP");
@@ -214,22 +226,26 @@ void cobble::context::initialize(HMODULE hModule) {
     moduleManager->registerModule(autoRefill);
     moduleManager->registerModule(velocity);
     moduleManager->registerModule(reach);
+    moduleManager->registerModule(piercing);
 
     moduleManager->registerModule(backtrack);
     moduleManager->registerModule(hitSelect);
     moduleManager->registerModule(noHitDelay);
     moduleManager->registerModule(criticals);
+    moduleManager->registerModule(noSlowDown);
     moduleManager->registerModule(noJumpDelay);
     moduleManager->registerModule(noItemRelease);
     moduleManager->registerModule(bridgeAssist);
     moduleManager->registerModule(blink);
     moduleManager->registerModule(fastPlace);
     moduleManager->registerModule(timerModule);
+    moduleManager->registerModule(timerRange);
     moduleManager->registerModule(sprint);
     moduleManager->registerModule(autoTool);
     moduleManager->registerModule(inventoryManager);
     moduleManager->registerModule(altManager);
     moduleManager->registerModule(nameTags);
+    moduleManager->registerModule(antiDebuff);
     moduleManager->registerModule(esp);
     moduleManager->registerModule(itemEsp);
     moduleManager->registerModule(tracers);
@@ -424,6 +440,8 @@ void cobble::context::shutdown() {
         velocity->setEnabled(false);
     if (reach)
         reach->setEnabled(false);
+    if (piercing)
+        piercing->setEnabled(false);
 
     if (backtrack)
         backtrack->setEnabled(false);
@@ -433,6 +451,8 @@ void cobble::context::shutdown() {
         noHitDelay->setEnabled(false);
     if (criticals)
         criticals->setEnabled(false);
+    if (noSlowDown)
+        noSlowDown->setEnabled(false);
     if (noJumpDelay)
         noJumpDelay->setEnabled(false);
     if (noItemRelease)
@@ -445,6 +465,8 @@ void cobble::context::shutdown() {
         fastPlace->setEnabled(false);
     if (timerModule)
         timerModule->setEnabled(false);
+    if (timerRange)
+        timerRange->setEnabled(false);
     if (sprint)
         sprint->setEnabled(false);
     if (autoTool)
@@ -455,6 +477,8 @@ void cobble::context::shutdown() {
         altManager->setEnabled(false);
     if (nameTags)
         nameTags->setEnabled(false);
+    if (antiDebuff)
+        antiDebuff->setEnabled(false);
     if (esp)
         esp->setEnabled(false);
     if (itemEsp)
@@ -500,6 +524,10 @@ void cobble::context::shutdown() {
         delete reach;
         reach = nullptr;
     }
+    if (piercing) {
+        delete piercing;
+        piercing = nullptr;
+    }
 
     if (backtrack) {
         delete backtrack;
@@ -516,6 +544,10 @@ void cobble::context::shutdown() {
     if (criticals) {
         delete criticals;
         criticals = nullptr;
+    }
+    if (noSlowDown) {
+        delete noSlowDown;
+        noSlowDown = nullptr;
     }
     if (noJumpDelay) {
         delete noJumpDelay;
@@ -541,6 +573,10 @@ void cobble::context::shutdown() {
         delete timerModule;
         timerModule = nullptr;
     }
+    if (timerRange) {
+        delete timerRange;
+        timerRange = nullptr;
+    }
     if (sprint) {
         delete sprint;
         sprint = nullptr;
@@ -560,6 +596,10 @@ void cobble::context::shutdown() {
     if (nameTags) {
         delete nameTags;
         nameTags = nullptr;
+    }
+    if (antiDebuff) {
+        delete antiDebuff;
+        antiDebuff = nullptr;
     }
     if (esp) {
         delete esp;

@@ -11,6 +11,7 @@ public:
     void onDisable() override;
     void onUpdate() override;
     void onRenderMenu() override;
+    bool showsDeveloperOnly() const override { return !isUnlocked; }
 
     struct Settings {
         int maxDelayMs = 100;           // Delay between criticals (50-500ms)

@@ -124,8 +124,10 @@ void ESP::onUpdate() {
 
         EspPlayer cached;
         cached.name = p.name;
+        cached.profileName = p.profileName;
         cached.uuid = p.uuid;            // For team/friend detection
         cached.teamColor = p.teamColor;  // Apollo/Lunar nametag color for teammate detection
+        cached.isOnLocalTeam = p.isOnLocalTeam;
         cached.posX = p.posX;
         cached.posY = p.posY;
         cached.posZ = p.posZ;
@@ -382,7 +384,7 @@ void ESP::onRender() {
 
         if (settings.teamColors && friendsManager && !p.uuid.empty()) {
             // Priority 1: Apollo Teams (most reliable - explicit team packets)
-            if (friendsManager->isLunarTeammate(p.uuid)) {
+            if (p.isOnLocalTeam || friendsManager->isLunarTeammate(p.uuid)) {
                 isFriendOrTeam = true;
             }
             // Priority 2: Apollo Nametags (GREEN or DARK_GREEN = teammate)
@@ -406,7 +408,12 @@ void ESP::onRender() {
 
                 ChatColor playerColor = static_cast<ChatColor>(p.teamColor);
                 ChatColor localColor = static_cast<ChatColor>(localTeamColor);
-                if (friendsManager->isTeammate(p.uuid, playerColor, localColor)) {
+                static std::string localPlayerName;
+                if (localPlayerName.empty())
+                    localPlayerName = mc.getLocalPlayerName();
+                const std::string& scoreboardName = p.profileName.empty() ? p.name : p.profileName;
+                if (friendsManager->isScoreboardTeammate(localPlayerName, scoreboardName) ||
+                    friendsManager->isTeammate(p.uuid, playerColor, localColor)) {
                     isFriendOrTeam = true;
                 }
             }

@@ -77,6 +77,13 @@ ImColor col_anim(ImU32 from, ImU32 to, float t);
 
 // ==================== LAYOUT HELPERS ====================
 
+// Hover-description context. The menu sets this to the currently rendered
+// module so repeated labels such as "Mode" and "Range" remain specific.
+void SetDescriptionContext(const char* context);
+const char* GetModuleDescription(const char* module);
+void HoverDescription(const char* key, bool hovered, const char* explicitText = nullptr, bool rainbow = false);
+void DescribeLastItem(const char* key, const char* explicitText = nullptr, bool rainbow = false);
+
 // Two-column layout helper - standard module settings layout
 void two_column(const char* leftTitle, std::function<void()> leftContent, const char* rightTitle,
                 std::function<void()> rightContent);

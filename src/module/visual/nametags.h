@@ -50,6 +50,8 @@ public:
         bool showArmor = true;
         bool showEffects = true;
         bool debugEffects = false;
+        float normalColor[4] = {1.0f, 1.0f, 1.0f, 1.0f};
+        float friendColor[4] = {0.0f, 1.0f, 0.35f, 1.0f};
     } settings;
 
 private:
@@ -79,8 +81,8 @@ private:
     // Debug: last emitted potion signature per player key (uuid preferred, otherwise entityId).
     std::map<std::string, std::string> lastPotionSig;
 
-    void renderPlayerTag(ImDrawList* draw, float screenX, float screenY, const char* name, float distance, float health,
-                         float maxHealth, const std::vector<PlayerInfo::ArmorItem>& armor,
+    void renderPlayerTag(ImDrawList* draw, float screenX, float screenY, const char* name, unsigned int nameColor,
+                         float distance, float health, float maxHealth, const std::vector<PlayerInfo::ArmorItem>& armor,
                          const std::vector<PlayerInfo::PotionEffectInfo>& potions);
 };
 

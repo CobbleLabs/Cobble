@@ -8,13 +8,16 @@
 #include "../../module/combat/hitselect.h"
 #include "../../module/combat/nohitdelay.h"
 #include "../../module/combat/criticals.h"
+#include "../../module/combat/piercing.h"
 
 #include "../../module/combat/reach.h"
 #include "../../module/combat/velocity.h"
 #include "../../module/module_manager.h"
 #include "../../module/movement/nojumpdelay.h"
+#include "../../module/movement/no_slow_down.h"
 #include "../../module/movement/blink.h"
 #include "../../module/movement/timer.h"
+#include "../../module/movement/timerrange.h"
 #include "../../module/movement/sprint.h"
 #include "../../module/utility/armorswitch.h"
 #include "../../module/utility/autorefill.h"
@@ -28,6 +31,7 @@
 #include "../../module/visual/esp.h"
 #include "../../module/visual/item_esp.h"
 #include "../../module/visual/nametags.h"
+#include "../../module/visual/anti_debuff.h"
 #include "../../module/visual/tracers.h"
 #include "../../module/visual/trajectories.h"
 #include "../../module/visual/dropped_info.h"
@@ -52,7 +56,7 @@ static bool g_configsNeedsRefresh = false;
 // Module lookup by tab and subtab index
 // Returns the module that corresponds to the current subtab
 Module* getModuleForSubtab(int tabIdx, int subtabIdx) {
-    // Combat Tab (0): AutoClicker, AimAssist, Velocity, Reach, HitSelect, NoHitDelay, Criticals, Backtrack
+    // Combat Tab (0): AutoClicker, AimAssist, Velocity, Reach, HitSelect, NoHitDelay, Criticals, Backtrack, Piercing
     if (tabIdx == 0) {
         switch (subtabIdx) {
             case 0:
@@ -71,6 +75,8 @@ Module* getModuleForSubtab(int tabIdx, int subtabIdx) {
                 return criticals;
             case 7:
                 return backtrack;
+            case 8:
+                return piercing;
         }
     }
     // Visuals Tab (1)
@@ -89,23 +95,29 @@ Module* getModuleForSubtab(int tabIdx, int subtabIdx) {
             case 5:
                 return trajectories;
             case 6:
-                return nullptr;  // ArrayList - special handling
+                return antiDebuff;
             case 7:
-                return droppedInfo;  // DroppedInfo
+                return nullptr;  // ArrayList - special handling
             case 8:
+                return droppedInfo;  // DroppedInfo
+            case 9:
                 return nullptr;  // Notifications - special handling
         }
     }
-    // Movement Tab (2): Timer, NoJumpDelay, Blink
+    // Movement Tab (2): Timer, TimerRange, NoJumpDelay, Blink, Sprint
     else if (tabIdx == 2) {
         switch (subtabIdx) {
             case 0:
                 return timerModule;
             case 1:
-                return noJumpDelay;
+                return timerRange;
             case 2:
-                return blink;
+                return noSlowDown;
             case 3:
+                return noJumpDelay;
+            case 4:
+                return blink;
+            case 5:
                 return sprint;
         }
     }
@@ -225,19 +237,24 @@ static void renderSettingsPage() {
                 auto friends = friendsManager->getFriends();
                 if (!friends.empty()) {
                     ImGui::Separator();
-                    std::string toRemove = "";
+                    std::string uuidToRemove;
+                    std::string nameToRemove;
                     for (const auto& f : friends) {
                         ImGui::Text("%s", f.displayName.c_str());
                         ImGui::SameLine(ImGui::GetContentRegionAvail().x - ui::s(20));
-                        ImGui::PushID(f.uuid.c_str());
+                        ImGui::PushID((f.uuid.empty() ? f.displayName : f.uuid).c_str());
                         if (ImGui::SmallButton("X")) {
-                            toRemove = f.uuid;
+                            if (f.uuid.empty())
+                                nameToRemove = f.displayName;
+                            else
+                                uuidToRemove = f.uuid;
                         }
                         ImGui::PopID();
                     }
-                    if (!toRemove.empty()) {
-                        friendsManager->removeFriendByUUID(toRemove);
-                    }
+                    if (!uuidToRemove.empty())
+                        friendsManager->removeFriendByUUID(uuidToRemove);
+                    if (!nameToRemove.empty())
+                        friendsManager->removeFriend(nameToRemove);
                 } else {
                     ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetColorU32(ImGuiCol_TextDisabled));
                     ImGui::TextWrapped("No friends added");
@@ -421,10 +438,12 @@ static void renderPage() {
     s_prevTab = ui::cur_tab;
 
     if (ui::cur_tab == settingsIdx) {
+        ui::SetDescriptionContext("Settings");
         renderSettingsPage();
         return;
     }
     if (ui::cur_tab == configsIdx) {
+        ui::SetDescriptionContext("Configs");
         renderConfigsPage();
         return;
     }
@@ -435,6 +454,7 @@ static void renderPage() {
 
     Module* mod = getModuleForSubtab(ui::cur_tab, tab.cur_subtab);
     if (mod) {
+        ui::SetDescriptionContext(mod->name);
         // Locked Module UI
         if (!mod->isAccessible()) {
             ImGui::Spacing();
@@ -504,8 +524,9 @@ static void renderPage() {
     // Special pages (ArrayList, Notifications) - no Module, render inline
     else if (ui::cur_tab == 1) {
         // Visuals tab
-        if (tab.cur_subtab == 6) {
+        if (tab.cur_subtab == 7) {
             // ArrayList settings
+            ui::SetDescriptionContext("ArrayList");
             ui::two_column(
                 "Settings",
                 []() {
@@ -534,8 +555,9 @@ static void renderPage() {
                         ui::color("Color", ArrayListRenderer::color);
                     }
                 });
-        } else if (tab.cur_subtab == 8) {
+        } else if (tab.cur_subtab == 9) {
             // Notifications settings
+            ui::SetDescriptionContext("Notifications");
             ui::section("Settings", []() { ui::Checkbox("Enabled", &NotificationManager::enabled); });
         }
     }

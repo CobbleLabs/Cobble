@@ -569,6 +569,7 @@ void InventoryManager::onRenderMenu() {
         
         // 4 preset buttons in a row
         float buttonWidth = (ImGui::GetContentRegionAvail().x - ui::s(6)) / 4.0f;
+        bool presetHovered = false;
         for (int p = 0; p < MAX_PRESETS; p++) {
             if (p > 0) ImGui::SameLine();
             
@@ -592,9 +593,12 @@ void InventoryManager::onRenderMenu() {
             if (ImGui::Button(label, ImVec2(buttonWidth, 0))) {
                 settings.activePreset = p;
             }
+            presetHovered = presetHovered || ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled);
             
             ImGui::PopStyleColor(2);
         }
+        ui::HoverDescription("Preset", presetHovered,
+                             "Selects which saved hotbar layout is active for inventory organization.");
         
         ImGui::Spacing();
         
@@ -602,7 +606,12 @@ void InventoryManager::onRenderMenu() {
         Preset& currentPreset = presets[settings.activePreset];
         
         // Save button
-        if (ImGui::Button(currentPreset.saved ? "Overwrite" : "Save Hotbar", ImVec2(ImGui::GetContentRegionAvail().x, 0))) {
+        const bool saveHotbarPressed =
+            ImGui::Button(currentPreset.saved ? "Overwrite" : "Save Hotbar", ImVec2(ImGui::GetContentRegionAvail().x, 0));
+        ui::DescribeLastItem("Save Hotbar",
+                             currentPreset.saved ? "Replaces this preset with the current hotbar layout."
+                                                 : "Stores the current hotbar layout in this preset.");
+        if (saveHotbarPressed) {
             saveHotbar();
         }
         

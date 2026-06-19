@@ -40,6 +40,7 @@ void AltManager::onRenderMenu() {
             ImGui::Text("Username");
             ImGui::PushItemWidth(-1);
             ImGui::InputText("##altname", settings.spoofedName, sizeof(settings.spoofedName));
+            ui::DescribeLastItem("Username", "Sets the offline-server username applied on your next connection.");
             ImGui::PopItemWidth();
 
             if (!validateName(settings.spoofedName)) {

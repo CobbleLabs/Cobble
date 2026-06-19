@@ -27,6 +27,7 @@ struct PlayerInfo {
     float maxHealth = 20.0f;
     bool isInvisible = false;
     bool isNPC = false;  // NPC detection (bots, server entities)
+    bool isOnLocalTeam = false;  // Vanilla scoreboard comparison against the local player
     int hurtTime = 0;
 
     // Hitbox - bounding box dimensions (from AxisAlignedBB)
@@ -154,6 +155,7 @@ struct Minecraft {
     // Get local player's team color from their displayName
     // Returns -1 (UNKNOWN) if no color code found
     int getLocalPlayerTeamColor();
+    std::string getLocalPlayerName();
 
     // Hit detection for Hit Select module
     bool isTargetingEntity();            // Check if looking at an entity

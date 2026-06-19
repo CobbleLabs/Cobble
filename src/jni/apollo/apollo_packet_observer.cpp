@@ -2124,15 +2124,40 @@ void JNICALL ApolloPacketObserver::NativeOnReceive(JNIEnv* env, jclass, jobject 
         // Get players collection
         jobject playersCollection = mid_getPlayers ? env->CallObjectMethod(packet, mid_getPlayers) : nullptr;
         int playersCount = 0;
+        std::vector<std::string> teamPlayers;
         if (playersCollection) {
             jclass cls_Collection = env->FindClass(OBFUSCATE_STRING("java/util/Collection").c_str());
             jmethodID mid_size = env->GetMethodID(cls_Collection, OBFUSCATE_STRING("size").c_str(), OBFUSCATE_STRING("()I").c_str());
+            jmethodID mid_iterator = env->GetMethodID(cls_Collection, OBFUSCATE_STRING("iterator").c_str(),
+                                                      OBFUSCATE_STRING("()Ljava/util/Iterator;").c_str());
             if (mid_size) {
                 playersCount = env->CallIntMethod(playersCollection, mid_size);
+            }
+            if (mid_iterator) {
+                jobject iterator = env->CallObjectMethod(playersCollection, mid_iterator);
+                if (iterator) {
+                    jclass cls_Iterator = env->FindClass(OBFUSCATE_STRING("java/util/Iterator").c_str());
+                    jmethodID mid_hasNext = env->GetMethodID(cls_Iterator, OBFUSCATE_STRING("hasNext").c_str(),
+                                                            OBFUSCATE_STRING("()Z").c_str());
+                    jmethodID mid_next = env->GetMethodID(cls_Iterator, OBFUSCATE_STRING("next").c_str(),
+                                                         OBFUSCATE_STRING("()Ljava/lang/Object;").c_str());
+                    while (mid_hasNext && mid_next && env->CallBooleanMethod(iterator, mid_hasNext)) {
+                        jobject value = env->CallObjectMethod(iterator, mid_next);
+                        if (value) {
+                            teamPlayers.push_back(jstringToString((jstring)value));
+                            env->DeleteLocalRef(value);
+                        }
+                    }
+                    env->DeleteLocalRef(cls_Iterator);
+                    env->DeleteLocalRef(iterator);
+                }
             }
             env->DeleteLocalRef(cls_Collection);
             env->DeleteLocalRef(playersCollection);
         }
+
+        if (friendsManager && teamName)
+            friendsManager->updateScoreboardTeam(teamName, action, teamPlayers);
 
         // Only log meaningful team packets (not visual formatting)
         // Skip UPDATE with 0 players (these are scoreboard sidebar formatting)

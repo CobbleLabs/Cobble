@@ -1,4 +1,5 @@
 #include "timer.h"
+#include "timerrange.h"
 #include "../../sdk/core/minecraft.h"
 #include "../../ui/menu/menu.h"
 #include "../../ui/widgets/widgets.hpp"
@@ -14,7 +15,10 @@ TimerMod::TimerMod() : Module("Timer") {
     keybind = 0;
 }
 
-void TimerMod::onEnable() {}
+void TimerMod::onEnable() {
+    if (timerRange && timerRange->enabled)
+        timerRange->setEnabled(false);
+}
 
 void TimerMod::onDisable() {
     // Reset timer speed to normal when disabled

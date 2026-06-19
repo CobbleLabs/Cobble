@@ -64,6 +64,10 @@ public:
     // Add a friend by UUID (with optional display name for UI)
     void addFriendByUUID(const std::string& uuid, const std::string& displayName = "");
 
+    // Restore a persisted friend without starting a network lookup.
+    // Empty UUID entries remain valid name-based friends until resolved in-world.
+    void restoreFriend(const std::string& uuid, const std::string& displayName);
+
     // Remove a friend by UUID
     void removeFriendByUUID(const std::string& uuid);
 
@@ -118,6 +122,11 @@ public:
 
     // Check if a player is a teammate based on color matching or Lunar API
     bool isTeammate(const std::string& playerUUID, ChatColor playerColor, ChatColor localColor) const;
+
+    // Scoreboard team membership from S3EPacketTeams.
+    void updateScoreboardTeam(const std::string& teamName, int action, const std::vector<std::string>& players);
+    void clearScoreboardTeams();
+    bool isScoreboardTeammate(const std::string& localName, const std::string& playerName) const;
 
     // Lunar API: Teammate management (from UpdateTeamMembersMessage)
     void addLunarTeammate(const std::string& uuid);
@@ -230,6 +239,9 @@ private:
 
     // Visual friends (auto-detected teammates, cleared on world change)
     std::set<std::string> visualFriends_;
+
+    // Vanilla scoreboard membership. Team names are server-defined; player names are normalized.
+    std::unordered_map<std::string, std::unordered_set<std::string>> scoreboardTeams_;
 
     // World change detection (jobject stored as void* to avoid JNI include)
     void* lastWorldRef_ = nullptr;

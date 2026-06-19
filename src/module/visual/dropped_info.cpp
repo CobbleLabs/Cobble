@@ -141,7 +141,9 @@ void DroppedInfo::onRenderMenu() {
             ui::SliderFloat("X", &settings.x, 0.0f, 1000.0f, "%.0f");
             ui::SliderFloat("Y", &settings.y, 0.0f, 1000.0f, "%.0f");
             ImGui::Spacing();
-            if (ImGui::Button("Reset Position")) {
+            const bool resetPosition = ImGui::Button("Reset Position");
+            ui::DescribeLastItem("Reset Position", "Restores the overlay position and scale to their defaults.");
+            if (resetPosition) {
                 settings.x = 10.0f;
                 settings.y = 10.0f;
                 settings.scale = 1.0f;

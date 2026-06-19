@@ -613,9 +613,7 @@ void Trajectories::onRenderMenu() {
             ui::SliderFloat("Line Thickness", &settings.thickness, 1.0f, 5.0f, "%.1f");
 
             ImGui::Spacing();
-            ImGui::Text("Line Color");
-            ImGui::ColorEdit4("##linecolor", settings.lineColor,
-                              ImGuiColorEditFlags_NoInputs | ImGuiColorEditFlags_AlphaBar);
+            ui::color("Line Color", settings.lineColor);
         },
         "Projectiles",
         [this]() {

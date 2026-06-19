@@ -5,13 +5,16 @@
 #include "../module/combat/hitselect.h"
 #include "../module/combat/nohitdelay.h"
 #include "../module/combat/criticals.h"
+#include "../module/combat/piercing.h"
 
 #include "../module/combat/velocity.h"
 #include "../module/combat/reach.h"
 #include "../module/module.h"
 #include "../module/module_manager.h"
 #include "../module/movement/nojumpdelay.h"
+#include "../module/movement/no_slow_down.h"
 #include "../module/movement/timer.h"
+#include "../module/movement/timerrange.h"
 
 #include "../module/movement/blink.h"
 #include "../module/utility/armorswitch.h"
@@ -26,6 +29,7 @@
 #include "../module/visual/esp.h"
 #include "../module/visual/item_esp.h"
 #include "../module/visual/nametags.h"
+#include "../module/visual/anti_debuff.h"
 #include "../module/visual/tracers.h"
 #include "../module/visual/trajectories.h"
 #include "../module/visual/dropped_info.h"
@@ -327,8 +331,16 @@ void ConfigManager::applyConfig() {
 
     // Apply friends settings
     if (config_.has("friends") && friendsManager) {
-        // Load friends list (comma-separated)
-        if (config_["friends"].has("list")) {
+        // Load dynamic friend records. This preserves every entry and its UUID.
+        if (config_["friends"].has("entries")) {
+            friendsManager->clearFriends();
+            const auto& entries = config_["friends"]["entries"].object();
+            for (const auto& entry : entries) {
+                const json::Value& data = entry.second;
+                friendsManager->restoreFriend(data["uuid"].as_string(""), data["name"].as_string(""));
+            }
+        } else if (config_["friends"].has("list")) {
+            // Backwards compatibility with older comma-separated configs.
             friendsManager->clearFriends();
             std::string friendsList = config_["friends"]["list"].as_string("");
             if (!friendsList.empty()) {
@@ -357,6 +369,9 @@ void ConfigManager::applyConfig() {
     // Apply module configs
     if (!config_.has("modules"))
         return;
+
+    if (!config_["modules"].has("AntiDebuff") && config_["modules"].has("NoVisualEffects"))
+        config_["modules"]["AntiDebuff"] = config_["modules"]["NoVisualEffects"];
 
     const auto& modules = config_["modules"].object();
 
@@ -409,7 +424,10 @@ void ConfigManager::applyConfig() {
                 s.aimAtClosestPoint = data["aimAtClosestPoint"].as_bool(s.aimAtClosestPoint);
                 s.alwaysAim = data["alwaysAim"].as_bool(s.alwaysAim);
                 s.invisibles = data["invisibles"].as_bool(s.invisibles);
-                s.lockAim = data["lockAim"].as_bool(s.lockAim);
+                if (data.has("entityLock"))
+                    s.entityLock = data["entityLock"].as_bool(s.entityLock);
+                else
+                    s.entityLock = data["lockAim"].as_bool(s.entityLock);
                 s.stopOnHitbox = data["stopOnHitbox"].as_bool(s.stopOnHitbox);
             } else if (name == "Velocity" && velocity) {
                 auto& s = velocity->settings;
@@ -440,6 +458,22 @@ void ConfigManager::applyConfig() {
                 s.showDistance = data["showDistance"].as_bool(s.showDistance);
                 s.showArmor = data["showArmor"].as_bool(s.showArmor);
                 s.showEffects = data["showEffects"].as_bool(s.showEffects);
+                if (data.has("normalColor")) {
+                    s.normalColor[0] = data["normalColor"]["r"].as_float(s.normalColor[0]);
+                    s.normalColor[1] = data["normalColor"]["g"].as_float(s.normalColor[1]);
+                    s.normalColor[2] = data["normalColor"]["b"].as_float(s.normalColor[2]);
+                    s.normalColor[3] = data["normalColor"]["a"].as_float(s.normalColor[3]);
+                }
+                if (data.has("friendColor")) {
+                    s.friendColor[0] = data["friendColor"]["r"].as_float(s.friendColor[0]);
+                    s.friendColor[1] = data["friendColor"]["g"].as_float(s.friendColor[1]);
+                    s.friendColor[2] = data["friendColor"]["b"].as_float(s.friendColor[2]);
+                    s.friendColor[3] = data["friendColor"]["a"].as_float(s.friendColor[3]);
+                }
+            } else if (name == "AntiDebuff" && antiDebuff) {
+                auto& s = antiDebuff->settings;
+                s.blindness = data["blindness"].as_bool(s.blindness);
+                s.nausea = data["nausea"].as_bool(s.nausea);
             } else if (name == "ESP" && esp) {
                 auto& s = esp->settings;
                 s.box = data["box"].as_bool(s.box);
@@ -518,6 +552,13 @@ void ConfigManager::applyConfig() {
                 s.movingOnly = data["movingOnly"].as_bool(s.movingOnly);
                 s.hitChance = data["hitChance"].as_int(s.hitChance);
                 s.tickDelay = data["tickDelay"].as_int(s.tickDelay);
+            } else if (name == "Piercing" && piercing) {
+                auto& s = piercing->settings;
+                s.distance = data["distance"].as_float(s.distance);
+                s.weaponsOnly = data["weaponsOnly"].as_bool(s.weaponsOnly);
+                s.targetInvisibles = data["targetInvisibles"].as_bool(s.targetInvisibles);
+                s.ignoreFriends = data["ignoreFriends"].as_bool(s.ignoreFriends);
+                s.ignoreTeams = data["ignoreTeams"].as_bool(s.ignoreTeams);
             } else if (name == "HitSelect" && hitSelect) {
                 auto& s = hitSelect->settings;
                 s.minComboHits = data["minComboHits"].as_int(s.minComboHits);
@@ -655,6 +696,15 @@ void ConfigManager::applyConfig() {
                 s.speed = (double)data["speed"].as_float((float)s.speed);
                 s.mousePressed = data["mousePressed"].as_bool(s.mousePressed);
                 s.weaponOnly = data["weaponOnly"].as_bool(s.weaponOnly);
+            } else if (name == "TimerRange" && timerRange) {
+                auto& s = timerRange->settings;
+                const int mode = (std::clamp)(data["mode"].as_int(static_cast<int>(s.mode)), 0, 1);
+                s.mode = static_cast<TimerRange::PacketMode>(mode);
+                s.minSpeed = data["minSpeed"].as_float(s.minSpeed);
+                s.maxSpeed = data["maxSpeed"].as_float(s.maxSpeed);
+                s.updateIntervalMs = data["updateIntervalMs"].as_int(s.updateIntervalMs);
+                s.mousePressed = data["mousePressed"].as_bool(s.mousePressed);
+                s.weaponOnly = data["weaponOnly"].as_bool(s.weaponOnly);
             } else if (name == "DroppedInfo" && droppedInfo) {
                 auto& s = droppedInfo->settings;
                 s.x = data["x"].as_float(s.x);
@@ -722,7 +772,15 @@ void ConfigManager::buildConfigFromModules() {
 
     // Friends
     if (friendsManager) {
-        auto friends = friendsManager->getFriendNames();  // Legacy: save names for config
+        auto friendRecords = friendsManager->getFriends();
+        config_["friends"]["entries"] = json::Value();
+        for (size_t i = 0; i < friendRecords.size(); ++i) {
+            const std::string key = std::to_string(i);
+            config_["friends"]["entries"][key]["uuid"] = friendRecords[i].uuid;
+            config_["friends"]["entries"][key]["name"] = friendRecords[i].displayName;
+        }
+
+        auto friends = friendsManager->getFriendNames();
         std::string friendsList;
         for (size_t i = 0; i < friends.size(); ++i) {
             if (i > 0)
@@ -777,7 +835,7 @@ void ConfigManager::buildConfigFromModules() {
             config_["modules"][name]["aimAtClosestPoint"] = s.aimAtClosestPoint;
             config_["modules"][name]["alwaysAim"] = s.alwaysAim;
             config_["modules"][name]["invisibles"] = s.invisibles;
-            config_["modules"][name]["lockAim"] = s.lockAim;
+            config_["modules"][name]["entityLock"] = s.entityLock;
             config_["modules"][name]["stopOnHitbox"] = s.stopOnHitbox;
         } else if (name == "Velocity" && velocity) {
             const auto& s = velocity->settings;
@@ -807,6 +865,18 @@ void ConfigManager::buildConfigFromModules() {
             config_["modules"][name]["showDistance"] = s.showDistance;
             config_["modules"][name]["showArmor"] = s.showArmor;
             config_["modules"][name]["showEffects"] = s.showEffects;
+            config_["modules"][name]["normalColor"]["r"] = s.normalColor[0];
+            config_["modules"][name]["normalColor"]["g"] = s.normalColor[1];
+            config_["modules"][name]["normalColor"]["b"] = s.normalColor[2];
+            config_["modules"][name]["normalColor"]["a"] = s.normalColor[3];
+            config_["modules"][name]["friendColor"]["r"] = s.friendColor[0];
+            config_["modules"][name]["friendColor"]["g"] = s.friendColor[1];
+            config_["modules"][name]["friendColor"]["b"] = s.friendColor[2];
+            config_["modules"][name]["friendColor"]["a"] = s.friendColor[3];
+        } else if (name == "AntiDebuff" && antiDebuff) {
+            const auto& s = antiDebuff->settings;
+            config_["modules"][name]["blindness"] = s.blindness;
+            config_["modules"][name]["nausea"] = s.nausea;
         } else if (name == "ESP" && esp) {
             const auto& s = esp->settings;
             config_["modules"][name]["box"] = s.box;
@@ -875,6 +945,13 @@ void ConfigManager::buildConfigFromModules() {
             config_["modules"][name]["movingOnly"] = s.movingOnly;
             config_["modules"][name]["hitChance"] = s.hitChance;
             config_["modules"][name]["tickDelay"] = s.tickDelay;
+        } else if (name == "Piercing" && piercing) {
+            const auto& s = piercing->settings;
+            config_["modules"][name]["distance"] = s.distance;
+            config_["modules"][name]["weaponsOnly"] = s.weaponsOnly;
+            config_["modules"][name]["targetInvisibles"] = s.targetInvisibles;
+            config_["modules"][name]["ignoreFriends"] = s.ignoreFriends;
+            config_["modules"][name]["ignoreTeams"] = s.ignoreTeams;
         } else if (name == "HitSelect" && hitSelect) {
             const auto& s = hitSelect->settings;
             config_["modules"][name]["minComboHits"] = s.minComboHits;
@@ -996,6 +1073,14 @@ void ConfigManager::buildConfigFromModules() {
         } else if (name == "Timer" && timerModule) {
             const auto& s = timerModule->settings;
             config_["modules"][name]["speed"] = (float)s.speed;
+            config_["modules"][name]["mousePressed"] = s.mousePressed;
+            config_["modules"][name]["weaponOnly"] = s.weaponOnly;
+        } else if (name == "TimerRange" && timerRange) {
+            const auto& s = timerRange->settings;
+            config_["modules"][name]["mode"] = static_cast<int>(s.mode);
+            config_["modules"][name]["minSpeed"] = s.minSpeed;
+            config_["modules"][name]["maxSpeed"] = s.maxSpeed;
+            config_["modules"][name]["updateIntervalMs"] = s.updateIntervalMs;
             config_["modules"][name]["mousePressed"] = s.mousePressed;
             config_["modules"][name]["weaponOnly"] = s.weaponOnly;
         } else if (name == "DroppedInfo" && droppedInfo) {

@@ -199,7 +199,7 @@ void NoItemRelease::onRenderMenu() {
 
             const char* modeNames[] = {"Consumable", "Sword", "All"};
             int currentMode = (int)settings.mode;
-            if (ImGui::Combo("Mode", &currentMode, modeNames, IM_ARRAYSIZE(modeNames))) {
+            if (ui::Combo("Mode", &currentMode, modeNames, IM_ARRAYSIZE(modeNames))) {
                 settings.mode = (ItemReleaseMode)currentMode;
             }
         },

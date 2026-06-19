@@ -314,13 +314,26 @@ std::vector<PlayerInfo> Minecraft::getPlayerList() {
     static jmethodID mid_getDisplayName_cached = nullptr;
     static jmethodID mid_getUnformattedText_cached = nullptr;
     static jmethodID mid_getFormattedText_cached = nullptr;
+    static jmethodID mid_isOnSameTeam_cached = nullptr;
     static bool displayNameInit = false;
+    static bool sameTeamInit = false;
 
     if (!displayNameInit && JniCache::cls_EntityPlayer) {
         mid_getDisplayName_cached = JniCache::mid_getDisplayName;
         mid_getUnformattedText_cached = JniCache::mid_getUnformattedText;
         mid_getFormattedText_cached = JniCache::mid_getFormattedText;
         displayNameInit = true;
+    }
+    if (!sameTeamInit && localPlayer) {
+        jclass localPlayerClass = env->GetObjectClass(localPlayer);
+        if (localPlayerClass) {
+            mid_isOnSameTeam_cached =
+                env->GetMethodID(localPlayerClass, "isOnSameTeam", "(Lnet/minecraft/entity/EntityLivingBase;)Z");
+            if (env->ExceptionCheck())
+                env->ExceptionClear();
+            env->DeleteLocalRef(localPlayerClass);
+        }
+        sameTeamInit = true;
     }
 
     for (int i = 0; i < size; i++) {
@@ -344,6 +357,13 @@ std::vector<PlayerInfo> Minecraft::getPlayerList() {
 
         PlayerInfo info;
         info.instance = entity;  // Caller must delete later
+        if (localPlayer && mid_isOnSameTeam_cached) {
+            info.isOnLocalTeam = env->CallBooleanMethod(localPlayer, mid_isOnSameTeam_cached, entity);
+            if (env->ExceptionCheck()) {
+                env->ExceptionClear();
+                info.isOnLocalTeam = false;
+            }
+        }
 
         // Entity ID (used to match incoming effect packets)
         if (JniCache::mid_getEntityId) {
@@ -796,6 +816,43 @@ int Minecraft::getLocalPlayerTeamColor() {
 
     env->DeleteLocalRef(localPlayer);
     return teamColor;
+}
+
+std::string Minecraft::getLocalPlayerName() {
+    if (!isValid() || !Java::Env())
+        return "";
+
+    JNIEnv* env = Java::Env();
+    jobject localPlayer = getPlayer();
+    if (!localPlayer)
+        return "";
+
+    std::string name;
+    if (JniCache::mid_getGameProfile && JniCache::mid_getProfileName) {
+        jobject profile = env->CallObjectMethod(localPlayer, JniCache::mid_getGameProfile);
+        if (profile) {
+            jstring nameStr = (jstring)env->CallObjectMethod(profile, JniCache::mid_getProfileName);
+            if (nameStr) {
+                name = jstringToString(nameStr);
+                env->DeleteLocalRef(nameStr);
+            }
+            env->DeleteLocalRef(profile);
+        }
+        if (env->ExceptionCheck())
+            env->ExceptionClear();
+    }
+    if (name.empty() && JniCache::mid_getName) {
+        jstring nameStr = (jstring)env->CallObjectMethod(localPlayer, JniCache::mid_getName);
+        if (nameStr) {
+            name = jstringToString(nameStr);
+            env->DeleteLocalRef(nameStr);
+        }
+        if (env->ExceptionCheck())
+            env->ExceptionClear();
+    }
+
+    env->DeleteLocalRef(localPlayer);
+    return name;
 }
 
 // =============================================================================

@@ -224,7 +224,10 @@ void Criticals::onRenderMenu() {
         ui::two_column("Security", [this]() {
             ImGui::Text("This module is locked.");
             ImGui::InputText("Password", passwordBuffer, sizeof(passwordBuffer), ImGuiInputTextFlags_Password);
-            if (ImGui::Button("Unlock")) {
+            ui::DescribeLastItem("Password", "Enter the developer access code for this module.");
+            const bool unlockPressed = ImGui::Button("Unlock");
+            ui::DescribeLastItem("Unlock", "Checks the entered developer access code.");
+            if (unlockPressed) {
                 if (strcmp(passwordBuffer, OBFUSCATE_STRING("barcelon12").c_str()) == 0) {
                     isUnlocked = true;
                 }

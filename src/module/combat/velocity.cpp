@@ -348,17 +348,8 @@ void Velocity::onRenderMenu() {
             // Mode selector
             const char* modes[] = {"Regular", "Jump", "Reduce", "Ignore"};
             int modeIdx = static_cast<int>(settings.mode);
-            ImGui::SetNextItemWidth(ImGui::CalcItemWidth());
-            if (ImGui::BeginCombo("Mode", modes[modeIdx], ImGuiComboFlags_NoArrowButton)) {
-                for (int i = 0; i < 4; i++) {
-                    bool selected = (modeIdx == i);
-                    if (ImGui::Selectable(modes[i], selected))
-                        settings.mode = static_cast<Mode>(i);
-                    if (selected)
-                        ImGui::SetItemDefaultFocus();
-                }
-                ImGui::EndCombo();
-            }
+            if (ui::Combo("Mode", &modeIdx, modes, IM_ARRAYSIZE(modes)))
+                settings.mode = static_cast<Mode>(modeIdx);
 
             ImGui::Spacing();
 
@@ -376,17 +367,8 @@ void Velocity::onRenderMenu() {
                 ui::SliderFloat("Chance", &settings.chance, 0.0f, 100.0f, "%.0f%%");
                 const char* vertModes[] = {"Never", "Only Air", "Always"};
                 int vertIdx = static_cast<int>(settings.verticalMode);
-                ImGui::SetNextItemWidth(ImGui::CalcItemWidth());
-                if (ImGui::BeginCombo("Vertical", vertModes[vertIdx], ImGuiComboFlags_NoArrowButton)) {
-                    for (int i = 0; i < 3; i++) {
-                        bool selected = (vertIdx == i);
-                        if (ImGui::Selectable(vertModes[i], selected))
-                            settings.verticalMode = static_cast<VerticalMode>(i);
-                        if (selected)
-                            ImGui::SetItemDefaultFocus();
-                    }
-                    ImGui::EndCombo();
-                }
+                if (ui::Combo("Vertical", &vertIdx, vertModes, IM_ARRAYSIZE(vertModes)))
+                    settings.verticalMode = static_cast<VerticalMode>(vertIdx);
             }
 
             ui::SliderFloat("FOV", &settings.fov, 0.0f, 360.0f, "%.0f");

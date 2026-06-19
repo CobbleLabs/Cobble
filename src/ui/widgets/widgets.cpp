@@ -1,12 +1,261 @@
 #include "widgets.hpp"
 #include <Windows.h>
 #include <cmath>
+#include <cstring>
 #include "../../module/module.h"
 #include "../menu/menu.h"
 #include "icons.hpp"
 #include "theme.hpp"
 
 using namespace ImGui;
+
+namespace {
+struct DescriptionEntry {
+    const char* context;
+    const char* key;
+    const char* value;
+    const char* text;
+};
+
+static std::string g_descriptionContext;
+
+static const DescriptionEntry kModuleDescriptions[] = {
+    {"", "AutoClicker", "", "Clicks automatically while you hold the attack button."},
+    {"", "AimAssist", "", "Smoothly guides your aim toward a valid player target."},
+    {"", "Velocity", "", "Controls how much enemy knockback affects your movement."},
+    {"", "Reach", "", "Extends the distance at which attacks can connect."},
+    {"", "HitSelect", "", "Times attacks around combo state to improve hit selection."},
+    {"", "NoHitDelay", "", "Removes the client-side delay between valid attacks."},
+    {"", "Criticals", "", "Automates critical-hit movement when its conditions are met."},
+    {"", "Backtrack", "", "Targets recent server positions to compensate for movement and latency."},
+    {"", "Piercing", "", "Finds and attacks valid entities through obstructing blocks."},
+    {"", "NameTags", "", "Renders readable, customizable information above players."},
+    {"", "ESP", "", "Highlights players through terrain with configurable boxes and health."},
+    {"", "ItemESP", "", "Highlights dropped items so they remain visible through terrain."},
+    {"", "Tracers", "", "Draws directional lines from your screen to nearby players."},
+    {"", "BlockESP", "", "Highlights selected ores and containers inside the configured range."},
+    {"", "Trajectories", "", "Predicts the flight path and landing point of projectiles."},
+    {"", "AntiDebuff", "", "Removes disruptive visual effects such as blindness and nausea."},
+    {"", "ArrayList", "", "Controls the on-screen list of currently enabled modules."},
+    {"", "DroppedInfo", "", "Shows extra information about the item you just dropped."},
+    {"", "Notifications", "", "Controls pop-up messages for module and client events."},
+    {"", "Timer", "", "Changes the client game timer to speed up or slow down actions."},
+    {"", "TimerRange", "", "Varies timer speed within a range around outgoing packet timing."},
+    {"", "NoSlowDown", "", "Prevents item use from applying the normal movement slowdown."},
+    {"", "NoJumpDelay", "", "Removes the short delay between consecutive jumps."},
+    {"", "Blink", "", "Queues movement packets temporarily, then releases them together."},
+    {"", "Sprint", "", "Keeps sprint active automatically while you move."},
+    {"", "ArmorSwitch", "", "Switches between configured armor sets with one action."},
+    {"", "AutoRefill", "", "Moves replacement soup or potions into empty hotbar slots."},
+    {"", "FastPlace", "", "Reduces the delay between right-click item placements."},
+    {"", "NoItemRelease", "", "Keeps supported item-use actions active according to the selected mode."},
+    {"", "BridgeAssist", "", "Helps you sneak safely at block edges while bridging."},
+    {"", "AutoTool", "", "Selects the best hotbar tool for the block or target."},
+    {"", "InvManager", "", "Organizes the inventory and hotbar using your saved preferences."},
+    {"", "AltManager", "", "Spoofs the local username when joining compatible offline servers."},
+};
+
+static const DescriptionEntry kOptionDescriptions[] = {
+    {"", "Enabled", "", "Turns this module on or off. The key box sets its toggle bind."},
+    {"", "Weapon Only", "", "Runs only while a supported weapon is held."},
+    {"", "Weapons Only", "", "Runs only while a supported weapon is held."},
+    {"", "Mouse Pressed", "", "Runs only while the required mouse button is held."},
+    {"", "Break Blocks", "", "Lets normal block breaking take priority over this feature."},
+    {"", "Target Invisibles", "", "Allows invisible players to be considered valid targets."},
+    {"", "Range", "", "Sets the maximum distance at which this option can operate."},
+    {"", "Distance", "", "Sets the maximum distance at which this option can operate."},
+    {"", "FOV", "", "Limits activation to targets inside this horizontal field of view."},
+    {"", "Chance", "", "Sets the probability that the action is applied."},
+    {"", "Delay", "", "Sets how long the module waits before performing its action."},
+    {"", "Speed", "", "Controls how quickly this feature reacts or operates."},
+    {"", "Scale", "", "Changes the rendered size without changing its information."},
+    {"", "Background", "", "Draws a subtle background behind the rendered content."},
+    {"", "Filled", "", "Fills the inside of the rendered shape."},
+    {"", "Outline", "", "Draws an outline to improve visibility against the world."},
+    {"", "Color", "", "Sets the color used by this rendered element."},
+    {"", "Thickness", "", "Controls the width of the rendered line."},
+    {"", "Line Thickness", "", "Controls the width of the predicted trajectory line."},
+    {"", "Box Color", "", "Sets the color used for the outer player or item box."},
+    {"", "Fill Color", "", "Sets the translucent color drawn inside highlighted boxes."},
+    {"", "Outline Color", "", "Sets the border color used to separate highlights from the world."},
+    {"", "Line Color", "", "Sets the color of the predicted trajectory line."},
+    {"", "Tracer Color", "", "Sets the fixed color used by tracer lines."},
+    {"", "Enemy Color", "", "Sets the highlight color used for players detected as enemies."},
+    {"", "Shadow Color", "", "Sets the text-shadow color used behind rendered labels."},
+    {"", "Only Sprinting", "", "Runs only while your player is sprinting."},
+    {"", "Sprinting Only", "", "Runs only while your player is sprinting."},
+    {"", "Moving Only", "", "Runs only while your player is moving."},
+    {"", "Moving Forward", "", "Runs only while forward movement is being pressed."},
+    {"", "Looking at Player", "", "Runs only while your crosshair is aimed at a player."},
+    {"", "Looking At Player", "", "Runs only while your crosshair is aimed at a player."},
+    {"", "Holding Weapon", "", "Runs only while a supported weapon is held."},
+    {"", "Only With Sword", "", "Restricts the action to swords."},
+    {"", "Only Attacking", "", "Runs only while an attack is being performed."},
+    {"", "Only When Sneaking", "", "Runs only while the sneak key is held."},
+    {"", "Only When Looking Down", "", "Runs only while looking toward the edge below you."},
+    {"", "Ignore Friends", "", "Excludes players saved in your friends list from this module."},
+    {"", "Ignore Teams", "", "Excludes players detected as teammates by scoreboard, color, or server team data."},
+    {"", "Silent Mode", "", "Performs inventory changes without visibly opening or moving the selected slot."},
+    {"", "Retry on Fail", "", "Retries the operation when the server rejects or misses a change."},
+    {"", "On Inventory Open", "", "Runs automatically whenever the inventory screen is open."},
+    {"", "Switch Back", "", "Returns to the previously selected slot after the action."},
+    {"", "Stop On Hitbox", "", "Stops aim correction once the crosshair is already inside the target hitbox."},
+    {"", "Entity Lock", "", "Keeps the acquired entity until it dies, disappears, or fails the target filters."},
+    {"", "Always Aim", "", "Allows aim assistance without requiring the attack button."},
+    {"", "Aim Closest Point", "", "Aims at the nearest point of the target hitbox instead of its center."},
+    {"", "Reaction Time", "", "Adds a delay before aim assistance begins tracking a newly acquired target."},
+    {"", "Click Delay (ms)", "", "Sets the delay in milliseconds before the automated click is sent."},
+    {"", "Delay (ms)", "", "Sets how many milliseconds the module waits before acting."},
+    {"", "Speed (ms)", "", "Sets the interval in milliseconds between repeated actions."},
+    {"", "Horizontal", "", "Sets the percentage of horizontal knockback retained."},
+    {"", "Vertical", "", "Sets the percentage or behavior of vertical knockback."},
+    {"", "Jump Chance", "", "Sets how often a jump reset is attempted after taking a hit."},
+    {"", "Double Clicks", "", "Allows an additional click when the selected velocity behavior requires it."},
+    {"", "Variance", "", "Adds small variation to avoid applying an identical value every time."},
+    {"", "Tick Spread", "", "Spreads the adjustment across multiple game ticks."},
+    {"", "Micro Delay", "", "Adds a very short delay before the adjustment is applied."},
+    {"", "Min CPS", "", "Sets the lowest click rate used by the click generator."},
+    {"", "Max CPS", "", "Sets the highest click rate used by the click generator."},
+    {"", "CPS", "", "Sets the target clicks per second."},
+    {"", "Stable CPS", "", "Reduces random variation to keep the click rate more consistent."},
+    {"", "Inventory", "", "Allows clicking while an inventory screen is open."},
+    {"", "Hit Chance", "", "Sets the percentage of eligible attacks that receive extended reach."},
+    {"", "Tick Delay", "", "Adds game ticks between reach attempts."},
+    {"", "Min Combo Hits", "", "Requires this many successful combo hits before selection logic activates."},
+    {"", "Combo Detection", "", "Sets how long recent hits remain part of the same combo."},
+    {"", "Wait For First Hit", "", "Lets the first hit pass before beginning the selection delay."},
+    {"", "Wait Duration", "", "Sets how long HitSelect waits before allowing the next selected hit."},
+    {"", "Ticks", "", "Sets how many previous movement ticks are available for backtracking."},
+    {"", "Latency", "", "Sets the simulated history window in milliseconds."},
+    {"", "Render Previous Ticks", "", "Draws stored historical positions for visual feedback."},
+    {"", "Render Server Pos", "", "Draws the position currently associated with the server-side target."},
+    {"", "Show Box", "", "Renders a box around the selected historical position."},
+    {"", "Show Health", "", "Adds the player's current health to the nametag."},
+    {"", "Show Distance", "", "Adds the distance from you to the nametag."},
+    {"", "Show Armor", "", "Displays the player's equipped armor beside the nametag."},
+    {"", "Show Effects", "", "Displays active potion effects in the nametag."},
+    {"", "Normal Color", "", "Sets the nametag color used for ordinary players."},
+    {"", "Friend Color", "", "Sets the nametag color used for players in your friends list."},
+    {"", "Health Bar", "", "Draws a bar that reflects the player's current health."},
+    {"", "Team Colors", "", "Uses detected team colors instead of one fixed ESP color."},
+    {"", "Box 2D", "", "Draws a flat screen-aligned box around each valid target."},
+    {"", "Box 3D", "", "Draws a world-space box around each valid target."},
+    {"", "Show Quantity", "", "Displays the stack count for dropped items."},
+    {"", "Color by Distance", "", "Changes tracer color based on how far away the player is."},
+    {"", "Color by Health", "", "Changes tracer color based on the player's health."},
+    {"", "Diamond Ore", "", "Highlights diamond ore blocks."},
+    {"", "Emerald Ore", "", "Highlights emerald ore blocks."},
+    {"", "Iron Ore", "", "Highlights iron ore blocks."},
+    {"", "Gold Ore", "", "Highlights gold ore blocks."},
+    {"", "Lapis Ore", "", "Highlights lapis ore blocks."},
+    {"", "Redstone Ore", "", "Highlights redstone ore blocks."},
+    {"", "Coal Ore", "", "Highlights coal ore blocks."},
+    {"", "Chests", "", "Highlights chest blocks."},
+    {"", "Opacity", "", "Controls how transparent the block highlight is."},
+    {"", "Fade with Distance", "", "Gradually fades highlights as they approach the range limit."},
+    {"", "Bow", "", "Shows predicted trajectories for arrows fired from bows."},
+    {"", "Ender Pearl", "", "Shows predicted trajectories for thrown ender pearls."},
+    {"", "Egg", "", "Shows predicted trajectories for thrown eggs."},
+    {"", "Snowball", "", "Shows predicted trajectories for thrown snowballs."},
+    {"", "Healing II", "", "Shows predicted trajectories for splash healing potions."},
+    {"", "Poison", "", "Shows predicted trajectories for splash poison potions."},
+    {"", "Slowness", "", "Shows predicted trajectories for splash slowness potions."},
+    {"", "Blindness", "", "Prevents the blindness overlay and darkness from affecting your view."},
+    {"", "Nausea", "", "Prevents the nausea screen distortion from affecting your view."},
+    {"", "Rainbow", "", "Cycles the rendered color continuously through the hue spectrum."},
+    {"", "Color Bar", "", "Draws an accent bar beside each enabled module."},
+    {"", "Sort by Length", "", "Orders enabled modules by rendered text width."},
+    {"", "Show Info", "", "Shows each module's active mode or status beside its name."},
+    {"", "Size", "", "Changes the scale of the on-screen module list."},
+    {"", "High Saturation", "", "Uses stronger rainbow colors instead of softer pastel tones."},
+    {"", "Minimum Speed", "", "Sets the lowest timer multiplier TimerRange may choose."},
+    {"", "Maximum Speed", "", "Sets the highest timer multiplier TimerRange may choose."},
+    {"", "Change Interval", "", "Sets how often TimerRange chooses a new speed within the range."},
+    {"", "Timer Limit", "", "Sets the maximum time packets may remain queued."},
+    {"", "Show Timer", "", "Displays how long Blink has been queuing packets."},
+    {"", "Show Breadcrumbs", "", "Draws the path traveled while packets are queued."},
+    {"", "Blocks Only", "", "Applies the placement delay reduction only to blocks."},
+    {"", "Refill Soup", "", "Refills empty hotbar slots with mushroom stew."},
+    {"", "Refill Potions", "", "Refills empty hotbar slots with supported healing potions."},
+    {"", "Auto Sword (Attack)", "", "Selects the strongest sword when attacking an entity."},
+    {"", "Prefer Protection", "", "Prioritizes armor with stronger protection enchantments."},
+    {"", "Set 1", "", "Chooses the armor material used by the first switch set."},
+    {"", "Set 2", "", "Chooses the armor material used by the second switch set."},
+    {"", "Line From", "", "Chooses the screen position where tracer lines begin."},
+    {"", "Position", "", "Chooses the screen corner used to anchor the module list."},
+    {"", "Keybind", "", "Sets the keyboard or mouse key used to toggle this module."},
+    {"", "Lock", "", "Keeps the selected behavior attached to its current target until switching is required."},
+    {"", "X", "", "Sets the horizontal screen position."},
+    {"", "Y", "", "Sets the vertical screen position."},
+
+    {"AimAssist", "Target Mode", "Lowest Health", "Targets the valid player with the lowest current health."},
+    {"AimAssist", "Target Mode", "Closest to Player", "Targets the valid player nearest to your position."},
+    {"AimAssist", "Target Mode", "Closest to Crosshair", "Targets the player nearest to the center of your view."},
+    {"AimAssist", "Target Mode", "Switch", "Continuously evaluates targets using the selected sorting rule."},
+    {"AimAssist", "Sort By", "Distance", "Ranks switch targets by nearest distance."},
+    {"AimAssist", "Sort By", "Health", "Ranks switch targets by lowest health."},
+    {"AimAssist", "Sort By", "FOV", "Ranks switch targets by smallest angle from your crosshair."},
+    {"AimAssist", "Sort By", "Hurt Time", "Ranks targets by when they can receive the next hit."},
+    {"Velocity", "Mode", "Regular", "Directly scales horizontal and vertical knockback by the configured percentages."},
+    {"Velocity", "Mode", "Jump", "Attempts a timed jump after taking knockback to preserve movement control."},
+    {"Velocity", "Mode", "Reduce", "Reduces knockback after the configured tick delay instead of applying it immediately."},
+    {"Velocity", "Mode", "Ignore", "Randomly ignores eligible knockback while using the selected vertical rule."},
+    {"Velocity", "Vertical", "Never", "Never suppresses the vertical component while Ignore mode activates."},
+    {"Velocity", "Vertical", "Only Air", "Suppresses vertical knockback only while you are already airborne."},
+    {"Velocity", "Vertical", "Always", "Suppresses vertical knockback whenever Ignore mode activates."},
+    {"Backtrack", "Mode", "Ticks", "Stores a fixed number of previous target positions."},
+    {"Backtrack", "Mode", "Latency", "Stores positions using a time window measured in milliseconds."},
+    {"TimerRange", "Packet Mode", "PRE", "Applies the selected timer speed before the outgoing packet is processed."},
+    {"TimerRange", "Packet Mode", "POST", "Applies the selected timer speed after the outgoing packet is processed."},
+    {"NoItemRelease", "Mode", "Consumable", "Prevents release packets for food, potions, and placeable blocks."},
+    {"NoItemRelease", "Mode", "Sword", "Prevents release packets while sword blocking."},
+    {"NoItemRelease", "Mode", "All", "Prevents release packets for every supported item except bows and fishing rods."},
+    {"Tracers", "Line From", "Bottom", "Starts tracer lines at the bottom-center of the screen."},
+    {"Tracers", "Line From", "Center", "Starts tracer lines at the center of the screen."},
+};
+
+static const char* findDescription(const DescriptionEntry* entries, size_t count, const char* context, const char* key,
+                                   const char* value = "") {
+    for (size_t i = 0; i < count; ++i) {
+        const auto& entry = entries[i];
+        if (strcmp(entry.context, context ? context : "") == 0 && strcmp(entry.key, key ? key : "") == 0 &&
+            strcmp(entry.value, value ? value : "") == 0)
+            return entry.text;
+    }
+    return nullptr;
+}
+
+static const char* resolveOptionDescription(const char* key, const char* value = "") {
+    if (const char* exact = findDescription(kOptionDescriptions, IM_ARRAYSIZE(kOptionDescriptions),
+                                            g_descriptionContext.c_str(), key, value))
+        return exact;
+    if (const char* generic =
+            findDescription(kOptionDescriptions, IM_ARRAYSIZE(kOptionDescriptions), "", key, ""))
+        return generic;
+
+    static std::string fallback;
+    fallback = "Adjusts ";
+    fallback += key ? key : "this option";
+    fallback += " for ";
+    fallback += g_descriptionContext.empty() ? "the current feature." : g_descriptionContext + ".";
+    return fallback.c_str();
+}
+
+static void drawRainbowText(ImDrawList* draw, ImVec2 pos, const char* text, float alpha) {
+    const float time = static_cast<float>(ImGui::GetTime());
+    const char* cursor = text;
+    while (cursor && *cursor) {
+        char glyph[2] = {*cursor, '\0'};
+        const float hue = fmodf(time * 1.8f + pos.x * 0.006f, 1.0f);
+        ImVec4 color;
+        ImGui::ColorConvertHSVtoRGB(hue, 0.85f, 1.0f, color.x, color.y, color.z);
+        color.w = alpha;
+        draw->AddText(pos, ImGui::ColorConvertFloat4ToU32(color), glyph);
+        pos.x += ImGui::CalcTextSize(glyph).x;
+        ++cursor;
+    }
+}
+}  // namespace
 
 // ==================== BINDER STATE ====================
 static bool g_BinderActive = false;
@@ -33,12 +282,13 @@ inline ImU32 GetSchemeColor(float alpha) {
 std::vector<ui::tab_t> ui::tabs = {
     {ICON_FA_CROSSHAIRS,
      "Combat",
-     {"AutoClicker", "AimAssist", "Velocity", "Reach", "HitSelect", "NoHitDelay", "Criticals", "Backtrack"}},
+     {"AutoClicker", "AimAssist", "Velocity", "Reach", "HitSelect", "NoHitDelay", "Criticals", "Backtrack",
+      "Piercing"}},
     {ICON_FA_EYE,
      "Visuals",
-     {"NameTags", "ESP", "ItemESP", "Tracers", "BlockESP", "Trajectories", "ArrayList", "DroppedInfo",
-      "Notifications"}},
-    {ICON_FA_RUNNING, "Movement", {"Timer", "NoJumpDelay", "Blink", "Sprint"}},
+     {"NameTags", "ESP", "ItemESP", "Tracers", "BlockESP", "Trajectories", "AntiDebuff", "ArrayList",
+      "DroppedInfo", "Notifications"}},
+    {ICON_FA_RUNNING, "Movement", {"Timer", "TimerRange", "NoSlowDown", "NoJumpDelay", "Blink", "Sprint"}},
     {ICON_FA_KEYBOARD,
      "Utility",
      {"ArmorSwitch", "AutoRefill", "FastPlace", "NoItemRelease", "BridgeAssist", "AutoTool", "InvManager",
@@ -69,6 +319,67 @@ ImU32 ui::GetColor(ImGuiCol idx, float alpha_mult) {
     ImVec4 col = ImGui::GetStyle().Colors[idx];
     col.w *= alpha_mult * ImGui::GetStyle().Alpha * alpha_mod;
     return ImGui::ColorConvertFloat4ToU32(col);
+}
+
+void ui::SetDescriptionContext(const char* context) {
+    g_descriptionContext = context ? context : "";
+}
+
+const char* ui::GetModuleDescription(const char* module) {
+    if (const char* description =
+            findDescription(kModuleDescriptions, IM_ARRAYSIZE(kModuleDescriptions), "", module, ""))
+        return description;
+    return "Configures this module's behavior.";
+}
+
+void ui::HoverDescription(const char* key, bool hovered, const char* explicitText, bool rainbow) {
+    const char* text = explicitText ? explicitText : resolveOptionDescription(key);
+    if (!text || !*text)
+        return;
+
+    std::string stateKey = "hover_description##" + g_descriptionContext + "##" + (key ? key : "");
+    struct description_state {
+        float amount;
+    };
+    auto& state = anim_obj(stateKey.c_str(), rainbow ? 1 : 0, description_state{0.0f});
+    state.amount = ImLerp(state.amount, hovered ? 1.0f : 0.0f,
+                          (std::min)(1.0f, 18.0f * ImGui::GetIO().DeltaTime));
+    if (state.amount < 0.002f)
+        return;
+
+    ImGuiWindow* window = ImGui::GetCurrentWindow();
+    const float width = (std::max)(ui::s(80.0f), ImGui::GetContentRegionAvail().x);
+    const float wrapWidth = width - ui::s(8.0f);
+    const ImVec2 textSize = ImGui::CalcTextSize(text, nullptr, false, wrapWidth);
+    const float fullHeight = textSize.y + ui::s(7.0f);
+    const float visibleHeight = fullHeight * state.amount;
+    const ImVec2 start = window->DC.CursorPos;
+
+    ImGui::Dummy({width, visibleHeight});
+    if (visibleHeight < ui::s(2.0f))
+        return;
+
+    const ImVec2 clipMin = start;
+    const ImVec2 clipMax = start + ImVec2(width, visibleHeight);
+    window->DrawList->PushClipRect(clipMin, clipMax, true);
+    const ImVec2 textPos = start + ImVec2(ui::s(4.0f), ui::s(2.0f) - (1.0f - state.amount) * ui::s(4.0f));
+    if (rainbow) {
+        drawRainbowText(window->DrawList, textPos, text, state.amount * ui::alpha_mod);
+    } else {
+        ImVec4 color = ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled);
+        color.x = (std::min)(1.0f, color.x + 0.18f);
+        color.y = (std::min)(1.0f, color.y + 0.18f);
+        color.z = (std::min)(1.0f, color.z + 0.18f);
+        color.w *= 0.86f * state.amount * ui::alpha_mod;
+        window->DrawList->AddText(ImGui::GetFont(), ImGui::GetFontSize(), textPos, ImGui::ColorConvertFloat4ToU32(color), text, nullptr,
+                                  wrapWidth);
+    }
+    window->DrawList->PopClipRect();
+}
+
+void ui::DescribeLastItem(const char* key, const char* explicitText, bool rainbow) {
+    const bool hovered = ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled);
+    HoverDescription(key, hovered, explicitText, rainbow);
 }
 
 // ==================== ANIMATION SYSTEM ====================
@@ -229,6 +540,7 @@ bool ui::Checkbox(const char* label, bool* v) {
                     {bb.GetCenter().x - (checkSize * obj.anim) / 2, bb.GetCenter().y - (checkSize * obj.anim) / 2},
                     GetColor(ImGuiCol_Text, obj.anim), checkSize * obj.anim);
 
+    HoverDescription(label, hovered);
     return pressed;
 }
 
@@ -384,6 +696,7 @@ bool ui::CheckboxBind(const char* label, bool* v, int* key) {
                   displayText);
 
     ItemSize(ImVec2(availWidth, height));
+    HoverDescription(label, cbHovered || bindHovered || bindActive);
     return cbPressed || changed;
 }
 
@@ -428,6 +741,7 @@ bool ui::SliderFloat(const char* label, float* v, float v_min, float v_max, cons
     if (inputState.editing) {
         ItemAdd(total_bb, id);
         ItemSize(total_bb);
+        const ImVec2 postItemCursor = window->DC.CursorPos;
 
         // Draw slider background while editing
         struct slider_state {
@@ -494,6 +808,8 @@ bool ui::SliderFloat(const char* label, float* v, float v_min, float v_max, cons
         PopStyleVar();
         PopItemWidth();
 
+        SetCursorScreenPos(postItemCursor);
+        HoverDescription(label, true);
         return true;
     }
 
@@ -551,6 +867,7 @@ bool ui::SliderFloat(const char* label, float* v, float v_min, float v_max, cons
     window->DrawList->AddText({total_bb.Max.x - CalcTextSize(value_buf).x, total_bb.Min.y}, GetColor(ImGuiCol_Text),
                               value_buf);
 
+    HoverDescription(label, hovered || active || IsMouseHoveringRect(value_bb.Min, value_bb.Max));
     return active;
 }
 
@@ -634,6 +951,7 @@ bool ui::SliderFloat(const char* label, float* v, float v_min, float v_max, floa
     window->DrawList->AddText({total_bb.Max.x - CalcTextSize(value_buf).x, total_bb.Min.y}, GetColor(ImGuiCol_Text),
                               value_buf);
 
+    HoverDescription(label, hovered || active);
     return active;
 }
 
@@ -1103,6 +1421,7 @@ bool ui::Binder(const char* label, int* key) {
     draw->AddRect(bb.Min, bb.Max, GetColor(ImGuiCol_Border), style.FrameRounding);
     draw->AddText({bb.GetCenter().x - textSize.x / 2, bb.GetCenter().y - textSize.y / 2}, obj.textCol, displayText);
 
+    HoverDescription(label, hovered || active);
     return changed;
 }
 
@@ -1139,13 +1458,18 @@ bool ui::color(const char* name, float col[4], bool alpha) {
         window->DC.CursorPos = pos;
     }
 
+    HoverDescription(name, ImGui::IsMouseHoveringRect(bb.Min, ImVec2(bb.Max.x + size.x, bb.Max.y)));
     return value_changed;
 }
 
 // ==================== COMBO ====================
 
 bool ui::Combo(const char* label, int* current, const char* const items[], int count) {
-    return ImGui::Combo(label, current, items, count);
+    const bool changed = ImGui::Combo(label, current, items, count);
+    const bool hovered = ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled);
+    const char* selectedValue = current && *current >= 0 && *current < count ? items[*current] : "";
+    HoverDescription(label, hovered, resolveOptionDescription(label, selectedValue));
+    return changed;
 }
 
 // ==================== TAB WIDGET ====================
@@ -1254,12 +1578,13 @@ void ui::tab(int num) {
 }
 
 void ui::subtab(int num, int tab_num) {
+    SetDescriptionContext("__modules__");
     auto name = tabs[tab_num].m_subtabs[num];
     auto name_size = ImGui::CalcTextSize(name, 0, 1);
 
     // Check if module is locked (experimental feature)
     Module* mod = getModuleForSubtab(tab_num, num);
-    bool isLocked = mod && !mod->isAccessible();
+    bool isLocked = mod && mod->showsDeveloperOnly();
 
     bool selected = tabs[tab_num].next_subtab == num;
 
@@ -1309,6 +1634,8 @@ void ui::subtab(int num, int tab_num) {
                            GetSchemeColor(), obj.anim);
         window->DrawList->AddText(ImVec2(bb.Min.x, textY), obj.col, name, FindRenderedTextEnd(name));
     }
+
+    HoverDescription(name, hovered, isLocked ? "Developer only (for now.)" : GetModuleDescription(name), isLocked);
 }
 
 // ==================== APPLY STYLE ====================

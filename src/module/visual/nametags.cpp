@@ -6,6 +6,7 @@
 #include "../../util/logger.hpp"
 #include "../../util/math/worldToScreen.h"
 #include "../../util/network/http.hpp"
+#include "../../util/team/friends_manager.h"
 #include "../../jni/apollo/apollo_packet_observer.hpp"
 
 #include <cmath>
@@ -521,7 +522,12 @@ void NameTags::onRender() {
                                                       RenderData::screenWidth, RenderData::screenHeight, screenPos);
 
         if (onScreen) {
-            renderPlayerTag(draw, screenPos.x, screenPos.y, p.getDisplayName().c_str(), p.distance, p.health,
+            bool isManualFriend = friendsManager &&
+                                  ((!p.uuid.empty() && friendsManager->isFriendByUUID(p.uuid)) ||
+                                   friendsManager->isFriend(FriendsManager::stripColorCodes(p.name)));
+            const float* color = isManualFriend ? settings.friendColor : settings.normalColor;
+            ImU32 nameColor = ImGui::ColorConvertFloat4ToU32(ImVec4(color[0], color[1], color[2], color[3]));
+            renderPlayerTag(draw, screenPos.x, screenPos.y, p.getDisplayName().c_str(), nameColor, p.distance, p.health,
                             p.maxHealth, p.armor, p.potions);
         }
     }
@@ -553,8 +559,10 @@ static ImU32 GetHealthColor(float health, float maxHealth) {
     return IM_COL32(r, g, 0, 255);
 }
 
-void NameTags::renderPlayerTag(ImDrawList* draw, float screenX, float screenY, const char* name, float distance,
-                               float health, float maxHealth, const std::vector<PlayerInfo::ArmorItem>& armor,
+void NameTags::renderPlayerTag(ImDrawList* draw, float screenX, float screenY, const char* name,
+                               unsigned int nameColor,
+                               float distance, float health, float maxHealth,
+                               const std::vector<PlayerInfo::ArmorItem>& armor,
                                const std::vector<PlayerInfo::PotionEffectInfo>& potions) {
     if (!draw)
         return;
@@ -615,7 +623,7 @@ void NameTags::renderPlayerTag(ImDrawList* draw, float screenX, float screenY, c
 
     // Draw Name and Info
     draw->AddText(ImVec2(posX + 1, posY + 1), IM_COL32(0, 0, 0, 255), nameText);
-    draw->AddText(ImVec2(posX, posY), IM_COL32(255, 255, 255, 255), nameText);
+    draw->AddText(ImVec2(posX, posY), nameColor, nameText);
 
     float currentX = posX + nameSize.x;
 
@@ -743,6 +751,8 @@ void NameTags::onRenderMenu() {
             ImGui::Spacing();
             ui::SliderFloat("Scale", &settings.scale, 0.5f, 2.0f, "%.1f");
             ui::Checkbox("Background", &settings.background);
+            ui::color("Normal Color", settings.normalColor);
+            ui::color("Friend Color", settings.friendColor);
         },
         "Display",
         [this]() {

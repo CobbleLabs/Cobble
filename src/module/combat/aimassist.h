@@ -63,7 +63,7 @@ public:
         bool alwaysAim = false;
         bool breakBlocks = false;
         bool aimAtClosestPoint = false;
-        bool lockAim = false;
+        bool entityLock = false;  // Keep the acquired entity until it becomes invalid
         bool weaponOnly = false;
         bool stopOnHitbox = false;  // Stops aim assist when crosshair is inside hitbox
 

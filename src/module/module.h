@@ -35,6 +35,7 @@ struct Module {
 
     // Check if module is accessible in UI (not locked OR experiments unlocked)
     bool isAccessible() const { return !locked || experimentalUnlocked; }
+    virtual bool showsDeveloperOnly() const { return locked && !experimentalUnlocked; }
 
     // Called when module is enabled
     virtual void onEnable() {}

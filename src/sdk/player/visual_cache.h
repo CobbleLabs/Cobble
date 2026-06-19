@@ -11,7 +11,9 @@ struct VisualPlayer {
     int entityId = 0;
     std::string uuid;
     std::string name;
+    std::string profileName;
     int teamColor = -1;
+    bool isOnLocalTeam = false;
     double posX = 0.0;
     double posY = 0.0;
     double posZ = 0.0;
@@ -84,7 +86,9 @@ inline void Update() {
         cached.entityId = p.entityId;
         cached.uuid = p.uuid;
         cached.name = p.name;
+        cached.profileName = p.profileName;
         cached.teamColor = p.teamColor;
+        cached.isOnLocalTeam = p.isOnLocalTeam;
         cached.posX = p.posX;
         cached.posY = p.posY;
         cached.posZ = p.posZ;
