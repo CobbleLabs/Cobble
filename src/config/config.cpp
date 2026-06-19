@@ -17,6 +17,7 @@
 #include "../module/movement/timerrange.h"
 
 #include "../module/movement/blink.h"
+#include "../module/movement/fakelag.h"
 #include "../module/utility/armorswitch.h"
 #include "../module/utility/autorefill.h"
 #include "../module/utility/autotool.h"
@@ -691,6 +692,32 @@ void ConfigManager::applyConfig() {
                     s.blinkColor[2] = data["blinkColor"]["b"].as_float(s.blinkColor[2]);
                     s.blinkColor[3] = data["blinkColor"]["a"].as_float(s.blinkColor[3]);
                 }
+            } else if (name == "FakeLag" && fakeLag) {
+                auto& s = fakeLag->settings;
+                s.mode = static_cast<FakeLag::Mode>((std::clamp)(data["mode"].as_int(static_cast<int>(s.mode)), 0, 3));
+                s.minDelayMs = data["minDelayMs"].as_int(s.minDelayMs);
+                s.maxDelayMs = data["maxDelayMs"].as_int(s.maxDelayMs);
+                s.pulseHoldMs = data["pulseHoldMs"].as_int(s.pulseHoldMs);
+                s.pulseReleaseMs = data["pulseReleaseMs"].as_int(s.pulseReleaseMs);
+                s.maxDistance = data["maxDistance"].as_float(s.maxDistance);
+                s.adaptiveStrength = data["adaptiveStrength"].as_float(s.adaptiveStrength);
+                s.maxPackets = data["maxPackets"].as_int(s.maxPackets);
+                s.releaseRate = data["releaseRate"].as_int(s.releaseRate);
+                s.movingOnly = data["movingOnly"].as_bool(s.movingOnly);
+                s.smoothRelease = data["smoothRelease"].as_bool(s.smoothRelease);
+                s.flushOnAttack = data["flushOnAttack"].as_bool(s.flushOnAttack);
+                s.flushOnDamage = data["flushOnDamage"].as_bool(s.flushOnDamage);
+                s.flushOnItemUse = data["flushOnItemUse"].as_bool(s.flushOnItemUse);
+                s.renderServerPlayer = data["renderServerPlayer"].as_bool(s.renderServerPlayer);
+                s.filledRender = data["filledRender"].as_bool(s.filledRender);
+                s.renderLine = data["renderLine"].as_bool(s.renderLine);
+                s.showStatus = data["showStatus"].as_bool(s.showStatus);
+                if (data.has("color")) {
+                    s.color[0] = data["color"]["r"].as_float(s.color[0]);
+                    s.color[1] = data["color"]["g"].as_float(s.color[1]);
+                    s.color[2] = data["color"]["b"].as_float(s.color[2]);
+                    s.color[3] = data["color"]["a"].as_float(s.color[3]);
+                }
             } else if (name == "Timer" && timerModule) {
                 auto& s = timerModule->settings;
                 s.speed = (double)data["speed"].as_float((float)s.speed);
@@ -1070,6 +1097,30 @@ void ConfigManager::buildConfigFromModules() {
             config_["modules"][name]["blinkColor"]["g"] = s.blinkColor[1];
             config_["modules"][name]["blinkColor"]["b"] = s.blinkColor[2];
             config_["modules"][name]["blinkColor"]["a"] = s.blinkColor[3];
+        } else if (name == "FakeLag" && fakeLag) {
+            const auto& s = fakeLag->settings;
+            config_["modules"][name]["mode"] = static_cast<int>(s.mode);
+            config_["modules"][name]["minDelayMs"] = s.minDelayMs;
+            config_["modules"][name]["maxDelayMs"] = s.maxDelayMs;
+            config_["modules"][name]["pulseHoldMs"] = s.pulseHoldMs;
+            config_["modules"][name]["pulseReleaseMs"] = s.pulseReleaseMs;
+            config_["modules"][name]["maxDistance"] = s.maxDistance;
+            config_["modules"][name]["adaptiveStrength"] = s.adaptiveStrength;
+            config_["modules"][name]["maxPackets"] = s.maxPackets;
+            config_["modules"][name]["releaseRate"] = s.releaseRate;
+            config_["modules"][name]["movingOnly"] = s.movingOnly;
+            config_["modules"][name]["smoothRelease"] = s.smoothRelease;
+            config_["modules"][name]["flushOnAttack"] = s.flushOnAttack;
+            config_["modules"][name]["flushOnDamage"] = s.flushOnDamage;
+            config_["modules"][name]["flushOnItemUse"] = s.flushOnItemUse;
+            config_["modules"][name]["renderServerPlayer"] = s.renderServerPlayer;
+            config_["modules"][name]["filledRender"] = s.filledRender;
+            config_["modules"][name]["renderLine"] = s.renderLine;
+            config_["modules"][name]["showStatus"] = s.showStatus;
+            config_["modules"][name]["color"]["r"] = s.color[0];
+            config_["modules"][name]["color"]["g"] = s.color[1];
+            config_["modules"][name]["color"]["b"] = s.color[2];
+            config_["modules"][name]["color"]["a"] = s.color[3];
         } else if (name == "Timer" && timerModule) {
             const auto& s = timerModule->settings;
             config_["modules"][name]["speed"] = (float)s.speed;

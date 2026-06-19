@@ -14,6 +14,7 @@
 #include "module/movement/nojumpdelay.h"
 #include "module/movement/no_slow_down.h"
 #include "module/movement/blink.h"
+#include "module/movement/fakelag.h"
 #include "module/movement/timer.h"
 #include "module/movement/timerrange.h"
 #include "module/movement/sprint.h"
@@ -184,6 +185,8 @@ void cobble::context::initialize(HMODULE hModule) {
     bridgeAssist = new BridgeAssist();
     COBBLE_TRACE("alloc:Blink");
     blink = new Blink();
+    COBBLE_TRACE("alloc:FakeLag");
+    fakeLag = new FakeLag();
     COBBLE_TRACE("alloc:FastPlace");
     fastPlace = new FastPlace();
     COBBLE_TRACE("alloc:TimerMod");
@@ -237,6 +240,7 @@ void cobble::context::initialize(HMODULE hModule) {
     moduleManager->registerModule(noItemRelease);
     moduleManager->registerModule(bridgeAssist);
     moduleManager->registerModule(blink);
+    moduleManager->registerModule(fakeLag);
     moduleManager->registerModule(fastPlace);
     moduleManager->registerModule(timerModule);
     moduleManager->registerModule(timerRange);
@@ -461,6 +465,8 @@ void cobble::context::shutdown() {
         bridgeAssist->setEnabled(false);
     if (blink)
         blink->setEnabled(false);
+    if (fakeLag)
+        fakeLag->setEnabled(false);
     if (fastPlace)
         fastPlace->setEnabled(false);
     if (timerModule)
@@ -564,6 +570,10 @@ void cobble::context::shutdown() {
     if (blink) {
         delete blink;
         blink = nullptr;
+    }
+    if (fakeLag) {
+        delete fakeLag;
+        fakeLag = nullptr;
     }
     if (fastPlace) {
         delete fastPlace;

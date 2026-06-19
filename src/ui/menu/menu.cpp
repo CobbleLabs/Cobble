@@ -16,6 +16,7 @@
 #include "../../module/movement/nojumpdelay.h"
 #include "../../module/movement/no_slow_down.h"
 #include "../../module/movement/blink.h"
+#include "../../module/movement/fakelag.h"
 #include "../../module/movement/timer.h"
 #include "../../module/movement/timerrange.h"
 #include "../../module/movement/sprint.h"
@@ -104,7 +105,7 @@ Module* getModuleForSubtab(int tabIdx, int subtabIdx) {
                 return nullptr;  // Notifications - special handling
         }
     }
-    // Movement Tab (2): Timer, TimerRange, NoJumpDelay, Blink, Sprint
+    // Movement Tab (2): Timer, TimerRange, NoSlowDown, NoJumpDelay, FakeLag, Blink, Sprint
     else if (tabIdx == 2) {
         switch (subtabIdx) {
             case 0:
@@ -116,8 +117,10 @@ Module* getModuleForSubtab(int tabIdx, int subtabIdx) {
             case 3:
                 return noJumpDelay;
             case 4:
-                return blink;
+                return fakeLag;
             case 5:
+                return blink;
+            case 6:
                 return sprint;
         }
     }
