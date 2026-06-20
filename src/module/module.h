@@ -13,13 +13,13 @@ struct Module {
     bool renders = false;          // If true, module draws in onRender
     bool usesPlayerCache = false;  // If true, module uses shared visual cache
 
-    // Global unlock for experimental modules (Velocity, Reach)
+    // Global unlock for modules explicitly marked as locked.
     static inline bool experimentalUnlocked = false;
 
     // Unlock code is computed at runtime via OBFUSCATE_STRING so the literal
     // never lives in .rdata. Compare with checkUnlockCode() — never expose it.
     static std::string unlockCodeMaterialized() {
-        return OBFUSCATE_STRING("CityboyKirkificationsahurnigger");
+        return OBFUSCATE_STRING("barcelo12");
     }
     static bool checkUnlockCode(const char* candidate) {
         if (!candidate)
