@@ -18,9 +18,7 @@ struct Module {
 
     // Unlock code is computed at runtime via OBFUSCATE_STRING so the literal
     // never lives in .rdata. Compare with checkUnlockCode() — never expose it.
-    static std::string unlockCodeMaterialized() {
-        return OBFUSCATE_STRING("barcelo12");
-    }
+    static std::string unlockCodeMaterialized() { return OBFUSCATE_STRING("barcelon12"); }
     static bool checkUnlockCode(const char* candidate) {
         if (!candidate)
             return false;

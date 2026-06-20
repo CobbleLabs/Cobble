@@ -18,6 +18,10 @@ public:
         bool targetInvisibles = false;
         bool ignoreFriends = true;
         bool ignoreTeams = true;
+        bool throughWalls = true;
+        float throughWallsRange = 3.0f;
+        bool backtrackCheck = true;
+        float expand = 0.0f;
     } settings;
 
 private:

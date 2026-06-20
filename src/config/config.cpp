@@ -563,6 +563,10 @@ void ConfigManager::applyConfig() {
                 s.targetInvisibles = data["targetInvisibles"].as_bool(s.targetInvisibles);
                 s.ignoreFriends = data["ignoreFriends"].as_bool(s.ignoreFriends);
                 s.ignoreTeams = data["ignoreTeams"].as_bool(s.ignoreTeams);
+                s.throughWalls = data["throughWalls"].as_bool(s.throughWalls);
+                s.throughWallsRange = data["throughWallsRange"].as_float(s.throughWallsRange);
+                s.backtrackCheck = data["backtrackCheck"].as_bool(s.backtrackCheck);
+                s.expand = data["expand"].as_float(s.expand);
             } else if (name == "HitSelect" && hitSelect) {
                 auto& s = hitSelect->settings;
                 s.minComboHits = data["minComboHits"].as_int(s.minComboHits);
@@ -1026,6 +1030,10 @@ void ConfigManager::buildConfigFromModules() {
             config_["modules"][name]["targetInvisibles"] = s.targetInvisibles;
             config_["modules"][name]["ignoreFriends"] = s.ignoreFriends;
             config_["modules"][name]["ignoreTeams"] = s.ignoreTeams;
+            config_["modules"][name]["throughWalls"] = s.throughWalls;
+            config_["modules"][name]["throughWallsRange"] = s.throughWallsRange;
+            config_["modules"][name]["backtrackCheck"] = s.backtrackCheck;
+            config_["modules"][name]["expand"] = s.expand;
         } else if (name == "HitSelect" && hitSelect) {
             const auto& s = hitSelect->settings;
             config_["modules"][name]["minComboHits"] = s.minComboHits;

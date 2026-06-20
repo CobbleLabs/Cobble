@@ -1,4 +1,5 @@
 #include "piercing.h"
+#include "backtrack.h"
 
 #include "../../jni/java.h"
 #include "../../sdk/core/minecraft.h"
@@ -113,6 +114,8 @@ void Piercing::onUpdate() {
     PlayerInfo* target = nullptr;
     double closestHit = std::numeric_limits<double>::max();
 
+    const double expandVal = static_cast<double>(settings.expand);
+
     for (auto& candidate : players) {
         if (!candidate.instance || candidate.isNPC)
             continue;
@@ -125,6 +128,12 @@ void Piercing::onUpdate() {
              friendsManager->isApolloTeammate(candidate.uuid) ||
              friendsManager->isLunarTeammate(candidate.uuid)))
             continue;
+
+        const bool isVisible = mc.canEntityBeSeen(candidate.instance);
+        if (!isVisible && !settings.throughWalls)
+            continue;
+
+        const double maxDistance = isVisible ? static_cast<double>(settings.distance) : static_cast<double>(settings.throughWallsRange);
 
         double minX = candidate.hitboxMinX;
         double minY = candidate.hitboxMinY;
@@ -142,14 +151,55 @@ void Piercing::onUpdate() {
             maxZ = candidate.posZ + 0.3;
         }
 
+        // Apply hitbox expansion
+        if (expandVal > 0.0) {
+            minX -= expandVal;
+            minY -= expandVal;
+            minZ -= expandVal;
+            maxX += expandVal;
+            maxY += expandVal;
+            maxZ += expandVal;
+        }
+
         double hitDistance = 0.0;
-        if (rayIntersectsBox(originX, originY, originZ,
-                             directionX, directionY, directionZ,
-                             minX, minY, minZ, maxX, maxY, maxZ,
-                             settings.distance, hitDistance) &&
-            hitDistance < closestHit) {
-            closestHit = hitDistance;
-            target = &candidate;
+        bool hit = false;
+
+        // Try backtrack checking if enabled
+        if (settings.backtrackCheck && backtrack && backtrack->enabled) {
+            const auto* history = backtrack->getPositionHistory(candidate.uuid);
+            if (history && !history->empty()) {
+                for (const auto& snap : *history) {
+                    double snapMinX = snap.x - 0.3 - expandVal;
+                    double snapMaxX = snap.x + 0.3 + expandVal;
+                    double snapMinY = snap.y - expandVal;
+                    double snapMaxY = snap.y + (candidate.isSneaking ? 1.62 : 1.8) + expandVal;
+                    double snapMinZ = snap.z - 0.3 - expandVal;
+                    double snapMaxZ = snap.z + 0.3 + expandVal;
+
+                    double backHitDistance = 0.0;
+                    if (rayIntersectsBox(originX, originY, originZ,
+                                         directionX, directionY, directionZ,
+                                         snapMinX, snapMinY, snapMinZ, snapMaxX, snapMaxY, snapMaxZ,
+                                         maxDistance, backHitDistance)) {
+                        if (backHitDistance < closestHit) {
+                            closestHit = backHitDistance;
+                            target = &candidate;
+                            hit = true;
+                        }
+                    }
+                }
+            }
+        }
+
+        // Try standard box check if backtrack didn't hit or isn't active
+        if (!hit && rayIntersectsBox(originX, originY, originZ,
+                                     directionX, directionY, directionZ,
+                                     minX, minY, minZ, maxX, maxY, maxZ,
+                                     maxDistance, hitDistance)) {
+            if (hitDistance < closestHit) {
+                closestHit = hitDistance;
+                target = &candidate;
+            }
         }
     }
 
@@ -198,7 +248,14 @@ void Piercing::onRenderMenu() {
                 setEnabled(enabledValue);
 
             ImGui::Spacing();
-            ui::SliderFloat("Distance", &settings.distance, 3.0f, 6.0f, "%.2f");
+            ui::SliderFloat("Visible Distance", &settings.distance, 3.0f, 6.0f, "%.2f");
+            ui::Checkbox("Through Walls", &settings.throughWalls);
+            if (settings.throughWalls) {
+                ui::SliderFloat("Wall Distance", &settings.throughWallsRange, 3.0f, 6.0f, "%.2f");
+            }
+            ImGui::Spacing();
+            ui::SliderFloat("Hitbox Expansion", &settings.expand, 0.0f, 1.0f, "%.2f");
+            ui::Checkbox("Backtrack Check", &settings.backtrackCheck);
             ui::Checkbox("Weapons Only", &settings.weaponsOnly);
         },
         "Targets",
