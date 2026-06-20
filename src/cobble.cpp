@@ -7,6 +7,7 @@
 #include "module/combat/nohitdelay.h"
 #include "module/combat/criticals.h"
 #include "module/combat/piercing.h"
+#include "module/combat/wtap.h"
 
 #include "module/combat/reach.h"
 #include "module/combat/velocity.h"
@@ -22,6 +23,7 @@
 #include "module/utility/autorefill.h"
 #include "module/utility/autotool.h"
 #include "module/utility/bridgeassist.h"
+#include "module/utility/clutch.h"
 #include "module/utility/fastplace.h"
 #include "module/utility/noitemrelease.h"
 #include "module/utility/inventorymanager.h"
@@ -175,6 +177,8 @@ void cobble::context::initialize(HMODULE hModule) {
     noHitDelay = new NoHitDelay();
     COBBLE_TRACE("alloc:Criticals");
     criticals = new Criticals();
+    COBBLE_TRACE("alloc:WTap");
+    wTap = new WTap();
     COBBLE_TRACE("alloc:NoSlowDown");
     noSlowDown = new NoSlowDown();
     COBBLE_TRACE("alloc:NoJumpDelay");
@@ -183,6 +187,8 @@ void cobble::context::initialize(HMODULE hModule) {
     noItemRelease = new NoItemRelease();
     COBBLE_TRACE("alloc:BridgeAssist");
     bridgeAssist = new BridgeAssist();
+    COBBLE_TRACE("alloc:Clutch");
+    clutch = new Clutch();
     COBBLE_TRACE("alloc:Blink");
     blink = new Blink();
     COBBLE_TRACE("alloc:FakeLag");
@@ -235,10 +241,12 @@ void cobble::context::initialize(HMODULE hModule) {
     moduleManager->registerModule(hitSelect);
     moduleManager->registerModule(noHitDelay);
     moduleManager->registerModule(criticals);
+    moduleManager->registerModule(wTap);
     moduleManager->registerModule(noSlowDown);
     moduleManager->registerModule(noJumpDelay);
     moduleManager->registerModule(noItemRelease);
     moduleManager->registerModule(bridgeAssist);
+    moduleManager->registerModule(clutch);
     moduleManager->registerModule(blink);
     moduleManager->registerModule(fakeLag);
     moduleManager->registerModule(fastPlace);
@@ -455,6 +463,8 @@ void cobble::context::shutdown() {
         noHitDelay->setEnabled(false);
     if (criticals)
         criticals->setEnabled(false);
+    if (wTap)
+        wTap->setEnabled(false);
     if (noSlowDown)
         noSlowDown->setEnabled(false);
     if (noJumpDelay)
@@ -463,6 +473,8 @@ void cobble::context::shutdown() {
         noItemRelease->setEnabled(false);
     if (bridgeAssist)
         bridgeAssist->setEnabled(false);
+    if (clutch)
+        clutch->setEnabled(false);
     if (blink)
         blink->setEnabled(false);
     if (fakeLag)
@@ -551,6 +563,10 @@ void cobble::context::shutdown() {
         delete criticals;
         criticals = nullptr;
     }
+    if (wTap) {
+        delete wTap;
+        wTap = nullptr;
+    }
     if (noSlowDown) {
         delete noSlowDown;
         noSlowDown = nullptr;
@@ -566,6 +582,10 @@ void cobble::context::shutdown() {
     if (bridgeAssist) {
         delete bridgeAssist;
         bridgeAssist = nullptr;
+    }
+    if (clutch) {
+        delete clutch;
+        clutch = nullptr;
     }
     if (blink) {
         delete blink;

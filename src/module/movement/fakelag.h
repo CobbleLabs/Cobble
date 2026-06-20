@@ -68,7 +68,7 @@ private:
     bool isMovementPacket(JNIEnv* env, jobject packet) const;
     bool isAttackPacket(JNIEnv* env, jobject packet) const;
     bool shouldQueueMovement() const;
-    void queuePacket(JNIEnv* env, jobject packet);
+    bool queuePacket(JNIEnv* env, jobject packet);
     void releaseEligible(std::uint64_t ageMs, int limit);
     void renderPlayerBox(double x, double y, double z, unsigned int outline, unsigned int fill);
     float serverDistance() const;
@@ -77,9 +77,11 @@ private:
 
     mutable std::mutex queueMutex_;
     mutable std::mutex stateMutex_;
+    mutable std::mutex releaseMutex_;
     std::deque<QueuedPacket> queuedPackets_;
     std::atomic<bool> releasing_{false};
     std::atomic<bool> active_{false};
+    std::atomic<bool> flushRequested_{false};
 
     std::uint64_t cycleStartMs_ = 0;
     int currentDelayMs_ = 0;

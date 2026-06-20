@@ -56,6 +56,15 @@ void SDK_Init() {
     // clickMouse method
     mc.mid_clickMouse = Java::Env()->GetMethodID(mc.cls, OBFUSCATE_STRING("clickMouse").c_str(),
                                                  OBFUSCATE_STRING("()V").c_str());
+    mc.mid_rightClickMouse = Java::Env()->GetMethodID(mc.cls, OBFUSCATE_STRING("rightClickMouse").c_str(),
+                                                      OBFUSCATE_STRING("()V").c_str());
+    if (!mc.mid_rightClickMouse) {
+        Java::Env()->ExceptionClear();
+        mc.mid_rightClickMouse = Java::Env()->GetMethodID(mc.cls, OBFUSCATE_STRING("func_147121_ag").c_str(),
+                                                          OBFUSCATE_STRING("()V").c_str());
+        if (!mc.mid_rightClickMouse)
+            Java::Env()->ExceptionClear();
+    }
 
     // Click delay fields
     mc.fid_rightClickDelayTimer =
@@ -222,6 +231,28 @@ void Minecraft::clickMouse() {
     if (!isValid() || !mid_clickMouse)
         return;
     Java::Env()->CallVoidMethod(instance, mid_clickMouse);
+}
+
+void Minecraft::rightClickMouse() {
+    JNIEnv* env = Java::Env();
+    if (!isValid() || !mid_rightClickMouse || !env)
+        return;
+    env->CallVoidMethod(instance, mid_rightClickMouse);
+    if (env->ExceptionCheck())
+        env->ExceptionClear();
+}
+
+void Minecraft::updateMouseOver() {
+    JNIEnv* env = Java::Env();
+    if (!isValid() || !env || !JniCache::fid_entityRenderer || !JniCache::mid_getMouseOver)
+        return;
+    jobject renderer = env->GetObjectField(instance, JniCache::fid_entityRenderer);
+    if (!renderer)
+        return;
+    env->CallVoidMethod(renderer, JniCache::mid_getMouseOver, getPartialTicks());
+    env->DeleteLocalRef(renderer);
+    if (env->ExceptionCheck())
+        env->ExceptionClear();
 }
 
 int Minecraft::getRightClickDelay() {

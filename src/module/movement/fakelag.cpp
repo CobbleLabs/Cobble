@@ -88,6 +88,7 @@ void FakeLag::onEnable() {
 
     clearQueuedPackets();
     active_.store(true, std::memory_order_release);
+    flushRequested_.store(false, std::memory_order_release);
     cycleStartMs_ = nowMs();
     currentDelayMs_ = settings.minDelayMs;
     previousHurtTime_ = player.isValid() ? player.getHurtTime() : 0;
@@ -98,6 +99,7 @@ void FakeLag::onEnable() {
 
 void FakeLag::onDisable() {
     active_.store(false, std::memory_order_release);
+    flushRequested_.store(false, std::memory_order_release);
     flushQueuedPackets(true);
     {
         std::lock_guard<std::mutex> lock(stateMutex_);
@@ -118,7 +120,7 @@ bool FakeLag::shouldQueueMovement() const {
         return false;
 
     const double motion = std::hypot(player.getMotionX(), player.getMotionZ());
-    if (settings.movingOnly && motion < 0.012)
+    if ((settings.mode == Mode::Adaptive || settings.movingOnly) && motion < 0.012)
         return false;
 
     if (settings.mode == Mode::Pulse) {
@@ -134,8 +136,8 @@ bool FakeLag::handleOutgoingPacket(JNIEnv* env, jobject packet) {
     if (!enabled || !active_.load(std::memory_order_acquire) || isReleasing())
         return true;
 
-    if (settings.flushOnAttack && isAttackPacket(env, packet)) {
-        flushQueuedPackets(true);
+    if (isAttackPacket(env, packet)) {
+        flushRequested_.store(true, std::memory_order_release);
         return true;
     }
 
@@ -143,25 +145,19 @@ bool FakeLag::handleOutgoingPacket(JNIEnv* env, jobject packet) {
         return true;
 
     if (!shouldQueueMovement()) {
-        flushQueuedPackets(true);
-        if (player.isValid()) {
-            std::lock_guard<std::mutex> lock(stateMutex_);
-            serverX_ = player.getPosX();
-            serverY_ = player.getPosY();
-            serverZ_ = player.getPosZ();
-            hasServerPosition_ = true;
-        }
+        flushRequested_.store(true, std::memory_order_release);
         return true;
     }
 
-    queuePacket(env, packet);
+    if (!queuePacket(env, packet))
+        return true;
     return false;
 }
 
-void FakeLag::queuePacket(JNIEnv* env, jobject packet) {
+bool FakeLag::queuePacket(JNIEnv* env, jobject packet) {
     jobject global = env ? env->NewGlobalRef(packet) : nullptr;
     if (!global)
-        return;
+        return false;
 
     QueuedPacket entry;
     entry.packet = global;
@@ -176,13 +172,16 @@ void FakeLag::queuePacket(JNIEnv* env, jobject packet) {
     {
         std::lock_guard<std::mutex> lock(queueMutex_);
         queuedPackets_.push_back(entry);
-        overLimit = static_cast<int>(queuedPackets_.size()) > (std::max)(settings.maxPackets, 5);
+        const int maxPackets = settings.mode == Mode::Adaptive ? 18 : (std::clamp)(settings.maxPackets, 8, 48);
+        overLimit = static_cast<int>(queuedPackets_.size()) > maxPackets;
     }
     if (overLimit)
-        flushQueuedPackets(false);
+        flushRequested_.store(true, std::memory_order_release);
+    return true;
 }
 
 void FakeLag::releaseEligible(std::uint64_t ageMs, int limit) {
+    std::lock_guard<std::mutex> releaseLock(releaseMutex_);
     JNIEnv* env = Java::Env();
     if (!env)
         return;
@@ -204,7 +203,8 @@ void FakeLag::releaseEligible(std::uint64_t ageMs, int limit) {
 
     releasing_.store(true, std::memory_order_release);
     for (const auto& entry : send) {
-        mc.sendPacket(entry.packet);
+        if (entry.packet)
+            mc.sendPacket(entry.packet);
         {
             std::lock_guard<std::mutex> lock(stateMutex_);
             serverX_ = entry.x;
@@ -223,6 +223,7 @@ void FakeLag::flushQueuedPackets(bool all) {
 }
 
 void FakeLag::clearQueuedPackets() {
+    std::lock_guard<std::mutex> releaseLock(releaseMutex_);
     JNIEnv* env = Java::Env();
     if (!env)
         return;
@@ -249,8 +250,8 @@ float FakeLag::serverDistance() const {
 }
 
 int FakeLag::calculateAdaptiveDelay() {
-    const int minimum = (std::min)(settings.minDelayMs, settings.maxDelayMs);
-    const int maximum = (std::max)(settings.minDelayMs, settings.maxDelayMs);
+    constexpr int minimum = 30;
+    constexpr int maximum = 110;
     if (!player.isValid())
         return minimum;
 
@@ -270,10 +271,10 @@ int FakeLag::calculateAdaptiveDelay() {
         std::lock_guard<std::mutex> lock(queueMutex_);
         queueSize = queuedPackets_.size();
     }
-    const float pressure = static_cast<float>(queueSize) / static_cast<float>((std::max)(settings.maxPackets, 5));
+    const float pressure = static_cast<float>(queueSize) / 18.0f;
     factor -= std::clamp(pressure - 0.45f, 0.0f, 0.55f);
-    factor -= std::clamp(serverDistance() / (std::max)(settings.maxDistance, 0.5f) - 0.50f, 0.0f, 0.55f);
-    factor = std::clamp(factor * settings.adaptiveStrength, 0.0f, 1.0f);
+    factor -= std::clamp(serverDistance() / 1.75f - 0.50f, 0.0f, 0.55f);
+    factor = std::clamp(factor * 0.55f, 0.0f, 1.0f);
 
     const int target = minimum + static_cast<int>((maximum - minimum) * factor);
     currentDelayMs_ += static_cast<int>((target - currentDelayMs_) * 0.24f);
@@ -297,21 +298,29 @@ void FakeLag::onUpdate() {
         return;
     }
 
+    if (flushRequested_.exchange(false, std::memory_order_acq_rel)) {
+        flushQueuedPackets(true);
+        resetAnchor();
+    }
+
     const int hurtTime = player.getHurtTime();
-    if (settings.flushOnDamage && hurtTime > previousHurtTime_)
+    if (hurtTime > previousHurtTime_)
         flushQueuedPackets(true);
     previousHurtTime_ = hurtTime;
 
-    if (settings.flushOnItemUse && player.isUsingItem()) {
+    if (player.isUsingItem()) {
         flushQueuedPackets(true);
         return;
     }
 
+    const float safeDistance = settings.mode == Mode::Adaptive ? 1.75f : (std::max)(settings.maxDistance, 0.5f);
+    const bool smoothRelease = settings.mode == Mode::Adaptive ? true : settings.smoothRelease;
+    const int releaseRate = settings.mode == Mode::Adaptive ? 4 : (std::max)(settings.releaseRate, 1);
     const float distance = serverDistance();
-    if (settings.smoothRelease && distance >= (std::max)(settings.maxDistance, 0.5f) * 0.65f)
+    if (smoothRelease && distance >= safeDistance * 0.65f)
         flushQueuedPackets(false);
-    if (distance >= (std::max)(settings.maxDistance, 0.5f)) {
-        flushQueuedPackets(settings.smoothRelease ? false : true);
+    if (distance >= safeDistance) {
+        flushQueuedPackets(smoothRelease ? false : true);
         return;
     }
 
@@ -327,17 +336,17 @@ void FakeLag::onUpdate() {
         case Mode::Constant:
             currentDelayMs_ = std::clamp(settings.maxDelayMs, 20, 1000);
             releaseEligible(static_cast<std::uint64_t>(currentDelayMs_),
-                            settings.smoothRelease ? (std::max)(settings.releaseRate, 1) : INT_MAX);
+                            smoothRelease ? releaseRate : INT_MAX);
             break;
         case Mode::Distance:
             currentDelayMs_ = settings.maxDelayMs;
             releaseEligible(static_cast<std::uint64_t>((std::max)(settings.maxDelayMs, 20)),
-                            settings.smoothRelease ? (std::max)(settings.releaseRate, 1) : INT_MAX);
+                            smoothRelease ? releaseRate : INT_MAX);
             break;
         case Mode::Adaptive:
             currentDelayMs_ = calculateAdaptiveDelay();
             releaseEligible(static_cast<std::uint64_t>(currentDelayMs_),
-                            settings.smoothRelease ? (std::max)(settings.releaseRate, 1) : INT_MAX);
+                            releaseRate);
             break;
     }
 }
@@ -455,26 +464,25 @@ void FakeLag::onRenderMenu() {
             const char* modes[] = {"Pulse", "Constant", "Distance", "Adaptive"};
             if (ui::Combo("Mode", &mode, modes, IM_ARRAYSIZE(modes)))
                 settings.mode = static_cast<Mode>(mode);
-            ui::SliderInt("Minimum Delay", &settings.minDelayMs, 20, 250, "%d ms");
-            ui::SliderInt("Maximum Delay", &settings.maxDelayMs, 40, 400, "%d ms");
             if (settings.mode == Mode::Pulse) {
                 ui::SliderInt("Hold Time", &settings.pulseHoldMs, 40, 1000, "%d ms");
                 ui::SliderInt("Release Time", &settings.pulseReleaseMs, 20, 500, "%d ms");
+            } else if (settings.mode == Mode::Constant) {
+                ui::SliderInt("Delay", &settings.maxDelayMs, 20, 250, "%d ms");
+            } else if (settings.mode == Mode::Distance) {
+                ui::SliderFloat("Maximum Distance", &settings.maxDistance, 0.5f, 3.0f, "%.1f blocks");
+                ui::SliderInt("Maximum Delay", &settings.maxDelayMs, 40, 300, "%d ms");
+            } else {
+                ImGui::Spacing();
+                ImGui::TextDisabled("Managed automatically");
             }
-            ui::SliderFloat("Maximum Distance", &settings.maxDistance, 0.5f, 4.0f, "%.1f blocks");
-            if (settings.mode == Mode::Adaptive)
-                ui::SliderFloat("Adaptive Strength", &settings.adaptiveStrength, 0.0f, 1.0f, "%.2f");
-            ui::Checkbox("Moving Only", &settings.movingOnly);
-            ui::Checkbox("Flush On Attack", &settings.flushOnAttack);
-            ui::Checkbox("Flush On Damage", &settings.flushOnDamage);
-            ui::Checkbox("Flush On Item Use", &settings.flushOnItemUse);
-            ui::Checkbox("Smooth Release", &settings.smoothRelease);
-            if (settings.smoothRelease)
-                ui::SliderInt("Release Rate", &settings.releaseRate, 1, 12, "%d packets/tick");
-            ui::SliderInt("Queue Limit", &settings.maxPackets, 8, 60, "%d packets");
         },
         "Visuals",
         [this]() {
+            if (settings.mode == Mode::Adaptive) {
+                ImGui::TextDisabled("Adaptive mode has no options");
+                return;
+            }
             ui::Checkbox("Render Server Player", &settings.renderServerPlayer);
             ui::Checkbox("Filled Render", &settings.filledRender);
             ui::Checkbox("Render Line", &settings.renderLine);

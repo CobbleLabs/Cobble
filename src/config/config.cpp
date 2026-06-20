@@ -6,6 +6,7 @@
 #include "../module/combat/nohitdelay.h"
 #include "../module/combat/criticals.h"
 #include "../module/combat/piercing.h"
+#include "../module/combat/wtap.h"
 
 #include "../module/combat/velocity.h"
 #include "../module/combat/reach.h"
@@ -22,6 +23,7 @@
 #include "../module/utility/autorefill.h"
 #include "../module/utility/autotool.h"
 #include "../module/utility/bridgeassist.h"
+#include "../module/utility/clutch.h"
 #include "../module/utility/fastplace.h"
 #include "../module/utility/noitemrelease.h"
 #include "../module/utility/inventorymanager.h"
@@ -644,6 +646,13 @@ void ConfigManager::applyConfig() {
                 altManager->settings.spoofedName[copyLen] = '\0';
             } else if (name == "FastPlace" && fastPlace) {
                 fastPlace->settings.blocksOnly = data["blocksOnly"].as_bool(fastPlace->settings.blocksOnly);
+            } else if (name == "Clutch" && clutch) {
+                auto& s = clutch->settings;
+                s.predictionMs = (std::clamp)(data["predictionMs"].as_int(s.predictionMs), 100, 600);
+                s.searchRadius = (std::clamp)(data["searchRadius"].as_int(s.searchRadius), 2, 8);
+                s.reach = (std::clamp)(data["reach"].as_float(s.reach), 3.0f, 4.5f);
+                s.placeDelayMs = (std::clamp)(data["placeDelayMs"].as_int(s.placeDelayMs), 40, 200);
+                s.restoreSlot = data["restoreSlot"].as_bool(s.restoreSlot);
             } else if (name == "Auto Tool" && autoTool) {
                 auto& s = autoTool->settings;
                 s.switchBack = data["switchBack"].as_bool(s.switchBack);
@@ -657,6 +666,14 @@ void ConfigManager::applyConfig() {
                 s.onlyWhileAttacking = data["onlyWhileAttacking"].as_bool(s.onlyWhileAttacking);
                 s.lookingAtPlayer = data["lookingAtPlayer"].as_bool(s.lookingAtPlayer);
                 s.onlyWithSword = data["onlyWithSword"].as_bool(s.onlyWithSword);
+            } else if (name == "WTap" && wTap) {
+                auto& s = wTap->settings;
+                s.mode = static_cast<WTap::Mode>((std::clamp)(data["mode"].as_int(static_cast<int>(s.mode)), 0, 2));
+                s.chance = (std::clamp)(data["chance"].as_int(s.chance), 0, 100);
+                s.delayMs = (std::clamp)(data["delayMs"].as_int(s.delayMs), 0, 120);
+                s.releaseMs = (std::clamp)(data["releaseMs"].as_int(s.releaseMs), 20, 180);
+                s.targetOnly = data["targetOnly"].as_bool(s.targetOnly);
+                s.weaponOnly = data["weaponOnly"].as_bool(s.weaponOnly);
             } else if (name == "Backtrack" && backtrack) {
                 auto& s = backtrack->settings;
                 s.mode = static_cast<BacktrackMode>(data["mode"].as_int(static_cast<int>(s.mode)));
@@ -735,19 +752,17 @@ void ConfigManager::applyConfig() {
                 s.weaponOnly = data["weaponOnly"].as_bool(s.weaponOnly);
             } else if (name == "TimerRange" && timerRange) {
                 auto& s = timerRange->settings;
-                const int mode = (std::clamp)(data["mode"].as_int(static_cast<int>(s.mode)), 0, 1);
-                s.mode = static_cast<TimerRange::PacketMode>(mode);
+                const int mode = (std::clamp)(data["mode"].as_int(static_cast<int>(s.mode)), 0, 3);
+                s.mode = static_cast<TimerRange::TriggerMode>(mode);
                 s.minSpeed = data["minSpeed"].as_float(s.minSpeed);
                 s.maxSpeed = data["maxSpeed"].as_float(s.maxSpeed);
-                if (data.has("intervalTicks")) {
-                    s.intervalTicks = data["intervalTicks"].as_int(s.intervalTicks);
-                } else {
-                    const int legacyMs = data["updateIntervalMs"].as_int(s.intervalTicks * 50);
-                    s.intervalTicks = (std::clamp)((legacyMs + 25) / 50, 1, 40);
-                }
+                s.offsetMs = (std::clamp)(data["offsetMs"].as_int(s.offsetMs), 0, 500);
+                const int legacyDuration = data["intervalTicks"].as_int(0) * 50;
+                s.durationMs = (std::clamp)(data["durationMs"].as_int(legacyDuration > 0 ? legacyDuration : s.durationMs),
+                                            10, 1000);
                 s.minSpeed = (std::clamp)(s.minSpeed, 0.05f, 3.0f);
                 s.maxSpeed = (std::clamp)(s.maxSpeed, s.minSpeed, 3.0f);
-                s.mousePressed = data["mousePressed"].as_bool(s.mousePressed);
+                s.targetOnly = data["targetOnly"].as_bool(s.targetOnly);
                 s.weaponOnly = data["weaponOnly"].as_bool(s.weaponOnly);
             } else if (name == "DroppedInfo" && droppedInfo) {
                 auto& s = droppedInfo->settings;
@@ -1070,6 +1085,13 @@ void ConfigManager::buildConfigFromModules() {
             config_["modules"][name]["spoofedName"] = std::string(altManager->settings.spoofedName);
         } else if (name == "FastPlace" && fastPlace) {
             config_["modules"][name]["blocksOnly"] = fastPlace->settings.blocksOnly;
+        } else if (name == "Clutch" && clutch) {
+            const auto& s = clutch->settings;
+            config_["modules"][name]["predictionMs"] = s.predictionMs;
+            config_["modules"][name]["searchRadius"] = s.searchRadius;
+            config_["modules"][name]["reach"] = s.reach;
+            config_["modules"][name]["placeDelayMs"] = s.placeDelayMs;
+            config_["modules"][name]["restoreSlot"] = s.restoreSlot;
         } else if (name == "Auto Tool" && autoTool) {
             const auto& s = autoTool->settings;
             config_["modules"][name]["switchBack"] = s.switchBack;
@@ -1083,6 +1105,14 @@ void ConfigManager::buildConfigFromModules() {
             config_["modules"][name]["onlyWhileAttacking"] = s.onlyWhileAttacking;
             config_["modules"][name]["lookingAtPlayer"] = s.lookingAtPlayer;
             config_["modules"][name]["onlyWithSword"] = s.onlyWithSword;
+        } else if (name == "WTap" && wTap) {
+            const auto& s = wTap->settings;
+            config_["modules"][name]["mode"] = static_cast<int>(s.mode);
+            config_["modules"][name]["chance"] = s.chance;
+            config_["modules"][name]["delayMs"] = s.delayMs;
+            config_["modules"][name]["releaseMs"] = s.releaseMs;
+            config_["modules"][name]["targetOnly"] = s.targetOnly;
+            config_["modules"][name]["weaponOnly"] = s.weaponOnly;
         } else if (name == "Backtrack" && backtrack) {
             const auto& s = backtrack->settings;
             config_["modules"][name]["mode"] = static_cast<int>(s.mode);
@@ -1148,8 +1178,9 @@ void ConfigManager::buildConfigFromModules() {
             config_["modules"][name]["mode"] = static_cast<int>(s.mode);
             config_["modules"][name]["minSpeed"] = s.minSpeed;
             config_["modules"][name]["maxSpeed"] = s.maxSpeed;
-            config_["modules"][name]["intervalTicks"] = s.intervalTicks;
-            config_["modules"][name]["mousePressed"] = s.mousePressed;
+            config_["modules"][name]["offsetMs"] = s.offsetMs;
+            config_["modules"][name]["durationMs"] = s.durationMs;
+            config_["modules"][name]["targetOnly"] = s.targetOnly;
             config_["modules"][name]["weaponOnly"] = s.weaponOnly;
         } else if (name == "DroppedInfo" && droppedInfo) {
             const auto& s = droppedInfo->settings;

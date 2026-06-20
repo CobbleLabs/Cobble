@@ -4,15 +4,33 @@
 #include "../../jni/java.h"
 
 #include <atomic>
+#include <cstdint>
 #include <mutex>
 #include <random>
 
 class TimerRange : public Module {
 public:
-    enum class PacketMode {
+    enum class PacketPhase {
         PRE = 0,
         POST = 1
     };
+
+    enum class TriggerMode {
+        BeforeHit = 0,
+        AfterHit = 1,
+        PerHit = 2,
+        Constant = 3
+    };
+
+    struct Settings {
+        TriggerMode mode = TriggerMode::PerHit;
+        float minSpeed = 0.8f;
+        float maxSpeed = 1.2f;
+        int offsetMs = 40;
+        int durationMs = 120;
+        bool targetOnly = true;
+        bool weaponOnly = false;
+    } settings;
 
     TimerRange();
 
@@ -21,24 +39,20 @@ public:
     void onUpdate() override;
     void onRenderMenu() override;
     std::string getDisplayInfo() override;
-    void onOutgoingPacket(JNIEnv* env, jobject packet, PacketMode phase);
-
-    struct Settings {
-        PacketMode mode = PacketMode::PRE;
-        float minSpeed = 0.8f;
-        float maxSpeed = 1.2f;
-        int intervalTicks = 5;
-        bool mousePressed = false;
-        bool weaponOnly = false;
-    } settings;
+    void onOutgoingPacket(JNIEnv* env, jobject packet, PacketPhase phase);
 
 private:
-    void selectNextSpeed(bool force);
+    static std::uint64_t nowMs();
+    bool conditionsMet() const;
+    void activate(std::uint64_t atMs);
+    void selectSpeed();
 
-    std::mt19937 rng;
-    std::mutex speedMutex;
-    int movementTicks = 0;
-    std::atomic<float> currentSpeed{1.0f};
+    std::mt19937 rng_;
+    std::mutex rngMutex_;
+    std::atomic<float> currentSpeed_{1.0f};
+    std::atomic<std::uint64_t> pendingAtMs_{0};
+    std::atomic<std::uint64_t> activeUntilMs_{0};
+    bool wasAttacking_ = false;
 };
 
 extern TimerRange* timerRange;

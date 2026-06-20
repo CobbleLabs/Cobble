@@ -109,6 +109,8 @@ struct Minecraft {
 
     // Mouse click (for autoclicker)
     void clickMouse();
+    void rightClickMouse();
+    void updateMouseOver();
 
     // Click delays
     int getRightClickDelay();
@@ -200,6 +202,8 @@ struct Minecraft {
     void setKeyBindState(int keyCode, bool pressed);
     int getSneakKey();      // Returns key code for sneak keybind
     int getSprintKey();     // Returns key code for sprint keybind
+    int getForwardKey();    // Returns key code for forward keybind
+    int getBackKey();       // Returns key code for back keybind
     int getInventoryKey();  // Returns key code for inventory keybind (default 'E')
 
     // Mouse grab control (for menu open/close)
@@ -226,6 +230,7 @@ private:
     jfieldID fid_theWorld = nullptr;
     jfieldID fid_currentScreen = nullptr;
     jmethodID mid_clickMouse = nullptr;
+    jmethodID mid_rightClickMouse = nullptr;
     jfieldID fid_rightClickDelayTimer = nullptr;
     jfieldID fid_leftClickCounter = nullptr;
 

@@ -9,6 +9,7 @@
 #include "../../module/combat/nohitdelay.h"
 #include "../../module/combat/criticals.h"
 #include "../../module/combat/piercing.h"
+#include "../../module/combat/wtap.h"
 
 #include "../../module/combat/reach.h"
 #include "../../module/combat/velocity.h"
@@ -24,6 +25,7 @@
 #include "../../module/utility/autorefill.h"
 #include "../../module/utility/autotool.h"
 #include "../../module/utility/bridgeassist.h"
+#include "../../module/utility/clutch.h"
 #include "../../module/utility/fastplace.h"
 #include "../../module/utility/noitemrelease.h"
 #include "../../module/utility/inventorymanager.h"
@@ -57,7 +59,7 @@ static bool g_configsNeedsRefresh = false;
 // Module lookup by tab and subtab index
 // Returns the module that corresponds to the current subtab
 Module* getModuleForSubtab(int tabIdx, int subtabIdx) {
-    // Combat Tab (0): AutoClicker, AimAssist, Velocity, Reach, HitSelect, NoHitDelay, Criticals, Backtrack, Piercing
+    // Combat Tab (0)
     if (tabIdx == 0) {
         switch (subtabIdx) {
             case 0:
@@ -75,8 +77,10 @@ Module* getModuleForSubtab(int tabIdx, int subtabIdx) {
             case 6:
                 return criticals;
             case 7:
-                return backtrack;
+                return wTap;
             case 8:
+                return backtrack;
+            case 9:
                 return piercing;
         }
     }
@@ -124,7 +128,7 @@ Module* getModuleForSubtab(int tabIdx, int subtabIdx) {
                 return sprint;
         }
     }
-    // Utility Tab (3): ArmorSwitch, AutoRefill, FastPlace, NoItemRelease, BridgeAssist, AutoTool, InvManager, AltManager
+    // Utility Tab (3)
     else if (tabIdx == 3) {
         switch (subtabIdx) {
             case 0:
@@ -138,10 +142,12 @@ Module* getModuleForSubtab(int tabIdx, int subtabIdx) {
             case 4:
                 return bridgeAssist;
             case 5:
-                return autoTool;
+                return clutch;
             case 6:
-                return inventoryManager;
+                return autoTool;
             case 7:
+                return inventoryManager;
+            case 8:
                 return altManager;
         }
     }

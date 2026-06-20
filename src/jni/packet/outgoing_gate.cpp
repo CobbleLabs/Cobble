@@ -10,7 +10,7 @@ namespace OutgoingPacketGate {
 
 jboolean JNICALL NativeShouldSend(JNIEnv* env, jclass cls, jobject packet) {
     if (timerRange)
-        timerRange->onOutgoingPacket(env, packet, TimerRange::PacketMode::PRE);
+        timerRange->onOutgoingPacket(env, packet, TimerRange::PacketPhase::PRE);
 
     // Mutate first (no blocking), then run gates that may drop the packet.
     AltManagerGate::MaybeSpoofLoginPacket(env, packet);
@@ -28,7 +28,7 @@ jboolean JNICALL NativeShouldSend(JNIEnv* env, jclass cls, jobject packet) {
     // Finally check NoItemRelease.
     const jboolean shouldSend = NoItemReleaseGate::NativeShouldSend(env, cls, packet);
     if (shouldSend == JNI_TRUE && timerRange)
-        timerRange->onOutgoingPacket(env, packet, TimerRange::PacketMode::POST);
+        timerRange->onOutgoingPacket(env, packet, TimerRange::PacketPhase::POST);
 
     return shouldSend;
 }

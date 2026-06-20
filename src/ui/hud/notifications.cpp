@@ -145,14 +145,14 @@ void NotificationManager::render() {
     const ImVec2 display = ImGui::GetIO().DisplaySize;
     const float screenWidth = display.x > 1.0f ? display.x : static_cast<float>(RenderData::screenWidth);
     const float screenHeight = display.y > 1.0f ? display.y : static_cast<float>(RenderData::screenHeight);
-    const float margin = ui::s(16.0f);
-    const float spacing = ui::s(8.0f);
-    const float width = ui::s(300.0f);
-    const float height = ui::s(60.0f);
-    const float rounding = ui::s(6.0f);
-    const float padding = ui::s(12.0f);
-    const float titleSize = ui::s(14.0f);
-    const float messageSize = ui::s(12.0f);
+    const float margin = ui::s(14.0f);
+    const float spacing = ui::s(6.0f);
+    const float width = ui::s(260.0f);
+    const float height = ui::s(50.0f);
+    const float rounding = ui::s(5.0f);
+    const float padding = ui::s(10.0f);
+    const float titleSize = ui::s(12.5f);
+    const float messageSize = ui::s(10.5f);
     const float enterDuration = 0.18f;
     const float exitDuration = 0.26f;
     const auto now = std::chrono::steady_clock::now();
@@ -190,8 +190,8 @@ void NotificationManager::render() {
                       rounding, 0, ui::s(1.0f));
 
         const float textX = rectMin.x + padding;
-        const float titleY = rectMin.y + ui::s(10.0f);
-        const float messageY = rectMin.y + ui::s(31.0f);
+        const float titleY = rectMin.y + ui::s(7.0f);
+        const float messageY = rectMin.y + ui::s(24.0f);
         const char* title = titleFor(notification.type);
         std::string message = notification.text;
         if (notification.type == NotificationType::Enabled)
@@ -208,11 +208,18 @@ void NotificationManager::render() {
             draw->AddText({textX, messageY}, IM_COL32(166, 170, 178, alpha), message.c_str());
         }
 
+        const float barInset = ui::s(1.0f);
         const float barHeight = ui::s(2.0f);
-        const float barWidth = width * (1.0f - notification.progress(now));
-        draw->AddRectFilled({rectMin.x, rectMax.y - barHeight},
-                            {rectMin.x + barWidth, rectMax.y}, accent, rounding,
-                            ImDrawFlags_RoundCornersBottomLeft | ImDrawFlags_RoundCornersBottomRight);
+        const float barY = rectMax.y - ui::s(3.0f);
+        const float trackWidth = width - barInset * 2.0f;
+        const float barWidth = trackWidth * (1.0f - notification.progress(now));
+        draw->AddRectFilled({rectMin.x + barInset, barY},
+                            {rectMax.x - barInset, barY + barHeight},
+                            IM_COL32(255, 255, 255, static_cast<int>(20.0f * visibility)), ui::s(1.0f));
+        if (barWidth > 0.0f) {
+            draw->AddRectFilled({rectMin.x + barInset, barY},
+                                {rectMin.x + barInset + barWidth, barY + barHeight}, accent, ui::s(1.0f));
+        }
         ++visibleIndex;
     }
 }

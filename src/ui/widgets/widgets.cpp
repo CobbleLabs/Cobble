@@ -28,6 +28,7 @@ static const DescriptionEntry kModuleDescriptions[] = {
     {"", "HitSelect", "", "Times attacks around combo state to improve hit selection."},
     {"", "NoHitDelay", "", "Removes the client-side delay between valid attacks."},
     {"", "Criticals", "", "Automates critical-hit movement when its conditions are met."},
+    {"", "WTap", "", "Briefly resets forward movement or sprint after attacks to control spacing."},
     {"", "Backtrack", "", "Targets recent server positions to compensate for movement and latency."},
     {"", "Piercing", "", "Finds and attacks valid entities through obstructing blocks."},
     {"", "NameTags", "", "Renders readable, customizable information above players."},
@@ -41,7 +42,7 @@ static const DescriptionEntry kModuleDescriptions[] = {
     {"", "DroppedInfo", "", "Shows extra information about the item you just dropped."},
     {"", "Notifications", "", "Controls pop-up messages for module and client events."},
     {"", "Timer", "", "Changes the client game timer to speed up or slow down actions."},
-    {"", "TimerRange", "", "Varies timer speed within a range around outgoing packet timing."},
+    {"", "TimerRange", "", "Applies a random timer multiplier before, after, per hit, or constantly."},
     {"", "NoSlowDown", "", "Prevents item use from applying the normal movement slowdown."},
     {"", "NoJumpDelay", "", "Removes the short delay between consecutive jumps."},
     {"", "FakeLag", "", "Buffers movement packets in controlled patterns and renders the position the server last received."},
@@ -52,6 +53,7 @@ static const DescriptionEntry kModuleDescriptions[] = {
     {"", "FastPlace", "", "Reduces the delay between right-click item placements."},
     {"", "NoItemRelease", "", "Keeps supported item-use actions active according to the selected mode."},
     {"", "BridgeAssist", "", "Helps you sneak safely at block edges while bridging."},
+    {"", "Clutch", "", "Predicts dangerous falls and places reachable blocks toward a safe landing."},
     {"", "AutoTool", "", "Selects the best hotbar tool for the block or target."},
     {"", "InvManager", "", "Organizes the inventory and hotbar using your saved preferences."},
     {"", "AltManager", "", "Spoofs the local username when joining compatible offline servers."},
@@ -172,7 +174,12 @@ static const DescriptionEntry kOptionDescriptions[] = {
     {"", "High Saturation", "", "Uses stronger rainbow colors instead of softer pastel tones."},
     {"", "Minimum Speed", "", "Sets the lowest timer multiplier TimerRange may choose."},
     {"", "Maximum Speed", "", "Sets the highest timer multiplier TimerRange may choose."},
-    {"", "Change Interval", "", "Sets how often TimerRange chooses a new speed within the range."},
+    {"", "Offset", "", "Sets the delay after a hit before TimerRange starts."},
+    {"", "Duration", "", "Sets how long the selected TimerRange speed remains active."},
+    {"", "Prediction Time", "", "Sets how far ahead Clutch simulates the current trajectory."},
+    {"", "Search Radius", "", "Sets how far Clutch searches for a reachable solid anchor."},
+    {"", "Place Delay", "", "Sets the minimum time between automatic block placements."},
+    {"", "Release Time", "", "Sets how long WTap releases the selected movement input."},
     {"", "Timer Limit", "", "Sets the maximum time packets may remain queued."},
     {"", "Show Timer", "", "Displays how long Blink has been queuing packets."},
     {"", "Show Breadcrumbs", "", "Draws the path traveled while packets are queued."},
@@ -224,8 +231,13 @@ static const DescriptionEntry kOptionDescriptions[] = {
     {"Velocity", "Vertical", "Always", "Suppresses vertical knockback whenever Ignore mode activates."},
     {"Backtrack", "Mode", "Ticks", "Stores a fixed number of previous target positions."},
     {"Backtrack", "Mode", "Latency", "Stores positions using a time window measured in milliseconds."},
-    {"TimerRange", "Packet Mode", "PRE", "Applies the selected timer speed before the outgoing packet is processed."},
-    {"TimerRange", "Packet Mode", "POST", "Applies the selected timer speed after the outgoing packet is processed."},
+    {"TimerRange", "Mode", "Before Hit", "Starts the timer window as the attack input begins."},
+    {"TimerRange", "Mode", "After Hit", "Starts the timer window after the configured delay from a hit."},
+    {"TimerRange", "Mode", "Per Hit", "Starts a new timer window for every confirmed outgoing hit."},
+    {"TimerRange", "Mode", "Constant", "Continuously applies a timer value while the selected conditions are met."},
+    {"WTap", "Mode", "Forward", "Briefly releases forward movement after an attack."},
+    {"WTap", "Mode", "Sprint", "Briefly resets sprint after an attack."},
+    {"WTap", "Mode", "Hybrid", "Resets forward movement and sprint together after an attack."},
     {"FakeLag", "Mode", "Pulse", "Alternates between a configurable buffering window and a release window."},
     {"FakeLag", "Mode", "Constant", "Maintains a stable rolling packet delay while continuously releasing old movement."},
     {"FakeLag", "Mode", "Distance", "Buffers movement until distance or packet age reaches the configured safety boundary."},
@@ -301,12 +313,26 @@ inline ImU32 GetSchemeColor(float alpha) {
     return ImGui::ColorConvertFloat4ToU32(col);
 }
 
+static void DrawSliderGradient(ImDrawList* draw, const ImRect& bounds, float width, float rounding) {
+    width = (std::clamp)(width, 0.0f, bounds.GetWidth());
+    if (!draw || width <= 0.0f)
+        return;
+
+    const ImVec2 maximum(bounds.Min.x + width, bounds.Max.y);
+    const ImU32 accent = GetSchemeColor();
+    const ImU32 dark = IM_COL32(7, 8, 10, static_cast<int>(255.0f * ImGui::GetStyle().Alpha * ui::alpha_mod));
+    draw->PushClipRect(bounds.Min, maximum, true);
+    draw->AddRectFilledMultiColor(bounds.Min, maximum, accent, dark, dark, accent);
+    draw->AddRect(bounds.Min, maximum, IM_COL32(0, 0, 0, 0), rounding);
+    draw->PopClipRect();
+}
+
 // ==================== TAB DEFINITIONS ====================
 std::vector<ui::tab_t> ui::tabs = {
     {ICON_FA_CROSSHAIRS,
      "Combat",
-     {"AutoClicker", "AimAssist", "Velocity", "Reach", "HitSelect", "NoHitDelay", "Criticals", "Backtrack",
-      "Piercing"}},
+     {"AutoClicker", "AimAssist", "Velocity", "Reach", "HitSelect", "NoHitDelay", "Criticals", "WTap",
+      "Backtrack", "Piercing"}},
     {ICON_FA_EYE,
      "Visuals",
      {"NameTags", "ESP", "ItemESP", "Tracers", "BlockESP", "Trajectories", "AntiDebuff", "ArrayList",
@@ -314,7 +340,7 @@ std::vector<ui::tab_t> ui::tabs = {
     {ICON_FA_RUNNING, "Movement", {"Timer", "TimerRange", "NoSlowDown", "NoJumpDelay", "FakeLag", "Blink", "Sprint"}},
     {ICON_FA_KEYBOARD,
      "Utility",
-     {"ArmorSwitch", "AutoRefill", "FastPlace", "NoItemRelease", "BridgeAssist", "AutoTool", "InvManager",
+     {"ArmorSwitch", "AutoRefill", "FastPlace", "NoItemRelease", "BridgeAssist", "Clutch", "AutoTool", "InvManager",
       "AltManager"}},
     {ICON_FA_SAVE, "Configs", {}},
     {ICON_FA_GEAR, "Settings", {}}};
@@ -737,7 +763,7 @@ bool ui::SliderFloat(const char* label, float* v, float v_min, float v_max, cons
         obj.grab = t * bb.GetWidth();
 
         window->DrawList->AddRectFilled(bb.Min, bb.Max, GetColor(ImGuiCol_FrameBg), 100);
-        window->DrawList->AddRectFilled(bb.Min, {bb.Min.x + obj.grab * anim, bb.Max.y}, GetSchemeColor(), 100);
+        DrawSliderGradient(window->DrawList, bb, obj.grab * anim, 100.0f);
         float grab_radius = s(6.f);
         window->DrawList->AddCircleFilled({bb.Min.x + obj.grab * anim, bb.GetCenter().y}, grab_radius,
                                           GetColor(ImGuiCol_Text), 64);
@@ -840,7 +866,7 @@ bool ui::SliderFloat(const char* label, float* v, float v_min, float v_max, cons
     obj.col = col_anim(GetColor(ImGuiCol_FrameBg), GetColor(ImGuiCol_FrameBgHovered), obj.anim);
 
     window->DrawList->AddRectFilled(bb.Min, bb.Max, obj.col, 100);
-    window->DrawList->AddRectFilled(bb.Min, {bb.Min.x + obj.grab * anim, bb.Max.y}, GetSchemeColor(), 100);
+    DrawSliderGradient(window->DrawList, bb, obj.grab * anim, 100.0f);
 
     float grab_radius = s(active ? 7.f : (hovered ? 5.f : 6.f));
     window->DrawList->AddCircleFilled({bb.Min.x + obj.grab * anim, bb.GetCenter().y}, grab_radius,
@@ -924,7 +950,7 @@ bool ui::SliderFloat(const char* label, float* v, float v_min, float v_max, floa
     obj.col = col_anim(GetColor(ImGuiCol_FrameBg), GetColor(ImGuiCol_FrameBgHovered), obj.anim);
 
     window->DrawList->AddRectFilled(bb.Min, bb.Max, obj.col, 100);
-    window->DrawList->AddRectFilled(bb.Min, {bb.Min.x + obj.grab * anim, bb.Max.y}, GetSchemeColor(), 100);
+    DrawSliderGradient(window->DrawList, bb, obj.grab * anim, 100.0f);
 
     float grab_radius = s(active ? 7.f : (hovered ? 5.f : 6.f));
     window->DrawList->AddCircleFilled({bb.Min.x + obj.grab * anim, bb.GetCenter().y}, grab_radius,

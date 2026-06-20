@@ -76,6 +76,7 @@ extern jmethodID mid_getMinecraft;
 // Instance methods
 extern jmethodID mid_clickMouse;
 extern jmethodID mid_getNetHandler;  // getNetHandler() -> NetHandlerPlayClient
+extern jmethodID mid_getMouseOver;
 
 // Fields
 extern jfieldID fid_thePlayer;

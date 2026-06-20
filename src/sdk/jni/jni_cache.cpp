@@ -55,6 +55,7 @@ jclass cls_C0DPacketCloseWindow = nullptr;
 jmethodID mid_getMinecraft = nullptr;
 jmethodID mid_clickMouse = nullptr;
 jmethodID mid_getNetHandler = nullptr;
+jmethodID mid_getMouseOver = nullptr;
 jfieldID fid_thePlayer = nullptr;
 jfieldID fid_theWorld = nullptr;
 jfieldID fid_currentScreen = nullptr;
@@ -422,6 +423,10 @@ bool Init() {
     }
 
     if (cls_EntityRenderer) {
+        TRY_METHOD(mid_getMouseOver, cls_EntityRenderer, "getMouseOver", "(F)V");
+        if (!mid_getMouseOver) {
+            TRY_METHOD(mid_getMouseOver, cls_EntityRenderer, "func_78473_a", "(F)V");
+        }
         TRY_FIELD(fid_pointedEntity, cls_EntityRenderer, "pointedEntity", "Lnet/minecraft/entity/Entity;");
         if (!fid_pointedEntity) {
             TRY_FIELD(fid_pointedEntity, cls_EntityRenderer, "field_78528_u",

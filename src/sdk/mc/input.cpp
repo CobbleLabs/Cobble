@@ -81,6 +81,20 @@ int Minecraft::getSprintKey() {
     return env ? getKeyBindCode(env, instance, JniCache::fid_keyBindSprint, 29) : 29;
 }
 
+int Minecraft::getForwardKey() {
+    if (!isValid())
+        return 17;
+    JNIEnv* env = Java::Env();
+    return env ? getKeyBindCode(env, instance, JniCache::fid_keyBindForward, 17) : 17;
+}
+
+int Minecraft::getBackKey() {
+    if (!isValid())
+        return 31;
+    JNIEnv* env = Java::Env();
+    return env ? getKeyBindCode(env, instance, JniCache::fid_keyBindBack, 31) : 31;
+}
+
 // =============================================================================
 // getInventoryKey - Get the keycode for the inventory keybind
 // =============================================================================
