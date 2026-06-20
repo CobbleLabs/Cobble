@@ -12,7 +12,6 @@ public:
 
 private:
     bool initializeFields();
-    bool isKeyPressed(jobject gameSettings, jfieldID keyBindField);
 
     jfieldID movementInputField = nullptr;
     jfieldID moveForwardField = nullptr;

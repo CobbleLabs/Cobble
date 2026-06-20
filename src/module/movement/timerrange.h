@@ -4,7 +4,6 @@
 #include "../../jni/java.h"
 
 #include <atomic>
-#include <chrono>
 #include <mutex>
 #include <random>
 
@@ -26,9 +25,9 @@ public:
 
     struct Settings {
         PacketMode mode = PacketMode::PRE;
-        float minSpeed = 1.0f;
+        float minSpeed = 0.8f;
         float maxSpeed = 1.2f;
-        int updateIntervalMs = 250;
+        int intervalTicks = 5;
         bool mousePressed = false;
         bool weaponOnly = false;
     } settings;
@@ -38,7 +37,7 @@ private:
 
     std::mt19937 rng;
     std::mutex speedMutex;
-    std::chrono::steady_clock::time_point lastSpeedChange{};
+    int movementTicks = 0;
     std::atomic<float> currentSpeed{1.0f};
 };
 

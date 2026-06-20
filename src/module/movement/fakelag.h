@@ -19,14 +19,14 @@ public:
 
     struct Settings {
         Mode mode = Mode::Adaptive;
-        int minDelayMs = 80;
-        int maxDelayMs = 220;
-        int pulseHoldMs = 180;
-        int pulseReleaseMs = 90;
-        float maxDistance = 3.0f;
-        float adaptiveStrength = 0.70f;
-        int maxPackets = 45;
-        int releaseRate = 4;
+        int minDelayMs = 35;
+        int maxDelayMs = 120;
+        int pulseHoldMs = 100;
+        int pulseReleaseMs = 140;
+        float maxDistance = 1.8f;
+        float adaptiveStrength = 0.45f;
+        int maxPackets = 20;
+        int releaseRate = 3;
         bool movingOnly = true;
         bool smoothRelease = true;
         bool flushOnAttack = true;

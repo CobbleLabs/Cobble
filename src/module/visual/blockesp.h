@@ -38,8 +38,8 @@ public:
         bool drawChests = true;
 
         // Visual settings
-        float range = 25.0f;  // Scan radius in blocks
-        int opacity = 75;     // 0-100%
+        float range = 20.0f;  // Scan radius in blocks
+        int opacity = 35;     // 0-100%
         bool fadeWithDistance = true;
     } settings;
 
@@ -55,6 +55,9 @@ private:
     // Render thread data
     double cachedLocalX = 0, cachedLocalY = 0, cachedLocalZ = 0;
     double cachedLocalLastX = 0, cachedLocalLastY = 0, cachedLocalLastZ = 0;
+    double cachedRenderX = 0, cachedRenderY = 0, cachedRenderZ = 0;
+    float cachedPartialTicks = 0.0f;
+    unsigned int lastSettingsSignature = 0;
 
     // Rendering safety
     long long lastUpdateTick = 0;

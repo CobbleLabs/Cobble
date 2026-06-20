@@ -94,6 +94,10 @@ void TimerRange::onEnable() {
     if (timerModule && timerModule->enabled)
         timerModule->setEnabled(false);
 
+    {
+        std::lock_guard<std::mutex> lock(speedMutex);
+        movementTicks = 0;
+    }
     selectNextSpeed(true);
 }
 
@@ -105,20 +109,15 @@ void TimerRange::onDisable() {
 void TimerRange::selectNextSpeed(bool force) {
     std::lock_guard<std::mutex> lock(speedMutex);
 
-    const auto now = std::chrono::steady_clock::now();
-    const int updateIntervalMs = (std::clamp)(settings.updateIntervalMs, 50, 1000);
-    if (!force && lastSpeedChange.time_since_epoch().count() != 0) {
-        const auto elapsed =
-            std::chrono::duration_cast<std::chrono::milliseconds>(now - lastSpeedChange).count();
-        if (elapsed < updateIntervalMs)
-            return;
-    }
+    const int intervalTicks = (std::clamp)(settings.intervalTicks, 1, 40);
+    if (!force && ++movementTicks < intervalTicks)
+        return;
+    movementTicks = 0;
 
-    const float minSpeed = (std::clamp)((std::min)(settings.minSpeed, settings.maxSpeed), 1.0f, 3.0f);
+    const float minSpeed = (std::clamp)((std::min)(settings.minSpeed, settings.maxSpeed), 0.05f, 3.0f);
     const float maxSpeed = (std::clamp)((std::max)(settings.minSpeed, settings.maxSpeed), minSpeed, 3.0f);
     std::uniform_real_distribution<float> distribution(minSpeed, maxSpeed);
     currentSpeed.store(distribution(rng), std::memory_order_relaxed);
-    lastSpeedChange = now;
 }
 
 void TimerRange::onOutgoingPacket(JNIEnv* env, jobject packet, PacketMode phase) {
@@ -163,18 +162,18 @@ void TimerRange::onRenderMenu() {
                 settings.mode = static_cast<PacketMode>(mode);
 
             ImGui::Spacing();
-            ui::SliderFloat("Minimum Speed", &settings.minSpeed, 1.0f, 3.0f, "%.2fx", true);
-            ui::SliderFloat("Maximum Speed", &settings.maxSpeed, 1.0f, 3.0f, "%.2fx", true);
+            ui::SliderFloat("Minimum Speed", &settings.minSpeed, 0.05f, 3.0f, "%.2fx", true);
+            ui::SliderFloat("Maximum Speed", &settings.maxSpeed, 0.05f, 3.0f, "%.2fx", true);
 
-            float interval = static_cast<float>(settings.updateIntervalMs);
-            if (ui::SliderFloat("Change Interval", &interval, 50.0f, 1000.0f, "%.0f ms", true))
-                settings.updateIntervalMs = static_cast<int>(interval);
+            float interval = static_cast<float>(settings.intervalTicks);
+            if (ui::SliderFloat("Change Interval", &interval, 1.0f, 40.0f, "%.0f ticks", true))
+                settings.intervalTicks = static_cast<int>(interval);
 
-            settings.minSpeed = (std::clamp)(settings.minSpeed, 1.0f, 3.0f);
-            settings.maxSpeed = (std::clamp)(settings.maxSpeed, 1.0f, 3.0f);
+            settings.minSpeed = (std::clamp)(settings.minSpeed, 0.05f, 3.0f);
+            settings.maxSpeed = (std::clamp)(settings.maxSpeed, 0.05f, 3.0f);
             if (settings.minSpeed > settings.maxSpeed)
                 settings.maxSpeed = settings.minSpeed;
-            settings.updateIntervalMs = (std::clamp)(settings.updateIntervalMs, 50, 1000);
+            settings.intervalTicks = (std::clamp)(settings.intervalTicks, 1, 40);
         },
         "Conditions",
         [this]() {

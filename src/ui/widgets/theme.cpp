@@ -15,12 +15,12 @@ void apply() {
     ImGui::StyleColorsDark();
     auto& style = ImGui::GetStyle();
 
-    style.WindowRounding = s(8.0f);
-    style.ChildRounding = s(6.0f);
-    style.FrameRounding = s(4.0f);
-    style.GrabRounding = s(4.0f);
-    style.PopupRounding = s(6.0f);
-    style.ScrollbarRounding = s(4.0f);
+    style.WindowRounding = s(4.0f);
+    style.ChildRounding = s(3.0f);
+    style.FrameRounding = s(3.0f);
+    style.GrabRounding = s(3.0f);
+    style.PopupRounding = s(4.0f);
+    style.ScrollbarRounding = s(3.0f);
 
     style.WindowPadding = {0, 0};
     style.FramePadding = {s(8), s(6)};

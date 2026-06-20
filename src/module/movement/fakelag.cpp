@@ -255,11 +255,11 @@ int FakeLag::calculateAdaptiveDelay() {
         return minimum;
 
     const float speed = static_cast<float>(std::hypot(player.getMotionX(), player.getMotionZ()));
-    float factor = std::clamp(speed / 0.30f, 0.0f, 1.0f) * 0.62f;
+    float factor = std::clamp(speed / 0.30f, 0.0f, 1.0f) * 0.42f;
     if (player.isSprinting())
-        factor += 0.13f;
+        factor += 0.08f;
     if (!player.isOnGround())
-        factor += 0.10f;
+        factor += 0.06f;
     if (mc.isTargetingEntity())
         factor -= 0.25f;
     if (player.getHurtTime() > 0 || player.isUsingItem())
@@ -271,8 +271,8 @@ int FakeLag::calculateAdaptiveDelay() {
         queueSize = queuedPackets_.size();
     }
     const float pressure = static_cast<float>(queueSize) / static_cast<float>((std::max)(settings.maxPackets, 5));
-    factor -= std::clamp(pressure - 0.55f, 0.0f, 0.45f);
-    factor -= std::clamp(serverDistance() / (std::max)(settings.maxDistance, 0.5f) - 0.65f, 0.0f, 0.45f);
+    factor -= std::clamp(pressure - 0.45f, 0.0f, 0.55f);
+    factor -= std::clamp(serverDistance() / (std::max)(settings.maxDistance, 0.5f) - 0.50f, 0.0f, 0.55f);
     factor = std::clamp(factor * settings.adaptiveStrength, 0.0f, 1.0f);
 
     const int target = minimum + static_cast<int>((maximum - minimum) * factor);
@@ -308,6 +308,8 @@ void FakeLag::onUpdate() {
     }
 
     const float distance = serverDistance();
+    if (settings.smoothRelease && distance >= (std::max)(settings.maxDistance, 0.5f) * 0.65f)
+        flushQueuedPackets(false);
     if (distance >= (std::max)(settings.maxDistance, 0.5f)) {
         flushQueuedPackets(settings.smoothRelease ? false : true);
         return;
@@ -453,13 +455,13 @@ void FakeLag::onRenderMenu() {
             const char* modes[] = {"Pulse", "Constant", "Distance", "Adaptive"};
             if (ui::Combo("Mode", &mode, modes, IM_ARRAYSIZE(modes)))
                 settings.mode = static_cast<Mode>(mode);
-            ui::SliderInt("Minimum Delay", &settings.minDelayMs, 20, 500, "%d ms");
-            ui::SliderInt("Maximum Delay", &settings.maxDelayMs, 40, 1000, "%d ms");
+            ui::SliderInt("Minimum Delay", &settings.minDelayMs, 20, 250, "%d ms");
+            ui::SliderInt("Maximum Delay", &settings.maxDelayMs, 40, 400, "%d ms");
             if (settings.mode == Mode::Pulse) {
                 ui::SliderInt("Hold Time", &settings.pulseHoldMs, 40, 1000, "%d ms");
                 ui::SliderInt("Release Time", &settings.pulseReleaseMs, 20, 500, "%d ms");
             }
-            ui::SliderFloat("Maximum Distance", &settings.maxDistance, 0.5f, 8.0f, "%.1f blocks");
+            ui::SliderFloat("Maximum Distance", &settings.maxDistance, 0.5f, 4.0f, "%.1f blocks");
             if (settings.mode == Mode::Adaptive)
                 ui::SliderFloat("Adaptive Strength", &settings.adaptiveStrength, 0.0f, 1.0f, "%.2f");
             ui::Checkbox("Moving Only", &settings.movingOnly);
@@ -469,7 +471,7 @@ void FakeLag::onRenderMenu() {
             ui::Checkbox("Smooth Release", &settings.smoothRelease);
             if (settings.smoothRelease)
                 ui::SliderInt("Release Rate", &settings.releaseRate, 1, 12, "%d packets/tick");
-            ui::SliderInt("Queue Limit", &settings.maxPackets, 10, 120, "%d packets");
+            ui::SliderInt("Queue Limit", &settings.maxPackets, 8, 60, "%d packets");
         },
         "Visuals",
         [this]() {

@@ -32,14 +32,36 @@ void Piercing::onEnable() {
 }
 
 void Piercing::onDisable() {
-    if (!mc.instance || !JniCache::fid_pointedEntity)
-        return;
-
     JNIEnv* env = Java::Env();
-    if (!env)
+    clearForcedTarget(env);
+}
+
+void Piercing::clearForcedTarget(JNIEnv* env) {
+    if (!env || !forcedTarget)
         return;
 
-    env->SetObjectField(mc.instance, JniCache::fid_pointedEntity, nullptr);
+    if (mc.instance && JniCache::fid_pointedEntity) {
+        jobject pointed = env->GetObjectField(mc.instance, JniCache::fid_pointedEntity);
+        if (pointed && env->IsSameObject(pointed, forcedTarget))
+            env->SetObjectField(mc.instance, JniCache::fid_pointedEntity, nullptr);
+        if (pointed)
+            env->DeleteLocalRef(pointed);
+    }
+
+    if (mc.instance && JniCache::fid_objectMouseOver && JniCache::fid_entityHit) {
+        jobject mouseOver = env->GetObjectField(mc.instance, JniCache::fid_objectMouseOver);
+        if (mouseOver) {
+            jobject hit = env->GetObjectField(mouseOver, JniCache::fid_entityHit);
+            if (hit && env->IsSameObject(hit, forcedTarget))
+                env->SetObjectField(mouseOver, JniCache::fid_entityHit, nullptr);
+            if (hit)
+                env->DeleteLocalRef(hit);
+            env->DeleteLocalRef(mouseOver);
+        }
+    }
+
+    env->DeleteGlobalRef(forcedTarget);
+    forcedTarget = nullptr;
     if (env->ExceptionCheck())
         env->ExceptionClear();
 }
@@ -83,20 +105,22 @@ bool Piercing::rayIntersectsBox(double originX, double originY, double originZ,
 }
 
 void Piercing::onUpdate() {
-    if (!enabled || Menu::isOpen || mc.isInGui() || !player.isValid() || !mc.instance)
-        return;
-
-    if (settings.weaponsOnly && !isWeapon(player.getHeldItemId()))
-        return;
-
-    if (!JniCache::fid_objectMouseOver || !JniCache::fid_pointedEntity ||
-        !JniCache::fid_typeOfHit || !JniCache::fid_entityHit ||
-        !JniCache::cls_MovingObjectType || !JniCache::fid_ENTITY)
-        return;
-
     JNIEnv* env = Java::Env();
     if (!env)
         return;
+
+    if (!enabled || Menu::isOpen || mc.isInGui() || !player.isValid() || !mc.instance) {
+        clearForcedTarget(env);
+        return;
+    }
+
+    if ((settings.weaponsOnly && !isWeapon(player.getHeldItemId())) ||
+        !JniCache::fid_objectMouseOver || !JniCache::fid_pointedEntity ||
+        !JniCache::fid_typeOfHit || !JniCache::fid_entityHit ||
+        !JniCache::cls_MovingObjectType || !JniCache::fid_ENTITY) {
+        clearForcedTarget(env);
+        return;
+    }
 
     if (env->ExceptionCheck())
         env->ExceptionClear();
@@ -105,6 +129,7 @@ void Piercing::onUpdate() {
     if (!mouseOver) {
         if (env->ExceptionCheck())
             env->ExceptionClear();
+        clearForcedTarget(env);
         return;
     }
 
@@ -164,13 +189,17 @@ void Piercing::onUpdate() {
     }
 
     if (target && target->instance) {
+        clearForcedTarget(env);
         jobject entityType = env->GetStaticObjectField(JniCache::cls_MovingObjectType, JniCache::fid_ENTITY);
         if (entityType) {
             env->SetObjectField(mouseOver, JniCache::fid_typeOfHit, entityType);
             env->SetObjectField(mouseOver, JniCache::fid_entityHit, target->instance);
             env->SetObjectField(mc.instance, JniCache::fid_pointedEntity, target->instance);
+            forcedTarget = env->NewGlobalRef(target->instance);
             env->DeleteLocalRef(entityType);
         }
+    } else {
+        clearForcedTarget(env);
     }
 
     for (auto& candidate : players) {

@@ -1,4 +1,3 @@
-#define IMGUI_DEFINE_MATH_OPERATORS
 #include "esp.h"
 #include <algorithm>
 #include <cfloat>
@@ -333,7 +332,7 @@ void ESP::onRender() {
     if (GetTickCount64() - lastUpdateTick > 300)
         return;
 
-    ImDrawList* draw = ImGui::GetWindowDrawList();
+    ImDrawList* draw = ImGui::GetBackgroundDrawList();
     if (!draw)
         return;
 
@@ -458,50 +457,49 @@ void ESP::onRender() {
         if (!needs2DBox && !needs2DFilled && !needs2DHealth)
             continue;
 
-        // Project head/feet for 2D overlays
-        Vector3 feetPos{interpX, interpY, interpZ};
-        Vector3 headPos{interpX, interpY + 1.9f, interpZ};  // 1.9m height
-
-        // Apply camera relative translation
-        feetPos.x -= (float)renderX;
-        feetPos.y -= (float)renderY;
-        feetPos.z -= (float)renderZ;
-        headPos.x -= (float)renderX;
-        headPos.y -= (float)renderY;
-        headPos.z -= (float)renderZ;
-
-        Vector2 screenFeet, screenHead;
-        bool feetVisible = CWorldToScreen::WorldToScreen(feetPos, RenderData::modelView, RenderData::projection,
-                                                         RenderData::screenWidth, RenderData::screenHeight, screenFeet);
-        bool headVisible = CWorldToScreen::WorldToScreen(headPos, RenderData::modelView, RenderData::projection,
-                                                         RenderData::screenWidth, RenderData::screenHeight, screenHead);
-
-        // Skip 2D overlays if points not visible
-        if (!feetVisible || !headVisible)
+        constexpr float halfWidth = 0.3f;
+        constexpr float playerHeight = 1.8f;
+        Vector3 bounds[8] = {
+            {interpX - halfWidth, interpY, interpZ - halfWidth},
+            {interpX + halfWidth, interpY, interpZ - halfWidth},
+            {interpX + halfWidth, interpY, interpZ + halfWidth},
+            {interpX - halfWidth, interpY, interpZ + halfWidth},
+            {interpX - halfWidth, interpY + playerHeight, interpZ - halfWidth},
+            {interpX + halfWidth, interpY + playerHeight, interpZ - halfWidth},
+            {interpX + halfWidth, interpY + playerHeight, interpZ + halfWidth},
+            {interpX - halfWidth, interpY + playerHeight, interpZ + halfWidth}};
+        float left = FLT_MAX, top = FLT_MAX, right = -FLT_MAX, bottom = -FLT_MAX;
+        int projected = 0;
+        for (auto& point : bounds) {
+            point.x -= (float)renderX;
+            point.y -= (float)renderY;
+            point.z -= (float)renderZ;
+            Vector2 screen{};
+            if (CWorldToScreen::WorldToScreen(point, RenderData::modelView, RenderData::projection,
+                                              RenderData::screenWidth, RenderData::screenHeight, screen)) {
+                left = (std::min)(left, screen.x);
+                top = (std::min)(top, screen.y);
+                right = (std::max)(right, screen.x);
+                bottom = (std::max)(bottom, screen.y);
+                ++projected;
+            }
+        }
+        const float height = bottom - top;
+        if (projected < 4 || height < 1.0f || right <= left)
             continue;
-
-        float height = screenFeet.y - screenHead.y;
-        if (height < 1.0f)
-            continue;
-
-        float width = height * 0.5f;
-        float left = screenFeet.x - width * 0.5f;
-        float right = screenFeet.x + width * 0.5f;
-        float top = screenHead.y;
-        float bottom = screenFeet.y;
 
         // Filled Box (only with Box 2D mode - 3D handles its own fill)
         if (settings.filled && !settings.box3D) {
-            draw->AddRectFilled(ImVec2(left, top), ImVec2(right, bottom), fillCol, 8.0f);
+            draw->AddRectFilled(ImVec2(left, top), ImVec2(right, bottom), fillCol, 2.0f);
         }
 
         // 2D Box (only with Box 2D mode)
         if (settings.box) {
             if (settings.outline) {
-                draw->AddRect(ImVec2(left - 1, top - 1), ImVec2(right + 1, bottom + 1), outlineCol, 8.0f);
-                draw->AddRect(ImVec2(left + 1, top + 1), ImVec2(right - 1, bottom - 1), outlineCol, 8.0f);
+                draw->AddRect(ImVec2(left - 1, top - 1), ImVec2(right + 1, bottom + 1), outlineCol, 2.0f);
+                draw->AddRect(ImVec2(left + 1, top + 1), ImVec2(right - 1, bottom - 1), outlineCol, 2.0f);
             }
-            draw->AddRect(ImVec2(left, top), ImVec2(right, bottom), boxCol, 8.0f);
+            draw->AddRect(ImVec2(left, top), ImVec2(right, bottom), boxCol, 2.0f);
         }
 
         // Health Bar (works with both 2D and 3D modes)
@@ -509,7 +507,7 @@ void ESP::onRender() {
             float barWidth = 2.0f;
             float barDist = 3.0f;
 
-            float fillHeight = height * (p.health / p.maxHealth);
+            float fillHeight = height * (p.health / (std::max)(p.maxHealth, 1.0f));
             if (fillHeight > height)
                 fillHeight = height;
             if (fillHeight < 0)

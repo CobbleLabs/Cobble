@@ -1,5 +1,6 @@
 #include "widgets.hpp"
 #include <Windows.h>
+#include <algorithm>
 #include <cmath>
 #include <cstring>
 #include "../../module/module.h"
@@ -321,12 +322,10 @@ std::vector<ui::tab_t> ui::tabs = {
 // ==================== SCALING ====================
 
 void ui::updateScale() {
-    float screenHeight = ImGui::GetIO().DisplaySize.y;
-    scale = screenHeight / baseHeight;
-    if (scale < 0.85f)
-        scale = 0.85f;
-    if (scale > 2.0f)
-        scale = 2.0f;
+    const ImVec2 display = ImGui::GetIO().DisplaySize;
+    const float widthScale = (display.x - 32.0f) / baseSize.x;
+    const float heightScale = (display.y - 32.0f) / baseSize.y;
+    scale = (std::clamp)((std::min)(widthScale, heightScale), 0.65f, 1.35f);
 }
 
 float ui::s(float value) {

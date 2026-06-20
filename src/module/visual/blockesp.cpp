@@ -1,10 +1,10 @@
-#define IMGUI_DEFINE_MATH_OPERATORS
 #include "blockesp.h"
 #include <Windows.h>
 #include <cmath>
 #include "../../../infra/ext/imgui/imgui.h"
 #include "../../sdk/core/minecraft.h"
 #include "../../sdk/player/render_data.h"
+#include "../../sdk/player/visual_cache.h"
 #include "../../ui/widgets/widgets.hpp"
 #include "../../util/logger.hpp"
 #include "../../util/math/worldToScreen.h"
@@ -27,6 +27,7 @@ enum BlockID {
 BlockESP::BlockESP() : Module("BlockESP") {
     keybind = 0;
     renders = true;
+    usesPlayerCache = true;
 }
 
 void BlockESP::onEnable() {
@@ -118,12 +119,18 @@ void BlockESP::scanBlocks() {
     int centerZ = (int)floor(localZ);
 
     std::vector<BlockData> newBlocks;
-    int radius = (int)settings.range;
+    int radius = (std::clamp)((int)settings.range, 8, 32);
+    const int radiusSquared = radius * radius;
 
-    // Scan in a cube around the player
+    // Scan a sphere instead of a full cube to avoid unnecessary JNI calls.
     for (int x = centerX - radius; x <= centerX + radius; x++) {
-        for (int y = centerY - radius; y <= centerY + 5; y++) {  // Limited vertical range
+        const int dx = x - centerX;
+        for (int y = (std::max)(0, centerY - radius); y <= (std::min)(255, centerY + radius); y++) {
+            const int dy = y - centerY;
             for (int z = centerZ - radius; z <= centerZ + radius; z++) {
+                const int dz = z - centerZ;
+                if (dx * dx + dy * dy + dz * dz > radiusSquared)
+                    continue;
                 int blockId = mc.getBlockId(x, y, z);
 
                 // Check if this is a block type we want to highlight
@@ -177,7 +184,14 @@ void BlockESP::onUpdate() {
         return;
     }
 
-    // Smart auto-rescan: by movement (>5 blocks) OR by time (>2s)
+    auto snap = VisualCache::GetSnapshot();
+    if (!snap.valid) {
+        std::lock_guard<std::mutex> lock(cacheMutex);
+        cachedBlocks.clear();
+        return;
+    }
+
+    // Smart auto-rescan: movement, settings changes, or a periodic refresh.
     long long currentTime = GetTickCount64();
     double localX = player.getPosX();
     double localY = player.getPosY();
@@ -188,11 +202,17 @@ void BlockESP::onUpdate() {
     double dz = localZ - lastScanZ;
     double moveDistance = std::sqrt(dx * dx + dy * dy + dz * dz);
 
-    bool shouldRescan = false;
-    if (moveDistance > 5.0)
-        shouldRescan = true;  // Moved >5 blocks
-    if (currentTime - lastScanTime >= 2000)
-        shouldRescan = true;  // >2 seconds since last scan
+    unsigned int signature = (unsigned int)(std::clamp((int)settings.range, 8, 32) << 8);
+    signature |= settings.drawDiamond ? 1u << 0 : 0;
+    signature |= settings.drawEmerald ? 1u << 1 : 0;
+    signature |= settings.drawIron ? 1u << 2 : 0;
+    signature |= settings.drawGold ? 1u << 3 : 0;
+    signature |= settings.drawLapis ? 1u << 4 : 0;
+    signature |= settings.drawRedstone ? 1u << 5 : 0;
+    signature |= settings.drawCoal ? 1u << 6 : 0;
+    signature |= settings.drawChests ? 1u << 7 : 0;
+    bool shouldRescan = moveDistance > 3.0 || currentTime - lastScanTime >= 1500 ||
+                        signature != lastSettingsSignature;
 
     if (shouldRescan) {
         scanBlocks();
@@ -200,17 +220,22 @@ void BlockESP::onUpdate() {
         lastScanX = localX;
         lastScanY = localY;
         lastScanZ = localZ;
+        lastSettingsSignature = signature;
     }
 
     // Cache player position for render thread
     {
         std::lock_guard<std::mutex> lock(cacheMutex);
-        cachedLocalX = player.getPosX();
-        cachedLocalY = player.getPosY();
-        cachedLocalZ = player.getPosZ();
-        cachedLocalLastX = player.getLastPosX();
-        cachedLocalLastY = player.getLastPosY();
-        cachedLocalLastZ = player.getLastPosZ();
+        cachedLocalX = snap.localX;
+        cachedLocalY = snap.localY;
+        cachedLocalZ = snap.localZ;
+        cachedLocalLastX = snap.localLastX;
+        cachedLocalLastY = snap.localLastY;
+        cachedLocalLastZ = snap.localLastZ;
+        cachedRenderX = snap.renderPos.x;
+        cachedRenderY = snap.renderPos.y;
+        cachedRenderZ = snap.renderPos.z;
+        cachedPartialTicks = snap.partialTicks;
     }
 }
 
@@ -222,13 +247,15 @@ void BlockESP::onRender() {
     if (GetTickCount64() - lastUpdateTick > 300)
         return;
 
-    ImDrawList* draw = ImGui::GetWindowDrawList();
+    ImDrawList* draw = ImGui::GetBackgroundDrawList();
     if (!draw)
         return;
 
     std::vector<BlockData> localBlocks;
     double localX, localY, localZ;
     double localLastX, localLastY, localLastZ;
+    double renderX, renderY, renderZ;
+    float partialTicks;
 
     {
         std::lock_guard<std::mutex> lock(cacheMutex);
@@ -239,15 +266,11 @@ void BlockESP::onRender() {
         localLastX = cachedLocalLastX;
         localLastY = cachedLocalLastY;
         localLastZ = cachedLocalLastZ;
+        renderX = cachedRenderX;
+        renderY = cachedRenderY;
+        renderZ = cachedRenderZ;
+        partialTicks = cachedPartialTicks;
     }
-
-    // Get render position
-    RenderPos renderPos = mc.getRenderPos();
-    float partialTicks = mc.getPartialTicks();
-
-    double renderX = renderPos.x;
-    double renderY = renderPos.y;
-    double renderZ = renderPos.z;
 
     // Fallback
     if (renderX == 0.0 && renderY == 0.0 && renderZ == 0.0) {
@@ -310,7 +333,9 @@ void BlockESP::onRender() {
             continue;
 
         ImU32 color = IM_COL32((int)(block.color[0] * 255), (int)(block.color[1] * 255), (int)(block.color[2] * 255),
-                               (int)(alpha * 255));
+                               (int)(alpha * 0.45f * 255));
+        ImU32 outline = IM_COL32((int)(block.color[0] * 255), (int)(block.color[1] * 255),
+                                 (int)(block.color[2] * 255), (int)((std::min)(1.0f, alpha + 0.25f) * 255));
 
         // Draw the 6 faces of the cube
         // Bottom face (0-1-2-3)
@@ -366,6 +391,15 @@ void BlockESP::onRender() {
                                 {screenCorners[5].x, screenCorners[5].y}};
             draw->AddConvexPolyFilled(points, 4, color);
         }
+
+        static constexpr int edges[12][2] = {{0, 1}, {1, 2}, {2, 3}, {3, 0}, {4, 5}, {5, 6},
+                                             {6, 7}, {7, 4}, {0, 4}, {1, 5}, {2, 6}, {3, 7}};
+        for (const auto& edge : edges) {
+            if (visible[edge[0]] && visible[edge[1]]) {
+                draw->AddLine({screenCorners[edge[0]].x, screenCorners[edge[0]].y},
+                              {screenCorners[edge[1]].x, screenCorners[edge[1]].y}, outline, 1.5f);
+            }
+        }
     }
 }
 
@@ -392,7 +426,7 @@ void BlockESP::onRenderMenu() {
         },
         "Settings",
         [this]() {
-            ui::SliderFloat("Range", &settings.range, 10.0f, 50.0f, "%.0f blocks");
+            ui::SliderFloat("Range", &settings.range, 8.0f, 32.0f, "%.0f blocks");
             ui::SliderInt("Opacity", &settings.opacity, 10, 100, "%d%%");
             ui::Checkbox("Fade with Distance", &settings.fadeWithDistance);
         });

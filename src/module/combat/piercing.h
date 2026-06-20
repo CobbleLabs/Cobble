@@ -21,6 +21,10 @@ public:
     } settings;
 
 private:
+    void clearForcedTarget(JNIEnv* env);
+
+    jobject forcedTarget = nullptr;
+
     static bool rayIntersectsBox(double originX, double originY, double originZ,
                                  double directionX, double directionY, double directionZ,
                                  double minX, double minY, double minZ,

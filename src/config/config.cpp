@@ -599,6 +599,8 @@ void ConfigManager::applyConfig() {
                 s.drawChests = data["drawChests"].as_bool(s.drawChests);
                 s.range = data["range"].as_float(s.range);
                 s.opacity = data["opacity"].as_int(s.opacity);
+                s.range = (std::clamp)(s.range, 8.0f, 32.0f);
+                s.opacity = (std::clamp)(s.opacity, 10, 100);
                 s.fadeWithDistance = data["fadeWithDistance"].as_bool(s.fadeWithDistance);
             } else if (name == "Tracers" && tracers) {
                 auto& s = tracers->settings;
@@ -703,6 +705,14 @@ void ConfigManager::applyConfig() {
                 s.adaptiveStrength = data["adaptiveStrength"].as_float(s.adaptiveStrength);
                 s.maxPackets = data["maxPackets"].as_int(s.maxPackets);
                 s.releaseRate = data["releaseRate"].as_int(s.releaseRate);
+                s.minDelayMs = (std::clamp)(s.minDelayMs, 20, 250);
+                s.maxDelayMs = (std::clamp)(s.maxDelayMs, (std::max)(40, s.minDelayMs), 400);
+                s.pulseHoldMs = (std::clamp)(s.pulseHoldMs, 40, 1000);
+                s.pulseReleaseMs = (std::clamp)(s.pulseReleaseMs, 20, 500);
+                s.maxDistance = (std::clamp)(s.maxDistance, 0.5f, 4.0f);
+                s.adaptiveStrength = (std::clamp)(s.adaptiveStrength, 0.0f, 1.0f);
+                s.maxPackets = (std::clamp)(s.maxPackets, 8, 60);
+                s.releaseRate = (std::clamp)(s.releaseRate, 1, 12);
                 s.movingOnly = data["movingOnly"].as_bool(s.movingOnly);
                 s.smoothRelease = data["smoothRelease"].as_bool(s.smoothRelease);
                 s.flushOnAttack = data["flushOnAttack"].as_bool(s.flushOnAttack);
@@ -729,7 +739,14 @@ void ConfigManager::applyConfig() {
                 s.mode = static_cast<TimerRange::PacketMode>(mode);
                 s.minSpeed = data["minSpeed"].as_float(s.minSpeed);
                 s.maxSpeed = data["maxSpeed"].as_float(s.maxSpeed);
-                s.updateIntervalMs = data["updateIntervalMs"].as_int(s.updateIntervalMs);
+                if (data.has("intervalTicks")) {
+                    s.intervalTicks = data["intervalTicks"].as_int(s.intervalTicks);
+                } else {
+                    const int legacyMs = data["updateIntervalMs"].as_int(s.intervalTicks * 50);
+                    s.intervalTicks = (std::clamp)((legacyMs + 25) / 50, 1, 40);
+                }
+                s.minSpeed = (std::clamp)(s.minSpeed, 0.05f, 3.0f);
+                s.maxSpeed = (std::clamp)(s.maxSpeed, s.minSpeed, 3.0f);
                 s.mousePressed = data["mousePressed"].as_bool(s.mousePressed);
                 s.weaponOnly = data["weaponOnly"].as_bool(s.weaponOnly);
             } else if (name == "DroppedInfo" && droppedInfo) {
@@ -1131,7 +1148,7 @@ void ConfigManager::buildConfigFromModules() {
             config_["modules"][name]["mode"] = static_cast<int>(s.mode);
             config_["modules"][name]["minSpeed"] = s.minSpeed;
             config_["modules"][name]["maxSpeed"] = s.maxSpeed;
-            config_["modules"][name]["updateIntervalMs"] = s.updateIntervalMs;
+            config_["modules"][name]["intervalTicks"] = s.intervalTicks;
             config_["modules"][name]["mousePressed"] = s.mousePressed;
             config_["modules"][name]["weaponOnly"] = s.weaponOnly;
         } else if (name == "DroppedInfo" && droppedInfo) {

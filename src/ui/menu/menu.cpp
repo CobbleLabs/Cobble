@@ -602,8 +602,8 @@ void Menu::Render() {
     ImGui::GetBackgroundDrawList()->AddRectFilled(ImVec2(0, 0), io.DisplaySize,
                                                   IM_COL32(0, 0, 0, (int)(115 * openAnim)));
 
-    // Menu size with resolution scaling + open animation
-    ui::size = ui::s(ui::baseSize) * openAnim;
+    // Keep layout geometry stable while opening; only opacity is animated.
+    ui::size = ui::s(ui::baseSize);
 
     // Center window
     ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x * 0.5f, io.DisplaySize.y * 0.5f), ImGuiCond_Always,
@@ -614,6 +614,14 @@ void Menu::Render() {
 
     ImGui::Begin("Cobble", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoBackground);
     {
+        ImDrawList* windowDraw = ImGui::GetWindowDrawList();
+        const ImVec2 windowPos = ImGui::GetWindowPos();
+        const ImVec2 windowMax = windowPos + ImGui::GetWindowSize();
+        windowDraw->AddRectFilled(windowPos, windowMax, ui::GetColor(ImGuiCol_WindowBg),
+                                  GImGui->Style.WindowRounding);
+        windowDraw->AddRect(windowPos, windowMax, ui::GetColor(ImGuiCol_Border, 1.0f),
+                           GImGui->Style.WindowRounding, 0, ui::s(1.0f));
+
         // ===== LEFT NAV =====
         ImGui::BeginChild("nav", {ui::s(176), ImGui::GetWindowHeight()}, 0,
                           ImGuiWindowFlags_NoBackground | ImGuiWindowFlags_NoScrollbar);

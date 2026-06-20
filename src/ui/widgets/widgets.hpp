@@ -155,6 +155,6 @@ void subtab(int num, int tab_num);
 void apply_style();
 
 // Base window size (larger for better 1080p visibility)
-inline ImVec2 baseSize{900, 600};
-inline ImVec2 size{900, 600};
+inline ImVec2 baseSize{960, 640};
+inline ImVec2 size{960, 640};
 }  // namespace ui

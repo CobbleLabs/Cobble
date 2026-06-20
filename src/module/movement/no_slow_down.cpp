@@ -1,9 +1,11 @@
 #include "no_slow_down.h"
 
 #include "../../sdk/core/minecraft.h"
-#include "../../sdk/jni/jni_cache.h"
 #include "../../ui/menu/menu.h"
 #include "../../ui/widgets/widgets.hpp"
+
+#include <algorithm>
+#include <cmath>
 
 NoSlowDown* noSlowDown = nullptr;
 
@@ -70,60 +72,34 @@ bool NoSlowDown::initializeFields() {
     return moveForwardField && moveStrafeField;
 }
 
-bool NoSlowDown::isKeyPressed(jobject gameSettings, jfieldID keyBindField) {
-    JNIEnv* env = Java::Env();
-    if (!env || !gameSettings || !keyBindField || !JniCache::fid_pressed)
-        return false;
-
-    jobject keyBind = env->GetObjectField(gameSettings, keyBindField);
-    if (!keyBind || env->ExceptionCheck()) {
-        env->ExceptionClear();
-        return false;
-    }
-
-    const bool pressed = env->GetBooleanField(keyBind, JniCache::fid_pressed) == JNI_TRUE;
-    if (env->ExceptionCheck())
-        env->ExceptionClear();
-    env->DeleteLocalRef(keyBind);
-    return pressed;
-}
-
 void NoSlowDown::onUpdate() {
     if (!enabled || Menu::isOpen || mc.isInGui() || !player.isValid() || !player.isUsingItem())
         return;
-    if (!initializeFields() || !JniCache::fid_gameSettings)
+    if (!initializeFields())
         return;
 
     JNIEnv* env = Java::Env();
-    jobject gameSettings = env->GetObjectField(mc.instance, JniCache::fid_gameSettings);
     jobject movementInput = env->GetObjectField(player.instance, movementInputField);
-    if (env->ExceptionCheck() || !gameSettings || !movementInput) {
+    if (env->ExceptionCheck() || !movementInput) {
         env->ExceptionClear();
-        if (gameSettings)
-            env->DeleteLocalRef(gameSettings);
         if (movementInput)
             env->DeleteLocalRef(movementInput);
         return;
     }
 
-    float forward = 0.0f;
-    float strafe = 0.0f;
+    float forward = env->GetFloatField(movementInput, moveForwardField);
+    float strafe = env->GetFloatField(movementInput, moveStrafeField);
 
-    if (isKeyPressed(gameSettings, JniCache::fid_keyBindForward))
-        forward += 1.0f;
-    if (isKeyPressed(gameSettings, JniCache::fid_keyBindBack))
-        forward -= 1.0f;
-    if (isKeyPressed(gameSettings, JniCache::fid_keyBindLeft))
-        strafe += 1.0f;
-    if (isKeyPressed(gameSettings, JniCache::fid_keyBindRight))
-        strafe -= 1.0f;
-
-    // Sneaking has its own intended movement reduction. Preserve it while
-    // removing only the 0.2 item-use multiplier.
-    if (player.isSneaking()) {
-        forward *= 0.3f;
-        strafe *= 0.3f;
-    }
+    // Vanilla applies a 0.2 multiplier after movement input is calculated.
+    // Compensate only values in that slowed range so repeated worker updates
+    // cannot amplify already restored input.
+    const auto restoreInput = [](float value) {
+        if (std::abs(value) <= 0.2001f)
+            return (std::clamp)(value * 5.0f, -1.0f, 1.0f);
+        return value;
+    };
+    forward = restoreInput(forward);
+    strafe = restoreInput(strafe);
 
     env->SetFloatField(movementInput, moveForwardField, forward);
     env->SetFloatField(movementInput, moveStrafeField, strafe);
@@ -131,7 +107,6 @@ void NoSlowDown::onUpdate() {
         env->ExceptionClear();
 
     env->DeleteLocalRef(movementInput);
-    env->DeleteLocalRef(gameSettings);
 }
 
 void NoSlowDown::onRenderMenu() {
