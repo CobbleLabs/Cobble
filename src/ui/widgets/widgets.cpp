@@ -354,48 +354,10 @@ const char* ui::GetModuleDescription(const char* module) {
 }
 
 void ui::HoverDescription(const char* key, bool hovered, const char* explicitText, bool rainbow) {
-    const char* text = explicitText ? explicitText : resolveOptionDescription(key);
-    if (!text || !*text)
-        return;
-
-    std::string stateKey = "hover_description##" + g_descriptionContext + "##" + (key ? key : "");
-    struct description_state {
-        float amount;
-    };
-    auto& state = anim_obj(stateKey.c_str(), rainbow ? 1 : 0, description_state{0.0f});
-    state.amount = ImLerp(state.amount, hovered ? 1.0f : 0.0f,
-                          (std::min)(1.0f, 18.0f * ImGui::GetIO().DeltaTime));
-    if (state.amount < 0.002f)
-        return;
-
-    ImGuiWindow* window = ImGui::GetCurrentWindow();
-    const float width = (std::max)(ui::s(80.0f), ImGui::GetContentRegionAvail().x);
-    const float wrapWidth = width - ui::s(8.0f);
-    const ImVec2 textSize = ImGui::CalcTextSize(text, nullptr, false, wrapWidth);
-    const float fullHeight = textSize.y + ui::s(7.0f);
-    const float visibleHeight = fullHeight * state.amount;
-    const ImVec2 start = window->DC.CursorPos;
-
-    ImGui::Dummy({width, visibleHeight});
-    if (visibleHeight < ui::s(2.0f))
-        return;
-
-    const ImVec2 clipMin = start;
-    const ImVec2 clipMax = start + ImVec2(width, visibleHeight);
-    window->DrawList->PushClipRect(clipMin, clipMax, true);
-    const ImVec2 textPos = start + ImVec2(ui::s(4.0f), ui::s(2.0f) - (1.0f - state.amount) * ui::s(4.0f));
-    if (rainbow) {
-        drawRainbowText(window->DrawList, textPos, text, state.amount * ui::alpha_mod);
-    } else {
-        ImVec4 color = ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled);
-        color.x = (std::min)(1.0f, color.x + 0.18f);
-        color.y = (std::min)(1.0f, color.y + 0.18f);
-        color.z = (std::min)(1.0f, color.z + 0.18f);
-        color.w *= 0.86f * state.amount * ui::alpha_mod;
-        window->DrawList->AddText(ImGui::GetFont(), ImGui::GetFontSize(), textPos, ImGui::ColorConvertFloat4ToU32(color), text, nullptr,
-                                  wrapWidth);
-    }
-    window->DrawList->PopClipRect();
+    (void)key;
+    (void)hovered;
+    (void)explicitText;
+    (void)rainbow;
 }
 
 void ui::DescribeLastItem(const char* key, const char* explicitText, bool rainbow) {

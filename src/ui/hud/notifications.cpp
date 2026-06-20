@@ -1,35 +1,152 @@
-#define IMGUI_DEFINE_MATH_OPERATORS
 #include "notifications.h"
 #include "../../../infra/ext/imgui/imgui.h"
 #include "../../sdk/player/render_data.h"
-#include "../core/overlay.h"
 #include "../widgets/widgets.hpp"
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
+#include <utility>
+
+namespace {
+float clamp01(float value) {
+    return (std::clamp)(value, 0.0f, 1.0f);
+}
+
+float easeOutCubic(float value) {
+    const float inverse = 1.0f - clamp01(value);
+    return 1.0f - inverse * inverse * inverse;
+}
+
+float easeInCubic(float value) {
+    value = clamp01(value);
+    return value * value * value;
+}
+
+bool startsWithInsensitive(const std::string& value, const char* prefix) {
+    const std::size_t length = std::char_traits<char>::length(prefix);
+    if (value.size() < length)
+        return false;
+    for (std::size_t i = 0; i < length; ++i) {
+        if (std::tolower(static_cast<unsigned char>(value[i])) !=
+            std::tolower(static_cast<unsigned char>(prefix[i])))
+            return false;
+    }
+    return true;
+}
+
+NotificationType classifySystemMessage(const std::string& message) {
+    if (startsWithInsensitive(message, "error") || startsWithInsensitive(message, "cannot") ||
+        message.find("failed") != std::string::npos || message.find("missing") != std::string::npos)
+        return NotificationType::Error;
+    if (startsWithInsensitive(message, "saved") || startsWithInsensitive(message, "loaded") ||
+        startsWithInsensitive(message, "deleted") || startsWithInsensitive(message, "added"))
+        return NotificationType::Success;
+    return NotificationType::Info;
+}
+
+const char* titleFor(NotificationType type) {
+    switch (type) {
+        case NotificationType::Enabled:
+        case NotificationType::Disabled:
+            return "Module updated";
+        case NotificationType::Success:
+            return "Success";
+        case NotificationType::Error:
+            return "Action failed";
+        default:
+            return "Cobble";
+    }
+}
+
+ImVec4 colorFor(NotificationType type) {
+    switch (type) {
+        case NotificationType::Enabled:
+        case NotificationType::Success:
+            return {0.25f, 0.82f, 0.55f, 1.0f};
+        case NotificationType::Disabled:
+            return {0.96f, 0.42f, 0.37f, 1.0f};
+        case NotificationType::Error:
+            return {0.96f, 0.35f, 0.32f, 1.0f};
+        default:
+            return {g_SchemeColor[0], g_SchemeColor[1], g_SchemeColor[2], 1.0f};
+    }
+}
+
+void drawStatusGlyph(ImDrawList* draw, const ImVec2& center, float radius, NotificationType type, ImU32 color) {
+    draw->AddCircleFilled(center, radius, color, 20);
+    const ImU32 glyph = IM_COL32(255, 255, 255, 245);
+    const float scale = radius / 8.0f;
+    if (type == NotificationType::Enabled || type == NotificationType::Success) {
+        draw->AddLine(center + ImVec2(-3.3f, 0.0f) * scale, center + ImVec2(-0.8f, 2.8f) * scale, glyph,
+                      1.7f * scale);
+        draw->AddLine(center + ImVec2(-0.8f, 2.8f) * scale, center + ImVec2(4.0f, -3.0f) * scale, glyph,
+                      1.7f * scale);
+    } else if (type == NotificationType::Disabled || type == NotificationType::Error) {
+        draw->AddLine(center + ImVec2(-2.8f, -2.8f) * scale, center + ImVec2(2.8f, 2.8f) * scale, glyph,
+                      1.7f * scale);
+        draw->AddLine(center + ImVec2(2.8f, -2.8f) * scale, center + ImVec2(-2.8f, 2.8f) * scale, glyph,
+                      1.7f * scale);
+    } else {
+        draw->AddCircleFilled(center + ImVec2(0.0f, -3.0f) * scale, 1.1f * scale, glyph, 12);
+        draw->AddRectFilled(center + ImVec2(-1.0f, -0.5f) * scale, center + ImVec2(1.0f, 4.0f) * scale,
+                            glyph, 1.0f * scale);
+    }
+}
+}  // namespace
+
+Notification::Notification(std::uint64_t id, std::string text, NotificationType type, float duration)
+    : id(id), text(std::move(text)), type(type), startTime(std::chrono::steady_clock::now()), duration(duration) {}
+
+float Notification::elapsed(std::chrono::steady_clock::time_point now) const {
+    return std::chrono::duration<float>(now - startTime).count();
+}
+
+float Notification::progress(std::chrono::steady_clock::time_point now) const {
+    return duration > 0.0f ? clamp01(elapsed(now) / duration) : 1.0f;
+}
+
+bool Notification::isExpired(std::chrono::steady_clock::time_point now) const {
+    return elapsed(now) >= duration;
+}
 
 void NotificationManager::add(const std::string& moduleName, bool isEnabled) {
+    if (moduleName.empty())
+        return;
+
     std::lock_guard<std::mutex> lock(mutex);
-
-    // Remove any existing notification for the same module
     notifications.erase(std::remove_if(notifications.begin(), notifications.end(),
-                                       [&](const Notification& n) { return n.text == moduleName && !n.isSystem; }),
+                                       [&](const Notification& notification) {
+                                           return notification.text == moduleName &&
+                                                  (notification.type == NotificationType::Enabled ||
+                                                   notification.type == NotificationType::Disabled);
+                                       }),
                         notifications.end());
-
-    notifications.emplace_back(moduleName, isEnabled, NOTIFICATION_DURATION, false);
+    notifications.emplace_back(nextId++, moduleName,
+                               isEnabled ? NotificationType::Enabled : NotificationType::Disabled,
+                               NOTIFICATION_DURATION);
+    if (notifications.size() > MAX_VISIBLE_NOTIFICATIONS)
+        notifications.erase(notifications.begin(), notifications.end() - MAX_VISIBLE_NOTIFICATIONS);
 }
 
 void NotificationManager::addSystem(const std::string& message) {
+    if (message.empty())
+        return;
+
     std::lock_guard<std::mutex> lock(mutex);
-    notifications.emplace_back(message, true, NOTIFICATION_DURATION * 1.5f, true);
+    notifications.emplace_back(nextId++, message, classifySystemMessage(message), NOTIFICATION_DURATION + 0.8f);
+    if (notifications.size() > MAX_VISIBLE_NOTIFICATIONS)
+        notifications.erase(notifications.begin(), notifications.end() - MAX_VISIBLE_NOTIFICATIONS);
 }
 
 void NotificationManager::update() {
     std::lock_guard<std::mutex> lock(mutex);
-
-    notifications.erase(
-        std::remove_if(notifications.begin(), notifications.end(), [](const Notification& n) { return n.isExpired(); }),
-        notifications.end());
+    const auto now = std::chrono::steady_clock::now();
+    notifications.erase(std::remove_if(notifications.begin(), notifications.end(),
+                                       [&](const Notification& notification) {
+                                           return notification.isExpired(now);
+                                       }),
+                        notifications.end());
 }
 
 void NotificationManager::render() {
@@ -41,141 +158,87 @@ void NotificationManager::render() {
     if (notifications.empty())
         return;
 
-    ImDrawList* draw = ImGui::GetWindowDrawList();
+    ImDrawList* draw = ImGui::GetBackgroundDrawList();
     if (!draw)
         return;
 
-    // Use Bold 22px font (index 2) rendered at 20px
-    ImFont* notifFont = font(2);
+    const ImVec2 display = ImGui::GetIO().DisplaySize;
+    const float screenWidth = display.x > 1.0f ? display.x : static_cast<float>(RenderData::screenWidth);
+    const float screenHeight = display.y > 1.0f ? display.y : static_cast<float>(RenderData::screenHeight);
+    const float margin = ui::s(16.0f);
+    const float spacing = ui::s(8.0f);
+    const float width = ui::s(300.0f);
+    const float height = ui::s(60.0f);
+    const float rounding = ui::s(6.0f);
+    const float padding = ui::s(12.0f);
+    const float iconRadius = ui::s(9.0f);
+    const float titleSize = ui::s(14.0f);
+    const float messageSize = ui::s(12.0f);
+    const float enterDuration = 0.18f;
+    const float exitDuration = 0.26f;
+    const auto now = std::chrono::steady_clock::now();
+    ImFont* notificationFont = font(0);
 
-    float screenHeight = static_cast<float>(RenderData::screenHeight);
-    float screenWidth = static_cast<float>(RenderData::screenWidth);
-
-    // Use global ui::s() for consistent scaling
-    float fontSize = 20.0f;
-    float height = ui::s(25.0f);
-    float margin = ui::s(9.0f);
-    float spacing = ui::s(3.0f);
-    float padding = ui::s(13.0f);
-    float rounding = ui::s(4.5f);
-    float barWidth = ui::s(3.5f);
-    float progressHeight = ui::s(2.0f);
-
-    // Accent color from theme
-    ImU32 accentColor =
-        IM_COL32((int)(g_SchemeColor[0] * 255), (int)(g_SchemeColor[1] * 255), (int)(g_SchemeColor[2] * 255), 255);
-
-    float startY = screenHeight - margin - height;
-
-    int index = 0;
-    for (auto& notif : notifications) {
-        float progress = notif.getProgress();
-        if (progress >= 1.0f)
+    std::size_t visibleIndex = 0;
+    for (auto iterator = notifications.rbegin(); iterator != notifications.rend(); ++iterator) {
+        const Notification& notification = *iterator;
+        const float elapsed = notification.elapsed(now);
+        const float remaining = notification.duration - elapsed;
+        if (remaining <= 0.0f)
             continue;
 
-        auto easeOutCubic = [](float t) { return 1.0f - powf(1.0f - t, 3.0f); };
-        auto easeInCubic = [](float t) { return t * t * t; };
+        float visibility = easeOutCubic(elapsed / enterDuration);
+        if (remaining < exitDuration)
+            visibility *= 1.0f - easeInCubic(1.0f - remaining / exitDuration);
 
-        float slideProgress;
-        float alpha;
+        const float x = screenWidth - margin - width + (1.0f - visibility) * ui::s(28.0f);
+        const float y = screenHeight - margin - height -
+                        static_cast<float>(visibleIndex) * (height + spacing);
+        const ImVec2 rectMin{x, y};
+        const ImVec2 rectMax{x + width, y + height};
+        const int alpha = static_cast<int>(255.0f * visibility);
+        const ImVec4 typeColor = colorFor(notification.type);
+        const ImU32 accent = IM_COL32(static_cast<int>(typeColor.x * 255.0f),
+                                     static_cast<int>(typeColor.y * 255.0f),
+                                     static_cast<int>(typeColor.z * 255.0f), alpha);
 
-        if (progress < 0.15f) {
-            slideProgress = easeOutCubic(progress / 0.15f);
-            alpha = slideProgress;
-        } else if (progress > 0.75f) {
-            float outProgress = (progress - 0.75f) / 0.25f;
-            slideProgress = 1.0f - easeInCubic(outProgress);
-            alpha = slideProgress;
+        draw->AddRectFilled(rectMin + ImVec2(ui::s(2.0f), ui::s(4.0f)),
+                            rectMax + ImVec2(ui::s(2.0f), ui::s(4.0f)),
+                            IM_COL32(0, 0, 0, static_cast<int>(90.0f * visibility)), rounding);
+        draw->AddRectFilled(rectMin, rectMax, IM_COL32(18, 19, 22, static_cast<int>(244.0f * visibility)),
+                            rounding);
+        draw->AddRect(rectMin, rectMax, IM_COL32(255, 255, 255, static_cast<int>(20.0f * visibility)),
+                      rounding, 0, ui::s(1.0f));
+
+        const ImVec2 iconCenter{rectMin.x + padding + iconRadius,
+                                rectMin.y + height * 0.5f - ui::s(1.0f)};
+        drawStatusGlyph(draw, iconCenter, iconRadius, notification.type, accent);
+
+        const float textX = iconCenter.x + iconRadius + ui::s(10.0f);
+        const float titleY = rectMin.y + ui::s(10.0f);
+        const float messageY = rectMin.y + ui::s(31.0f);
+        const char* title = titleFor(notification.type);
+        std::string message = notification.text;
+        if (notification.type == NotificationType::Enabled)
+            message += " enabled";
+        else if (notification.type == NotificationType::Disabled)
+            message += " disabled";
+
+        if (notificationFont) {
+            draw->AddText(notificationFont, titleSize, {textX, titleY}, IM_COL32(245, 246, 248, alpha), title);
+            draw->AddText(notificationFont, messageSize, {textX, messageY}, IM_COL32(166, 170, 178, alpha),
+                          message.c_str(), nullptr, rectMax.x - padding - textX);
         } else {
-            slideProgress = 1.0f;
-            alpha = 1.0f;
+            draw->AddText({textX, titleY}, IM_COL32(245, 246, 248, alpha), title);
+            draw->AddText({textX, messageY}, IM_COL32(166, 170, 178, alpha), message.c_str());
         }
 
-        std::string displayText;
-        const char* statusText = "";
-
-        if (notif.isSystem) {
-            displayText = notif.text;
-        } else {
-            statusText = notif.enabled ? " ON" : " OFF";
-            displayText = notif.text + statusText;
-        }
-
-        // Calculate text size with actual font
-        ImVec2 textSize = notifFont ? notifFont->CalcTextSizeA(fontSize, FLT_MAX, 0.0f, displayText.c_str())
-                                    : ImGui::CalcTextSize(displayText.c_str());
-
-        float notifWidth = textSize.x + padding * 2.0f + barWidth;
-
-        float xOffset = (1.0f - slideProgress) * (notifWidth + margin);
-        float x = screenWidth - margin - notifWidth + xOffset;
-        float y = startY - index * (height + spacing);
-
-        int alphaInt = static_cast<int>(255 * alpha);
-        int bgAlphaInt = static_cast<int>(220 * alpha);
-
-        // Background
-        ImU32 bgColor = IM_COL32(16, 16, 16, bgAlphaInt);
-
-        // Status colors
-        ImU32 moduleTextColor = IM_COL32(255, 255, 255, alphaInt);
-        ImU32 statusColor;
-        ImU32 barColor;
-
-        if (notif.isSystem) {
-            // Use accent color (orange) for system notifications
-            statusColor = IM_COL32((int)(g_SchemeColor[0] * 255), (int)(g_SchemeColor[1] * 255),
-                                   (int)(g_SchemeColor[2] * 255), alphaInt);
-            barColor = statusColor;
-        } else {
-            statusColor = notif.enabled ? IM_COL32(100, 255, 100, alphaInt) : IM_COL32(255, 100, 100, alphaInt);
-            barColor = statusColor;
-        }
-
-        ImVec2 rectMin(x, y);
-        ImVec2 rectMax(x + notifWidth, y + height);
-
-        // Background with rounded corners
-        draw->AddRectFilled(rectMin, rectMax, bgColor, rounding, ImDrawFlags_RoundCornersLeft);
-
-        // Accent/status bar on right edge
-        draw->AddRectFilled(ImVec2(rectMax.x - barWidth, rectMin.y), rectMax, barColor);
-
-        // Text
-        float textX = x + padding;
-        float textY = y + (height - textSize.y) / 2.0f;
-
-        ImVec2 moduleTextSize = notifFont ? notifFont->CalcTextSizeA(fontSize, FLT_MAX, 0.0f, notif.text.c_str())
-                                          : ImGui::CalcTextSize(notif.text.c_str());
-
-        if (notifFont) {
-            draw->AddText(notifFont, fontSize, ImVec2(textX, textY), moduleTextColor, notif.text.c_str());
-            if (!notif.isSystem) {
-                draw->AddText(notifFont, fontSize, ImVec2(textX + moduleTextSize.x, textY), statusColor, statusText);
-            }
-        } else {
-            draw->AddText(ImVec2(textX, textY), moduleTextColor, notif.text.c_str());
-            if (!notif.isSystem) {
-                draw->AddText(ImVec2(textX + moduleTextSize.x, textY), statusColor, statusText);
-            }
-        }
-
-        // Progress bar at bottom (smaller offset = closer to bottom edge)
-        float progressBarY = y + height - progressHeight - ui::s(1.5f);
-        float progressBarWidth = notifWidth - padding * 2.0f - barWidth;
-        float progressX = x + padding;
-
-        ImU32 progressBgColor = IM_COL32(30, 30, 30, static_cast<int>(150 * alpha));
-        draw->AddRectFilled(ImVec2(progressX, progressBarY),
-                            ImVec2(progressX + progressBarWidth, progressBarY + progressHeight), progressBgColor,
-                            ui::s(1.0f));
-
-        float remainingProgress = 1.0f - progress;
-        draw->AddRectFilled(ImVec2(progressX, progressBarY),
-                            ImVec2(progressX + progressBarWidth * remainingProgress, progressBarY + progressHeight),
-                            barColor, ui::s(1.0f));
-
-        index++;
+        const float barHeight = ui::s(2.0f);
+        const float barWidth = width * (1.0f - notification.progress(now));
+        draw->AddRectFilled({rectMin.x, rectMax.y - barHeight},
+                            {rectMin.x + barWidth, rectMax.y}, accent, rounding,
+                            ImDrawFlags_RoundCornersBottomLeft | ImDrawFlags_RoundCornersBottomRight);
+        ++visibleIndex;
     }
 }
 
@@ -184,8 +247,9 @@ bool NotificationManager::hasActive() {
         return false;
 
     std::lock_guard<std::mutex> lock(mutex);
-    for (const auto& notif : notifications) {
-        if (!notif.isExpired())
+    const auto now = std::chrono::steady_clock::now();
+    for (const auto& notification : notifications) {
+        if (!notification.isExpired(now))
             return true;
     }
     return false;
