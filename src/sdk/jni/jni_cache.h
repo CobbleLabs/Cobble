@@ -30,6 +30,7 @@ extern jclass cls_KeyBinding;
 extern jclass cls_MouseHelper;
 
 // World & Rendering
+extern jclass cls_EntityRenderer;
 extern jclass cls_RenderManager;
 extern jclass cls_MovingObjectPosition;
 extern jclass cls_MovingObjectType;
@@ -89,7 +90,8 @@ extern jfieldID fid_mouseHelper;
 extern jfieldID fid_inGameHasFocus;
 extern jfieldID fid_timer;
 extern jfieldID fid_playerController;
-extern jfieldID fid_pointedEntity;  // Minecraft.pointedEntity for reach
+extern jfieldID fid_entityRenderer;
+extern jfieldID fid_pointedEntity;  // EntityRenderer.pointedEntity
 
 // =============================================================================
 // Entity class IDs

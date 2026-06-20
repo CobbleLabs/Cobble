@@ -73,26 +73,6 @@ ImVec4 colorFor(NotificationType type) {
     }
 }
 
-void drawStatusGlyph(ImDrawList* draw, const ImVec2& center, float radius, NotificationType type, ImU32 color) {
-    draw->AddCircleFilled(center, radius, color, 20);
-    const ImU32 glyph = IM_COL32(255, 255, 255, 245);
-    const float scale = radius / 8.0f;
-    if (type == NotificationType::Enabled || type == NotificationType::Success) {
-        draw->AddLine(center + ImVec2(-3.3f, 0.0f) * scale, center + ImVec2(-0.8f, 2.8f) * scale, glyph,
-                      1.7f * scale);
-        draw->AddLine(center + ImVec2(-0.8f, 2.8f) * scale, center + ImVec2(4.0f, -3.0f) * scale, glyph,
-                      1.7f * scale);
-    } else if (type == NotificationType::Disabled || type == NotificationType::Error) {
-        draw->AddLine(center + ImVec2(-2.8f, -2.8f) * scale, center + ImVec2(2.8f, 2.8f) * scale, glyph,
-                      1.7f * scale);
-        draw->AddLine(center + ImVec2(2.8f, -2.8f) * scale, center + ImVec2(-2.8f, 2.8f) * scale, glyph,
-                      1.7f * scale);
-    } else {
-        draw->AddCircleFilled(center + ImVec2(0.0f, -3.0f) * scale, 1.1f * scale, glyph, 12);
-        draw->AddRectFilled(center + ImVec2(-1.0f, -0.5f) * scale, center + ImVec2(1.0f, 4.0f) * scale,
-                            glyph, 1.0f * scale);
-    }
-}
 }  // namespace
 
 Notification::Notification(std::uint64_t id, std::string text, NotificationType type, float duration)
@@ -171,7 +151,6 @@ void NotificationManager::render() {
     const float height = ui::s(60.0f);
     const float rounding = ui::s(6.0f);
     const float padding = ui::s(12.0f);
-    const float iconRadius = ui::s(9.0f);
     const float titleSize = ui::s(14.0f);
     const float messageSize = ui::s(12.0f);
     const float enterDuration = 0.18f;
@@ -210,11 +189,7 @@ void NotificationManager::render() {
         draw->AddRect(rectMin, rectMax, IM_COL32(255, 255, 255, static_cast<int>(20.0f * visibility)),
                       rounding, 0, ui::s(1.0f));
 
-        const ImVec2 iconCenter{rectMin.x + padding + iconRadius,
-                                rectMin.y + height * 0.5f - ui::s(1.0f)};
-        drawStatusGlyph(draw, iconCenter, iconRadius, notification.type, accent);
-
-        const float textX = iconCenter.x + iconRadius + ui::s(10.0f);
+        const float textX = rectMin.x + padding;
         const float titleY = rectMin.y + ui::s(10.0f);
         const float messageY = rectMin.y + ui::s(31.0f);
         const char* title = titleFor(notification.type);

@@ -62,8 +62,23 @@ void LocalPlayer::initFields() {
         // JumpTicks (in EntityLivingBase) - controls jump delay
         fid_jumpTicks = Java::Env()->GetFieldID(livingCls, OBFUSCATE_STRING("jumpTicks").c_str(), OBFUSCATE_STRING("I").c_str());
 
-        // isUsingItem (in EntityLivingBase) - true when eating/drinking
-        mid_isUsingItem = Java::Env()->GetMethodID(livingCls, OBFUSCATE_STRING("isUsingItem").c_str(), OBFUSCATE_STRING("()Z").c_str());
+    }
+
+    // Item-use state belongs to EntityPlayer, not EntityLivingBase. Looking it
+    // up on the living class leaves a pending NoSuchMethodError and disables
+    // every module that relies on this state.
+    if (JniCache::cls_EntityPlayer) {
+        mid_isUsingItem = Java::Env()->GetMethodID(
+            JniCache::cls_EntityPlayer, OBFUSCATE_STRING("isUsingItem").c_str(),
+            OBFUSCATE_STRING("()Z").c_str());
+        if (!mid_isUsingItem) {
+            Java::Env()->ExceptionClear();
+            mid_isUsingItem = Java::Env()->GetMethodID(
+                JniCache::cls_EntityPlayer, OBFUSCATE_STRING("func_71039_bw").c_str(),
+                OBFUSCATE_STRING("()Z").c_str());
+        }
+        if (!mid_isUsingItem && Java::Env()->ExceptionCheck())
+            Java::Env()->ExceptionClear();
     }
 
     // Need to get EntityPlayerSP class for these

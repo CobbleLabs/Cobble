@@ -23,6 +23,7 @@ jclass cls_EntityItem = nullptr;
 jclass cls_GameSettings = nullptr;
 jclass cls_KeyBinding = nullptr;
 jclass cls_MouseHelper = nullptr;
+jclass cls_EntityRenderer = nullptr;
 jclass cls_RenderManager = nullptr;
 jclass cls_MovingObjectPosition = nullptr;
 jclass cls_MovingObjectType = nullptr;
@@ -66,7 +67,8 @@ jfieldID fid_mouseHelper = nullptr;
 jfieldID fid_inGameHasFocus = nullptr;
 jfieldID fid_timer = nullptr;
 jfieldID fid_playerController = nullptr;
-jfieldID fid_pointedEntity = nullptr;  // Minecraft.pointedEntity for reach
+jfieldID fid_entityRenderer = nullptr;
+jfieldID fid_pointedEntity = nullptr;  // EntityRenderer.pointedEntity
 
 // Entity IDs
 jfieldID fid_posX = nullptr;
@@ -340,6 +342,7 @@ bool Init() {
     CACHE_CLASS(cls_GameSettings, "net.minecraft.client.settings.GameSettings");
     CACHE_CLASS(cls_KeyBinding, "net.minecraft.client.settings.KeyBinding");
     CACHE_CLASS(cls_MouseHelper, "net.minecraft.util.MouseHelper");
+    CACHE_CLASS(cls_EntityRenderer, "net.minecraft.client.renderer.EntityRenderer");
     CACHE_CLASS(cls_RenderManager, "net.minecraft.client.renderer.entity.RenderManager");
     CACHE_CLASS(cls_MovingObjectPosition, "net.minecraft.util.MovingObjectPosition");
     CACHE_CLASS(cls_Vec3, "net.minecraft.util.Vec3");
@@ -411,7 +414,20 @@ bool Init() {
     TRY_FIELD(fid_timer, cls_Minecraft, "timer", "Lnet/minecraft/util/Timer;");
     TRY_FIELD(fid_playerController, cls_Minecraft, "playerController",
               "Lnet/minecraft/client/multiplayer/PlayerControllerMP;");
-    TRY_FIELD(fid_pointedEntity, cls_Minecraft, "pointedEntity", "Lnet/minecraft/entity/Entity;");
+    TRY_FIELD(fid_entityRenderer, cls_Minecraft, "entityRenderer",
+              "Lnet/minecraft/client/renderer/EntityRenderer;");
+    if (!fid_entityRenderer) {
+        TRY_FIELD(fid_entityRenderer, cls_Minecraft, "field_71460_t",
+                  "Lnet/minecraft/client/renderer/EntityRenderer;");
+    }
+
+    if (cls_EntityRenderer) {
+        TRY_FIELD(fid_pointedEntity, cls_EntityRenderer, "pointedEntity", "Lnet/minecraft/entity/Entity;");
+        if (!fid_pointedEntity) {
+            TRY_FIELD(fid_pointedEntity, cls_EntityRenderer, "field_78528_u",
+                      "Lnet/minecraft/entity/Entity;");
+        }
+    }
 
     // =========================================================================
     // Entity class IDs
@@ -976,6 +992,7 @@ void Cleanup() {
     DELETE_GLOBAL(cls_GameSettings);
     DELETE_GLOBAL(cls_KeyBinding);
     DELETE_GLOBAL(cls_MouseHelper);
+    DELETE_GLOBAL(cls_EntityRenderer);
     DELETE_GLOBAL(cls_RenderManager);
     DELETE_GLOBAL(cls_MovingObjectPosition);
     DELETE_GLOBAL(cls_MovingObjectType);

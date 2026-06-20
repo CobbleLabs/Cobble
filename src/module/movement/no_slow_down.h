@@ -12,10 +12,15 @@ public:
 
 private:
     bool initializeFields();
+    bool isKeyPressed(jobject gameSettings, jfieldID keyBindField);
+    bool isPlayerUsingItem();
 
     jfieldID movementInputField = nullptr;
     jfieldID moveForwardField = nullptr;
     jfieldID moveStrafeField = nullptr;
+    jfieldID entityMoveForwardField = nullptr;
+    jfieldID entityMoveStrafeField = nullptr;
+    jfieldID itemInUseCountField = nullptr;
 };
 
 extern NoSlowDown* noSlowDown;
