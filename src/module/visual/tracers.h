@@ -2,6 +2,7 @@
 
 #include <mutex>
 #include <string>
+#include <unordered_map>
 #include <vector>
 #include "../../jni/java.h"
 #include "../module.h"
@@ -11,6 +12,7 @@ struct ImDrawList;
 
 // Cached player data for rendering tracers
 struct TracerPlayer {
+    int entityId = 0;
     std::string name;
     double posX = 0, posY = 0, posZ = 0;
     double lastPosX = 0, lastPosY = 0, lastPosZ = 0;
@@ -42,9 +44,17 @@ public:
     } settings;
 
 private:
+    struct SmoothedPlayer {
+        double x = 0, y = 0, z = 0;
+        long long lastSeen = 0;
+        bool initialized = false;
+    };
+
     // Thread-safe player cache
     std::mutex cacheMutex;
     std::vector<TracerPlayer> cachedPlayers;
+    std::unordered_map<int, SmoothedPlayer> smoothedPlayers;
+    long long lastRenderTime = 0;
 
     // Render thread data
     double cachedRenderX = 0, cachedRenderY = 0, cachedRenderZ = 0;

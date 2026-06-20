@@ -30,6 +30,8 @@ void ESP::onEnable() {
 
     std::lock_guard<std::mutex> lock(cacheMutex);
     cachedPlayers.clear();
+    smoothedPlayers.clear();
+    lastRenderTime = 0;
 }
 
 void ESP::onDisable() {
@@ -38,6 +40,8 @@ void ESP::onDisable() {
 
     std::lock_guard<std::mutex> lock(cacheMutex);
     cachedPlayers.clear();
+    smoothedPlayers.clear();
+    lastRenderTime = 0;
 }
 
 void ESP::checkWorldChange() {
@@ -122,6 +126,7 @@ void ESP::onUpdate() {
             continue;
 
         EspPlayer cached;
+        cached.entityId = p.entityId;
         cached.name = p.name;
         cached.profileName = p.profileName;
         cached.uuid = p.uuid;            // For team/friend detection
@@ -296,13 +301,7 @@ static void Render3DBox(ImDrawList* draw, float x, float y, float z, double rend
             int a = edges[i][0], b = edges[i][1];
             if (visible[a] && visible[b]) {
                 draw->AddLine(ImVec2(screenCorners[a].x, screenCorners[a].y),
-                              ImVec2(screenCorners[b].x, screenCorners[b].y), outlineCol, 4.0f);
-            }
-        }
-        // Draw outline corner circles
-        for (int i = 0; i < 8; i++) {
-            if (visible[i]) {
-                draw->AddCircleFilled(ImVec2(screenCorners[i].x, screenCorners[i].y), 2.5f, outlineCol, 8);
+                              ImVec2(screenCorners[b].x, screenCorners[b].y), outlineCol, 3.5f);
             }
         }
     }
@@ -312,14 +311,7 @@ static void Render3DBox(ImDrawList* draw, float x, float y, float z, double rend
         int a = edges[i][0], b = edges[i][1];
         if (visible[a] && visible[b]) {
             draw->AddLine(ImVec2(screenCorners[a].x, screenCorners[a].y),
-                          ImVec2(screenCorners[b].x, screenCorners[b].y), boxCol, 2.0f);
-        }
-    }
-
-    // Draw corner circles for smooth rounded joints
-    for (int i = 0; i < 8; i++) {
-        if (visible[i]) {
-            draw->AddCircleFilled(ImVec2(screenCorners[i].x, screenCorners[i].y), 1.5f, boxCol, 8);
+                          ImVec2(screenCorners[b].x, screenCorners[b].y), boxCol, 1.5f);
         }
     }
 }
@@ -368,6 +360,13 @@ void ESP::onRender() {
     // Prepare static colors (outline doesn't change)
     auto outlineCol = ImGui::ColorConvertFloat4ToU32(
         ImVec4(settings.outlineColor[0], settings.outlineColor[1], settings.outlineColor[2], settings.outlineColor[3]));
+
+    const long long now = GetTickCount64();
+    const float frameSeconds =
+        lastRenderTime > 0 ? (std::min)(0.05f, (float)(now - lastRenderTime) / 1000.0f) : 1.0f / 60.0f;
+    lastRenderTime = now;
+    const float positionAlpha = 1.0f - std::exp(-22.0f * frameSeconds);
+    const float healthAlpha = 1.0f - std::exp(-12.0f * frameSeconds);
 
     for (const auto& p : localCache) {
         if (!p.valid)
@@ -438,10 +437,32 @@ void ESP::onRender() {
                                                             settings.filledColor[2], settings.filledColor[3]));
         }
 
-        // Interpolate entity position
-        float interpX = (float)(p.lastPosX + (p.posX - p.lastPosX) * partialTicks);
-        float interpY = (float)(p.lastPosY + (p.posY - p.lastPosY) * partialTicks);
-        float interpZ = (float)(p.lastPosZ + (p.posZ - p.lastPosZ) * partialTicks);
+        const double targetX = p.lastPosX + (p.posX - p.lastPosX) * partialTicks;
+        const double targetY = p.lastPosY + (p.posY - p.lastPosY) * partialTicks;
+        const double targetZ = p.lastPosZ + (p.posZ - p.lastPosZ) * partialTicks;
+        auto& smooth = smoothedPlayers[p.entityId];
+        const double jumpX = targetX - smooth.x;
+        const double jumpY = targetY - smooth.y;
+        const double jumpZ = targetZ - smooth.z;
+        const bool teleported = jumpX * jumpX + jumpY * jumpY + jumpZ * jumpZ > 36.0;
+
+        if (!smooth.initialized || teleported) {
+            smooth.x = targetX;
+            smooth.y = targetY;
+            smooth.z = targetZ;
+            smooth.health = p.health;
+            smooth.initialized = true;
+        } else {
+            smooth.x += (targetX - smooth.x) * positionAlpha;
+            smooth.y += (targetY - smooth.y) * positionAlpha;
+            smooth.z += (targetZ - smooth.z) * positionAlpha;
+            smooth.health += (p.health - smooth.health) * healthAlpha;
+        }
+        smooth.lastSeen = now;
+
+        const float interpX = (float)smooth.x;
+        const float interpY = (float)smooth.y;
+        const float interpZ = (float)smooth.z;
 
         // === 3D Box Rendering (handles its own filled) ===
         if (settings.box3D) {
@@ -490,24 +511,24 @@ void ESP::onRender() {
 
         // Filled Box (only with Box 2D mode - 3D handles its own fill)
         if (settings.filled && !settings.box3D) {
-            draw->AddRectFilled(ImVec2(left, top), ImVec2(right, bottom), fillCol, 2.0f);
+            draw->AddRectFilled(ImVec2(left, top), ImVec2(right, bottom), fillCol, 3.0f);
         }
 
         // 2D Box (only with Box 2D mode)
         if (settings.box) {
             if (settings.outline) {
-                draw->AddRect(ImVec2(left - 1, top - 1), ImVec2(right + 1, bottom + 1), outlineCol, 2.0f);
-                draw->AddRect(ImVec2(left + 1, top + 1), ImVec2(right - 1, bottom - 1), outlineCol, 2.0f);
+                draw->AddRect(ImVec2(left - 1.0f, top - 1.0f), ImVec2(right + 1.0f, bottom + 1.0f), outlineCol,
+                              3.0f, ImDrawFlags_None, 3.0f);
             }
-            draw->AddRect(ImVec2(left, top), ImVec2(right, bottom), boxCol, 2.0f);
+            draw->AddRect(ImVec2(left, top), ImVec2(right, bottom), boxCol, 3.0f, ImDrawFlags_None, 1.25f);
         }
 
         // Health Bar (works with both 2D and 3D modes)
         if (settings.healthBar) {
-            float barWidth = 2.0f;
-            float barDist = 3.0f;
+            float barWidth = 2.5f;
+            float barDist = 4.0f;
 
-            float fillHeight = height * (p.health / (std::max)(p.maxHealth, 1.0f));
+            float fillHeight = height * (smooth.health / (std::max)(p.maxHealth, 1.0f));
             if (fillHeight > height)
                 fillHeight = height;
             if (fillHeight < 0)
@@ -521,9 +542,16 @@ void ESP::onRender() {
                                 4.0f);
 
             // Health
-            ImU32 hpColor = GetHealthColor(p.health, p.maxHealth);
+            ImU32 hpColor = GetHealthColor(smooth.health, p.maxHealth);
             draw->AddRectFilled(ImVec2(barLeft, bottom - fillHeight), ImVec2(barRight, bottom), hpColor, 4.0f);
         }
+    }
+
+    for (auto it = smoothedPlayers.begin(); it != smoothedPlayers.end();) {
+        if (now - it->second.lastSeen > 500)
+            it = smoothedPlayers.erase(it);
+        else
+            ++it;
     }
 }
 

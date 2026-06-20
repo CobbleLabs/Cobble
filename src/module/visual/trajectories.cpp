@@ -25,7 +25,7 @@ static constexpr int ITEM_FISHING_ROD = 346;
 static constexpr int ITEM_EXP_BOTTLE = 384;
 
 // Max simulation ticks (internal, not exposed to UI)
-static constexpr int MAX_SIMULATION_TICKS = 300;
+static constexpr int MAX_SIMULATION_TICKS = 240;
 
 Trajectories::Trajectories() : Module("Trajectories") {
     keybind = 0;
@@ -41,6 +41,8 @@ void Trajectories::onEnable() {
 
     std::lock_guard<std::mutex> lock(cacheMutex);
     cachedTrajectory.clear();
+    renderedTrajectory.clear();
+    lastRenderTime = 0;
 
     // Initialize previous positions to avoid invalid interpolation on first frame
     prevLocalX = cachedLocalX = 0;
@@ -55,6 +57,8 @@ void Trajectories::onDisable() {
 
     std::lock_guard<std::mutex> lock(cacheMutex);
     cachedTrajectory.clear();
+    renderedTrajectory.clear();
+    lastRenderTime = 0;
 }
 
 void Trajectories::checkWorldChange() {
@@ -302,8 +306,8 @@ void Trajectories::simulateTrajectory() {
 
     // Calculate right-hand offset (perpendicular to look direction in XZ plane)
     // This simulates the projectile coming from the player's right hand
-    float rightOffsetAmount = 0.4f;  // Lateral offset in blocks (to the right)
-    float forwardOffset = 2.5f;      // Forward offset in blocks (line starts further from player)
+    float rightOffsetAmount = 0.16f;
+    float forwardOffset = 0.18f;
 
     // Right vector is perpendicular to look direction (negated for right side)
     float rightX = -cosf(yawRad) * rightOffsetAmount;
@@ -319,7 +323,7 @@ void Trajectories::simulateTrajectory() {
 
     // Start position with right-hand offset + forward offset
     double relPosX = rightX + forwardX;
-    double relPosY = -0.1 + (dirY * forwardOffset);  // Slightly below eye + forward pitch offset
+    double relPosY = -0.12 + (dirY * forwardOffset);
     double relPosZ = rightZ + forwardZ;
 
     // Add starting point
@@ -330,6 +334,8 @@ void Trajectories::simulateTrajectory() {
     start.valid = true;
     start.hitBlock = false;
     newTrajectory.push_back(start);
+
+    const auto collisionSnapshot = VisualCache::GetSnapshot();
 
     for (int tick = 0; tick < MAX_SIMULATION_TICKS; tick++) {
         // Store previous relative position for collision check
@@ -381,18 +387,19 @@ void Trajectories::simulateTrajectory() {
 
         if (rayResult == Minecraft::RAYTRACE_BLOCKS_RESULT::HIT ||
             rayResult == Minecraft::RAYTRACE_BLOCKS_RESULT::HIT_FROM_AIRBLOCK) {
-            // Hit a block - mark the endpoint and stop simulation
             if (!newTrajectory.empty()) {
+                newTrajectory.back().relX = result.x - (float)startX;
+                newTrajectory.back().relY = result.y - (float)startY;
+                newTrajectory.back().relZ = result.z - (float)startZ;
                 newTrajectory.back().hitBlock = true;
             }
             break;
         }
 
         // Check player collision using AABB intersection
-        auto snap = VisualCache::GetSnapshot();
-        if (snap.valid) {
+        if (collisionSnapshot.valid) {
             bool hitAnyPlayer = false;
-            for (const auto& p : snap.players) {
+            for (const auto& p : collisionSnapshot.players) {
                 // Player hitbox: 0.6 wide, 1.8 tall centered on position
                 float halfWidth = 0.3f;
                 float height = 1.8f;
@@ -447,41 +454,30 @@ void Trajectories::onUpdate() {
 
     checkWorldChange();
 
-    RenderPos renderPos = mc.getRenderPos();
-    float partialTicks = mc.getPartialTicks();
+    const auto snap = VisualCache::GetSnapshot();
+    if (!snap.valid) {
+        std::lock_guard<std::mutex> lock(cacheMutex);
+        cachedTrajectory.clear();
+        return;
+    }
 
     // Cache render data with previous position for interpolation
     {
         std::lock_guard<std::mutex> lock(cacheMutex);
-        cachedRenderX = renderPos.x;
-        cachedRenderY = renderPos.y;
-        cachedRenderZ = renderPos.z;
-        cachedPartialTicks = partialTicks;
-
-        // Get current position
-        double newX = player.getPosX();
-        double newY = player.getPosY();
-        double newZ = player.getPosZ();
-
-        // On first frame, set prev = current to avoid interpolation from 0
-        if (firstFrameAfterEnable) {
-            prevLocalX = newX;
-            prevLocalY = newY;
-            prevLocalZ = newZ;
-            firstFrameAfterEnable = false;
-        } else {
-            // Store previous position before updating current
-            prevLocalX = cachedLocalX;
-            prevLocalY = cachedLocalY;
-            prevLocalZ = cachedLocalZ;
-        }
-
-        cachedLocalX = newX;
-        cachedLocalY = newY;
-        cachedLocalZ = newZ;
+        cachedRenderX = snap.renderPos.x;
+        cachedRenderY = snap.renderPos.y;
+        cachedRenderZ = snap.renderPos.z;
+        cachedPartialTicks = snap.partialTicks;
+        prevLocalX = snap.localLastX;
+        prevLocalY = snap.localLastY;
+        prevLocalZ = snap.localLastZ;
+        cachedLocalX = snap.localX;
+        cachedLocalY = snap.localY;
+        cachedLocalZ = snap.localZ;
         cachedYaw = player.getYaw();
         cachedPitch = player.getPitch();
         cachedSneaking = player.isSneaking();
+        firstFrameAfterEnable = false;
     }
 
     // Simulate trajectory each tick
@@ -528,8 +524,33 @@ void Trajectories::onRender() {
         isSneaking = cachedSneaking;
     }
 
-    if (localTrajectory.size() < 2)
+    if (localTrajectory.size() < 2) {
+        renderedTrajectory.clear();
         return;
+    }
+
+    const long long now = GetTickCount64();
+    const float frameSeconds =
+        lastRenderTime > 0 ? (std::min)(0.05f, (float)(now - lastRenderTime) / 1000.0f) : 1.0f / 60.0f;
+    lastRenderTime = now;
+    const float trajectoryAlpha = 1.0f - std::exp(-18.0f * frameSeconds);
+
+    const size_t oldSize = renderedTrajectory.size();
+    renderedTrajectory.resize(localTrajectory.size());
+    for (size_t i = 0; i < localTrajectory.size(); ++i) {
+        const auto& target = localTrajectory[i];
+        auto& rendered = renderedTrajectory[i];
+        if (i >= oldSize || !rendered.valid) {
+            rendered = target;
+            continue;
+        }
+        rendered.relX += (target.relX - rendered.relX) * trajectoryAlpha;
+        rendered.relY += (target.relY - rendered.relY) * trajectoryAlpha;
+        rendered.relZ += (target.relZ - rendered.relZ) * trajectoryAlpha;
+        rendered.valid = target.valid;
+        rendered.hitBlock = target.hitBlock;
+        rendered.hitPlayer = target.hitPlayer;
+    }
 
     // Interpolate player position using partial ticks for smooth rendering
     // This eliminates jitter when moving
@@ -549,15 +570,23 @@ void Trajectories::onRender() {
 
     // Collect screen points for polyline rendering (smoother than individual segments)
     std::vector<ImVec2> polylinePoints;
-    polylinePoints.reserve(localTrajectory.size());
+    polylinePoints.reserve(renderedTrajectory.size());
 
     // Track hit point for marker
     ImVec2 hitMarkerPos;
     bool hasHitMarker = false;
 
-    // Add ALL trajectory points - the 3D physics naturally creates the parabola
-    for (size_t i = 0; i < localTrajectory.size(); i++) {
-        const auto& point = localTrajectory[i];
+    const auto flushSegment = [&]() {
+        if (polylinePoints.size() >= 2) {
+            draw->AddPolyline(polylinePoints.data(), (int)polylinePoints.size(), IM_COL32(0, 0, 0, 170),
+                              ImDrawFlags_None, settings.thickness + 2.5f);
+            draw->AddPolyline(polylinePoints.data(), (int)polylinePoints.size(), lineColor, ImDrawFlags_None,
+                              settings.thickness);
+        }
+        polylinePoints.clear();
+    };
+
+    for (const auto& point : renderedTrajectory) {
         if (!point.valid)
             continue;
 
@@ -574,29 +603,33 @@ void Trajectories::onRender() {
                                                      RenderData::screenWidth, RenderData::screenHeight, screenPos);
 
         if (visible) {
-            // Use natural 3D projection - no artificial offsets
-            polylinePoints.push_back(ImVec2(screenPos.x, screenPos.y));
+            const ImVec2 projected(screenPos.x, screenPos.y);
+            if (polylinePoints.empty()) {
+                polylinePoints.push_back(projected);
+            } else {
+                const float dx = projected.x - polylinePoints.back().x;
+                const float dy = projected.y - polylinePoints.back().y;
+                if (dx * dx + dy * dy >= 1.0f || point.hitBlock || point.hitPlayer)
+                    polylinePoints.push_back(projected);
+            }
 
-            // Track the first hit BLOCK position for marker (not players)
             if (point.hitBlock && !hasHitMarker) {
-                hitMarkerPos = ImVec2(screenPos.x, screenPos.y);
+                hitMarkerPos = projected;
                 hasHitMarker = true;
             }
+        } else {
+            flushSegment();
         }
     }
 
-    // Draw the trajectory as a single smooth polyline (anti-aliased)
-    if (polylinePoints.size() >= 2) {
-        draw->AddPolyline(polylinePoints.data(), (int)polylinePoints.size(), lineColor, ImDrawFlags_None,
-                          settings.thickness);
-    }
+    flushSegment();
 
     // Draw hit marker only for block hits (not player hits)
     if (hasHitMarker) {
-        float markerRadius = settings.thickness * 2.5f;
-        draw->AddCircleFilled(hitMarkerPos, markerRadius, lineColor);
-        // Outline for visibility
-        draw->AddCircle(hitMarkerPos, markerRadius, IM_COL32(0, 0, 0, 180), 0, 1.5f);
+        const float markerRadius = (std::max)(3.5f, settings.thickness * 2.2f);
+        draw->AddCircleFilled(hitMarkerPos, markerRadius + 2.0f, IM_COL32(0, 0, 0, 170), 16);
+        draw->AddCircleFilled(hitMarkerPos, markerRadius, lineColor, 16);
+        draw->AddCircle(hitMarkerPos, markerRadius + 3.5f, lineColor, 16, 1.0f);
     }
 }
 

@@ -28,6 +28,8 @@ void Tracers::onEnable() {
 
     std::lock_guard<std::mutex> lock(cacheMutex);
     cachedPlayers.clear();
+    smoothedPlayers.clear();
+    lastRenderTime = 0;
 }
 
 void Tracers::onDisable() {
@@ -36,6 +38,8 @@ void Tracers::onDisable() {
 
     std::lock_guard<std::mutex> lock(cacheMutex);
     cachedPlayers.clear();
+    smoothedPlayers.clear();
+    lastRenderTime = 0;
 }
 
 void Tracers::checkWorldChange() {
@@ -113,6 +117,7 @@ void Tracers::onUpdate() {
             continue;
 
         TracerPlayer cached;
+        cached.entityId = p.entityId;
         cached.name = p.name;
         cached.posX = p.posX;
         cached.posY = p.posY;
@@ -183,6 +188,11 @@ static ImU32 GetHealthColor(float health) {
     return IM_COL32(r, g, 0, 255);
 }
 
+static ImU32 WithAlpha(ImU32 color, float alpha) {
+    const ImU32 byteAlpha = (ImU32)((std::clamp)(alpha, 0.0f, 1.0f) * 255.0f);
+    return (color & 0x00FFFFFFu) | (byteAlpha << 24);
+}
+
 void Tracers::onRender() {
     if (!RenderData::updated)
         return;
@@ -191,7 +201,7 @@ void Tracers::onRender() {
     if (GetTickCount64() - lastUpdateTick > 300)
         return;
 
-    ImDrawList* draw = ImGui::GetWindowDrawList();
+    ImDrawList* draw = ImGui::GetBackgroundDrawList();
     if (!draw)
         return;
 
@@ -231,18 +241,44 @@ void Tracers::onRender() {
         startPos = ImVec2(RenderData::screenWidth / 2.0f, RenderData::screenHeight / 2.0f);
     } else {
         // Bottom center of screen
-        startPos = ImVec2(RenderData::screenWidth / 2.0f, RenderData::screenHeight);
+        startPos = ImVec2(RenderData::screenWidth / 2.0f, RenderData::screenHeight - 8.0f);
     }
+
+    const long long now = GetTickCount64();
+    const float frameSeconds =
+        lastRenderTime > 0 ? (std::min)(0.05f, (float)(now - lastRenderTime) / 1000.0f) : 1.0f / 60.0f;
+    lastRenderTime = now;
+    const float positionAlpha = 1.0f - std::exp(-20.0f * frameSeconds);
 
     // Draw tracers to each player
     for (const auto& p : localCache) {
         if (!p.valid)
             continue;
 
-        // Interpolate entity position
-        float interpX = (float)(p.lastPosX + (p.posX - p.lastPosX) * partialTicks);
-        float interpY = (float)(p.lastPosY + (p.posY - p.lastPosY) * partialTicks) + 0.9f;  // Center of player
-        float interpZ = (float)(p.lastPosZ + (p.posZ - p.lastPosZ) * partialTicks);
+        const double targetX = p.lastPosX + (p.posX - p.lastPosX) * partialTicks;
+        const double targetY = p.lastPosY + (p.posY - p.lastPosY) * partialTicks;
+        const double targetZ = p.lastPosZ + (p.posZ - p.lastPosZ) * partialTicks;
+        auto& smooth = smoothedPlayers[p.entityId];
+        const double jumpX = targetX - smooth.x;
+        const double jumpY = targetY - smooth.y;
+        const double jumpZ = targetZ - smooth.z;
+        const bool teleported = jumpX * jumpX + jumpY * jumpY + jumpZ * jumpZ > 36.0;
+
+        if (!smooth.initialized || teleported) {
+            smooth.x = targetX;
+            smooth.y = targetY;
+            smooth.z = targetZ;
+            smooth.initialized = true;
+        } else {
+            smooth.x += (targetX - smooth.x) * positionAlpha;
+            smooth.y += (targetY - smooth.y) * positionAlpha;
+            smooth.z += (targetZ - smooth.z) * positionAlpha;
+        }
+        smooth.lastSeen = now;
+
+        const float interpX = (float)smooth.x;
+        const float interpY = (float)smooth.y + 0.9f;
+        const float interpZ = (float)smooth.z;
 
         // Convert to camera-relative coordinates
         Vector3 targetPos{interpX - (float)renderX, interpY - (float)renderY, interpZ - (float)renderZ};
@@ -267,8 +303,28 @@ void Tracers::onRender() {
                                                           settings.tracerColor[2], settings.tracerColor[3]));
         }
 
-        // Draw tracer line
-        draw->AddLine(startPos, ImVec2(screenPos.x, screenPos.y), color, settings.thickness);
+        const float distanceFade = (std::clamp)(1.0f - p.distance / (std::max)(settings.range, 1.0f), 0.25f, 0.9f);
+        color = WithAlpha(color, distanceFade);
+
+        const ImVec2 endPos(screenPos.x, screenPos.y);
+        const float verticalSpan = endPos.y - startPos.y;
+        const float bend = (std::min)(std::abs(endPos.x - startPos.x) * 0.08f, 24.0f);
+        const float bendDirection = endPos.x < startPos.x ? -bend : bend;
+        const ImVec2 controlA(startPos.x + bendDirection, startPos.y + verticalSpan * 0.33f);
+        const ImVec2 controlB(endPos.x - bendDirection, startPos.y + verticalSpan * 0.72f);
+
+        draw->AddBezierCubic(startPos, controlA, controlB, endPos, IM_COL32(0, 0, 0, 150),
+                             settings.thickness + 2.5f);
+        draw->AddBezierCubic(startPos, controlA, controlB, endPos, color, settings.thickness);
+        draw->AddCircleFilled(endPos, (std::max)(1.75f, settings.thickness), color, 12);
+        draw->AddCircle(endPos, (std::max)(2.5f, settings.thickness + 0.75f), IM_COL32(0, 0, 0, 150), 12, 1.0f);
+    }
+
+    for (auto it = smoothedPlayers.begin(); it != smoothedPlayers.end();) {
+        if (now - it->second.lastSeen > 500)
+            it = smoothedPlayers.erase(it);
+        else
+            ++it;
     }
 }
 

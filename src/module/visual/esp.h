@@ -2,6 +2,7 @@
 
 #include <mutex>
 #include <string>
+#include <unordered_map>
 #include <vector>
 #include "../../jni/java.h"
 #include "../module.h"
@@ -11,6 +12,7 @@ struct ImDrawList;
 
 // Cached player data for rendering
 struct EspPlayer {
+    int entityId = 0;
     std::string name;
     std::string profileName;
     std::string uuid;                                 // For team/friend detection
@@ -53,9 +55,18 @@ public:
     } settings;
 
 private:
+    struct SmoothedPlayer {
+        double x = 0, y = 0, z = 0;
+        float health = 20.0f;
+        long long lastSeen = 0;
+        bool initialized = false;
+    };
+
     // Thread-safe player cache
     std::mutex cacheMutex;
     std::vector<EspPlayer> cachedPlayers;
+    std::unordered_map<int, SmoothedPlayer> smoothedPlayers;
+    long long lastRenderTime = 0;
 
     // Render thread data
     double cachedRenderX = 0, cachedRenderY = 0, cachedRenderZ = 0;

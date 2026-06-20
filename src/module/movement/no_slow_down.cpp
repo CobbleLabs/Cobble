@@ -229,7 +229,6 @@ static bool sendC08HeldItem(JNIEnv* env) {
 
 NoSlowDown::NoSlowDown() : Module("NoSlowDown") {
     keybind = 0;
-    locked = true;
 }
 
 bool NoSlowDown::initializeFields() {

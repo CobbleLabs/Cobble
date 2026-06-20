@@ -45,6 +45,8 @@ private:
     // Thread-safe trajectory cache
     std::mutex cacheMutex;
     std::vector<TrajectoryPoint> cachedTrajectory;
+    std::vector<TrajectoryPoint> renderedTrajectory;
+    long long lastRenderTime = 0;
 
     // Render thread data
     double cachedRenderX = 0, cachedRenderY = 0, cachedRenderZ = 0;
