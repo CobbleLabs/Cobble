@@ -13,6 +13,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstdint>
 #include <limits>
 
 Clutch* clutch = nullptr;
@@ -39,7 +40,8 @@ std::uint64_t Clutch::nowMs() {
 
 void Clutch::onEnable() {
     originalSlot_ = -1;
-    lastPlaceMs_ = 0;
+    nextPlaceMs_ = 0;
+    activePlacement_ = {};
 }
 
 void Clutch::restoreSlot() {
@@ -48,7 +50,13 @@ void Clutch::restoreSlot() {
     originalSlot_ = -1;
 }
 
+void Clutch::resetPlacement() {
+    activePlacement_ = {};
+    nextPlaceMs_ = 0;
+}
+
 void Clutch::onDisable() {
+    resetPlacement();
     restoreSlot();
 }
 
@@ -127,20 +135,69 @@ int Clutch::findBlockSlot() const {
     return -1;
 }
 
+float Clutch::wrapDegrees(float angle) {
+    while (angle > 180.0f)
+        angle -= 360.0f;
+    while (angle < -180.0f)
+        angle += 360.0f;
+    return angle;
+}
+
+float Clutch::approachAngle(float current, float target, float maxStep) {
+    const float delta = wrapDegrees(target - current);
+    return current + std::clamp(delta, -maxStep, maxStep);
+}
+
 bool Clutch::isDangerous(double predictedX, double predictedY, double predictedZ) const {
-    const int y = static_cast<int>(std::floor(predictedY)) - 1;
-    const int centerX = static_cast<int>(std::floor(predictedX));
-    const int centerZ = static_cast<int>(std::floor(predictedZ));
-    for (int x = centerX - 1; x <= centerX + 1; ++x) {
-        for (int z = centerZ - 1; z <= centerZ + 1; ++z) {
-            if (mc.getBlockId(x, y, z) != 0)
-                return false;
+    if (predictedY <= 1.0)
+        return false;
+
+    const int startY = static_cast<int>(std::floor(predictedY)) - 1;
+    const std::array<double, 3> offsets = {-0.28, 0.0, 0.28};
+    for (double offsetX : offsets) {
+        for (double offsetZ : offsets) {
+            const int x = static_cast<int>(std::floor(predictedX + offsetX));
+            const int z = static_cast<int>(std::floor(predictedZ + offsetZ));
+            for (int y = startY; y >= 0; --y) {
+                if (mc.getBlockId(x, y, z) != 0)
+                    return false;
+            }
         }
     }
+
+    const int currentFootY = static_cast<int>(std::floor(player.getPosY())) - 1;
+    bool currentlySupported = false;
+    for (double offsetX : offsets) {
+        for (double offsetZ : offsets) {
+            const int x = static_cast<int>(std::floor(player.getPosX() + offsetX));
+            const int z = static_cast<int>(std::floor(player.getPosZ() + offsetZ));
+            if (mc.getBlockId(x, currentFootY, z) != 0) {
+                currentlySupported = true;
+                break;
+            }
+        }
+        if (currentlySupported)
+            break;
+    }
+
     const double projectedX = predictedX - player.getPosX();
     const double projectedZ = predictedZ - player.getPosZ();
-    const bool leavingEdge = projectedX * projectedX + projectedZ * projectedZ > 0.12;
-    return player.getMotionY() < -0.04 || !player.isOnGround() || leavingEdge;
+    const bool movingOffEdge = projectedX * projectedX + projectedZ * projectedZ > 0.10;
+    const bool alreadyFalling = !player.isOnGround() && player.getMotionY() < -0.025;
+    return alreadyFalling || (currentlySupported && movingOffEdge);
+}
+
+bool Clutch::isPlacementUsable(const Placement& placement) const {
+    if (!placement.valid || mc.getBlockId(placement.targetX, placement.targetY, placement.targetZ) != 0)
+        return false;
+    if (mc.getBlockId(placement.supportX, placement.supportY, placement.supportZ) == 0)
+        return false;
+
+    const double dx = placement.hitX - player.getPosX();
+    const double dy = placement.hitY - (player.getPosY() + 1.62);
+    const double dz = placement.hitZ - player.getPosZ();
+    const double reach = static_cast<double>(settings.reach) + 0.15;
+    return dx * dx + dy * dy + dz * dz <= reach * reach;
 }
 
 Clutch::Placement Clutch::findPlacement(double predictedX, double predictedY, double predictedZ) const {
@@ -199,13 +256,8 @@ Clutch::Placement Clutch::findPlacement(double predictedX, double predictedY, do
 }
 
 bool Clutch::place(const Placement& placement, int slot) {
-    if (!placement.valid)
+    if (!isPlacementUsable(placement))
         return false;
-
-    if (originalSlot_ < 0)
-        originalSlot_ = player.getCurrentSlot();
-    if (player.getCurrentSlot() != slot)
-        player.setCurrentSlot(slot);
 
     const double eyeX = player.getPosX();
     const double eyeY = player.getPosY() + 1.62;
@@ -214,15 +266,33 @@ bool Clutch::place(const Placement& placement, int slot) {
     const double dy = placement.hitY - eyeY;
     const double dz = placement.hitZ - eyeZ;
     const double horizontal = std::sqrt(dx * dx + dz * dz);
-    const float yaw = static_cast<float>(std::atan2(dz, dx) * 180.0 / kPi - 90.0);
-    const float pitch = static_cast<float>(-std::atan2(dy, horizontal) * 180.0 / kPi);
+    const float targetYaw = static_cast<float>(std::atan2(dz, dx) * 180.0 / kPi - 90.0);
+    const float targetPitch =
+        std::clamp(static_cast<float>(-std::atan2(dy, horizontal) * 180.0 / kPi), -90.0f, 90.0f);
+    const float currentYaw = player.getYaw();
+    const float currentPitch = player.getPitch();
+    const std::uint64_t now = nowMs();
+    const float variation = static_cast<float>((now / 17u) % 7u) * 0.18f;
+    const float nextYaw = approachAngle(currentYaw, targetYaw, 9.5f + variation);
+    const float nextPitch = approachAngle(currentPitch, targetPitch, 7.0f + variation * 0.65f);
 
-    player.setPrevYaw(yaw);
-    player.setPrevPitch(pitch);
-    player.setYaw(yaw);
-    player.setPitch(std::clamp(pitch, -90.0f, 90.0f));
+    player.setPrevYaw(currentYaw);
+    player.setPrevPitch(currentPitch);
+    player.setYaw(nextYaw);
+    player.setPitch(std::clamp(nextPitch, -90.0f, 90.0f));
     mc.updateMouseOver();
 
+    const float remainingYaw = std::abs(wrapDegrees(targetYaw - nextYaw));
+    const float remainingPitch = std::abs(wrapDegrees(targetPitch - nextPitch));
+    if (remainingYaw > 3.25f || remainingPitch > 2.75f)
+        return false;
+
+    if (originalSlot_ < 0)
+        originalSlot_ = player.getCurrentSlot();
+    if (player.getCurrentSlot() != slot)
+        player.setCurrentSlot(slot);
+
+    mc.updateMouseOver();
     const Minecraft::Vec3 targeted = mc.getTargetedBlockPos();
     if (static_cast<int>(std::floor(targeted.x)) != placement.supportX ||
         static_cast<int>(std::floor(targeted.y)) != placement.supportY ||
@@ -238,12 +308,14 @@ void Clutch::onUpdate() {
     if (!enabled)
         return;
     if (Menu::isOpen || mc.isInGui() || !player.isValid()) {
+        resetPlacement();
         restoreSlot();
         return;
     }
 
     const int slot = findBlockSlot();
     if (slot < 0) {
+        resetPlacement();
         restoreSlot();
         return;
     }
@@ -265,16 +337,32 @@ void Clutch::onUpdate() {
     }
 
     if (!isDangerous(x, y, z)) {
+        resetPlacement();
         restoreSlot();
         return;
     }
 
-    const std::uint64_t now = nowMs();
-    if (now - lastPlaceMs_ < static_cast<std::uint64_t>(std::clamp(settings.placeDelayMs, 40, 200)))
+    if (!isPlacementUsable(activePlacement_))
+        activePlacement_ = findPlacement(x, y, z);
+    if (!activePlacement_.valid)
         return;
 
-    if (place(findPlacement(x, y, z), slot))
-        lastPlaceMs_ = now;
+    const std::uint64_t now = nowMs();
+    if (nextPlaceMs_ == 0) {
+        const int baseDelay = std::clamp(settings.placeDelayMs, 40, 200);
+        const int jitter = static_cast<int>((now ^ (now >> 7u)) % 31u) - 8;
+        nextPlaceMs_ = now + static_cast<std::uint64_t>(std::max(30, baseDelay + jitter));
+    }
+
+    if (now < nextPlaceMs_)
+        return;
+
+    if (place(activePlacement_, slot)) {
+        activePlacement_ = {};
+        const int baseDelay = std::clamp(settings.placeDelayMs, 40, 200);
+        const int jitter = static_cast<int>(((now >> 3u) ^ now) % 37u) - 10;
+        nextPlaceMs_ = now + static_cast<std::uint64_t>(std::max(30, baseDelay + jitter));
+    }
 }
 
 void Clutch::onRenderMenu() {

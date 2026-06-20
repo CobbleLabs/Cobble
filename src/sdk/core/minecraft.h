@@ -172,6 +172,7 @@ struct Minecraft {
     // World block query for Bridge Assist
     // Returns block ID at given coordinates (0 = air)
     int getBlockId(int x, int y, int z);
+    bool damageBlock(int x, int y, int z);
 
     struct Vec3 {
         float x = 0, y = 0, z = 0;

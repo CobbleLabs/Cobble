@@ -22,6 +22,7 @@
 #include "module/utility/armorswitch.h"
 #include "module/utility/autorefill.h"
 #include "module/utility/autotool.h"
+#include "module/utility/breaker.h"
 #include "module/utility/bridgeassist.h"
 #include "module/utility/clutch.h"
 #include "module/utility/fastplace.h"
@@ -189,6 +190,8 @@ void cobble::context::initialize(HMODULE hModule) {
     bridgeAssist = new BridgeAssist();
     COBBLE_TRACE("alloc:Clutch");
     clutch = new Clutch();
+    COBBLE_TRACE("alloc:Breaker");
+    breaker = new Breaker();
     COBBLE_TRACE("alloc:Blink");
     blink = new Blink();
     COBBLE_TRACE("alloc:FakeLag");
@@ -247,6 +250,7 @@ void cobble::context::initialize(HMODULE hModule) {
     moduleManager->registerModule(noItemRelease);
     moduleManager->registerModule(bridgeAssist);
     moduleManager->registerModule(clutch);
+    moduleManager->registerModule(breaker);
     moduleManager->registerModule(blink);
     moduleManager->registerModule(fakeLag);
     moduleManager->registerModule(fastPlace);
@@ -475,6 +479,8 @@ void cobble::context::shutdown() {
         bridgeAssist->setEnabled(false);
     if (clutch)
         clutch->setEnabled(false);
+    if (breaker)
+        breaker->setEnabled(false);
     if (blink)
         blink->setEnabled(false);
     if (fakeLag)
@@ -586,6 +592,10 @@ void cobble::context::shutdown() {
     if (clutch) {
         delete clutch;
         clutch = nullptr;
+    }
+    if (breaker) {
+        delete breaker;
+        breaker = nullptr;
     }
     if (blink) {
         delete blink;

@@ -53,7 +53,8 @@ static const DescriptionEntry kModuleDescriptions[] = {
     {"", "FastPlace", "", "Reduces the delay between right-click item placements."},
     {"", "NoItemRelease", "", "Keeps supported item-use actions active according to the selected mode."},
     {"", "BridgeAssist", "", "Helps you sneak safely at block edges while bridging."},
-    {"", "Clutch", "", "Predicts dangerous falls and places reachable blocks toward a safe landing."},
+    {"", "Clutch", "", "Places reachable blocks only when your predicted path would fall into the void."},
+    {"", "Breaker", "", "Finds nearby beds and breaks them through surrounding blocks."},
     {"", "AutoTool", "", "Selects the best hotbar tool for the block or target."},
     {"", "InvManager", "", "Organizes the inventory and hotbar using your saved preferences."},
     {"", "AltManager", "", "Spoofs the local username when joining compatible offline servers."},
@@ -179,6 +180,7 @@ static const DescriptionEntry kOptionDescriptions[] = {
     {"", "Prediction Time", "", "Sets how far ahead Clutch simulates the current trajectory."},
     {"", "Search Radius", "", "Sets how far Clutch searches for a reachable solid anchor."},
     {"", "Place Delay", "", "Sets the minimum time between automatic block placements."},
+    {"Breaker", "Legit", "", "Breaks up to two blocks covering the bed before targeting the bed itself."},
     {"", "Release Time", "", "Sets how long WTap releases the selected movement input."},
     {"", "Timer Limit", "", "Sets the maximum time packets may remain queued."},
     {"", "Show Timer", "", "Displays how long Blink has been queuing packets."},
@@ -340,8 +342,8 @@ std::vector<ui::tab_t> ui::tabs = {
     {ICON_FA_RUNNING, "Movement", {"Timer", "TimerRange", "NoSlowDown", "NoJumpDelay", "FakeLag", "Blink", "Sprint"}},
     {ICON_FA_KEYBOARD,
      "Utility",
-     {"ArmorSwitch", "AutoRefill", "FastPlace", "NoItemRelease", "BridgeAssist", "Clutch", "AutoTool", "InvManager",
-      "AltManager"}},
+     {"ArmorSwitch", "AutoRefill", "FastPlace", "NoItemRelease", "BridgeAssist", "Clutch", "Breaker", "AutoTool",
+      "InvManager", "AltManager"}},
     {ICON_FA_SAVE, "Configs", {}},
     {ICON_FA_GEAR, "Settings", {}}};
 

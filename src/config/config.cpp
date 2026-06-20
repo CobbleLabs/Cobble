@@ -22,6 +22,7 @@
 #include "../module/utility/armorswitch.h"
 #include "../module/utility/autorefill.h"
 #include "../module/utility/autotool.h"
+#include "../module/utility/breaker.h"
 #include "../module/utility/bridgeassist.h"
 #include "../module/utility/clutch.h"
 #include "../module/utility/fastplace.h"
@@ -653,6 +654,10 @@ void ConfigManager::applyConfig() {
                 s.reach = (std::clamp)(data["reach"].as_float(s.reach), 3.0f, 4.5f);
                 s.placeDelayMs = (std::clamp)(data["placeDelayMs"].as_int(s.placeDelayMs), 40, 200);
                 s.restoreSlot = data["restoreSlot"].as_bool(s.restoreSlot);
+            } else if (name == "Breaker" && breaker) {
+                auto& s = breaker->settings;
+                s.range = (std::clamp)(data["range"].as_float(s.range), 2.0f, 6.0f);
+                s.legit = data["legit"].as_bool(s.legit);
             } else if (name == "Auto Tool" && autoTool) {
                 auto& s = autoTool->settings;
                 s.switchBack = data["switchBack"].as_bool(s.switchBack);
@@ -1092,6 +1097,10 @@ void ConfigManager::buildConfigFromModules() {
             config_["modules"][name]["reach"] = s.reach;
             config_["modules"][name]["placeDelayMs"] = s.placeDelayMs;
             config_["modules"][name]["restoreSlot"] = s.restoreSlot;
+        } else if (name == "Breaker" && breaker) {
+            const auto& s = breaker->settings;
+            config_["modules"][name]["range"] = s.range;
+            config_["modules"][name]["legit"] = s.legit;
         } else if (name == "Auto Tool" && autoTool) {
             const auto& s = autoTool->settings;
             config_["modules"][name]["switchBack"] = s.switchBack;

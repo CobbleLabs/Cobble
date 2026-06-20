@@ -24,6 +24,7 @@
 #include "../../module/utility/armorswitch.h"
 #include "../../module/utility/autorefill.h"
 #include "../../module/utility/autotool.h"
+#include "../../module/utility/breaker.h"
 #include "../../module/utility/bridgeassist.h"
 #include "../../module/utility/clutch.h"
 #include "../../module/utility/fastplace.h"
@@ -144,10 +145,12 @@ Module* getModuleForSubtab(int tabIdx, int subtabIdx) {
             case 5:
                 return clutch;
             case 6:
-                return autoTool;
+                return breaker;
             case 7:
-                return inventoryManager;
+                return autoTool;
             case 8:
+                return inventoryManager;
+            case 9:
                 return altManager;
         }
     }

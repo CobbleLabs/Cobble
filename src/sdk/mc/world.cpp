@@ -1,6 +1,7 @@
 // World-related functions for Minecraft SDK
 // Handles block queries and raytrace operations
 
+#include "../../util/aes_string.hpp"
 #include "../../util/logger.hpp"
 #include "../core/minecraft.h"
 #include "../jni/jni_cache.h"
@@ -105,6 +106,83 @@ int Minecraft::getBlockId(int x, int y, int z) {
     env->DeleteLocalRef(world);
 
     return blockId;
+}
+
+bool Minecraft::damageBlock(int x, int y, int z) {
+    JNIEnv* env = Java::Env();
+    if (!isValid() || !env || !JniCache::fid_playerController)
+        return false;
+
+    jobject controller = env->GetObjectField(instance, JniCache::fid_playerController);
+    if (!controller)
+        return false;
+
+    jclass controllerClass = env->GetObjectClass(controller);
+    if (!controllerClass) {
+        env->DeleteLocalRef(controller);
+        return false;
+    }
+
+    bool damaged = false;
+    if (Java::Version == MinecraftVersion::MC_1_7_10) {
+        jmethodID damageMethod =
+            env->GetMethodID(controllerClass, OBFUSCATE_STRING("onPlayerDamageBlock").c_str(),
+                             OBFUSCATE_STRING("(IIII)Z").c_str());
+        if (!damageMethod) {
+            env->ExceptionClear();
+            damageMethod = env->GetMethodID(controllerClass, OBFUSCATE_STRING("func_78759_c").c_str(),
+                                            OBFUSCATE_STRING("(IIII)Z").c_str());
+        }
+        if (!damageMethod && env->ExceptionCheck())
+            env->ExceptionClear();
+        if (damageMethod)
+            damaged = env->CallBooleanMethod(controller, damageMethod, x, y, z, 1) == JNI_TRUE;
+    } else if (JniCache::cls_BlockPos && JniCache::mid_blockPosInit) {
+        jmethodID damageMethod = env->GetMethodID(
+            controllerClass, OBFUSCATE_STRING("onPlayerDamageBlock").c_str(),
+            OBFUSCATE_STRING("(Lnet/minecraft/util/BlockPos;Lnet/minecraft/util/EnumFacing;)Z").c_str());
+        if (!damageMethod) {
+            env->ExceptionClear();
+            damageMethod = env->GetMethodID(
+                controllerClass, OBFUSCATE_STRING("func_180512_c").c_str(),
+                OBFUSCATE_STRING("(Lnet/minecraft/util/BlockPos;Lnet/minecraft/util/EnumFacing;)Z").c_str());
+        }
+        if (!damageMethod && env->ExceptionCheck())
+            env->ExceptionClear();
+
+        jclass facingClass = nullptr;
+        if (damageMethod && Java::AssignClass(OBFUSCATE_STRING("net.minecraft.util.EnumFacing"), facingClass)) {
+            jmethodID valuesMethod = env->GetStaticMethodID(
+                facingClass, OBFUSCATE_STRING("values").c_str(),
+                OBFUSCATE_STRING("()[Lnet/minecraft/util/EnumFacing;").c_str());
+            if (!valuesMethod && env->ExceptionCheck())
+                env->ExceptionClear();
+            jobjectArray values = valuesMethod
+                                      ? static_cast<jobjectArray>(env->CallStaticObjectMethod(facingClass, valuesMethod))
+                                      : nullptr;
+            jobject facingUp = values && env->GetArrayLength(values) > 1 ? env->GetObjectArrayElement(values, 1)
+                                                                         : nullptr;
+            jobject blockPos = env->NewObject(JniCache::cls_BlockPos, JniCache::mid_blockPosInit, x, y, z);
+            if (blockPos && facingUp)
+                damaged = env->CallBooleanMethod(controller, damageMethod, blockPos, facingUp) == JNI_TRUE;
+
+            if (blockPos)
+                env->DeleteLocalRef(blockPos);
+            if (facingUp)
+                env->DeleteLocalRef(facingUp);
+            if (values)
+                env->DeleteLocalRef(values);
+            env->DeleteLocalRef(facingClass);
+        }
+    }
+
+    if (env->ExceptionCheck()) {
+        env->ExceptionClear();
+        damaged = false;
+    }
+    env->DeleteLocalRef(controllerClass);
+    env->DeleteLocalRef(controller);
+    return damaged;
 }
 
 // =============================================================================
