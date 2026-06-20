@@ -1127,6 +1127,208 @@ static int patchNetworkManagerClass(const uint8_t* data, size_t len, std::vector
     return patched_methods;
 }
 
+static int patchPlayerClass(const uint8_t* data, size_t len, std::vector<uint8_t>& out) {
+    Reader r(data, len);
+    uint32_t magic = r.ReadU4();
+    if (!r.ok || magic != 0xCAFEBABE)
+        return -1;
+
+    uint16_t minor = r.ReadU2();
+    uint16_t major = r.ReadU2();
+    uint16_t cp_count = r.ReadU2();
+    if (!r.ok || cp_count == 0)
+        return -1;
+
+    std::vector<CpEntry> cp;
+    std::vector<std::string> utf8;
+    std::vector<uint8_t> cp_raw;
+    if (!readConstantPool(r, cp_count, cp, utf8, cp_raw))
+        return -1;
+
+    if (cp_count > 0xFFFB)
+        return -1;
+    uint16_t base = cp_count;
+
+    // Entries for SlowDownHook.onSlowDown
+    uint16_t idx_utf8_class = base;
+    uint16_t idx_class = static_cast<uint16_t>(base + 1);
+    uint16_t idx_utf8_name = static_cast<uint16_t>(base + 2);
+    uint16_t idx_utf8_desc = static_cast<uint16_t>(base + 3);
+    uint16_t idx_name_type = static_cast<uint16_t>(base + 4);
+    uint16_t idx_methodref = static_cast<uint16_t>(base + 5);
+
+    Writer w;
+    w.WriteU4(magic);
+    w.WriteU2(minor);
+    w.WriteU2(major);
+    w.WriteU2(static_cast<uint16_t>(cp_count + 6));
+    w.WriteBytes(cp_raw.data(), cp_raw.size());
+
+    // com/cobble/agent/SlowDownHook class
+    w.WriteU1(1);
+    { std::string _s = OBFUSCATE_STRING("com/cobble/agent/SlowDownHook");
+    w.WriteU2(static_cast<uint16_t>(_s.size()));
+    w.WriteBytes(reinterpret_cast<const uint8_t*>(_s.data()), _s.size()); }
+    w.WriteU1(7);
+    w.WriteU2(idx_utf8_class);
+
+    // onSlowDown method name
+    w.WriteU1(1);
+    { std::string _s = OBFUSCATE_STRING("onSlowDown");
+    w.WriteU2(static_cast<uint16_t>(_s.size()));
+    w.WriteBytes(reinterpret_cast<const uint8_t*>(_s.data()), _s.size()); }
+
+    // (Ljava/lang/Object;)V descriptor
+    w.WriteU1(1);
+    { std::string _s = OBFUSCATE_STRING("(Ljava/lang/Object;)V");
+    w.WriteU2(static_cast<uint16_t>(_s.size()));
+    w.WriteBytes(reinterpret_cast<const uint8_t*>(_s.data()), _s.size()); }
+
+    w.WriteU1(12);
+    w.WriteU2(idx_utf8_name);
+    w.WriteU2(idx_utf8_desc);
+
+    w.WriteU1(10);
+    w.WriteU2(idx_class);
+    w.WriteU2(idx_name_type);
+
+    uint16_t access_flags = r.ReadU2();
+    uint16_t this_class = r.ReadU2();
+    uint16_t super_class = r.ReadU2();
+    if (!r.ok)
+        return -1;
+    w.WriteU2(access_flags);
+    w.WriteU2(this_class);
+    w.WriteU2(super_class);
+
+    uint16_t interfaces_count = r.ReadU2();
+    if (!r.ok)
+        return -1;
+    w.WriteU2(interfaces_count);
+    for (uint16_t i = 0; i < interfaces_count; ++i) {
+        uint16_t idx = r.ReadU2();
+        if (!r.ok)
+            return -1;
+        w.WriteU2(idx);
+    }
+
+    uint16_t fields_count = r.ReadU2();
+    if (!r.ok)
+        return -1;
+    w.WriteU2(fields_count);
+    for (uint16_t i = 0; i < fields_count; ++i) {
+        uint16_t f_access = r.ReadU2();
+        uint16_t f_name = r.ReadU2();
+        uint16_t f_desc = r.ReadU2();
+        uint16_t f_attrs = r.ReadU2();
+        if (!r.ok)
+            return -1;
+        w.WriteU2(f_access);
+        w.WriteU2(f_name);
+        w.WriteU2(f_desc);
+        w.WriteU2(f_attrs);
+        for (uint16_t a = 0; a < f_attrs; ++a) {
+            uint16_t name_index = r.ReadU2();
+            uint32_t attr_len = r.ReadU4();
+            if (!r.ok)
+                return -1;
+            const uint8_t* bytes = r.ReadBytes(attr_len);
+            if (!r.ok)
+                return -1;
+            w.WriteU2(name_index);
+            w.WriteU4(attr_len);
+            w.WriteBytes(bytes, attr_len);
+        }
+    }
+
+    uint16_t methods_count = r.ReadU2();
+    if (!r.ok)
+        return -1;
+    w.WriteU2(methods_count);
+
+    int patched_methods = 0;
+    for (uint16_t i = 0; i < methods_count; ++i) {
+        uint16_t m_access = r.ReadU2();
+        uint16_t m_name = r.ReadU2();
+        uint16_t m_desc = r.ReadU2();
+        uint16_t m_attrs = r.ReadU2();
+        if (!r.ok)
+            return -1;
+        w.WriteU2(m_access);
+        w.WriteU2(m_name);
+        w.WriteU2(m_desc);
+        w.WriteU2(m_attrs);
+
+        bool is_target = false;
+        if (m_name < utf8.size() && m_desc < utf8.size()) {
+            const std::string& name = utf8[m_name];
+            const std::string& desc = utf8[m_desc];
+
+            if (desc == "()V" && (name == "onLivingUpdate" || name == "func_70636_d" || name == "m")) {
+                is_target = true;
+                log_debug("[PacketInterceptor] Found local player update method: %s %s", name.c_str(), desc.c_str());
+            }
+        }
+
+        for (uint16_t a = 0; a < m_attrs; ++a) {
+            uint16_t name_index = r.ReadU2();
+            uint32_t attr_len = r.ReadU4();
+            if (!r.ok)
+                return -1;
+            Reader attr_reader = r.Slice(attr_len);
+            if (!r.ok)
+                return -1;
+            const uint8_t* attr_data = attr_reader.data;
+
+            const char* attr_name = nullptr;
+            if (name_index < utf8.size()) {
+                attr_name = utf8[name_index].c_str();
+            }
+
+            bool patched = false;
+            std::vector<uint8_t> patched_attr;
+
+            if (is_target && attr_name && strcmp(attr_name, "Code") == 0 && (m_access & (0x0100 | 0x0400)) == 0) {
+                if (tryPatchCodeAttributeObserver(attr_data, attr_len, cp, utf8, idx_methodref, 0, patched_attr)) {
+                    w.WriteU2(name_index);
+                    w.WriteU4(static_cast<uint32_t>(patched_attr.size()));
+                    w.WriteBytes(patched_attr.data(), patched_attr.size());
+                    patched = true;
+                    ++patched_methods;
+                }
+            }
+
+            if (!patched) {
+                w.WriteU2(name_index);
+                w.WriteU4(attr_len);
+                w.WriteBytes(attr_data, attr_len);
+            }
+        }
+    }
+
+    uint16_t class_attrs = r.ReadU2();
+    if (!r.ok)
+        return -1;
+    w.WriteU2(class_attrs);
+    for (uint16_t i = 0; i < class_attrs; ++i) {
+        uint16_t name_index = r.ReadU2();
+        uint32_t attr_len = r.ReadU4();
+        if (!r.ok)
+            return -1;
+        const uint8_t* bytes = r.ReadBytes(attr_len);
+        if (!r.ok)
+            return -1;
+        w.WriteU2(name_index);
+        w.WriteU4(attr_len);
+        w.WriteBytes(bytes, attr_len);
+    }
+
+    if (patched_methods == 0)
+        return 0;
+    out = std::move(w.out);
+    return patched_methods;
+}
+
 static void JNICALL onClassFileLoadHook(jvmtiEnv* jvmti_env, JNIEnv* jni_env, jclass class_being_redefined,
                                         jobject loader, const char* name, jobject protection_domain,
                                         jint class_data_len, const unsigned char* class_data, jint* new_class_data_len,
@@ -1214,6 +1416,25 @@ static void JNICALL onClassFileLoadHook(jvmtiEnv* jvmti_env, JNIEnv* jni_env, jc
             }
         } else {
             log_debug("[PacketInterceptor] NetHandlerPlayClient: no methods patched");
+        }
+        return;
+    }
+
+    if (strcmp(name, "net/minecraft/client/entity/EntityPlayerSP") == 0 ||
+        strcmp(name, "net/minecraft/client/entity/EntityClientPlayerMP") == 0 ||
+        strcmp(name, "bew") == 0) {
+        log_debug("[PacketInterceptor] onClassFileLoadHook triggered for local player: %s", name);
+        std::vector<uint8_t> patched;
+        int patched_methods = patchPlayerClass(class_data, static_cast<size_t>(class_data_len), patched);
+        if (patched_methods > 0) {
+            unsigned char* buffer = nullptr;
+            jvmtiError err = jvmti_env->Allocate(static_cast<jint>(patched.size()), &buffer);
+            if (err == JVMTI_ERROR_NONE && buffer) {
+                memcpy(buffer, patched.data(), patched.size());
+                *new_class_data_len = static_cast<jint>(patched.size());
+                *new_class_data = buffer;
+                log_ok("[PacketInterceptor] Patched local player update bytecode (%d method(s))", patched_methods);
+            }
         }
         return;
     }
@@ -1388,6 +1609,30 @@ bool InstallBytecodeHook(JNIEnv* env) {
                 env->ExceptionClear();
             }
             log_debug("[PacketInterceptor] NetHandlerPlayClient not available for retransform");
+        }
+    }
+
+    {
+        jclass playerCls = nullptr;
+        if (Java::AssignClass(OBFUSCATE_STRING("net.minecraft.client.entity.EntityPlayerSP"), playerCls)) {
+            jclass classes[1] = {playerCls};
+            err = Java::tiEnv->RetransformClasses(1, classes);
+            if (err == JVMTI_ERROR_NONE) {
+                log_ok("[PacketInterceptor] Retransform requested for EntityPlayerSP");
+            }
+            env->DeleteLocalRef(playerCls);
+        } else {
+            if (env->ExceptionCheck()) env->ExceptionClear();
+            if (Java::AssignClass(OBFUSCATE_STRING("net.minecraft.client.entity.EntityClientPlayerMP"), playerCls)) {
+                jclass classes[1] = {playerCls};
+                err = Java::tiEnv->RetransformClasses(1, classes);
+                if (err == JVMTI_ERROR_NONE) {
+                    log_ok("[PacketInterceptor] Retransform requested for EntityClientPlayerMP");
+                }
+                env->DeleteLocalRef(playerCls);
+            } else {
+                if (env->ExceptionCheck()) env->ExceptionClear();
+            }
         }
     }
 

@@ -750,6 +750,16 @@ void ConfigManager::applyConfig() {
                     s.color[2] = data["color"]["b"].as_float(s.color[2]);
                     s.color[3] = data["color"]["a"].as_float(s.color[3]);
                 }
+            } else if (name == "NoSlowDown" && noSlowDown) {
+                auto& s = *noSlowDown;
+                s.packetMode = static_cast<NoSlowDown::PacketMode>(
+                    (std::clamp)(data["packetMode"].as_int(static_cast<int>(s.packetMode)), 0, 3));
+                s.blockForward = (std::clamp)(data["blockForward"].as_float(s.blockForward), 0.2f, 1.0f);
+                s.blockStrafe = (std::clamp)(data["blockStrafe"].as_float(s.blockStrafe), 0.2f, 1.0f);
+                s.consumeForward = (std::clamp)(data["consumeForward"].as_float(s.consumeForward), 0.2f, 1.0f);
+                s.consumeStrafe = (std::clamp)(data["consumeStrafe"].as_float(s.consumeStrafe), 0.2f, 1.0f);
+                s.bowForward = (std::clamp)(data["bowForward"].as_float(s.bowForward), 0.2f, 1.0f);
+                s.bowStrafe = (std::clamp)(data["bowStrafe"].as_float(s.bowStrafe), 0.2f, 1.0f);
             } else if (name == "Timer" && timerModule) {
                 auto& s = timerModule->settings;
                 s.speed = (double)data["speed"].as_float((float)s.speed);
@@ -1177,6 +1187,15 @@ void ConfigManager::buildConfigFromModules() {
             config_["modules"][name]["color"]["g"] = s.color[1];
             config_["modules"][name]["color"]["b"] = s.color[2];
             config_["modules"][name]["color"]["a"] = s.color[3];
+        } else if (name == "NoSlowDown" && noSlowDown) {
+            const auto& s = *noSlowDown;
+            config_["modules"][name]["packetMode"] = static_cast<int>(s.packetMode);
+            config_["modules"][name]["blockForward"] = s.blockForward;
+            config_["modules"][name]["blockStrafe"] = s.blockStrafe;
+            config_["modules"][name]["consumeForward"] = s.consumeForward;
+            config_["modules"][name]["consumeStrafe"] = s.consumeStrafe;
+            config_["modules"][name]["bowForward"] = s.bowForward;
+            config_["modules"][name]["bowStrafe"] = s.bowStrafe;
         } else if (name == "Timer" && timerModule) {
             const auto& s = timerModule->settings;
             config_["modules"][name]["speed"] = (float)s.speed;
