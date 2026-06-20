@@ -722,7 +722,12 @@ bool Verify(const std::string& serverUrl) {
     // Parse JSON response
     json::Object json;
     if (!ParseResponseObject(response, json)) {
-        SetUnparseableResponseError(static_cast<int>(statusCode), response);
+        if (statusCode == 401 || statusCode == 403) {
+            g_RequiresLogin = true;
+            g_LastError.clear();
+        } else {
+            SetUnparseableResponseError(static_cast<int>(statusCode), response);
+        }
         return false;
     }
 
@@ -735,9 +740,16 @@ bool Verify(const std::string& serverUrl) {
         std::string errorMsg = json.get_string("error", "");
         std::string message = json.get_string("message", "");
         std::string code = json.get_string("code", "");
-        if (HasLoginHint(errorMsg) || HasLoginHint(message) || HasLoginHint(code)) {
+        const bool envelopeMissing = payloadB64.empty() && sigB64.empty();
+        const bool unauthenticated = statusCode == 401 || statusCode == 403;
+        const bool emptyBootstrapResponse =
+            envelopeMissing && errorMsg.empty() && message.empty() && code.empty() &&
+            statusCode >= 200 && statusCode < 300;
+
+        if (HasLoginHint(errorMsg) || HasLoginHint(message) || HasLoginHint(code) ||
+            unauthenticated || emptyBootstrapResponse) {
             g_RequiresLogin = true;
-            g_LastError = "Device not registered";
+            g_LastError.clear();
         } else {
             g_LastError = errorMsg.empty() ? (message.empty() ? "Invalid response format" : message) : errorMsg;
         }
