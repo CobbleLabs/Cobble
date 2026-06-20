@@ -24,21 +24,22 @@ Velocity::Velocity() : Module("Velocity") {
 
 void Velocity::onEnable() {
     lastHurtTime = 0;
-    ticksSinceHit = 0;
-    wasHitThisTick = false;
+    queuedHit.active = false;
     pending.active = false;
-    microDelayStart = 0;
 }
 
-void Velocity::onDisable() {}
+void Velocity::onDisable() {
+    queuedHit.active = false;
+    pending.active = false;
+}
 
 bool Velocity::checkChance(float chance) {
     if (chance >= 100.0f)
         return true;
     if (chance <= 0.0f)
         return false;
-    std::uniform_real_distribution<float> dist(0.0f, 100.0f);
-    return dist(rng) < chance;
+    std::uniform_int_distribution<int> dist(1, 100);
+    return dist(rng) <= static_cast<int>(std::round(chance));
 }
 
 bool Velocity::checkFOV() {
@@ -111,188 +112,83 @@ bool Velocity::checkConditions() {
     return true;
 }
 
-void Velocity::onUpdate() {
-    if (!enabled)
-        return;
-    if (Menu::isOpen)
-        return;
-    if (mc.isInGui())
-        return;
-    if (!player.isValid())
+void Velocity::queueHit(int hurtTime) {
+    if (!checkFOV() || !checkConditions())
         return;
 
-    int currentHurtTime = player.getHurtTime();
+    const float modeChance = settings.mode == Mode::Jump ? settings.jumpChance : settings.chance;
+    if (!checkChance(modeChance))
+        return;
 
-    // Detect hit (hurtTime goes from 0 to max on hit)
-    bool justGotHit = currentHurtTime > 0 && currentHurtTime > lastHurtTime;
+    std::uniform_real_distribution<float> variance(-settings.percentageVariance, settings.percentageVariance);
+    queuedHit.active = true;
+    queuedHit.mode = settings.mode;
+    queuedHit.applyAtHurtTime = (std::max)(0, hurtTime - settings.reduceDelay);
+    queuedHit.horizontal = (std::clamp)(settings.horizontal + variance(rng), 0.0f, 100.0f);
+    queuedHit.vertical = (std::clamp)(settings.vertical + variance(rng), 0.0f, 100.0f);
 
-    if (justGotHit) {
-        ticksSinceHit = 0;
-        wasHitThisTick = true;
-    } else if (wasHitThisTick) {
-        ticksSinceHit++;
-        if (currentHurtTime == 0) {
-            wasHitThisTick = false;
-        }
+    int microDelay = 0;
+    if (settings.microDelayMs > 0) {
+        std::uniform_int_distribution<int> delay(0, settings.microDelayMs);
+        microDelay = delay(rng);
     }
+    queuedHit.applyAtMs = GetTickCount() + static_cast<unsigned long>(microDelay);
+}
 
-    // Only process on the exact hit frame (+ delay)
-    bool shouldProcess = justGotHit && (settings.reduceDelay == 0);
-    if (!shouldProcess && wasHitThisTick && ticksSinceHit == settings.reduceDelay) {
-        shouldProcess = true;
-    }
+void Velocity::applyQueuedHit(int hurtTime) {
+    const PendingHit hit = queuedHit;
+    queuedHit.active = false;
 
-    if (shouldProcess) {
-        // Check FOV filter
-        if (!checkFOV()) {
-            lastHurtTime = currentHurtTime;
-            return;
-        }
-
-        // Check conditions
-        if (!checkConditions()) {
-            lastHurtTime = currentHurtTime;
-            return;
-        }
-
-        // Apply based on mode
-        switch (settings.mode) {
+    switch (hit.mode) {
             case Mode::Regular: {
-                // Check chance
-                if (!checkChance(settings.chance))
-                    break;
-
-                // Randomize percentages with variance
-                std::uniform_real_distribution<float> varDist(-settings.percentageVariance,
-                                                              settings.percentageVariance);
-                float hPercent = settings.horizontal + varDist(rng);
-                float vPercent = settings.vertical + varDist(rng);
-
-                // Clamp to valid range
-                hPercent = std::max(0.0f, std::min(100.0f, hPercent));
-                vPercent = std::max(0.0f, std::min(100.0f, vPercent));
-
-                // Micro-delay variance
-                if (settings.microDelayMs > 0) {
-                    std::uniform_int_distribution<int> delayDist(0, settings.microDelayMs);
-                    microDelayTarget = delayDist(rng);
-                    microDelayStart = GetTickCount();
-                } else {
-                    microDelayTarget = 0;
-                }
-
-                // Check if we should apply now or wait for micro-delay
-                DWORD elapsed = (microDelayTarget > 0) ? (GetTickCount() - microDelayStart) : 999;
-                if (elapsed < (DWORD)microDelayTarget) {
-                    // Wait for micro-delay
-                    break;
-                }
-
-                // Gradual application (spread across multiple ticks)
                 if (settings.tickSpread > 0) {
                     pending.active = true;
-                    pending.totalTicks = settings.tickSpread + 1;  // +1 for current tick
+                    pending.totalTicks = settings.tickSpread + 1;
                     pending.ticksRemaining = settings.tickSpread;
-
-                    // Calculate target motion after reduction
                     double motionX = player.getMotionX();
                     double motionY = player.getMotionY();
                     double motionZ = player.getMotionZ();
-
-                    // Target = keep only hPercent% of original velocity
-                    pending.targetMotionX = motionX * (hPercent / 100.0);
-                    pending.targetMotionY = motionY * (vPercent / 100.0);
-                    pending.targetMotionZ = motionZ * (hPercent / 100.0);
-
-                    // Apply reduction gradually - move towards target by 1/totalTicks each tick
+                    pending.targetMotionX = motionX * (hit.horizontal / 100.0);
+                    pending.targetMotionY = motionY * (hit.vertical / 100.0);
+                    pending.targetMotionZ = motionZ * (hit.horizontal / 100.0);
+                    pending.lastHurtTime = hurtTime;
                     double newX = motionX - ((motionX - pending.targetMotionX) / pending.totalTicks);
                     double newY = motionY - ((motionY - pending.targetMotionY) / pending.totalTicks);
                     double newZ = motionZ - ((motionZ - pending.targetMotionZ) / pending.totalTicks);
-
                     player.setMotionX(newX);
                     player.setMotionY(newY);
                     player.setMotionZ(newZ);
                 } else {
-                    // Instant application (no spread)
-                    pending.active = false;  // Reset any pending gradual state
-
-                    if (hPercent < 100.0f) {
-                        double motionX = player.getMotionX();
-                        double motionZ = player.getMotionZ();
-                        player.setMotionX(motionX * (hPercent / 100.0));
-                        player.setMotionZ(motionZ * (hPercent / 100.0));
-                    }
-
-                    if (vPercent < 100.0f) {
-                        double motionY = player.getMotionY();
-                        player.setMotionY(motionY * (vPercent / 100.0));
-                    }
+                    pending.active = false;
+                    player.setMotionX(player.getMotionX() * (hit.horizontal / 100.0));
+                    player.setMotionY(player.getMotionY() * (hit.vertical / 100.0));
+                    player.setMotionZ(player.getMotionZ() * (hit.horizontal / 100.0));
                 }
                 break;
             }
 
             case Mode::Jump: {
-                // Check chance
-                if (!checkChance(settings.jumpChance))
-                    break;
-
-                // Check sprint condition for jump mode
-                if (settings.onlySprinting && !player.isSprinting())
-                    break;
-
-                // Jump immediately to negate knockback
-                if (player.isOnGround()) {
+                if (player.isOnGround())
                     player.jump();
-                }
                 break;
             }
 
             case Mode::Reduce: {
-                // Attack slowdown abuse - reduce motion by attacking
-                if (!checkChance(settings.chance))
-                    break;
-
-                // Randomize percentages with variance (same as Regular)
-                std::uniform_real_distribution<float> varDist(-settings.percentageVariance,
-                                                              settings.percentageVariance);
-                float hPercent = settings.horizontal + varDist(rng);
-                float vPercent = settings.vertical + varDist(rng);
-
-                hPercent = std::max(0.0f, std::min(100.0f, hPercent));
-                vPercent = std::max(0.0f, std::min(100.0f, vPercent));
-
-                if (hPercent < 100.0f) {
-                    double motionX = player.getMotionX();
-                    double motionZ = player.getMotionZ();
-                    player.setMotionX(motionX * (hPercent / 100.0));
-                    player.setMotionZ(motionZ * (hPercent / 100.0));
-                }
-
-                if (vPercent < 100.0f) {
-                    double motionY = player.getMotionY();
-                    player.setMotionY(motionY * (vPercent / 100.0));
-                }
+                player.setMotionX(player.getMotionX() * (hit.horizontal / 100.0));
+                player.setMotionY(player.getMotionY() * (hit.vertical / 100.0));
+                player.setMotionZ(player.getMotionZ() * (hit.horizontal / 100.0));
                 break;
             }
 
             case Mode::Ignore: {
-                // Cancel velocity completely without losing speed
-                if (!checkChance(settings.chance))
-                    break;
-
-                // Horizontal: set to 0 (ignore knockback)
                 player.setMotionX(0);
                 player.setMotionZ(0);
-
-                // Vertical based on setting
                 switch (settings.verticalMode) {
                     case VerticalMode::Never:
-                        // Don't modify vertical velocity
                         break;
                     case VerticalMode::OnlyInAir:
-                        if (!player.isOnGround()) {
+                        if (!player.isOnGround())
                             player.setMotionY(0);
-                        }
                         break;
                     case VerticalMode::Always:
                         player.setMotionY(0);
@@ -300,10 +196,14 @@ void Velocity::onUpdate() {
                 }
                 break;
             }
-        }
     }
+}
 
-    // Continue gradual application if active
+void Velocity::continuePendingReduction(int hurtTime) {
+    if (!pending.active || pending.ticksRemaining <= 0 || pending.lastHurtTime == hurtTime)
+        return;
+
+    pending.lastHurtTime = hurtTime;
     if (pending.active && pending.ticksRemaining > 0) {
         double currentX = player.getMotionX();
         double currentY = player.getMotionY();
@@ -323,6 +223,25 @@ void Velocity::onUpdate() {
             pending.active = false;
         }
     }
+}
+
+void Velocity::onUpdate() {
+    if (!enabled || Menu::isOpen || mc.isInGui() || !player.isValid())
+        return;
+
+    const int currentHurtTime = player.getHurtTime();
+    const bool justGotHit = currentHurtTime > 0 && currentHurtTime > lastHurtTime;
+
+    if (justGotHit)
+        queueHit(currentHurtTime);
+
+    const bool tickDelayElapsed = queuedHit.active && currentHurtTime <= queuedHit.applyAtHurtTime;
+    const bool microDelayElapsed = queuedHit.active &&
+                                   static_cast<long>(GetTickCount() - queuedHit.applyAtMs) >= 0;
+    if (tickDelayElapsed && microDelayElapsed)
+        applyQueuedHit(currentHurtTime);
+
+    continuePendingReduction(currentHurtTime);
 
     lastHurtTime = currentHurtTime;
 }

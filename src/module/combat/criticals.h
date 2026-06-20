@@ -1,7 +1,6 @@
 #pragma once
 
 #include "../module.h"
-#include "../../jni/java.h"
 
 class Criticals : public Module {
 public:
@@ -11,7 +10,6 @@ public:
     void onDisable() override;
     void onUpdate() override;
     void onRenderMenu() override;
-    bool showsDeveloperOnly() const override { return !isUnlocked; }
 
     struct Settings {
         int maxDelayMs = 100;           // Delay between criticals (50-500ms)
@@ -22,27 +20,13 @@ public:
     } settings;
 
 private:
-    // State tracking
     unsigned long lastCriticalTime = 0;
     bool wasAttacking = false;
-    
-    // JNI cached IDs
-    bool jniInitialized = false;
-    jclass cls_C04Packet = nullptr;
-    jmethodID mid_C04Init = nullptr;
-    bool is17 = false;  // True if 1.7.10 constructor (5 params)
-    
-    // Helper methods
-    bool initJNI();
-    void sendCriticalPackets(double x, double y, double z);
+
     bool isHoldingSword();
     bool isLookingAtPlayer();
     bool canDoCritical();
     bool checkChance();
-
-    // Password protection
-    bool isUnlocked = false;
-    char passwordBuffer[64] = "";
 };
 
 extern Criticals* criticals;

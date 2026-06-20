@@ -60,8 +60,15 @@ public:
 
 private:
     int lastHurtTime = 0;
-    int ticksSinceHit = 0;
-    bool wasHitThisTick = false;
+
+    struct PendingHit {
+        bool active = false;
+        Mode mode = Mode::Regular;
+        int applyAtHurtTime = 0;
+        unsigned long applyAtMs = 0;
+        float horizontal = 100.0f;
+        float vertical = 100.0f;
+    } queuedHit;
 
     // Gradual application state
     struct PendingReduction {
@@ -71,10 +78,8 @@ private:
         double targetMotionZ = 0.0;
         int ticksRemaining = 0;
         int totalTicks = 0;
+        int lastHurtTime = -1;
     } pending;
-
-    unsigned long microDelayStart = 0;
-    int microDelayTarget = 0;
 
     // Helper methods
     bool checkChance(float chance);
@@ -83,6 +88,9 @@ private:
     bool isLookingAtPlayer();
     bool isHoldingWeapon();
     float getAttackerAngle();
+    void queueHit(int hurtTime);
+    void applyQueuedHit(int hurtTime);
+    void continuePendingReduction(int hurtTime);
 };
 
 extern Velocity* velocity;

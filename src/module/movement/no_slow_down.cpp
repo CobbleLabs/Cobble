@@ -8,10 +8,19 @@
 #include <algorithm>
 #include <cmath>
 
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <Windows.h>
+
 NoSlowDown* noSlowDown = nullptr;
 
 NoSlowDown::NoSlowDown() : Module("NoSlowDown") {
     keybind = 0;
+    locked = true;
 }
 
 bool NoSlowDown::initializeFields() {
@@ -74,9 +83,9 @@ bool NoSlowDown::initializeFields() {
     return moveForwardField && moveStrafeField;
 }
 
-bool NoSlowDown::isKeyPressed(jobject gameSettings, jfieldID keyBindField) {
+bool NoSlowDown::isKeyPhysicallyPressed(jobject gameSettings, jfieldID keyBindField) {
     JNIEnv* env = Java::Env();
-    if (!env || !gameSettings || !keyBindField || !JniCache::fid_pressed)
+    if (!env || !gameSettings || !keyBindField)
         return false;
 
     jobject keyBind = env->GetObjectField(gameSettings, keyBindField);
@@ -85,7 +94,29 @@ bool NoSlowDown::isKeyPressed(jobject gameSettings, jfieldID keyBindField) {
         return false;
     }
 
-    const bool pressed = env->GetBooleanField(keyBind, JniCache::fid_pressed) == JNI_TRUE;
+    bool pressed = false;
+    bool physicalStateAvailable = false;
+    if (JniCache::mid_getKeyCode) {
+        const int keyCode = env->CallIntMethod(keyBind, JniCache::mid_getKeyCode);
+        if (!env->ExceptionCheck()) {
+            if (keyCode < 0) {
+                const int button = keyCode + 100;
+                const int virtualKey = button == 0 ? VK_LBUTTON :
+                                       button == 1 ? VK_RBUTTON :
+                                       button == 2 ? VK_MBUTTON : 0;
+                physicalStateAvailable = virtualKey != 0;
+                pressed = virtualKey != 0 && (GetAsyncKeyState(virtualKey) & 0x8000) != 0;
+            } else {
+                const UINT virtualKey = MapVirtualKeyA(static_cast<UINT>(keyCode), MAPVK_VSC_TO_VK);
+                physicalStateAvailable = virtualKey != 0;
+                pressed = virtualKey != 0 && (GetAsyncKeyState(virtualKey) & 0x8000) != 0;
+            }
+        }
+    }
+    if (env->ExceptionCheck())
+        env->ExceptionClear();
+    if (!physicalStateAvailable && JniCache::fid_pressed)
+        pressed = env->GetBooleanField(keyBind, JniCache::fid_pressed) == JNI_TRUE;
     if (env->ExceptionCheck())
         env->ExceptionClear();
     env->DeleteLocalRef(keyBind);
@@ -136,18 +167,18 @@ void NoSlowDown::onUpdate() {
 
     float forward = 0.0f;
     float strafe = 0.0f;
-    const bool hasKeyState = gameSettings && JniCache::fid_pressed &&
+    const bool hasKeyState = gameSettings &&
                              JniCache::fid_keyBindForward && JniCache::fid_keyBindBack &&
                              JniCache::fid_keyBindLeft && JniCache::fid_keyBindRight;
 
     if (hasKeyState) {
-        if (isKeyPressed(gameSettings, JniCache::fid_keyBindForward))
+        if (isKeyPhysicallyPressed(gameSettings, JniCache::fid_keyBindForward))
             forward += 1.0f;
-        if (isKeyPressed(gameSettings, JniCache::fid_keyBindBack))
+        if (isKeyPhysicallyPressed(gameSettings, JniCache::fid_keyBindBack))
             forward -= 1.0f;
-        if (isKeyPressed(gameSettings, JniCache::fid_keyBindLeft))
+        if (isKeyPhysicallyPressed(gameSettings, JniCache::fid_keyBindLeft))
             strafe += 1.0f;
-        if (isKeyPressed(gameSettings, JniCache::fid_keyBindRight))
+        if (isKeyPhysicallyPressed(gameSettings, JniCache::fid_keyBindRight))
             strafe -= 1.0f;
     } else {
         const auto restoreInput = [](float value) {

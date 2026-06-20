@@ -12,7 +12,7 @@ public:
 
 private:
     bool initializeFields();
-    bool isKeyPressed(jobject gameSettings, jfieldID keyBindField);
+    bool isKeyPhysicallyPressed(jobject gameSettings, jfieldID keyBindField);
     bool isPlayerUsingItem();
 
     jfieldID movementInputField = nullptr;

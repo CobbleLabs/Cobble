@@ -21,13 +21,6 @@ public:
     } settings;
 
 private:
-    void clearForcedTarget(JNIEnv* env);
-
-    jobject forcedTarget = nullptr;
-    jobject forcedMouseOver = nullptr;
-    jobject previousHitType = nullptr;
-    jobject previousEntityHit = nullptr;
-
     static bool rayIntersectsBox(double originX, double originY, double originZ,
                                  double directionX, double directionY, double directionZ,
                                  double minX, double minY, double minZ,

@@ -1,6 +1,7 @@
 #include "aimassist.h"
 #include "../../jni/java.h"
 #include "../../sdk/core/minecraft.h"
+#include "../../sdk/jni/jni_cache.h"
 #include "../../util/logger.hpp"
 #include "../../util/team/friends_manager.h"
 
@@ -37,35 +38,6 @@ constexpr int IRON_AXE = 258;
 constexpr int DIAMOND_AXE = 279;
 constexpr int GOLD_AXE = 286;
 }  // namespace ItemIds
-
-// Cached JNI lookups for fast-path position reads
-static jclass g_entityCls = nullptr;
-static jfieldID g_fid_posX = nullptr;
-static jfieldID g_fid_posY = nullptr;
-static jfieldID g_fid_posZ = nullptr;
-
-static void ensure_entity_fields(jobject sample) {
-    if (g_entityCls || !sample)
-        return;
-    jclass cls = Java::Env()->GetObjectClass(sample);
-    if (!cls)
-        return;
-    g_entityCls = (jclass)Java::Env()->NewGlobalRef(cls);
-    Java::Env()->DeleteLocalRef(cls);
-    if (!g_entityCls)
-        return;
-    g_fid_posX = Java::Env()->GetFieldID(g_entityCls, "posX", "D");
-    g_fid_posY = Java::Env()->GetFieldID(g_entityCls, "posY", "D");
-    g_fid_posZ = Java::Env()->GetFieldID(g_entityCls, "posZ", "D");
-}
-
-static void cleanup_entity_fields() {
-    if (g_entityCls) {
-        Java::Env()->DeleteGlobalRef(g_entityCls);
-        g_entityCls = nullptr;
-    }
-    g_fid_posX = g_fid_posY = g_fid_posZ = nullptr;
-}
 
 // Neuromotor state for human-like aiming
 struct NeuromotorState {
@@ -260,8 +232,6 @@ void AimAssist::onEnable() {
         }
         cachedTarget = nullptr;
     }
-    cleanup_entity_fields();  // Reset cached field IDs to force refresh
-
     hasLockedTarget = false;
     pitchdiffSpeed = 0.f;
     yawdiffSpeed = 0.f;
@@ -290,7 +260,6 @@ void AimAssist::onDisable() {
         Java::Env()->DeleteGlobalRef(cachedTarget);
         cachedTarget = nullptr;
     }
-    cleanup_entity_fields();
     cursorAccumY = 0.0;
     pitchdiffSpeed = yawdiffSpeed = 0.f;
     targetYawSpeed = 0.f;
@@ -415,18 +384,16 @@ void AimAssist::onUpdate() {
             Java::Env()->DeleteGlobalRef(cachedTarget);
             cachedTarget = nullptr;
         } else {
-            ensure_entity_fields(cachedTarget);
-
             // Update position from cached target (Fast JNI)
-            if (!g_fid_posX || !g_fid_posY || !g_fid_posZ) {
+            if (!JniCache::fid_posX || !JniCache::fid_posY || !JniCache::fid_posZ) {
                 Java::Env()->ExceptionClear();
                 Java::Env()->DeleteGlobalRef(cachedTarget);
                 cachedTarget = nullptr;
                 forceScan = true;
             } else {
-                double tX = Java::Env()->GetDoubleField(cachedTarget, g_fid_posX);
-                double tY = Java::Env()->GetDoubleField(cachedTarget, g_fid_posY);
-                double tZ = Java::Env()->GetDoubleField(cachedTarget, g_fid_posZ);
+                double tX = Java::Env()->GetDoubleField(cachedTarget, JniCache::fid_posX);
+                double tY = Java::Env()->GetDoubleField(cachedTarget, JniCache::fid_posY);
+                double tZ = Java::Env()->GetDoubleField(cachedTarget, JniCache::fid_posZ);
 
                 if (Java::Env()->ExceptionCheck()) {
                     Java::Env()->ExceptionClear();
@@ -575,7 +542,6 @@ bool AimAssist::findTarget(double& targetX, double& targetY, double& targetZ) {
             env->DeleteGlobalRef(cachedTarget);
             cachedTarget = nullptr;
         }
-        cleanup_entity_fields();
         targetHasHitbox = false;
         log_warn("[AimAssist] Cleared JNI exception - cache reset");
     }
@@ -592,9 +558,7 @@ bool AimAssist::findTarget(double& targetX, double& targetY, double& targetZ) {
             targetHasHitbox = false;
             prevFrameHadTarget = false;
         } else {
-            ensure_entity_fields(cachedTarget);
-
-            if (!g_fid_posX || !g_fid_posY || !g_fid_posZ) {
+            if (!JniCache::fid_posX || !JniCache::fid_posY || !JniCache::fid_posZ) {
                 Java::Env()->ExceptionClear();
                 Java::Env()->DeleteGlobalRef(cachedTarget);
                 cachedTarget = nullptr;
@@ -603,9 +567,9 @@ bool AimAssist::findTarget(double& targetX, double& targetY, double& targetZ) {
             }
 
             // Update position
-            double cX = Java::Env()->GetDoubleField(cachedTarget, g_fid_posX);
-            double cY = Java::Env()->GetDoubleField(cachedTarget, g_fid_posY);
-            double cZ = Java::Env()->GetDoubleField(cachedTarget, g_fid_posZ);
+            double cX = Java::Env()->GetDoubleField(cachedTarget, JniCache::fid_posX);
+            double cY = Java::Env()->GetDoubleField(cachedTarget, JniCache::fid_posY);
+            double cZ = Java::Env()->GetDoubleField(cachedTarget, JniCache::fid_posZ);
 
             if (Java::Env()->ExceptionCheck()) {
                 Java::Env()->ExceptionClear();
@@ -626,7 +590,7 @@ bool AimAssist::findTarget(double& targetX, double& targetY, double& targetZ) {
             double localZ = player.getPosZ();
             float yawToTarget = getAngles(localX, localY, localZ, cX, cY, cZ).first;
             float yawDiff = std::abs(wrapTo180(-(localYaw - yawToTarget)));
-            if (yawDiff > 25.f) {
+            if (yawDiff > settings.fov * 0.5f) {
                 return false;  // force slow scan/ramp
             }
 
@@ -727,10 +691,6 @@ bool AimAssist::findTarget(double& targetX, double& targetY, double& targetZ) {
             releasePlayerRef(p);
             continue;
         }
-        if (p.isNPC) {
-            releasePlayerRef(p);
-            continue;
-        }
         if (p.health <= 0.0f) {
             releasePlayerRef(p);
             continue;
@@ -792,7 +752,7 @@ bool AimAssist::findTarget(double& targetX, double& targetY, double& targetZ) {
         float yawToTarget = getAngles(localX, localY, localZ, p.posX, p.posY, p.posZ).first;
         float yawDiff = std::abs(wrapTo180(-(localYaw - yawToTarget)));
 
-        if ((int)yawDiff > settings.fov / 2) {
+        if (yawDiff > settings.fov * 0.5f) {
             releasePlayerRef(p);
             continue;
         }
