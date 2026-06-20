@@ -10,6 +10,7 @@
 #include <string>
 #include <vector>
 #include "../util/aes_string.hpp"
+#include "../util/dev_console.hpp"
 #include "../update/tweetnacl.h"
 #include "../util/control_flow.hpp"
 #include "../util/json.h"
@@ -64,6 +65,24 @@ static std::string g_HandshakeSig;  // Base64 Ed25519 signature from server
 static std::string g_SyncToken;     // Sync token for runtime validation
 static int64_t g_HandshakeTimestamp = 0;
 static int g_DaysRemaining = -1;
+
+static void LogHttpResponse(const char* operation, HINTERNET request, DWORD statusCode, size_t responseSize) {
+#ifdef COBBLE_DEV_BUILD
+    char contentType[256] = {};
+    DWORD contentTypeSize = sizeof(contentType);
+    if (!HttpQueryInfoA(request, HTTP_QUERY_CONTENT_TYPE, contentType, &contentTypeSize, nullptr)) {
+        std::snprintf(contentType, sizeof(contentType), "<unavailable>");
+    }
+
+    COBBLE_DEV_LOG("[license.%s] HTTP status=%lu, content_type=%s, body_bytes=%zu",
+                   operation, statusCode, contentType, responseSize);
+#else
+    (void)operation;
+    (void)request;
+    (void)statusCode;
+    (void)responseSize;
+#endif
+}
 
 std::string UrlEncode(const std::string& value) {
     std::ostringstream escaped;
@@ -597,11 +616,14 @@ bool FetchPayloadKey(const std::string& serverUrl) {
 
 bool Verify(const std::string& serverUrl) {
     g_RequiresLogin = false;
+    g_LastError.clear();
+    COBBLE_DEV_LOG("[license.verify] Begin verification");
 
     // Generate HWID
     std::string hwid = HWID::Generate();
     if (hwid.empty()) {
         g_LastError = "Failed to generate HWID";
+        COBBLE_DEV_LOG("[license.verify] HWID generation failed");
         return false;
     }
     ScopedStringWipe hwidWipe(hwid);
@@ -609,6 +631,7 @@ bool Verify(const std::string& serverUrl) {
     std::string nonce = GenerateNonce();
     if (nonce.empty()) {
         g_LastError = "Failed to generate nonce";
+        COBBLE_DEV_LOG("[license.verify] Nonce generation failed");
         return false;
     }
 
@@ -703,6 +726,8 @@ bool Verify(const std::string& serverUrl) {
         response += buffer;
     }
 
+    LogHttpResponse("verify", hRequest, statusCode, response.size());
+
     // Cleanup
     InternetCloseHandle(hRequest);
     InternetCloseHandle(hConnect);
@@ -716,24 +741,31 @@ bool Verify(const std::string& serverUrl) {
         if (statusCode >= 400 && statusCode < 500) {
             g_RequiresLogin = true;
         }
+        COBBLE_DEV_LOG("[license.verify] Empty response: requires_login=%s",
+                       g_RequiresLogin ? "true" : "false");
         return false;
     }
 
     // Parse JSON response
     json::Object json;
     if (!ParseResponseObject(response, json)) {
+        COBBLE_DEV_LOG("[license.verify] Top-level JSON parsing failed");
         if (statusCode == 401 || statusCode == 403) {
             g_RequiresLogin = true;
             g_LastError.clear();
         } else {
             SetUnparseableResponseError(static_cast<int>(statusCode), response);
         }
+        COBBLE_DEV_LOG("[license.verify] Parse failure classified: requires_login=%s, error=\"%s\"",
+                       g_RequiresLogin ? "true" : "false", g_LastError.c_str());
         return false;
     }
 
     // Check for signed response format - REQUIRED for security
     std::string payloadB64 = json.get_string("payload_b64", "");
     std::string sigB64 = json.get_string("sig_b64", "");
+    COBBLE_DEV_LOG("[license.verify] Envelope parsed: payload_b64_chars=%zu, sig_b64_chars=%zu",
+                   payloadB64.size(), sigB64.size());
 
     if (payloadB64.empty() || sigB64.empty()) {
         // No signature - check for plain error response with login hint
@@ -753,15 +785,20 @@ bool Verify(const std::string& serverUrl) {
         } else {
             g_LastError = errorMsg.empty() ? (message.empty() ? "Invalid response format" : message) : errorMsg;
         }
+        COBBLE_DEV_LOG("[license.verify] Unsigned response classified: status=%lu, requires_login=%s, error=\"%s\"",
+                       statusCode, g_RequiresLogin ? "true" : "false", g_LastError.c_str());
         return false;
     }
 
     std::vector<uint8_t> payloadBytes = Base64Decode(payloadB64);
     ScopedVectorWipe payloadBytesWipe(payloadBytes);
     std::vector<uint8_t> sigBytes = Base64Decode(sigB64);
+    COBBLE_DEV_LOG("[license.verify] Envelope decoded: payload_bytes=%zu, signature_bytes=%zu",
+                   payloadBytes.size(), sigBytes.size());
 
     if (payloadBytes.empty() || sigBytes.size() != 64) {
         g_LastError = "Invalid response format";
+        COBBLE_DEV_LOG("[license.verify] Rejected decoded envelope dimensions");
         return false;
     }
 
@@ -784,14 +821,17 @@ bool Verify(const std::string& serverUrl) {
 
     if (!sigValid) {
         g_LastError = "Invalid signature - response may have been tampered";
+        COBBLE_DEV_LOG("[license.verify] Signature verification failed");
         return false;
     }
+    COBBLE_DEV_LOG("[license.verify] Signature verification passed");
 
     std::string payloadStr(payloadBytes.begin(), payloadBytes.end());
     ScopedStringWipe payloadStrWipe(payloadStr);
     json::Object payload;
     if (!ParseResponseObject(payloadStr, payload)) {
         g_LastError = "Invalid payload format";
+        COBBLE_DEV_LOG("[license.verify] Signed payload JSON parsing failed");
         return false;
     }
 
@@ -801,6 +841,7 @@ bool Verify(const std::string& serverUrl) {
     if (!CF_CHECK(responseNonce == nonce)) {
         CF_JUNK();
         g_LastError = "Nonce mismatch - possible replay attack";
+        COBBLE_DEV_LOG("[license.verify] Nonce verification failed");
         return false;
     }
 
@@ -809,12 +850,17 @@ bool Verify(const std::string& serverUrl) {
     int64_t now = (int64_t)time(nullptr);
     if (now > expiresAt) {
         g_LastError = "Response expired";
+        COBBLE_DEV_LOG("[license.verify] Response expired: expires_at=%lld, now=%lld",
+                       static_cast<long long>(expiresAt), static_cast<long long>(now));
         return false;
     }
 
     // All cryptographic checks passed - now check business logic
     if (payload.get_bool("valid", false)) {
-        return StoreSessionMaterial(payload);
+        const bool stored = StoreSessionMaterial(payload);
+        COBBLE_DEV_LOG("[license.verify] Valid license payload: session_material_stored=%s",
+                       stored ? "true" : "false");
+        return stored;
     }
 
     // Extract error message
@@ -825,6 +871,8 @@ bool Verify(const std::string& serverUrl) {
     if (HasLoginHint(errCode) || HasLoginHint(g_LastError)) {
         g_RequiresLogin = true;
     }
+    COBBLE_DEV_LOG("[license.verify] License rejected: code=\"%s\", requires_login=%s, error=\"%s\"",
+                   errCode.c_str(), g_RequiresLogin ? "true" : "false", g_LastError.c_str());
     return false;
 }
 
@@ -834,6 +882,8 @@ bool RequiresLogin() {
 
 bool LoginWithCredentials(const std::string& serverUrl, const std::string& username, const std::string& password) {
     g_RequiresLogin = false;
+    g_LastError.clear();
+    COBBLE_DEV_LOG("[license.login] Begin login");
 
     // Generate HWID
     std::string hwid = HWID::Generate();
@@ -937,6 +987,8 @@ bool LoginWithCredentials(const std::string& serverUrl, const std::string& usern
         response += buffer;
     }
 
+    LogHttpResponse("login", hRequest, statusCode, response.size());
+
     InternetCloseHandle(hRequest);
     InternetCloseHandle(hConnect);
     InternetCloseHandle(hInternet);
@@ -944,13 +996,17 @@ bool LoginWithCredentials(const std::string& serverUrl, const std::string& usern
     // Parse JSON response
     json::Object json;
     if (!ParseResponseObject(response, json)) {
+        COBBLE_DEV_LOG("[license.login] Top-level JSON parsing failed");
         SetUnparseableResponseError(static_cast<int>(statusCode), response);
+        COBBLE_DEV_LOG("[license.login] Parse error=\"%s\"", g_LastError.c_str());
         return false;
     }
 
     // Check for signed response format
     std::string payloadB64 = json.get_string("payload_b64", "");
     std::string sigB64 = json.get_string("sig_b64", "");
+    COBBLE_DEV_LOG("[license.login] Envelope parsed: payload_b64_chars=%zu, sig_b64_chars=%zu",
+                   payloadB64.size(), sigB64.size());
 
     if (payloadB64.empty() || sigB64.empty()) {
         // Fallback to unsigned response (legacy or error)
@@ -967,15 +1023,19 @@ bool LoginWithCredentials(const std::string& serverUrl, const std::string& usern
             return false;
         }
         g_LastError = "Invalid response format";
+        COBBLE_DEV_LOG("[license.login] Successful HTTP response did not contain a signed envelope");
         return false;
     }
 
     std::vector<uint8_t> payloadBytes = Base64Decode(payloadB64);
     ScopedVectorWipe payloadBytesWipe(payloadBytes);
     std::vector<uint8_t> sigBytes = Base64Decode(sigB64);
+    COBBLE_DEV_LOG("[license.login] Envelope decoded: payload_bytes=%zu, signature_bytes=%zu",
+                   payloadBytes.size(), sigBytes.size());
 
     if (payloadBytes.empty() || sigBytes.size() != 64) {
         g_LastError = "Invalid response format";
+        COBBLE_DEV_LOG("[license.login] Rejected decoded envelope dimensions");
         return false;
     }
 
@@ -998,14 +1058,17 @@ bool LoginWithCredentials(const std::string& serverUrl, const std::string& usern
 
     if (!sigValid) {
         g_LastError = "Signature verification failed";
+        COBBLE_DEV_LOG("[license.login] Signature verification failed");
         return false;
     }
+    COBBLE_DEV_LOG("[license.login] Signature verification passed");
 
     std::string payloadStr(payloadBytes.begin(), payloadBytes.end());
     ScopedStringWipe payloadStrWipe(payloadStr);
     json::Object payload;
     if (!ParseResponseObject(payloadStr, payload)) {
         g_LastError = "Invalid payload";
+        COBBLE_DEV_LOG("[license.login] Signed payload JSON parsing failed");
         return false;
     }
 
@@ -1015,6 +1078,7 @@ bool LoginWithCredentials(const std::string& serverUrl, const std::string& usern
     if (!CF_CHECK(responseNonce == nonce)) {
         CF_JUNK();
         g_LastError = "Security check failed";
+        COBBLE_DEV_LOG("[license.login] Nonce verification failed");
         return false;
     }
 
@@ -1023,15 +1087,21 @@ bool LoginWithCredentials(const std::string& serverUrl, const std::string& usern
     int64_t now = (int64_t)time(nullptr);
     if (now > expiresAt) {
         g_LastError = "Response expired";
+        COBBLE_DEV_LOG("[license.login] Response expired: expires_at=%lld, now=%lld",
+                       static_cast<long long>(expiresAt), static_cast<long long>(now));
         return false;
     }
 
     // Check business logic
     if (payload.get_bool("valid", false)) {
-        return StoreSessionMaterial(payload);
+        const bool stored = StoreSessionMaterial(payload);
+        COBBLE_DEV_LOG("[license.login] Login accepted: session_material_stored=%s",
+                       stored ? "true" : "false");
+        return stored;
     }
 
     g_LastError = payload.get_string("message", "Authentication failed");
+    COBBLE_DEV_LOG("[license.login] Login rejected: error=\"%s\"", g_LastError.c_str());
     return false;
 }
 

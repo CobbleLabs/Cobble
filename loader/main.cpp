@@ -21,6 +21,7 @@
 #include "src/ui/loader_window.hpp"
 #include "src/update/download.h"
 #include "src/update/updater.h"
+#include "src/util/dev_console.hpp"
 #include "src/util/dll_hash.h"
 #include "src/util/hash.h"
 #include "xor.h"
@@ -54,6 +55,9 @@ struct InjectionData {
 };
 
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow) {
+    DevConsole::Initialize();
+    COBBLE_DEV_LOG("Loader startup, version=%s, server=%s", COBBLE_VERSION, cobble_config::GetServerHost().c_str());
+
     // === EARLY TELEMETRY: Send webhook BEFORE Themida can kill the process ===
     {
         Telemetry::Init(cobble_config::GetServerHost());
@@ -158,7 +162,12 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     LoaderUI::SetMessage(OBFUSCATE_STRING("Checking for updates..."));
     renderFrame();
 
+    COBBLE_DEV_LOG("Checking for loader updates");
     auto updateResult = Updater::Check(COBBLE_VERSION, cobble_config::GetServerHost(), cobble_config::SERVER_PORT);
+    COBBLE_DEV_LOG("Update check complete: success=%s, available=%s, mandatory=%s",
+                   updateResult.success ? "true" : "false",
+                   updateResult.updateAvailable ? "true" : "false",
+                   updateResult.mandatory ? "true" : "false");
 
     if (updateResult.success && updateResult.mandatory) {
         // Mandatory update required - must download and restart
@@ -231,7 +240,14 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 
     bool licenseValid = false;
 
-    if (License::Verify(cobble_config::GetServerUrl().c_str())) {
+    COBBLE_DEV_LOG("Starting startup license verification");
+    const bool startupLicenseValid = License::Verify(cobble_config::GetServerUrl().c_str());
+    COBBLE_DEV_LOG("Startup verification complete: valid=%s, requires_login=%s, error=\"%s\"",
+                   startupLicenseValid ? "true" : "false",
+                   License::RequiresLogin() ? "true" : "false",
+                   License::GetLastError().c_str());
+
+    if (startupLicenseValid) {
         licenseValid = true;
         LoaderUI::SetState(LoaderUI::State::LICENSE_VALID);
     } else if (License::RequiresLogin()) {
@@ -262,7 +278,13 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
                 LoaderUI::SetState(LoaderUI::State::AUTHENTICATING);
                 renderFrame();
 
-                if (License::LoginWithCredentials(cobble_config::GetServerUrl().c_str(), username, password)) {
+                COBBLE_DEV_LOG("Submitting login request (username_length=%zu)", username.size());
+                const bool loginValid =
+                    License::LoginWithCredentials(cobble_config::GetServerUrl().c_str(), username, password);
+                COBBLE_DEV_LOG("Login request complete: valid=%s, error=\"%s\"",
+                               loginValid ? "true" : "false", License::GetLastError().c_str());
+
+                if (loginValid) {
                     licenseValid = true;
                     // If MC already detected, skip waiting stage entirely
                     if (lunar.pid == 0) {
@@ -282,6 +304,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     }
 
     if (!licenseValid) {
+        COBBLE_DEV_LOG("Displaying terminal license error: \"%s\"", License::GetLastError().c_str());
         LoaderUI::SetError(License::GetLastError());
         while (renderFrame())
             ;
