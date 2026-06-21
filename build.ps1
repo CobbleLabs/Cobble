@@ -7,6 +7,8 @@
     .\build.ps1                          Interactive mode selector
     .\build.ps1 -Build                  Plain build (dev, no VMProtect, no signed manifest)
     .\build.ps1 -Pack                    Build + VMProtect Ultra on DLL/loader + signed manifest
+    .\build.ps1 -Pack -VMProtectRoot ..\cobble-vmprotect
+                                           Use an external VMProtect source checkout
     .\build.ps1 -Pack -Protector None    Production build + signed manifest, no built-in protector
     .\build.ps1 -SignExisting -Deploy    Sign/deploy externally protected binaries
     .\build.ps1 -Pack -Deploy            Pack + scp to VPS
@@ -27,6 +29,7 @@ param(
     [switch]$Build,
     [switch]$Pack,
     [ValidateSet("VMProtect", "None")][string]$Protector = "VMProtect",
+    [string]$VMProtectRoot = "",
     [switch]$SignExisting,
     [string]$ExistingReleaseDir = "",
     [string]$ExistingLoader = "",
@@ -96,6 +99,75 @@ function Get-SHA256 {
     return (Get-FileHash -Path $Path -Algorithm SHA256).Hash.ToLower()
 }
 
+function Assert-RegisteredVMProtect {
+    param([string]$ConsolePath)
+
+    Assert-File $ConsolePath "VMProtectCon.exe was not produced"
+
+    # Calling the console without an input prints its banner and exits with the
+    # normal usage error. The banner is the authoritative registration status.
+    $statusOutput = @(& $ConsolePath 2>&1 | ForEach-Object { $_.ToString() })
+    $statusText = $statusOutput -join [Environment]::NewLine
+
+    if ($statusText -match '(?im)^\s*Unregistered Version\s*$') {
+        Write-Log "VMProtect is UNREGISTERED; refusing to build or deploy limited artifacts." FAIL
+        Write-Log "Source availability does not grant a VMProtect license. Use a legitimately licensed build." INFO
+        exit 1
+    }
+    if ($statusText -notmatch '(?im)^\s*VMProtect\b') {
+        Write-Log "Could not verify VMProtect registration state from $ConsolePath" FAIL
+        exit 1
+    }
+
+    Write-Log "VMProtect registration preflight passed" OK
+}
+
+function Assert-ProtectedPE {
+    param(
+        [string]$OriginalHash,
+        [string]$OutputPath,
+        [string]$Label
+    )
+
+    if (-not (Test-Path -LiteralPath $OutputPath)) {
+        Write-Log "VMProtect produced no protected $Label" FAIL
+        exit 1
+    }
+
+    $outputInfo = Get-Item -LiteralPath $OutputPath
+    if ($outputInfo.Length -lt 2) {
+        Write-Log "VMProtect produced an empty or truncated $Label" FAIL
+        exit 1
+    }
+
+    $stream = [System.IO.File]::Open(
+        $OutputPath,
+        [System.IO.FileMode]::Open,
+        [System.IO.FileAccess]::Read,
+        [System.IO.FileShare]::Read
+    )
+    try {
+        $first = $stream.ReadByte()
+        $second = $stream.ReadByte()
+    }
+    finally {
+        $stream.Dispose()
+    }
+
+    if ($first -ne 0x4D -or $second -ne 0x5A) {
+        Write-Log "VMProtect output for $Label is not a valid PE file" FAIL
+        exit 1
+    }
+
+    $protectedHash = Get-SHA256 $OutputPath
+    if ($protectedHash -eq $OriginalHash) {
+        Write-Log "VMProtect output for $Label is byte-identical to the input" FAIL
+        exit 1
+    }
+
+    return $protectedHash
+}
+
 function Protect-Artifact {
     param(
         [string]$InputPath,
@@ -111,6 +183,7 @@ function Protect-Artifact {
 
     try {
         if (Test-Path $protectedOutput) { Remove-Item $protectedOutput -Force }
+        $originalHash = Get-SHA256 $InputPath
         Write-Log "Applying VMProtect Ultra to $Label (mutation + virtualization)..." STEP
 
         & $Paths.VMProtectExe $InputPath $protectedOutput -pf $Paths.VMProtectProject -we
@@ -119,13 +192,9 @@ function Protect-Artifact {
             Write-Log "VMProtect failed for $Label (exit=$vmProtectExit)" FAIL
             exit 1
         }
-        if (-not (Test-Path $protectedOutput)) {
-            Write-Log "VMProtect produced no protected $Label" FAIL
-            exit 1
-        }
-
+        $protectedHash = Assert-ProtectedPE $originalHash $protectedOutput $Label
         Copy-Item -LiteralPath $protectedOutput -Destination $InputPath -Force
-        Write-Log "VMProtect Ultra applied to $Label [$((Get-Item $InputPath).Length) bytes]" OK
+        Write-Log "VMProtect Ultra applied to $Label [$((Get-Item $InputPath).Length) bytes, SHA256=$protectedHash]" OK
     }
     finally {
         if (Test-Path $protectedOutput) {
@@ -199,7 +268,7 @@ if (-not $Clean -and -not $Build -and -not $Pack -and -not $SkipDLL -and -not $S
     Write-Host "    [4]  Sign/deploy externally protected binaries" -ForegroundColor Magenta
     Write-Host "    [5]  Clean" -ForegroundColor Red
     Write-Host ""
-    $choice = Read-Host "  Choice [1-4]"
+    $choice = Read-Host "  Choice [1-5]"
     switch ($choice.Trim()) {
         "1" { $Build = $true }
         "2" { $Pack = $true }
@@ -237,6 +306,17 @@ if (-not (Test-Path $msbuildExe)) {
     Write-Log "MSBuild not found. Install Visual Studio 2022 with C++ workload." FAIL; exit 1
 }
 
+$vmProtectCandidate = if ($VMProtectRoot) {
+    if ([IO.Path]::IsPathRooted($VMProtectRoot)) {
+        $VMProtectRoot
+    } else {
+        Join-Path $PSScriptRoot $VMProtectRoot
+    }
+} else {
+    Join-Path $PSScriptRoot "vmprotect"
+}
+$vmProtectPath = [IO.Path]::GetFullPath($vmProtectCandidate)
+
 $Paths = @{
     Root             = $PSScriptRoot
     MSBuild          = $msbuildExe
@@ -252,9 +332,9 @@ $Paths = @{
     ConfigJson       = "$PSScriptRoot\cobble.json"
     ReleaseDir       = "$PSScriptRoot\out\releases\latest"
     PrivateKey       = "$PSScriptRoot\infra\keys\private.key"
-    VMProtectDir     = "$PSScriptRoot\vmprotect"
-    VMProtectBuild   = "$PSScriptRoot\vmprotect\build.ps1"
-    VMProtectExe     = "$PSScriptRoot\vmprotect\bin\64\Ultimate\VMProtectCon.exe"
+    VMProtectDir     = $vmProtectPath
+    VMProtectBuild   = Join-Path $vmProtectPath "build.ps1"
+    VMProtectExe     = Join-Path $vmProtectPath "bin\64\Ultimate\VMProtectCon.exe"
     VMProtectProject = "$PSScriptRoot\protection\cobble-ultra.vmp"
     SignScript       = "$PSScriptRoot\tools\sign_manifest.go"
     TempDir          = "$PSScriptRoot\out\bin\$BuildMode\_tmp"
@@ -280,11 +360,11 @@ Write-Log "Writing generated/build_flags.h (DevBuild=$([bool]$DevBuild))..." STE
 Write-BuildFlags -DevBuild:$DevBuild
 
 if ($Pack -and $Protector -eq "VMProtect") {
-    Assert-File $Paths.VMProtectBuild "VMProtect submodule is missing - run: git submodule update --init --recursive"
-    Write-Log "Building VMProtect console and SDK..." STEP
+    Assert-File $Paths.VMProtectBuild "VMProtect source is missing at $($Paths.VMProtectDir)"
+    Write-Log "Building VMProtect console and SDK from $($Paths.VMProtectDir)..." STEP
     & $Paths.VMProtectBuild -Platform x64
     if ($LASTEXITCODE -ne 0) { Write-Log "VMProtect build failed" FAIL; exit 1 }
-    Assert-File $Paths.VMProtectExe "VMProtectCon.exe was not produced"
+    Assert-RegisteredVMProtect $Paths.VMProtectExe
 }
 
 # --- Config generation -------------------------------------------------------
@@ -310,62 +390,93 @@ function New-SignedRelease {
     )
 
     Assert-File $Paths.PrivateKey "infra/keys/private.key not found - get it from the team lead"
+    Assert-File $Paths.SignScript "tools/sign_manifest.go not found"
     Assert-File $SourceLoader "CobbleLoader.exe not found at $SourceLoader"
     Assert-File $SourceDll "Cobble.dll not found at $SourceDll"
 
     $version = Get-Version
 
-    New-Item -ItemType Directory -Force -Path $Paths.ReleaseDir | Out-Null
-    $releaseLoader = "$($Paths.ReleaseDir)\CobbleLoader.exe"
-    $releaseDll = "$($Paths.ReleaseDir)\Cobble.dll"
-
-    Copy-Item -LiteralPath $SourceLoader -Destination $releaseLoader -Force
-    Copy-Item -LiteralPath $SourceDll    -Destination $releaseDll    -Force
-
-    $loaderHash = Get-SHA256 $releaseLoader
-    $loaderSize = (Get-Item $releaseLoader).Length
-    $releaseDllHash = Get-SHA256 $releaseDll
-    $releaseDllSize = (Get-Item $releaseDll).Length
-
-    $isMandatory = $false
-    if ($Mandatory) {
-        $isMandatory = $true
-    }
-    else {
-        $isMandatory = ($Host.UI.PromptForChoice("Release", "Mark as MANDATORY update?",
-                @("&Yes", "&No"), 1) -eq 0)
+    $releaseParent = Split-Path -Parent $Paths.ReleaseDir
+    New-Item -ItemType Directory -Force -Path $releaseParent | Out-Null
+    $stageDir = Join-Path $releaseParent (".staging-" + [Guid]::NewGuid().ToString("N"))
+    $stageDir = [IO.Path]::GetFullPath($stageDir)
+    $releasePrefix = [IO.Path]::GetFullPath($releaseParent).TrimEnd([IO.Path]::DirectorySeparatorChar) +
+        [IO.Path]::DirectorySeparatorChar
+    if (-not $stageDir.StartsWith($releasePrefix, [StringComparison]::OrdinalIgnoreCase)) {
+        Write-Log "Refusing to stage a release outside $releaseParent" FAIL
+        exit 1
     }
 
-    $manifest = [ordered]@{
-        version       = $version
-        min_allowed   = "1.0.0"
-        mandatory     = $isMandatory
-        protected     = $Protected
-        loader_sha256 = $loaderHash
-        loader_size   = $loaderSize
-        dll_sha256    = $releaseDllHash
-        dll_size      = $releaseDllSize
-        notes         = $ReleaseNotes
+    try {
+        New-Item -ItemType Directory -Path $stageDir | Out-Null
+        $stageLoader = Join-Path $stageDir "CobbleLoader.exe"
+        $stageDll = Join-Path $stageDir "Cobble.dll"
+        $stageManifest = Join-Path $stageDir "manifest.json"
+        $stageSignature = Join-Path $stageDir "manifest.sig"
+
+        Copy-Item -LiteralPath $SourceLoader -Destination $stageLoader -Force
+        Copy-Item -LiteralPath $SourceDll    -Destination $stageDll    -Force
+
+        $loaderHash = Get-SHA256 $stageLoader
+        $loaderSize = (Get-Item $stageLoader).Length
+        $releaseDllHash = Get-SHA256 $stageDll
+        $releaseDllSize = (Get-Item $stageDll).Length
+
+        $isMandatory = if ($Mandatory) {
+            $true
+        }
+        else {
+            $Host.UI.PromptForChoice("Release", "Mark as MANDATORY update?",
+                @("&Yes", "&No"), 1) -eq 0
+        }
+
+        $manifest = [ordered]@{
+            version       = $version
+            min_allowed   = "1.0.0"
+            mandatory     = $isMandatory
+            protected     = $Protected
+            loader_sha256 = $loaderHash
+            loader_size   = $loaderSize
+            dll_sha256    = $releaseDllHash
+            dll_size      = $releaseDllSize
+            notes         = $ReleaseNotes
+        }
+        $manifestBytes = [System.Text.Encoding]::UTF8.GetBytes(($manifest | ConvertTo-Json -Compress))
+        [System.IO.File]::WriteAllBytes($stageManifest, $manifestBytes)
+
+        Write-Log "Signing staged manifest with Ed25519..." STEP
+        go run $Paths.SignScript `
+            -key      $Paths.PrivateKey `
+            -manifest $stageManifest `
+            -out      $stageSignature
+        if ($LASTEXITCODE -ne 0) {
+            Write-Log "Manifest signing failed - is Go installed?" FAIL
+            exit 1
+        }
+        Assert-File $stageSignature "manifest.sig not produced"
+
+        # Prepare the local deployment bundle only after all four staged
+        # artifacts exist and signing succeeds. This does not publish a GitHub
+        # release; option 3 uploads this bundle directly to the configured VPS.
+        New-Item -ItemType Directory -Force -Path $Paths.ReleaseDir | Out-Null
+        foreach ($name in @("CobbleLoader.exe", "Cobble.dll", "manifest.json", "manifest.sig")) {
+            Copy-Item -LiteralPath (Join-Path $stageDir $name) `
+                -Destination (Join-Path $Paths.ReleaseDir $name) -Force
+        }
+        Write-Log "Deployment bundle v$version signed and prepared locally" OK
+
+        return [pscustomobject]@{
+            LoaderPath = Join-Path $Paths.ReleaseDir "CobbleLoader.exe"
+            DllPath    = Join-Path $Paths.ReleaseDir "Cobble.dll"
+            LoaderHash = $loaderHash
+            DllHash    = $releaseDllHash
+            DllSize    = $releaseDllSize
+        }
     }
-    $manifestBytes = [System.Text.Encoding]::UTF8.GetBytes(($manifest | ConvertTo-Json -Compress))
-    [System.IO.File]::WriteAllBytes("$($Paths.ReleaseDir)\manifest.json", $manifestBytes)
-
-    Write-Log "Signing manifest with Ed25519..." STEP
-    Assert-File $Paths.SignScript "tools/sign_manifest.go not found"
-    go run $Paths.SignScript `
-        -key      $Paths.PrivateKey `
-        -manifest "$($Paths.ReleaseDir)\manifest.json" `
-        -out      "$($Paths.ReleaseDir)\manifest.sig"
-    if ($LASTEXITCODE -ne 0) { Write-Log "Manifest signing failed - is Go installed?" FAIL; exit 1 }
-    Assert-File "$($Paths.ReleaseDir)\manifest.sig" "manifest.sig not produced"
-    Write-Log "Release v$version signed" OK
-
-    return [pscustomobject]@{
-        LoaderPath = $releaseLoader
-        DllPath    = $releaseDll
-        LoaderHash = $loaderHash
-        DllHash    = $releaseDllHash
-        DllSize    = $releaseDllSize
+    finally {
+        if (Test-Path -LiteralPath $stageDir) {
+            Remove-Item -LiteralPath $stageDir -Recurse -Force -ErrorAction SilentlyContinue
+        }
     }
 }
 
@@ -548,77 +659,20 @@ if ($Pack) {
     if ($Protector -eq "VMProtect") {
         Assert-File $Paths.VMProtectProject "VMProtect Ultra project is missing"
 
-        # Temp files — always cleaned up via finally
-        New-Item -ItemType Directory -Force -Path $Paths.TempDir | Out-Null
-        $ProtectedLoader = "$($Paths.TempDir)\CobbleLoader_protected.exe"
-
-        try {
-            Write-Log "Applying VMProtect Ultra to CobbleLoader.exe (mutation + virtualization)..." STEP
-            if (Test-Path $ProtectedLoader) { Remove-Item $ProtectedLoader -Force }
-
-            & $Paths.VMProtectExe $Paths.LoaderOutput $ProtectedLoader -pf $Paths.VMProtectProject -we
-            $vmProtectExit = $LASTEXITCODE
-            if ($vmProtectExit -ne 0) {
-                Write-Log "VMProtect failed (exit=$vmProtectExit)" FAIL; exit 1
-            }
-            if (-not (Test-Path $ProtectedLoader)) {
-                Write-Log "VMProtect produced no output" FAIL; exit 1
-            }
-
-            Copy-Item $ProtectedLoader $Paths.LoaderOutput -Force
-            Write-Log "VMProtect Ultra applied to CobbleLoader.exe [$((Get-Item $Paths.LoaderOutput).Length) bytes]" OK
-
-        }
-        finally {
-            # Always clean up temp files regardless of success or failure
-            @($ProtectedLoader) | ForEach-Object {
-                if (Test-Path $_) { Remove-Item $_ -Force -ErrorAction SilentlyContinue }
-            }
-            if ((Get-ChildItem $Paths.TempDir -ErrorAction SilentlyContinue | Measure-Object).Count -eq 0) {
-                Remove-Item $Paths.TempDir -Force -ErrorAction SilentlyContinue
-            }
-        }
+        # Use the same fail-closed validation path as the DLL.
+        Protect-Artifact `
+            -InputPath $Paths.LoaderOutput `
+            -OutputName "CobbleLoader_protected.exe" `
+            -Label "CobbleLoader.exe"
     }
     else {
         Write-Log "Skipping VMProtect; this release must not be published unprotected" WARN
     }
 
-    # Assemble release directory
-    New-Item -ItemType Directory -Force -Path $Paths.ReleaseDir | Out-Null
-    Copy-Item $Paths.LoaderOutput "$($Paths.ReleaseDir)\CobbleLoader.exe" -Force
-    Copy-Item $Paths.DllOutput    "$($Paths.ReleaseDir)\Cobble.dll"       -Force
-
-    $loaderHash = Get-SHA256 "$($Paths.ReleaseDir)\CobbleLoader.exe"
-    $loaderSize = (Get-Item  "$($Paths.ReleaseDir)\CobbleLoader.exe").Length
-
-    Assert-File $Paths.PrivateKey "infra/keys/private.key not found - protection succeeded, but signing requires the team key"
-
-    $isMandatory = ($Host.UI.PromptForChoice("Release", "Mark as MANDATORY update?",
-            @("&Yes", "&No"), 1) -eq 0)
-
-    $manifest = [ordered]@{
-        version       = $version
-        min_allowed   = "1.0.0"
-        mandatory     = $isMandatory
-        protected     = ($Protector -ne "None")
-        loader_sha256 = $loaderHash
-        loader_size   = $loaderSize
-        dll_sha256    = $dllHash
-        dll_size      = $dllSize
-        notes         = $ReleaseNotes
-    }
-    $manifestBytes = [System.Text.Encoding]::UTF8.GetBytes(($manifest | ConvertTo-Json -Compress))
-    [System.IO.File]::WriteAllBytes("$($Paths.ReleaseDir)\manifest.json", $manifestBytes)
-
-    Write-Log "Signing manifest with Ed25519..." STEP
-    Assert-File $Paths.SignScript "tools/sign_manifest.go not found"
-    go run $Paths.SignScript `
-        -key      $Paths.PrivateKey `
-        -manifest "$($Paths.ReleaseDir)\manifest.json" `
-        -out      "$($Paths.ReleaseDir)\manifest.sig"
-    if ($LASTEXITCODE -ne 0) { Write-Log "Manifest signing failed - is Go installed?" FAIL; exit 1 }
-    Assert-File "$($Paths.ReleaseDir)\manifest.sig" "manifest.sig not produced"
-    Write-Log "Pack v$version signed" OK
+    $releaseInfo = New-SignedRelease `
+        -SourceLoader $Paths.LoaderOutput `
+        -SourceDll $Paths.DllOutput `
+        -Protected:($Protector -ne "None")
 }
 
 # --- Deploy ------------------------------------------------------------------
@@ -640,8 +694,8 @@ if ($Deploy) {
     if ($LASTEXITCODE -ne 0) { Write-Log "Cannot reach remote dir $remotePath" FAIL; exit 1 }
 
     $files = @(
-        $Paths.LoaderOutput
-        $Paths.DllOutput
+        "$($Paths.ReleaseDir)\CobbleLoader.exe"
+        "$($Paths.ReleaseDir)\Cobble.dll"
         "$($Paths.ReleaseDir)\manifest.json"
         "$($Paths.ReleaseDir)\manifest.sig"
     )

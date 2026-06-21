@@ -96,7 +96,7 @@ This automatically:
 
 ---
 
-## Releasing a New Version
+## Deploying a New Version
 
 ### 1. Update version
 
@@ -107,10 +107,14 @@ Edit `cobble.json`:
 
 `generate_config.ps1` produces `generated/version.h` from this on every build.
 
-### 2. Build + Sign + Set Mandatory
+`cobble.json` contains deployment credentials and other private configuration.
+It is ignored by Git and must never be committed.
+
+### 2. Owner-only build + protect + sign + deploy
 
 ```powershell
-.\build.ps1 -PrepareRelease
+.\build.ps1
+# Select option 3: Build + Pack + Deploy
 ```
 
 The script will ask:
@@ -119,19 +123,30 @@ Is this release MANDATORY? (y/N)
 ```
 Answer `y` if you want to force all users to update immediately.
 
-This:
-- Builds Cobble.dll and CobbleLoader.exe
-- Generates `manifest.json` (with `mandatory: true/false`)
-- Signs the manifest with Ed25519 (creates `manifest.sig`)
-- Places everything in `out/releases/latest/`
+Option 3:
 
-### 3. Upload to server
+- Builds the in-repo VMProtect console and aborts unless its banner reports a
+  legitimately registered installation.
+- Builds and protects `Cobble.dll` with the Ultra mutation + virtualization
+  profile.
+- Encrypts that protected DLL into the loader payload.
+- Builds and protects `CobbleLoader.exe` with the same Ultra profile.
+- Generates and signs `manifest.json` and `manifest.sig`.
+- Prepares a temporary local deployment bundle and uploads all four artifacts
+  directly to the VPS configured in `cobble.json`.
+- Does not create or publish a GitHub Release.
 
-```bash
-scp -r out/releases/latest/* user@server:/opt/cobble/releases/latest/
-```
+Only the owner/operator with the signing key and VPS credentials should run
+option 3.
 
-Or via your preferred deployment method.
+### Why the VPS receives an EXE and a DLL
+
+The website can distribute only `CobbleLoader.exe` to end users because the
+loader already contains the encrypted protected DLL payload and maps it after
+successful authentication. The protected `Cobble.dll` is also uploaded as a
+separate server artifact because the current signed manifest and update API
+track both files. Do not remove that separate DLL until the server contract,
+manifest fields, and `/api/update/dll` endpoint are changed together.
 
 ---
 
