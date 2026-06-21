@@ -5,8 +5,8 @@
 
 .DESCRIPTION
     .\build.ps1                          Interactive mode selector
-    .\build.ps1 -Build                  Plain build (dev, no Themida, no signed manifest)
-    .\build.ps1 -Pack                    Plain build + Themida + signed manifest (release-quality)
+    .\build.ps1 -Build                  Plain build (dev, no VMProtect, no signed manifest)
+    .\build.ps1 -Pack                    Plain build + VMProtect Ultra + signed manifest
     .\build.ps1 -Pack -Protector None    Production build + signed manifest, no built-in protector
     .\build.ps1 -SignExisting -Deploy    Sign/deploy externally protected binaries
     .\build.ps1 -Pack -Deploy            Pack + scp to VPS
@@ -16,8 +16,8 @@
 .NOTES
     There is no longer a separate "Debug" configuration. Every build is Release.
     `-Pack` builds production-mode binaries and signs a release manifest.
-    `-Protector Themida` applies the built-in Themida step. `-Protector None`
-    leaves protection to an external tool such as VMProtect.
+    `-Protector VMProtect` applies the in-repo VMProtect Ultra profile.
+    `-Protector None` leaves the production binaries unprotected.
 #>
 
 param(
@@ -25,7 +25,7 @@ param(
     [switch]$SkipDLL,
     [switch]$Build,
     [switch]$Pack,
-    [ValidateSet("Themida", "None")][string]$Protector = "Themida",
+    [ValidateSet("VMProtect", "None")][string]$Protector = "VMProtect",
     [switch]$SignExisting,
     [string]$ExistingReleaseDir = "",
     [string]$ExistingLoader = "",
@@ -68,7 +68,7 @@ if ($SignExisting -and ($Build -or $Pack -or $SkipDLL)) {
     exit 1
 }
 if ($Pack -and $Protector -eq "None" -and $Deploy) {
-    Write-Log "-Pack -Protector None -Deploy would publish unprotected binaries. Run -SignExisting -Deploy after VMProtect." FAIL
+    Write-Log "-Pack -Protector None -Deploy would publish unprotected binaries." FAIL
     exit 1
 }
 
@@ -150,8 +150,8 @@ Write-Host ""
 
 if (-not $Clean -and -not $Build -and -not $Pack -and -not $SkipDLL -and -not $SignExisting) {
     Write-Host "  Select build mode:" -ForegroundColor Cyan
-    Write-Host "    [1]  Build (dev, no Themida)" -ForegroundColor Green
-    Write-Host "    [2]  Build + Pack (Themida + signed manifest)" -ForegroundColor Yellow
+    Write-Host "    [1]  Build (dev, no VMProtect)" -ForegroundColor Green
+    Write-Host "    [2]  Build + Pack (VMProtect Ultra + signed manifest)" -ForegroundColor Yellow
     Write-Host "    [3]  Build + Pack + Deploy" -ForegroundColor Blue
     Write-Host "    [4]  Sign/deploy externally protected binaries" -ForegroundColor Magenta
     Write-Host "    [5]  Clean" -ForegroundColor Red
@@ -209,7 +209,10 @@ $Paths = @{
     ConfigJson       = "$PSScriptRoot\cobble.json"
     ReleaseDir       = "$PSScriptRoot\out\releases\latest"
     PrivateKey       = "$PSScriptRoot\infra\keys\private.key"
-    ThemidaDir       = "$PSScriptRoot\themida"
+    VMProtectDir     = "$PSScriptRoot\vmprotect"
+    VMProtectBuild   = "$PSScriptRoot\vmprotect\build.ps1"
+    VMProtectExe     = "$PSScriptRoot\vmprotect\bin\64\Ultimate\VMProtectCon.exe"
+    VMProtectProject = "$PSScriptRoot\protection\cobble-loader-ultra.vmp"
     SignScript       = "$PSScriptRoot\tools\sign_manifest.go"
     TempDir          = "$PSScriptRoot\out\bin\$BuildMode\_tmp"
 }
@@ -232,6 +235,14 @@ if ($Clean) {
 $DevBuild = (-not $Pack -and -not $SignExisting)
 Write-Log "Writing generated/build_flags.h (DevBuild=$([bool]$DevBuild))..." STEP
 Write-BuildFlags -DevBuild:$DevBuild
+
+if ($Pack -and $Protector -eq "VMProtect") {
+    Assert-File $Paths.VMProtectBuild "VMProtect submodule is missing - run: git submodule update --init --recursive"
+    Write-Log "Building VMProtect console and SDK..." STEP
+    & $Paths.VMProtectBuild -Platform x64
+    if ($LASTEXITCODE -ne 0) { Write-Log "VMProtect build failed" FAIL; exit 1 }
+    Assert-File $Paths.VMProtectExe "VMProtectCon.exe was not produced"
+}
 
 # --- Config generation -------------------------------------------------------
 
@@ -475,67 +486,40 @@ Write-Log "integrity_gen.hpp written" OK
 
 Build-Loader "Pass 2"
 
-# --- Pack: Themida + signed manifest -----------------------------------------
+# --- Pack: VMProtect Ultra + signed manifest ---------------------------------
 
 if ($Pack) {
 
     Write-Log "Starting Pack pipeline (protector=$Protector + signed manifest)..." STEP
     $version = Get-Version
 
-    Assert-File $Paths.PrivateKey "infra/keys/private.key not found - get it from the team lead"
-
-    if ($Protector -eq "Themida") {
-        $ThemidaExe = $null
-        foreach ($c in @("$($Paths.ThemidaDir)\Themida64.exe", "$($Paths.ThemidaDir)\Themida.exe")) {
-            if (Test-Path $c) { $ThemidaExe = $c; break }
-        }
-        if (-not $ThemidaExe) {
-            Write-Log "Themida not found in themida/ - run: git submodule update --init themida" FAIL; exit 1
-        }
-        Assert-File "$($Paths.ThemidaDir)\TMLicenseA1.dat" "TMLicenseA1.dat missing from themida/ submodule"
-        Assert-File "$($Paths.ThemidaDir)\cobble.tmd"      "cobble.tmd missing from themida/ submodule"
+    if ($Protector -eq "VMProtect") {
+        Assert-File $Paths.VMProtectProject "VMProtect Ultra project is missing"
 
         # Temp files — always cleaned up via finally
         New-Item -ItemType Directory -Force -Path $Paths.TempDir | Out-Null
         $ProtectedLoader = "$($Paths.TempDir)\CobbleLoader_protected.exe"
-        $TmdPatched = "$($Paths.TempDir)\cobble_patched.tmd"
-        $ThemidaBat = "$($Paths.TempDir)\run_themida.bat"
 
         try {
-            Write-Log "Applying Themida protection (~30-60s)..." STEP
-
-            (Get-Content "$($Paths.ThemidaDir)\cobble.tmd" -Raw) `
-                -replace 'INPUT_FILE_NAME=.*', "INPUT_FILE_NAME=$($Paths.LoaderOutput)" `
-                -replace 'OUTPUT_FILE_NAME=.*', "OUTPUT_FILE_NAME=$ProtectedLoader" |
-            Set-Content $TmdPatched -NoNewline
-
+            Write-Log "Applying VMProtect Ultra (mutation + virtualization)..." STEP
             if (Test-Path $ProtectedLoader) { Remove-Item $ProtectedLoader -Force }
 
-            @('@echo off', "start /w `"`" `"$ThemidaExe`" /protect `"$TmdPatched`"", 'exit /b %errorlevel%') |
-            Set-Content -Path $ThemidaBat -Encoding ASCII
-
-            & cmd.exe /c $ThemidaBat
-            $themidaExit = $LASTEXITCODE
-
-            $themidaErrors = @{
-                1 = "invalid project file"; 2 = "cannot open input"; 3 = "already protected"
-                4 = "SecureEngine macro error"; 5 = "fatal protection error"
-                6 = "cannot write output"; 7 = "splash file error"; 8 = "taggant certificate error"
-            }
-            if ($themidaErrors.ContainsKey($themidaExit)) {
-                Write-Log "Themida failed: $($themidaErrors[$themidaExit])" FAIL; exit 1
+            & $Paths.VMProtectExe $Paths.LoaderOutput $ProtectedLoader -pf $Paths.VMProtectProject -we
+            $vmProtectExit = $LASTEXITCODE
+            if ($vmProtectExit -ne 0) {
+                Write-Log "VMProtect failed (exit=$vmProtectExit)" FAIL; exit 1
             }
             if (-not (Test-Path $ProtectedLoader)) {
-                Write-Log "Themida produced no output (exit=$themidaExit)" FAIL; exit 1
+                Write-Log "VMProtect produced no output" FAIL; exit 1
             }
 
             Copy-Item $ProtectedLoader $Paths.LoaderOutput -Force
-            Write-Log "Themida protection applied" OK
+            Write-Log "VMProtect Ultra protection applied" OK
 
         }
         finally {
             # Always clean up temp files regardless of success or failure
-            @($ProtectedLoader, $TmdPatched, $ThemidaBat) | ForEach-Object {
+            @($ProtectedLoader) | ForEach-Object {
                 if (Test-Path $_) { Remove-Item $_ -Force -ErrorAction SilentlyContinue }
             }
             if ((Get-ChildItem $Paths.TempDir -ErrorAction SilentlyContinue | Measure-Object).Count -eq 0) {
@@ -544,7 +528,7 @@ if ($Pack) {
         }
     }
     else {
-        Write-Log "Skipping built-in protector; use external VMProtect before publishing this release" WARN
+        Write-Log "Skipping VMProtect; this release must not be published unprotected" WARN
     }
 
     # Assemble release directory
@@ -554,6 +538,8 @@ if ($Pack) {
 
     $loaderHash = Get-SHA256 "$($Paths.ReleaseDir)\CobbleLoader.exe"
     $loaderSize = (Get-Item  "$($Paths.ReleaseDir)\CobbleLoader.exe").Length
+
+    Assert-File $Paths.PrivateKey "infra/keys/private.key not found - protection succeeded, but signing requires the team key"
 
     $isMandatory = ($Host.UI.PromptForChoice("Release", "Mark as MANDATORY update?",
             @("&Yes", "&No"), 1) -eq 0)
@@ -634,21 +620,21 @@ if ($Pack) {
     Write-Host "  Pack" -ForegroundColor Green
     Write-Host "  -------" -ForegroundColor Green
     Write-Host "  Version    : $(Get-Version)" -ForegroundColor Green
-    if ($Protector -eq "Themida") {
-        Write-Host "  Protector  : Themida APPLIED" -ForegroundColor Green
+    if ($Protector -eq "VMProtect") {
+        Write-Host "  Protector  : VMProtect Ultra APPLIED" -ForegroundColor Green
     }
     else {
-        Write-Host "  Protector  : NONE - run VMProtect, then -SignExisting" -ForegroundColor Yellow
+        Write-Host "  Protector  : NONE" -ForegroundColor Yellow
     }
     Write-Host "  Manifest   : SIGNED" -ForegroundColor Green
-    $deployableLabel = if ($Protector -eq "Themida") { "YES" } else { "AFTER -SignExisting" }
+    $deployableLabel = if ($Protector -eq "VMProtect") { "YES" } else { "NO" }
     Write-Host "  Deployable : $deployableLabel" -ForegroundColor Green
     if ($Deploy) {
         Write-Host "  Deployed   : YES" -ForegroundColor Green
     }
 }
 else {
-    Write-Host "  [INFO] DEV BUILD - Themida: SKIPPED - run with -Pack to ship" -ForegroundColor Yellow
+    Write-Host "  [INFO] DEV BUILD - VMProtect: SKIPPED - run with -Pack to ship" -ForegroundColor Yellow
 }
 
 Write-Host ""

@@ -38,7 +38,7 @@
       <ForcedIncludeFiles>$(ProjectDir)..\generated\build_flags.h</ForcedIncludeFiles>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp20</LanguageStandard>
-      <AdditionalIncludeDirectories>$(ProjectDir)..;$(ProjectDir)src;$(ProjectDir)src\core;$(ProjectDir)src\security;$(ProjectDir)src\license;$(ProjectDir)src\ui;$(ProjectDir)res;$(ProjectDir)..\infra\ext\imgui;$(ProjectDir)..\themida\ThemidaSDK\Include\C;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(ProjectDir)..;$(ProjectDir)src;$(ProjectDir)src\core;$(ProjectDir)src\security;$(ProjectDir)src\license;$(ProjectDir)src\ui;$(ProjectDir)res;$(ProjectDir)..\infra\ext\imgui;$(ProjectDir)..\vmprotect\sdk;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <!-- Obfuscation optimizations -->
       <Optimization>MaxSpeed</Optimization>
       <InlineFunctionExpansion>AnySuitable</InlineFunctionExpansion>
@@ -54,14 +54,13 @@
       <!-- Strip all symbols -->
       <AdditionalOptions>/PDBALTPATH:none %(AdditionalOptions)</AdditionalOptions>
       <AdditionalDependencies>d3d11.lib;dxgi.lib;gdi32.lib;%(AdditionalDependencies)</AdditionalDependencies>
-      <AdditionalLibraryDirectories>$(ProjectDir)..\themida\ThemidaSDK\Lib\COFF;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalLibraryDirectories>$(ProjectDir)..\vmprotect\bin\64\Release;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
     </Link>
   </ItemDefinitionGroup>
-  <!-- Pack mode: pull in Themida's import lib. In Dev we omit it so the
-       binary doesn't end up depending on SecureEngineSDK64.dll at runtime. -->
+  <!-- Pack mode: link the VMProtect marker/runtime SDK. -->
   <ItemDefinitionGroup Condition="'$(CobbleBuildMode)'=='Pack'">
     <Link>
-      <AdditionalDependencies>SecureEngineSDK64.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>VMProtectSDK64.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <!-- Source Files -->
@@ -97,7 +96,7 @@
     <ClInclude Include="src\util\obfuscate.hpp" />
     <ClInclude Include="src\util\control_flow.hpp" />
     <ClInclude Include="src\security\antidbg.hpp" />
-    <ClInclude Include="src\security\themida.h" />
+    <ClInclude Include="src\security\vmprotect.h" />
     <ClInclude Include="src\security\integrity.hpp" />
     <ClInclude Include="src\security\integrity_gen.hpp" />
     <ClInclude Include="src\security\advanced_security.hpp" />

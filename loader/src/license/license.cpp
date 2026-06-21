@@ -14,7 +14,7 @@
 #include "../update/tweetnacl.h"
 #include "../util/control_flow.hpp"
 #include "../util/json.h"
-#include "../security/themida.h"
+#include "../security/vmprotect.h"
 #include "hwid.h"
 #include "generated/keys.h"
 #include "generated/version.h"
@@ -803,7 +803,7 @@ bool Verify(const std::string& serverUrl) {
     }
 
     // Verify Ed25519 signature (obfuscated critical check)
-    // THEMIDA: Maximum protection for signature verification
+    // VMPROTECT ULTRA: Maximum protection for signature verification
     // Note: Must have exactly 1 START and 1 END - no early returns inside VM block
     bool sigValid = false;
 
@@ -1040,7 +1040,7 @@ bool LoginWithCredentials(const std::string& serverUrl, const std::string& usern
     }
 
     // Verify Ed25519 signature (obfuscated critical check)
-    // THEMIDA: Maximum protection for signature verification
+    // VMPROTECT ULTRA: Maximum protection for signature verification
     // Note: Must have exactly 1 START and 1 END - no early returns inside VM block
     bool sigValid = false;
 

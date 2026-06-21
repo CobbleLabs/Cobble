@@ -12,7 +12,7 @@ Ghost client for Lunar Client (Minecraft 1.8.9) via JNI injection.
 ## Quick start
 
 ```powershell
-# Clone with submodule (includes Themida binaries)
+# Clone with the VMProtect source submodule
 git clone --recursive https://github.com/SyraTechnology/cobble
 cd cobble
 
@@ -22,11 +22,11 @@ copy cobble.json.example cobble.json
 #   payload_key MUST match $PAYLOAD_KEY in the cobble-server .env
 #   public_key_hex MUST be derived from cobble-server's secrets/private.key
 
-# Build (default = dev: no Themida, file tracer enabled)
+# Build (default = dev: no VMProtect, file tracer enabled)
 .\build.ps1
 .\build.ps1 -Build
 
-# Pack: Themida + signed manifest. Use this for any binary you ship.
+# Pack: builds VMProtect, applies Ultra, and signs the manifest.
 .\build.ps1 -Pack
 
 # Pack + scp to VPS
@@ -36,21 +36,21 @@ copy cobble.json.example cobble.json
 If you cloned without `--recursive`:
 
 ```powershell
-git submodule update --init themida
+git submodule update --init --recursive
 ```
 
 Output:
 - Dev build: `out/bin/Dev/{Cobble.dll, CobbleLoader.exe}`
 - Pack build: `out/bin/Pack/{Cobble.dll, CobbleLoader.exe}`
 
-There is no separate Debug build — every build is Release; `-Pack` controls whether Themida wraps the binary and whether the manifest is signed for distribution. The two modes use different output dirs so they don't clobber each other.
+There is no separate Debug build — every build is Release; `-Pack` compiles the pinned VMProtect submodule, protects the loader with the `Ultra` markers (mutation + virtualization), and signs the distribution manifest. The two modes use different output dirs so they don't clobber each other.
 
 ## Repos
 
 | Repo | Stack | Purpose |
 |---|---|---|
 | `cobble`         | C++20 / MSBuild       | this repo: client DLL + injector |
-| `cobble-themida` | Themida SDK + project | git submodule at `themida/` |
+| `cobble-vmprotect` | VMProtect source + SDK | git submodule at `vmprotect/` |
 | `cobble-server`  | Go 1.22 + PostgreSQL  | license API, payload key, telemetry, signed updates |
 | `cobble-web`     | Next.js 16 / React 19 | public site, dashboard, payments |
 | `cobble-bot`     | Go + discordgo        | Discord ticket bot |
@@ -74,7 +74,8 @@ There is no separate Debug build — every build is Release; `-Pack` controls wh
 ├── infra/ext/               vendored: imgui, minhook, jni, stb
 ├── generated/               built per compile from cobble.json (gitignored)
 ├── tools/                   build helpers
-└── themida/                 -> SyraTechnology/cobble-themida (submodule)
+├── protection/              VMProtect Ultra project
+└── vmprotect/               -> SyraTechnology/cobble-vmprotect (submodule)
 ```
 
 ## Documentation
@@ -95,21 +96,14 @@ There is no separate Debug build — every build is Release; `-Pack` controls wh
 
 ```powershell
 # cobble.json must already have payload_key + public_key_hex matching the server
-.\build.ps1 -Pack            # builds + Themida + signs the update manifest
+.\build.ps1 -Pack            # builds VMProtect + applies Ultra + signs the manifest
 .\build.ps1 -Pack -Deploy    # also scp's loader+DLL to the VPS
 ```
 
-## External VMProtect flow
+The parent repository pins VMProtect to an exact commit. After pulling changes, initialize or update it with:
 
 ```powershell
-# Step 1: key holder builds production binaries without Themida
-.\build.ps1 -Pack -Protector None
-
-# Step 2: protect out/bin/Pack/Cobble.dll and CobbleLoader.exe with VMProtect
-#         and place the protected files in out/vmprotect/
-
-# Step 3: key holder signs the protected files and deploys them
-.\build.ps1 -SignExisting -ExistingReleaseDir out\vmprotect -Deploy
+git submodule update --init --recursive
 ```
 
 ## License

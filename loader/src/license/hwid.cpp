@@ -5,8 +5,8 @@
 #include <iomanip>
 #include <sstream>
 
-// Themida SDK protection
-#include "../security/themida.h"
+// VMProtect SDK protection
+#include "../security/vmprotect.h"
 
 #pragma comment(lib, "iphlpapi.lib")
 

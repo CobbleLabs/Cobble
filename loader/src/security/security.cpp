@@ -6,7 +6,7 @@
 #include <vector>
 #include "../license/telemetry.hpp"
 #include "../util/aes_string.hpp"
-#include "themida.h"
+#include "vmprotect.h"
 
 #pragma comment(lib, "ntdll.lib")
 #pragma comment(lib, "dbghelp.lib")
@@ -84,7 +84,7 @@ void HideThread(HANDLE hThread) {
 }
 
 bool ShouldApplyAntiAttach() {
-    // Themida CHECK_PROTECTION returns 1 only when the binary has been
+    // VMProtect CHECK_PROTECTION returns 1 only when the binary has been
     // packed; in dev builds (build.ps1 without -Pack) it returns 0 and we
     // skip anti-attach entirely.
     int protectedResult = 0;
@@ -106,7 +106,7 @@ bool HasVMRegistry() {
     std::vector<std::wstring> vmKeys;
     vmKeys.reserve(6);
 
-    // THEMIDA: Encrypt VM registry key strings
+    // VMPROTECT: Mutate VM registry key checks
     COBBLE_STR_ENCRYPTW_BEGIN
     vmKeys.push_back(OBFUSCATE_WSTRING(L"System\\ControlSet001\\Services\\VMTools"));
     vmKeys.push_back(OBFUSCATE_WSTRING(L"System\\ControlSet001\\Services\\VBoxGuest"));
@@ -131,7 +131,7 @@ bool HasVMFiles() {
     std::vector<std::wstring> vmFiles;
     vmFiles.reserve(6);
 
-    // THEMIDA: Encrypt VM file path strings
+    // VMPROTECT: Mutate VM file path checks
     COBBLE_STR_ENCRYPTW_BEGIN
     vmFiles.push_back(OBFUSCATE_WSTRING(L"C:\\Windows\\System32\\vm3dgl.dll"));
     vmFiles.push_back(OBFUSCATE_WSTRING(L"C:\\Windows\\System32\\vboxdisp.dll"));
@@ -339,7 +339,7 @@ bool VerifyIntegrity(const std::vector<HASHSET>& originalHashes) {
 #pragma region Initialization
 
 void Initialize() {
-    // Apply anti-attach patches only when Themida detects a debugger
+    // Apply anti-attach patches only when VMProtect detects a debugger
     if (ShouldApplyAntiAttach()) {
         PatchDbgBreakPoint();
         PatchDbgUiRemoteBreakin();
@@ -362,10 +362,10 @@ std::vector<Detection> CheckRunningTools() {
         int score;
     };
 
-    // THEMIDA: Encrypt all tool names
+    // VMPROTECT: Mutate tool-name checks
     COBBLE_STR_ENCRYPTW_BEGIN
 
-    // TIER 3: Report-only. Detection is noisy; rely on Themida checks for decisions.
+    // TIER 3: Report-only. Detection is noisy; rely on VMProtect checks for decisions.
     ToolDef tools[] = {
         {L"x64dbg.exe", "TOOL_X64DBG", 10},
         {L"x32dbg.exe", "TOOL_X32DBG", 10},
@@ -417,11 +417,11 @@ std::vector<Detection> CheckRunningTools() {
     return detections;
 }
 
-// Themida-backed checks (preferred for decisions)
-std::vector<Detection> CheckThemida() {
+// VMProtect-backed checks (preferred for decisions)
+std::vector<Detection> CheckVMProtect() {
     std::vector<Detection> detections;
 
-    // CHECK_PROTECTION is 1 only when the binary has been Themida-packed.
+    // CHECK_PROTECTION is 1 only when the binary has been VMProtect-packed.
     // In dev builds it returns 0 and we leave detections empty.
     int protectedResult = 0;
     CHECK_PROTECTION(protectedResult, 1);
@@ -432,13 +432,13 @@ std::vector<Detection> CheckThemida() {
     int result = 0;
     CHECK_DEBUGGER(result, 0);
     if (result != 0) {
-        detections.push_back({OBFUSCATE_STRING("THEMIDA_DEBUGGER"), 40, OBFUSCATE_STRING("debugger")});
+        detections.push_back({OBFUSCATE_STRING("VMPROTECT_DEBUGGER"), 40, OBFUSCATE_STRING("debugger")});
     }
 
     result = 0;
     CHECK_VIRTUAL_PC(result, 0);
     if (result != 0) {
-        detections.push_back({OBFUSCATE_STRING("THEMIDA_VM"), 30, OBFUSCATE_STRING("vm")});
+        detections.push_back({OBFUSCATE_STRING("VMPROTECT_VM"), 30, OBFUSCATE_STRING("vm")});
     }
 
     return detections;
@@ -465,9 +465,9 @@ std::vector<Detection> CheckVMIndicators() {
 std::vector<Detection> RunSecurityChecks() {
     std::vector<Detection> all;
 
-    // THEMIDA: Primary anti-debug/anti-vm signals
-    auto themidaDetections = CheckThemida();
-    for (auto& d : themidaDetections) {
+    // VMPROTECT: Primary anti-debug/anti-vm signals
+    auto vmProtectDetections = CheckVMProtect();
+    for (auto& d : vmProtectDetections) {
         all.push_back(d);
     }
 
@@ -498,7 +498,7 @@ int CalculateRiskScore(const std::vector<Detection>& detections) {
 }
 
 // Decide action based on score
-// THEMIDA: Critical decision point - maximum protection
+// VMPROTECT ULTRA: Critical decision point
 SecurityDecision Decide(int score) {
     COBBLE_VM_CRITICAL_START
 

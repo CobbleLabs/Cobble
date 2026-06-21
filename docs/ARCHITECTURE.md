@@ -20,7 +20,7 @@ Cobble is an injectable ghost client for Lunar Client (Minecraft), composed of t
 │  CobbleLoader   │            │  Minecraft  │
 │ ┌─────────────┐ │            │ ┌─────────┐ │
 │ │ Security:   │ │            │ │Cobble.dll │
-│ │ - Themida   │ │            │ │         │ │
+│ │ - VMProtect │ │            │ │         │ │
 │ │ - VM/AntiDbg│ │            │ │ ┌─────┐ │ │
 │ │ - Integrity │ │            │ │ │ JNI │ │ │
 │ └─────────────┘ │            │ │ └─────┘ │ │
@@ -49,7 +49,7 @@ Cobble is an injectable ghost client for Lunar Client (Minecraft), composed of t
 |-----------|----------------|
 | `inject.cpp` | LoadLibrary injection into javaw.exe |
 | `process.cpp` | Minecraft/Lunar process detection |
-| `security.cpp` | Themida integration (Anti-debug/VM definitions) |
+| `security.cpp` | VMProtect integration (anti-debug/VM definitions) |
 | `license.cpp` | HTTPS license verification, injection secret retrieval |
 | `hwid.cpp` | SHA256(CPU + Disk + MAC) generation |
 | `main.cpp` | Creates `InjectionData` shared memory for DLL validation |
@@ -264,8 +264,8 @@ CobbleLoader.exe
     │           └── Exit (return 0)
     │
     ├─[1] Security Initialization
-    │     ├── Themida CHECK_PROTECTION (if release build)
-    │     ├── Themida CHECK_DEBUGGER / CHECK_CODE_INTEGRITY
+    │     ├── VMProtect protection check (if Pack build)
+    │     ├── VMProtect debugger / image-integrity checks
     │     ├── Early Telemetry (report tools before blocking)
     │     └── Anti-Attach patches (conditionally applied)
     │
@@ -472,10 +472,10 @@ Player joins server
 ### Loader Security
 | Layer | Implementation |
 |-------|----------------|
-| Anti-Debug | **Themida** (Ring3/Ring0 detection, virtualization) |
-| Anti-Tamper | **Themida** `CHECK_CODE_INTEGRITY` (dynamic monitoring) |
-| Anti-VM | **Themida** `CHECK_VIRTUAL_PC` (with VMware support enabled) |
-| Code Prot | **Themida** TIGER64/SHARK64 Virtualization |
+| Anti-Debug | **VMProtect** runtime debugger checks |
+| Anti-Tamper | **VMProtect** image CRC validation |
+| Anti-VM | **VMProtect** virtual-machine checks |
+| Code Prot | **VMProtect Ultra** mutation + virtualization markers |
 | Injection | SecureManualMap (no LoadLibrary, no persistent RWX) |
 | Payload Encryption | AES-256-CBC with server-provided key |
 | Handshake | Writes `injection_secret` + `sync_token` to shared memory |
@@ -631,4 +631,3 @@ msbuild CobbleLoader.vcxproj /p:Configuration=Release /p:Platform=x64
 
 The license server lives in its own repo (`cobble-server`). Deploy via Docker
 Compose; see [cobble-server DEPLOY.md](https://github.com/SyraTechnology/cobble-server/blob/main/DEPLOY.md).
-

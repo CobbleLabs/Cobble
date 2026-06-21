@@ -14,7 +14,7 @@ Everything else has been split out:
 | `cobble-server`  | Go 1.22 + Postgres license API | `github.com/SyraTechnology/cobble-server` |
 | `cobble-web`     | Next.js 16 + React 19 dashboard / landing | `github.com/SyraTechnology/cobble-web` |
 | `cobble-bot`     | Discord ticket bot (Go) | `github.com/SyraTechnology/cobble-bot` |
-| `cobble-themida` | Themida SDK + project file | `github.com/SyraTechnology/cobble-themida` (submodule at `themida/`) |
+| `cobble-vmprotect` | VMProtect source, console and SDK | `github.com/SyraTechnology/cobble-vmprotect` (submodule at `vmprotect/`) |
 
 VPS: `100.27.226.125` — runs `cobble-server` + `cobble-web` behind Cloudflare → nginx → Docker Compose.
 
@@ -41,7 +41,7 @@ in `cobble.json`, never in code.
 There is **only one MSBuild configuration** (`Release|x64`). The previous
 "Debug" configuration was removed — it was a mock build that bypassed
 validation and silently diverged from production. `build.ps1` controls
-whether Themida wraps the binary via the `-Pack` flag. The two modes write
+whether VMProtect Ultra wraps the loader via the `-Pack` flag. The two modes write
 to different output directories so they don't overwrite each other:
 
 - Dev (default): `out/bin/Dev/{Cobble.dll, CobbleLoader.exe}`
@@ -53,8 +53,8 @@ builds (no script) default to `Dev`.
 
 ```powershell
 .\build.ps1                    Interactive selector
-.\build.ps1 -Build              Plain dev build (no Themida, file tracer enabled)
-.\build.ps1 -Pack               Build + Themida + signed manifest (release-quality)
+.\build.ps1 -Build              Plain dev build (no VMProtect, file tracer enabled)
+.\build.ps1 -Pack               Build + VMProtect Ultra + signed manifest
 .\build.ps1 -Pack -Deploy       Pack + scp to VPS
 .\build.ps1 -Clean              Wipe out/bin/{Dev,Pack}, generated/, hash headers
 .\build.ps1 -SkipDLL            Loader-only rebuild
@@ -73,7 +73,7 @@ Order of operations inside `build.ps1`:
 6. Build `CobbleLoader.exe` (Pass 1)
 7. Hash the loader in 3 chunks → `loader/src/security/integrity_gen.hpp`
 8. Rebuild `CobbleLoader.exe` (Pass 2, self-aware)
-9. (only on `-Pack`) Apply Themida → sign manifest with Ed25519
+9. (only on `-Pack`) Apply VMProtect Ultra → sign manifest with Ed25519
 10. (only on `-Pack -Deploy`) `scp` to VPS
 
 `PAYLOAD_KEY` is read from `cobble.json` automatically; the env var override is
@@ -87,8 +87,7 @@ validation, handshake, integrity, or any other security-relevant code path —
 those run identically in dev and pack builds.
 
 **DLL is intentionally un-optimized in MSBuild** (`Optimization=Disabled`).
-Themida (TIGER64/SHARK64) post-processes the binary; don't "fix" it.
-The loader keeps `Optimization=MaxSpeed`.
+VMProtect post-processes marked loader regions; the loader keeps `Optimization=MaxSpeed`.
 
 MSBuild path is hardcoded in `build.ps1` — adjust if VS lives elsewhere.
 

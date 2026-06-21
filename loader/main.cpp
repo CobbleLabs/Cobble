@@ -35,7 +35,7 @@
 #include "src/license/telemetry.hpp"
 #include "src/security/integrity.hpp"
 #include "src/security/integrity_gen.hpp"
-#include "src/security/themida.h"
+#include "src/security/vmprotect.h"
 #include "src/util/aes_string.hpp"
 #include "src/util/control_flow.hpp"
 
@@ -58,7 +58,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     DevConsole::Initialize();
     COBBLE_DEV_LOG("Loader startup, version=%s, server=%s", COBBLE_VERSION, cobble_config::GetServerHost().c_str());
 
-    // === EARLY TELEMETRY: Send webhook BEFORE Themida can kill the process ===
+    // === EARLY TELEMETRY: report local detections before protection checks ===
     {
         Telemetry::Init(cobble_config::GetServerHost());
         auto toolDetections = Security::CheckRunningTools();
@@ -68,9 +68,9 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         }
     }
 
-    // === THEMIDA PROTECTION CHECKS ===
+    // === VMPROTECT PROTECTION CHECKS ===
     // These macros are inert in dev builds (CHECK_PROTECTION returns 0
-    // because the binary hasn't been Themida-packed). In Pack builds the
+    // because the binary hasn't been VMProtect-packed). In Pack builds the
     // checks become real and the inner block runs the integrity/debugger
     // verification.
     {
@@ -82,7 +82,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
             int integrityCheck = 0;
             CHECK_CODE_INTEGRITY(integrityCheck, 1);
             if (integrityCheck != 1) {
-                Telemetry::ReportImmediate("THEMIDA_TAMPER", Telemetry::Severity::CRITICAL, 100,
+                Telemetry::ReportImmediate("VMPROTECT_TAMPER", Telemetry::Severity::CRITICAL, 100,
                                            "CHECK_CODE_INTEGRITY");
                 return 1;
             }
@@ -91,7 +91,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
             int debuggerCheck = 0;
             CHECK_DEBUGGER(debuggerCheck, 0);
             if (debuggerCheck != 0) {
-                Telemetry::ReportImmediate("THEMIDA_DEBUGGER", Telemetry::Severity::CRITICAL, 100, "CHECK_DEBUGGER");
+                Telemetry::ReportImmediate("VMPROTECT_DEBUGGER", Telemetry::Severity::CRITICAL, 100, "CHECK_DEBUGGER");
                 return 1;
             }
         }
@@ -408,7 +408,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     HANDLE hMapFile = nullptr;
     std::wstring sharedMemNameW;
     {
-        // THEMIDA: Protect InjectionData preparation - contains secrets
+        // VMPROTECT ULTRA: protect InjectionData preparation - contains secrets
         // Note: VM protection covers all strings within this block
         COBBLE_VM_HIGH_START
 

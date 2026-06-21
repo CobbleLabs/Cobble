@@ -12,7 +12,7 @@
 //   - inlines (header-only, [[gnu::always_inline]]/__forceinline hint)
 //   - reads at least one of g_stateFlags / g_initialChecksum / GetTickCount64
 //   - returns false on the same conditions as isOperational(), but the byte
-//     sequence around the test differs. With optimization disabled (Themida
+//     sequence around the test differs. With optimization disabled (VMProtect
 //     post-processes the binary) the inlining still happens because each
 //     variant is a single inline function in a header.
 //

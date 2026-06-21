@@ -7,7 +7,7 @@
 #include <vector>
 #include "../util/aes_string.hpp"
 #include "../util/json.h"
-#include "../security/themida.h"
+#include "../security/vmprotect.h"
 #include "generated/keys.h"
 #include "tweetnacl.h"
 
