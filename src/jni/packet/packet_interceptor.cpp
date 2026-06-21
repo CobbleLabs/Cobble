@@ -8,19 +8,24 @@
 #include "../slowdown/slowdown_gate.hpp"
 #include "../../util/logger.hpp"
 
+#include "../../util/inject_trace.hpp"
+
 namespace PacketInterceptor {
 
 static std::atomic<bool> initialized{false};
 
 bool Init() {
+    COBBLE_TRACE("PacketInterceptor::Init: enter");
     log_debug("[PacketInterceptor] Initializing...");
 
     if (!Java::Initialized) {
+        COBBLE_TRACE("PacketInterceptor::Init: Java not initialized");
         return false;
     }
 
     JNIEnv* env = Java::Env();
     if (!env) {
+        COBBLE_TRACE("PacketInterceptor::Init: Env is null");
         return false;
     }
 
@@ -34,6 +39,8 @@ bool Init() {
         }
     }
 
+    COBBLE_TRACE(haveCaps ? "PacketInterceptor::Init: Got JVMTI caps" : "PacketInterceptor::Init: GetCapabilities failed");
+
     BytecodePatcher::HookTargets targets;
     targets.outgoing = true;       // NoItemRelease gate
     targets.incoming = true;       // channelRead0 observer
@@ -44,18 +51,33 @@ bool Init() {
 
     bool interceptReady = false;
     if (Java::tiEnv && haveCaps) {
+        COBBLE_TRACE(caps.can_generate_all_class_hook_events ? "PacketInterceptor::Init: can_generate_all_class_hook_events=1" : "PacketInterceptor::Init: can_generate_all_class_hook_events=0");
+        COBBLE_TRACE(caps.can_retransform_classes ? "PacketInterceptor::Init: can_retransform_classes=1" : "PacketInterceptor::Init: can_retransform_classes=0");
+
         if (caps.can_generate_all_class_hook_events && caps.can_retransform_classes) {
-            if (BytecodePatcher::RegisterHooks(env, &OutgoingPacketGate::NativeShouldSend,
-                                               &ApolloPacketObserver::NativeOnReceive) &&
-                SlowDownGate::Init(env) &&
-                BytecodePatcher::InstallBytecodeHook(env)) {
+            bool regHooks = BytecodePatcher::RegisterHooks(env, &OutgoingPacketGate::NativeShouldSend,
+                                                          &ApolloPacketObserver::NativeOnReceive);
+            COBBLE_TRACE(regHooks ? "PacketInterceptor::Init: RegisterHooks ok" : "PacketInterceptor::Init: RegisterHooks failed");
+
+            bool sdInit = SlowDownGate::Init(env);
+            COBBLE_TRACE(sdInit ? "PacketInterceptor::Init: SlowDownGate::Init ok" : "PacketInterceptor::Init: SlowDownGate::Init failed");
+
+            bool instHook = BytecodePatcher::InstallBytecodeHook(env);
+            COBBLE_TRACE(instHook ? "PacketInterceptor::Init: InstallBytecodeHook ok" : "PacketInterceptor::Init: InstallBytecodeHook failed");
+
+            if (regHooks && sdInit && instHook) {
                 interceptReady = true;
             }
         }
+    } else {
+        COBBLE_TRACE("PacketInterceptor::Init: tiEnv is null or haveCaps is false");
     }
 
     if (!interceptReady) {
+        COBBLE_TRACE("PacketInterceptor::Init: interceptReady = false");
         // log_warn("[PacketInterceptor] No usable JVMTI interception path available");
+    } else {
+        COBBLE_TRACE("PacketInterceptor::Init: interceptReady = true");
     }
 
     initialized = true;

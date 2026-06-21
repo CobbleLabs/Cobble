@@ -60,7 +60,7 @@ static bool packetClassContains(JNIEnv* env, jobject packet, const char* needle)
 
 FakeLag::FakeLag() : Module("FakeLag") {
     renders = true;
-    locked = true;
+    locked = false;
 }
 
 FakeLag::~FakeLag() {

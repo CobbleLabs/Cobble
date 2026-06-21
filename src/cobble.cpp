@@ -521,6 +521,24 @@ void cobble::context::shutdown() {
     WinsockHooks::Shutdown();
 
     Overlay::Shutdown();
+
+    // Clean up cached global JNI references before thread detach/JVM shutdown
+    JNIEnv* env = Java::Env();
+    if (env) {
+        if (player.instance) {
+            env->DeleteGlobalRef(player.instance);
+            player.instance = nullptr;
+        }
+        if (mc.instance) {
+            env->DeleteGlobalRef(mc.instance);
+            mc.instance = nullptr;
+        }
+        if (mc.cls) {
+            env->DeleteGlobalRef(mc.cls);
+            mc.cls = nullptr;
+        }
+    }
+
     Java::Kill();
 
     // Clean up modules

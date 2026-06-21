@@ -106,7 +106,7 @@ public:
     // Shutdown: save config
     void shutdown() {
         syncRunning_ = false;
-        saveLocal();
+        saveLocalSync();
         log_raw("ConfigManager shutdown");
     }
 
@@ -187,7 +187,7 @@ private:
             log_raw("ConfigManager: No local config found, using defaults");
             applyDefaults();
             COBBLE_TRACE("loadLocal:applyDefaults done (no file)");
-            saveLocal();  // Create default config file
+            saveLocalSync();  // Create default config file
             COBBLE_TRACE("loadLocal:saveLocal done (no file)");
             return;
         }
@@ -259,6 +259,27 @@ private:
         log_ok("ConfigManager: Loaded local config");
     }
 
+    void saveLocalSync() {
+        if (configPath_.empty())
+            return;
+
+        // Build config from current module state
+        buildConfigFromModules();
+
+        std::string content;
+        {
+            std::lock_guard<std::mutex> lock(configMutex_);
+            content = config_.serialize();
+        }
+
+        std::lock_guard<std::mutex> lock(fileWriteMutex_);
+        std::ofstream file(configPath_);
+        if (file.is_open()) {
+            file << content;
+            file.close();
+        }
+    }
+
     void saveLocal() {
         if (configPath_.empty())
             return;
@@ -266,14 +287,20 @@ private:
         // Build config from current module state
         buildConfigFromModules();
 
-        std::lock_guard<std::mutex> lock(configMutex_);
-        std::string content = config_.serialize();
-
-        std::ofstream file(configPath_);
-        if (file.is_open()) {
-            file << content;
-            file.close();
+        std::string content;
+        {
+            std::lock_guard<std::mutex> lock(configMutex_);
+            content = config_.serialize();
         }
+
+        std::thread([this, content] {
+            std::lock_guard<std::mutex> lock(fileWriteMutex_);
+            std::ofstream file(configPath_);
+            if (file.is_open()) {
+                file << content;
+                file.close();
+            }
+        }).detach();
     }
 
     // Base64 decode helper (WinCrypt)
@@ -359,7 +386,7 @@ private:
         if (json::Parser::parse(serverConfig, serverData)) {
             mergeServerConfig(serverData);
             applyConfig();
-            saveLocal();  // Cache merged result
+            saveLocalSync();  // Cache merged result
             log_ok("ConfigManager: Applied server config");
         }
     }
@@ -471,6 +498,7 @@ private:
     static constexpr int CONFIG_VERSION = 1;
 
     mutable std::mutex configMutex_;
+    mutable std::mutex fileWriteMutex_;
     json::Value config_;
     std::string configPath_;
     std::string hwid_;

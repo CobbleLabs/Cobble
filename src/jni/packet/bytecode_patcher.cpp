@@ -9,6 +9,7 @@
 #include "../../util/logger.hpp"
 #include "../../util/aes_string.hpp"
 #include "packet_hook_enc.hpp"
+#include "../../util/inject_trace.hpp"
 
 namespace BytecodePatcher {
 namespace {
@@ -1342,11 +1343,13 @@ static void JNICALL onClassFileLoadHook(jvmtiEnv* jvmti_env, JNIEnv* jni_env, jc
 
     // Handle NetworkManager hooks (outgoing/incoming)
     if (strcmp(name, kTargetClassSlash().c_str()) == 0 && (g_targets.outgoing || g_targets.incoming)) {
+        COBBLE_TRACE("onClassFileLoadHook: NetworkManager matched");
         log_debug("[PacketInterceptor] onClassFileLoadHook triggered for NetworkManager");
         std::vector<uint8_t> patched;
         int patched_methods = patchNetworkManagerClass(class_data, static_cast<size_t>(class_data_len), patched);
         if (patched_methods <= 0) {
             if (patched_methods < 0) {
+                COBBLE_TRACE("onClassFileLoadHook: NetworkManager patching failed");
                 log_warn("[PacketInterceptor] Bytecode patch failed for %s", name);
             }
             return;
@@ -1355,6 +1358,7 @@ static void JNICALL onClassFileLoadHook(jvmtiEnv* jvmti_env, JNIEnv* jni_env, jc
         unsigned char* buffer = nullptr;
         jvmtiError err = jvmti_env->Allocate(static_cast<jint>(patched.size()), &buffer);
         if (err != JVMTI_ERROR_NONE || !buffer) {
+            COBBLE_TRACE("onClassFileLoadHook: NetworkManager allocation failed");
             log_warn("[PacketInterceptor] JVMTI Allocate failed for patched class: %d", err);
             return;
         }
@@ -1365,6 +1369,7 @@ static void JNICALL onClassFileLoadHook(jvmtiEnv* jvmti_env, JNIEnv* jni_env, jc
 
         static std::atomic<bool> logged{false};
         if (!logged.exchange(true)) {
+            COBBLE_TRACE("onClassFileLoadHook: NetworkManager successfully patched");
             log_ok("[PacketInterceptor] Patched NetworkManager.sendPacket bytecode (%d method(s))", patched_methods);
         } else {
             log_debug("[PacketInterceptor] Patched NetworkManager.sendPacket bytecode (%d method(s))", patched_methods);
@@ -1424,6 +1429,7 @@ static void JNICALL onClassFileLoadHook(jvmtiEnv* jvmti_env, JNIEnv* jni_env, jc
          jni_env->IsSameObject(class_being_redefined, cls_SlowdownTarget) == JNI_TRUE) ||
         strcmp(name, "net/minecraft/entity/EntityLivingBase") == 0;
     if (isSlowdownTarget) {
+        COBBLE_TRACE("onClassFileLoadHook: EntityLivingBase matched");
         log_debug("[PacketInterceptor] onClassFileLoadHook triggered for living base: %s", name);
         std::vector<uint8_t> patched;
         int patched_methods = patchLivingBaseClass(class_data, static_cast<size_t>(class_data_len), patched);
@@ -1434,8 +1440,13 @@ static void JNICALL onClassFileLoadHook(jvmtiEnv* jvmti_env, JNIEnv* jni_env, jc
                 memcpy(buffer, patched.data(), patched.size());
                 *new_class_data_len = static_cast<jint>(patched.size());
                 *new_class_data = buffer;
+                COBBLE_TRACE("onClassFileLoadHook: EntityLivingBase successfully patched");
                 log_ok("[PacketInterceptor] Patched living update bytecode (%d method(s))", patched_methods);
+            } else {
+                COBBLE_TRACE("onClassFileLoadHook: EntityLivingBase allocation failed");
             }
+        } else {
+            COBBLE_TRACE("onClassFileLoadHook: EntityLivingBase patching failed or returned 0");
         }
         return;
     }

@@ -4,6 +4,7 @@
 #include "../../sdk/jni/jni_cache.h"
 #include "../../ui/menu/menu.h"
 #include "../../ui/widgets/widgets.hpp"
+#include "sprint.h"
 
 #include <algorithm>
 #include <utility>
@@ -451,11 +452,18 @@ void NoSlowDown::applyMovement(JNIEnv* env, jobject playerInstance) {
     if (isKeyPressed(env, gameSettings, JniCache::fid_keyBindRight))
         strafe -= 1.0f;
 
+    const bool sprintPressed =
+        isKeyPressed(env, gameSettings, JniCache::fid_keyBindSprint) || (sprint && sprint->enabled);
+
     const bool sneaking =
         player.isSneaking() || isKeyPressed(env, gameSettings, JniCache::fid_keyBindSneak);
     env->DeleteLocalRef(gameSettings);
     if (clearJniException(env))
         return;
+
+    if (sprintPressed && forward > 0.0f && !sneaking) {
+        player.setSprinting(true);
+    }
 
     if (sneaking) {
         forward *= 0.3f;

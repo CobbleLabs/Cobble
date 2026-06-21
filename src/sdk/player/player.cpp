@@ -151,17 +151,22 @@ void LocalPlayer::refresh() {
     // ALWAYS get a fresh reference - the old approach cached too aggressively
     // and caused stale position data when changing worlds/servers
     if (instance) {
-        Java::Env()->DeleteLocalRef(instance);
+        Java::Env()->DeleteGlobalRef(instance);
         instance = nullptr;
     }
 
-    instance = mc.getPlayer();
+    jobject localPlayer = mc.getPlayer();
+    if (localPlayer) {
+        instance = Java::Env()->NewGlobalRef(localPlayer);
+        Java::Env()->DeleteLocalRef(localPlayer);
+    }
 
     // Check if we got a valid instance
     if (instance) {
         // Verify the object is still valid (not garbage collected)
         if (Java::Env()->ExceptionCheck()) {
             Java::Env()->ExceptionClear();
+            Java::Env()->DeleteGlobalRef(instance);
             instance = nullptr;
         } else if (!fieldsInitialized) {
             initFields();

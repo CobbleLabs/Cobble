@@ -20,10 +20,17 @@ void SDK_Init() {
     }
 
     // Get Minecraft class
-    if (!Java::AssignClass(OBFUSCATE_STRING("net.minecraft.client.Minecraft"), mc.cls)) {
+    if (mc.cls) {
+        Java::Env()->DeleteGlobalRef(mc.cls);
+        mc.cls = nullptr;
+    }
+    jclass localCls = nullptr;
+    if (!Java::AssignClass(OBFUSCATE_STRING("net.minecraft.client.Minecraft"), localCls)) {
         log_err("SDK_Init: failed to find Minecraft class");
         return;
     }
+    mc.cls = (jclass)Java::Env()->NewGlobalRef(localCls);
+    Java::Env()->DeleteLocalRef(localCls);
 
     // getMinecraft() -> Minecraft instance
     mc.mid_getMinecraft = Java::Env()->GetStaticMethodID(mc.cls, OBFUSCATE_STRING("getMinecraft").c_str(),
@@ -33,11 +40,17 @@ void SDK_Init() {
         return;
     }
 
-    mc.instance = Java::Env()->CallStaticObjectMethod(mc.cls, mc.mid_getMinecraft);
-    if (!mc.instance) {
+    if (mc.instance) {
+        Java::Env()->DeleteGlobalRef(mc.instance);
+        mc.instance = nullptr;
+    }
+    jobject localInst = Java::Env()->CallStaticObjectMethod(mc.cls, mc.mid_getMinecraft);
+    if (!localInst) {
         log_err("SDK_Init: getMinecraft returned null");
         return;
     }
+    mc.instance = Java::Env()->NewGlobalRef(localInst);
+    Java::Env()->DeleteLocalRef(localInst);
 
     // thePlayer field - signature depends on version
     std::string playerSig = (Java::Version == MinecraftVersion::MC_1_7_10)

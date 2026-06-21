@@ -6,6 +6,7 @@
 #include "../../sdk/player/player.h"
 #include "../../util/logger.hpp"
 #include "../java.h"
+#include "../../util/inject_trace.hpp"
 
 // ---------------------------------------------------------------------------
 // SlowDownHook Java class bytecode
@@ -137,11 +138,16 @@ static jclass g_cls_SlowDownHook = nullptr;
 namespace SlowDownGate {
 
 void JNICALL NativeOnSlowDown(JNIEnv* env, jclass, jobject playerInstance) {
+    COBBLE_TRACE_ONCE("NativeOnSlowDown: callback triggered!");
     if (!noSlowDown || !noSlowDown->enabled || !playerInstance || !player.instance)
         return;
 
-    if (env->IsSameObject(playerInstance, player.instance) == JNI_TRUE)
+    if (env->IsSameObject(playerInstance, player.instance) == JNI_TRUE) {
+        COBBLE_TRACE_ONCE("NativeOnSlowDown: player matches, applying movement!");
         noSlowDown->applyMovement(env, playerInstance);
+    } else {
+        COBBLE_TRACE_ONCE("NativeOnSlowDown: player DOES NOT MATCH cached instance!");
+    }
 }
 
 bool Init(JNIEnv* env) {
@@ -152,24 +158,49 @@ bool Init(JNIEnv* env) {
 
     // Try to find existing class first
     jclass hook = nullptr;
-    {
-        // Use obfuscated class name lookup
-        jclass raw = env->FindClass("com/cobble/agent/SlowDownHook");
+    if (!Java::AssignClass("com.cobble.agent.SlowDownHook", hook)) {
         if (env->ExceptionCheck()) env->ExceptionClear();
-        if (raw) {
-            hook = raw;
+    }
+    COBBLE_TRACE(hook ? "SlowDownGate::Init: AssignClass found existing class" : "SlowDownGate::Init: AssignClass did not find class");
+
+    if (!hook) {
+        if (Java::ClassLoader) {
+            COBBLE_TRACE("SlowDownGate::Init: defining class using Java::ClassLoader");
+            hook = env->DefineClass("com/cobble/agent/SlowDownHook",
+                                    Java::ClassLoader,
+                                    reinterpret_cast<const jbyte*>(kSlowDownHookBytecode),
+                                    static_cast<jint>(sizeof(kSlowDownHookBytecode)));
+            if (env->ExceptionCheck()) {
+                COBBLE_TRACE("SlowDownGate::Init: DefineClass threw exception");
+                jthrowable ex = env->ExceptionOccurred();
+                if (ex) {
+                    env->ExceptionClear();
+                    jclass exClass = env->GetObjectClass(ex);
+                    jclass classClass = env->FindClass("java/lang/Class");
+                    jmethodID mid_getName = classClass ? env->GetMethodID(classClass, "getName", "()Ljava/lang/String;") : nullptr;
+                    jstring nameStr = (exClass && mid_getName) ? (jstring)env->CallObjectMethod(exClass, mid_getName) : nullptr;
+                    
+                    jclass throwableClass = env->FindClass("java/lang/Throwable");
+                    jmethodID mid_getMessage = throwableClass ? env->GetMethodID(throwableClass, "getMessage", "()Ljava/lang/String;") : nullptr;
+                    jstring msgStr = (ex && mid_getMessage) ? (jstring)env->CallObjectMethod(ex, mid_getMessage) : nullptr;
+
+                    const char* nameChars = nameStr ? env->GetStringUTFChars(nameStr, nullptr) : "UnknownException";
+                    const char* msgChars = msgStr ? env->GetStringUTFChars(msgStr, nullptr) : "No message";
+                    char traceBuf[512];
+                    wsprintfA(traceBuf, "SlowDownGate::Init: Exception: %s - Message: %s", nameChars, msgChars);
+                    COBBLE_TRACE(traceBuf);
+
+                    if (nameStr) env->ReleaseStringUTFChars(nameStr, nameChars);
+                    if (msgStr) env->ReleaseStringUTFChars(msgStr, msgChars);
+                }
+            }
+        } else {
+            COBBLE_TRACE("SlowDownGate::Init: Java::ClassLoader is NULL");
         }
     }
 
-    if (!hook && Java::ClassLoader) {
-        hook = env->DefineClass("com/cobble/agent/SlowDownHook",
-                                Java::ClassLoader,
-                                reinterpret_cast<const jbyte*>(kSlowDownHookBytecode),
-                                static_cast<jint>(sizeof(kSlowDownHookBytecode)));
-        if (env->ExceptionCheck()) env->ExceptionClear();
-    }
-
     if (!hook) {
+        COBBLE_TRACE("SlowDownGate::Init: Hook class is NULL (DefineClass failed)");
         log_warn("[SlowDownGate] Failed to define SlowDownHook class");
         return false;
     }
@@ -182,6 +213,7 @@ bool Init(JNIEnv* env) {
     methods[0].fnPtr     = reinterpret_cast<void*>(&NativeOnSlowDown);
 
     if (env->RegisterNatives(hook, methods, 1) != 0) {
+        COBBLE_TRACE("SlowDownGate::Init: RegisterNatives failed");
         if (env->ExceptionCheck()) env->ExceptionClear();
         log_err("[SlowDownGate] RegisterNatives failed");
         env->DeleteLocalRef(hook);
@@ -191,6 +223,7 @@ bool Init(JNIEnv* env) {
     g_cls_SlowDownHook = (jclass)env->NewGlobalRef(hook);
     env->DeleteLocalRef(hook);
     g_initialized = true;
+    COBBLE_TRACE("SlowDownGate::Init: Success!");
     log_ok("[SlowDownGate] SlowDownHook native bridge ready");
     return true;
 }

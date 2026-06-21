@@ -235,8 +235,8 @@ void Minecraft::restoreMovementKeys() {
             }
         }
 
-        // Restore if EITHER was pressed or IS pressed
-        if (wasPressed || isPhysicallyHeld) {
+        // Restore only if physically held
+        if (isPhysicallyHeld) {
             env->CallStaticVoidMethod(JniCache::cls_KeyBinding, JniCache::mid_setKeyBindState, keyCode, JNI_TRUE);
 
             if (JniCache::fid_pressed) {
