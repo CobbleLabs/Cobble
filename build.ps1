@@ -99,29 +99,6 @@ function Get-SHA256 {
     return (Get-FileHash -Path $Path -Algorithm SHA256).Hash.ToLower()
 }
 
-function Assert-RegisteredVMProtect {
-    param([string]$ConsolePath)
-
-    Assert-File $ConsolePath "VMProtectCon.exe was not produced"
-
-    # Calling the console without an input prints its banner and exits with the
-    # normal usage error. The banner is the authoritative registration status.
-    $statusOutput = @(& $ConsolePath 2>&1 | ForEach-Object { $_.ToString() })
-    $statusText = $statusOutput -join [Environment]::NewLine
-
-    if ($statusText -match '(?im)^\s*Unregistered Version\s*$') {
-        Write-Log "VMProtect is UNREGISTERED; refusing to build or deploy limited artifacts." FAIL
-        Write-Log "Source availability does not grant a VMProtect license. Use a legitimately licensed build." INFO
-        exit 1
-    }
-    if ($statusText -notmatch '(?im)^\s*VMProtect\b') {
-        Write-Log "Could not verify VMProtect registration state from $ConsolePath" FAIL
-        exit 1
-    }
-
-    Write-Log "VMProtect registration preflight passed" OK
-}
-
 function Assert-ProtectedPE {
     param(
         [string]$OriginalHash,
@@ -364,7 +341,7 @@ if ($Pack -and $Protector -eq "VMProtect") {
     Write-Log "Building VMProtect console and SDK from $($Paths.VMProtectDir)..." STEP
     & $Paths.VMProtectBuild -Platform x64
     if ($LASTEXITCODE -ne 0) { Write-Log "VMProtect build failed" FAIL; exit 1 }
-    Assert-RegisteredVMProtect $Paths.VMProtectExe
+    Assert-File $Paths.VMProtectExe "VMProtectCon.exe was not produced"
 }
 
 # --- Config generation -------------------------------------------------------

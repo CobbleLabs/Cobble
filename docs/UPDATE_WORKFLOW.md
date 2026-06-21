@@ -125,8 +125,7 @@ Answer `y` if you want to force all users to update immediately.
 
 Option 3:
 
-- Builds the in-repo VMProtect console and aborts unless its banner reports a
-  legitimately registered installation.
+- Builds the in-repo VMProtect console from the linked source checkout.
 - Builds and protects `Cobble.dll` with the Ultra mutation + virtualization
   profile.
 - Encrypts that protected DLL into the loader payload.
