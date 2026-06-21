@@ -41,7 +41,7 @@ in `cobble.json`, never in code.
 There is **only one MSBuild configuration** (`Release|x64`). The previous
 "Debug" configuration was removed — it was a mock build that bypassed
 validation and silently diverged from production. `build.ps1` controls
-whether VMProtect Ultra wraps the loader via the `-Pack` flag. The two modes write
+whether VMProtect Ultra wraps the DLL and loader via the `-Pack` flag. The two modes write
 to different output directories so they don't overwrite each other:
 
 - Dev (default): `out/bin/Dev/{Cobble.dll, CobbleLoader.exe}`
@@ -54,7 +54,7 @@ builds (no script) default to `Dev`.
 ```powershell
 .\build.ps1                    Interactive selector
 .\build.ps1 -Build              Plain dev build (no VMProtect, file tracer enabled)
-.\build.ps1 -Pack               Build + VMProtect Ultra + signed manifest
+.\build.ps1 -Pack               Build + VMProtect Ultra on DLL/loader + signed manifest
 .\build.ps1 -Pack -Deploy       Pack + scp to VPS
 .\build.ps1 -Clean              Wipe out/bin/{Dev,Pack}, generated/, hash headers
 .\build.ps1 -SkipDLL            Loader-only rebuild
@@ -68,13 +68,14 @@ Order of operations inside `build.ps1`:
 1. `generate_config.ps1` — produce `generated/*.h` from `cobble.json`
 2. Write `generated/build_flags.h` (defines `COBBLE_DEV_BUILD` unless `-Pack`)
 3. Compile `Cobble.dll`
-4. AES-256-CBC encrypt → `loader/res/Cobble.enc`
-5. Generate `loader/src/util/dll_hash.h` (SHA256 of DLL)
-6. Build `CobbleLoader.exe` (Pass 1)
-7. Hash the loader in 3 chunks → `loader/src/security/integrity_gen.hpp`
-8. Rebuild `CobbleLoader.exe` (Pass 2, self-aware)
-9. (only on `-Pack`) Apply VMProtect Ultra → sign manifest with Ed25519
-10. (only on `-Pack -Deploy`) `scp` to VPS
+4. (only on `-Pack`) Apply VMProtect Ultra to `Cobble.dll`
+5. AES-256-CBC encrypt → `loader/res/Cobble.enc`
+6. Generate `loader/src/util/dll_hash.h` (SHA256 of the protected DLL)
+7. Build `CobbleLoader.exe` (Pass 1)
+8. Hash the loader in 3 chunks → `loader/src/security/integrity_gen.hpp`
+9. Rebuild `CobbleLoader.exe` (Pass 2, self-aware)
+10. (only on `-Pack`) Apply VMProtect Ultra to `CobbleLoader.exe` → sign manifest with Ed25519
+11. (only on `-Pack -Deploy`) `scp` to VPS
 
 `PAYLOAD_KEY` is read from `cobble.json` automatically; the env var override is
 still respected for CI but no longer required. The same key must match the
@@ -87,7 +88,7 @@ validation, handshake, integrity, or any other security-relevant code path —
 those run identically in dev and pack builds.
 
 **DLL is intentionally un-optimized in MSBuild** (`Optimization=Disabled`).
-VMProtect post-processes marked loader regions; the loader keeps `Optimization=MaxSpeed`.
+VMProtect post-processes marked DLL and loader regions; the loader keeps `Optimization=MaxSpeed`.
 
 MSBuild path is hardcoded in `build.ps1` — adjust if VS lives elsewhere.
 

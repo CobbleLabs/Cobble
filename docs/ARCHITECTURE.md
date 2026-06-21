@@ -475,7 +475,7 @@ Player joins server
 | Anti-Debug | **VMProtect** runtime debugger checks |
 | Anti-Tamper | **VMProtect** image CRC validation |
 | Anti-VM | **VMProtect** virtual-machine checks |
-| Code Prot | **VMProtect Ultra** mutation + virtualization markers |
+| Code Prot | **VMProtect Ultra** mutation + virtualization markers in `Cobble.dll` and `CobbleLoader.exe` |
 | Injection | SecureManualMap (no LoadLibrary, no persistent RWX) |
 | Payload Encryption | AES-256-CBC with server-provided key |
 | Handshake | Writes `injection_secret` + `sync_token` to shared memory |

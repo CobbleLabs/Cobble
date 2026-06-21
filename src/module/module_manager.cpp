@@ -3,6 +3,7 @@
 #include "../ui/menu/menu.h"
 #include "../util/diagnostics.hpp"
 #include "../util/state_check.hpp"
+#include "../security/vmprotect.h"
 #include "utility/autorefill.h"
 
 #include <unordered_map>
@@ -47,6 +48,7 @@ void ModuleManager::update() {
     if (!sdk::internal::gateAB())
         return;
 
+    COBBLE_DLL_ULTRA_START("Cobble.ModuleManager.Update");
     checkKeybinds();
 
     for (auto* mod : modules) {
@@ -63,6 +65,7 @@ void ModuleManager::update() {
         if (autoRefill->shouldUpdate())
             autoRefill->onUpdate();
     }
+    COBBLE_DLL_ULTRA_END();
 }
 
 void ModuleManager::onRender() {
@@ -71,10 +74,12 @@ void ModuleManager::onRender() {
     // ::update() doesn't leak rendering artifacts.
     if (!sdk::internal::gateD())
         return;
+    COBBLE_DLL_ULTRA_START("Cobble.ModuleManager.Render");
     for (auto* mod : modules) {
         if (mod->enabled)
             mod->onRender();
     }
+    COBBLE_DLL_ULTRA_END();
 }
 
 bool ModuleManager::hasRenderWork() const {

@@ -41,7 +41,7 @@
       <ForcedIncludeFiles>$(ProjectDir)generated\build_flags.h</ForcedIncludeFiles>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp20</LanguageStandard>
-      <AdditionalIncludeDirectories>$(ProjectDir);$(ProjectDir)infra\ext\jni;$(ProjectDir)infra\ext\imgui;$(ProjectDir)src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(ProjectDir);$(ProjectDir)infra\ext\jni;$(ProjectDir)infra\ext\imgui;$(ProjectDir)src;$(ProjectDir)vmprotect\sdk;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <Optimization>Disabled</Optimization>
       <AdditionalOptions>/FS %(AdditionalOptions)</AdditionalOptions>
       <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
@@ -53,6 +53,12 @@
       <OptimizeReferences>false</OptimizeReferences>
       <GenerateDebugInformation>false</GenerateDebugInformation>
       <AdditionalDependencies>$(ProjectDir)infra\ext\jni\jvm.lib;opengl32.lib;winhttp.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalLibraryDirectories>$(ProjectDir)vmprotect\bin\64\Release;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(CobbleBuildMode)'=='Pack'">
+    <Link>
+      <AdditionalDependencies>VMProtectSDK64.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
@@ -231,6 +237,7 @@
     <ClInclude Include="src\security\system_info.hpp" />
     <ClInclude Include="src\security\telemetry_host.hpp" />
     <ClInclude Include="src\security\telemetry_sender.hpp" />
+    <ClInclude Include="src\security\vmprotect.h" />
     <ClInclude Include="src\sdk\player\visual_cache.h" />
     <ClInclude Include="src\util\diagnostics.hpp" />
     <ClInclude Include="src\util\inject_trace.hpp" />

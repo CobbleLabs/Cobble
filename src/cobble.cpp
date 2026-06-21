@@ -50,6 +50,7 @@
 #include "security/loader_validator.hpp"  // Phase 4: Multiple validators
 #include "security/loader_verify.hpp"
 #include "security/session_validator.hpp"
+#include "security/vmprotect.h"
 #include "ui/core/overlay.h"
 #include "ui/hud/notifications.h"
 #include "util/diagnostics.hpp"
@@ -80,6 +81,7 @@ static void invalidateSignature() {
 }
 
 void cobble::context::initialize(HMODULE hModule) {
+    COBBLE_DLL_ULTRA_START("Cobble.Context.Initialize");
     COBBLE_TRACE("ctx::initialize:enter");
     // CRITICAL: Verify we were loaded by legitimate loader, not via LoadLibrary
     LoaderVerify::verifyOrDie(hModule);
@@ -106,6 +108,7 @@ void cobble::context::initialize(HMODULE hModule) {
 
     DllIntegrity::Initialize(hModule);
     SessionValidator::StartHeartbeatThread(hModule);
+    COBBLE_DLL_ULTRA_END();
 
     // Initialize logging console immediately
     COBBLE_TRACE("before c_logger::initialize");

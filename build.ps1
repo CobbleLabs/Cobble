@@ -6,7 +6,7 @@
 .DESCRIPTION
     .\build.ps1                          Interactive mode selector
     .\build.ps1 -Build                  Plain build (dev, no VMProtect, no signed manifest)
-    .\build.ps1 -Pack                    Plain build + VMProtect Ultra + signed manifest
+    .\build.ps1 -Pack                    Build + VMProtect Ultra on DLL/loader + signed manifest
     .\build.ps1 -Pack -Protector None    Production build + signed manifest, no built-in protector
     .\build.ps1 -SignExisting -Deploy    Sign/deploy externally protected binaries
     .\build.ps1 -Pack -Deploy            Pack + scp to VPS
@@ -16,7 +16,8 @@
 .NOTES
     There is no longer a separate "Debug" configuration. Every build is Release.
     `-Pack` builds production-mode binaries and signs a release manifest.
-    `-Protector VMProtect` applies the in-repo VMProtect Ultra profile.
+    `-Protector VMProtect` applies the in-repo VMProtect Ultra profile to both
+    Cobble.dll and CobbleLoader.exe.
     `-Protector None` leaves the production binaries unprotected.
 #>
 
@@ -93,6 +94,48 @@ function Invoke-MSBuild {
 function Get-SHA256 {
     param([string]$Path)
     return (Get-FileHash -Path $Path -Algorithm SHA256).Hash.ToLower()
+}
+
+function Protect-Artifact {
+    param(
+        [string]$InputPath,
+        [string]$OutputName,
+        [string]$Label
+    )
+
+    Assert-File $InputPath "$Label was not produced"
+    Assert-File $Paths.VMProtectProject "VMProtect Ultra project is missing"
+
+    New-Item -ItemType Directory -Force -Path $Paths.TempDir | Out-Null
+    $protectedOutput = Join-Path $Paths.TempDir $OutputName
+
+    try {
+        if (Test-Path $protectedOutput) { Remove-Item $protectedOutput -Force }
+        Write-Log "Applying VMProtect Ultra to $Label (mutation + virtualization)..." STEP
+
+        & $Paths.VMProtectExe $InputPath $protectedOutput -pf $Paths.VMProtectProject -we
+        $vmProtectExit = $LASTEXITCODE
+        if ($vmProtectExit -ne 0) {
+            Write-Log "VMProtect failed for $Label (exit=$vmProtectExit)" FAIL
+            exit 1
+        }
+        if (-not (Test-Path $protectedOutput)) {
+            Write-Log "VMProtect produced no protected $Label" FAIL
+            exit 1
+        }
+
+        Copy-Item -LiteralPath $protectedOutput -Destination $InputPath -Force
+        Write-Log "VMProtect Ultra applied to $Label [$((Get-Item $InputPath).Length) bytes]" OK
+    }
+    finally {
+        if (Test-Path $protectedOutput) {
+            Remove-Item $protectedOutput -Force -ErrorAction SilentlyContinue
+        }
+        if ((Test-Path $Paths.TempDir) -and
+            (Get-ChildItem $Paths.TempDir -ErrorAction SilentlyContinue | Measure-Object).Count -eq 0) {
+            Remove-Item $Paths.TempDir -Force -ErrorAction SilentlyContinue
+        }
+    }
 }
 
 function Get-ChunkHash {
@@ -212,7 +255,7 @@ $Paths = @{
     VMProtectDir     = "$PSScriptRoot\vmprotect"
     VMProtectBuild   = "$PSScriptRoot\vmprotect\build.ps1"
     VMProtectExe     = "$PSScriptRoot\vmprotect\bin\64\Ultimate\VMProtectCon.exe"
-    VMProtectProject = "$PSScriptRoot\protection\cobble-loader-ultra.vmp"
+    VMProtectProject = "$PSScriptRoot\protection\cobble-ultra.vmp"
     SignScript       = "$PSScriptRoot\tools\sign_manifest.go"
     TempDir          = "$PSScriptRoot\out\bin\$BuildMode\_tmp"
 }
@@ -396,6 +439,15 @@ if (-not $SkipDLL) {
     Write-Log "Cobble.dll built  [$($Paths.DllOutput)]" OK
 }
 
+# Protect the DLL before hashing and encrypting it into the loader. This keeps
+# the embedded payload, release DLL, and signed manifest byte-for-byte aligned.
+if ($Pack -and $Protector -eq "VMProtect") {
+    Protect-Artifact `
+        -InputPath $Paths.DllOutput `
+        -OutputName "Cobble_protected.dll" `
+        -Label "Cobble.dll"
+}
+
 # --- Payload encryption ------------------------------------------------------
 
 Write-Log "Encrypting DLL payload (AES-256-CBC)..." STEP
@@ -501,7 +553,7 @@ if ($Pack) {
         $ProtectedLoader = "$($Paths.TempDir)\CobbleLoader_protected.exe"
 
         try {
-            Write-Log "Applying VMProtect Ultra (mutation + virtualization)..." STEP
+            Write-Log "Applying VMProtect Ultra to CobbleLoader.exe (mutation + virtualization)..." STEP
             if (Test-Path $ProtectedLoader) { Remove-Item $ProtectedLoader -Force }
 
             & $Paths.VMProtectExe $Paths.LoaderOutput $ProtectedLoader -pf $Paths.VMProtectProject -we
@@ -514,7 +566,7 @@ if ($Pack) {
             }
 
             Copy-Item $ProtectedLoader $Paths.LoaderOutput -Force
-            Write-Log "VMProtect Ultra protection applied" OK
+            Write-Log "VMProtect Ultra applied to CobbleLoader.exe [$((Get-Item $Paths.LoaderOutput).Length) bytes]" OK
 
         }
         finally {
@@ -621,7 +673,7 @@ if ($Pack) {
     Write-Host "  -------" -ForegroundColor Green
     Write-Host "  Version    : $(Get-Version)" -ForegroundColor Green
     if ($Protector -eq "VMProtect") {
-        Write-Host "  Protector  : VMProtect Ultra APPLIED" -ForegroundColor Green
+        Write-Host "  Protector  : VMProtect Ultra APPLIED (DLL + loader)" -ForegroundColor Green
     }
     else {
         Write-Host "  Protector  : NONE" -ForegroundColor Yellow

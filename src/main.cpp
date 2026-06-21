@@ -2,9 +2,11 @@
 
 #include <Windows.h>
 #include "cobble.hpp"
+#include "security/vmprotect.h"
 #include "util/inject_trace.hpp"
 
 DWORD WINAPI MainThread(LPVOID lpParam) {
+    COBBLE_DLL_ULTRA_START("Cobble.MainThread");
     COBBLE_TRACE("MainThread:enter");
     // Top-level safety net: if anything inside initialize() throws (malformed
     // config, std::bad_alloc on a module ctor, etc.) catch it here so the
@@ -19,6 +21,7 @@ DWORD WINAPI MainThread(LPVOID lpParam) {
         COBBLE_TRACE("MainThread:unknown exception caught");
     }
     COBBLE_TRACE("MainThread:exit");
+    COBBLE_DLL_ULTRA_END();
     return 0;
 }
 

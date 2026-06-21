@@ -26,7 +26,7 @@ copy cobble.json.example cobble.json
 .\build.ps1
 .\build.ps1 -Build
 
-# Pack: builds VMProtect, applies Ultra, and signs the manifest.
+# Pack: builds VMProtect, protects the DLL and loader, and signs the manifest.
 .\build.ps1 -Pack
 
 # Pack + scp to VPS
@@ -43,7 +43,7 @@ Output:
 - Dev build: `out/bin/Dev/{Cobble.dll, CobbleLoader.exe}`
 - Pack build: `out/bin/Pack/{Cobble.dll, CobbleLoader.exe}`
 
-There is no separate Debug build — every build is Release; `-Pack` compiles the pinned VMProtect submodule, protects the loader with the `Ultra` markers (mutation + virtualization), and signs the distribution manifest. The two modes use different output dirs so they don't clobber each other.
+There is no separate Debug build — every build is Release; `-Pack` compiles the pinned VMProtect submodule, protects `Cobble.dll` and `CobbleLoader.exe` with the `Ultra` profile (mutation + virtualization), and signs the distribution manifest. The DLL is protected before payload encryption and release hashing. The two modes use different output dirs so they don't clobber each other.
 
 ## Repos
 
@@ -96,7 +96,7 @@ There is no separate Debug build — every build is Release; `-Pack` compiles th
 
 ```powershell
 # cobble.json must already have payload_key + public_key_hex matching the server
-.\build.ps1 -Pack            # builds VMProtect + applies Ultra + signs the manifest
+.\build.ps1 -Pack            # builds VMProtect + protects DLL/loader + signs the manifest
 .\build.ps1 -Pack -Deploy    # also scp's loader+DLL to the VPS
 ```
 
