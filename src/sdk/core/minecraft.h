@@ -109,6 +109,7 @@ struct Minecraft {
 
     // Mouse click (for autoclicker)
     void clickMouse();
+    bool attackEntity(jobject target);
     void rightClickMouse();
     void updateMouseOver();
 

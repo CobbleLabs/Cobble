@@ -1,5 +1,6 @@
 #include "overlay.h"
 #include "../../config/config.hpp"
+#include "../../module/combat/piercing.h"
 #include "../../module/module_manager.h"
 #include "../../sdk/core/minecraft.h"
 #include "../../sdk/player/render_data.h"
@@ -36,6 +37,7 @@ namespace {
 std::atomic<bool> initStarted{false};
 std::atomic<bool> hookInstalled{false};
 std::atomic<bool> shutdownRequested{false};
+std::atomic<bool> suppressPiercingRelease{false};
 
 HGLRC lastOriginalContext = nullptr;
 HDC lastHDC = nullptr;
@@ -263,6 +265,13 @@ LRESULT CALLBACK HookedWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam
         ImGui_ImplWin32_WndProcHandler(hWnd, msg, wParam, lParam);
         return 1;
     }
+
+    if (msg == WM_LBUTTONDOWN && piercing && piercing->handleAttackInput()) {
+        suppressPiercingRelease = true;
+        return 1;
+    }
+    if (msg == WM_LBUTTONUP && suppressPiercingRelease.exchange(false))
+        return 1;
 
     return CallWindowProcA(originalWndProc, hWnd, msg, wParam, lParam);
 }

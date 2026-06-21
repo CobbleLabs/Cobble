@@ -233,6 +233,83 @@ void Minecraft::clickMouse() {
     Java::Env()->CallVoidMethod(instance, mid_clickMouse);
 }
 
+bool Minecraft::attackEntity(jobject target) {
+    JNIEnv* env = Java::Env();
+    if (!isValid() || !env || !target || !JniCache::fid_playerController)
+        return false;
+
+    if (env->ExceptionCheck())
+        env->ExceptionClear();
+
+    jobject controller = env->GetObjectField(instance, JniCache::fid_playerController);
+    jobject localPlayer = getPlayer();
+    if (!controller || !localPlayer) {
+        if (controller)
+            env->DeleteLocalRef(controller);
+        if (localPlayer)
+            env->DeleteLocalRef(localPlayer);
+        if (env->ExceptionCheck())
+            env->ExceptionClear();
+        return false;
+    }
+
+    jclass controllerClass = env->GetObjectClass(controller);
+    jclass playerClass = env->GetObjectClass(localPlayer);
+    if (!controllerClass || !playerClass) {
+        if (controllerClass)
+            env->DeleteLocalRef(controllerClass);
+        if (playerClass)
+            env->DeleteLocalRef(playerClass);
+        env->DeleteLocalRef(localPlayer);
+        env->DeleteLocalRef(controller);
+        if (env->ExceptionCheck())
+            env->ExceptionClear();
+        return false;
+    }
+
+    const std::string attackSignature =
+        OBFUSCATE_STRING("(Lnet/minecraft/entity/player/EntityPlayer;Lnet/minecraft/entity/Entity;)V");
+    jmethodID attackMethod = env->GetMethodID(
+        controllerClass, OBFUSCATE_STRING("attackEntity").c_str(), attackSignature.c_str());
+    if (!attackMethod) {
+        env->ExceptionClear();
+        attackMethod = env->GetMethodID(
+            controllerClass, OBFUSCATE_STRING("func_78764_a").c_str(), attackSignature.c_str());
+    }
+    if (!attackMethod && env->ExceptionCheck())
+        env->ExceptionClear();
+
+    jmethodID swingMethod =
+        env->GetMethodID(playerClass, OBFUSCATE_STRING("swingItem").c_str(), OBFUSCATE_STRING("()V").c_str());
+    if (!swingMethod) {
+        env->ExceptionClear();
+        swingMethod =
+            env->GetMethodID(playerClass, OBFUSCATE_STRING("func_71038_i").c_str(), OBFUSCATE_STRING("()V").c_str());
+    }
+    if (!swingMethod && env->ExceptionCheck())
+        env->ExceptionClear();
+
+    bool attacked = false;
+    if (attackMethod) {
+        if (swingMethod) {
+            env->CallVoidMethod(localPlayer, swingMethod);
+            if (env->ExceptionCheck())
+                env->ExceptionClear();
+        }
+
+        env->CallVoidMethod(controller, attackMethod, localPlayer, target);
+        attacked = !env->ExceptionCheck();
+    }
+
+    if (env->ExceptionCheck())
+        env->ExceptionClear();
+    env->DeleteLocalRef(playerClass);
+    env->DeleteLocalRef(controllerClass);
+    env->DeleteLocalRef(localPlayer);
+    env->DeleteLocalRef(controller);
+    return attacked;
+}
+
 void Minecraft::rightClickMouse() {
     JNIEnv* env = Java::Env();
     if (!isValid() || !mid_rightClickMouse || !env)

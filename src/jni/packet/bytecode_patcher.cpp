@@ -33,6 +33,7 @@ static HookTargets g_targets{};
 static std::atomic<bool> bytecodeHookInstalled{false};
 static std::atomic<bool> hooksRegistered{false};
 static jclass cls_PacketHook = nullptr;
+static jclass cls_SlowdownTarget = nullptr;
 constexpr int kPrefixLen = 8;
 
 // PacketHook class with both methods:
@@ -1127,7 +1128,7 @@ static int patchNetworkManagerClass(const uint8_t* data, size_t len, std::vector
     return patched_methods;
 }
 
-static int patchPlayerClass(const uint8_t* data, size_t len, std::vector<uint8_t>& out) {
+static int patchLivingBaseClass(const uint8_t* data, size_t len, std::vector<uint8_t>& out) {
     Reader r(data, len);
     uint32_t magic = r.ReadU4();
     if (!r.ok || magic != 0xCAFEBABE)
@@ -1266,7 +1267,7 @@ static int patchPlayerClass(const uint8_t* data, size_t len, std::vector<uint8_t
 
             if (desc == "()V" && (name == "onLivingUpdate" || name == "func_70636_d" || name == "m")) {
                 is_target = true;
-                log_debug("[PacketInterceptor] Found local player update method: %s %s", name.c_str(), desc.c_str());
+                log_debug("[PacketInterceptor] Found living update method: %s %s", name.c_str(), desc.c_str());
             }
         }
 
@@ -1333,8 +1334,6 @@ static void JNICALL onClassFileLoadHook(jvmtiEnv* jvmti_env, JNIEnv* jni_env, jc
                                         jobject loader, const char* name, jobject protection_domain,
                                         jint class_data_len, const unsigned char* class_data, jint* new_class_data_len,
                                         unsigned char** new_class_data) {
-    (void)jni_env;
-    (void)class_being_redefined;
     (void)loader;
     (void)protection_domain;
 
@@ -1420,12 +1419,14 @@ static void JNICALL onClassFileLoadHook(jvmtiEnv* jvmti_env, JNIEnv* jni_env, jc
         return;
     }
 
-    if (strcmp(name, "net/minecraft/client/entity/EntityPlayerSP") == 0 ||
-        strcmp(name, "net/minecraft/client/entity/EntityClientPlayerMP") == 0 ||
-        strcmp(name, "bew") == 0) {
-        log_debug("[PacketInterceptor] onClassFileLoadHook triggered for local player: %s", name);
+    const bool isSlowdownTarget =
+        (cls_SlowdownTarget && class_being_redefined &&
+         jni_env->IsSameObject(class_being_redefined, cls_SlowdownTarget) == JNI_TRUE) ||
+        strcmp(name, "net/minecraft/entity/EntityLivingBase") == 0;
+    if (isSlowdownTarget) {
+        log_debug("[PacketInterceptor] onClassFileLoadHook triggered for living base: %s", name);
         std::vector<uint8_t> patched;
-        int patched_methods = patchPlayerClass(class_data, static_cast<size_t>(class_data_len), patched);
+        int patched_methods = patchLivingBaseClass(class_data, static_cast<size_t>(class_data_len), patched);
         if (patched_methods > 0) {
             unsigned char* buffer = nullptr;
             jvmtiError err = jvmti_env->Allocate(static_cast<jint>(patched.size()), &buffer);
@@ -1433,7 +1434,7 @@ static void JNICALL onClassFileLoadHook(jvmtiEnv* jvmti_env, JNIEnv* jni_env, jc
                 memcpy(buffer, patched.data(), patched.size());
                 *new_class_data_len = static_cast<jint>(patched.size());
                 *new_class_data = buffer;
-                log_ok("[PacketInterceptor] Patched local player update bytecode (%d method(s))", patched_methods);
+                log_ok("[PacketInterceptor] Patched living update bytecode (%d method(s))", patched_methods);
             }
         }
         return;
@@ -1613,26 +1614,25 @@ bool InstallBytecodeHook(JNIEnv* env) {
     }
 
     {
-        jclass playerCls = nullptr;
-        if (Java::AssignClass(OBFUSCATE_STRING("net.minecraft.client.entity.EntityPlayerSP"), playerCls)) {
-            jclass classes[1] = {playerCls};
+        jclass livingBaseCls = nullptr;
+        if (Java::AssignClass(OBFUSCATE_STRING("net.minecraft.entity.EntityLivingBase"), livingBaseCls)) {
+            if (cls_SlowdownTarget) {
+                env->DeleteGlobalRef(cls_SlowdownTarget);
+            }
+            cls_SlowdownTarget = static_cast<jclass>(env->NewGlobalRef(livingBaseCls));
+
+            jclass classes[1] = {livingBaseCls};
             err = Java::tiEnv->RetransformClasses(1, classes);
             if (err == JVMTI_ERROR_NONE) {
-                log_ok("[PacketInterceptor] Retransform requested for EntityPlayerSP");
-            }
-            env->DeleteLocalRef(playerCls);
-        } else {
-            if (env->ExceptionCheck()) env->ExceptionClear();
-            if (Java::AssignClass(OBFUSCATE_STRING("net.minecraft.client.entity.EntityClientPlayerMP"), playerCls)) {
-                jclass classes[1] = {playerCls};
-                err = Java::tiEnv->RetransformClasses(1, classes);
-                if (err == JVMTI_ERROR_NONE) {
-                    log_ok("[PacketInterceptor] Retransform requested for EntityClientPlayerMP");
-                }
-                env->DeleteLocalRef(playerCls);
+                log_ok("[PacketInterceptor] Retransform requested for EntityLivingBase");
             } else {
-                if (env->ExceptionCheck()) env->ExceptionClear();
+                log_warn("[PacketInterceptor] EntityLivingBase retransform failed: %d", err);
             }
+            env->DeleteLocalRef(livingBaseCls);
+        } else {
+            if (env->ExceptionCheck())
+                env->ExceptionClear();
+            log_warn("[PacketInterceptor] EntityLivingBase not available for retransform");
         }
     }
 
@@ -1646,9 +1646,12 @@ void Shutdown(JNIEnv* env) {
         env->DeleteGlobalRef(cls_PacketHook);
         cls_PacketHook = nullptr;
     }
+    if (cls_SlowdownTarget) {
+        env->DeleteGlobalRef(cls_SlowdownTarget);
+        cls_SlowdownTarget = nullptr;
+    }
     hooksRegistered = false;
     bytecodeHookInstalled = false;
 }
 
 }  // namespace BytecodePatcher
-

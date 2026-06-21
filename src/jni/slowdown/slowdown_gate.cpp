@@ -1,14 +1,9 @@
 #include "slowdown_gate.hpp"
 
-#include <algorithm>
 #include <atomic>
-#include <cmath>
-#include <cstring>
 
 #include "../../module/movement/no_slow_down.h"
-#include "../../sdk/core/minecraft.h"
-#include "../../sdk/jni/jni_cache.h"
-#include "../../util/aes_string.hpp"
+#include "../../sdk/player/player.h"
 #include "../../util/logger.hpp"
 #include "../java.h"
 
@@ -137,147 +132,16 @@ static const uint8_t kSlowDownHookBytecode[] = {
 static std::atomic<bool> g_initialized{false};
 static jclass g_cls_SlowDownHook = nullptr;
 
-// Cached field IDs for the movement input manipulation
-// (these are re-used from NoSlowDown's own initializeFields logic)
-static jfieldID g_movementInputField    = nullptr;
-static jfieldID g_moveForwardField      = nullptr;
-static jfieldID g_moveStrafeField       = nullptr;
-static jfieldID g_entityMoveForwardField= nullptr;
-static jfieldID g_entityMoveStrafeField = nullptr;
-static jfieldID g_itemInUseCountField   = nullptr;
-static jmethodID g_mid_isUsingItem      = nullptr;
-static bool g_fieldsReady = false;
-
-static bool initMovementFields(JNIEnv* env, jobject playerInstance) {
-    if (g_fieldsReady)
-        return true;
-
-    jclass playerClass = env->GetObjectClass(playerInstance);
-    if (!playerClass)
-        return false;
-
-    auto findField = [env](jclass cls, const char* name, const char* obf, const char* sig) -> jfieldID {
-        jfieldID f = env->GetFieldID(cls, name, sig);
-        if (!f) { env->ExceptionClear(); f = env->GetFieldID(cls, obf, sig); }
-        if (!f && env->ExceptionCheck()) env->ExceptionClear();
-        return f;
-    };
-
-    g_movementInputField     = findField(playerClass, "movementInput", "field_71158_b",
-                                         "Lnet/minecraft/util/MovementInput;");
-    g_entityMoveStrafeField  = findField(playerClass, "moveStrafing",  "field_70702_br", "F");
-    g_entityMoveForwardField = findField(playerClass, "moveForward",   "field_70701_bs", "F");
-    g_itemInUseCountField    = findField(playerClass, "itemInUseCount","field_71072_f",  "I");
-
-    if (g_movementInputField) {
-        jobject movInput = env->GetObjectField(playerInstance, g_movementInputField);
-        if (movInput && !env->ExceptionCheck()) {
-            jclass movInputCls = env->GetObjectClass(movInput);
-            if (movInputCls) {
-                g_moveForwardField = findField(movInputCls, "moveForward", "field_78900_b", "F");
-                g_moveStrafeField  = findField(movInputCls, "moveStrafe",  "field_78902_a", "F");
-                env->DeleteLocalRef(movInputCls);
-            }
-            env->DeleteLocalRef(movInput);
-        }
-        if (env->ExceptionCheck()) env->ExceptionClear();
-    }
-
-    // isUsingItem method
-    if (JniCache::cls_EntityPlayer && !g_mid_isUsingItem) {
-        g_mid_isUsingItem = env->GetMethodID(JniCache::cls_EntityPlayer,
-                                              "isUsingItem", "()Z");
-        if (!g_mid_isUsingItem) {
-            env->ExceptionClear();
-            g_mid_isUsingItem = env->GetMethodID(JniCache::cls_EntityPlayer,
-                                                   "func_71039_bw", "()Z");
-            if (!g_mid_isUsingItem && env->ExceptionCheck()) env->ExceptionClear();
-        }
-    }
-
-    env->DeleteLocalRef(playerClass);
-    if (env->ExceptionCheck()) env->ExceptionClear();
-
-    g_fieldsReady = g_moveForwardField && g_moveStrafeField;
-    return g_fieldsReady;
-}
-
-static bool isPlayerUsingItem(JNIEnv* env, jobject playerInstance) {
-    // Primary: call isUsingItem()
-    if (g_mid_isUsingItem) {
-        bool result = env->CallBooleanMethod(playerInstance, g_mid_isUsingItem) == JNI_TRUE;
-        if (env->ExceptionCheck()) env->ExceptionClear();
-        if (result) return true;
-    }
-    // Fallback: itemInUseCount > 0
-    if (g_itemInUseCountField) {
-        int count = env->GetIntField(playerInstance, g_itemInUseCountField);
-        if (env->ExceptionCheck()) env->ExceptionClear();
-        return count > 0;
-    }
-    return false;
-}
-
 }  // namespace
 
 namespace SlowDownGate {
 
 void JNICALL NativeOnSlowDown(JNIEnv* env, jclass, jobject playerInstance) {
-    // Guard: module must be enabled and unlocked
-    if (!noSlowDown || !noSlowDown->enabled)
-        return;
-    if (!playerInstance)
+    if (!noSlowDown || !noSlowDown->enabled || !playerInstance || !player.instance)
         return;
 
-    if (!initMovementFields(env, playerInstance))
-        return;
-    if (!isPlayerUsingItem(env, playerInstance))
-        return;
-
-    // ---- Packet mode (blocking bypass) ----
-    noSlowDown->handlePacketMode();
-
-    jobject movInput = g_movementInputField
-        ? env->GetObjectField(playerInstance, g_movementInputField)
-        : nullptr;
-    if (!movInput)
-        return;
-
-    float forward = env->GetFloatField(movInput, g_moveForwardField);
-    float strafe  = env->GetFloatField(movInput, g_moveStrafeField);
-
-    // ----- Per-item multipliers -----
-    int heldId = player.getHeldItemId();
-    float fwdMul = 1.0f, strafeMul = 1.0f;
-    if (heldId == 261) {
-        fwdMul = noSlowDown->bowForward;
-        strafeMul = noSlowDown->bowStrafe;
-    } else if (heldId == 267 || heldId == 268 || heldId == 269 || heldId == 272 ||
-               heldId == 276 || heldId == 283) {
-        fwdMul = noSlowDown->blockForward;
-        strafeMul = noSlowDown->blockStrafe;
-    } else {
-        fwdMul = noSlowDown->consumeForward;
-        strafeMul = noSlowDown->consumeStrafe;
-    }
-
-    forward *= fwdMul;
-    strafe  *= strafeMul;
-
-    // Counteract Minecraft's 0.2f scaling in onLivingUpdate
-    float finalForward = forward * 5.0f;
-    float finalStrafe  = strafe * 5.0f;
-
-    env->SetFloatField(movInput, g_moveForwardField, finalForward);
-    env->SetFloatField(movInput, g_moveStrafeField,  finalStrafe);
-
-    if (g_entityMoveForwardField)
-        env->SetFloatField(playerInstance, g_entityMoveForwardField, forward);
-    if (g_entityMoveStrafeField)
-        env->SetFloatField(playerInstance, g_entityMoveStrafeField,  strafe);
-
-    env->DeleteLocalRef(movInput);
-    if (env->ExceptionCheck()) env->ExceptionClear();
+    if (env->IsSameObject(playerInstance, player.instance) == JNI_TRUE)
+        noSlowDown->applyMovement(env, playerInstance);
 }
 
 bool Init(JNIEnv* env) {
@@ -337,7 +201,6 @@ void Shutdown(JNIEnv* env) {
         g_cls_SlowDownHook = nullptr;
     }
     g_initialized = false;
-    g_fieldsReady = false;
 }
 
 }  // namespace SlowDownGate

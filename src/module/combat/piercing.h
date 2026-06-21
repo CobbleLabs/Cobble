@@ -1,5 +1,6 @@
 #pragma once
 
+#include "../../jni/java.h"
 #include "../module.h"
 
 class Piercing : public Module {
@@ -11,6 +12,7 @@ public:
     void onUpdate() override;
     void onRenderMenu() override;
     std::string getDisplayInfo() override;
+    bool handleAttackInput();
 
     struct Settings {
         float distance = 3.0f;
@@ -25,6 +27,8 @@ public:
     } settings;
 
 private:
+    jobject selectTarget(bool hiddenOnly, bool& targetVisible);
+
     static bool rayIntersectsBox(double originX, double originY, double originZ,
                                  double directionX, double directionY, double directionZ,
                                  double minX, double minY, double minZ,

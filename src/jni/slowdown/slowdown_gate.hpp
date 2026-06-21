@@ -4,9 +4,8 @@
 
 namespace SlowDownGate {
 
-// Called from EntityPlayerSP.onLivingUpdate (JNI thread) when the player
-// is about to have their movement input multiplied by 0.2 due to item use.
-// Receives the EntityPlayerSP instance and overwrites moveForward/moveStrafe.
+// Called from EntityPlayerSP.onLivingUpdate as a low-latency supplement to
+// the module update fallback.
 void JNICALL NativeOnSlowDown(JNIEnv* env, jclass, jobject playerInstance);
 
 // Initialize: register the SlowDownHook native class and method

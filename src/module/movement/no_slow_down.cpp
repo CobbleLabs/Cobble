@@ -6,7 +6,7 @@
 #include "../../ui/widgets/widgets.hpp"
 
 #include <algorithm>
-#include <cmath>
+#include <utility>
 
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
@@ -18,228 +18,295 @@
 
 NoSlowDown* noSlowDown = nullptr;
 
-// ---------------------------------------------------------------------------
-// Minecraft 1.7.10 / 1.8.x item ID ranges
-//   Swords:  272 (wood), 267 (iron), 276 (diamond), 268 (stone), 283 (gold)
-//   Bows:    261
-//   Food:    297,320,319,349,350,357,363–366,391–394,400,412,413,423,424,
-//            322 (golden apple), 391 (carrot), 393 (baked potato)…
-//   Potions: 373
-//   Milk:    335
-// ---------------------------------------------------------------------------
-static bool isSwordId(int id) {
-    return id == 267 || id == 268 || id == 269 || id == 272 || id == 276 || id == 283;
+namespace {
+
+bool clearJniException(JNIEnv* env) {
+    if (!env || !env->ExceptionCheck())
+        return false;
+    env->ExceptionClear();
+    return true;
 }
-static bool isBowId(int id) {
+
+jclass assignGlobalClass(JNIEnv* env, const char* name) {
+    jclass local = nullptr;
+    if (!env || !Java::AssignClass(name, local) || !local) {
+        clearJniException(env);
+        return nullptr;
+    }
+
+    jclass global = static_cast<jclass>(env->NewGlobalRef(local));
+    env->DeleteLocalRef(local);
+    if (!global)
+        clearJniException(env);
+    return global;
+}
+
+bool isSwordId(int id) {
+    return id == 267 || id == 268 || id == 272 || id == 276 || id == 283;
+}
+
+bool isBowId(int id) {
     return id == 261;
 }
-static bool isConsumeId(int id) {
-    // Food IDs (common 1.7/1.8 foods)
+
+bool isConsumeId(int id) {
     switch (id) {
-        case 297: case 298: case 299: case 300: case 301: // bread, pork, cooked pork, painting (skip), golden apple
-        case 319: case 320:   // raw/cooked pork
-        case 322:             // golden apple
-        case 335:             // milk bucket
-        case 349: case 350:   // raw/cooked fish
-        case 357:             // cookie
-        case 360:             // melon slice
-        case 363: case 364: case 365: case 366: // raw/cooked beef / raw/cooked chicken
-        case 373:             // potion
-        case 374:             // water bottle (also ItemPotion)
-        case 391: case 392: case 393: case 394: // carrot, potato, baked potato, poisonous potato
-        case 400:             // pumpkin pie
-        case 412: case 413:   // raw/cooked rabbit
-        case 423: case 424:   // raw/cooked mutton
+        case 260:  // Apple
+        case 282:  // Mushroom stew
+        case 297:  // Bread
+        case 319:  // Raw porkchop
+        case 320:  // Cooked porkchop
+        case 322:  // Golden apple
+        case 335:  // Milk bucket
+        case 349:  // Raw fish
+        case 350:  // Cooked fish
+        case 357:  // Cookie
+        case 360:  // Melon
+        case 363:  // Raw beef
+        case 364:  // Steak
+        case 365:  // Raw chicken
+        case 366:  // Cooked chicken
+        case 367:  // Rotten flesh
+        case 373:  // Potion
+        case 391:  // Carrot
+        case 392:  // Potato
+        case 393:  // Baked potato
+        case 394:  // Poisonous potato
+        case 396:  // Golden carrot
+        case 400:  // Pumpkin pie
+        case 411:  // Raw rabbit
+        case 412:  // Cooked rabbit
+        case 413:  // Rabbit stew
+        case 423:  // Raw mutton
+        case 424:  // Cooked mutton
             return true;
         default:
             return false;
     }
 }
 
-// ---------------------------------------------------------------------------
-// Helpers to build and send C07 / C08 packets via JNI
-// ---------------------------------------------------------------------------
+std::pair<float, float> getMultipliers(NoSlowDown::HeldItemType type, const NoSlowDown& module) {
+    switch (type) {
+        case NoSlowDown::HeldItemType::Sword:
+            return {module.blockForward, module.blockStrafe};
+        case NoSlowDown::HeldItemType::Bow:
+            return {module.bowForward, module.bowStrafe};
+        case NoSlowDown::HeldItemType::Consume:
+            return {module.consumeForward, module.consumeStrafe};
+        default:
+            return {0.2f, 0.2f};
+    }
+}
 
-// Sends C07PacketPlayerDigging with Action.RELEASE_USE_ITEM
-// (BlockPos(-1,-1,-1), EnumFacing.DOWN)
-static bool sendC07ReleaseUseItem(JNIEnv* env) {
-    // Class / method IDs are looked up once and cached statically
-    static jclass    cls_C07        = nullptr;
-    static jmethodID mid_C07Init    = nullptr;
-    static jclass    cls_Action     = nullptr;
-    static jobject   obj_RELEASE    = nullptr;  // GlobalRef
-    static jclass    cls_BlockPos   = nullptr;
-    static jmethodID mid_BPInit     = nullptr;
-    static jclass    cls_EnumFacing = nullptr;
-    static jobject   obj_DOWN       = nullptr;  // GlobalRef
+enum class C07Constructor {
+    Unresolved,
+    Modern,
+    Legacy
+};
 
-    if (!cls_C07) {
-        cls_C07 = (jclass)env->NewGlobalRef(
-            env->FindClass("net/minecraft/network/play/client/C07PacketPlayerDigging"));
-        if (env->ExceptionCheck() || !cls_C07) { env->ExceptionClear(); return false; }
+struct C07Cache {
+    jclass packetClass = nullptr;
+    jmethodID constructor = nullptr;
+    C07Constructor type = C07Constructor::Unresolved;
+    jclass blockPosClass = nullptr;
+    jmethodID blockPosConstructor = nullptr;
+    jobject releaseAction = nullptr;
+    jobject downFacing = nullptr;
+};
 
-        mid_C07Init = env->GetMethodID(cls_C07, "<init>",
-            "(Lnet/minecraft/network/play/client/C07PacketPlayerDigging$Action;Lnet/minecraft/util/BlockPos;Lnet/minecraft/util/EnumFacing;)V");
-        if (env->ExceptionCheck() || !mid_C07Init) {
-            // 1.7.10 alternative - no BlockPos
-            env->ExceptionClear();
-            mid_C07Init = env->GetMethodID(cls_C07, "<init>", "(I)V");
-            if (env->ExceptionCheck() || !mid_C07Init) { env->ExceptionClear(); return false; }
+C07Cache& c07Cache() {
+    static C07Cache cache;
+    return cache;
+}
 
-            // 1.7.10 path: C07(5) = RELEASE_USE_ITEM
-            jobject packet = env->NewObject(cls_C07, mid_C07Init, 5);
-            if (env->ExceptionCheck() || !packet) { env->ExceptionClear(); return false; }
-            mc.sendPacket(packet);
-            env->DeleteLocalRef(packet);
-            return true;
-        }
+bool initializeModernC07(JNIEnv* env, C07Cache& cache) {
+    cache.constructor = env->GetMethodID(
+        cache.packetClass,
+        "<init>",
+        "(Lnet/minecraft/network/play/client/C07PacketPlayerDigging$Action;"
+        "Lnet/minecraft/util/BlockPos;Lnet/minecraft/util/EnumFacing;)V");
+    if (!cache.constructor) {
+        clearJniException(env);
+        return false;
     }
 
-    if (!obj_RELEASE) {
-        jclass actionCls = env->FindClass(
-            "net/minecraft/network/play/client/C07PacketPlayerDigging$Action");
-        if (env->ExceptionCheck() || !actionCls) { env->ExceptionClear(); return false; }
-        jfieldID fid = env->GetStaticFieldID(actionCls, "RELEASE_USE_ITEM",
-            "Lnet/minecraft/network/play/client/C07PacketPlayerDigging$Action;");
-        if (env->ExceptionCheck() || !fid) { env->ExceptionClear(); env->DeleteLocalRef(actionCls); return false; }
-        jobject local = env->GetStaticObjectField(actionCls, fid);
-        obj_RELEASE = env->NewGlobalRef(local);
-        env->DeleteLocalRef(local);
-        env->DeleteLocalRef(actionCls);
+    jclass actionClass =
+        assignGlobalClass(env, "net.minecraft.network.play.client.C07PacketPlayerDigging$Action");
+    cache.blockPosClass = assignGlobalClass(env, "net.minecraft.util.BlockPos");
+    jclass facingClass = assignGlobalClass(env, "net.minecraft.util.EnumFacing");
+    if (!actionClass || !cache.blockPosClass || !facingClass)
+        return false;
+
+    cache.blockPosConstructor = env->GetMethodID(cache.blockPosClass, "<init>", "(III)V");
+    jfieldID releaseField = env->GetStaticFieldID(
+        actionClass,
+        "RELEASE_USE_ITEM",
+        "Lnet/minecraft/network/play/client/C07PacketPlayerDigging$Action;");
+    jfieldID downField =
+        env->GetStaticFieldID(facingClass, "DOWN", "Lnet/minecraft/util/EnumFacing;");
+    if (!cache.blockPosConstructor || !releaseField || !downField) {
+        clearJniException(env);
+        return false;
     }
 
-    if (!cls_BlockPos) {
-        cls_BlockPos = (jclass)env->NewGlobalRef(
-            env->FindClass("net/minecraft/util/BlockPos"));
-        if (env->ExceptionCheck() || !cls_BlockPos) { env->ExceptionClear(); return false; }
-        mid_BPInit = env->GetMethodID(cls_BlockPos, "<init>", "(III)V");
-        if (env->ExceptionCheck()) { env->ExceptionClear(); return false; }
-    }
+    jobject localRelease = env->GetStaticObjectField(actionClass, releaseField);
+    jobject localDown = env->GetStaticObjectField(facingClass, downField);
+    if (!localRelease || !localDown || clearJniException(env))
+        return false;
 
-    if (!cls_EnumFacing) {
-        cls_EnumFacing = (jclass)env->NewGlobalRef(
-            env->FindClass("net/minecraft/util/EnumFacing"));
-        if (env->ExceptionCheck() || !cls_EnumFacing) { env->ExceptionClear(); return false; }
-        jfieldID fid = env->GetStaticFieldID(cls_EnumFacing, "DOWN",
-            "Lnet/minecraft/util/EnumFacing;");
-        if (env->ExceptionCheck() || !fid) { env->ExceptionClear(); return false; }
-        jobject local = env->GetStaticObjectField(cls_EnumFacing, fid);
-        obj_DOWN = env->NewGlobalRef(local);
-        env->DeleteLocalRef(local);
-    }
+    cache.releaseAction = env->NewGlobalRef(localRelease);
+    cache.downFacing = env->NewGlobalRef(localDown);
+    env->DeleteLocalRef(localRelease);
+    env->DeleteLocalRef(localDown);
+    if (!cache.releaseAction || !cache.downFacing)
+        return false;
 
-    // Build BlockPos(-1, -1, -1)
-    jobject blockPos = env->NewObject(cls_BlockPos, mid_BPInit, -1, -1, -1);
-    if (env->ExceptionCheck() || !blockPos) { env->ExceptionClear(); return false; }
-
-    // Build C07(RELEASE_USE_ITEM, blockPos, DOWN)
-    jobject packet = env->NewObject(cls_C07, mid_C07Init, obj_RELEASE, blockPos, obj_DOWN);
-    env->DeleteLocalRef(blockPos);
-    if (env->ExceptionCheck() || !packet) { env->ExceptionClear(); return false; }
-
-    mc.sendPacket(packet);
-    env->DeleteLocalRef(packet);
+    cache.type = C07Constructor::Modern;
     return true;
 }
 
-// Sends C08PacketPlayerBlockPlacement with currently held item
-// (equivalent to thePlayer.sendQueue.addToSendQueue(new C08(...getCurrentItem())))
-static bool sendC08HeldItem(JNIEnv* env) {
-    static jclass    cls_C08     = nullptr;
-    static jmethodID mid_C08Init = nullptr;
+bool initializeLegacyC07(JNIEnv* env, C07Cache& cache) {
+    cache.constructor = env->GetMethodID(cache.packetClass, "<init>", "(IIIII)V");
+    if (!cache.constructor) {
+        clearJniException(env);
+        return false;
+    }
 
-    if (!cls_C08) {
-        cls_C08 = (jclass)env->NewGlobalRef(
-            env->FindClass("net/minecraft/network/play/client/C08PacketPlayerBlockPlacement"));
-        if (env->ExceptionCheck() || !cls_C08) { env->ExceptionClear(); return false; }
+    cache.type = C07Constructor::Legacy;
+    return true;
+}
 
-        // Constructor that takes ItemStack (held item)
-        mid_C08Init = env->GetMethodID(cls_C08, "<init>",
-            "(Lnet/minecraft/item/ItemStack;)V");
-        if (env->ExceptionCheck() || !mid_C08Init) {
-            env->ExceptionClear();
-            // Fallback: no-arg constructor (places "nothing" but still triggers the re-arm)
-            mid_C08Init = env->GetMethodID(cls_C08, "<init>", "()V");
-            if (env->ExceptionCheck() || !mid_C08Init) { env->ExceptionClear(); return false; }
-        }
+bool sendC07ReleaseUseItem(JNIEnv* env) {
+    C07Cache& cache = c07Cache();
+    if (!cache.packetClass) {
+        cache.packetClass =
+            assignGlobalClass(env, "net.minecraft.network.play.client.C07PacketPlayerDigging");
+        if (!cache.packetClass)
+            return false;
+    }
+
+    if (cache.type == C07Constructor::Unresolved) {
+        const bool preferLegacy = Java::Version == MinecraftVersion::MC_1_7_10;
+        const bool initialized =
+            preferLegacy ? (initializeLegacyC07(env, cache) || initializeModernC07(env, cache))
+                         : (initializeModernC07(env, cache) || initializeLegacyC07(env, cache));
+        if (!initialized)
+            return false;
     }
 
     jobject packet = nullptr;
-    if (mid_C08Init) {
-        // Try to get current held ItemStack for the proper constructor
-        static jclass    cls_InvPlayer = nullptr;
-        static jmethodID mid_getCurItem = nullptr;
-        bool usedItemStack = false;
+    if (cache.type == C07Constructor::Modern) {
+        jobject blockPos = env->NewObject(cache.blockPosClass, cache.blockPosConstructor, -1, -1, -1);
+        if (!blockPos || clearJniException(env))
+            return false;
 
-        if (!cls_InvPlayer && JniCache::fid_inventory) {
-            jobject inv = env->GetObjectField(player.instance, JniCache::fid_inventory);
-            if (!env->ExceptionCheck() && inv) {
-                cls_InvPlayer = (jclass)env->NewGlobalRef(env->GetObjectClass(inv));
-                mid_getCurItem = env->GetMethodID(cls_InvPlayer, "getCurrentItem",
-                    "()Lnet/minecraft/item/ItemStack;");
-                if (env->ExceptionCheck()) {
-                    env->ExceptionClear();
-                    mid_getCurItem = env->GetMethodID(cls_InvPlayer, "func_70448_g",
-                        "()Lnet/minecraft/item/ItemStack;");
-                    if (env->ExceptionCheck()) { env->ExceptionClear(); mid_getCurItem = nullptr; }
-                }
-                env->DeleteLocalRef(inv);
-            }
-            if (env->ExceptionCheck()) env->ExceptionClear();
-        }
-
-        if (cls_InvPlayer && mid_getCurItem && JniCache::fid_inventory) {
-            jobject inv = env->GetObjectField(player.instance, JniCache::fid_inventory);
-            if (!env->ExceptionCheck() && inv) {
-                jobject heldItem = env->CallObjectMethod(inv, mid_getCurItem);
-                env->DeleteLocalRef(inv);
-                if (!env->ExceptionCheck() && heldItem) {
-                    packet = env->NewObject(cls_C08, mid_C08Init, heldItem);
-                    env->DeleteLocalRef(heldItem);
-                    usedItemStack = true;
-                } else {
-                    if (env->ExceptionCheck()) env->ExceptionClear();
-                }
-            } else {
-                if (env->ExceptionCheck()) env->ExceptionClear();
-            }
-        }
-
-        if (!usedItemStack || env->ExceptionCheck()) {
-            if (env->ExceptionCheck()) env->ExceptionClear();
-            if (packet) { env->DeleteLocalRef(packet); packet = nullptr; }
-            // Fall back to no-arg
-            jmethodID mid_noArg = env->GetMethodID(cls_C08, "<init>", "()V");
-            if (!env->ExceptionCheck() && mid_noArg) {
-                packet = env->NewObject(cls_C08, mid_noArg);
-            }
-            if (env->ExceptionCheck()) { env->ExceptionClear(); return false; }
-        }
+        packet = env->NewObject(
+            cache.packetClass, cache.constructor, cache.releaseAction, blockPos, cache.downFacing);
+        env->DeleteLocalRef(blockPos);
+    } else {
+        // 1.7.10: status 5 is RELEASE_USE_ITEM, face 255 means no block face.
+        packet = env->NewObject(cache.packetClass, cache.constructor, 5, 0, 0, 0, 255);
     }
 
-    if (!packet) return false;
+    if (!packet || clearJniException(env))
+        return false;
+
     mc.sendPacket(packet);
     env->DeleteLocalRef(packet);
+    clearJniException(env);
     return true;
 }
 
-// ---------------------------------------------------------------------------
-// NoSlowDown
-// ---------------------------------------------------------------------------
+struct C08Cache {
+    jclass packetClass = nullptr;
+    jmethodID itemStackConstructor = nullptr;
+    jmethodID emptyConstructor = nullptr;
+    jmethodID getCurrentItem = nullptr;
+};
+
+C08Cache& c08Cache() {
+    static C08Cache cache;
+    return cache;
+}
+
+jobject getHeldItemStack(JNIEnv* env, C08Cache& cache) {
+    if (!player.isValid() || !JniCache::fid_inventory)
+        return nullptr;
+
+    jobject inventory = env->GetObjectField(player.instance, JniCache::fid_inventory);
+    if (!inventory || clearJniException(env))
+        return nullptr;
+
+    if (!cache.getCurrentItem) {
+        jclass inventoryClass = env->GetObjectClass(inventory);
+        if (inventoryClass) {
+            cache.getCurrentItem = env->GetMethodID(
+                inventoryClass, "getCurrentItem", "()Lnet/minecraft/item/ItemStack;");
+            if (!cache.getCurrentItem) {
+                clearJniException(env);
+                cache.getCurrentItem = env->GetMethodID(
+                    inventoryClass, "func_70448_g", "()Lnet/minecraft/item/ItemStack;");
+            }
+            clearJniException(env);
+            env->DeleteLocalRef(inventoryClass);
+        }
+    }
+
+    jobject heldItem = nullptr;
+    if (cache.getCurrentItem)
+        heldItem = env->CallObjectMethod(inventory, cache.getCurrentItem);
+    env->DeleteLocalRef(inventory);
+    if (clearJniException(env))
+        return nullptr;
+    return heldItem;
+}
+
+bool sendC08HeldItem(JNIEnv* env) {
+    C08Cache& cache = c08Cache();
+    if (!cache.packetClass) {
+        cache.packetClass =
+            assignGlobalClass(env, "net.minecraft.network.play.client.C08PacketPlayerBlockPlacement");
+        if (!cache.packetClass)
+            return false;
+
+        cache.itemStackConstructor = env->GetMethodID(
+            cache.packetClass, "<init>", "(Lnet/minecraft/item/ItemStack;)V");
+        clearJniException(env);
+        cache.emptyConstructor = env->GetMethodID(cache.packetClass, "<init>", "()V");
+        clearJniException(env);
+    }
+
+    jobject heldItem = getHeldItemStack(env, cache);
+    jobject packet = nullptr;
+    if (cache.itemStackConstructor && heldItem)
+        packet = env->NewObject(cache.packetClass, cache.itemStackConstructor, heldItem);
+    else if (cache.emptyConstructor)
+        packet = env->NewObject(cache.packetClass, cache.emptyConstructor);
+
+    if (heldItem)
+        env->DeleteLocalRef(heldItem);
+    if (!packet || clearJniException(env))
+        return false;
+
+    mc.sendPacket(packet);
+    env->DeleteLocalRef(packet);
+    clearJniException(env);
+    return true;
+}
+
+}  // namespace
 
 NoSlowDown::NoSlowDown() : Module("NoSlowDown") {
     keybind = 0;
 }
 
-bool NoSlowDown::initializeFields() {
+bool NoSlowDown::initializeFields(JNIEnv* env, jobject playerInstance) {
     if (movementInputField && moveForwardField && moveStrafeField)
         return true;
-
-    JNIEnv* env = Java::Env();
-    if (!env || !player.isValid())
+    if (!env || !playerInstance)
         return false;
 
-    jclass playerClass = env->GetObjectClass(player.instance);
+    jclass playerClass = env->GetObjectClass(playerInstance);
     if (!playerClass)
         return false;
 
@@ -247,188 +314,227 @@ bool NoSlowDown::initializeFields() {
                                  const char* signature) -> jfieldID {
         jfieldID field = env->GetFieldID(cls, name, signature);
         if (!field) {
-            env->ExceptionClear();
+            clearJniException(env);
             field = env->GetFieldID(cls, fallback, signature);
         }
-        if (!field && env->ExceptionCheck())
-            env->ExceptionClear();
+        clearJniException(env);
         return field;
     };
 
-    movementInputField    = findField(playerClass, "movementInput",  "field_71158_b",  "Lnet/minecraft/util/MovementInput;");
-    entityMoveStrafeField = findField(playerClass, "moveStrafing",   "field_70702_br", "F");
-    entityMoveForwardField= findField(playerClass, "moveForward",    "field_70701_bs", "F");
-    itemInUseCountField   = findField(playerClass, "itemInUseCount", "field_71072_f",  "I");
+    movementInputField =
+        findField(playerClass, "movementInput", "field_71158_b", "Lnet/minecraft/util/MovementInput;");
+    entityMoveStrafeField =
+        findField(playerClass, "moveStrafing", "field_70702_br", "F");
+    entityMoveForwardField =
+        findField(playerClass, "moveForward", "field_70701_bs", "F");
+    itemInUseCountField =
+        findField(playerClass, "itemInUseCount", "field_71072_f", "I");
 
-    if (env->ExceptionCheck() || !movementInputField) {
-        env->ExceptionClear();
+    if (!movementInputField) {
         env->DeleteLocalRef(playerClass);
         return false;
     }
 
-    jobject movementInput = env->GetObjectField(player.instance, movementInputField);
-    if (env->ExceptionCheck() || !movementInput) {
-        env->ExceptionClear();
+    jobject movementInput = env->GetObjectField(playerInstance, movementInputField);
+    if (!movementInput || clearJniException(env)) {
         env->DeleteLocalRef(playerClass);
         return false;
     }
 
     jclass movementInputClass = env->GetObjectClass(movementInput);
     if (movementInputClass) {
-        moveStrafeField = findField(movementInputClass, "moveStrafe",  "field_78902_a", "F");
-        moveForwardField= findField(movementInputClass, "moveForward", "field_78900_b", "F");
+        moveStrafeField =
+            findField(movementInputClass, "moveStrafe", "field_78902_a", "F");
+        moveForwardField =
+            findField(movementInputClass, "moveForward", "field_78900_b", "F");
+        env->DeleteLocalRef(movementInputClass);
     }
 
-    if (env->ExceptionCheck()) env->ExceptionClear();
-    if (movementInputClass) env->DeleteLocalRef(movementInputClass);
     env->DeleteLocalRef(movementInput);
     env->DeleteLocalRef(playerClass);
-
     return moveForwardField && moveStrafeField;
 }
 
-bool NoSlowDown::isKeyPhysicallyPressed(jobject gameSettings, jfieldID keyBindField) {
-    JNIEnv* env = Java::Env();
+bool NoSlowDown::isKeyPressed(JNIEnv* env, jobject gameSettings, jfieldID keyBindField) {
     if (!env || !gameSettings || !keyBindField)
         return false;
 
     jobject keyBind = env->GetObjectField(gameSettings, keyBindField);
-    if (!keyBind || env->ExceptionCheck()) {
-        env->ExceptionClear();
+    if (!keyBind || clearJniException(env))
         return false;
-    }
 
     bool pressed = false;
-    bool physicalStateAvailable = false;
-    if (JniCache::mid_getKeyCode) {
+    if (JniCache::fid_pressed) {
+        pressed = env->GetBooleanField(keyBind, JniCache::fid_pressed) == JNI_TRUE;
+        clearJniException(env);
+    }
+
+    if (!pressed && JniCache::mid_getKeyCode) {
         const int keyCode = env->CallIntMethod(keyBind, JniCache::mid_getKeyCode);
-        if (!env->ExceptionCheck()) {
+        if (!clearJniException(env)) {
             if (keyCode < 0) {
                 const int button = keyCode + 100;
                 const int virtualKey = button == 0 ? VK_LBUTTON :
                                        button == 1 ? VK_RBUTTON :
                                        button == 2 ? VK_MBUTTON : 0;
-                physicalStateAvailable = virtualKey != 0;
                 pressed = virtualKey != 0 && (GetAsyncKeyState(virtualKey) & 0x8000) != 0;
             } else {
-                const UINT virtualKey = MapVirtualKeyA(static_cast<UINT>(keyCode), MAPVK_VSC_TO_VK);
-                physicalStateAvailable = virtualKey != 0;
+                const UINT virtualKey =
+                    MapVirtualKeyA(static_cast<UINT>(keyCode), MAPVK_VSC_TO_VK);
                 pressed = virtualKey != 0 && (GetAsyncKeyState(virtualKey) & 0x8000) != 0;
             }
         }
     }
-    if (env->ExceptionCheck()) env->ExceptionClear();
-    if (!physicalStateAvailable && JniCache::fid_pressed)
-        pressed = env->GetBooleanField(keyBind, JniCache::fid_pressed) == JNI_TRUE;
-    if (env->ExceptionCheck()) env->ExceptionClear();
+
     env->DeleteLocalRef(keyBind);
     return pressed;
 }
 
-bool NoSlowDown::isPlayerUsingItem() {
-    JNIEnv* env = Java::Env();
-    if (!env || !player.isValid())
+bool NoSlowDown::isPlayerUsingItem(JNIEnv* env, jobject playerInstance) {
+    if (!env || !playerInstance)
         return false;
 
     bool usingItem = player.isUsingItem();
-    if (env->ExceptionCheck()) {
-        env->ExceptionClear();
+    if (clearJniException(env))
         usingItem = false;
-    }
 
     if (!usingItem && itemInUseCountField) {
-        usingItem = env->GetIntField(player.instance, itemInUseCountField) > 0;
-        if (env->ExceptionCheck()) {
-            env->ExceptionClear();
+        usingItem = env->GetIntField(playerInstance, itemInUseCountField) > 0;
+        if (clearJniException(env))
             usingItem = false;
-        }
     }
-
     return usingItem;
 }
 
 NoSlowDown::HeldItemType NoSlowDown::getHeldItemType() {
     const int id = player.getHeldItemId();
-    if (isSwordId(id))   return HeldItemType::Sword;
-    if (isBowId(id))     return HeldItemType::Bow;
-    if (isConsumeId(id)) return HeldItemType::Consume;
+    if (isSwordId(id))
+        return HeldItemType::Sword;
+    if (isBowId(id))
+        return HeldItemType::Bow;
+    if (isConsumeId(id))
+        return HeldItemType::Consume;
     return HeldItemType::None;
 }
 
-// Returns [forward, strafe] multipliers for the currently held item
-static std::pair<float, float> getMultipliers(NoSlowDown::HeldItemType type,
-                                              const NoSlowDown& m) {
-    switch (type) {
-        case NoSlowDown::HeldItemType::Sword:   return { m.blockForward,   m.blockStrafe   };
-        case NoSlowDown::HeldItemType::Bow:     return { m.bowForward,     m.bowStrafe     };
-        case NoSlowDown::HeldItemType::Consume: return { m.consumeForward, m.consumeStrafe };
-        default:                                return { 0.2f,             0.2f            };
-    }
-}
-
-void NoSlowDown::handlePacketMode() {
-    // Only relevant for Sword (blocking) in NCP / Hypixel / AAC modes
-    if (packetMode == PacketMode::Vanilla)
+void NoSlowDown::applyMovement(JNIEnv* env, jobject playerInstance) {
+    if (!enabled || !env || !playerInstance || !mc.instance || mc.isInGui())
+        return;
+    if (!initializeFields(env, playerInstance))
         return;
 
     const HeldItemType type = getHeldItemType();
-    if (type != HeldItemType::Sword)
+    if (type == HeldItemType::None)
         return;
-
-    // Check that the player is actually blocking (right mouse held)
-    // We use the UseItem keybind physical state as proxy for blocking
-    JNIEnv* env = Java::Env();
-    if (!env || !player.isValid()) return;
 
     jobject gameSettings = JniCache::fid_gameSettings
         ? env->GetObjectField(mc.instance, JniCache::fid_gameSettings)
         : nullptr;
+    if (!gameSettings || clearJniException(env))
+        return;
 
-    bool isBlocking = false;
-    if (gameSettings && JniCache::fid_keyBindUseItem)
-        isBlocking = isKeyPhysicallyPressed(gameSettings, JniCache::fid_keyBindUseItem);
-
-    if (gameSettings) env->DeleteLocalRef(gameSettings);
-
-    if (!isBlocking) {
-        packetSentPre = false;
+    const bool usePressed =
+        isKeyPressed(env, gameSettings, JniCache::fid_keyBindUseItem);
+    if (!usePressed && !isPlayerUsingItem(env, playerInstance)) {
+        env->DeleteLocalRef(gameSettings);
         return;
     }
 
-    const bool onGround = player.isOnGround();
+    float forward = 0.0f;
+    float strafe = 0.0f;
+    if (isKeyPressed(env, gameSettings, JniCache::fid_keyBindForward))
+        forward += 1.0f;
+    if (isKeyPressed(env, gameSettings, JniCache::fid_keyBindBack))
+        forward -= 1.0f;
+    if (isKeyPressed(env, gameSettings, JniCache::fid_keyBindLeft))
+        strafe += 1.0f;
+    if (isKeyPressed(env, gameSettings, JniCache::fid_keyBindRight))
+        strafe -= 1.0f;
+
+    const bool sneaking =
+        player.isSneaking() || isKeyPressed(env, gameSettings, JniCache::fid_keyBindSneak);
+    env->DeleteLocalRef(gameSettings);
+    if (clearJniException(env))
+        return;
+
+    if (sneaking) {
+        forward *= 0.3f;
+        strafe *= 0.3f;
+    }
+
+    const auto [forwardMultiplier, strafeMultiplier] = getMultipliers(type, *this);
+    forward *= (std::clamp)(forwardMultiplier, 0.2f, 1.0f);
+    strafe *= (std::clamp)(strafeMultiplier, 0.2f, 1.0f);
+
+    jobject movementInput = env->GetObjectField(playerInstance, movementInputField);
+    if (!movementInput || clearJniException(env))
+        return;
+
+    env->SetFloatField(movementInput, moveForwardField, forward);
+    env->SetFloatField(movementInput, moveStrafeField, strafe);
+    if (entityMoveForwardField)
+        env->SetFloatField(playerInstance, entityMoveForwardField, forward);
+    if (entityMoveStrafeField)
+        env->SetFloatField(playerInstance, entityMoveStrafeField, strafe);
+
+    env->DeleteLocalRef(movementInput);
+    clearJniException(env);
+}
+
+void NoSlowDown::handlePacketMode() {
+    if (packetMode == PacketMode::Vanilla || !player.isValid() || !mc.instance) {
+        packetTimer = 0;
+        return;
+    }
+    if (getHeldItemType() != HeldItemType::Sword) {
+        packetTimer = 0;
+        return;
+    }
+
+    JNIEnv* env = Java::Env();
+    if (!env)
+        return;
+
+    jobject gameSettings = JniCache::fid_gameSettings
+        ? env->GetObjectField(mc.instance, JniCache::fid_gameSettings)
+        : nullptr;
+    if (!gameSettings || clearJniException(env))
+        return;
+
+    const bool blocking =
+        isKeyPressed(env, gameSettings, JniCache::fid_keyBindUseItem) ||
+        isPlayerUsingItem(env, player.instance);
+    env->DeleteLocalRef(gameSettings);
+    if (!blocking) {
+        packetTimer = 0;
+        return;
+    }
+
+    if (packetMode == PacketMode::Hypixel && !player.isOnGround())
+        return;
+
     const uint32_t now = static_cast<uint32_t>(GetTickCount());
+    const uint32_t interval = packetMode == PacketMode::AAC ? 80u : 50u;
+    if (packetTimer != 0 && now - packetTimer < interval)
+        return;
+    packetTimer = now;
 
-    bool shouldSend = false;
-    switch (packetMode) {
-        case PacketMode::NCP:     shouldSend = true;                            break;
-        case PacketMode::Hypixel: shouldSend = onGround;                        break;
-        case PacketMode::AAC:     shouldSend = (now - packetTimer) >= 80;       break;
-        default: break;
-    }
-
-    if (!shouldSend) return;
-
-    if (!packetSentPre) {
-        // PRE phase: send RELEASE_USE_ITEM
-        sendC07ReleaseUseItem(env);
-        packetSentPre = true;
-    } else {
-        // POST phase: send re-arm placement + reset timer
-        sendC08HeldItem(env);
-        packetTimer   = static_cast<uint32_t>(GetTickCount());
-        packetSentPre = false;
-    }
+    // Release and re-arm in one logical tick. Splitting this over the 2 ms
+    // module update loop floods the connection and leaves blocking desynced.
+    sendC07ReleaseUseItem(env);
+    sendC08HeldItem(env);
 }
 
 void NoSlowDown::onUpdate() {
-    // Handled in JNI by SlowDownHook / NativeOnSlowDown called from EntityPlayerSP.onLivingUpdate()
+    JNIEnv* env = Java::Env();
+    if (!env || !player.isValid() || !mc.instance || Menu::isOpen || mc.isInGui())
+        return;
+
+    applyMovement(env, player.instance);
+    handlePacketMode();
 }
 
-// ---------------------------------------------------------------------------
-// UI
-// ---------------------------------------------------------------------------
-
-static const char* kModeNames[] = { "Vanilla", "NCP", "Hypixel", "AAC" };
+static const char* kModeNames[] = {"Vanilla", "NCP", "Hypixel", "AAC"};
 
 void NoSlowDown::onRenderMenu() {
     bool enabledValue = enabled;
@@ -447,17 +553,17 @@ void NoSlowDown::onRenderMenu() {
         "Multipliers",
         [this]() {
             ImGui::Text("-- Sword (blocking) --");
-            ui::SliderFloat("Fwd##blk",    &blockForward,   0.2f, 1.0f, "%.2f");
-            ui::SliderFloat("Strafe##blk", &blockStrafe,    0.2f, 1.0f, "%.2f");
+            ui::SliderFloat("Fwd##blk", &blockForward, 0.2f, 1.0f, "%.2f");
+            ui::SliderFloat("Strafe##blk", &blockStrafe, 0.2f, 1.0f, "%.2f");
 
             ImGui::Spacing();
             ImGui::Text("-- Consume (food/pot) --");
-            ui::SliderFloat("Fwd##con",    &consumeForward, 0.2f, 1.0f, "%.2f");
-            ui::SliderFloat("Strafe##con", &consumeStrafe,  0.2f, 1.0f, "%.2f");
+            ui::SliderFloat("Fwd##con", &consumeForward, 0.2f, 1.0f, "%.2f");
+            ui::SliderFloat("Strafe##con", &consumeStrafe, 0.2f, 1.0f, "%.2f");
 
             ImGui::Spacing();
             ImGui::Text("-- Bow --");
-            ui::SliderFloat("Fwd##bow",    &bowForward,     0.2f, 1.0f, "%.2f");
-            ui::SliderFloat("Strafe##bow", &bowStrafe,      0.2f, 1.0f, "%.2f");
+            ui::SliderFloat("Fwd##bow", &bowForward, 0.2f, 1.0f, "%.2f");
+            ui::SliderFloat("Strafe##bow", &bowStrafe, 0.2f, 1.0f, "%.2f");
         });
 }

@@ -27,7 +27,6 @@ bool isWeapon(int itemId) {
 
 Piercing::Piercing() : Module("Piercing") {
     keybind = 0;
-    locked = true;
 }
 
 void Piercing::onEnable() {
@@ -74,30 +73,24 @@ bool Piercing::rayIntersectsBox(double originX, double originY, double originZ,
     return true;
 }
 
-void Piercing::onUpdate() {
+jobject Piercing::selectTarget(bool hiddenOnly, bool& targetVisible) {
+    targetVisible = false;
+
     JNIEnv* env = Java::Env();
     if (!env)
-        return;
+        return nullptr;
 
-    if (!enabled || Menu::isOpen || mc.isInGui() || !player.isValid() || !mc.instance) {
-        return;
-    }
+    if (!enabled || !shouldUpdate() || Menu::isOpen || mc.isInGui() || !player.isValid() || !mc.instance)
+        return nullptr;
 
-    if ((settings.weaponsOnly && !isWeapon(player.getHeldItemId())) ||
-        !JniCache::fid_objectMouseOver || !JniCache::fid_typeOfHit || !JniCache::fid_entityHit ||
-        !JniCache::cls_MovingObjectType || !JniCache::fid_ENTITY) {
-        return;
-    }
+    if (settings.weaponsOnly && !isWeapon(player.getHeldItemId()))
+        return nullptr;
+
+    if (hiddenOnly && !settings.throughWalls)
+        return nullptr;
 
     if (env->ExceptionCheck())
         env->ExceptionClear();
-
-    jobject mouseOver = env->GetObjectField(mc.instance, JniCache::fid_objectMouseOver);
-    if (!mouseOver) {
-        if (env->ExceptionCheck())
-            env->ExceptionClear();
-        return;
-    }
 
     const double yaw = static_cast<double>(player.getYaw()) * PI / 180.0;
     const double pitch = static_cast<double>(player.getPitch()) * PI / 180.0;
@@ -111,7 +104,7 @@ void Piercing::onUpdate() {
     const double originZ = player.getPosZ();
 
     auto players = mc.getPlayerList();
-    PlayerInfo* target = nullptr;
+    jobject selectedTarget = nullptr;
     double closestHit = std::numeric_limits<double>::max();
 
     const double expandVal = static_cast<double>(settings.expand);
@@ -130,10 +123,13 @@ void Piercing::onUpdate() {
             continue;
 
         const bool isVisible = mc.canEntityBeSeen(candidate.instance);
+        if (hiddenOnly && isVisible)
+            continue;
         if (!isVisible && !settings.throughWalls)
             continue;
 
-        const double maxDistance = isVisible ? static_cast<double>(settings.distance) : static_cast<double>(settings.throughWallsRange);
+        const double maxDistance =
+            isVisible ? static_cast<double>(settings.distance) : static_cast<double>(settings.throughWallsRange);
 
         double minX = candidate.hitboxMinX;
         double minY = candidate.hitboxMinY;
@@ -161,11 +157,9 @@ void Piercing::onUpdate() {
             maxZ += expandVal;
         }
 
-        double hitDistance = 0.0;
-        bool hit = false;
+        double candidateHit = std::numeric_limits<double>::max();
 
-        // Try backtrack checking if enabled
-        if (settings.backtrackCheck && backtrack && backtrack->enabled) {
+        if (!hiddenOnly && settings.backtrackCheck && backtrack && backtrack->enabled) {
             const auto* history = backtrack->getPositionHistory(candidate.uuid);
             if (history && !history->empty()) {
                 for (const auto& snap : *history) {
@@ -181,49 +175,29 @@ void Piercing::onUpdate() {
                                          directionX, directionY, directionZ,
                                          snapMinX, snapMinY, snapMinZ, snapMaxX, snapMaxY, snapMaxZ,
                                          maxDistance, backHitDistance)) {
-                        if (backHitDistance < closestHit) {
-                            closestHit = backHitDistance;
-                            target = &candidate;
-                            hit = true;
-                        }
+                        candidateHit = std::min(candidateHit, backHitDistance);
                     }
                 }
             }
         }
 
-        // Try standard box check if backtrack didn't hit or isn't active
-        if (!hit && rayIntersectsBox(originX, originY, originZ,
-                                     directionX, directionY, directionZ,
-                                     minX, minY, minZ, maxX, maxY, maxZ,
-                                     maxDistance, hitDistance)) {
-            if (hitDistance < closestHit) {
-                closestHit = hitDistance;
-                target = &candidate;
-            }
+        double currentHit = 0.0;
+        if (rayIntersectsBox(originX, originY, originZ,
+                            directionX, directionY, directionZ,
+                            minX, minY, minZ, maxX, maxY, maxZ,
+                            maxDistance, currentHit)) {
+            candidateHit = std::min(candidateHit, currentHit);
         }
-    }
 
-    if (target && target->instance) {
-        jobject entityType = env->GetStaticObjectField(JniCache::cls_MovingObjectType, JniCache::fid_ENTITY);
-        if (entityType) {
-            const bool typeReady = !env->ExceptionCheck();
-            if (typeReady)
-                env->SetObjectField(mouseOver, JniCache::fid_typeOfHit, entityType);
-
-            if (typeReady && !env->ExceptionCheck())
-                env->SetObjectField(mouseOver, JniCache::fid_entityHit, target->instance);
-
-            if (typeReady && !env->ExceptionCheck() &&
-                JniCache::fid_entityRenderer && JniCache::fid_pointedEntity) {
-                jobject renderer = env->GetObjectField(mc.instance, JniCache::fid_entityRenderer);
-                if (renderer) {
-                    if (!env->ExceptionCheck())
-                        env->SetObjectField(renderer, JniCache::fid_pointedEntity, target->instance);
-                    env->DeleteLocalRef(renderer);
-                }
+        if (candidateHit < closestHit) {
+            jobject newTarget = env->NewLocalRef(candidate.instance);
+            if (newTarget) {
+                if (selectedTarget)
+                    env->DeleteLocalRef(selectedTarget);
+                selectedTarget = newTarget;
+                targetVisible = isVisible;
+                closestHit = candidateHit;
             }
-
-            env->DeleteLocalRef(entityType);
         }
     }
 
@@ -234,6 +208,78 @@ void Piercing::onUpdate() {
         }
     }
 
+    if (env->ExceptionCheck()) {
+        env->ExceptionClear();
+        if (selectedTarget) {
+            env->DeleteLocalRef(selectedTarget);
+            selectedTarget = nullptr;
+        }
+    }
+    return selectedTarget;
+}
+
+bool Piercing::handleAttackInput() {
+    bool targetVisible = false;
+    jobject target = selectTarget(true, targetVisible);
+    if (!target)
+        return false;
+
+    const bool attacked = mc.attackEntity(target);
+    Java::Env()->DeleteLocalRef(target);
+    return attacked;
+}
+
+void Piercing::onUpdate() {
+    JNIEnv* env = Java::Env();
+    if (!env)
+        return;
+
+    bool targetVisible = false;
+    jobject target = selectTarget(false, targetVisible);
+    if (!target)
+        return;
+
+    // Hidden targets are attacked synchronously from the input hook. Leaving
+    // them in objectMouseOver would race the renderer and can duplicate hits.
+    if (!targetVisible || !JniCache::fid_objectMouseOver || !JniCache::fid_typeOfHit ||
+        !JniCache::fid_entityHit || !JniCache::cls_MovingObjectType || !JniCache::fid_ENTITY) {
+        env->DeleteLocalRef(target);
+        return;
+    }
+
+    jobject mouseOver = env->GetObjectField(mc.instance, JniCache::fid_objectMouseOver);
+    if (!mouseOver) {
+        env->DeleteLocalRef(target);
+        if (env->ExceptionCheck())
+            env->ExceptionClear();
+        return;
+    }
+
+    if (target) {
+        jobject entityType = env->GetStaticObjectField(JniCache::cls_MovingObjectType, JniCache::fid_ENTITY);
+        if (entityType) {
+            const bool typeReady = !env->ExceptionCheck();
+            if (typeReady)
+                env->SetObjectField(mouseOver, JniCache::fid_typeOfHit, entityType);
+
+            if (typeReady && !env->ExceptionCheck())
+                env->SetObjectField(mouseOver, JniCache::fid_entityHit, target);
+
+            if (typeReady && !env->ExceptionCheck() &&
+                JniCache::fid_entityRenderer && JniCache::fid_pointedEntity) {
+                jobject renderer = env->GetObjectField(mc.instance, JniCache::fid_entityRenderer);
+                if (renderer) {
+                    if (!env->ExceptionCheck())
+                        env->SetObjectField(renderer, JniCache::fid_pointedEntity, target);
+                    env->DeleteLocalRef(renderer);
+                }
+            }
+
+            env->DeleteLocalRef(entityType);
+        }
+    }
+
+    env->DeleteLocalRef(target);
     env->DeleteLocalRef(mouseOver);
     if (env->ExceptionCheck())
         env->ExceptionClear();
