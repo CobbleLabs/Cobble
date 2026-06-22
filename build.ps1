@@ -6,6 +6,7 @@
 .DESCRIPTION
     .\build.ps1                          Interactive mode selector
     .\build.ps1 -Build                  Plain build (dev, no VMProtect, no signed manifest)
+    .\build.ps1 -Build -Obfuscate       Dev build + VMProtect Ultra, no signed manifest
     .\build.ps1 -Pack                    Build + VMProtect Ultra on DLL/loader + signed manifest
     .\build.ps1 -Pack -VMProtectRoot ..\cobble-vmprotect
                                            Use an external VMProtect source checkout
@@ -18,6 +19,7 @@
 .NOTES
     There is no longer a separate "Debug" configuration. Every build is Release.
     `-Pack` builds production-mode binaries and signs a release manifest.
+    `-Obfuscate` keeps COBBLE_DEV_BUILD enabled while applying VMProtect Ultra.
     `-Protector VMProtect` applies the in-repo VMProtect Ultra profile to both
     Cobble.dll and CobbleLoader.exe.
     `-Protector None` leaves the production binaries unprotected.
@@ -27,6 +29,7 @@ param(
     [switch]$Clean,
     [switch]$SkipDLL,
     [switch]$Build,
+    [switch]$Obfuscate,
     [switch]$Pack,
     [ValidateSet("VMProtect", "None")][string]$Protector = "VMProtect",
     [string]$VMProtectRoot = "",
@@ -67,8 +70,12 @@ function Write-Log {
     Write-Host "[$time][$tag] $Message" -ForegroundColor $color
 }
 
-if ($SignExisting -and ($Build -or $Pack -or $SkipDLL)) {
-    Write-Log "-SignExisting cannot be combined with -Build, -Pack, or -SkipDLL" FAIL
+if ($SignExisting -and ($Build -or $Obfuscate -or $Pack -or $SkipDLL)) {
+    Write-Log "-SignExisting cannot be combined with -Build, -Obfuscate, -Pack, or -SkipDLL" FAIL
+    exit 1
+}
+if ($Obfuscate -and $Protector -ne "VMProtect") {
+    Write-Log "-Obfuscate requires -Protector VMProtect" FAIL
     exit 1
 }
 if ($Pack -and $Protector -eq "None" -and $Deploy) {
@@ -237,24 +244,26 @@ Write-Host "  |     COBBLE BUILD PIPELINE        |" -ForegroundColor Cyan
 Write-Host "  +----------------------------------+" -ForegroundColor Cyan
 Write-Host ""
 
-if (-not $Clean -and -not $Build -and -not $Pack -and -not $SkipDLL -and -not $SignExisting) {
+if (-not $Clean -and -not $Build -and -not $Obfuscate -and -not $Pack -and -not $SkipDLL -and -not $SignExisting) {
     Write-Host "  Select build mode:" -ForegroundColor Cyan
-    Write-Host "    [1]  Build (dev, no VMProtect)" -ForegroundColor Green
-    Write-Host "    [2]  Build + Pack (VMProtect Ultra + signed manifest)" -ForegroundColor Yellow
-    Write-Host "    [3]  Build + Pack + Deploy" -ForegroundColor Blue
-    Write-Host "    [4]  Sign/deploy externally protected binaries" -ForegroundColor Magenta
-    Write-Host "    [5]  Clean" -ForegroundColor Red
+    Write-Host "    [1]  Build without obfuscation" -ForegroundColor Green
+    Write-Host "    [2]  Build with VMProtect obfuscation" -ForegroundColor Yellow
+    Write-Host "    [3]  Build + Pack (VMProtect Ultra + signed manifest)" -ForegroundColor Yellow
+    Write-Host "    [4]  Build + Pack + Deploy" -ForegroundColor Blue
+    Write-Host "    [5]  Sign/deploy externally protected binaries" -ForegroundColor Magenta
+    Write-Host "    [6]  Clean" -ForegroundColor Red
     Write-Host ""
-    $choice = Read-Host "  Choice [1-5]"
+    $choice = Read-Host "  Choice [1-6]"
     switch ($choice.Trim()) {
         "1" { $Build = $true }
-        "2" { $Pack = $true }
-        "3" { $Pack = $true; $Deploy = $true }
-        "4" { $SignExisting = $true; $Deploy = $true }
-        "5" { $Clean = $true }
+        "2" { $Build = $true; $Obfuscate = $true }
+        "3" { $Pack = $true }
+        "4" { $Pack = $true; $Deploy = $true }
+        "5" { $SignExisting = $true; $Deploy = $true }
+        "6" { $Clean = $true }
         default {
-            Write-Host "  Invalid choice. Defaulting to plain Build." -ForegroundColor Yellow
-            $Build = $true
+            Write-Log "Invalid choice. Select a value from 1 to 6." FAIL
+            exit 1
         }
     }
     Write-Host ""
@@ -263,9 +272,10 @@ if (-not $Clean -and -not $Build -and -not $Pack -and -not $SkipDLL -and -not $S
 $Configuration = "Release"
 $Platform = "x64"
 $BuildMode = if ($Pack -or $SignExisting) { "Pack" } else { "Dev" }
+$ProtectArtifacts = (($Pack -or $Obfuscate) -and $Protector -eq "VMProtect")
 
 Write-Host "  Config : $Configuration | Platform: $Platform | Mode: $BuildMode"
-Write-Host "  Pack   : $Pack | Protector: $Protector | SignExisting: $SignExisting | Deploy: $Deploy"
+Write-Host "  Pack   : $Pack | Obfuscate: $Obfuscate | Protector: $Protector | SignExisting: $SignExisting | Deploy: $Deploy"
 Write-Host ""
 
 # --- Paths -------------------------------------------------------------------
@@ -336,7 +346,7 @@ $DevBuild = (-not $Pack -and -not $SignExisting)
 Write-Log "Writing generated/build_flags.h (DevBuild=$([bool]$DevBuild))..." STEP
 Write-BuildFlags -DevBuild:$DevBuild
 
-if ($Pack -and $Protector -eq "VMProtect") {
+if ($ProtectArtifacts) {
     Assert-File $Paths.VMProtectBuild "VMProtect source is missing at $($Paths.VMProtectDir)"
     Write-Log "Building VMProtect console and SDK from $($Paths.VMProtectDir)..." STEP
     & $Paths.VMProtectBuild -Platform x64
@@ -529,7 +539,7 @@ if (-not $SkipDLL) {
 
 # Protect the DLL before hashing and encrypting it into the loader. This keeps
 # the embedded payload, release DLL, and signed manifest byte-for-byte aligned.
-if ($Pack -and $Protector -eq "VMProtect") {
+if ($ProtectArtifacts) {
     Protect-Artifact `
         -InputPath $Paths.DllOutput `
         -OutputName "Cobble_protected.dll" `
@@ -626,23 +636,25 @@ Write-Log "integrity_gen.hpp written" OK
 
 Build-Loader "Pass 2"
 
-# --- Pack: VMProtect Ultra + signed manifest ---------------------------------
+# Protect the loader after its final build pass. Dev-obfuscated builds stop
+# here without creating or signing a release manifest.
+if ($ProtectArtifacts) {
+    Assert-File $Paths.VMProtectProject "VMProtect Ultra project is missing"
+
+    Protect-Artifact `
+        -InputPath $Paths.LoaderOutput `
+        -OutputName "CobbleLoader_protected.exe" `
+        -Label "CobbleLoader.exe"
+}
+
+# --- Pack: signed manifest ----------------------------------------------------
 
 if ($Pack) {
 
     Write-Log "Starting Pack pipeline (protector=$Protector + signed manifest)..." STEP
     $version = Get-Version
 
-    if ($Protector -eq "VMProtect") {
-        Assert-File $Paths.VMProtectProject "VMProtect Ultra project is missing"
-
-        # Use the same fail-closed validation path as the DLL.
-        Protect-Artifact `
-            -InputPath $Paths.LoaderOutput `
-            -OutputName "CobbleLoader_protected.exe" `
-            -Label "CobbleLoader.exe"
-    }
-    else {
+    if ($Protector -eq "None") {
         Write-Log "Skipping VMProtect; this release must not be published unprotected" WARN
     }
 
@@ -717,7 +729,12 @@ if ($Pack) {
     }
 }
 else {
-    Write-Host "  [INFO] DEV BUILD - VMProtect: SKIPPED - run with -Pack to ship" -ForegroundColor Yellow
+    if ($Obfuscate) {
+        Write-Host "  [INFO] DEV BUILD - VMProtect Ultra APPLIED (DLL + loader) - not signed/deployable" -ForegroundColor Green
+    }
+    else {
+        Write-Host "  [INFO] DEV BUILD - VMProtect: SKIPPED - run with -Obfuscate to test protected binaries" -ForegroundColor Yellow
+    }
 }
 
 Write-Host ""
