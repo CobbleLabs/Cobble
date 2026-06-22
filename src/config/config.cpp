@@ -728,16 +728,17 @@ void ConfigManager::applyConfig() {
                 s.mode = static_cast<FakeLag::Mode>(
                     (std::clamp)(data["mode"].as_int(static_cast<int>(s.mode)), 0, 3));
                 s.minTargetPingMs =
-                    (std::clamp)(data["minTargetPingMs"].as_int(s.minTargetPingMs), 40, 800);
+                    (std::clamp)(data["minTargetPingMs"].as_int(s.minTargetPingMs), 40, 260);
                 s.maxTargetPingMs =
-                    (std::clamp)(data["maxTargetPingMs"].as_int(s.maxTargetPingMs), s.minTargetPingMs, 800);
+                    (std::clamp)(data["maxTargetPingMs"].as_int(s.maxTargetPingMs),
+                                 s.minTargetPingMs, 260);
                 s.pulseHoldMs = (std::clamp)(data["pulseHoldMs"].as_int(s.pulseHoldMs), 40, 1000);
                 s.pulseReleaseMs = (std::clamp)(data["pulseReleaseMs"].as_int(s.pulseReleaseMs), 20, 500);
                 s.maxDistance = (std::clamp)(data["maxDistance"].as_float(s.maxDistance), 0.5f, 3.0f);
                 s.adaptiveStrength =
                     (std::clamp)(data["adaptiveStrength"].as_float(s.adaptiveStrength), 0.0f, 1.0f);
-                s.maxPackets = (std::clamp)(data["maxPackets"].as_int(s.maxPackets), 8, 60);
-                s.releaseRate = (std::clamp)(data["releaseRate"].as_int(s.releaseRate), 1, 20);
+                s.maxPackets = (std::clamp)(data["maxPackets"].as_int(s.maxPackets), 8, 24);
+                s.releaseRate = (std::clamp)(data["releaseRate"].as_int(s.releaseRate), 1, 6);
                 s.movingOnly = data["movingOnly"].as_bool(s.movingOnly);
                 s.smoothRelease = data["smoothRelease"].as_bool(s.smoothRelease);
                 s.flushOnAttack = data["flushOnAttack"].as_bool(s.flushOnAttack);

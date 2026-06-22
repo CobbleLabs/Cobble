@@ -62,13 +62,16 @@ private:
         double x = 0.0;
         double y = 0.0;
         double z = 0.0;
+        bool movement = true;
     };
 
     static std::uint64_t nowMs();
     bool isMovementPacket(JNIEnv* env, jobject packet) const;
     bool isAttackPacket(JNIEnv* env, jobject packet) const;
     bool shouldQueueMovement() const;
-    bool queuePacket(JNIEnv* env, jobject packet);
+    bool queuePacket(JNIEnv* env, jobject packet, bool movement = true);
+    int effectivePacketLimit() const;
+    std::size_t queuedPacketCount() const;
     void releaseEligible(std::uint64_t ageMs, int limit);
     void samplePing(std::uint64_t now);
     int calculateTargetPing();
@@ -85,6 +88,8 @@ private:
     std::atomic<bool> releasing_{false};
     std::atomic<bool> active_{false};
     std::atomic<bool> flushRequested_{false};
+    std::atomic<bool> draining_{false};
+    std::atomic<std::uint64_t> lastReleaseMs_{0};
 
     std::uint64_t cycleStartMs_ = 0;
     std::uint64_t lastPingSampleMs_ = 0;

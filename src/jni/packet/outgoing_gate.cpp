@@ -10,10 +10,14 @@
 namespace OutgoingPacketGate {
 
 jboolean JNICALL NativeShouldSend(JNIEnv* env, jclass cls, jobject packet) {
+    const bool releasingFakeLagPacket = fakeLag && fakeLag->isReleasing();
+
     // Piercing may perform a synchronous through-wall attack from the Windows
     // input hook. LWJGL can observe the same click once more through polling;
     // discard only that duplicate swing/attack before other packet observers.
-    if (piercing && !piercing->shouldSendOutgoingPacket(env, packet))
+    // A packet already accepted and retained by FakeLag must not be classified
+    // as a fresh duplicate when it is released later.
+    if (!releasingFakeLagPacket && piercing && !piercing->shouldSendOutgoingPacket(env, packet))
         return JNI_FALSE;
 
     // FakeLag retains only movement packets. Run it before packet observers so
