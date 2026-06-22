@@ -10,6 +10,8 @@ public:
     void onDisable() override;
     void onUpdate() override;
     void onRenderMenu() override;
+    void saveSettings(json::Value& node) const override;
+    void loadSettings(const json::Value& node) override;
 
     struct Settings {
         int maxDelayMs = 100;           // Delay between criticals (50-500ms)

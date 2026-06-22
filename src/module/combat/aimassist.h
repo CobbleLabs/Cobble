@@ -55,6 +55,8 @@ public:
     void onRenderMenu() override;
     std::string getDisplayInfo() override;
     void setEntityLock(bool enabled);
+    void saveSettings(json::Value& node) const override;
+    void loadSettings(const json::Value& node) override;
 
     enum class TargetMode { HEALTH, DISTANCE, FOV, SWITCH };
     enum class SortBy { DISTANCE, HEALTH, FOV, HURT_TIME };

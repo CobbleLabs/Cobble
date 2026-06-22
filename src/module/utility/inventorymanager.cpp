@@ -4,6 +4,7 @@
 #include "../../ui/hud/notifications.h"
 #include "../../util/textures/item_textures.h"
 #include "../../util/logger.hpp"
+#include "../../util/network/json.hpp"
 
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
@@ -680,4 +681,44 @@ void InventoryManager::onRenderMenu() {
             ImGui::PopStyleColor();
         }
     });
+}
+
+
+
+void InventoryManager::saveSettings(json::Value& node) const {
+    node["swapDelay"] = settings.swapDelay;
+    node["retryOnFail"] = settings.retryOnFail;
+    node["activePreset"] = settings.activePreset;
+    for (int p = 0; p < MAX_PRESETS; p++) {
+        std::string presetKey = "p" + std::to_string(p);
+        node["presets"][presetKey]["saved"] = presets[p].saved;
+        for (int i = 0; i < 9; i++) {
+            std::string slotKey = std::to_string(i);
+            node["presets"][presetKey][slotKey]["id"] = presets[p].slots[i].itemId;
+            node["presets"][presetKey][slotKey]["dmg"] = presets[p].slots[i].damage;
+        }
+    }
+}
+
+void InventoryManager::loadSettings(const json::Value& node) {
+    settings.swapDelay = node["swapDelay"].as_int(settings.swapDelay);
+    settings.retryOnFail = node["retryOnFail"].as_bool(settings.retryOnFail);
+    settings.activePreset = node["activePreset"].as_int(0);
+    if (!node.has("presets"))
+        return;
+    const json::Value& presetsNode = node["presets"];
+    for (int p = 0; p < MAX_PRESETS; p++) {
+        std::string presetKey = "p" + std::to_string(p);
+        if (!presetsNode.has(presetKey))
+            continue;
+        const json::Value& presetNode = presetsNode[presetKey];
+        presets[p].saved = presetNode["saved"].as_bool(false);
+        for (int i = 0; i < 9; i++) {
+            std::string slotKey = std::to_string(i);
+            if (!presetNode.has(slotKey))
+                continue;
+            presets[p].slots[i].itemId = presetNode[slotKey]["id"].as_int(0);
+            presets[p].slots[i].damage = presetNode[slotKey]["dmg"].as_int(0);
+        }
+    }
 }

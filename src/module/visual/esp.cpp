@@ -10,6 +10,7 @@
 #include "../../util/diagnostics.hpp"
 #include "../../util/logger.hpp"
 #include "../../util/math/worldToScreen.h"
+#include "../../util/network/json.hpp"
 #include "../../util/team/friends_manager.h"
 
 ESP* esp = nullptr;
@@ -18,6 +19,36 @@ ESP::ESP() : Module("ESP") {
     keybind = 0;
     renders = true;
     usesPlayerCache = true;
+}
+
+void ESP::saveSettings(json::Value& node) const {
+    node["box"] = settings.box;
+    node["box3D"] = settings.box3D;
+    node["filled"] = settings.filled;
+    node["outline"] = settings.outline;
+    node["healthBar"] = settings.healthBar;
+    node["teamColors"] = settings.teamColors;
+    node["range"] = settings.range;
+    json::writeColor(node, "boxColor", settings.boxColor);
+    json::writeColor(node, "filledColor", settings.filledColor);
+    json::writeColor(node, "outlineColor", settings.outlineColor);
+    json::writeColor(node, "friendColor", settings.friendColor);
+    json::writeColor(node, "enemyColor", settings.enemyColor);
+}
+
+void ESP::loadSettings(const json::Value& node) {
+    settings.box = node["box"].as_bool(settings.box);
+    settings.box3D = node["box3D"].as_bool(settings.box3D);
+    settings.filled = node["filled"].as_bool(settings.filled);
+    settings.outline = node["outline"].as_bool(settings.outline);
+    settings.healthBar = node["healthBar"].as_bool(settings.healthBar);
+    settings.teamColors = node["teamColors"].as_bool(settings.teamColors);
+    settings.range = node["range"].as_float(settings.range);
+    json::readColor(node, "boxColor", settings.boxColor);
+    json::readColor(node, "filledColor", settings.filledColor);
+    json::readColor(node, "outlineColor", settings.outlineColor);
+    json::readColor(node, "friendColor", settings.friendColor);
+    json::readColor(node, "enemyColor", settings.enemyColor);
 }
 
 void ESP::onEnable() {

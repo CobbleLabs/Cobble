@@ -4,6 +4,7 @@
 #include "../../ui/widgets/widgets.hpp"
 #include "../../../infra/ext/imgui/imgui.h"
 #include "../../ui/menu/menu.h"
+#include "../../util/network/json.hpp"
 
 #include <vector>
 
@@ -151,4 +152,20 @@ void DroppedInfo::onRenderMenu() {
         },
         "Display",
         [this]() { ui::Checkbox("Background", &settings.background); });
+}
+
+
+
+void DroppedInfo::saveSettings(json::Value& node) const {
+    node["x"] = settings.x;
+    node["y"] = settings.y;
+    node["scale"] = settings.scale;
+    node["background"] = settings.background;
+}
+
+void DroppedInfo::loadSettings(const json::Value& node) {
+    settings.x = node["x"].as_float(settings.x);
+    settings.y = node["y"].as_float(settings.y);
+    settings.scale = node["scale"].as_float(settings.scale);
+    settings.background = node["background"].as_bool(settings.background);
 }

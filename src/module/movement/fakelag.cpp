@@ -8,6 +8,7 @@
 #include "../../util/aes_string.hpp"
 #include "../../util/logger.hpp"
 #include "../../util/math/worldToScreen.h"
+#include "../../util/network/json.hpp"
 
 #include <Windows.h>
 #include <algorithm>
@@ -715,4 +716,55 @@ std::string FakeLag::getDisplayInfo() {
     if (smoothedPingMs_ < 0.0f)
         return std::string(names[mode]) + " measuring";
     return std::string(names[mode]) + " " + std::to_string(currentHoldMs_) + "ms";
+}
+
+
+
+void FakeLag::saveSettings(json::Value& node) const {
+    node["mode"] = static_cast<int>(settings.mode);
+    node["minTargetPingMs"] = settings.minTargetPingMs;
+    node["maxTargetPingMs"] = settings.maxTargetPingMs;
+    node["pulseHoldMs"] = settings.pulseHoldMs;
+    node["pulseReleaseMs"] = settings.pulseReleaseMs;
+    node["maxDistance"] = settings.maxDistance;
+    node["adaptiveStrength"] = settings.adaptiveStrength;
+    node["maxPackets"] = settings.maxPackets;
+    node["releaseRate"] = settings.releaseRate;
+    node["movingOnly"] = settings.movingOnly;
+    node["smoothRelease"] = settings.smoothRelease;
+    node["flushOnAttack"] = settings.flushOnAttack;
+    node["flushOnDamage"] = settings.flushOnDamage;
+    node["flushOnItemUse"] = settings.flushOnItemUse;
+    node["renderServerPlayer"] = settings.renderServerPlayer;
+    node["filledRender"] = settings.filledRender;
+    node["renderLine"] = settings.renderLine;
+    node["showStatus"] = settings.showStatus;
+    json::writeColor(node, "color", settings.color);
+}
+
+void FakeLag::loadSettings(const json::Value& node) {
+    settings.mode = static_cast<Mode>(
+        (std::clamp)(node["mode"].as_int(static_cast<int>(settings.mode)), 0, 3));
+    settings.minTargetPingMs =
+        (std::clamp)(node["minTargetPingMs"].as_int(settings.minTargetPingMs), 40, 260);
+    settings.maxTargetPingMs =
+        (std::clamp)(node["maxTargetPingMs"].as_int(settings.maxTargetPingMs),
+                     settings.minTargetPingMs, 260);
+    settings.pulseHoldMs = (std::clamp)(node["pulseHoldMs"].as_int(settings.pulseHoldMs), 40, 1000);
+    settings.pulseReleaseMs = (std::clamp)(node["pulseReleaseMs"].as_int(settings.pulseReleaseMs), 20, 500);
+    settings.maxDistance = (std::clamp)(node["maxDistance"].as_float(settings.maxDistance), 0.5f, 3.0f);
+    settings.adaptiveStrength =
+        (std::clamp)(node["adaptiveStrength"].as_float(settings.adaptiveStrength), 0.0f, 1.0f);
+    settings.maxPackets = (std::clamp)(node["maxPackets"].as_int(settings.maxPackets), 8, 24);
+    settings.releaseRate = (std::clamp)(node["releaseRate"].as_int(settings.releaseRate), 1, 6);
+    settings.movingOnly = node["movingOnly"].as_bool(settings.movingOnly);
+    settings.smoothRelease = node["smoothRelease"].as_bool(settings.smoothRelease);
+    settings.flushOnAttack = node["flushOnAttack"].as_bool(settings.flushOnAttack);
+    settings.flushOnDamage = node["flushOnDamage"].as_bool(settings.flushOnDamage);
+    settings.flushOnItemUse = node["flushOnItemUse"].as_bool(settings.flushOnItemUse);
+    settings.renderServerPlayer = node["renderServerPlayer"].as_bool(settings.renderServerPlayer);
+    settings.filledRender = node["filledRender"].as_bool(settings.filledRender);
+    settings.renderLine = node["renderLine"].as_bool(settings.renderLine);
+    settings.showStatus = node["showStatus"].as_bool(settings.showStatus);
+    json::readColor(node, "color", settings.color);
 }

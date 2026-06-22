@@ -2,6 +2,7 @@
 #include "../../sdk/core/minecraft.h"
 #include "../../ui/menu/menu.h"
 #include "../../ui/widgets/widgets.hpp"
+#include "../../util/network/json.hpp"
 
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
@@ -66,4 +67,12 @@ void NoHitDelay::onRenderMenu() {
         ImGui::Spacing();
         ui::Checkbox("Weapon Only", &settings.weaponOnly);
     });
+}
+
+void NoHitDelay::saveSettings(json::Value& node) const {
+    node["weaponOnly"] = settings.weaponOnly;
+}
+
+void NoHitDelay::loadSettings(const json::Value& node) {
+    settings.weaponOnly = node["weaponOnly"].as_bool(settings.weaponOnly);
 }

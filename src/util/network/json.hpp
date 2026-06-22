@@ -137,6 +137,28 @@ private:
     friend class Parser;
 };
 
+// Color helpers — modules store RGBA as a nested {r,g,b,a} object. These keep
+// each module's saveSettings()/loadSettings() free of the repetitive 4-line
+// component spelling. readColor() leaves the destination untouched when the
+// key is absent, so an old config missing a color preserves the in-memory
+// default.
+inline void writeColor(Value& parent, const char* key, const float rgba[4]) {
+    parent[key]["r"] = rgba[0];
+    parent[key]["g"] = rgba[1];
+    parent[key]["b"] = rgba[2];
+    parent[key]["a"] = rgba[3];
+}
+
+inline void readColor(const Value& parent, const char* key, float rgba[4]) {
+    if (!parent.has(key))
+        return;
+    const Value& c = parent[key];
+    rgba[0] = c["r"].as_float(rgba[0]);
+    rgba[1] = c["g"].as_float(rgba[1]);
+    rgba[2] = c["b"].as_float(rgba[2]);
+    rgba[3] = c["a"].as_float(rgba[3]);
+}
+
 class Parser {
 public:
     static bool parse(const std::string& json, Value& out) {

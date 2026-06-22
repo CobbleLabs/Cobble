@@ -6,6 +6,7 @@
 #include "../../util/logger.hpp"
 #include "../../util/math/worldToScreen.h"
 #include "../../util/network/http.hpp"
+#include "../../util/network/json.hpp"
 #include "../../util/team/friends_manager.h"
 #include "../../jni/apollo/apollo_packet_observer.hpp"
 
@@ -767,4 +768,30 @@ std::string NameTags::getDisplayInfo() {
     char buf[16];
     snprintf(buf, sizeof(buf), "%.0fm", settings.range);
     return buf;
+}
+
+
+
+void NameTags::saveSettings(json::Value& node) const {
+    node["range"] = settings.range;
+    node["scale"] = settings.scale;
+    node["background"] = settings.background;
+    node["showHealth"] = settings.showHealth;
+    node["showDistance"] = settings.showDistance;
+    node["showArmor"] = settings.showArmor;
+    node["showEffects"] = settings.showEffects;
+    json::writeColor(node, "normalColor", settings.normalColor);
+    json::writeColor(node, "friendColor", settings.friendColor);
+}
+
+void NameTags::loadSettings(const json::Value& node) {
+    settings.range = node["range"].as_float(settings.range);
+    settings.scale = node["scale"].as_float(settings.scale);
+    settings.background = node["background"].as_bool(settings.background);
+    settings.showHealth = node["showHealth"].as_bool(settings.showHealth);
+    settings.showDistance = node["showDistance"].as_bool(settings.showDistance);
+    settings.showArmor = node["showArmor"].as_bool(settings.showArmor);
+    settings.showEffects = node["showEffects"].as_bool(settings.showEffects);
+    json::readColor(node, "normalColor", settings.normalColor);
+    json::readColor(node, "friendColor", settings.friendColor);
 }

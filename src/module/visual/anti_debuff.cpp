@@ -3,6 +3,7 @@
 #include "../../sdk/core/minecraft.h"
 #include "../../sdk/jni/jni_cache.h"
 #include "../../ui/widgets/widgets.hpp"
+#include "../../util/network/json.hpp"
 
 AntiDebuff* antiDebuff = nullptr;
 
@@ -116,4 +117,16 @@ void AntiDebuff::onRenderMenu() {
             ImGui::Spacing();
             ImGui::TextWrapped("Removes visual potion debuffs locally. The server-side potion state is unchanged.");
         });
+}
+
+
+
+void AntiDebuff::saveSettings(json::Value& node) const {
+    node["blindness"] = settings.blindness;
+    node["nausea"] = settings.nausea;
+}
+
+void AntiDebuff::loadSettings(const json::Value& node) {
+    settings.blindness = node["blindness"].as_bool(settings.blindness);
+    settings.nausea = node["nausea"].as_bool(settings.nausea);
 }

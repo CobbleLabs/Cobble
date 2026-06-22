@@ -4,6 +4,7 @@
 #include "../../sdk/player/player.h"
 #include "../../ui/menu/menu.h"
 #include "../../ui/widgets/widgets.hpp"
+#include "../../util/network/json.hpp"
 
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
@@ -142,4 +143,25 @@ void WTap::onRenderMenu() {
 std::string WTap::getDisplayInfo() {
     static const char* names[] = {"Forward", "Sprint", "Hybrid"};
     return names[std::clamp(static_cast<int>(settings.mode), 0, 2)];
+}
+
+
+
+void WTap::saveSettings(json::Value& node) const {
+    node["mode"] = static_cast<int>(settings.mode);
+    node["chance"] = settings.chance;
+    node["delayMs"] = settings.delayMs;
+    node["releaseMs"] = settings.releaseMs;
+    node["targetOnly"] = settings.targetOnly;
+    node["weaponOnly"] = settings.weaponOnly;
+}
+
+void WTap::loadSettings(const json::Value& node) {
+    settings.mode = static_cast<Mode>(
+        (std::clamp)(node["mode"].as_int(static_cast<int>(settings.mode)), 0, 2));
+    settings.chance = (std::clamp)(node["chance"].as_int(settings.chance), 0, 100);
+    settings.delayMs = (std::clamp)(node["delayMs"].as_int(settings.delayMs), 0, 120);
+    settings.releaseMs = (std::clamp)(node["releaseMs"].as_int(settings.releaseMs), 20, 180);
+    settings.targetOnly = node["targetOnly"].as_bool(settings.targetOnly);
+    settings.weaponOnly = node["weaponOnly"].as_bool(settings.weaponOnly);
 }

@@ -5,6 +5,10 @@
 #include "../util/aes_string.hpp"
 #include "../util/state.hpp"
 
+namespace json {
+class Value;
+}
+
 struct Module {
     const char* name;
     bool enabled = false;
@@ -50,6 +54,17 @@ struct Module {
     // Called to render this module's settings in the menu
     // Each module implements its own UI using ui:: widgets
     virtual void onRenderMenu() {}
+
+    // Serialize this module's own settings into the given config node.
+    // The node already exists; the base "enabled"/"keybind" keys are written
+    // by ConfigManager, so override only writes module-specific fields.
+    // No-op by default — a module with no extra settings needs nothing here.
+    virtual void saveSettings(json::Value& node) const { (void)node; }
+
+    // Apply this module's own settings from the given config node.
+    // Mirror of saveSettings(). Read with as_*() defaults so a missing key
+    // leaves the in-memory default untouched.
+    virtual void loadSettings(const json::Value& node) { (void)node; }
 
     // Returns extra info to display in ArrayList (e.g., "Normal 17.0 cps")
     // Override in modules that want to show status info

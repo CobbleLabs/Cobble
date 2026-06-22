@@ -4,6 +4,7 @@
 #include "../../sdk/jni/jni_cache.h"
 #include "../../ui/menu/menu.h"
 #include "../../ui/widgets/widgets.hpp"
+#include "../../util/network/json.hpp"
 #include "../../util/team/friends_manager.h"
 
 #ifndef WIN32_LEAN_AND_MEAN
@@ -261,4 +262,24 @@ std::string Reach::getDisplayInfo() {
     char buf[16];
     snprintf(buf, sizeof(buf), "%.2f", settings.distance);
     return buf;
+}
+
+
+
+void Reach::saveSettings(json::Value& node) const {
+    node["distance"] = settings.distance;
+    node["weaponsOnly"] = settings.weaponsOnly;
+    node["sprintingOnly"] = settings.sprintingOnly;
+    node["movingOnly"] = settings.movingOnly;
+    node["hitChance"] = settings.hitChance;
+    node["tickDelay"] = settings.tickDelay;
+}
+
+void Reach::loadSettings(const json::Value& node) {
+    settings.distance = node["distance"].as_float(settings.distance);
+    settings.weaponsOnly = node["weaponsOnly"].as_bool(settings.weaponsOnly);
+    settings.sprintingOnly = node["sprintingOnly"].as_bool(settings.sprintingOnly);
+    settings.movingOnly = node["movingOnly"].as_bool(settings.movingOnly);
+    settings.hitChance = node["hitChance"].as_int(settings.hitChance);
+    settings.tickDelay = node["tickDelay"].as_int(settings.tickDelay);
 }

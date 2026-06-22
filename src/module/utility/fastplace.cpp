@@ -2,6 +2,7 @@
 #include "../../sdk/core/minecraft.h"
 #include "../../ui/menu/menu.h"
 #include "../../ui/widgets/widgets.hpp"
+#include "../../util/network/json.hpp"
 
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
@@ -60,4 +61,14 @@ void FastPlace::onRenderMenu() {
         },
         "Options",
         [this]() { ui::Checkbox("Blocks Only", &settings.blocksOnly); });
+}
+
+
+
+void FastPlace::saveSettings(json::Value& node) const {
+    node["blocksOnly"] = settings.blocksOnly;
+}
+
+void FastPlace::loadSettings(const json::Value& node) {
+    settings.blocksOnly = node["blocksOnly"].as_bool(settings.blocksOnly);
 }

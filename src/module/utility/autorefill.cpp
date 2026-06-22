@@ -1,6 +1,7 @@
 #include "autorefill.h"
 #include "../../sdk/core/minecraft.h"
 #include "../../ui/widgets/widgets.hpp"
+#include "../../util/network/json.hpp"
 
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
@@ -250,4 +251,22 @@ void AutoRefill::onRenderMenu() {
 
 std::string AutoRefill::getDisplayInfo() {
     return settings.onInventoryOpen ? "Inv Open" : "Manual";
+}
+
+
+
+void AutoRefill::saveSettings(json::Value& node) const {
+    node["refillSoup"] = settings.refillSoup;
+    node["refillPotions"] = settings.refillPotions;
+    node["speed"] = settings.speed;
+    node["onInventoryOpen"] = settings.onInventoryOpen;
+    node["silentMode"] = settings.silentMode;
+}
+
+void AutoRefill::loadSettings(const json::Value& node) {
+    settings.refillSoup = node["refillSoup"].as_bool(settings.refillSoup);
+    settings.refillPotions = node["refillPotions"].as_bool(settings.refillPotions);
+    settings.speed = node["speed"].as_int(settings.speed);
+    settings.onInventoryOpen = node["onInventoryOpen"].as_bool(settings.onInventoryOpen);
+    settings.silentMode = node["silentMode"].as_bool(settings.silentMode);
 }

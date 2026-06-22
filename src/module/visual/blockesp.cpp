@@ -8,6 +8,7 @@
 #include "../../ui/widgets/widgets.hpp"
 #include "../../util/logger.hpp"
 #include "../../util/math/worldToScreen.h"
+#include "../../util/network/json.hpp"
 
 BlockESP* blockESP = nullptr;
 
@@ -430,4 +431,34 @@ void BlockESP::onRenderMenu() {
             ui::SliderInt("Opacity", &settings.opacity, 10, 100, "%d%%");
             ui::Checkbox("Fade with Distance", &settings.fadeWithDistance);
         });
+}
+
+
+
+void BlockESP::saveSettings(json::Value& node) const {
+    node["drawDiamond"] = settings.drawDiamond;
+    node["drawEmerald"] = settings.drawEmerald;
+    node["drawIron"] = settings.drawIron;
+    node["drawGold"] = settings.drawGold;
+    node["drawLapis"] = settings.drawLapis;
+    node["drawRedstone"] = settings.drawRedstone;
+    node["drawCoal"] = settings.drawCoal;
+    node["drawChests"] = settings.drawChests;
+    node["range"] = settings.range;
+    node["opacity"] = settings.opacity;
+    node["fadeWithDistance"] = settings.fadeWithDistance;
+}
+
+void BlockESP::loadSettings(const json::Value& node) {
+    settings.drawDiamond = node["drawDiamond"].as_bool(settings.drawDiamond);
+    settings.drawEmerald = node["drawEmerald"].as_bool(settings.drawEmerald);
+    settings.drawIron = node["drawIron"].as_bool(settings.drawIron);
+    settings.drawGold = node["drawGold"].as_bool(settings.drawGold);
+    settings.drawLapis = node["drawLapis"].as_bool(settings.drawLapis);
+    settings.drawRedstone = node["drawRedstone"].as_bool(settings.drawRedstone);
+    settings.drawCoal = node["drawCoal"].as_bool(settings.drawCoal);
+    settings.drawChests = node["drawChests"].as_bool(settings.drawChests);
+    settings.range = (std::clamp)(node["range"].as_float(settings.range), 8.0f, 32.0f);
+    settings.opacity = (std::clamp)(node["opacity"].as_int(settings.opacity), 10, 100);
+    settings.fadeWithDistance = node["fadeWithDistance"].as_bool(settings.fadeWithDistance);
 }

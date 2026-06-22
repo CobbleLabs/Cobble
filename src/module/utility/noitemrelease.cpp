@@ -3,6 +3,7 @@
 #include "../../ui/menu/menu.h"
 #include "../../ui/widgets/widgets.hpp"
 #include "../../util/logger.hpp"
+#include "../../util/network/json.hpp"
 
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
@@ -224,4 +225,14 @@ std::string NoItemRelease::getDisplayInfo() {
         default:
             return "";
     }
+}
+
+
+
+void NoItemRelease::saveSettings(json::Value& node) const {
+    node["mode"] = static_cast<int>(settings.mode);
+}
+
+void NoItemRelease::loadSettings(const json::Value& node) {
+    settings.mode = static_cast<ItemReleaseMode>(node["mode"].as_int(static_cast<int>(settings.mode)));
 }

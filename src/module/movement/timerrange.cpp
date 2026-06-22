@@ -6,6 +6,7 @@
 #include "../../ui/menu/menu.h"
 #include "../../ui/widgets/widgets.hpp"
 #include "../../util/aes_string.hpp"
+#include "../../util/network/json.hpp"
 
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
@@ -195,4 +196,32 @@ std::string TimerRange::getDisplayInfo() {
     std::snprintf(buffer, sizeof(buffer), "%s %.2f-%.2fx",
                   modes[std::clamp(static_cast<int>(settings.mode), 0, 3)], settings.minSpeed, settings.maxSpeed);
     return buffer;
+}
+
+
+
+void TimerRange::saveSettings(json::Value& node) const {
+    node["mode"] = static_cast<int>(settings.mode);
+    node["minSpeed"] = settings.minSpeed;
+    node["maxSpeed"] = settings.maxSpeed;
+    node["offsetMs"] = settings.offsetMs;
+    node["durationMs"] = settings.durationMs;
+    node["targetOnly"] = settings.targetOnly;
+    node["weaponOnly"] = settings.weaponOnly;
+}
+
+void TimerRange::loadSettings(const json::Value& node) {
+    const int mode = (std::clamp)(node["mode"].as_int(static_cast<int>(settings.mode)), 0, 3);
+    settings.mode = static_cast<TriggerMode>(mode);
+    settings.minSpeed = node["minSpeed"].as_float(settings.minSpeed);
+    settings.maxSpeed = node["maxSpeed"].as_float(settings.maxSpeed);
+    settings.offsetMs = (std::clamp)(node["offsetMs"].as_int(settings.offsetMs), 0, 500);
+    // Migrate legacy "intervalTicks" → "durationMs" (ticks × 50ms).
+    const int legacyDuration = node["intervalTicks"].as_int(0) * 50;
+    settings.durationMs = (std::clamp)(
+        node["durationMs"].as_int(legacyDuration > 0 ? legacyDuration : settings.durationMs), 10, 1000);
+    settings.minSpeed = (std::clamp)(settings.minSpeed, 0.05f, 3.0f);
+    settings.maxSpeed = (std::clamp)(settings.maxSpeed, settings.minSpeed, 3.0f);
+    settings.targetOnly = node["targetOnly"].as_bool(settings.targetOnly);
+    settings.weaponOnly = node["weaponOnly"].as_bool(settings.weaponOnly);
 }

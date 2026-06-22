@@ -4,6 +4,7 @@
 #include "../../ui/widgets/widgets.hpp"
 #include "../../util/aes_string.hpp"
 #include "../../util/logger.hpp"
+#include "../../util/network/json.hpp"
 #include "../../sdk/core/minecraft.h"
 #include "../../sdk/jni/jni_cache.h"
 #include "../../sdk/player/player.h"
@@ -335,4 +336,20 @@ void Blink::clearQueuedPackets() {
     if (!toDelete.empty()) {
         log_debug("[Blink] Cleared queued packets (%zu)", toDelete.size());
     }
+}
+
+
+
+void Blink::saveSettings(json::Value& node) const {
+    node["timerLimit"] = settings.timerLimit;
+    node["showTimerHud"] = settings.showTimerHud;
+    node["showBreadcrumbs"] = settings.showBreadcrumbs;
+    json::writeColor(node, "blinkColor", settings.blinkColor);
+}
+
+void Blink::loadSettings(const json::Value& node) {
+    settings.timerLimit = node["timerLimit"].as_float(settings.timerLimit);
+    settings.showTimerHud = node["showTimerHud"].as_bool(settings.showTimerHud);
+    settings.showBreadcrumbs = node["showBreadcrumbs"].as_bool(settings.showBreadcrumbs);
+    json::readColor(node, "blinkColor", settings.blinkColor);
 }

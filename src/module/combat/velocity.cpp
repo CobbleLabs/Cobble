@@ -2,6 +2,7 @@
 #include "../../sdk/core/minecraft.h"
 #include "../../ui/menu/menu.h"
 #include "../../ui/widgets/widgets.hpp"
+#include "../../util/network/json.hpp"
 
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
@@ -347,4 +348,47 @@ std::string Velocity::getDisplayInfo() {
         default:
             return "";
     }
+}
+
+
+
+void Velocity::saveSettings(json::Value& node) const {
+    node["mode"] = static_cast<int>(settings.mode);
+    node["horizontal"] = settings.horizontal;
+    node["vertical"] = settings.vertical;
+    node["chance"] = settings.chance;
+    node["fov"] = settings.fov;
+    node["reduceDelay"] = settings.reduceDelay;
+    node["jumpChance"] = settings.jumpChance;
+    node["allowDoubleClicks"] = settings.allowDoubleClicks;
+    node["verticalMode"] = static_cast<int>(settings.verticalMode);
+    node["onlyLookingAtPlayer"] = settings.onlyLookingAtPlayer;
+    node["onlyMousePressed"] = settings.onlyMousePressed;
+    node["onlyMovingForward"] = settings.onlyMovingForward;
+    node["onlyHoldingWeapon"] = settings.onlyHoldingWeapon;
+    node["onlySprinting"] = settings.onlySprinting;
+    node["percentageVariance"] = settings.percentageVariance;
+    node["tickSpread"] = settings.tickSpread;
+    node["microDelayMs"] = settings.microDelayMs;
+}
+
+void Velocity::loadSettings(const json::Value& node) {
+    settings.mode = static_cast<Mode>(node["mode"].as_int(static_cast<int>(settings.mode)));
+    settings.horizontal = node["horizontal"].as_float(settings.horizontal);
+    settings.vertical = node["vertical"].as_float(settings.vertical);
+    settings.chance = node["chance"].as_float(settings.chance);
+    settings.fov = node["fov"].as_float(settings.fov);
+    settings.reduceDelay = node["reduceDelay"].as_int(settings.reduceDelay);
+    settings.jumpChance = node["jumpChance"].as_float(settings.jumpChance);
+    settings.allowDoubleClicks = node["allowDoubleClicks"].as_bool(settings.allowDoubleClicks);
+    settings.verticalMode =
+        static_cast<VerticalMode>(node["verticalMode"].as_int(static_cast<int>(settings.verticalMode)));
+    settings.onlyLookingAtPlayer = node["onlyLookingAtPlayer"].as_bool(settings.onlyLookingAtPlayer);
+    settings.onlyMousePressed = node["onlyMousePressed"].as_bool(settings.onlyMousePressed);
+    settings.onlyMovingForward = node["onlyMovingForward"].as_bool(settings.onlyMovingForward);
+    settings.onlyHoldingWeapon = node["onlyHoldingWeapon"].as_bool(settings.onlyHoldingWeapon);
+    settings.onlySprinting = node["onlySprinting"].as_bool(settings.onlySprinting);
+    settings.percentageVariance = node["percentageVariance"].as_float(settings.percentageVariance);
+    settings.tickSpread = node["tickSpread"].as_int(settings.tickSpread);
+    settings.microDelayMs = node["microDelayMs"].as_int(settings.microDelayMs);
 }

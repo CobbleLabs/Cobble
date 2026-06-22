@@ -4,6 +4,7 @@
 #include "../../sdk/player/player.h"
 #include "../../ui/menu/menu.h"
 #include "../../ui/widgets/widgets.hpp"
+#include "../../util/network/json.hpp"
 
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
@@ -381,4 +382,22 @@ void Clutch::onRenderMenu() {
             ui::SliderInt("Place Delay", &settings.placeDelayMs, 40, 200, "%d ms");
             ui::Checkbox("Switch Back", &settings.restoreSlot);
         });
+}
+
+
+
+void Clutch::saveSettings(json::Value& node) const {
+    node["predictionMs"] = settings.predictionMs;
+    node["searchRadius"] = settings.searchRadius;
+    node["reach"] = settings.reach;
+    node["placeDelayMs"] = settings.placeDelayMs;
+    node["restoreSlot"] = settings.restoreSlot;
+}
+
+void Clutch::loadSettings(const json::Value& node) {
+    settings.predictionMs = (std::clamp)(node["predictionMs"].as_int(settings.predictionMs), 100, 600);
+    settings.searchRadius = (std::clamp)(node["searchRadius"].as_int(settings.searchRadius), 2, 8);
+    settings.reach = (std::clamp)(node["reach"].as_float(settings.reach), 3.0f, 4.5f);
+    settings.placeDelayMs = (std::clamp)(node["placeDelayMs"].as_int(settings.placeDelayMs), 40, 200);
+    settings.restoreSlot = node["restoreSlot"].as_bool(settings.restoreSlot);
 }

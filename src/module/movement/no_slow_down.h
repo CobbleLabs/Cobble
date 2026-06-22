@@ -25,6 +25,8 @@ public:
     void onRenderMenu() override;
     void applyMovement(JNIEnv* env, jobject playerInstance);
     void handlePacketMode();
+    void saveSettings(json::Value& node) const override;
+    void loadSettings(const json::Value& node) override;
 
 private:
     bool initializeFields(JNIEnv* env, jobject playerInstance);

@@ -1,7 +1,9 @@
 #include "altmanager.h"
 
 #include <cstring>
+#include <algorithm>
 #include "../../ui/widgets/widgets.hpp"
+#include "../../util/network/json.hpp"
 
 AltManager* altManager = nullptr;
 
@@ -59,4 +61,17 @@ std::string AltManager::getDisplayInfo() {
     if (!validateName(settings.spoofedName))
         return "invalid";
     return std::string(settings.spoofedName);
+}
+
+
+
+void AltManager::saveSettings(json::Value& node) const {
+    node["spoofedName"] = std::string(settings.spoofedName);
+}
+
+void AltManager::loadSettings(const json::Value& node) {
+    std::string n = node["spoofedName"].as_string(settings.spoofedName);
+    size_t copyLen = (std::min)(n.size(), (size_t)MAX_NAME_LEN);
+    memcpy(settings.spoofedName, n.data(), copyLen);
+    settings.spoofedName[copyLen] = '\0';
 }

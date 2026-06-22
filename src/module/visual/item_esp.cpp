@@ -10,6 +10,7 @@
 #include "../../ui/widgets/widgets.hpp"
 #include "../../util/math/worldToScreen.h"
 #include "../../util/logger.hpp"
+#include "../../util/network/json.hpp"
 
 ItemESP* itemEsp = nullptr;
 
@@ -310,4 +311,30 @@ void ItemESP::onRenderMenu() {
 
 std::string ItemESP::getDisplayInfo() {
     return "";
+}
+
+
+
+void ItemESP::saveSettings(json::Value& node) const {
+    node["box"] = settings.box;
+    node["box3D"] = settings.box3D;
+    node["filled"] = settings.filled;
+    node["outline"] = settings.outline;
+    node["showQuantity"] = settings.showQuantity;
+    node["range"] = settings.range;
+    json::writeColor(node, "boxColor", settings.boxColor);
+    json::writeColor(node, "filledColor", settings.filledColor);
+    json::writeColor(node, "outlineColor", settings.outlineColor);
+}
+
+void ItemESP::loadSettings(const json::Value& node) {
+    settings.box = node["box"].as_bool(settings.box);
+    settings.box3D = node["box3D"].as_bool(settings.box3D);
+    settings.filled = node["filled"].as_bool(settings.filled);
+    settings.outline = node["outline"].as_bool(settings.outline);
+    settings.showQuantity = node["showQuantity"].as_bool(settings.showQuantity);
+    settings.range = node["range"].as_float(settings.range);
+    json::readColor(node, "boxColor", settings.boxColor);
+    json::readColor(node, "filledColor", settings.filledColor);
+    json::readColor(node, "outlineColor", settings.outlineColor);
 }

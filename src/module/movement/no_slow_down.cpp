@@ -4,6 +4,7 @@
 #include "../../sdk/jni/jni_cache.h"
 #include "../../ui/menu/menu.h"
 #include "../../ui/widgets/widgets.hpp"
+#include "../../util/network/json.hpp"
 #include "sprint.h"
 
 #include <algorithm>
@@ -574,4 +575,27 @@ void NoSlowDown::onRenderMenu() {
             ui::SliderFloat("Fwd##bow", &bowForward, 0.2f, 1.0f, "%.2f");
             ui::SliderFloat("Strafe##bow", &bowStrafe, 0.2f, 1.0f, "%.2f");
         });
+}
+
+
+
+void NoSlowDown::saveSettings(json::Value& node) const {
+    node["packetMode"] = static_cast<int>(packetMode);
+    node["blockForward"] = blockForward;
+    node["blockStrafe"] = blockStrafe;
+    node["consumeForward"] = consumeForward;
+    node["consumeStrafe"] = consumeStrafe;
+    node["bowForward"] = bowForward;
+    node["bowStrafe"] = bowStrafe;
+}
+
+void NoSlowDown::loadSettings(const json::Value& node) {
+    packetMode = static_cast<PacketMode>(
+        (std::clamp)(node["packetMode"].as_int(static_cast<int>(packetMode)), 0, 3));
+    blockForward = (std::clamp)(node["blockForward"].as_float(blockForward), 0.2f, 1.0f);
+    blockStrafe = (std::clamp)(node["blockStrafe"].as_float(blockStrafe), 0.2f, 1.0f);
+    consumeForward = (std::clamp)(node["consumeForward"].as_float(consumeForward), 0.2f, 1.0f);
+    consumeStrafe = (std::clamp)(node["consumeStrafe"].as_float(consumeStrafe), 0.2f, 1.0f);
+    bowForward = (std::clamp)(node["bowForward"].as_float(bowForward), 0.2f, 1.0f);
+    bowStrafe = (std::clamp)(node["bowStrafe"].as_float(bowStrafe), 0.2f, 1.0f);
 }

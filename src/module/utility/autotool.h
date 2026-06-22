@@ -8,6 +8,8 @@ public:
 
     void onUpdate() override;
     void onRenderMenu() override;
+    void saveSettings(json::Value& node) const override;
+    void loadSettings(const json::Value& node) override;
 
     struct Settings {
         bool switchBack = true;   // Switch back to previous slot when not mining

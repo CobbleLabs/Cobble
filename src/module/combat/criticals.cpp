@@ -3,6 +3,7 @@
 #include "../../sdk/player/player.h"
 #include "../../ui/menu/menu.h"
 #include "../../ui/widgets/widgets.hpp"
+#include "../../util/network/json.hpp"
 
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
@@ -133,4 +134,22 @@ void Criticals::onRenderMenu() {
             ui::Checkbox("Looking At Player", &settings.lookingAtPlayer);
             ui::Checkbox("Only With Sword", &settings.onlyWithSword);
         });
+}
+
+
+
+void Criticals::saveSettings(json::Value& node) const {
+    node["maxDelayMs"] = settings.maxDelayMs;
+    node["chance"] = settings.chance;
+    node["onlyWhileAttacking"] = settings.onlyWhileAttacking;
+    node["lookingAtPlayer"] = settings.lookingAtPlayer;
+    node["onlyWithSword"] = settings.onlyWithSword;
+}
+
+void Criticals::loadSettings(const json::Value& node) {
+    settings.maxDelayMs = node["maxDelayMs"].as_int(settings.maxDelayMs);
+    settings.chance = node["chance"].as_int(settings.chance);
+    settings.onlyWhileAttacking = node["onlyWhileAttacking"].as_bool(settings.onlyWhileAttacking);
+    settings.lookingAtPlayer = node["lookingAtPlayer"].as_bool(settings.lookingAtPlayer);
+    settings.onlyWithSword = node["onlyWithSword"].as_bool(settings.onlyWithSword);
 }

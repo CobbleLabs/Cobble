@@ -3,6 +3,7 @@
 #include "../../sdk/core/minecraft.h"
 #include "../../ui/menu/menu.h"
 #include "../../ui/widgets/widgets.hpp"
+#include "../../util/network/json.hpp"
 
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
@@ -143,4 +144,18 @@ std::string TimerMod::getDisplayInfo() {
     bool needs3Dec = std::abs(scaled - std::round(scaled / 10.0) * 10.0) > 0.5;
     snprintf(buf, sizeof(buf), needs3Dec ? "%.3fx" : "%.2fx", settings.speed);
     return buf;
+}
+
+
+
+void TimerMod::saveSettings(json::Value& node) const {
+    node["speed"] = (float)settings.speed;
+    node["mousePressed"] = settings.mousePressed;
+    node["weaponOnly"] = settings.weaponOnly;
+}
+
+void TimerMod::loadSettings(const json::Value& node) {
+    settings.speed = (double)node["speed"].as_float((float)settings.speed);
+    settings.mousePressed = node["mousePressed"].as_bool(settings.mousePressed);
+    settings.weaponOnly = node["weaponOnly"].as_bool(settings.weaponOnly);
 }

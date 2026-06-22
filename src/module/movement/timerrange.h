@@ -40,6 +40,8 @@ public:
     void onRenderMenu() override;
     std::string getDisplayInfo() override;
     void onOutgoingPacket(JNIEnv* env, jobject packet, PacketPhase phase);
+    void saveSettings(json::Value& node) const override;
+    void loadSettings(const json::Value& node) override;
 
 private:
     static std::uint64_t nowMs();
