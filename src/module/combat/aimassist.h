@@ -1,6 +1,7 @@
 #pragma once
 
 #include <jni.h>
+#include <atomic>
 #include <chrono>
 #include <random>
 #include "../module.h"
@@ -53,6 +54,7 @@ public:
     void onUpdate() override;
     void onRenderMenu() override;
     std::string getDisplayInfo() override;
+    void setEntityLock(bool enabled);
 
     enum class TargetMode { HEALTH, DISTANCE, FOV, SWITCH };
     enum class SortBy { DISTANCE, HEALTH, FOV, HURT_TIME };
@@ -73,10 +75,15 @@ public:
         int fov = 180;
         float distance = 5.0f;
         float speed = 50.0f;
+        float jitterPercent = 0.0f;
         int reactionTime = 50;  // ms
     } settings;
 
 private:
+    void releaseCachedTarget(JNIEnv* env);
+    void resetTargetState(JNIEnv* env);
+    void updateSimulatedJitter();
+
     // Weapon check
     bool isHoldingWeapon();
 
@@ -130,11 +137,19 @@ private:
     float hitboxRefreshMs = 140.0f;
     float targetSpeedVariance = 1.0f;
     float aimHumanizer = 1.0f;
+    Timer simulatedJitterTimer;
+    float simulatedJitterYaw = 0.0f;
+    float simulatedJitterPitch = 0.0f;
+    float simulatedJitterTargetYaw = 0.0f;
+    float simulatedJitterTargetPitch = 0.0f;
+    int simulatedJitterIntervalMs = 30;
 
     Timer reactionTimeTimer;
 
     // Cached Target for hybrid tracking
     jobject cachedTarget = nullptr;
+    std::atomic<bool> entityLockEnabled_{false};
+    std::atomic<bool> targetResetRequested_{false};
 
     // Locked target position
     bool hasLockedTarget = false;

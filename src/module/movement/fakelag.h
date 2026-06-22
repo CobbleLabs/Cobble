@@ -19,14 +19,14 @@ public:
 
     struct Settings {
         Mode mode = Mode::Adaptive;
-        int minDelayMs = 35;
-        int maxDelayMs = 120;
-        int pulseHoldMs = 100;
+        int minTargetPingMs = 90;
+        int maxTargetPingMs = 180;
+        int pulseHoldMs = 120;
         int pulseReleaseMs = 140;
         float maxDistance = 1.8f;
-        float adaptiveStrength = 0.45f;
-        int maxPackets = 20;
-        int releaseRate = 3;
+        float adaptiveStrength = 0.55f;
+        int maxPackets = 24;
+        int releaseRate = 4;
         bool movingOnly = true;
         bool smoothRelease = true;
         bool flushOnAttack = true;
@@ -49,7 +49,7 @@ public:
     void onRenderMenu() override;
     std::string getDisplayInfo() override;
 
-    // Called by the outgoing packet gate. Returns false when the packet was queued.
+    // Called by the outgoing packet gate. False means FakeLag retained the packet.
     bool handleOutgoingPacket(JNIEnv* env, jobject packet);
     void flushQueuedPackets(bool all = true);
     void clearQueuedPackets();
@@ -70,10 +70,13 @@ private:
     bool shouldQueueMovement() const;
     bool queuePacket(JNIEnv* env, jobject packet);
     void releaseEligible(std::uint64_t ageMs, int limit);
+    void samplePing(std::uint64_t now);
+    int calculateTargetPing();
+    int calculateHoldMs(int targetPingMs) const;
     void renderPlayerBox(double x, double y, double z, unsigned int outline, unsigned int fill);
     float serverDistance() const;
-    int calculateAdaptiveDelay();
     void resetAnchor();
+    void resetRuntimeState();
 
     mutable std::mutex queueMutex_;
     mutable std::mutex stateMutex_;
@@ -84,7 +87,11 @@ private:
     std::atomic<bool> flushRequested_{false};
 
     std::uint64_t cycleStartMs_ = 0;
-    int currentDelayMs_ = 0;
+    std::uint64_t lastPingSampleMs_ = 0;
+    int rawPingMs_ = -1;
+    float smoothedPingMs_ = -1.0f;
+    int currentTargetPingMs_ = 0;
+    int currentHoldMs_ = 0;
     int previousHurtTime_ = 0;
     double serverX_ = 0.0;
     double serverY_ = 0.0;

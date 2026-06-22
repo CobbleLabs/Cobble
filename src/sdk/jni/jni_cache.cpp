@@ -63,6 +63,7 @@ jfieldID fid_rightClickDelayTimer = nullptr;
 jfieldID fid_leftClickCounter = nullptr;
 jfieldID fid_objectMouseOver = nullptr;
 jfieldID fid_gameSettings = nullptr;
+jfieldID fid_thirdPersonView = nullptr;
 jfieldID fid_renderManager = nullptr;
 jfieldID fid_mouseHelper = nullptr;
 jfieldID fid_inGameHasFocus = nullptr;
@@ -92,6 +93,7 @@ jmethodID mid_getPlayerInfoByUUID = nullptr;
 
 // NetworkPlayerInfo IDs
 jclass cls_NetworkPlayerInfo = nullptr;
+jmethodID mid_getResponseTime = nullptr;
 jmethodID mid_getNetworkGameProfile = nullptr;
 
 jmethodID mid_getHealth = nullptr;
@@ -490,7 +492,13 @@ bool Init() {
         // getGameProfile() -> com.mojang.authlib.GameProfile
         TRY_METHOD(mid_getNetworkGameProfile, cls_NetworkPlayerInfo, "getGameProfile",
                    "()Lcom/mojang/authlib/GameProfile;");
+        TRY_METHOD(mid_getResponseTime, cls_NetworkPlayerInfo, "getResponseTime", "()I");
+        if (!mid_getResponseTime) {
+            env->ExceptionClear();
+            TRY_METHOD(mid_getResponseTime, cls_NetworkPlayerInfo, "func_178853_c", "()I");
+        }
         log_debug("[JniCache] NetworkPlayerInfo.getGameProfile(): %s", mid_getNetworkGameProfile ? "OK" : "FAILED");
+        log_debug("[JniCache] NetworkPlayerInfo.getResponseTime(): %s", mid_getResponseTime ? "OK" : "FAILED");
     } else {
         log_debug("[JniCache] NetworkPlayerInfo class: FAILED");
     }
@@ -650,6 +658,11 @@ bool Init() {
 
     if (cls_GameSettings) {
         TRY_FIELD(fid_mouseSensitivity, cls_GameSettings, "mouseSensitivity", "F");
+        TRY_FIELD(fid_thirdPersonView, cls_GameSettings, "thirdPersonView", "I");
+        if (!fid_thirdPersonView) {
+            env->ExceptionClear();
+            TRY_FIELD(fid_thirdPersonView, cls_GameSettings, "field_74320_O", "I");
+        }
         TRY_FIELD(fid_keyBindForward, cls_GameSettings, "keyBindForward", "Lnet/minecraft/client/settings/KeyBinding;");
         TRY_FIELD(fid_keyBindBack, cls_GameSettings, "keyBindBack", "Lnet/minecraft/client/settings/KeyBinding;");
         TRY_FIELD(fid_keyBindLeft, cls_GameSettings, "keyBindLeft", "Lnet/minecraft/client/settings/KeyBinding;");

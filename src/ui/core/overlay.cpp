@@ -198,9 +198,10 @@ LRESULT CALLBACK HookedWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam
                         // Save config
                         ConfigManager::get().onSettingChanged();
                     } else {
-                        // Already a friend
                         std::string displayName = friendsManager->getFriendDisplayName(targetInfo.uuid);
-                        NotificationManager::addSystem(displayName + " is already a friend");
+                        friendsManager->removeFriendByUUID(targetInfo.uuid);
+                        NotificationManager::addSystem("Removed " + displayName);
+                        ConfigManager::get().onSettingChanged();
                     }
                 }
             }

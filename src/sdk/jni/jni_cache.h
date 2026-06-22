@@ -86,6 +86,7 @@ extern jfieldID fid_rightClickDelayTimer;
 extern jfieldID fid_leftClickCounter;
 extern jfieldID fid_objectMouseOver;
 extern jfieldID fid_gameSettings;
+extern jfieldID fid_thirdPersonView;
 extern jfieldID fid_renderManager;
 extern jfieldID fid_mouseHelper;
 extern jfieldID fid_inGameHasFocus;
@@ -130,6 +131,7 @@ extern jmethodID mid_addToSendQueue;       // addToSendQueue(Packet) -> void
 
 extern jclass cls_NetworkPlayerInfo;
 extern jmethodID mid_getNetworkGameProfile;  // getGameProfile() -> GameProfile
+extern jmethodID mid_getResponseTime;         // getResponseTime() -> measured RTT in ms
 
 // =============================================================================
 // EntityLivingBase class IDs

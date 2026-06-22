@@ -399,6 +399,89 @@ void Minecraft::sendPacket(jobject packet) {
     env->DeleteLocalRef(netHandler);
 }
 
+int Minecraft::getLocalPlayerPing() {
+    JNIEnv* env = Java::Env();
+    if (!isValid() || !env || !JniCache::mid_getNetHandler || !JniCache::mid_getUniqueID ||
+        !JniCache::mid_getPlayerInfoByUUID || !JniCache::mid_getResponseTime)
+        return -1;
+
+    if (env->ExceptionCheck())
+        env->ExceptionClear();
+
+    jobject localPlayer = getPlayer();
+    if (env->ExceptionCheck()) {
+        env->ExceptionClear();
+        return -1;
+    }
+    if (!localPlayer)
+        return -1;
+
+    jobject netHandler = env->CallObjectMethod(instance, JniCache::mid_getNetHandler);
+    if (env->ExceptionCheck()) {
+        env->ExceptionClear();
+        env->DeleteLocalRef(localPlayer);
+        if (netHandler)
+            env->DeleteLocalRef(netHandler);
+        return -1;
+    }
+    if (!netHandler) {
+        env->DeleteLocalRef(localPlayer);
+        return -1;
+    }
+
+    jobject uuid = env->CallObjectMethod(localPlayer, JniCache::mid_getUniqueID);
+    if (env->ExceptionCheck()) {
+        env->ExceptionClear();
+        if (uuid)
+            env->DeleteLocalRef(uuid);
+        env->DeleteLocalRef(netHandler);
+        env->DeleteLocalRef(localPlayer);
+        return -1;
+    }
+
+    jobject playerInfo = uuid ? env->CallObjectMethod(netHandler, JniCache::mid_getPlayerInfoByUUID, uuid) : nullptr;
+
+    int ping = -1;
+    if (!env->ExceptionCheck() && playerInfo)
+        ping = env->CallIntMethod(playerInfo, JniCache::mid_getResponseTime);
+    if (env->ExceptionCheck()) {
+        env->ExceptionClear();
+        ping = -1;
+    }
+
+    if (playerInfo)
+        env->DeleteLocalRef(playerInfo);
+    if (uuid)
+        env->DeleteLocalRef(uuid);
+    env->DeleteLocalRef(netHandler);
+    env->DeleteLocalRef(localPlayer);
+    return ping;
+}
+
+bool Minecraft::isFirstPerson() {
+    JNIEnv* env = Java::Env();
+    if (!isValid() || !env || !JniCache::fid_gameSettings || !JniCache::fid_thirdPersonView)
+        return true;
+
+    jobject gameSettings = env->GetObjectField(instance, JniCache::fid_gameSettings);
+    if (env->ExceptionCheck()) {
+        env->ExceptionClear();
+        if (gameSettings)
+            env->DeleteLocalRef(gameSettings);
+        return true;
+    }
+    if (!gameSettings)
+        return true;
+
+    const jint view = env->GetIntField(gameSettings, JniCache::fid_thirdPersonView);
+    env->DeleteLocalRef(gameSettings);
+    if (env->ExceptionCheck()) {
+        env->ExceptionClear();
+        return true;
+    }
+    return view == 0;
+}
+
 void Minecraft::sendInventoryOpenPacket() {
     JNIEnv* env = Java::Env();
     if (!env || !JniCache::cls_C16PacketClientStatus || !JniCache::fid_C16EnumState_OPEN_INVENTORY_ACHIEVEMENT) {

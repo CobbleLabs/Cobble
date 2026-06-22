@@ -13,6 +13,9 @@
 #define NOMINMAX
 #endif
 #include <Windows.h>
+#include <cmath>
+#include <array>
+#include <limits>
 #include <vector>
 
 AutoClicker* autoClicker = nullptr;
@@ -39,6 +42,7 @@ AutoClicker::AutoClicker() : Module("AutoClicker") {
 
     std::random_device rd;
     rng.seed(rd());
+    reseedSecureRng();
 
     regenerateDelayRange();
 }
@@ -64,6 +68,9 @@ void AutoClicker::onEnable() {
     burstSpeedMultiplier = 1.0f;
     currentJitterMode = 0;
     jitterModeClicksRemaining = 0;
+    plusCpsState = std::clamp((settings.minCPS + settings.maxCPS) * 0.5f, 1.0f, 25.0f);
+    plusStateClicksRemaining = 0;
+    clickDownFraction = 0.5f;
 
     if (!settings.stableCPS) {
         regenerateDelayRange();
@@ -247,16 +254,6 @@ void AutoClicker::onUpdate() {
     if (elapsed.count() < nextDelayMs)
         return;
 
-    // Drop check - random chance to skip a click (random mode only)
-    if (settings.advancedMode && settings.dropChance > 0.0f) {
-        std::uniform_real_distribution<float> dropDist(0.0f, 100.0f);
-        if (dropDist(rng) < settings.dropChance) {
-            lastClick = now;
-            calculateNextDelay();
-            return;
-        }
-    }
-
     // Perform click (random mode)
     // Check if we should use right-click (inventory + shift = right click to avoid bounce)
     bool useRightClick = inInventory && (GetAsyncKeyState(VK_SHIFT) & 0x8000);
@@ -307,38 +304,25 @@ void AutoClicker::calculateNextDelay() {
         return;
 
     // Update humanization systems (only in randomized mode)
-    updateFatigue();
-    updateBurstMode();
-    updateJitterMode();
+    if (!lastClickWasDown) {
+        float targetCps = generateTargetCps(minCps, maxCps);
+        currentClickIntervalMs = 1000.0f / std::max(targetCps, 0.1f);
 
-    // Spike check
-    bool isSpike = false;
-    if (settings.advancedMode && settings.spikeChance > 0.0f) {
-        std::uniform_real_distribution<float> spikeDist(0.0f, 100.0f);
-        if (spikeDist(rng) < settings.spikeChance) {
-            maxCps = (std::min)(maxCps * settings.spikeMultiplier, 25.0f);
-            isSpike = true;
+        if (settings.randomizationMode == RandomizationMode::RANDOM) {
+            clickDownFraction = 0.5f;
+        } else if (settings.randomizationMode == RandomizationMode::SECURE_RANDOM) {
+            clickDownFraction = 0.38f + static_cast<float>(secureUnit()) * 0.12f;
+        } else {
+            double a = secureUnit();
+            double b = secureUnit();
+            clickDownFraction = 0.27f + static_cast<float>((a + b) * 0.5) * 0.24f;
         }
     }
 
-    // Generate random CPS within the min-max range
-    std::uniform_real_distribution<float> cpsDist(minCps, maxCps);
-    float targetCps = cpsDist(rng);
-
-    // Convert CPS to delay (ms)
-    float delay = 1000.0f / targetCps;
-
-    // Add some variation from the dynamic delay range system
-    std::uniform_real_distribution<float> variationDist(-0.1f, 0.1f);
-    delay *= (1.0f + variationDist(rng));
-
-    // Apply fatigue (session-based speed variation)
-    delay *= fatigueMultiplier;
-
-    // Apply burst mode (clusters of fast/slow clicking)
-    if (inBurst) {
-        delay *= burstSpeedMultiplier;
-    }
+    float phase = lastClickWasDown ? clickDownFraction : (1.0f - clickDownFraction);
+    float delay = currentClickIntervalMs * phase;
+    nextDelayMs = std::clamp(static_cast<int>(std::lround(delay)), 8, 500);
+    return;
 
     // Add non-uniform jitter based on current mode
     int jitterAmount = 0;
@@ -371,6 +355,56 @@ void AutoClicker::calculateNextDelay() {
     nextDelayMs = static_cast<int>(delay);
     nextDelayMs = (std::max)(nextDelayMs, 20);   // Min ~25 CPS
     nextDelayMs = (std::min)(nextDelayMs, 100);  // Max ~5 CPS
+}
+
+void AutoClicker::reseedSecureRng() {
+    std::random_device rd;
+    const auto now = std::chrono::high_resolution_clock::now().time_since_epoch().count();
+    std::array<uint32_t, 10> seedData{};
+    for (size_t i = 0; i < seedData.size(); ++i) {
+        const uint64_t mixedTime = static_cast<uint64_t>(now) >> ((i % 4) * 16);
+        seedData[i] = rd() ^ static_cast<uint32_t>(mixedTime) ^
+                      static_cast<uint32_t>(reinterpret_cast<uintptr_t>(this) >> (i % 8));
+    }
+    std::seed_seq seed(seedData.begin(), seedData.end());
+    secureRng.seed(seed);
+    secureDrawCount = 0;
+}
+
+double AutoClicker::secureUnit() {
+    if (++secureDrawCount >= 256)
+        reseedSecureRng();
+    return std::generate_canonical<double, std::numeric_limits<double>::digits>(secureRng);
+}
+
+float AutoClicker::generateTargetCps(float minCps, float maxCps) {
+    minCps = std::clamp(minCps, 1.0f, 25.0f);
+    maxCps = std::clamp(maxCps, minCps, 25.0f);
+    const float range = maxCps - minCps;
+    if (range <= 0.001f)
+        return minCps;
+
+    if (settings.randomizationMode == RandomizationMode::RANDOM) {
+        std::uniform_real_distribution<float> distribution(minCps, maxCps);
+        return distribution(rng);
+    }
+
+    if (settings.randomizationMode == RandomizationMode::SECURE_RANDOM) {
+        return minCps + static_cast<float>(secureUnit()) * range;
+    }
+
+    if (plusStateClicksRemaining <= 0) {
+        const float center = minCps + static_cast<float>((secureUnit() + secureUnit()) * 0.5) * range;
+        plusCpsState = std::clamp(center, minCps, maxCps);
+        plusStateClicksRemaining = 3 + static_cast<int>(secureUnit() * 10.0);
+    }
+
+    --plusStateClicksRemaining;
+    const float randomWalk = static_cast<float>((secureUnit() - secureUnit()) * range * 0.18);
+    const float microVariation = static_cast<float>((secureUnit() + secureUnit() - 1.0) * range * 0.07);
+    const float centerPull = ((minCps + maxCps) * 0.5f - plusCpsState) * 0.08f;
+    plusCpsState = std::clamp(plusCpsState + randomWalk + centerPull, minCps, maxCps);
+    return std::clamp(plusCpsState + microVariation, minCps, maxCps);
 }
 
 void AutoClicker::doClick() {
@@ -568,10 +602,12 @@ void AutoClicker::updateJitterMode() {
 }
 
 void AutoClicker::onRenderMenu() {
+    static const char* randomizationModes[] = {"Random", "SecureRandom", "SecureRandom+"};
     bool enabledValue = enabled;
+    int randomizationMode = static_cast<int>(settings.randomizationMode);
     ui::two_column(
         "General",
-        [this, &enabledValue]() {
+        [this, &enabledValue, &randomizationMode]() {
             if (ui::CheckboxBind("Enabled", &enabledValue, &keybind)) {
                 if (enabledValue != enabled) {
                     setEnabled(enabledValue);
@@ -594,6 +630,12 @@ void AutoClicker::onRenderMenu() {
                 float maxLimit = 20.0f;
                 ui::SliderFloat("Min CPS", &settings.minCPS, 1.0f, 20.0f, &minLimit, &settings.maxCPS, "%.1f");
                 ui::SliderFloat("Max CPS", &settings.maxCPS, 1.0f, 20.0f, &settings.minCPS, &maxLimit, "%.1f");
+                if (ui::Combo("Randomization", &randomizationMode, randomizationModes,
+                              IM_ARRAYSIZE(randomizationModes))) {
+                    settings.randomizationMode = static_cast<RandomizationMode>(randomizationMode);
+                    plusStateClicksRemaining = 0;
+                    calculateNextDelay();
+                }
             }
         },
         "Conditions",
@@ -606,5 +648,16 @@ void AutoClicker::onRenderMenu() {
 }
 
 std::string AutoClicker::getDisplayInfo() {
-    return settings.stableCPS ? "Stable" : "Normal";
+    if (settings.stableCPS)
+        return "Stable";
+
+    switch (settings.randomizationMode) {
+        case RandomizationMode::RANDOM:
+            return "Random";
+        case RandomizationMode::SECURE_RANDOM:
+            return "SecureRandom";
+        case RandomizationMode::SECURE_RANDOM_PLUS:
+            return "SecureRandom+";
+    }
+    return "Random";
 }

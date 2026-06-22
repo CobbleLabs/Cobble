@@ -157,8 +157,14 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     LoaderUI::Show();
 
     // ==========================================================================
-    // AUTO-UPDATER: Check for updates before proceeding
+    // AUTO-UPDATER: Check for updates before proceeding.
+    //
+    // Development builds must keep their locally embedded payload. Replacing
+    // the loader here would silently switch the developer back to the
+    // production payload and make local DLL changes impossible to test.
+    // License, session, payload-key and integrity checks below remain enabled.
     // ==========================================================================
+#if !defined(COBBLE_DEV_BUILD)
     LoaderUI::SetMessage(OBFUSCATE_STRING("Checking for updates..."));
     renderFrame();
 
@@ -214,6 +220,9 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         renderFrame();
         Sleep(1500);  // Brief pause to show the message
     }
+#else
+    COBBLE_DEV_LOG("Development build: automatic loader update skipped");
+#endif
 
     // Load encrypted payload from resources
     HMODULE hModule = GetModuleHandle(nullptr);

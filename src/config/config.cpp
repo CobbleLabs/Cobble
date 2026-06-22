@@ -403,6 +403,8 @@ void ConfigManager::applyConfig() {
                 s.weaponOnly = data["weaponOnly"].as_bool(s.weaponOnly);
                 s.breakBlocks = data["breakBlocks"].as_bool(s.breakBlocks);
                 s.workInInventory = data["workInInventory"].as_bool(s.workInInventory);
+                s.randomizationMode = static_cast<AutoClicker::RandomizationMode>(
+                    (std::clamp)(data["randomizationMode"].as_int(static_cast<int>(s.randomizationMode)), 0, 2));
                 s.stableCPS = data["stableCps"].as_bool(s.stableCPS);
                 s.stableCPSValue = data["stableCpsValue"].as_float(s.stableCPSValue);
                 s.advancedMode = data["advancedMode"].as_bool(s.advancedMode);
@@ -428,11 +430,12 @@ void ConfigManager::applyConfig() {
                 s.aimAtClosestPoint = data["aimAtClosestPoint"].as_bool(s.aimAtClosestPoint);
                 s.alwaysAim = data["alwaysAim"].as_bool(s.alwaysAim);
                 s.invisibles = data["invisibles"].as_bool(s.invisibles);
-                if (data.has("entityLock"))
-                    s.entityLock = data["entityLock"].as_bool(s.entityLock);
-                else
-                    s.entityLock = data["lockAim"].as_bool(s.entityLock);
+                bool entityLock = data.has("entityLock") ? data["entityLock"].as_bool(s.entityLock)
+                                                         : data["lockAim"].as_bool(s.entityLock);
+                aimAssist->setEntityLock(entityLock);
                 s.stopOnHitbox = data["stopOnHitbox"].as_bool(s.stopOnHitbox);
+                s.jitterPercent =
+                    (std::clamp)(data["jitterPercent"].as_float(s.jitterPercent), 0.0f, 100.0f);
             } else if (name == "Velocity" && velocity) {
                 auto& s = velocity->settings;
                 s.mode = static_cast<Velocity::Mode>(data["mode"].as_int(static_cast<int>(s.mode)));
@@ -722,23 +725,19 @@ void ConfigManager::applyConfig() {
                 }
             } else if (name == "FakeLag" && fakeLag) {
                 auto& s = fakeLag->settings;
-                s.mode = static_cast<FakeLag::Mode>((std::clamp)(data["mode"].as_int(static_cast<int>(s.mode)), 0, 3));
-                s.minDelayMs = data["minDelayMs"].as_int(s.minDelayMs);
-                s.maxDelayMs = data["maxDelayMs"].as_int(s.maxDelayMs);
-                s.pulseHoldMs = data["pulseHoldMs"].as_int(s.pulseHoldMs);
-                s.pulseReleaseMs = data["pulseReleaseMs"].as_int(s.pulseReleaseMs);
-                s.maxDistance = data["maxDistance"].as_float(s.maxDistance);
-                s.adaptiveStrength = data["adaptiveStrength"].as_float(s.adaptiveStrength);
-                s.maxPackets = data["maxPackets"].as_int(s.maxPackets);
-                s.releaseRate = data["releaseRate"].as_int(s.releaseRate);
-                s.minDelayMs = (std::clamp)(s.minDelayMs, 20, 250);
-                s.maxDelayMs = (std::clamp)(s.maxDelayMs, (std::max)(40, s.minDelayMs), 400);
-                s.pulseHoldMs = (std::clamp)(s.pulseHoldMs, 40, 1000);
-                s.pulseReleaseMs = (std::clamp)(s.pulseReleaseMs, 20, 500);
-                s.maxDistance = (std::clamp)(s.maxDistance, 0.5f, 4.0f);
-                s.adaptiveStrength = (std::clamp)(s.adaptiveStrength, 0.0f, 1.0f);
-                s.maxPackets = (std::clamp)(s.maxPackets, 8, 60);
-                s.releaseRate = (std::clamp)(s.releaseRate, 1, 12);
+                s.mode = static_cast<FakeLag::Mode>(
+                    (std::clamp)(data["mode"].as_int(static_cast<int>(s.mode)), 0, 3));
+                s.minTargetPingMs =
+                    (std::clamp)(data["minTargetPingMs"].as_int(s.minTargetPingMs), 40, 800);
+                s.maxTargetPingMs =
+                    (std::clamp)(data["maxTargetPingMs"].as_int(s.maxTargetPingMs), s.minTargetPingMs, 800);
+                s.pulseHoldMs = (std::clamp)(data["pulseHoldMs"].as_int(s.pulseHoldMs), 40, 1000);
+                s.pulseReleaseMs = (std::clamp)(data["pulseReleaseMs"].as_int(s.pulseReleaseMs), 20, 500);
+                s.maxDistance = (std::clamp)(data["maxDistance"].as_float(s.maxDistance), 0.5f, 3.0f);
+                s.adaptiveStrength =
+                    (std::clamp)(data["adaptiveStrength"].as_float(s.adaptiveStrength), 0.0f, 1.0f);
+                s.maxPackets = (std::clamp)(data["maxPackets"].as_int(s.maxPackets), 8, 60);
+                s.releaseRate = (std::clamp)(data["releaseRate"].as_int(s.releaseRate), 1, 20);
                 s.movingOnly = data["movingOnly"].as_bool(s.movingOnly);
                 s.smoothRelease = data["smoothRelease"].as_bool(s.smoothRelease);
                 s.flushOnAttack = data["flushOnAttack"].as_bool(s.flushOnAttack);
@@ -890,6 +889,7 @@ void ConfigManager::buildConfigFromModules() {
             config_["modules"][name]["weaponOnly"] = s.weaponOnly;
             config_["modules"][name]["breakBlocks"] = s.breakBlocks;
             config_["modules"][name]["workInInventory"] = s.workInInventory;
+            config_["modules"][name]["randomizationMode"] = static_cast<int>(s.randomizationMode);
             config_["modules"][name]["stableCps"] = s.stableCPS;
             config_["modules"][name]["stableCpsValue"] = s.stableCPSValue;
             config_["modules"][name]["advancedMode"] = s.advancedMode;
@@ -915,6 +915,7 @@ void ConfigManager::buildConfigFromModules() {
             config_["modules"][name]["invisibles"] = s.invisibles;
             config_["modules"][name]["entityLock"] = s.entityLock;
             config_["modules"][name]["stopOnHitbox"] = s.stopOnHitbox;
+            config_["modules"][name]["jitterPercent"] = s.jitterPercent;
         } else if (name == "Velocity" && velocity) {
             const auto& s = velocity->settings;
             config_["modules"][name]["mode"] = static_cast<int>(s.mode);
@@ -1174,8 +1175,8 @@ void ConfigManager::buildConfigFromModules() {
         } else if (name == "FakeLag" && fakeLag) {
             const auto& s = fakeLag->settings;
             config_["modules"][name]["mode"] = static_cast<int>(s.mode);
-            config_["modules"][name]["minDelayMs"] = s.minDelayMs;
-            config_["modules"][name]["maxDelayMs"] = s.maxDelayMs;
+            config_["modules"][name]["minTargetPingMs"] = s.minTargetPingMs;
+            config_["modules"][name]["maxTargetPingMs"] = s.maxTargetPingMs;
             config_["modules"][name]["pulseHoldMs"] = s.pulseHoldMs;
             config_["modules"][name]["pulseReleaseMs"] = s.pulseReleaseMs;
             config_["modules"][name]["maxDistance"] = s.maxDistance;

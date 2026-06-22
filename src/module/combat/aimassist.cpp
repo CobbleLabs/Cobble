@@ -219,19 +219,47 @@ AimAssist::AimAssist() : Module("AimAssist") {
     keybind = 0;
     std::random_device rd;
     rng.seed(rd());
+    entityLockEnabled_.store(settings.entityLock, std::memory_order_relaxed);
+}
+
+void AimAssist::releaseCachedTarget(JNIEnv* env) {
+    if (!cachedTarget || !env)
+        return;
+
+    if (env->ExceptionCheck())
+        env->ExceptionClear();
+    env->DeleteGlobalRef(cachedTarget);
+    if (env->ExceptionCheck())
+        env->ExceptionClear();
+    cachedTarget = nullptr;
+}
+
+void AimAssist::resetTargetState(JNIEnv* env) {
+    releaseCachedTarget(env);
+    hasLockedTarget = false;
+    targetHasHitbox = false;
+    prevFrameHadTarget = false;
+    targetChangedThisFrame = false;
+    reactionPrimed = false;
+    yawdiffSpeed = 0.0f;
+    pitchdiffSpeed = 0.0f;
+    simulatedJitterYaw = simulatedJitterPitch = 0.0f;
+    simulatedJitterTargetYaw = simulatedJitterTargetPitch = 0.0f;
+}
+
+void AimAssist::setEntityLock(bool enabled) {
+    settings.entityLock = enabled;
+    entityLockEnabled_.store(enabled, std::memory_order_release);
+    targetResetRequested_.store(true, std::memory_order_release);
 }
 
 void AimAssist::onEnable() {
     log_ok("AimAssist enabled");
 
-    // CRITICAL: Clean up any stale JNI references from previous session
-    // This fixes the intermittent "no target detected" bug after game state changes
-    if (cachedTarget) {
-        if (Java::Env() && !Java::Env()->IsSameObject(cachedTarget, NULL)) {
-            Java::Env()->DeleteGlobalRef(cachedTarget);
-        }
-        cachedTarget = nullptr;
-    }
+    JNIEnv* env = Java::Env();
+    releaseCachedTarget(env);
+    entityLockEnabled_.store(settings.entityLock, std::memory_order_release);
+    targetResetRequested_.store(false, std::memory_order_release);
     hasLockedTarget = false;
     pitchdiffSpeed = 0.f;
     yawdiffSpeed = 0.f;
@@ -250,16 +278,17 @@ void AimAssist::onEnable() {
     clickStartedThisFrame = false;
     targetSpeedVariance = 1.0f;
     aimHumanizer = 1.0f;
+    simulatedJitterYaw = simulatedJitterPitch = 0.0f;
+    simulatedJitterTargetYaw = simulatedJitterTargetPitch = 0.0f;
+    simulatedJitterTimer.Start();
 }
 
 void AimAssist::onDisable() {
     log_ok("AimAssist disabled");
     hasLockedTarget = false;
 
-    if (cachedTarget) {
-        Java::Env()->DeleteGlobalRef(cachedTarget);
-        cachedTarget = nullptr;
-    }
+    releaseCachedTarget(Java::Env());
+    targetResetRequested_.store(false, std::memory_order_release);
     cursorAccumY = 0.0;
     pitchdiffSpeed = yawdiffSpeed = 0.f;
     targetYawSpeed = 0.f;
@@ -271,6 +300,8 @@ void AimAssist::onDisable() {
     reactionTimeTimer.Start();
     lastMouseDown = false;
     clickStartedThisFrame = false;
+    simulatedJitterYaw = simulatedJitterPitch = 0.0f;
+    simulatedJitterTargetYaw = simulatedJitterTargetPitch = 0.0f;
 }
 
 float AimAssist::wrapTo180(float value) {
@@ -311,6 +342,14 @@ float AimAssist::slerp(float start, float end, float t) {
 
 void AimAssist::onUpdate() {
     clickStartedThisFrame = false;
+    JNIEnv* env = Java::Env();
+    if (!env)
+        return;
+
+    if (targetResetRequested_.exchange(false, std::memory_order_acq_rel))
+        resetTargetState(env);
+
+    const bool entityLock = entityLockEnabled_.load(std::memory_order_acquire);
     if (!player.isValid())
         return;
     if (Menu::isOpen)
@@ -323,14 +362,8 @@ void AimAssist::onUpdate() {
     if (!settings.alwaysAim && !mouseDown) {
         // Entity Lock keeps the target between clicks. Without it, the next
         // click starts with a fresh target selection.
-        if (!settings.entityLock) {
-            if (cachedTarget) {
-                Java::Env()->DeleteGlobalRef(cachedTarget);
-                cachedTarget = nullptr;
-            }
-            hasLockedTarget = false;
-            targetHasHitbox = false;
-        }
+        if (!entityLock)
+            resetTargetState(env);
         lastMouseDown = false;
         return;
     }
@@ -380,25 +413,23 @@ void AimAssist::onUpdate() {
     bool forceScan = false;
 
     if (cachedTarget) {
-        if (Java::Env()->IsSameObject(cachedTarget, NULL)) {
-            Java::Env()->DeleteGlobalRef(cachedTarget);
-            cachedTarget = nullptr;
+        if (env->IsSameObject(cachedTarget, NULL)) {
+            releaseCachedTarget(env);
         } else {
             // Update position from cached target (Fast JNI)
             if (!JniCache::fid_posX || !JniCache::fid_posY || !JniCache::fid_posZ) {
-                Java::Env()->ExceptionClear();
-                Java::Env()->DeleteGlobalRef(cachedTarget);
-                cachedTarget = nullptr;
+                if (env->ExceptionCheck())
+                    env->ExceptionClear();
+                releaseCachedTarget(env);
                 forceScan = true;
             } else {
-                double tX = Java::Env()->GetDoubleField(cachedTarget, JniCache::fid_posX);
-                double tY = Java::Env()->GetDoubleField(cachedTarget, JniCache::fid_posY);
-                double tZ = Java::Env()->GetDoubleField(cachedTarget, JniCache::fid_posZ);
+                double tX = env->GetDoubleField(cachedTarget, JniCache::fid_posX);
+                double tY = env->GetDoubleField(cachedTarget, JniCache::fid_posY);
+                double tZ = env->GetDoubleField(cachedTarget, JniCache::fid_posZ);
 
-                if (Java::Env()->ExceptionCheck()) {
-                    Java::Env()->ExceptionClear();
-                    Java::Env()->DeleteGlobalRef(cachedTarget);
-                    cachedTarget = nullptr;
+                if (env->ExceptionCheck()) {
+                    env->ExceptionClear();
+                    releaseCachedTarget(env);
                     forceScan = true;
                 } else {
                     // Validate distance/etc slightly? (Optional fast check)
@@ -532,6 +563,9 @@ bool AimAssist::findTarget(double& targetX, double& targetY, double& targetZ) {
     // 2. Slow Path (Scan Interval): Scan full player list for new/better targets
     static Timer scanTimer;
     JNIEnv* env = Java::Env();
+    if (!env)
+        return false;
+    const bool entityLock = entityLockEnabled_.load(std::memory_order_acquire);
 
     // CRITICAL: Clear any pending JNI exceptions that could cause silent failures
     // This is a common cause of the "aim assist stops detecting" bug
@@ -546,7 +580,7 @@ bool AimAssist::findTarget(double& targetX, double& targetY, double& targetZ) {
         log_warn("[AimAssist] Cleared JNI exception - cache reset");
     }
 
-    bool wantHitboxRefresh = settings.entityLock && cachedTarget && hitboxRefreshTimer.Elapsed<>() >= hitboxRefreshMs;
+    bool wantHitboxRefresh = entityLock && cachedTarget && hitboxRefreshTimer.Elapsed<>() >= hitboxRefreshMs;
 
     // FAST PATH: If we have a cached target, update its position & validate
     if (cachedTarget && scanTimer.Elapsed<>() < 50 && !wantHitboxRefresh)  // Rescan every 50ms
@@ -665,7 +699,7 @@ bool AimAssist::findTarget(double& targetX, double& targetY, double& targetZ) {
         }
 
         // Refresh stored hitbox for Entity Lock to avoid stale dimensions.
-        if (sameAsLocked && settings.entityLock) {
+        if (sameAsLocked && entityLock) {
             targetHitboxMinX = p.hitboxMinX;
             targetHitboxMinY = p.hitboxMinY;
             targetHitboxMinZ = p.hitboxMinZ;
@@ -758,7 +792,7 @@ bool AimAssist::findTarget(double& targetX, double& targetY, double& targetZ) {
         }
 
         // A valid locked entity wins regardless of target or switch sort mode.
-        if (settings.entityLock && sameAsLocked) {
+        if (entityLock && sameAsLocked) {
             if (bestPlayerObjLocal && env)
                 env->DeleteLocalRef(bestPlayerObjLocal);
             bestPlayerObjLocal = env && p.instance ? env->NewLocalRef(p.instance) : nullptr;
@@ -894,6 +928,31 @@ bool AimAssist::findTarget(double& targetX, double& targetY, double& targetZ) {
     }
 
     return found;
+}
+
+void AimAssist::updateSimulatedJitter() {
+    float intensity = std::clamp(settings.jitterPercent, 0.0f, 100.0f) / 100.0f;
+    if (intensity <= 0.0001f) {
+        simulatedJitterYaw = simulatedJitterPitch = 0.0f;
+        simulatedJitterTargetYaw = simulatedJitterTargetPitch = 0.0f;
+        return;
+    }
+
+    if (simulatedJitterTimer.Elapsed<>() >= static_cast<float>(simulatedJitterIntervalMs)) {
+        float amplitude = std::lerp(0.015f, 0.42f, intensity);
+        float impulse = randFloat(0.0f, 1.0f) < (0.04f + intensity * 0.14f) ? randFloat(1.15f, 1.8f) : 1.0f;
+        simulatedJitterTargetYaw = randFloat(-amplitude, amplitude) * impulse;
+        simulatedJitterTargetPitch = randFloat(-amplitude * 0.65f, amplitude * 0.65f) * impulse;
+
+        int intervalMin = static_cast<int>(std::lerp(70.0f, 11.0f, intensity));
+        int intervalMax = static_cast<int>(std::lerp(140.0f, 38.0f, intensity));
+        simulatedJitterIntervalMs = randInt(intervalMin, intervalMax);
+        simulatedJitterTimer.Start();
+    }
+
+    float response = std::lerp(0.12f, 0.72f, intensity);
+    simulatedJitterYaw = std::lerp(simulatedJitterYaw, simulatedJitterTargetYaw, response);
+    simulatedJitterPitch = std::lerp(simulatedJitterPitch, simulatedJitterTargetPitch, response);
 }
 
 void AimAssist::applyAimRand(float yawDiff, float pitchDiff, float speed) {
@@ -1086,6 +1145,11 @@ void AimAssist::applyAimRand(float yawDiff, float pitchDiff, float speed) {
     constexpr float kMouseGain = 0.10f;
     float yawDelta = yawdiffSpeed * sensMultiplier * kMouseGain;
     float pitchDelta = pitchAccum * sensMultiplier * kMouseGain;  // Use float, not int
+
+    updateSimulatedJitter();
+    yawDelta += simulatedJitterYaw;
+    if (!settings.horizontalOnly)
+        pitchDelta += simulatedJitterPitch;
 
     // Guard against overshoot: clamp step to fraction of remaining error
     auto clampStepToError = [](float delta, float remaining, float frac) -> float {
@@ -1342,6 +1406,7 @@ void AimAssist::onRenderMenu() {
             ui::SliderInt("FOV", &settings.fov, 10, 360, "%d");
             ui::SliderFloat("Distance", &settings.distance, 3.0f, 8.0f, "%.1f");
             ui::SliderInt("Reaction Time", &settings.reactionTime, 0, 200, "%d ms");
+            ui::SliderFloat("Jitter", &settings.jitterPercent, 0.0f, 100.0f, "%.0f%%");
         },
         "Options",
         [this, &currentMode, &currentSortBy]() {
@@ -1351,7 +1416,9 @@ void AimAssist::onRenderMenu() {
             ui::Checkbox("Aim Closest Point", &settings.aimAtClosestPoint);
             ui::Checkbox("Target Invisibles", &settings.invisibles);
             ui::Checkbox("Stop On Hitbox", &settings.stopOnHitbox);
-            ui::Checkbox("Entity Lock", &settings.entityLock);
+            bool entityLock = entityLockEnabled_.load(std::memory_order_acquire);
+            if (ui::Checkbox("Entity Lock", &entityLock))
+                setEntityLock(entityLock);
             ImGui::Spacing();
             if (ui::Combo("Target Mode", &currentMode, targetModes, IM_ARRAYSIZE(targetModes))) {
                 settings.targetMode = static_cast<TargetMode>(currentMode);

@@ -215,6 +215,8 @@ struct Minecraft {
 
     // Send a packet to the server immediately (addToSendQueue)
     void sendPacket(jobject packet);
+    int getLocalPlayerPing();
+    bool isFirstPerson();
 
     // Helper to open inventory purely via packet (Silent Mode)
     void sendInventoryOpenPacket();

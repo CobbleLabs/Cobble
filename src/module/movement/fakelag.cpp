@@ -22,7 +22,12 @@ FakeLag* fakeLag = nullptr;
 
 namespace {
 
-static bool packetClassContains(JNIEnv* env, jobject packet, const char* needle) {
+constexpr std::uint64_t kPingSampleIntervalMs = 250;
+constexpr float kPingSmoothingAlpha = 0.20f;
+constexpr int kMaximumUsablePingMs = 2000;
+constexpr int kMaximumHoldMs = 400;
+
+bool packetClassContains(JNIEnv* env, jobject packet, const char* needle) {
     if (!env || !packet || !needle)
         return false;
 
@@ -71,6 +76,19 @@ std::uint64_t FakeLag::nowMs() {
     return static_cast<std::uint64_t>(GetTickCount64());
 }
 
+void FakeLag::resetRuntimeState() {
+    std::lock_guard<std::mutex> lock(stateMutex_);
+    lastPingSampleMs_ = 0;
+    rawPingMs_ = -1;
+    smoothedPingMs_ = -1.0f;
+    currentTargetPingMs_ = 0;
+    currentHoldMs_ = 0;
+    serverX_ = 0.0;
+    serverY_ = 0.0;
+    serverZ_ = 0.0;
+    hasServerPosition_ = false;
+}
+
 void FakeLag::resetAnchor() {
     std::lock_guard<std::mutex> lock(stateMutex_);
     if (!player.isValid()) {
@@ -88,24 +106,24 @@ void FakeLag::onEnable() {
         blink->setEnabled(false);
 
     clearQueuedPackets();
+    resetRuntimeState();
     active_.store(true, std::memory_order_release);
     flushRequested_.store(false, std::memory_order_release);
     cycleStartMs_ = nowMs();
-    currentDelayMs_ = settings.minDelayMs;
     previousHurtTime_ = player.isValid() ? player.getHurtTime() : 0;
     resetAnchor();
-    log_debug("[FakeLag] Enabled (mode=%d, delay=%d-%dms)", static_cast<int>(settings.mode),
-              settings.minDelayMs, settings.maxDelayMs);
+    log_debug("[FakeLag] Enabled (mode=%d, target=%d-%dms)", static_cast<int>(settings.mode),
+              settings.minTargetPingMs, settings.maxTargetPingMs);
 }
 
 void FakeLag::onDisable() {
     active_.store(false, std::memory_order_release);
     flushRequested_.store(false, std::memory_order_release);
-    flushQueuedPackets(true);
-    {
-        std::lock_guard<std::mutex> lock(stateMutex_);
-        hasServerPosition_ = false;
-    }
+    if (player.isValid())
+        flushQueuedPackets(true);
+    else
+        clearQueuedPackets();
+    resetRuntimeState();
 }
 
 bool FakeLag::isMovementPacket(JNIEnv* env, jobject packet) const {
@@ -120,8 +138,15 @@ bool FakeLag::shouldQueueMovement() const {
     if (!enabled || !active_.load(std::memory_order_acquire) || isReleasing() || !player.isValid())
         return false;
 
+    {
+        std::lock_guard<std::mutex> lock(stateMutex_);
+        // Never invent a delay until the real connection RTT has been measured.
+        if (smoothedPingMs_ < 0.0f || currentHoldMs_ <= 0)
+            return false;
+    }
+
     const double motion = std::hypot(player.getMotionX(), player.getMotionZ());
-    if ((settings.mode == Mode::Adaptive || settings.movingOnly) && motion < 0.012)
+    if (settings.movingOnly && motion < 0.012)
         return false;
 
     if (settings.mode == Mode::Pulse) {
@@ -137,7 +162,7 @@ bool FakeLag::handleOutgoingPacket(JNIEnv* env, jobject packet) {
     if (!enabled || !active_.load(std::memory_order_acquire) || isReleasing())
         return true;
 
-    if (isAttackPacket(env, packet)) {
+    if (settings.flushOnAttack && isAttackPacket(env, packet)) {
         flushRequested_.store(true, std::memory_order_release);
         return true;
     }
@@ -150,15 +175,16 @@ bool FakeLag::handleOutgoingPacket(JNIEnv* env, jobject packet) {
         return true;
     }
 
-    if (!queuePacket(env, packet))
-        return true;
-    return false;
+    return !queuePacket(env, packet);
 }
 
 bool FakeLag::queuePacket(JNIEnv* env, jobject packet) {
     jobject global = env ? env->NewGlobalRef(packet) : nullptr;
-    if (!global)
+    if (!global || (env && env->ExceptionCheck())) {
+        if (env && env->ExceptionCheck())
+            env->ExceptionClear();
         return false;
+    }
 
     QueuedPacket entry;
     entry.packet = global;
@@ -169,15 +195,22 @@ bool FakeLag::queuePacket(JNIEnv* env, jobject packet) {
         entry.z = player.getPosZ();
     }
 
-    bool overLimit = false;
+    bool atLimit = false;
     {
         std::lock_guard<std::mutex> lock(queueMutex_);
-        queuedPackets_.push_back(entry);
-        const int maxPackets = settings.mode == Mode::Adaptive ? 18 : (std::clamp)(settings.maxPackets, 8, 48);
-        overLimit = static_cast<int>(queuedPackets_.size()) > maxPackets;
+        const int maxPackets = (std::clamp)(settings.maxPackets, 8, 60);
+        if (static_cast<int>(queuedPackets_.size()) >= maxPackets) {
+            atLimit = true;
+        } else {
+            queuedPackets_.push_back(entry);
+        }
     }
-    if (overLimit)
+
+    if (atLimit) {
+        env->DeleteGlobalRef(global);
         flushRequested_.store(true, std::memory_order_release);
+        return false;
+    }
     return true;
 }
 
@@ -213,13 +246,16 @@ void FakeLag::releaseEligible(std::uint64_t ageMs, int limit) {
             serverZ_ = entry.z;
             hasServerPosition_ = true;
         }
-        env->DeleteGlobalRef(entry.packet);
+        if (entry.packet)
+            env->DeleteGlobalRef(entry.packet);
+        if (env->ExceptionCheck())
+            env->ExceptionClear();
     }
     releasing_.store(false, std::memory_order_release);
 }
 
 void FakeLag::flushQueuedPackets(bool all) {
-    const int limit = all ? INT_MAX : (std::max)(settings.releaseRate, 1);
+    const int limit = all ? INT_MAX : (std::clamp)(settings.releaseRate, 1, 20);
     releaseEligible(0, limit);
 }
 
@@ -238,6 +274,28 @@ void FakeLag::clearQueuedPackets() {
         if (entry.packet)
             env->DeleteGlobalRef(entry.packet);
     }
+    if (env->ExceptionCheck())
+        env->ExceptionClear();
+}
+
+void FakeLag::samplePing(std::uint64_t now) {
+    {
+        std::lock_guard<std::mutex> lock(stateMutex_);
+        if (lastPingSampleMs_ != 0 && now - lastPingSampleMs_ < kPingSampleIntervalMs)
+            return;
+        lastPingSampleMs_ = now;
+    }
+
+    const int ping = mc.getLocalPlayerPing();
+    if (ping < 0 || ping > kMaximumUsablePingMs)
+        return;
+
+    std::lock_guard<std::mutex> lock(stateMutex_);
+    rawPingMs_ = ping;
+    if (smoothedPingMs_ < 0.0f)
+        smoothedPingMs_ = static_cast<float>(ping);
+    else
+        smoothedPingMs_ += (static_cast<float>(ping) - smoothedPingMs_) * kPingSmoothingAlpha;
 }
 
 float FakeLag::serverDistance() const {
@@ -250,20 +308,20 @@ float FakeLag::serverDistance() const {
     return static_cast<float>(std::sqrt(dx * dx + dy * dy + dz * dz));
 }
 
-int FakeLag::calculateAdaptiveDelay() {
-    constexpr int minimum = 30;
-    constexpr int maximum = 110;
-    if (!player.isValid())
-        return minimum;
+int FakeLag::calculateTargetPing() {
+    const int minimum = (std::clamp)(settings.minTargetPingMs, 40, 800);
+    const int maximum = (std::clamp)(settings.maxTargetPingMs, minimum, 800);
+    if (settings.mode != Mode::Adaptive || !player.isValid())
+        return maximum;
 
     const float speed = static_cast<float>(std::hypot(player.getMotionX(), player.getMotionZ()));
-    float factor = std::clamp(speed / 0.30f, 0.0f, 1.0f) * 0.42f;
+    float factor = std::clamp(speed / 0.30f, 0.0f, 1.0f) * 0.72f;
     if (player.isSprinting())
-        factor += 0.08f;
+        factor += 0.12f;
     if (!player.isOnGround())
-        factor += 0.06f;
+        factor += 0.08f;
     if (mc.isTargetingEntity())
-        factor -= 0.25f;
+        factor -= 0.30f;
     if (player.getHurtTime() > 0 || player.isUsingItem())
         factor = 0.0f;
 
@@ -272,31 +330,48 @@ int FakeLag::calculateAdaptiveDelay() {
         std::lock_guard<std::mutex> lock(queueMutex_);
         queueSize = queuedPackets_.size();
     }
-    const float pressure = static_cast<float>(queueSize) / 18.0f;
-    factor -= std::clamp(pressure - 0.45f, 0.0f, 0.55f);
-    factor -= std::clamp(serverDistance() / 1.75f - 0.50f, 0.0f, 0.55f);
-    factor = std::clamp(factor * 0.55f, 0.0f, 1.0f);
+    const float queueLimit = static_cast<float>((std::clamp)(settings.maxPackets, 8, 60));
+    factor -= std::clamp(static_cast<float>(queueSize) / queueLimit - 0.45f, 0.0f, 0.55f);
+    factor -= std::clamp(serverDistance() / (std::max)(settings.maxDistance, 0.5f) - 0.50f, 0.0f, 0.55f);
+    factor = std::clamp(factor, 0.0f, 1.0f) * std::clamp(settings.adaptiveStrength, 0.0f, 1.0f);
 
-    const int target = minimum + static_cast<int>((maximum - minimum) * factor);
-    currentDelayMs_ += static_cast<int>((target - currentDelayMs_) * 0.24f);
-    return std::clamp(currentDelayMs_, minimum, maximum);
+    return minimum + static_cast<int>(std::lround(static_cast<float>(maximum - minimum) * factor));
+}
+
+int FakeLag::calculateHoldMs(int targetPingMs) const {
+    std::lock_guard<std::mutex> lock(stateMutex_);
+    if (smoothedPingMs_ < 0.0f)
+        return 0;
+
+    // RTT includes both directions. The extra outbound hold needed to model a
+    // target one-way latency is half the difference between target and real RTT.
+    const float extraOneWay = (static_cast<float>(targetPingMs) - smoothedPingMs_) * 0.5f;
+    return (std::clamp)(static_cast<int>(std::lround(extraOneWay)), 0, kMaximumHoldMs);
 }
 
 void FakeLag::onUpdate() {
     if (!enabled)
         return;
+
     JNIEnv* env = Java::Env();
     jobject world = env ? mc.getWorld() : nullptr;
     const bool hasWorld = world != nullptr;
     if (env && world)
         env->DeleteLocalRef(world);
-    if (!player.isValid() || !hasWorld) {
+    if (!env || !player.isValid() || !hasWorld) {
         clearQueuedPackets();
-        {
-            std::lock_guard<std::mutex> lock(stateMutex_);
-            hasServerPosition_ = false;
-        }
+        resetRuntimeState();
         return;
+    }
+
+    const std::uint64_t now = nowMs();
+    samplePing(now);
+    const int targetPing = calculateTargetPing();
+    const int holdMs = calculateHoldMs(targetPing);
+    {
+        std::lock_guard<std::mutex> lock(stateMutex_);
+        currentTargetPingMs_ = targetPing;
+        currentHoldMs_ = holdMs;
     }
 
     if (flushRequested_.exchange(false, std::memory_order_acq_rel)) {
@@ -305,49 +380,50 @@ void FakeLag::onUpdate() {
     }
 
     const int hurtTime = player.getHurtTime();
-    if (hurtTime > previousHurtTime_)
+    if (settings.flushOnDamage && hurtTime > previousHurtTime_)
         flushQueuedPackets(true);
     previousHurtTime_ = hurtTime;
 
-    if (player.isUsingItem()) {
+    if (settings.flushOnItemUse && player.isUsingItem()) {
         flushQueuedPackets(true);
         return;
     }
 
-    const float safeDistance = settings.mode == Mode::Adaptive ? 1.75f : (std::max)(settings.maxDistance, 0.5f);
-    const bool smoothRelease = settings.mode == Mode::Adaptive ? true : settings.smoothRelease;
-    const int releaseRate = settings.mode == Mode::Adaptive ? 4 : (std::max)(settings.releaseRate, 1);
-    const float distance = serverDistance();
-    if (smoothRelease && distance >= safeDistance * 0.65f)
-        flushQueuedPackets(false);
-    if (distance >= safeDistance) {
-        flushQueuedPackets(smoothRelease ? false : true);
+    if (holdMs <= 0) {
+        flushQueuedPackets(true);
         return;
     }
 
+    const float safeDistance = (std::max)(settings.maxDistance, 0.5f);
+    const float distance = serverDistance();
+    if (settings.smoothRelease && distance >= safeDistance * 0.65f)
+        flushQueuedPackets(false);
+    if (distance >= safeDistance) {
+        flushQueuedPackets(settings.smoothRelease ? false : true);
+        return;
+    }
+
+    const int releaseRate = (std::clamp)(settings.releaseRate, 1, 20);
     switch (settings.mode) {
         case Mode::Pulse: {
-            const int hold = (std::max)(settings.pulseHoldMs, 20);
-            const int release = (std::max)(settings.pulseReleaseMs, 20);
-            const std::uint64_t phase = (nowMs() - cycleStartMs_) % static_cast<std::uint64_t>(hold + release);
-            if (phase >= static_cast<std::uint64_t>(hold))
+            const int pulseHold = (std::max)(settings.pulseHoldMs, 20);
+            const int pulseRelease = (std::max)(settings.pulseReleaseMs, 20);
+            const std::uint64_t phase = (now - cycleStartMs_) %
+                                        static_cast<std::uint64_t>(pulseHold + pulseRelease);
+            if (phase >= static_cast<std::uint64_t>(pulseHold)) {
                 flushQueuedPackets(settings.smoothRelease ? false : true);
+            } else {
+                // The pulse phase controls burst timing, while target ping
+                // remains a hard per-packet age cap.
+                releaseEligible(static_cast<std::uint64_t>(holdMs),
+                                settings.smoothRelease ? releaseRate : INT_MAX);
+            }
             break;
         }
         case Mode::Constant:
-            currentDelayMs_ = std::clamp(settings.maxDelayMs, 20, 1000);
-            releaseEligible(static_cast<std::uint64_t>(currentDelayMs_),
-                            smoothRelease ? releaseRate : INT_MAX);
-            break;
         case Mode::Distance:
-            currentDelayMs_ = settings.maxDelayMs;
-            releaseEligible(static_cast<std::uint64_t>((std::max)(settings.maxDelayMs, 20)),
-                            smoothRelease ? releaseRate : INT_MAX);
-            break;
         case Mode::Adaptive:
-            currentDelayMs_ = calculateAdaptiveDelay();
-            releaseEligible(static_cast<std::uint64_t>(currentDelayMs_),
-                            releaseRate);
+            releaseEligible(static_cast<std::uint64_t>(holdMs), settings.smoothRelease ? releaseRate : INT_MAX);
             break;
     }
 }
@@ -356,6 +432,9 @@ void FakeLag::renderPlayerBox(double x, double y, double z, unsigned int outline
     if (!RenderData::updated)
         return;
     ImDrawList* draw = ImGui::GetBackgroundDrawList();
+    if (!draw)
+        return;
+
     RenderPos render = mc.getRenderPos();
     constexpr float half = 0.3f;
     constexpr float height = 1.8f;
@@ -400,34 +479,43 @@ void FakeLag::renderPlayerBox(double x, double y, double z, unsigned int outline
 }
 
 void FakeLag::onRender() {
-    if (!enabled)
+    if (!enabled || !player.isValid())
         return;
+
     double serverX = 0.0;
     double serverY = 0.0;
     double serverZ = 0.0;
+    int ping = -1;
+    int targetPing = 0;
+    int holdMs = 0;
+    bool hasServerPosition = false;
     {
         std::lock_guard<std::mutex> lock(stateMutex_);
-        if (!hasServerPosition_)
-            return;
+        hasServerPosition = hasServerPosition_;
         serverX = serverX_;
         serverY = serverY_;
         serverZ = serverZ_;
+        ping = smoothedPingMs_ >= 0.0f ? static_cast<int>(std::lround(smoothedPingMs_)) : rawPingMs_;
+        targetPing = currentTargetPingMs_;
+        holdMs = currentHoldMs_;
     }
+
     std::size_t queued = 0;
     {
         std::lock_guard<std::mutex> lock(queueMutex_);
         queued = queuedPackets_.size();
     }
-    if (queued == 0)
-        return;
 
     const ImVec4 base(settings.color[0], settings.color[1], settings.color[2], settings.color[3]);
     const ImU32 outline = ImGui::ColorConvertFloat4ToU32(base);
     const ImU32 fill = ImGui::ColorConvertFloat4ToU32(ImVec4(base.x, base.y, base.z, base.w * 0.20f));
-    if (settings.renderServerPlayer)
+
+    // The server-position box is useful in third person but obstructs the
+    // crosshair/camera in first person. Other HUD elements remain available.
+    if (queued > 0 && hasServerPosition && settings.renderServerPlayer && !mc.isFirstPerson())
         renderPlayerBox(serverX, serverY, serverZ, outline, fill);
 
-    if (settings.renderLine && RenderData::updated) {
+    if (queued > 0 && hasServerPosition && settings.renderLine && RenderData::updated) {
         RenderPos render = mc.getRenderPos();
         Vector2 a{}, b{};
         const bool va = CWorldToScreen::WorldToScreen(
@@ -437,16 +525,27 @@ void FakeLag::onRender() {
             {(float)(player.getPosX() - render.x), (float)(player.getPosY() + 0.9 - render.y),
              (float)(player.getPosZ() - render.z)},
             RenderData::modelView, RenderData::projection, RenderData::screenWidth, RenderData::screenHeight, b);
-        if (va && vb)
-            ImGui::GetBackgroundDrawList()->AddLine({a.x, a.y}, {b.x, b.y}, outline, 1.5f);
+        if (va && vb) {
+            ImDrawList* draw = ImGui::GetBackgroundDrawList();
+            if (draw)
+                draw->AddLine({a.x, a.y}, {b.x, b.y}, outline, 1.5f);
+        }
     }
 
     if (settings.showStatus) {
-        const char* modes[] = {"Pulse", "Constant", "Distance", "Adaptive"};
-        char text[96];
-        std::snprintf(text, sizeof(text), "FakeLag %s  |  %d ms  |  %zu packets", modes[(int)settings.mode],
-                      currentDelayMs_, queued);
+        static const char* modes[] = {"Pulse", "Constant", "Distance", "Adaptive"};
+        const int mode = (std::clamp)(static_cast<int>(settings.mode), 0, 3);
+        char text[144];
+        if (ping >= 0) {
+            std::snprintf(text, sizeof(text), "FakeLag %s | RTT %d ms | target %d ms | hold %d ms | %zu pkt",
+                          modes[mode], ping, targetPing, holdMs, queued);
+        } else {
+            std::snprintf(text, sizeof(text), "FakeLag %s | measuring RTT...", modes[mode]);
+        }
+
         ImDrawList* draw = ImGui::GetBackgroundDrawList();
+        if (!draw)
+            return;
         ImVec2 size = ImGui::CalcTextSize(text);
         const float x = (ImGui::GetIO().DisplaySize.x - size.x) * 0.5f;
         draw->AddRectFilled({x - 8.0f, 48.0f}, {x + size.x + 8.0f, 70.0f}, IM_COL32(10, 12, 16, 175), 5.0f);
@@ -461,42 +560,54 @@ void FakeLag::onRenderMenu() {
         [this, &enabledValue]() {
             if (ui::CheckboxBind("Enabled", &enabledValue, &keybind) && enabledValue != enabled)
                 setEnabled(enabledValue);
+
             int mode = static_cast<int>(settings.mode);
             const char* modes[] = {"Pulse", "Constant", "Distance", "Adaptive"};
             if (ui::Combo("Mode", &mode, modes, IM_ARRAYSIZE(modes)))
                 settings.mode = static_cast<Mode>(mode);
-            if (settings.mode == Mode::Pulse) {
-                ui::SliderInt("Hold Time", &settings.pulseHoldMs, 40, 1000, "%d ms");
-                ui::SliderInt("Release Time", &settings.pulseReleaseMs, 20, 500, "%d ms");
-            } else if (settings.mode == Mode::Constant) {
-                ui::SliderInt("Delay", &settings.maxDelayMs, 20, 250, "%d ms");
-            } else if (settings.mode == Mode::Distance) {
-                ui::SliderFloat("Maximum Distance", &settings.maxDistance, 0.5f, 3.0f, "%.1f blocks");
-                ui::SliderInt("Maximum Delay", &settings.maxDelayMs, 40, 300, "%d ms");
+
+            if (settings.mode == Mode::Adaptive) {
+                ui::SliderInt("Minimum Target Ping", &settings.minTargetPingMs, 40, 600, "%d ms");
+                ui::SliderInt("Maximum Target Ping", &settings.maxTargetPingMs, 40, 800, "%d ms");
+                ui::SliderFloat("Adaptive Strength", &settings.adaptiveStrength, 0.0f, 1.0f, "%.2f");
             } else {
-                ImGui::Spacing();
-                ImGui::TextDisabled("Managed automatically");
+                ui::SliderInt("Target Ping", &settings.maxTargetPingMs, 40, 800, "%d ms");
             }
+
+            if (settings.mode == Mode::Pulse) {
+                ui::SliderInt("Hold Phase", &settings.pulseHoldMs, 40, 1000, "%d ms");
+                ui::SliderInt("Release Phase", &settings.pulseReleaseMs, 20, 500, "%d ms");
+            }
+            if (settings.mode == Mode::Distance || settings.mode == Mode::Adaptive)
+                ui::SliderFloat("Maximum Distance", &settings.maxDistance, 0.5f, 3.0f, "%.1f blocks");
+
+            ui::SliderInt("Packet Limit", &settings.maxPackets, 8, 60, "%d");
+            ui::SliderInt("Release Rate", &settings.releaseRate, 1, 20, "%d/tick");
+            ui::Checkbox("Moving Only", &settings.movingOnly);
+            ui::Checkbox("Smooth Release", &settings.smoothRelease);
+            ui::Checkbox("Flush On Attack", &settings.flushOnAttack);
+            ui::Checkbox("Flush On Damage", &settings.flushOnDamage);
+            ui::Checkbox("Flush On Item Use", &settings.flushOnItemUse);
+            ImGui::Spacing();
+            ImGui::TextDisabled("Hold = (target ping - measured RTT) / 2");
         },
         "Visuals",
         [this]() {
-            if (settings.mode == Mode::Adaptive) {
-                ImGui::TextDisabled("Adaptive mode has no options");
-                return;
-            }
             ui::Checkbox("Render Server Player", &settings.renderServerPlayer);
             ui::Checkbox("Filled Render", &settings.filledRender);
             ui::Checkbox("Render Line", &settings.renderLine);
             ui::Checkbox("Show Status", &settings.showStatus);
             ImGui::Spacing();
+            ImGui::TextDisabled("Player box is hidden in first person.");
             ui::color("Color", settings.color);
         });
 }
 
 std::string FakeLag::getDisplayInfo() {
     static const char* names[] = {"Pulse", "Constant", "Distance", "Adaptive"};
-    const int mode = std::clamp(static_cast<int>(settings.mode), 0, 3);
-    if (settings.mode == Mode::Adaptive || settings.mode == Mode::Constant)
-        return std::string(names[mode]) + " " + std::to_string(currentDelayMs_) + "ms";
-    return names[mode];
+    const int mode = (std::clamp)(static_cast<int>(settings.mode), 0, 3);
+    std::lock_guard<std::mutex> lock(stateMutex_);
+    if (smoothedPingMs_ < 0.0f)
+        return std::string(names[mode]) + " measuring";
+    return std::string(names[mode]) + " " + std::to_string(currentHoldMs_) + "ms";
 }

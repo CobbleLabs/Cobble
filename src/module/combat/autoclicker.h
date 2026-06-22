@@ -1,11 +1,14 @@
 #pragma once
 
 #include <chrono>
+#include <cstdint>
 #include <random>
 #include "../module.h"
 
 class AutoClicker : public Module {
 public:
+    enum class RandomizationMode { RANDOM, SECURE_RANDOM, SECURE_RANDOM_PLUS };
+
     AutoClicker();
 
     void onEnable() override;
@@ -20,6 +23,7 @@ public:
         bool weaponOnly = false;
         bool breakBlocks = false;  // Skip clicking when targeting block
         bool workInInventory = true;
+        RandomizationMode randomizationMode = RandomizationMode::SECURE_RANDOM;
 
         // Stable CPS mode - no randomization, exact CPS
         bool stableCPS = false;
@@ -44,6 +48,12 @@ private:
     int stableClickCount = 0;
     int nextDelayMs = 100;
     std::mt19937 rng;
+    std::mt19937_64 secureRng;
+    uint64_t secureDrawCount = 0;
+    float plusCpsState = 15.0f;
+    int plusStateClicksRemaining = 0;
+    float clickDownFraction = 0.5f;
+    float currentClickIntervalMs = 66.0f;
 
     // Dynamic delay anti-detection system
     int clicksSinceRangeChange = 0;
@@ -83,6 +93,9 @@ public:
     void updateFatigue();
     void updateBurstMode();
     void updateJitterMode();
+    void reseedSecureRng();
+    double secureUnit();
+    float generateTargetCps(float minCps, float maxCps);
 
     // Checks
     bool isHoldingWeapon();

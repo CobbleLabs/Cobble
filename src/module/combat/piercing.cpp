@@ -6,11 +6,18 @@
 #include "../../sdk/jni/jni_cache.h"
 #include "../../ui/menu/menu.h"
 #include "../../ui/widgets/widgets.hpp"
+#include "../../util/aes_string.hpp"
 #include "../../util/team/friends_manager.h"
+
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <Windows.h>
 
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <cstring>
 #include <limits>
 
 Piercing* piercing = nullptr;
@@ -18,10 +25,44 @@ Piercing* piercing = nullptr;
 namespace {
 constexpr double PI = 3.14159265358979323846;
 constexpr double EPSILON = 1.0e-8;
+constexpr std::uint64_t DUPLICATE_PACKET_GUARD_MS = 60;
 
 bool isWeapon(int itemId) {
     return itemId == 268 || itemId == 272 || itemId == 267 || itemId == 276 || itemId == 283 ||
            itemId == 271 || itemId == 275 || itemId == 258 || itemId == 279 || itemId == 286;
+}
+
+bool isAttackOrSwingPacket(JNIEnv* env, jobject packet) {
+    if (!env || !packet)
+        return false;
+
+    jclass packetClass = env->GetObjectClass(packet);
+    jclass classClass = packetClass ? env->GetObjectClass(packetClass) : nullptr;
+    jmethodID getName =
+        classClass ? env->GetMethodID(classClass, OBFUSCATE_STRING("getName").c_str(),
+                                      OBFUSCATE_STRING("()Ljava/lang/String;").c_str())
+                   : nullptr;
+    jstring name = getName ? static_cast<jstring>(env->CallObjectMethod(packetClass, getName)) : nullptr;
+
+    bool result = false;
+    if (name && !env->ExceptionCheck()) {
+        const char* chars = env->GetStringUTFChars(name, nullptr);
+        if (chars) {
+            result = std::strstr(chars, OBFUSCATE_STRING("C02PacketUseEntity").c_str()) != nullptr ||
+                     std::strstr(chars, OBFUSCATE_STRING("C0APacketAnimation").c_str()) != nullptr;
+            env->ReleaseStringUTFChars(name, chars);
+        }
+    }
+
+    if (name)
+        env->DeleteLocalRef(name);
+    if (classClass)
+        env->DeleteLocalRef(classClass);
+    if (packetClass)
+        env->DeleteLocalRef(packetClass);
+    if (env->ExceptionCheck())
+        env->ExceptionClear();
+    return result;
 }
 }  // namespace
 
@@ -30,9 +71,17 @@ Piercing::Piercing() : Module("Piercing") {
 }
 
 void Piercing::onEnable() {
+    manualAttackActive_.store(false, std::memory_order_release);
+    suppressDuplicatePacketsUntilMs_.store(0, std::memory_order_release);
 }
 
 void Piercing::onDisable() {
+    manualAttackActive_.store(false, std::memory_order_release);
+    suppressDuplicatePacketsUntilMs_.store(0, std::memory_order_release);
+}
+
+std::uint64_t Piercing::nowMs() {
+    return static_cast<std::uint64_t>(GetTickCount64());
 }
 
 bool Piercing::rayIntersectsBox(double originX, double originY, double originZ,
@@ -224,9 +273,34 @@ bool Piercing::handleAttackInput() {
     if (!target)
         return false;
 
+    // LWJGL polls mouse state independently from the Windows message. Mark the
+    // synchronous attack so its own swing/C02 packets pass, then guard against
+    // Minecraft processing the same physical click again on the next tick.
+    manualAttackActive_.store(true, std::memory_order_release);
     const bool attacked = mc.attackEntity(target);
+    if (attacked) {
+        suppressDuplicatePacketsUntilMs_.store(nowMs() + DUPLICATE_PACKET_GUARD_MS,
+                                               std::memory_order_release);
+        mc.setLeftClickCounter(2);
+    }
+    manualAttackActive_.store(false, std::memory_order_release);
+
     Java::Env()->DeleteLocalRef(target);
     return attacked;
+}
+
+bool Piercing::shouldSendOutgoingPacket(JNIEnv* env, jobject packet) {
+    if (!enabled || manualAttackActive_.load(std::memory_order_acquire))
+        return true;
+
+    const std::uint64_t deadline = suppressDuplicatePacketsUntilMs_.load(std::memory_order_acquire);
+    if (deadline == 0 || nowMs() > deadline)
+        return true;
+
+    // A second vanilla pass emits another animation packet and another use-
+    // entity attack. Suppress only those packet classes during this short,
+    // attack-scoped window; movement and every unrelated packet still pass.
+    return !isAttackOrSwingPacket(env, packet);
 }
 
 void Piercing::onUpdate() {
