@@ -133,7 +133,7 @@ void Reach::onUpdate() {
     // Cleanup non-targets
     for (auto& p : playerList) {
         if (p.instance && (&p != target)) {
-            env->DeleteLocalRef(p.instance);
+            env->DeleteGlobalRef(p.instance);
             p.instance = nullptr;
         }
     }
@@ -143,7 +143,7 @@ void Reach::onUpdate() {
     // Only apply for players beyond vanilla reach
     float distBetween = finalDist;
     if (distBetween > settings.distance + 0.5f || distBetween <= 3.0f) {
-        env->DeleteLocalRef(target->instance);
+        env->DeleteGlobalRef(target->instance);
         return;
     }
     
@@ -181,19 +181,19 @@ void Reach::onUpdate() {
     
     // Get bounding box
     if (!JniCache::fid_boundingBox) {
-        env->DeleteLocalRef(target->instance);
+        env->DeleteGlobalRef(target->instance);
         return;
     }
     
     jobject aabb = env->GetObjectField(target->instance, JniCache::fid_boundingBox);
     if (!aabb) {
-        env->DeleteLocalRef(target->instance);
+        env->DeleteGlobalRef(target->instance);
         return;
     }
     
     if (!JniCache::fid_aabb_minX || !JniCache::fid_aabb_maxX) {
         env->DeleteLocalRef(aabb);
-        env->DeleteLocalRef(target->instance);
+        env->DeleteGlobalRef(target->instance);
         return;
     }
     
@@ -211,7 +211,7 @@ void Reach::onUpdate() {
     env->SetDoubleField(aabb, JniCache::fid_aabb_maxY, curMaxY);
     
     env->DeleteLocalRef(aabb);
-    env->DeleteLocalRef(target->instance);
+    env->DeleteGlobalRef(target->instance);
     
     if (env->ExceptionCheck()) {
         env->ExceptionClear();

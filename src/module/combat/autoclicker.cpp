@@ -480,9 +480,9 @@ bool AutoClicker::isTargetingPlayer() {
             found = true;
         }
 
-        // Always cleanup LocalRef - don't break early
+        // Always cleanup GlobalRef - don't break early
         if (p.instance) {
-            env->DeleteLocalRef(p.instance);
+            env->DeleteGlobalRef(p.instance);
             p.instance = nullptr;
         }
     }

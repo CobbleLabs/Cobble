@@ -5,6 +5,7 @@
 #include "../../util/aes_string.hpp"
 #include "../../util/logger.hpp"
 #include "../jni/jstring_util.h"
+#include "../../util/inject_trace.hpp"
 
 // ============================================================================
 // NetworkManager Discovery Probe
@@ -500,26 +501,34 @@ static void probeLastReportedPos() {
 // Run all probes
 // ============================================================================
 void run() {
-    // log_debug("=========================================");
-    // log_debug("   NetworkManager Discovery Probe");
-    // log_debug("=========================================");
-
+    COBBLE_TRACE("NetworkProbe::run: enter");
     if (!Java::Initialized) {
-        // log_err("Java not initialized - cannot run probe");
+        COBBLE_TRACE("NetworkProbe::run: Java not initialized, skipping");
         return;
     }
 
+    COBBLE_TRACE("NetworkProbe::run: probeMCPNames");
     probeMCPNames();
+    
+    COBBLE_TRACE("NetworkProbe::run: probePlayerFields");
     probePlayerFields();
-    probeNetworkClasses();
+    
+    COBBLE_TRACE("NetworkProbe::run: skipping probeNetworkClasses (prevents local ref overflow)");
+    // probeNetworkClasses(); // Disabled: GetLoadedClasses returns local references for all loaded classes, causing JNI local ref table overflow
+    
+    COBBLE_TRACE("NetworkProbe::run: probeNettyHandlers");
     probeNettyHandlers();
+    
+    COBBLE_TRACE("NetworkProbe::run: probeNetHandlerFields");
     probeNetHandlerFields();
+    
+    COBBLE_TRACE("NetworkProbe::run: probeSendPacket");
     probeSendPacket();
-    probeLastReportedPos();  // NEW: Find position freeze fields
+    
+    COBBLE_TRACE("NetworkProbe::run: probeLastReportedPos");
+    probeLastReportedPos();
 
-    // log_debug("=========================================");
-    // log_debug("   Probe Complete");
-    // log_debug("=========================================");
+    COBBLE_TRACE("NetworkProbe::run: exit");
 }
 
 }  // namespace NetworkProbe

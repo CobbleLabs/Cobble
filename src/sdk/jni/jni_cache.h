@@ -181,6 +181,7 @@ extern jfieldID fid_openContainer;
 // =============================================================================
 
 extern jfieldID fid_armorInventory; // ItemStack[]
+extern jfieldID fid_currentItem; // int
 
 extern jmethodID mid_getPotionID;
 extern jmethodID mid_getDuration;

@@ -682,7 +682,7 @@ bool AimAssist::findTarget(double& targetX, double& targetY, double& targetZ) {
     bool lockedEntityFound = false;
     auto releasePlayerRef = [env](PlayerInfo& candidate) {
         if (candidate.instance && env) {
-            env->DeleteLocalRef(candidate.instance);
+            env->DeleteGlobalRef(candidate.instance);
             candidate.instance = nullptr;
         }
     };

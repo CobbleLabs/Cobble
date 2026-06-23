@@ -14,97 +14,80 @@ int Minecraft::getBlockId(int x, int y, int z) {
     if (!isValid())
         return 0;
 
-    // 1.7.10: World.getBlock(int, int, int) -> Block
-    if (Java::Version == MinecraftVersion::MC_1_7_10) {
-        JNIEnv* env = Java::Env();
-        if (!env)
-            return 0;
-
-        jobject world = getWorld();
-        if (!world)
-            return 0;
-
-        int blockId = 0;
-
-        // World.getBlock(int, int, int) -> Block
-        if (JniCache::mid_getBlockWorld) {
-            jobject block = env->CallObjectMethod(world, JniCache::mid_getBlockWorld, x, y, z);
-            if (block) {
-                // Block.getIdFromBlock(Block) -> int
-                if (JniCache::cls_Block && JniCache::mid_getIdFromBlock) {
-                    blockId = env->CallStaticIntMethod(JniCache::cls_Block, JniCache::mid_getIdFromBlock, block);
-                }
-                env->DeleteLocalRef(block);
-            }
-        }
-
-        env->DeleteLocalRef(world);
-        return blockId;
-    }
+    if (y < 0 || y > 255)
+        return 0;
 
     JNIEnv* env = Java::Env();
     if (!env)
         return 0;
 
-    jobject world = getWorld();
-    if (!world)
+    if (env->PushLocalFrame(16) < 0)
         return 0;
 
     int blockId = 0;
 
-    // Create BlockPos object
-    if (!JniCache::cls_BlockPos || !JniCache::mid_blockPosInit) {
-        env->DeleteLocalRef(world);
-        return 0;
+    // 1.7.10: World.getBlock(int, int, int) -> Block
+    if (Java::Version == MinecraftVersion::MC_1_7_10) {
+        jobject world = getWorld();
+        if (world) {
+            // World.getBlock(int, int, int) -> Block
+            if (JniCache::mid_getBlockWorld) {
+                jobject block = env->CallObjectMethod(world, JniCache::mid_getBlockWorld, x, y, z);
+                if (env->ExceptionCheck()) {
+                    env->ExceptionClear();
+                    block = nullptr;
+                }
+                if (block) {
+                    // Block.getIdFromBlock(Block) -> int
+                    if (JniCache::cls_Block && JniCache::mid_getIdFromBlock) {
+                        blockId = env->CallStaticIntMethod(JniCache::cls_Block, JniCache::mid_getIdFromBlock, block);
+                        if (env->ExceptionCheck()) {
+                            env->ExceptionClear();
+                            blockId = 0;
+                        }
+                    }
+                }
+            }
+        }
+    } else {
+        jobject world = getWorld();
+        if (world) {
+            // Create BlockPos object
+            if (JniCache::cls_BlockPos && JniCache::mid_blockPosInit) {
+                jobject blockPos = env->NewObject(JniCache::cls_BlockPos, JniCache::mid_blockPosInit, x, y, z);
+                if (env->ExceptionCheck()) {
+                    env->ExceptionClear();
+                    blockPos = nullptr;
+                }
+                if (blockPos && JniCache::mid_getBlockState) {
+                    // world.getBlockState(BlockPos) -> IBlockState
+                    jobject blockState = env->CallObjectMethod(world, JniCache::mid_getBlockState, blockPos);
+                    if (env->ExceptionCheck()) {
+                        env->ExceptionClear();
+                        blockState = nullptr;
+                    }
+                    if (blockState && JniCache::mid_getBlock) {
+                        // IBlockState.getBlock() -> Block
+                        jobject block = env->CallObjectMethod(blockState, JniCache::mid_getBlock);
+                        if (env->ExceptionCheck()) {
+                            env->ExceptionClear();
+                            block = nullptr;
+                        }
+                        if (block && JniCache::cls_Block && JniCache::mid_getIdFromBlock) {
+                            // Block.getIdFromBlock(Block) -> int
+                            blockId = env->CallStaticIntMethod(JniCache::cls_Block, JniCache::mid_getIdFromBlock, block);
+                            if (env->ExceptionCheck()) {
+                                env->ExceptionClear();
+                                blockId = 0;
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 
-    jobject blockPos = env->NewObject(JniCache::cls_BlockPos, JniCache::mid_blockPosInit, x, y, z);
-    if (!blockPos) {
-        env->DeleteLocalRef(world);
-        return 0;
-    }
-
-    // world.getBlockState(BlockPos) -> IBlockState
-    if (!JniCache::mid_getBlockState) {
-        env->DeleteLocalRef(blockPos);
-        env->DeleteLocalRef(world);
-        return 0;
-    }
-
-    jobject blockState = env->CallObjectMethod(world, JniCache::mid_getBlockState, blockPos);
-    if (!blockState) {
-        env->DeleteLocalRef(blockPos);
-        env->DeleteLocalRef(world);
-        return 0;
-    }
-
-    // IBlockState.getBlock() -> Block
-    if (!JniCache::mid_getBlock) {
-        env->DeleteLocalRef(blockState);
-        env->DeleteLocalRef(blockPos);
-        env->DeleteLocalRef(world);
-        return 0;
-    }
-
-    jobject block = env->CallObjectMethod(blockState, JniCache::mid_getBlock);
-    if (!block) {
-        env->DeleteLocalRef(blockState);
-        env->DeleteLocalRef(blockPos);
-        env->DeleteLocalRef(world);
-        return 0;
-    }
-
-    // Block.getIdFromBlock(Block) -> int
-    if (JniCache::cls_Block && JniCache::mid_getIdFromBlock) {
-        blockId = env->CallStaticIntMethod(JniCache::cls_Block, JniCache::mid_getIdFromBlock, block);
-    }
-
-    // Cleanup
-    env->DeleteLocalRef(block);
-    env->DeleteLocalRef(blockState);
-    env->DeleteLocalRef(blockPos);
-    env->DeleteLocalRef(world);
-
+    env->PopLocalFrame(nullptr);
     return blockId;
 }
 
@@ -113,13 +96,18 @@ bool Minecraft::damageBlock(int x, int y, int z) {
     if (!isValid() || !env || !JniCache::fid_playerController)
         return false;
 
-    jobject controller = env->GetObjectField(instance, JniCache::fid_playerController);
-    if (!controller)
+    if (env->PushLocalFrame(16) < 0)
         return false;
+
+    jobject controller = env->GetObjectField(instance, JniCache::fid_playerController);
+    if (!controller) {
+        env->PopLocalFrame(nullptr);
+        return false;
+    }
 
     jclass controllerClass = env->GetObjectClass(controller);
     if (!controllerClass) {
-        env->DeleteLocalRef(controller);
+        env->PopLocalFrame(nullptr);
         return false;
     }
 
@@ -165,14 +153,6 @@ bool Minecraft::damageBlock(int x, int y, int z) {
             jobject blockPos = env->NewObject(JniCache::cls_BlockPos, JniCache::mid_blockPosInit, x, y, z);
             if (blockPos && facingUp)
                 damaged = env->CallBooleanMethod(controller, damageMethod, blockPos, facingUp) == JNI_TRUE;
-
-            if (blockPos)
-                env->DeleteLocalRef(blockPos);
-            if (facingUp)
-                env->DeleteLocalRef(facingUp);
-            if (values)
-                env->DeleteLocalRef(values);
-            env->DeleteLocalRef(facingClass);
         }
     }
 
@@ -180,8 +160,8 @@ bool Minecraft::damageBlock(int x, int y, int z) {
         env->ExceptionClear();
         damaged = false;
     }
-    env->DeleteLocalRef(controllerClass);
-    env->DeleteLocalRef(controller);
+
+    env->PopLocalFrame(nullptr);
     return damaged;
 }
 
@@ -200,28 +180,32 @@ Minecraft::RAYTRACE_BLOCKS_RESULT Minecraft::rayTraceBlocks(Vec3 from, Vec3 dire
     if (!env)
         return RAYTRACE_BLOCKS_RESULT::RAYTRACE_ERROR;
 
-    jobject world = getWorld();
-    if (!world)
+    if (env->PushLocalFrame(16) < 0)
         return RAYTRACE_BLOCKS_RESULT::RAYTRACE_ERROR;
+
+    jobject world = getWorld();
+    if (!world) {
+        env->PopLocalFrame(nullptr);
+        return RAYTRACE_BLOCKS_RESULT::RAYTRACE_ERROR;
+    }
 
     // Create Vec3 objects for from and direction
     if (!JniCache::cls_Vec3 || !JniCache::mid_vec3Init) {
-        env->DeleteLocalRef(world);
+        env->PopLocalFrame(nullptr);
         return RAYTRACE_BLOCKS_RESULT::RAYTRACE_ERROR;
     }
 
     jobject fromObj =
         env->NewObject(JniCache::cls_Vec3, JniCache::mid_vec3Init, (double)from.x, (double)from.y, (double)from.z);
     if (!fromObj) {
-        env->DeleteLocalRef(world);
+        env->PopLocalFrame(nullptr);
         return RAYTRACE_BLOCKS_RESULT::RAYTRACE_ERROR;
     }
 
     jobject directionObj = env->NewObject(JniCache::cls_Vec3, JniCache::mid_vec3Init, (double)direction.x,
                                           (double)direction.y, (double)direction.z);
     if (!directionObj) {
-        env->DeleteLocalRef(fromObj);
-        env->DeleteLocalRef(world);
+        env->PopLocalFrame(nullptr);
         return RAYTRACE_BLOCKS_RESULT::RAYTRACE_ERROR;
     }
 
@@ -236,12 +220,9 @@ Minecraft::RAYTRACE_BLOCKS_RESULT Minecraft::rayTraceBlocks(Vec3 from, Vec3 dire
         }
     }
 
-    env->DeleteLocalRef(directionObj);
-    env->DeleteLocalRef(fromObj);
-    env->DeleteLocalRef(world);
-
     // No hit
     if (!mop) {
+        env->PopLocalFrame(nullptr);
         return RAYTRACE_BLOCKS_RESULT::NO_HIT;
     }
 
@@ -255,7 +236,6 @@ Minecraft::RAYTRACE_BLOCKS_RESULT Minecraft::rayTraceBlocks(Vec3 from, Vec3 dire
             result.x = (float)env->CallIntMethod(blockPosObj, JniCache::mid_getX);
             result.y = (float)env->CallIntMethod(blockPosObj, JniCache::mid_getY);
             result.z = (float)env->CallIntMethod(blockPosObj, JniCache::mid_getZ);
-            env->DeleteLocalRef(blockPosObj);
             gotPosition = true;
         }
     }
@@ -268,7 +248,7 @@ Minecraft::RAYTRACE_BLOCKS_RESULT Minecraft::rayTraceBlocks(Vec3 from, Vec3 dire
         gotPosition = true;
     }
 
-    env->DeleteLocalRef(mop);
+    env->PopLocalFrame(nullptr);
 
     if (gotPosition) {
         return RAYTRACE_BLOCKS_RESULT::HIT;

@@ -103,7 +103,7 @@ inline void Update() {
         newPlayers.push_back(std::move(cached));
 
         if (p.instance) {
-            Java::Env()->DeleteLocalRef(p.instance);
+            Java::Env()->DeleteGlobalRef(p.instance);
             p.instance = nullptr;
         }
     }

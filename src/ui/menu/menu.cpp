@@ -585,7 +585,7 @@ void Menu::Render() {
 
     // If hidden (e.g. during HUD drag), skip rendering but keep state
     if (hidden && isOpen) {
-        COBBLE_TRACE("Menu::Render skip: hidden");
+        COBBLE_TRACE_ONCE("Menu::Render skip: hidden");
         return;
     }
 

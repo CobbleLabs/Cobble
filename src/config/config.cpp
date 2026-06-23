@@ -661,6 +661,12 @@ void ConfigManager::applyConfig() {
                 s.reach = (std::clamp)(data["reach"].as_float(s.reach), 3.0f, 4.5f);
                 s.placeDelayMs = (std::clamp)(data["placeDelayMs"].as_int(s.placeDelayMs), 40, 200);
                 s.restoreSlot = data["restoreSlot"].as_bool(s.restoreSlot);
+                s.showBps = data["showBps"].as_bool(s.showBps);
+                s.showPath = data["showPath"].as_bool(s.showPath);
+                s.showPlacement = data["showPlacement"].as_bool(s.showPlacement);
+                s.cameraWeight = data["cameraWeight"].as_bool(s.cameraWeight);
+                s.smoothRotation = data["smoothRotation"].as_bool(s.smoothRotation);
+                s.rotationSpeed = (std::clamp)(data["rotationSpeed"].as_float(s.rotationSpeed), 5.0f, 45.0f);
             } else if (name == "Breaker" && breaker) {
                 auto& s = breaker->settings;
                 s.range = (std::clamp)(data["range"].as_float(s.range), 2.0f, 6.0f);
@@ -1117,6 +1123,12 @@ void ConfigManager::buildConfigFromModules() {
             config_["modules"][name]["reach"] = s.reach;
             config_["modules"][name]["placeDelayMs"] = s.placeDelayMs;
             config_["modules"][name]["restoreSlot"] = s.restoreSlot;
+            config_["modules"][name]["showBps"] = s.showBps;
+            config_["modules"][name]["showPath"] = s.showPath;
+            config_["modules"][name]["showPlacement"] = s.showPlacement;
+            config_["modules"][name]["cameraWeight"] = s.cameraWeight;
+            config_["modules"][name]["smoothRotation"] = s.smoothRotation;
+            config_["modules"][name]["rotationSpeed"] = s.rotationSpeed;
         } else if (name == "Breaker" && breaker) {
             const auto& s = breaker->settings;
             config_["modules"][name]["range"] = s.range;

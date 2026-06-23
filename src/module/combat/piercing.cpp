@@ -252,7 +252,7 @@ jobject Piercing::selectTarget(bool hiddenOnly, bool& targetVisible) {
 
     for (auto& candidate : players) {
         if (candidate.instance) {
-            env->DeleteLocalRef(candidate.instance);
+            env->DeleteGlobalRef(candidate.instance);
             candidate.instance = nullptr;
         }
     }

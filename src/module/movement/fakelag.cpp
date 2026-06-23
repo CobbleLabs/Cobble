@@ -227,26 +227,37 @@ bool FakeLag::queuePacket(JNIEnv* env, jobject packet, bool movement) {
         entry.z = player.getPosZ();
     }
 
-    bool atLimit = false;
+    QueuedPacket poppedEntry;
+    bool hasPopped = false;
     {
         std::lock_guard<std::mutex> lock(queueMutex_);
         // Reserve a small amount of space for an attack/control packet so it
         // can remain ordered behind the movement backlog instead of being lost.
         const int maxPackets = effectivePacketLimit() + (movement ? 0 : 2);
-        if (static_cast<int>(queuedPackets_.size()) >= maxPackets) {
-            atLimit = true;
+        if (static_cast<int>(queuedPackets_.size()) >= maxPackets && !queuedPackets_.empty()) {
+            poppedEntry = queuedPackets_.front();
+            queuedPackets_.pop_front();
+            queuedPackets_.push_back(entry);
+            hasPopped = true;
         } else {
             queuedPackets_.push_back(entry);
         }
     }
 
-    if (atLimit) {
-        env->DeleteGlobalRef(global);
-        flushRequested_.store(true, std::memory_order_release);
-        draining_.store(true, std::memory_order_release);
-        // Consume this update instead of transmitting it out of order. New
-        // movement updates will resume once the ordered backlog is drained.
-        return true;
+    if (hasPopped) {
+        if (poppedEntry.packet) {
+            mc.sendPacket(poppedEntry.packet);
+            env->DeleteGlobalRef(poppedEntry.packet);
+        }
+        if (poppedEntry.movement) {
+            std::lock_guard<std::mutex> lock(stateMutex_);
+            serverX_ = poppedEntry.x;
+            serverY_ = poppedEntry.y;
+            serverZ_ = poppedEntry.z;
+            hasServerPosition_ = true;
+        }
+        if (env->ExceptionCheck())
+            env->ExceptionClear();
     }
     return true;
 }

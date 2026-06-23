@@ -126,6 +126,7 @@ jfieldID fid_openContainer = nullptr;
 // InventoryPlayer IDs
 jclass cls_InventoryPlayer = nullptr;
 jfieldID fid_armorInventory = nullptr;
+jfieldID fid_currentItem = nullptr;
 
 // Potion IDs
 jmethodID mid_getPotionID = nullptr;
@@ -600,6 +601,17 @@ bool Init() {
             TRY_FIELD(fid_mainInventory, cls_InventoryPlayer, "mainInventory", "[Lnet/minecraft/item/ItemStack;");
             if (!fid_mainInventory) {
                  TRY_FIELD(fid_mainInventory, cls_InventoryPlayer, "field_70462_a", "[Lnet/minecraft/item/ItemStack;");
+            }
+            if (!fid_mainInventory) {
+                 TRY_FIELD(fid_mainInventory, cls_InventoryPlayer, "a", "[Lnet/minecraft/item/ItemStack;");
+            }
+
+            TRY_FIELD(fid_currentItem, cls_InventoryPlayer, "currentItem", "I");
+            if (!fid_currentItem) {
+                 TRY_FIELD(fid_currentItem, cls_InventoryPlayer, "field_70461_c", "I");
+            }
+            if (!fid_currentItem) {
+                 TRY_FIELD(fid_currentItem, cls_InventoryPlayer, "c", "I");
             }
         }
     }

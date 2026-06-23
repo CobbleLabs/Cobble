@@ -403,70 +403,35 @@ int LocalPlayer::getHeldItemDamage() {
         return -1;
 
     // Chain: player.inventory.getCurrentItem().getMetadata()
-
-    // Get EntityPlayer class for inventory field
-    jclass playerCls = nullptr;
-    if (!Java::AssignClass(OBFUSCATE_STRING("net.minecraft.entity.player.EntityPlayer"), playerCls))
+    if (!fid_playerInventory || !mid_getCurrentItem || !mid_getMetadata)
         return -1;
 
-    // Get InventoryPlayer class
-    jclass inventoryCls = nullptr;
-    if (!Java::AssignClass(OBFUSCATE_STRING("net.minecraft.entity.player.InventoryPlayer"), inventoryCls)) {
-        Java::Env()->DeleteLocalRef(playerCls);
+    JNIEnv* env = Java::Env();
+    if (!env)
         return -1;
-    }
 
-    // Get ItemStack class
-    jclass itemStackCls = nullptr;
-    if (!Java::AssignClass(OBFUSCATE_STRING("net.minecraft.item.ItemStack"), itemStackCls)) {
-        Java::Env()->DeleteLocalRef(playerCls);
-        Java::Env()->DeleteLocalRef(inventoryCls);
+    if (env->PushLocalFrame(16) < 0)
+        return -1;
+
+    jobject inventory = env->GetObjectField(instance, fid_playerInventory);
+    if (!inventory) {
+        env->PopLocalFrame(nullptr);
         return -1;
     }
 
-    int result = -1;
-
-    // player.inventory field
-    jfieldID fid_inventory =
-        Java::Env()->GetFieldID(playerCls, OBFUSCATE_STRING("inventory").c_str(), OBFUSCATE_STRING("Lnet/minecraft/entity/player/InventoryPlayer;").c_str());
-    if (!fid_inventory)
-        goto cleanup_damage;
-
-    {
-        jobject inventory = Java::Env()->GetObjectField(instance, fid_inventory);
-        if (!inventory)
-            goto cleanup_damage;
-
-        // inventory.getCurrentItem()
-        jmethodID mid_getCurrentItem =
-            Java::Env()->GetMethodID(inventoryCls, OBFUSCATE_STRING("getCurrentItem").c_str(), OBFUSCATE_STRING("()Lnet/minecraft/item/ItemStack;").c_str());
-        if (!mid_getCurrentItem) {
-            Java::Env()->DeleteLocalRef(inventory);
-            goto cleanup_damage;
-        }
-
-        jobject itemStack = Java::Env()->CallObjectMethod(inventory, mid_getCurrentItem);
-        Java::Env()->DeleteLocalRef(inventory);
-
-        if (!itemStack)
-            goto cleanup_damage;  // Empty hand
-
-        // itemStack.getMetadata() - returns the damage/metadata value
-        jmethodID mid_getMetadata = Java::Env()->GetMethodID(itemStackCls, OBFUSCATE_STRING("getMetadata").c_str(), OBFUSCATE_STRING("()I").c_str());
-        if (!mid_getMetadata) {
-            Java::Env()->DeleteLocalRef(itemStack);
-            goto cleanup_damage;
-        }
-
-        result = Java::Env()->CallIntMethod(itemStack, mid_getMetadata);
-        Java::Env()->DeleteLocalRef(itemStack);
+    jobject itemStack = env->CallObjectMethod(inventory, mid_getCurrentItem);
+    if (!itemStack) {
+        env->PopLocalFrame(nullptr);
+        return -1; // Empty hand
     }
 
-cleanup_damage:
-    Java::Env()->DeleteLocalRef(playerCls);
-    Java::Env()->DeleteLocalRef(inventoryCls);
-    Java::Env()->DeleteLocalRef(itemStackCls);
+    int result = env->CallIntMethod(itemStack, mid_getMetadata);
+    if (env->ExceptionCheck()) {
+        env->ExceptionClear();
+        result = -1;
+    }
 
+    env->PopLocalFrame(nullptr);
     return result;
 }
 
@@ -476,170 +441,75 @@ int LocalPlayer::getItemInSlot(int slot) {
     if (slot < 0 || slot > 35)
         return -1;  // Valid slots: 0-35 (hotbar + inventory)
 
-    // Get InventoryPlayer class
-    jclass inventoryCls = nullptr;
-    if (!Java::AssignClass(OBFUSCATE_STRING("net.minecraft.entity.player.InventoryPlayer"), inventoryCls)) {
-        if (Java::Env()->ExceptionCheck())
-            Java::Env()->ExceptionClear();
+    JNIEnv* env = Java::Env();
+    if (!env)
+        return -1;
+
+    if (env->PushLocalFrame(16) < 0)
+        return -1;
+
+    if (!JniCache::cls_InventoryPlayer || !JniCache::fid_inventory || !JniCache::fid_mainInventory) {
+        env->PopLocalFrame(nullptr);
         return -1;
     }
 
-    // Get ItemStack class
-    jclass itemStackCls = nullptr;
-    if (!Java::AssignClass(OBFUSCATE_STRING("net.minecraft.item.ItemStack"), itemStackCls)) {
-        Java::Env()->DeleteLocalRef(inventoryCls);
-        if (Java::Env()->ExceptionCheck())
-            Java::Env()->ExceptionClear();
+    jobject inventory = env->GetObjectField(instance, JniCache::fid_inventory);
+    if (!inventory || env->ExceptionCheck()) {
+        env->ExceptionClear();
+        env->PopLocalFrame(nullptr);
         return -1;
     }
 
-    // Get Item class
-    jclass itemCls = nullptr;
-    if (!Java::AssignClass(OBFUSCATE_STRING("net.minecraft.item.Item"), itemCls)) {
-        Java::Env()->DeleteLocalRef(inventoryCls);
-        Java::Env()->DeleteLocalRef(itemStackCls);
-        if (Java::Env()->ExceptionCheck())
-            Java::Env()->ExceptionClear();
+    jobjectArray mainInventory = (jobjectArray)env->GetObjectField(inventory, JniCache::fid_mainInventory);
+    if (!mainInventory || env->ExceptionCheck()) {
+        env->ExceptionClear();
+        env->PopLocalFrame(nullptr);
         return -1;
     }
 
-    // Get player.inventory field - use JniCache which is already initialized
-    if (!JniCache::fid_inventory) {
-        Java::Env()->DeleteLocalRef(inventoryCls);
-        Java::Env()->DeleteLocalRef(itemStackCls);
-        Java::Env()->DeleteLocalRef(itemCls);
-        return -1;
-    }
-
-    jobject inventory = Java::Env()->GetObjectField(instance, JniCache::fid_inventory);
-    if (!inventory || Java::Env()->ExceptionCheck()) {
-        Java::Env()->ExceptionClear();
-        Java::Env()->DeleteLocalRef(inventoryCls);
-        Java::Env()->DeleteLocalRef(itemStackCls);
-        Java::Env()->DeleteLocalRef(itemCls);
-        return -1;
-    }
-
-    // Get inventory.mainInventory field (array of ItemStack)
-    jfieldID fid_mainInventory =
-        Java::Env()->GetFieldID(inventoryCls, OBFUSCATE_STRING("mainInventory").c_str(), OBFUSCATE_STRING("[Lnet/minecraft/item/ItemStack;").c_str());
-    if (!fid_mainInventory || Java::Env()->ExceptionCheck()) {
-        Java::Env()->ExceptionClear();
-        Java::Env()->DeleteLocalRef(inventory);
-        Java::Env()->DeleteLocalRef(inventoryCls);
-        Java::Env()->DeleteLocalRef(itemStackCls);
-        Java::Env()->DeleteLocalRef(itemCls);
-        return -1;
-    }
-
-    jobjectArray mainInventory = (jobjectArray)Java::Env()->GetObjectField(inventory, fid_mainInventory);
-    if (!mainInventory || Java::Env()->ExceptionCheck()) {
-        Java::Env()->ExceptionClear();
-        Java::Env()->DeleteLocalRef(inventory);
-        Java::Env()->DeleteLocalRef(inventoryCls);
-        Java::Env()->DeleteLocalRef(itemStackCls);
-        Java::Env()->DeleteLocalRef(itemCls);
-        return -1;
-    }
-
-    // Check array bounds
-    jsize arrayLength = Java::Env()->GetArrayLength(mainInventory);
+    jsize arrayLength = env->GetArrayLength(mainInventory);
     if (slot >= arrayLength) {
-        Java::Env()->DeleteLocalRef(mainInventory);
-        Java::Env()->DeleteLocalRef(inventory);
-        Java::Env()->DeleteLocalRef(inventoryCls);
-        Java::Env()->DeleteLocalRef(itemStackCls);
-        Java::Env()->DeleteLocalRef(itemCls);
+        env->PopLocalFrame(nullptr);
         return -1;
     }
 
-    // Get ItemStack from array
-    jobject itemStack = Java::Env()->GetObjectArrayElement(mainInventory, slot);
-    if (Java::Env()->ExceptionCheck()) {
-        Java::Env()->ExceptionClear();
-        Java::Env()->DeleteLocalRef(mainInventory);
-        Java::Env()->DeleteLocalRef(inventory);
-        Java::Env()->DeleteLocalRef(inventoryCls);
-        Java::Env()->DeleteLocalRef(itemStackCls);
-        Java::Env()->DeleteLocalRef(itemCls);
+    jobject itemStack = env->GetObjectArrayElement(mainInventory, slot);
+    if (env->ExceptionCheck()) {
+        env->ExceptionClear();
+        env->PopLocalFrame(nullptr);
         return -1;
     }
 
     if (!itemStack) {
-        // Empty slot - not an error
-        Java::Env()->DeleteLocalRef(mainInventory);
-        Java::Env()->DeleteLocalRef(inventory);
-        Java::Env()->DeleteLocalRef(inventoryCls);
-        Java::Env()->DeleteLocalRef(itemStackCls);
-        Java::Env()->DeleteLocalRef(itemCls);
+        env->PopLocalFrame(nullptr);
+        return -1; // Empty slot
+    }
+
+    // Get itemStack.getItem() -> Item
+    if (!JniCache::mid_getItem || !JniCache::cls_Item || !JniCache::mid_getIdFromItem) {
+        env->PopLocalFrame(nullptr);
         return -1;
     }
 
-    // Get itemStack.getItem() method
-    jmethodID mid_getItem = Java::Env()->GetMethodID(itemStackCls, OBFUSCATE_STRING("getItem").c_str(), OBFUSCATE_STRING("()Lnet/minecraft/item/Item;").c_str());
-    if (!mid_getItem || Java::Env()->ExceptionCheck()) {
-        Java::Env()->ExceptionClear();
-        Java::Env()->DeleteLocalRef(itemStack);
-        Java::Env()->DeleteLocalRef(mainInventory);
-        Java::Env()->DeleteLocalRef(inventory);
-        Java::Env()->DeleteLocalRef(inventoryCls);
-        Java::Env()->DeleteLocalRef(itemStackCls);
-        Java::Env()->DeleteLocalRef(itemCls);
-        return -1;
-    }
-
-    jobject item = Java::Env()->CallObjectMethod(itemStack, mid_getItem);
-    if (Java::Env()->ExceptionCheck()) {
-        Java::Env()->ExceptionClear();
-        Java::Env()->DeleteLocalRef(itemStack);
-        Java::Env()->DeleteLocalRef(mainInventory);
-        Java::Env()->DeleteLocalRef(inventory);
-        Java::Env()->DeleteLocalRef(inventoryCls);
-        Java::Env()->DeleteLocalRef(itemStackCls);
-        Java::Env()->DeleteLocalRef(itemCls);
+    jobject item = env->CallObjectMethod(itemStack, JniCache::mid_getItem);
+    if (env->ExceptionCheck()) {
+        env->ExceptionClear();
+        env->PopLocalFrame(nullptr);
         return -1;
     }
 
     if (!item) {
-        Java::Env()->DeleteLocalRef(itemStack);
-        Java::Env()->DeleteLocalRef(mainInventory);
-        Java::Env()->DeleteLocalRef(inventory);
-        Java::Env()->DeleteLocalRef(inventoryCls);
-        Java::Env()->DeleteLocalRef(itemStackCls);
-        Java::Env()->DeleteLocalRef(itemCls);
+        env->PopLocalFrame(nullptr);
         return -1;
     }
 
-    // Get Item.getIdFromItem static method
-    jmethodID mid_getIdFromItem =
-        Java::Env()->GetStaticMethodID(itemCls, OBFUSCATE_STRING("getIdFromItem").c_str(), OBFUSCATE_STRING("(Lnet/minecraft/item/Item;)I").c_str());
-    if (!mid_getIdFromItem || Java::Env()->ExceptionCheck()) {
-        Java::Env()->ExceptionClear();
-        Java::Env()->DeleteLocalRef(item);
-        Java::Env()->DeleteLocalRef(itemStack);
-        Java::Env()->DeleteLocalRef(mainInventory);
-        Java::Env()->DeleteLocalRef(inventory);
-        Java::Env()->DeleteLocalRef(inventoryCls);
-        Java::Env()->DeleteLocalRef(itemStackCls);
-        Java::Env()->DeleteLocalRef(itemCls);
-        return -1;
-    }
-
-    int itemId = Java::Env()->CallStaticIntMethod(itemCls, mid_getIdFromItem, item);
-    if (Java::Env()->ExceptionCheck()) {
-        Java::Env()->ExceptionClear();
+    int itemId = env->CallStaticIntMethod(JniCache::cls_Item, JniCache::mid_getIdFromItem, item);
+    if (env->ExceptionCheck()) {
+        env->ExceptionClear();
         itemId = -1;
     }
 
-    // Cleanup
-    Java::Env()->DeleteLocalRef(item);
-    Java::Env()->DeleteLocalRef(itemStack);
-    Java::Env()->DeleteLocalRef(mainInventory);
-    Java::Env()->DeleteLocalRef(inventory);
-    Java::Env()->DeleteLocalRef(inventoryCls);
-    Java::Env()->DeleteLocalRef(itemStackCls);
-    Java::Env()->DeleteLocalRef(itemCls);
-
+    env->PopLocalFrame(nullptr);
     return itemId;
 }
 
@@ -652,41 +522,32 @@ int LocalPlayer::getCurrentSlot() {
     if (!isValid())
         return 0;
 
-    // Get InventoryPlayer class
-    jclass inventoryCls = nullptr;
-    if (!Java::AssignClass(OBFUSCATE_STRING("net.minecraft.entity.player.InventoryPlayer"), inventoryCls)) {
-        if (Java::Env()->ExceptionCheck())
-            Java::Env()->ExceptionClear();
+    JNIEnv* env = Java::Env();
+    if (!env)
+        return 0;
+
+    if (env->PushLocalFrame(16) < 0)
+        return 0;
+
+    if (!JniCache::fid_inventory || !JniCache::fid_currentItem) {
+        env->PopLocalFrame(nullptr);
         return 0;
     }
 
-    // Get player.inventory using JniCache (already initialized for both versions)
-    if (!JniCache::fid_inventory) {
-        Java::Env()->DeleteLocalRef(inventoryCls);
+    jobject inventory = env->GetObjectField(instance, JniCache::fid_inventory);
+    if (!inventory || env->ExceptionCheck()) {
+        env->ExceptionClear();
+        env->PopLocalFrame(nullptr);
         return 0;
     }
 
-    jobject inventory = Java::Env()->GetObjectField(instance, JniCache::fid_inventory);
-    if (!inventory || Java::Env()->ExceptionCheck()) {
-        Java::Env()->ExceptionClear();
-        Java::Env()->DeleteLocalRef(inventoryCls);
-        return 0;
+    int currentSlot = env->GetIntField(inventory, JniCache::fid_currentItem);
+    if (env->ExceptionCheck()) {
+        env->ExceptionClear();
+        currentSlot = 0;
     }
 
-    // Get currentItem field from inventory
-    jfieldID fid_currentItem = Java::Env()->GetFieldID(inventoryCls, OBFUSCATE_STRING("currentItem").c_str(), OBFUSCATE_STRING("I").c_str());
-    if (!fid_currentItem || Java::Env()->ExceptionCheck()) {
-        Java::Env()->ExceptionClear();
-        Java::Env()->DeleteLocalRef(inventory);
-        Java::Env()->DeleteLocalRef(inventoryCls);
-        return 0;
-    }
-
-    int currentSlot = Java::Env()->GetIntField(inventory, fid_currentItem);
-
-    Java::Env()->DeleteLocalRef(inventory);
-    Java::Env()->DeleteLocalRef(inventoryCls);
-
+    env->PopLocalFrame(nullptr);
     return currentSlot;
 }
 
@@ -696,41 +557,31 @@ void LocalPlayer::setCurrentSlot(int slot) {
     if (slot < 0 || slot > 8)
         return;  // Valid hotbar slots: 0-8
 
-    // Get InventoryPlayer class
-    jclass inventoryCls = nullptr;
-    if (!Java::AssignClass(OBFUSCATE_STRING("net.minecraft.entity.player.InventoryPlayer"), inventoryCls)) {
-        if (Java::Env()->ExceptionCheck())
-            Java::Env()->ExceptionClear();
+    JNIEnv* env = Java::Env();
+    if (!env)
+        return;
+
+    if (env->PushLocalFrame(16) < 0)
+        return;
+
+    if (!JniCache::fid_inventory || !JniCache::fid_currentItem) {
+        env->PopLocalFrame(nullptr);
         return;
     }
 
-    // Get player.inventory using JniCache (already initialized for both versions)
-    if (!JniCache::fid_inventory) {
-        Java::Env()->DeleteLocalRef(inventoryCls);
+    jobject inventory = env->GetObjectField(instance, JniCache::fid_inventory);
+    if (!inventory || env->ExceptionCheck()) {
+        env->ExceptionClear();
+        env->PopLocalFrame(nullptr);
         return;
     }
 
-    jobject inventory = Java::Env()->GetObjectField(instance, JniCache::fid_inventory);
-    if (!inventory || Java::Env()->ExceptionCheck()) {
-        Java::Env()->ExceptionClear();
-        Java::Env()->DeleteLocalRef(inventoryCls);
-        return;
+    env->SetIntField(inventory, JniCache::fid_currentItem, slot);
+    if (env->ExceptionCheck()) {
+        env->ExceptionClear();
     }
 
-    // Get currentItem field from inventory
-    jfieldID fid_currentItem = Java::Env()->GetFieldID(inventoryCls, OBFUSCATE_STRING("currentItem").c_str(), OBFUSCATE_STRING("I").c_str());
-    if (!fid_currentItem || Java::Env()->ExceptionCheck()) {
-        Java::Env()->ExceptionClear();
-        Java::Env()->DeleteLocalRef(inventory);
-        Java::Env()->DeleteLocalRef(inventoryCls);
-        return;
-    }
-
-    // Set the current slot
-    Java::Env()->SetIntField(inventory, fid_currentItem, slot);
-
-    Java::Env()->DeleteLocalRef(inventory);
-    Java::Env()->DeleteLocalRef(inventoryCls);
+    env->PopLocalFrame(nullptr);
 }
 
 // ============================================================================

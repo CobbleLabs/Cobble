@@ -303,11 +303,11 @@ void Backtrack::onUpdate() {
         }
     }
 
-    // Cleanup JNI LocalRefs to prevent memory leak
-    // Each PlayerInfo.instance is a jobject that must be freed
+    // Cleanup JNI GlobalRefs to prevent memory leak
+    // Each PlayerInfo.instance is a GlobalRef that must be freed with DeleteGlobalRef
     for (auto& p : players) {
         if (p.instance) {
-            env->DeleteLocalRef(p.instance);
+            env->DeleteGlobalRef(p.instance);
             p.instance = nullptr;
         }
     }

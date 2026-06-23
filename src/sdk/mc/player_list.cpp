@@ -278,31 +278,39 @@ std::vector<PlayerInfo> Minecraft::getPlayerList() {
     if (!env)
         return result;
 
-    jobject world = getWorld();
-    if (!world)
+    // CRITICAL: Wrap entire function in a local frame to prevent JNI ref table overflow.
+    // getPlayerList() allocates dozens of local refs per player per call (every 4ms).
+    if (env->PushLocalFrame(32) < 0)
         return result;
+
+    jobject world = getWorld();
+    if (!world) {
+        env->PopLocalFrame(nullptr);
+        return result;
+    }
 
     // Get playerEntities list from world
     if (!JniCache::fid_playerEntities) {
-        env->DeleteLocalRef(world);
+        env->PopLocalFrame(nullptr);
         return result;
     }
 
     jobject playerList = env->GetObjectField(world, JniCache::fid_playerEntities);
-    env->DeleteLocalRef(world);
 
-    if (!playerList)
+    if (!playerList) {
+        env->PopLocalFrame(nullptr);
         return result;
+    }
 
     // Get List methods
     if (!JniCache::cls_List || !JniCache::mid_listSize || !JniCache::mid_listGet) {
-        env->DeleteLocalRef(playerList);
+        env->PopLocalFrame(nullptr);
         return result;
     }
 
     int size = env->CallIntMethod(playerList, JniCache::mid_listSize);
     if (size <= 0) {
-        env->DeleteLocalRef(playerList);
+        env->PopLocalFrame(nullptr);
         return result;
     }
 
@@ -337,26 +345,35 @@ std::vector<PlayerInfo> Minecraft::getPlayerList() {
     }
 
     for (int i = 0; i < size; i++) {
-        jobject entity = env->CallObjectMethod(playerList, JniCache::mid_listGet, i);
-        if (!entity)
+        // Each player iteration gets its own sub-frame: UUID, displayName, armor, potions, etc.
+        // = ~60-100 local refs per player; this ensures they're all freed after each iteration.
+        if (env->PushLocalFrame(64) < 0)
             continue;
+
+        jobject entity = env->CallObjectMethod(playerList, JniCache::mid_listGet, i);
+        if (!entity) {
+            env->PopLocalFrame(nullptr);
+            continue;
+        }
 
         // Only track real players; drop fakes/armor stands early
         bool isPlayerClass = JniCache::cls_EntityPlayer && env->IsInstanceOf(entity, JniCache::cls_EntityPlayer);
         bool isArmorStand = JniCache::cls_EntityArmorStand && env->IsInstanceOf(entity, JniCache::cls_EntityArmorStand);
         if (!isPlayerClass || isArmorStand) {
-            env->DeleteLocalRef(entity);
+            env->PopLocalFrame(nullptr);
             continue;
         }
 
         // Skip local player
         if (localPlayer && env->IsSameObject(entity, localPlayer)) {
-            env->DeleteLocalRef(entity);
+            env->PopLocalFrame(nullptr);
             continue;
         }
 
         PlayerInfo info;
-        info.instance = entity;  // Caller must delete later
+        // Promote entity to GlobalRef so it survives the PopLocalFrame at end of this iteration.
+        // Callers are responsible for calling env->DeleteGlobalRef(p.instance) when done.
+        info.instance = env->NewGlobalRef(entity);
         if (localPlayer && mid_isOnSameTeam_cached) {
             info.isOnLocalTeam = env->CallBooleanMethod(localPlayer, mid_isOnSameTeam_cached, entity);
             if (env->ExceptionCheck()) {
@@ -735,11 +752,13 @@ std::vector<PlayerInfo> Minecraft::getPlayerList() {
         }
 
         result.push_back(std::move(info));
+        // Free all local refs in this player iteration (entity, uuid, displayName, armor, potions, etc.).
+        // info.instance is a GlobalRef and survives this pop.
+        env->PopLocalFrame(nullptr);
     }
 
-    if (localPlayer)
-        env->DeleteLocalRef(localPlayer);
-    env->DeleteLocalRef(playerList);
+    // Pop the outer function frame (releases world, playerList, localPlayer, etc.)
+    env->PopLocalFrame(nullptr);
 
     return result;
 }
@@ -781,9 +800,14 @@ int Minecraft::getLocalPlayerTeamColor() {
     if (!env)
         return -1;
 
-    jobject localPlayer = getPlayer();
-    if (!localPlayer)
+    if (env->PushLocalFrame(16) < 0)
         return -1;
+
+    jobject localPlayer = getPlayer();
+    if (!localPlayer) {
+        env->PopLocalFrame(nullptr);
+        return -1;
+    }
 
     int teamColor = -1;
     std::string displayName;
@@ -814,7 +838,7 @@ int Minecraft::getLocalPlayerTeamColor() {
         teamColor = parseTeamColor(displayName);
     }
 
-    env->DeleteLocalRef(localPlayer);
+    env->PopLocalFrame(nullptr);
     return teamColor;
 }
 
@@ -823,9 +847,14 @@ std::string Minecraft::getLocalPlayerName() {
         return "";
 
     JNIEnv* env = Java::Env();
-    jobject localPlayer = getPlayer();
-    if (!localPlayer)
+    if (env->PushLocalFrame(16) < 0)
         return "";
+
+    jobject localPlayer = getPlayer();
+    if (!localPlayer) {
+        env->PopLocalFrame(nullptr);
+        return "";
+    }
 
     std::string name;
     if (JniCache::mid_getGameProfile && JniCache::mid_getProfileName) {
@@ -851,7 +880,7 @@ std::string Minecraft::getLocalPlayerName() {
             env->ExceptionClear();
     }
 
-    env->DeleteLocalRef(localPlayer);
+    env->PopLocalFrame(nullptr);
     return name;
 }
 
