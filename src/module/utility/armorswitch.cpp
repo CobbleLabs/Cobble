@@ -3,6 +3,7 @@
 #include "../../sdk/jni/jni_cache.h"
 #include "../../ui/widgets/widgets.hpp"
 #include "../../util/logger.hpp"
+#include "../../util/network/json.hpp"
 
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
@@ -749,4 +750,34 @@ std::string ArmorSwitch::getDisplayInfo() {
         return std::string("Set 2 - ") + materialNames[settings.set2Material];
     }
     return "Mixed";
+}
+
+
+
+void ArmorSwitch::saveSettings(json::Value& node) const {
+    node["set1Material"] = settings.set1Material;
+    node["set2Material"] = settings.set2Material;
+    node["switchDelay"] = settings.switchDelay;
+    node["retryMinDelay"] = settings.retryMinDelay;
+    node["preferProtection"] = settings.preferProtection;
+    node["onInventoryOpen"] = settings.onInventoryOpen;
+    node["retryOnFail"] = settings.retryOnFail;
+    node["silentMode"] = settings.silentMode;
+    node["autoBalance"] = settings.autoBalance;
+    node["maxDurabilityDiff"] = settings.maxDurabilityDiff;
+    node["checkInterval"] = settings.checkInterval;
+}
+
+void ArmorSwitch::loadSettings(const json::Value& node) {
+    settings.set1Material = node["set1Material"].as_int(settings.set1Material);
+    settings.set2Material = node["set2Material"].as_int(settings.set2Material);
+    settings.switchDelay = node["switchDelay"].as_int(settings.switchDelay);
+    settings.retryMinDelay = node["retryMinDelay"].as_int(settings.retryMinDelay);
+    settings.preferProtection = node["preferProtection"].as_bool(settings.preferProtection);
+    settings.onInventoryOpen = node["onInventoryOpen"].as_bool(settings.onInventoryOpen);
+    settings.retryOnFail = node["retryOnFail"].as_bool(settings.retryOnFail);
+    settings.silentMode = node["silentMode"].as_bool(settings.silentMode);
+    settings.autoBalance = node["autoBalance"].as_bool(settings.autoBalance);
+    settings.maxDurabilityDiff = node["maxDurabilityDiff"].as_int(settings.maxDurabilityDiff);
+    settings.checkInterval = node["checkInterval"].as_int(settings.checkInterval);
 }

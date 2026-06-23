@@ -9,6 +9,7 @@
 #include "../../ui/widgets/widgets.hpp"
 #include "../../util/logger.hpp"
 #include "../../util/math/worldToScreen.h"
+#include "../../util/network/json.hpp"
 
 Tracers* tracers = nullptr;
 
@@ -361,4 +362,26 @@ void Tracers::onRenderMenu() {
     if (settings.colorByDistance) {
         settings.colorByHealth = false;
     }
+}
+
+
+
+void Tracers::saveSettings(json::Value& node) const {
+    node["colorByDistance"] = settings.colorByDistance;
+    node["colorByHealth"] = settings.colorByHealth;
+    node["colorByTeam"] = settings.colorByTeam;
+    node["thickness"] = settings.thickness;
+    node["range"] = settings.range;
+    node["lineFrom"] = settings.lineFrom;
+    json::writeColor(node, "tracerColor", settings.tracerColor);
+}
+
+void Tracers::loadSettings(const json::Value& node) {
+    settings.colorByDistance = node["colorByDistance"].as_bool(settings.colorByDistance);
+    settings.colorByHealth = node["colorByHealth"].as_bool(settings.colorByHealth);
+    settings.colorByTeam = node["colorByTeam"].as_bool(settings.colorByTeam);
+    settings.thickness = node["thickness"].as_float(settings.thickness);
+    settings.range = node["range"].as_float(settings.range);
+    settings.lineFrom = node["lineFrom"].as_int(settings.lineFrom);
+    json::readColor(node, "tracerColor", settings.tracerColor);
 }

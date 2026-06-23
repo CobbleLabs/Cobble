@@ -5,6 +5,7 @@
 #include "../../sdk/player/player.h"
 #include "../../ui/menu/menu.h"
 #include "../../ui/widgets/widgets.hpp"
+#include "../../util/network/json.hpp"
 
 AutoTool* autoTool = nullptr;
 
@@ -348,4 +349,16 @@ void AutoTool::onRenderMenu() {
             ui::Checkbox("Auto Sword (Attack)", &settings.autoSword);
             ui::Checkbox("Switch Back", &settings.switchBack);
         });
+}
+
+
+
+void AutoTool::saveSettings(json::Value& node) const {
+    node["switchBack"] = settings.switchBack;
+    node["autoSword"] = settings.autoSword;
+}
+
+void AutoTool::loadSettings(const json::Value& node) {
+    settings.switchBack = node["switchBack"].as_bool(settings.switchBack);
+    settings.autoSword = node["autoSword"].as_bool(settings.autoSword);
 }

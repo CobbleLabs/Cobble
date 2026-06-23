@@ -5,6 +5,7 @@
 #include "../../ui/widgets/widgets.hpp"
 #include "../../util/logger.hpp"
 #include "../../util/math/worldToScreen.h"
+#include "../../util/network/json.hpp"
 
 #include <imgui.h>
 #include <cmath>
@@ -614,4 +615,40 @@ std::string Backtrack::getDisplayInfo() {
     } else {
         return std::to_string(settings.latency) + "ms";
     }
+}
+
+
+
+void Backtrack::saveSettings(json::Value& node) const {
+    node["mode"] = static_cast<int>(settings.mode);
+    node["ticks"] = settings.ticks;
+    node["latency"] = settings.latency;
+    node["renderPreviousTicks"] = settings.renderPreviousTicks;
+    node["renderServerPos"] = settings.renderServerPos;
+    node["minDistance"] = settings.minDistance;
+    node["maxDistance"] = settings.maxDistance;
+    node["maxHurtTime"] = settings.maxHurtTime;
+    node["cooldown"] = settings.cooldown;
+    node["weaponOnly"] = settings.weaponOnly;
+    node["showBacktrackBox"] = settings.showBacktrackBox;
+    node["filledBox"] = settings.filledBox;
+    json::writeColor(node, "boxColor", settings.boxColor);
+    json::writeColor(node, "shadowColor", settings.shadowColor);
+}
+
+void Backtrack::loadSettings(const json::Value& node) {
+    settings.mode = static_cast<BacktrackMode>(node["mode"].as_int(static_cast<int>(settings.mode)));
+    settings.ticks = node["ticks"].as_int(settings.ticks);
+    settings.latency = node["latency"].as_int(settings.latency);
+    settings.renderPreviousTicks = node["renderPreviousTicks"].as_bool(settings.renderPreviousTicks);
+    settings.renderServerPos = node["renderServerPos"].as_bool(settings.renderServerPos);
+    settings.minDistance = node["minDistance"].as_float(settings.minDistance);
+    settings.maxDistance = node["maxDistance"].as_float(settings.maxDistance);
+    settings.maxHurtTime = node["maxHurtTime"].as_int(settings.maxHurtTime);
+    settings.cooldown = node["cooldown"].as_float(settings.cooldown);
+    settings.weaponOnly = node["weaponOnly"].as_bool(settings.weaponOnly);
+    settings.showBacktrackBox = node["showBacktrackBox"].as_bool(settings.showBacktrackBox);
+    settings.filledBox = node["filledBox"].as_bool(settings.filledBox);
+    json::readColor(node, "boxColor", settings.boxColor);
+    json::readColor(node, "shadowColor", settings.shadowColor);
 }

@@ -7,6 +7,7 @@
 #include "../../ui/menu/menu.h"
 #include "../../ui/widgets/widgets.hpp"
 #include "../../util/aes_string.hpp"
+#include "../../util/network/json.hpp"
 #include "../../util/team/friends_manager.h"
 
 #ifndef WIN32_LEAN_AND_MEAN
@@ -390,4 +391,30 @@ std::string Piercing::getDisplayInfo() {
     char buffer[16];
     std::snprintf(buffer, sizeof(buffer), "%.2f", settings.distance);
     return buffer;
+}
+
+
+
+void Piercing::saveSettings(json::Value& node) const {
+    node["distance"] = settings.distance;
+    node["weaponsOnly"] = settings.weaponsOnly;
+    node["targetInvisibles"] = settings.targetInvisibles;
+    node["ignoreFriends"] = settings.ignoreFriends;
+    node["ignoreTeams"] = settings.ignoreTeams;
+    node["throughWalls"] = settings.throughWalls;
+    node["throughWallsRange"] = settings.throughWallsRange;
+    node["backtrackCheck"] = settings.backtrackCheck;
+    node["expand"] = settings.expand;
+}
+
+void Piercing::loadSettings(const json::Value& node) {
+    settings.distance = node["distance"].as_float(settings.distance);
+    settings.weaponsOnly = node["weaponsOnly"].as_bool(settings.weaponsOnly);
+    settings.targetInvisibles = node["targetInvisibles"].as_bool(settings.targetInvisibles);
+    settings.ignoreFriends = node["ignoreFriends"].as_bool(settings.ignoreFriends);
+    settings.ignoreTeams = node["ignoreTeams"].as_bool(settings.ignoreTeams);
+    settings.throughWalls = node["throughWalls"].as_bool(settings.throughWalls);
+    settings.throughWallsRange = node["throughWallsRange"].as_float(settings.throughWallsRange);
+    settings.backtrackCheck = node["backtrackCheck"].as_bool(settings.backtrackCheck);
+    settings.expand = node["expand"].as_float(settings.expand);
 }

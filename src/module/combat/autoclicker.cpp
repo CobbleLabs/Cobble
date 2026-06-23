@@ -4,6 +4,7 @@
 #include "../../ui/menu/menu.h"
 #include "../../ui/widgets/widgets.hpp"
 #include "../../util/logger.hpp"
+#include "../../util/network/json.hpp"
 #include "hitselect.h"
 
 #ifndef WIN32_LEAN_AND_MEAN
@@ -660,4 +661,41 @@ std::string AutoClicker::getDisplayInfo() {
             return "SecureRandom+";
     }
     return "Random";
+}
+
+
+
+void AutoClicker::saveSettings(json::Value& node) const {
+    node["minCps"] = settings.minCPS;
+    node["maxCps"] = settings.maxCPS;
+    node["weaponOnly"] = settings.weaponOnly;
+    node["breakBlocks"] = settings.breakBlocks;
+    node["workInInventory"] = settings.workInInventory;
+    node["randomizationMode"] = static_cast<int>(settings.randomizationMode);
+    node["stableCps"] = settings.stableCPS;
+    node["stableCpsValue"] = settings.stableCPSValue;
+    node["advancedMode"] = settings.advancedMode;
+    node["dropChance"] = settings.dropChance;
+    node["spikeChance"] = settings.spikeChance;
+    node["spikeMultiplier"] = settings.spikeMultiplier;
+    node["kurtosis"] = settings.kurtosis;
+    node["attackingOnly"] = settings.attackingOnly;
+}
+
+void AutoClicker::loadSettings(const json::Value& node) {
+    settings.minCPS = node["minCps"].as_float(settings.minCPS);
+    settings.maxCPS = node["maxCps"].as_float(settings.maxCPS);
+    settings.weaponOnly = node["weaponOnly"].as_bool(settings.weaponOnly);
+    settings.breakBlocks = node["breakBlocks"].as_bool(settings.breakBlocks);
+    settings.workInInventory = node["workInInventory"].as_bool(settings.workInInventory);
+    settings.randomizationMode = static_cast<RandomizationMode>(
+        (std::clamp)(node["randomizationMode"].as_int(static_cast<int>(settings.randomizationMode)), 0, 2));
+    settings.stableCPS = node["stableCps"].as_bool(settings.stableCPS);
+    settings.stableCPSValue = node["stableCpsValue"].as_float(settings.stableCPSValue);
+    settings.advancedMode = node["advancedMode"].as_bool(settings.advancedMode);
+    settings.dropChance = node["dropChance"].as_float(settings.dropChance);
+    settings.spikeChance = node["spikeChance"].as_float(settings.spikeChance);
+    settings.spikeMultiplier = node["spikeMultiplier"].as_float(settings.spikeMultiplier);
+    settings.kurtosis = node["kurtosis"].as_float(settings.kurtosis);
+    settings.attackingOnly = node["attackingOnly"].as_bool(settings.attackingOnly);
 }

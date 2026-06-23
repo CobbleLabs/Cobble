@@ -8,6 +8,8 @@ public:
 
     void onRenderMenu() override;
     std::string getDisplayInfo() override;
+    void saveSettings(json::Value& node) const override;
+    void loadSettings(const json::Value& node) override;
 
     static constexpr int MAX_NAME_LEN = 16;
 

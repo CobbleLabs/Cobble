@@ -4,6 +4,7 @@
 #include "../../sdk/player/player.h"
 #include "../../ui/menu/menu.h"
 #include "../../ui/widgets/widgets.hpp"
+#include "../../util/network/json.hpp"
 
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
@@ -157,4 +158,16 @@ void Breaker::onRenderMenu() {
         [this]() {
             ui::Checkbox("Legit", &settings.legit);
         });
+}
+
+
+
+void Breaker::saveSettings(json::Value& node) const {
+    node["range"] = settings.range;
+    node["legit"] = settings.legit;
+}
+
+void Breaker::loadSettings(const json::Value& node) {
+    settings.range = (std::clamp)(node["range"].as_float(settings.range), 2.0f, 6.0f);
+    settings.legit = node["legit"].as_bool(settings.legit);
 }

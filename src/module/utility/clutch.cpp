@@ -9,6 +9,7 @@
 #include "../../ui/widgets/widgets.hpp"
 #include "../../util/inject_trace.hpp"
 #include "../../util/math/worldToScreen.h"
+#include "../../util/network/json.hpp"
 
 #include <cstdio>
 
@@ -790,4 +791,32 @@ void Clutch::onRenderMenu() {
             ui::Checkbox("Show Visual Path", &settings.showPath);
             ui::Checkbox("Show Block Preview", &settings.showPlacement);
         });
+}
+
+void Clutch::saveSettings(json::Value& node) const {
+    node["predictionMs"] = settings.predictionMs;
+    node["searchRadius"] = settings.searchRadius;
+    node["reach"] = settings.reach;
+    node["placeDelayMs"] = settings.placeDelayMs;
+    node["restoreSlot"] = settings.restoreSlot;
+    node["showBps"] = settings.showBps;
+    node["showPath"] = settings.showPath;
+    node["showPlacement"] = settings.showPlacement;
+    node["cameraWeight"] = settings.cameraWeight;
+    node["smoothRotation"] = settings.smoothRotation;
+    node["rotationSpeed"] = settings.rotationSpeed;
+}
+
+void Clutch::loadSettings(const json::Value& node) {
+    settings.predictionMs = (std::clamp)(node["predictionMs"].as_int(settings.predictionMs), 100, 600);
+    settings.searchRadius = (std::clamp)(node["searchRadius"].as_int(settings.searchRadius), 2, 8);
+    settings.reach = (std::clamp)(node["reach"].as_float(settings.reach), 3.0f, 4.5f);
+    settings.placeDelayMs = (std::clamp)(node["placeDelayMs"].as_int(settings.placeDelayMs), 40, 200);
+    settings.restoreSlot = node["restoreSlot"].as_bool(settings.restoreSlot);
+    settings.showBps = node["showBps"].as_bool(settings.showBps);
+    settings.showPath = node["showPath"].as_bool(settings.showPath);
+    settings.showPlacement = node["showPlacement"].as_bool(settings.showPlacement);
+    settings.cameraWeight = node["cameraWeight"].as_bool(settings.cameraWeight);
+    settings.smoothRotation = node["smoothRotation"].as_bool(settings.smoothRotation);
+    settings.rotationSpeed = (std::clamp)(node["rotationSpeed"].as_float(settings.rotationSpeed), 5.0f, 45.0f);
 }

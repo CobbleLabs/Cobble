@@ -13,6 +13,8 @@ public:
     void onUpdate() override;
     void onRenderMenu() override;
     std::string getDisplayInfo() override;
+    void saveSettings(json::Value& node) const override;
+    void loadSettings(const json::Value& node) override;
 
     struct Settings {
         // Minimum hits in combo before filtering kicks in

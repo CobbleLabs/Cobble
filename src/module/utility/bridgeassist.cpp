@@ -5,6 +5,7 @@
 #include "../../sdk/player/player.h"
 #include "../../ui/menu/menu.h"
 #include "../../ui/widgets/widgets.hpp"
+#include "../../util/network/json.hpp"
 
 BridgeAssist* bridgeAssist = nullptr;
 
@@ -133,4 +134,16 @@ void BridgeAssist::onRenderMenu() {
             ui::Checkbox("Only When Sneaking", &settings.onlyWhenSneaking);
             ui::Checkbox("Only When Looking Down", &settings.onlyLookingDown);
         });
+}
+
+
+
+void BridgeAssist::saveSettings(json::Value& node) const {
+    node["onlyLookingDown"] = settings.onlyLookingDown;
+    node["onlyWhenSneaking"] = settings.onlyWhenSneaking;
+}
+
+void BridgeAssist::loadSettings(const json::Value& node) {
+    settings.onlyLookingDown = node["onlyLookingDown"].as_bool(settings.onlyLookingDown);
+    settings.onlyWhenSneaking = node["onlyWhenSneaking"].as_bool(settings.onlyWhenSneaking);
 }

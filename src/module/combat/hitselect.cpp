@@ -3,6 +3,7 @@
 #include "../../ui/menu/menu.h"
 #include "../../ui/widgets/widgets.hpp"
 #include "../../util/logger.hpp"
+#include "../../util/network/json.hpp"
 
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
@@ -205,4 +206,22 @@ std::string HitSelect::getDisplayInfo() {
         return "Combo x" + std::to_string(comboHitCount);
     }
     return "";
+}
+
+
+
+void HitSelect::saveSettings(json::Value& node) const {
+    node["minComboHits"] = settings.minComboHits;
+    node["comboDetectionTime"] = settings.comboDetectionTime;
+    node["waitForFirstHit"] = settings.waitForFirstHit;
+    node["waitDuration"] = settings.waitDuration;
+    node["weaponOnly"] = settings.weaponOnly;
+}
+
+void HitSelect::loadSettings(const json::Value& node) {
+    settings.minComboHits = node["minComboHits"].as_int(settings.minComboHits);
+    settings.comboDetectionTime = node["comboDetectionTime"].as_int(settings.comboDetectionTime);
+    settings.waitForFirstHit = node["waitForFirstHit"].as_bool(settings.waitForFirstHit);
+    settings.waitDuration = node["waitDuration"].as_int(settings.waitDuration);
+    settings.weaponOnly = node["weaponOnly"].as_bool(settings.weaponOnly);
 }

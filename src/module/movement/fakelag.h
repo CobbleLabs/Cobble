@@ -48,6 +48,8 @@ public:
     void onRender() override;
     void onRenderMenu() override;
     std::string getDisplayInfo() override;
+    void saveSettings(json::Value& node) const override;
+    void loadSettings(const json::Value& node) override;
 
     // Called by the outgoing packet gate. False means FakeLag retained the packet.
     bool handleOutgoingPacket(JNIEnv* env, jobject packet);

@@ -3,6 +3,7 @@
 #include "../../sdk/core/minecraft.h"
 #include "../../sdk/jni/jni_cache.h"
 #include "../../util/logger.hpp"
+#include "../../util/network/json.hpp"
 #include "../../util/team/friends_manager.h"
 
 #include <algorithm>
@@ -1445,4 +1446,52 @@ std::string AimAssist::getDisplayInfo() {
     char buf[16];
     snprintf(buf, sizeof(buf), "%.0f", settings.speed);
     return buf;
+}
+
+
+
+void AimAssist::saveSettings(json::Value& node) const {
+    node["horizontalOnly"] = settings.horizontalOnly;
+    node["speed"] = settings.speed;
+    node["fov"] = settings.fov;
+    node["distance"] = settings.distance;
+    node["reactionTime"] = settings.reactionTime;
+    node["targetMode"] = static_cast<int>(settings.targetMode);
+    node["switchSortBy"] = static_cast<int>(settings.switchSortBy);
+    node["hurtTimeLock"] = settings.hurtTimeLock;
+    node["breakBlocks"] = settings.breakBlocks;
+    node["weaponOnly"] = settings.weaponOnly;
+    node["aimAtClosestPoint"] = settings.aimAtClosestPoint;
+    node["alwaysAim"] = settings.alwaysAim;
+    node["invisibles"] = settings.invisibles;
+    node["entityLock"] = settings.entityLock;
+    node["stopOnHitbox"] = settings.stopOnHitbox;
+    node["jitterPercent"] = settings.jitterPercent;
+}
+
+void AimAssist::loadSettings(const json::Value& node) {
+    settings.horizontalOnly = node["horizontalOnly"].as_bool(settings.horizontalOnly);
+    settings.speed = node["speed"].as_float(settings.speed);
+    settings.fov = node["fov"].as_int(settings.fov);
+    settings.distance = node["distance"].as_float(settings.distance);
+    settings.reactionTime = node["reactionTime"].as_int(settings.reactionTime);
+    settings.targetMode =
+        static_cast<TargetMode>(node["targetMode"].as_int(static_cast<int>(settings.targetMode)));
+    settings.switchSortBy =
+        static_cast<SortBy>(node["switchSortBy"].as_int(static_cast<int>(settings.switchSortBy)));
+    settings.hurtTimeLock = node["hurtTimeLock"].as_bool(settings.hurtTimeLock);
+    settings.breakBlocks = node["breakBlocks"].as_bool(settings.breakBlocks);
+    settings.weaponOnly = node["weaponOnly"].as_bool(settings.weaponOnly);
+    settings.aimAtClosestPoint = node["aimAtClosestPoint"].as_bool(settings.aimAtClosestPoint);
+    settings.alwaysAim = node["alwaysAim"].as_bool(settings.alwaysAim);
+    settings.invisibles = node["invisibles"].as_bool(settings.invisibles);
+    // Legacy "lockAim" was renamed to "entityLock"; honor either key so old
+    // configs keep working. setEntityLock() also flips the atomic flag used
+    // by the runtime.
+    bool entityLock = node.has("entityLock") ? node["entityLock"].as_bool(settings.entityLock)
+                                             : node["lockAim"].as_bool(settings.entityLock);
+    setEntityLock(entityLock);
+    settings.stopOnHitbox = node["stopOnHitbox"].as_bool(settings.stopOnHitbox);
+    settings.jitterPercent =
+        (std::clamp)(node["jitterPercent"].as_float(settings.jitterPercent), 0.0f, 100.0f);
 }

@@ -11,6 +11,7 @@
 #include "../../ui/widgets/widgets.hpp"
 #include "../../util/logger.hpp"
 #include "../../util/math/worldToScreen.h"
+#include "../../util/network/json.hpp"
 #include "../../sdk/player/visual_cache.h"
 
 Trajectories* trajectories = nullptr;
@@ -658,4 +659,32 @@ void Trajectories::onRenderMenu() {
             ui::Checkbox("Poison", &settings.showPotionPoison);
             ui::Checkbox("Slowness", &settings.showPotionSlowness);
         });
+}
+
+
+
+void Trajectories::saveSettings(json::Value& node) const {
+    node["thickness"] = settings.thickness;
+    json::writeColor(node, "lineColor", settings.lineColor);
+    node["showBow"] = settings.showBow;
+    node["showEnderPearl"] = settings.showEnderPearl;
+    node["showEgg"] = settings.showEgg;
+    node["showSnowball"] = settings.showSnowball;
+    node["showPotionHealing"] = settings.showPotionHealing;
+    node["showPotionPoison"] = settings.showPotionPoison;
+    node["showPotionSlowness"] = settings.showPotionSlowness;
+    node["showExpBottle"] = settings.showExpBottle;
+}
+
+void Trajectories::loadSettings(const json::Value& node) {
+    settings.thickness = node["thickness"].as_float(settings.thickness);
+    json::readColor(node, "lineColor", settings.lineColor);
+    settings.showBow = node["showBow"].as_bool(settings.showBow);
+    settings.showEnderPearl = node["showEnderPearl"].as_bool(settings.showEnderPearl);
+    settings.showEgg = node["showEgg"].as_bool(settings.showEgg);
+    settings.showSnowball = node["showSnowball"].as_bool(settings.showSnowball);
+    settings.showPotionHealing = node["showPotionHealing"].as_bool(settings.showPotionHealing);
+    settings.showPotionPoison = node["showPotionPoison"].as_bool(settings.showPotionPoison);
+    settings.showPotionSlowness = node["showPotionSlowness"].as_bool(settings.showPotionSlowness);
+    settings.showExpBottle = node["showExpBottle"].as_bool(settings.showExpBottle);
 }
