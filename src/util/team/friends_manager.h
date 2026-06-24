@@ -56,6 +56,7 @@ struct TeammateRecord {
 class FriendsManager {
 public:
     FriendsManager() = default;
+    ~FriendsManager();
 
     // ============================================================
     // Friends System - UUID-based (primary)

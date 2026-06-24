@@ -22,9 +22,17 @@ public:
         bool cameraWeight = true;
         bool smoothRotation = true;
         float rotationSpeed = 20.0f;
+        bool silentLook = true;
+        bool allowForward = false;
     } settings;
 
+    bool hasSilentRotation = false;
+    float silentYaw = 0.0f;
+    float silentPitch = 0.0f;
+
+
     Clutch();
+    ~Clutch() override;
 
     void onEnable() override;
     void onDisable() override;
@@ -33,6 +41,8 @@ public:
     void onRenderMenu() override;
     void saveSettings(json::Value& node) const override;
     void loadSettings(const json::Value& node) override;
+
+    void onOutgoingPacket(JNIEnv* env, jobject packet);
 
 private:
     struct Placement {
@@ -70,6 +80,7 @@ private:
 
     int originalSlot_ = -1;
     std::uint64_t nextPlaceMs_ = 0;
+    std::uint64_t nextSearchMs_ = 0;
     Placement activePlacement_;
     Placement cachedPlacement_;
 

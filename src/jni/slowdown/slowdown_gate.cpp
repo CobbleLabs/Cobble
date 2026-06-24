@@ -139,7 +139,11 @@ namespace SlowDownGate {
 
 void JNICALL NativeOnSlowDown(JNIEnv* env, jclass, jobject playerInstance) {
     COBBLE_TRACE_ONCE("NativeOnSlowDown: callback triggered!");
-    if (!noSlowDown || !noSlowDown->enabled || !playerInstance || !player.instance)
+    if (!noSlowDown || !noSlowDown->enabled || !playerInstance)
+        return;
+
+    std::lock_guard<std::recursive_mutex> lock(player.instanceMutex);
+    if (!player.instance)
         return;
 
     if (env->IsSameObject(playerInstance, player.instance) == JNI_TRUE) {
@@ -230,6 +234,7 @@ bool Init(JNIEnv* env) {
 
 void Shutdown(JNIEnv* env) {
     if (g_cls_SlowDownHook) {
+        env->UnregisterNatives(g_cls_SlowDownHook);
         env->DeleteGlobalRef(g_cls_SlowDownHook);
         g_cls_SlowDownHook = nullptr;
     }

@@ -528,6 +528,9 @@ void cobble::context::shutdown() {
     // Clean up cached global JNI references before thread detach/JVM shutdown
     JNIEnv* env = Java::Env();
     if (env) {
+        player.cleanup();
+        JniCache::Cleanup();
+
         if (player.instance) {
             env->DeleteGlobalRef(player.instance);
             player.instance = nullptr;
@@ -540,9 +543,8 @@ void cobble::context::shutdown() {
             env->DeleteGlobalRef(mc.cls);
             mc.cls = nullptr;
         }
+        mc.cleanup();
     }
-
-    Java::Kill();
 
     // Clean up modules
     if (autoClicker) {
@@ -695,6 +697,8 @@ void cobble::context::shutdown() {
         delete moduleManager;
         moduleManager = nullptr;
     }
+
+    Java::Kill();
 
     c_logger::shutdown();
 }

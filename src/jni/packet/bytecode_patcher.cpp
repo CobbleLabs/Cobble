@@ -1654,6 +1654,7 @@ void Shutdown(JNIEnv* env) {
     if (!env)
         return;
     if (cls_PacketHook) {
+        env->UnregisterNatives(cls_PacketHook);
         env->DeleteGlobalRef(cls_PacketHook);
         cls_PacketHook = nullptr;
     }
@@ -1661,6 +1662,45 @@ void Shutdown(JNIEnv* env) {
         env->DeleteGlobalRef(cls_SlowdownTarget);
         cls_SlowdownTarget = nullptr;
     }
+
+    if (Java::tiEnv && bytecodeHookInstalled.load()) {
+        Java::tiEnv->SetEventNotificationMode(JVMTI_DISABLE, JVMTI_EVENT_CLASS_FILE_LOAD_HOOK, nullptr);
+
+        jvmtiEventCallbacks callbacks;
+        memset(&callbacks, 0, sizeof(callbacks));
+        Java::tiEnv->SetEventCallbacks(&callbacks, sizeof(callbacks));
+
+        jclass classesToRetransform[4];
+        jint count = 0;
+
+        jclass nm = nullptr;
+        if (Java::AssignClass(kTargetClassDot(), nm)) {
+            classesToRetransform[count++] = nm;
+        } else if (env->ExceptionCheck()) { env->ExceptionClear(); }
+
+        jclass lunarHandler = nullptr;
+        if (Java::AssignClass(OBFUSCATE_STRING("com.lunarclient.bukkitapi.nethandler.client.LCNetHandlerClient"), lunarHandler)) {
+            classesToRetransform[count++] = lunarHandler;
+        } else if (env->ExceptionCheck()) { env->ExceptionClear(); }
+
+        jclass netHandler = nullptr;
+        if (Java::AssignClass(kIncomingTargetClassDot(), netHandler)) {
+            classesToRetransform[count++] = netHandler;
+        } else if (env->ExceptionCheck()) { env->ExceptionClear(); }
+
+        jclass livingBaseCls = nullptr;
+        if (Java::AssignClass(OBFUSCATE_STRING("net.minecraft.entity.EntityLivingBase"), livingBaseCls)) {
+            classesToRetransform[count++] = livingBaseCls;
+        } else if (env->ExceptionCheck()) { env->ExceptionClear(); }
+
+        if (count > 0) {
+            Java::tiEnv->RetransformClasses(count, classesToRetransform);
+            for (jint i = 0; i < count; i++) {
+                env->DeleteLocalRef(classesToRetransform[i]);
+            }
+        }
+    }
+
     hooksRegistered = false;
     bytecodeHookInstalled = false;
 }

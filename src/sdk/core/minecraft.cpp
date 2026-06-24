@@ -523,3 +523,13 @@ void Minecraft::sendInventoryClosePacket() {
         env->DeleteLocalRef(packet);
     }
 }
+
+void Minecraft::cleanup() {
+    if (cls_keyBinding && Java::Initialized) {
+        JNIEnv* env = Java::Env();
+        if (env) {
+            env->DeleteGlobalRef(cls_keyBinding);
+            cls_keyBinding = nullptr;
+        }
+    }
+}

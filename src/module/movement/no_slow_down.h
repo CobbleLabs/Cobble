@@ -7,10 +7,10 @@
 
 class NoSlowDown : public Module {
 public:
-    enum class PacketMode { Vanilla, NCP, Hypixel, AAC };
+    enum class NoSlowMode { Consumable, Sword, Bow, All };
     enum class HeldItemType { None, Sword, Bow, Consume };
 
-    PacketMode packetMode = PacketMode::Hypixel;
+    NoSlowMode mode = NoSlowMode::All;
 
     float blockForward = 1.0f;
     float blockStrafe = 1.0f;
@@ -24,7 +24,6 @@ public:
     void onUpdate() override;
     void onRenderMenu() override;
     void applyMovement(JNIEnv* env, jobject playerInstance);
-    void handlePacketMode();
     void saveSettings(json::Value& node) const override;
     void loadSettings(const json::Value& node) override;
 
@@ -41,9 +40,6 @@ private:
     jfieldID entityMoveForwardField = nullptr;
     jfieldID entityMoveStrafeField = nullptr;
     jfieldID itemInUseCountField = nullptr;
-
-    // Shared packet timer; each mode selects its own interval.
-    uint32_t packetTimer = 0;
 };
 
 extern NoSlowDown* noSlowDown;

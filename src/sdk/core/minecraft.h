@@ -169,6 +169,7 @@ struct Minecraft {
     void releaseMovementKeys();
     // Restore keys that are physically held down
     void restoreMovementKeys();
+    void cleanup();
 
     // World block query for Bridge Assist
     // Returns block ID at given coordinates (0 = air)

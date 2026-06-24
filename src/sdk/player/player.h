@@ -2,6 +2,7 @@
 
 #include "../../jni/java.h"
 #include "../version.h"
+#include <mutex>
 
 // Simplified wrapper for the local player (EntityPlayerSP/EntityClientPlayerMP)
 // Flattened hierarchy with only essential ghost client functionality
@@ -10,6 +11,7 @@ struct LocalPlayer {
 
     // Update instance from Minecraft.thePlayer
     void refresh();
+    void cleanup();
 
     // Position
     double getPosX();
@@ -75,6 +77,7 @@ struct LocalPlayer {
     void setLastReportedPitch(float value);
 
     jobject instance = nullptr;
+    mutable std::recursive_mutex instanceMutex;
 
 private:
     jclass cls = nullptr;

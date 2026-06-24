@@ -6,10 +6,15 @@
 #include "../../module/combat/piercing.h"
 #include "../../module/movement/fakelag.h"
 #include "../../module/movement/timerrange.h"
+#include "../../module/utility/clutch.h"
 
 namespace OutgoingPacketGate {
 
 jboolean JNICALL NativeShouldSend(JNIEnv* env, jclass cls, jobject packet) {
+    if (clutch) {
+        clutch->onOutgoingPacket(env, packet);
+    }
+
     const bool releasingFakeLagPacket = fakeLag && fakeLag->isReleasing();
 
     // Piercing may perform a synchronous through-wall attack from the Windows

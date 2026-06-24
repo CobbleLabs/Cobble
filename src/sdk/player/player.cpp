@@ -139,26 +139,52 @@ void LocalPlayer::initFields() {
     fieldsInitialized = true;
 }
 
+void LocalPlayer::cleanup() {
+    std::lock_guard<std::recursive_mutex> lock(instanceMutex);
+    if (cls_Item && Java::Initialized) {
+        JNIEnv* env = Java::Env();
+        if (env) {
+            env->DeleteGlobalRef(cls_Item);
+            cls_Item = nullptr;
+        }
+    }
+    fieldsInitialized = false;
+}
+
 void LocalPlayer::refresh() {
+    std::lock_guard<std::recursive_mutex> lock(instanceMutex);
+
     // Safety check - if no valid JNI environment, don't try to refresh
     if (!Java::Env() || !Java::Initialized) {
         if (instance) {
+            Java::Env()->DeleteGlobalRef(instance);
             instance = nullptr;  // Invalidate cached instance
         }
         return;
     }
 
-    // ALWAYS get a fresh reference - the old approach cached too aggressively
-    // and caused stale position data when changing worlds/servers
-    if (instance) {
-        Java::Env()->DeleteGlobalRef(instance);
-        instance = nullptr;
-    }
-
     jobject localPlayer = mc.getPlayer();
     if (localPlayer) {
+        // Check if the player instance actually changed
+        if (instance && Java::Env()->IsSameObject(instance, localPlayer) == JNI_TRUE) {
+            Java::Env()->DeleteLocalRef(localPlayer);
+            return; // Same player instance, do nothing and keep it stable!
+        }
+
+        // Object changed: delete old global reference
+        if (instance) {
+            Java::Env()->DeleteGlobalRef(instance);
+            instance = nullptr;
+        }
+
         instance = Java::Env()->NewGlobalRef(localPlayer);
         Java::Env()->DeleteLocalRef(localPlayer);
+    } else {
+        // No local player
+        if (instance) {
+            Java::Env()->DeleteGlobalRef(instance);
+            instance = nullptr;
+        }
     }
 
     // Check if we got a valid instance

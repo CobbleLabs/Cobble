@@ -44,11 +44,61 @@ struct Direction {
 constexpr std::array<Direction, 6> kDirections = {
     Direction{1, 0, 0}, Direction{-1, 0, 0}, Direction{0, 1, 0},
     Direction{0, -1, 0}, Direction{0, 0, 1}, Direction{0, 0, -1}};
+
+jclass g_C03PacketPlayer = nullptr;
+jfieldID g_fid_yaw = nullptr;
+jfieldID g_fid_pitch = nullptr;
+jfieldID g_fid_rotating = nullptr;
+bool g_resolvedC03 = false;
+
+void resolveC03(JNIEnv* env) {
+    if (g_resolvedC03) return;
+    g_resolvedC03 = true;
+
+    jclass localClass = nullptr;
+    if (Java::AssignClass("net.minecraft.network.play.client.C03PacketPlayer", localClass)) {
+        g_C03PacketPlayer = (jclass)env->NewGlobalRef(localClass);
+        env->DeleteLocalRef(localClass);
+        
+        g_fid_yaw = env->GetFieldID(g_C03PacketPlayer, "yaw", "F");
+        if (!g_fid_yaw) {
+            env->ExceptionClear();
+            g_fid_yaw = env->GetFieldID(g_C03PacketPlayer, "field_149476_e", "F");
+        }
+        
+        g_fid_pitch = env->GetFieldID(g_C03PacketPlayer, "pitch", "F");
+        if (!g_fid_pitch) {
+            env->ExceptionClear();
+            g_fid_pitch = env->GetFieldID(g_C03PacketPlayer, "field_149473_f", "F");
+        }
+        
+        g_fid_rotating = env->GetFieldID(g_C03PacketPlayer, "rotating", "Z");
+        if (!g_fid_rotating) {
+            env->ExceptionClear();
+            g_fid_rotating = env->GetFieldID(g_C03PacketPlayer, "field_149481_i", "Z");
+        }
+        if (env->ExceptionCheck()) env->ExceptionClear();
+    }
+}
+
 }  // namespace
 
 Clutch::Clutch() : Module("Clutch") {
     renders = true;
     usesPlayerCache = true;
+}
+
+Clutch::~Clutch() {
+    if (Java::Initialized) {
+        JNIEnv* env = Java::Env();
+        if (env) {
+            if (g_C03PacketPlayer) {
+                env->DeleteGlobalRef(g_C03PacketPlayer);
+                g_C03PacketPlayer = nullptr;
+            }
+
+        }
+    }
 }
 
 std::uint64_t Clutch::nowMs() {
@@ -58,9 +108,12 @@ std::uint64_t Clutch::nowMs() {
 void Clutch::onEnable() {
     originalSlot_ = -1;
     nextPlaceMs_ = 0;
+    nextSearchMs_ = 0;
     activePlacement_ = {};
     lastSetYaw_ = 0.0f;
     lastSetPitch_ = 0.0f;
+    hasSilentRotation = false;
+
 }
 
 void Clutch::restoreSlot() {
@@ -72,8 +125,11 @@ void Clutch::restoreSlot() {
 void Clutch::resetPlacement() {
     activePlacement_ = {};
     nextPlaceMs_ = 0;
+    nextSearchMs_ = 0;
     lastSetYaw_ = 0.0f;
     lastSetPitch_ = 0.0f;
+    hasSilentRotation = false;
+
     {
         std::lock_guard<std::mutex> lock(pathMutex_);
         cachedPlacement_ = {};
@@ -83,6 +139,8 @@ void Clutch::resetPlacement() {
 void Clutch::onDisable() {
     resetPlacement();
     restoreSlot();
+    hasSilentRotation = false;
+
     {
         std::lock_guard<std::mutex> lock(pathMutex_);
         cachedPath_.clear();
@@ -191,14 +249,9 @@ bool Clutch::isDangerous(double predictedX, double predictedY, double predictedZ
     if (predictedY <= 1.0)
         return false;
 
-    // Already falling: trigger immediately
-    const bool alreadyFalling = !player.isOnGround() && player.getMotionY() < -0.025;
-    if (alreadyFalling)
-        return true;
+    if (!settings.allowForward && player.isOnGround())
+        return false;
 
-    // Key insight: knockback has POSITIVE motionY, so predictedY is above current pos.
-    // We must check ground support at predicted X,Z at CURRENT foot height, not predicted Y.
-    // If no ground there → player will fall when they arrive horizontally.
     const int footY = static_cast<int>(std::floor(player.getPosY())) - 1;
     if (footY < 0)
         return false;
@@ -210,9 +263,8 @@ bool Clutch::isDangerous(double predictedX, double predictedY, double predictedZ
         for (double offsetZ : offsets) {
             const int x = static_cast<int>(std::floor(predictedX + offsetX));
             const int z = static_cast<int>(std::floor(predictedZ + offsetZ));
-            // Scan 6 blocks down from current foot level
-            const int minY = std::max(0, footY - 6);
-            for (int y = footY; y >= minY; --y) {
+            // Scan all the way down to Y=0 to detect void
+            for (int y = footY; y >= 0; --y) {
                 if (mc.getBlockId(x, y, z) != 0) {
                     hasSupportAtLandingXZ = true;
                     break;
@@ -223,14 +275,8 @@ bool Clutch::isDangerous(double predictedX, double predictedY, double predictedZ
         if (hasSupportAtLandingXZ) break;
     }
 
-    // If there's ground at the predicted horizontal landing → not dangerous
-    if (hasSupportAtLandingXZ)
-        return false;
-
-    // No support at predicted X,Z: dangerous only if actually moving horizontally
-    const double projectedX = predictedX - player.getPosX();
-    const double projectedZ = predictedZ - player.getPosZ();
-    return projectedX * projectedX + projectedZ * projectedZ > 0.04;
+    // Dangerous (falling into void) if there is no block support underneath
+    return !hasSupportAtLandingXZ;
 }
 
 
@@ -330,6 +376,68 @@ bool Clutch::place(const Placement& placement, int slot) {
     const float targetYaw = static_cast<float>(std::atan2(dz, dx) * 180.0 / kPi - 90.0);
     const float targetPitch =
         std::clamp(static_cast<float>(-std::atan2(dy, horizontal) * 180.0 / kPi), -90.0f, 90.0f);
+
+    if (settings.silentLook) {
+        // Lock player instance mutex to avoid state/reference desync
+        std::lock_guard<std::recursive_mutex> playerLock(player.instanceMutex);
+
+        // Save original rotation
+        const float originalYaw = player.getYaw();
+        const float originalPitch = player.getPitch();
+
+        // Lock silent rotation for outgoing movement packets
+        silentYaw = targetYaw;
+        silentPitch = targetPitch;
+        hasSilentRotation = true;
+
+        // Temporarily set client-side rotation to calculate raycast/placement
+        player.setYaw(targetYaw);
+        player.setPitch(targetPitch);
+
+        // Update raytrace
+        mc.updateMouseOver();
+
+        bool placed = false;
+        const Minecraft::Vec3 targeted = mc.getTargetedBlockPos();
+        if (static_cast<int>(std::floor(targeted.x)) == placement.supportX &&
+            static_cast<int>(std::floor(targeted.y)) == placement.supportY &&
+            static_cast<int>(std::floor(targeted.z)) == placement.supportZ) {
+
+            if (originalSlot_ < 0)
+                originalSlot_ = player.getCurrentSlot();
+            if (player.getCurrentSlot() != slot)
+                player.setCurrentSlot(slot);
+
+            // Send look packet immediately before placement so server raytrace check (InteractionRaytrace) succeeds
+            JNIEnv* env = Java::Env();
+            jclass lookClass = nullptr;
+            if (env && Java::AssignClass("net.minecraft.network.play.client.C03PacketPlayer$C05PacketPlayerLook", lookClass)) {
+                jmethodID ctor = env->GetMethodID(lookClass, "<init>", "(FFZ)V");
+                if (ctor) {
+                    jobject packet = env->NewObject(lookClass, ctor, targetYaw, targetPitch, player.isOnGround() ? JNI_TRUE : JNI_FALSE);
+                    if (packet) {
+                        mc.sendPacket(packet);
+                        env->DeleteLocalRef(packet);
+                    }
+                }
+                env->DeleteLocalRef(lookClass);
+            }
+
+            mc.setRightClickDelay(0);
+            mc.rightClickMouse();
+            placed = true;
+        }
+
+        // Restore visual client rotation immediately
+        player.setYaw(originalYaw);
+        player.setPitch(originalPitch);
+
+        // Restore original targeted block raycast
+        mc.updateMouseOver();
+
+        return placed;
+    }
+
     const float currentYaw = player.getYaw();
     const float currentPitch = player.getPitch();
     const std::uint64_t now = nowMs();
@@ -407,6 +515,8 @@ bool Clutch::place(const Placement& placement, int slot) {
         return false;
     }
 
+
+
     COBBLE_TRACE("Clutch::place sending right click");
     HWND hwnd = GetForegroundWindow();
     if (hwnd) {
@@ -418,12 +528,34 @@ bool Clutch::place(const Placement& placement, int slot) {
     return true;
 }
 
+void Clutch::onOutgoingPacket(JNIEnv* env, jobject packet) {
+    if (!enabled)
+        return;
+
+    if (settings.silentLook && hasSilentRotation) {
+        resolveC03(env);
+        if (g_C03PacketPlayer && env->IsInstanceOf(packet, g_C03PacketPlayer)) {
+            if (g_fid_yaw) env->SetFloatField(packet, g_fid_yaw, silentYaw);
+            if (g_fid_pitch) env->SetFloatField(packet, g_fid_pitch, silentPitch);
+            if (g_fid_rotating) env->SetBooleanField(packet, g_fid_rotating, JNI_TRUE);
+
+            if (env->ExceptionCheck()) env->ExceptionClear();
+
+            hasSilentRotation = false;
+        }
+    }
+
+
+}
+
 void Clutch::onUpdate() {
     lastUpdateTick_ = GetTickCount64();
 
     if (!enabled)
         return;
     COBBLE_TRACE("Clutch::onUpdate enabled");
+
+
 
     if (Menu::isOpen || mc.isInGui() || !player.isValid()) {
         COBBLE_TRACE("Clutch::onUpdate inactive menu/gui/player invalid");
@@ -569,8 +701,17 @@ void Clutch::onUpdate() {
     }
 
     COBBLE_TRACE("Clutch::onUpdate before findPlacement");
-    if (!isPlacementUsable(activePlacement_))
-        activePlacement_ = findPlacement(x, y, z);
+    if (!isPlacementUsable(activePlacement_)) {
+        const std::uint64_t now = nowMs();
+        if (now >= nextSearchMs_) {
+            activePlacement_ = findPlacement(x, y, z);
+            if (!activePlacement_.valid) {
+                nextSearchMs_ = now + 50u;
+            } else {
+                nextSearchMs_ = 0;
+            }
+        }
+    }
     {
         std::lock_guard<std::mutex> lock(pathMutex_);
         cachedPlacement_ = activePlacement_;
@@ -627,6 +768,7 @@ void Clutch::onRender() {
     std::vector<PathPoint> pathPoints;
     double interpX, interpY, interpZ;
     double motionX = 0.0, motionY = 0.0, motionZ = 0.0;
+    double renderX = 0.0, renderY = 0.0, renderZ = 0.0;
     bool playerValid = false;
     Placement placement;
     {
@@ -635,6 +777,9 @@ void Clutch::onRender() {
         interpX = cachedLocalLastX_ + (cachedLocalX_ - cachedLocalLastX_) * cachedPartialTicks_;
         interpY = cachedLocalLastY_ + (cachedLocalY_ - cachedLocalLastY_) * cachedPartialTicks_;
         interpZ = cachedLocalLastZ_ + (cachedLocalZ_ - cachedLocalLastZ_) * cachedPartialTicks_;
+        renderX = cachedRenderX_;
+        renderY = cachedRenderY_;
+        renderZ = cachedRenderZ_;
         motionX = cachedMotionX_;
         motionY = cachedMotionY_;
         motionZ = cachedMotionZ_;
@@ -675,9 +820,9 @@ void Clutch::onRender() {
             double worldZ = interpZ + point.relZ;
 
             Vector3 cameraRelPos{
-                static_cast<float>(worldX - cachedRenderX_),
-                static_cast<float>(worldY - cachedRenderY_),
-                static_cast<float>(worldZ - cachedRenderZ_)
+                static_cast<float>(worldX - renderX),
+                static_cast<float>(worldY - renderY),
+                static_cast<float>(worldZ - renderZ)
             };
 
             Vector2 screenPos;
@@ -699,9 +844,9 @@ void Clutch::onRender() {
         int by = placement.targetY;
         int bz = placement.targetZ;
 
-        float minX = static_cast<float>(bx - cachedRenderX_);
-        float minY = static_cast<float>(by - cachedRenderY_);
-        float minZ = static_cast<float>(bz - cachedRenderZ_);
+        float minX = static_cast<float>(bx - renderX);
+        float minY = static_cast<float>(by - renderY);
+        float minZ = static_cast<float>(bz - renderZ);
         float maxX = minX + 1.0f;
         float maxY = minY + 1.0f;
         float maxZ = minZ + 1.0f;
@@ -777,9 +922,12 @@ void Clutch::onRenderMenu() {
             ui::SliderInt("Prediction Time", &settings.predictionMs, 100, 600, "%d ms");
             ui::SliderInt("Search Radius", &settings.searchRadius, 2, 8, "%d blocks");
             ui::Checkbox("Camera-Weighted Search", &settings.cameraWeight);
-            ui::Checkbox("Smooth Rotations", &settings.smoothRotation);
-            if (settings.smoothRotation) {
-                ui::SliderFloat("Rotation Speed", &settings.rotationSpeed, 5.0f, 45.0f, "%.1f deg");
+            ui::Checkbox("Silent Look", &settings.silentLook);
+            if (!settings.silentLook) {
+                ui::Checkbox("Smooth Rotations", &settings.smoothRotation);
+                if (settings.smoothRotation) {
+                    ui::SliderFloat("Rotation Speed", &settings.rotationSpeed, 5.0f, 45.0f, "%.1f deg");
+                }
             }
         },
         "Placement & HUD",
@@ -787,6 +935,7 @@ void Clutch::onRenderMenu() {
             ui::SliderFloat("Reach", &settings.reach, 3.0f, 4.5f, "%.1f blocks");
             ui::SliderInt("Place Delay", &settings.placeDelayMs, 40, 200, "%d ms");
             ui::Checkbox("Switch Back", &settings.restoreSlot);
+            ui::Checkbox("Allow Forward", &settings.allowForward);
             ui::Checkbox("Show Speed HUD", &settings.showBps);
             ui::Checkbox("Show Visual Path", &settings.showPath);
             ui::Checkbox("Show Block Preview", &settings.showPlacement);
@@ -799,12 +948,14 @@ void Clutch::saveSettings(json::Value& node) const {
     node["reach"] = settings.reach;
     node["placeDelayMs"] = settings.placeDelayMs;
     node["restoreSlot"] = settings.restoreSlot;
+    node["allowForward"] = settings.allowForward;
     node["showBps"] = settings.showBps;
     node["showPath"] = settings.showPath;
     node["showPlacement"] = settings.showPlacement;
     node["cameraWeight"] = settings.cameraWeight;
     node["smoothRotation"] = settings.smoothRotation;
     node["rotationSpeed"] = settings.rotationSpeed;
+    node["silentLook"] = settings.silentLook;
 }
 
 void Clutch::loadSettings(const json::Value& node) {
@@ -813,10 +964,12 @@ void Clutch::loadSettings(const json::Value& node) {
     settings.reach = (std::clamp)(node["reach"].as_float(settings.reach), 3.0f, 4.5f);
     settings.placeDelayMs = (std::clamp)(node["placeDelayMs"].as_int(settings.placeDelayMs), 40, 200);
     settings.restoreSlot = node["restoreSlot"].as_bool(settings.restoreSlot);
+    settings.allowForward = node["allowForward"].as_bool(settings.allowForward);
     settings.showBps = node["showBps"].as_bool(settings.showBps);
     settings.showPath = node["showPath"].as_bool(settings.showPath);
     settings.showPlacement = node["showPlacement"].as_bool(settings.showPlacement);
     settings.cameraWeight = node["cameraWeight"].as_bool(settings.cameraWeight);
     settings.smoothRotation = node["smoothRotation"].as_bool(settings.smoothRotation);
     settings.rotationSpeed = (std::clamp)(node["rotationSpeed"].as_float(settings.rotationSpeed), 5.0f, 45.0f);
+    settings.silentLook = node["silentLook"].as_bool(settings.silentLook);
 }

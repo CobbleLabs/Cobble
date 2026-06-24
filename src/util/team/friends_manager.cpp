@@ -11,6 +11,16 @@
 
 FriendsManager* friendsManager = nullptr;
 
+FriendsManager::~FriendsManager() {
+    if (lastWorldRef_ && Java::Initialized) {
+        JNIEnv* env = Java::Env();
+        if (env) {
+            env->DeleteGlobalRef(static_cast<jobject>(lastWorldRef_));
+            lastWorldRef_ = nullptr;
+        }
+    }
+}
+
 // ============================================================
 // Mojang API UUID Resolution
 // ============================================================
