@@ -20,12 +20,14 @@ private:
     static inline FILE* fp_stdin = nullptr;
 public:
     static void initialize() {
+        /*
         if (AllocConsole()) {
             freopen_s(&fp_stdout, "CONOUT$", "w", stdout);
             freopen_s(&fp_stderr, "CONOUT$", "w", stderr);
             freopen_s(&fp_stdin, "CONIN$", "r", stdin);
             SetConsoleTitleA("Cobble Developer Console");
         }
+        */
     }
     static void shutdown() {
         if (fp_stdout) fclose(fp_stdout);

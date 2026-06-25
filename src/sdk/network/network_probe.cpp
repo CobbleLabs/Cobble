@@ -46,29 +46,35 @@ static std::string getFieldSignature(jclass cls, jfieldID field) {
 // ============================================================================
 void probeMCPNames() {
     // log_debug("=== PROBE 1: MCP Names ===");
+    COBBLE_TRACE("probeMCPNames: enter");
 
-    const std::string classNames[] = {// Standard MCP names
-                                       OBFUSCATE_STRING("net.minecraft.network.NetworkManager"),
-                                       OBFUSCATE_STRING("net.minecraft.client.network.NetHandlerPlayClient"),
-                                       OBFUSCATE_STRING("net.minecraft.client.entity.EntityPlayerSP"),
-                                       OBFUSCATE_STRING("net.minecraft.network.Packet"),
-
-                                       // Possible obfuscated patterns (common in Forge/Lunar)
-                                       OBFUSCATE_STRING("ave"),  // NetworkManager in some mappings
-                                       OBFUSCATE_STRING("bcy"),  // Another possibility
-                                       OBFUSCATE_STRING("ej")};  // Packet base
+    // Only probe known MCP names - avoid short/ambiguous names that can
+    // cause Lunar Client's classloader to hang or trigger network requests
+    const std::string classNames[] = {
+        OBFUSCATE_STRING("net.minecraft.network.NetworkManager"),
+        OBFUSCATE_STRING("net.minecraft.client.network.NetHandlerPlayClient"),
+        OBFUSCATE_STRING("net.minecraft.client.entity.EntityPlayerSP"),
+        OBFUSCATE_STRING("net.minecraft.network.Packet"),
+    };
 
     for (const auto& className : classNames) {
+        char traceBuf[1024];
+        wsprintfA(traceBuf, "probeMCPNames: probing %s", className.c_str());
+        COBBLE_TRACE(traceBuf);
+
         jclass cls = nullptr;
         bool found = tryLoadClass(className, cls);
 
         if (found) {
             log_ok("[MCP] FOUND: %s", className.c_str());
+            COBBLE_TRACE("probeMCPNames: class FOUND");
             Java::Env()->DeleteLocalRef(cls);
         } else {
             log_debug("[MCP] not found: %s", className.c_str());
+            COBBLE_TRACE("probeMCPNames: class NOT found");
         }
     }
+    COBBLE_TRACE("probeMCPNames: exit");
 }
 
 // ============================================================================

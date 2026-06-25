@@ -36,7 +36,7 @@ inline void write_step(const char* step) {
     SYSTEMTIME st;
     GetLocalTime(&st);
 
-    char buf[256];
+    char buf[2048];
     int len = wsprintfA(buf, "[%02u:%02u:%02u.%03u] tid=%lu pid=%lu  %s\r\n",
                         st.wHour, st.wMinute, st.wSecond, st.wMilliseconds,
                         GetCurrentThreadId(), GetCurrentProcessId(), step);

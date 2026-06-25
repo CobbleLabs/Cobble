@@ -11,6 +11,6 @@ void JNICALL NativeOnSlowDown(JNIEnv* env, jclass, jobject playerInstance);
 // Initialize: register the SlowDownHook native class and method
 bool Init(JNIEnv* env);
 
-void Shutdown(JNIEnv* env);
+void Shutdown(JNIEnv* env, bool safeToUnregister = true);
 
 }  // namespace SlowDownGate

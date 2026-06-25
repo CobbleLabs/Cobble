@@ -19,6 +19,6 @@ bool RegisterHooks(JNIEnv* env, jboolean(JNICALL* shouldSend)(JNIEnv*, jclass, j
 
 bool InstallBytecodeHook(JNIEnv* env);
 
-void Shutdown(JNIEnv* env);
+bool Shutdown(JNIEnv* env);
 
 }  // namespace BytecodePatcher

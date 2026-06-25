@@ -190,7 +190,7 @@ bool Init(JNIEnv* env) {
 
                     const char* nameChars = nameStr ? env->GetStringUTFChars(nameStr, nullptr) : "UnknownException";
                     const char* msgChars = msgStr ? env->GetStringUTFChars(msgStr, nullptr) : "No message";
-                    char traceBuf[512];
+                    char traceBuf[1024];
                     wsprintfA(traceBuf, "SlowDownGate::Init: Exception: %s - Message: %s", nameChars, msgChars);
                     COBBLE_TRACE(traceBuf);
 
@@ -232,9 +232,14 @@ bool Init(JNIEnv* env) {
     return true;
 }
 
-void Shutdown(JNIEnv* env) {
+void Shutdown(JNIEnv* env, bool safeToUnregister) {
     if (g_cls_SlowDownHook) {
-        env->UnregisterNatives(g_cls_SlowDownHook);
+        if (safeToUnregister) {
+            env->UnregisterNatives(g_cls_SlowDownHook);
+            log_ok("[SlowDownGate] Unregistered SlowDownHook natives");
+        } else {
+            log_warn("[SlowDownGate] Skipped unregistering SlowDownHook natives to prevent crash");
+        }
         env->DeleteGlobalRef(g_cls_SlowDownHook);
         g_cls_SlowDownHook = nullptr;
     }

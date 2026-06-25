@@ -807,25 +807,39 @@ static bool tryPatchCodeAttribute(const uint8_t* data, size_t len, const std::ve
 }
 
 static int patchNetworkManagerClass(const uint8_t* data, size_t len, std::vector<uint8_t>& out) {
+    COBBLE_TRACE("patchNetworkManagerClass: enter");
     Reader r(data, len);
     uint32_t magic = r.ReadU4();
-    if (!r.ok || magic != 0xCAFEBABE)
+    if (!r.ok || magic != 0xCAFEBABE) {
+        COBBLE_TRACE("patchNetworkManagerClass: invalid magic");
         return -1;
+    }
 
     uint16_t minor = r.ReadU2();
     uint16_t major = r.ReadU2();
     uint16_t cp_count = r.ReadU2();
-    if (!r.ok || cp_count == 0)
+    if (!r.ok || cp_count == 0) {
+        COBBLE_TRACE("patchNetworkManagerClass: invalid cp_count");
         return -1;
+    }
+
+    char traceBuf[1024];
+    wsprintfA(traceBuf, "patchNetworkManagerClass: cp_count=%d", cp_count);
+    COBBLE_TRACE(traceBuf);
 
     std::vector<CpEntry> cp;
     std::vector<std::string> utf8;
     std::vector<uint8_t> cp_raw;
-    if (!readConstantPool(r, cp_count, cp, utf8, cp_raw))
+    if (!readConstantPool(r, cp_count, cp, utf8, cp_raw)) {
+        COBBLE_TRACE("patchNetworkManagerClass: readConstantPool failed");
         return -1;
+    }
+    COBBLE_TRACE("patchNetworkManagerClass: constant pool read successfully");
 
-    if (cp_count > 0xFFF3)
+    if (cp_count > 0xFFF3) {
+        COBBLE_TRACE("patchNetworkManagerClass: cp_count too large");
         return -1;  // Need room for 12 new entries (6 for each method)
+    }
     uint16_t base = cp_count;
 
     // Entries for shouldSend (blocking hook)
@@ -887,37 +901,51 @@ static int patchNetworkManagerClass(const uint8_t* data, size_t len, std::vector
     w.WriteU2(idx_class);
     w.WriteU2(idx_recv_name_type);
 
+    COBBLE_TRACE("patchNetworkManagerClass: constant pool modifications written");
+
     uint16_t access_flags = r.ReadU2();
     uint16_t this_class = r.ReadU2();
     uint16_t super_class = r.ReadU2();
-    if (!r.ok)
+    if (!r.ok) {
+        COBBLE_TRACE("patchNetworkManagerClass: failed reading access/this/super class");
         return -1;
+    }
     w.WriteU2(access_flags);
     w.WriteU2(this_class);
     w.WriteU2(super_class);
 
     uint16_t interfaces_count = r.ReadU2();
-    if (!r.ok)
+    if (!r.ok) {
+        COBBLE_TRACE("patchNetworkManagerClass: failed reading interfaces_count");
         return -1;
+    }
     w.WriteU2(interfaces_count);
     for (uint16_t i = 0; i < interfaces_count; ++i) {
         uint16_t idx = r.ReadU2();
-        if (!r.ok)
+        if (!r.ok) {
+            COBBLE_TRACE("patchNetworkManagerClass: failed reading interface index");
             return -1;
+        }
         w.WriteU2(idx);
     }
 
     uint16_t fields_count = r.ReadU2();
-    if (!r.ok)
+    if (!r.ok) {
+        COBBLE_TRACE("patchNetworkManagerClass: failed reading fields_count");
         return -1;
+    }
+    wsprintfA(traceBuf, "patchNetworkManagerClass: fields_count=%d", fields_count);
+    COBBLE_TRACE(traceBuf);
     w.WriteU2(fields_count);
     for (uint16_t i = 0; i < fields_count; ++i) {
         uint16_t f_access = r.ReadU2();
         uint16_t f_name = r.ReadU2();
         uint16_t f_desc = r.ReadU2();
         uint16_t f_attrs = r.ReadU2();
-        if (!r.ok)
+        if (!r.ok) {
+            COBBLE_TRACE("patchNetworkManagerClass: failed reading field metadata");
             return -1;
+        }
         w.WriteU2(f_access);
         w.WriteU2(f_name);
         w.WriteU2(f_desc);
@@ -925,20 +953,29 @@ static int patchNetworkManagerClass(const uint8_t* data, size_t len, std::vector
         for (uint16_t a = 0; a < f_attrs; ++a) {
             uint16_t name_index = r.ReadU2();
             uint32_t attr_len = r.ReadU4();
-            if (!r.ok)
+            if (!r.ok) {
+                COBBLE_TRACE("patchNetworkManagerClass: failed reading field attribute metadata");
                 return -1;
+            }
             const uint8_t* bytes = r.ReadBytes(attr_len);
-            if (!r.ok)
+            if (!r.ok) {
+                COBBLE_TRACE("patchNetworkManagerClass: failed reading field attribute bytes");
                 return -1;
+            }
             w.WriteU2(name_index);
             w.WriteU4(attr_len);
             w.WriteBytes(bytes, attr_len);
         }
     }
+    COBBLE_TRACE("patchNetworkManagerClass: fields parsed successfully");
 
     uint16_t methods_count = r.ReadU2();
-    if (!r.ok)
+    if (!r.ok) {
+        COBBLE_TRACE("patchNetworkManagerClass: failed reading methods_count");
         return -1;
+    }
+    wsprintfA(traceBuf, "patchNetworkManagerClass: methods_count=%d", methods_count);
+    COBBLE_TRACE(traceBuf);
     w.WriteU2(methods_count);
 
     int patched_methods = 0;
@@ -947,8 +984,10 @@ static int patchNetworkManagerClass(const uint8_t* data, size_t len, std::vector
         uint16_t m_name = r.ReadU2();
         uint16_t m_desc = r.ReadU2();
         uint16_t m_attrs = r.ReadU2();
-        if (!r.ok)
+        if (!r.ok) {
+            COBBLE_TRACE("patchNetworkManagerClass: failed reading method metadata");
             return -1;
+        }
         w.WriteU2(m_access);
         w.WriteU2(m_name);
         w.WriteU2(m_desc);
@@ -960,6 +999,9 @@ static int patchNetworkManagerClass(const uint8_t* data, size_t len, std::vector
         if (m_name < utf8.size() && m_desc < utf8.size()) {
             const std::string& name = utf8[m_name];
             const std::string& desc = utf8[m_desc];
+
+            wsprintfA(traceBuf, "patchNetworkManagerClass: method %d/%d (%s %s)", i, methods_count, name.c_str(), desc.c_str());
+            COBBLE_TRACE(traceBuf);
 
             // Log all methods for debugging
             static bool loggedMethods = false;
@@ -1046,16 +1088,23 @@ static int patchNetworkManagerClass(const uint8_t* data, size_t len, std::vector
             if (!loggedMethods && i == methods_count - 1) {
                 loggedMethods = true;
             }
+        } else {
+            wsprintfA(traceBuf, "patchNetworkManagerClass: method %d/%d (invalid indices name=%d, desc=%d)", i, methods_count, m_name, m_desc);
+            COBBLE_TRACE(traceBuf);
         }
 
         for (uint16_t a = 0; a < m_attrs; ++a) {
             uint16_t name_index = r.ReadU2();
             uint32_t attr_len = r.ReadU4();
-            if (!r.ok)
+            if (!r.ok) {
+                COBBLE_TRACE("patchNetworkManagerClass: failed reading method attribute headers");
                 return -1;
+            }
             Reader attr_reader = r.Slice(attr_len);
-            if (!r.ok)
+            if (!r.ok) {
+                COBBLE_TRACE("patchNetworkManagerClass: failed slicing method attribute payload");
                 return -1;
+            }
             const uint8_t* attr_data = attr_reader.data;
 
             const char* attr_name = nullptr;
@@ -1063,11 +1112,15 @@ static int patchNetworkManagerClass(const uint8_t* data, size_t len, std::vector
                 attr_name = utf8[name_index].c_str();
             }
 
+            wsprintfA(traceBuf, "patchNetworkManagerClass: method %d attr %d/%d (name=%s, len=%d)", i, a, m_attrs, attr_name ? attr_name : "unknown", attr_len);
+            COBBLE_TRACE(traceBuf);
+
             bool patched = false;
             std::vector<uint8_t> patched_attr;
 
             // Patch outgoing packets (sendPacket) - blocking hook
             if (is_target && attr_name && strcmp(attr_name, "Code") == 0 && (m_access & (0x0100 | 0x0400)) == 0) {
+                COBBLE_TRACE("patchNetworkManagerClass: calling tryPatchCodeAttribute");
                 bool is_static = (m_access & 0x0008) != 0;
                 if (tryPatchCodeAttribute(attr_data, attr_len, cp, utf8, idx_methodref, is_static, patched_attr)) {
                     w.WriteU2(name_index);
@@ -1075,12 +1128,16 @@ static int patchNetworkManagerClass(const uint8_t* data, size_t len, std::vector
                     w.WriteBytes(patched_attr.data(), patched_attr.size());
                     patched = true;
                     ++patched_methods;
+                    COBBLE_TRACE("patchNetworkManagerClass: tryPatchCodeAttribute SUCCESS");
+                } else {
+                    COBBLE_TRACE("patchNetworkManagerClass: tryPatchCodeAttribute returned false");
                 }
             }
 
             // Patch incoming packets (channelRead0) - observer hook (non-blocking)
             if (!patched && is_incoming_target && attr_name && strcmp(attr_name, "Code") == 0 &&
                 (m_access & (0x0100 | 0x0400)) == 0) {
+                COBBLE_TRACE("patchNetworkManagerClass: calling tryPatchCodeAttributeObserver");
                 const std::string& method_name = (m_name < utf8.size()) ? utf8[m_name] : "";
                 log_debug("[PacketInterceptor] Attempting observer patch for: %s (slot=%d, methodref=%d)",
                           method_name.c_str(), incoming_packet_slot, idx_recv_methodref);
@@ -1093,8 +1150,10 @@ static int patchNetworkManagerClass(const uint8_t* data, size_t len, std::vector
                     patched = true;
                     ++patched_methods;
                     log_ok("[PacketInterceptor] Patched incoming method: %s", method_name.c_str());
+                    COBBLE_TRACE("patchNetworkManagerClass: tryPatchCodeAttributeObserver SUCCESS");
                 } else {
                     log_debug("[PacketInterceptor] Observer patch FAILED for: %s", method_name.c_str());
+                    COBBLE_TRACE("patchNetworkManagerClass: tryPatchCodeAttributeObserver returned false");
                 }
             }
 
@@ -1105,23 +1164,35 @@ static int patchNetworkManagerClass(const uint8_t* data, size_t len, std::vector
             }
         }
     }
+    COBBLE_TRACE("patchNetworkManagerClass: methods loop finished");
 
     uint16_t class_attrs = r.ReadU2();
-    if (!r.ok)
+    if (!r.ok) {
+        COBBLE_TRACE("patchNetworkManagerClass: failed reading class attributes count");
         return -1;
+    }
+    wsprintfA(traceBuf, "patchNetworkManagerClass: class_attrs count=%d", class_attrs);
+    COBBLE_TRACE(traceBuf);
     w.WriteU2(class_attrs);
     for (uint16_t i = 0; i < class_attrs; ++i) {
         uint16_t name_index = r.ReadU2();
         uint32_t attr_len = r.ReadU4();
-        if (!r.ok)
+        if (!r.ok) {
+            COBBLE_TRACE("patchNetworkManagerClass: failed reading class attribute metadata");
             return -1;
+        }
         const uint8_t* bytes = r.ReadBytes(attr_len);
-        if (!r.ok)
+        if (!r.ok) {
+            COBBLE_TRACE("patchNetworkManagerClass: failed reading class attribute payload");
             return -1;
+        }
         w.WriteU2(name_index);
         w.WriteU4(attr_len);
         w.WriteBytes(bytes, attr_len);
     }
+
+    wsprintfA(traceBuf, "patchNetworkManagerClass: done, patched_methods=%d", patched_methods);
+    COBBLE_TRACE(traceBuf);
 
     if (patched_methods == 0)
         return 0;
@@ -1650,18 +1721,11 @@ bool InstallBytecodeHook(JNIEnv* env) {
     return true;
 }
 
-void Shutdown(JNIEnv* env) {
+bool Shutdown(JNIEnv* env) {
     if (!env)
-        return;
-    if (cls_PacketHook) {
-        env->UnregisterNatives(cls_PacketHook);
-        env->DeleteGlobalRef(cls_PacketHook);
-        cls_PacketHook = nullptr;
-    }
-    if (cls_SlowdownTarget) {
-        env->DeleteGlobalRef(cls_SlowdownTarget);
-        cls_SlowdownTarget = nullptr;
-    }
+        return false;
+
+    bool retransformSuccess = false;
 
     if (Java::tiEnv && bytecodeHookInstalled.load()) {
         Java::tiEnv->SetEventNotificationMode(JVMTI_DISABLE, JVMTI_EVENT_CLASS_FILE_LOAD_HOOK, nullptr);
@@ -1694,15 +1758,44 @@ void Shutdown(JNIEnv* env) {
         } else if (env->ExceptionCheck()) { env->ExceptionClear(); }
 
         if (count > 0) {
-            Java::tiEnv->RetransformClasses(count, classesToRetransform);
+            jvmtiError err = Java::tiEnv->RetransformClasses(count, classesToRetransform);
+            if (err == JVMTI_ERROR_NONE) {
+                retransformSuccess = true;
+                log_ok("[BytecodePatcher] Successfully retransformed %d classes", count);
+            } else {
+                char errBuf[256];
+                wsprintfA(errBuf, "[BytecodePatcher] Failed to retransform classes (err=%d)", err);
+                log_err("%s", errBuf);
+            }
             for (jint i = 0; i < count; i++) {
                 env->DeleteLocalRef(classesToRetransform[i]);
             }
+        } else {
+            retransformSuccess = true;
         }
+    } else {
+        retransformSuccess = true;
+    }
+
+    if (cls_PacketHook) {
+        if (retransformSuccess) {
+            env->UnregisterNatives(cls_PacketHook);
+            log_ok("[BytecodePatcher] Unregistered PacketHook natives");
+        } else {
+            log_warn("[BytecodePatcher] Skipped unregistering PacketHook natives to prevent crash");
+        }
+        env->DeleteGlobalRef(cls_PacketHook);
+        cls_PacketHook = nullptr;
+    }
+    if (cls_SlowdownTarget) {
+        env->DeleteGlobalRef(cls_SlowdownTarget);
+        cls_SlowdownTarget = nullptr;
     }
 
     hooksRegistered = false;
     bytecodeHookInstalled = false;
+
+    return retransformSuccess;
 }
 
 }  // namespace BytecodePatcher

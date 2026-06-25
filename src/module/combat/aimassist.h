@@ -4,6 +4,7 @@
 #include <atomic>
 #include <chrono>
 #include <random>
+#include <mutex>
 #include "../module.h"
 
 // Simple Timer class since util/timer.h is missing
@@ -160,6 +161,7 @@ private:
     double lockedTargetZ = 0.0;
 
     std::mt19937 rng;
+    mutable std::recursive_mutex targetMutex_;
 };
 
 extern AimAssist* aimAssist;

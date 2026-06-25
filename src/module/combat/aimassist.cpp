@@ -5,6 +5,7 @@
 #include "../../util/logger.hpp"
 #include "../../util/network/json.hpp"
 #include "../../util/team/friends_manager.h"
+#include "../../util/inject_trace.hpp"
 
 #include <algorithm>
 #include <array>
@@ -224,6 +225,7 @@ AimAssist::AimAssist() : Module("AimAssist") {
 }
 
 void AimAssist::releaseCachedTarget(JNIEnv* env) {
+    std::lock_guard<std::recursive_mutex> lock(targetMutex_);
     if (!cachedTarget || !env)
         return;
 
@@ -236,6 +238,7 @@ void AimAssist::releaseCachedTarget(JNIEnv* env) {
 }
 
 void AimAssist::resetTargetState(JNIEnv* env) {
+    std::lock_guard<std::recursive_mutex> lock(targetMutex_);
     releaseCachedTarget(env);
     hasLockedTarget = false;
     targetHasHitbox = false;
@@ -257,6 +260,7 @@ void AimAssist::setEntityLock(bool enabled) {
 void AimAssist::onEnable() {
     log_ok("AimAssist enabled");
 
+    std::lock_guard<std::recursive_mutex> lock(targetMutex_);
     JNIEnv* env = Java::Env();
     releaseCachedTarget(env);
     entityLockEnabled_.store(settings.entityLock, std::memory_order_release);
@@ -286,6 +290,7 @@ void AimAssist::onEnable() {
 
 void AimAssist::onDisable() {
     log_ok("AimAssist disabled");
+    std::lock_guard<std::recursive_mutex> lock(targetMutex_);
     hasLockedTarget = false;
 
     releaseCachedTarget(Java::Env());
@@ -342,6 +347,7 @@ float AimAssist::slerp(float start, float end, float t) {
 }
 
 void AimAssist::onUpdate() {
+    std::lock_guard<std::recursive_mutex> lock(targetMutex_);
     clickStartedThisFrame = false;
     JNIEnv* env = Java::Env();
     if (!env)
@@ -396,81 +402,11 @@ void AimAssist::onUpdate() {
     double localZ = player.getPosZ();
     targetChangedThisFrame = false;
 
-    // Scans are rate-limited inside findTarget. Entity Lock uses them to
-    // validate the current entity without allowing a better candidate to take it.
-    const bool getNewTarget = true;
+    double targetX = 0.0;
+    double targetY = 0.0;
+    double targetZ = 0.0;
 
-    double targetX = lockedTargetX;
-    double targetY = lockedTargetY;
-    double targetZ = lockedTargetZ;
-
-    hasLockedTarget = false;
-
-    // HYBRID LOOP LOGIC
-    // 1. If we have a cached GlobalRef target (cachedTarget), update its position FAST (every frame).
-    // 2. If it is valid and in range: use it.
-    // 3. If invalid or timer expired: run findTarget (slow scan).
-    bool validCache = false;
-    bool forceScan = false;
-
-    if (cachedTarget) {
-        if (env->IsSameObject(cachedTarget, NULL)) {
-            releaseCachedTarget(env);
-        } else {
-            // Update position from cached target (Fast JNI)
-            if (!JniCache::fid_posX || !JniCache::fid_posY || !JniCache::fid_posZ) {
-                if (env->ExceptionCheck())
-                    env->ExceptionClear();
-                releaseCachedTarget(env);
-                forceScan = true;
-            } else {
-                double tX = env->GetDoubleField(cachedTarget, JniCache::fid_posX);
-                double tY = env->GetDoubleField(cachedTarget, JniCache::fid_posY);
-                double tZ = env->GetDoubleField(cachedTarget, JniCache::fid_posZ);
-
-                if (env->ExceptionCheck()) {
-                    env->ExceptionClear();
-                    releaseCachedTarget(env);
-                    forceScan = true;
-                } else {
-                    // Validate distance/etc slightly? (Optional fast check)
-                    // For now trust it until slow scan overrides it.
-                    targetX = tX;
-                    targetY = tY;
-                    targetZ = tZ;
-                    validCache = true;
-                    hasLockedTarget = true;
-                }
-            }
-        }
-    }
-
-    // Run slow scan if needed (or if we have no target)
-    // getNewTarget variable from above logic helps decide if we WANT a new target.
-    // findTarget now handles the 25ms rate limiting internally.
-
-    if (forceScan) {
-        validCache = false;
-    }
-
-    if (!validCache || getNewTarget) {
-        // findTarget will return true ONLY if it updated the target (slow scan or cache hit inside it).
-        // But since we moved cache logic here, findTarget should mostly be for SCANNING.
-        // Let's rely on findTarget for the heavy lifting still, but use the persistence we added here.
-
-        if (findTarget(targetX, targetY, targetZ)) {
-            hasLockedTarget = true;
-            if (!prevFrameHadTarget || targetChangedThisFrame) {
-                targetRampTimer.Start();  // ramp up speed when acquiring a target
-                yawdiffSpeed = 0.f;
-                pitchdiffSpeed = 0.f;
-                reactionPrimed = false;
-                targetSpeedVariance = randFloat(0.96f, 1.04f);
-                aimHumanizer = randFloat(0.94f, 1.06f);
-                hitboxRefreshTimer.Start();
-            }
-        }
-    }
+    hasLockedTarget = findTarget(targetX, targetY, targetZ);
 
     if (!hasLockedTarget) {
         prevFrameHadTarget = false;
@@ -569,10 +505,8 @@ bool AimAssist::findTarget(double& targetX, double& targetY, double& targetZ) {
     const bool entityLock = entityLockEnabled_.load(std::memory_order_acquire);
 
     // CRITICAL: Clear any pending JNI exceptions that could cause silent failures
-    // This is a common cause of the "aim assist stops detecting" bug
     if (env && env->ExceptionCheck()) {
         env->ExceptionClear();
-        // If there was an exception, also clean up potentially corrupted cache
         if (cachedTarget) {
             env->DeleteGlobalRef(cachedTarget);
             cachedTarget = nullptr;
@@ -582,6 +516,7 @@ bool AimAssist::findTarget(double& targetX, double& targetY, double& targetZ) {
     }
 
     bool wantHitboxRefresh = entityLock && cachedTarget && hitboxRefreshTimer.Elapsed<>() >= hitboxRefreshMs;
+    bool forceScan = false;
 
     // FAST PATH: If we have a cached target, update its position & validate
     if (cachedTarget && scanTimer.Elapsed<>() < 50 && !wantHitboxRefresh)  // Rescan every 50ms
@@ -592,59 +527,80 @@ bool AimAssist::findTarget(double& targetX, double& targetY, double& targetZ) {
             cachedTarget = nullptr;                      // Invalid
             targetHasHitbox = false;
             prevFrameHadTarget = false;
+            forceScan = true;
         } else {
             if (!JniCache::fid_posX || !JniCache::fid_posY || !JniCache::fid_posZ) {
                 Java::Env()->ExceptionClear();
                 Java::Env()->DeleteGlobalRef(cachedTarget);
                 cachedTarget = nullptr;
                 targetHasHitbox = false;
-                return false;
+                forceScan = true;
+            } else {
+                // Update position
+                double cX = Java::Env()->GetDoubleField(cachedTarget, JniCache::fid_posX);
+                double cY = Java::Env()->GetDoubleField(cachedTarget, JniCache::fid_posY);
+                double cZ = Java::Env()->GetDoubleField(cachedTarget, JniCache::fid_posZ);
+
+                if (Java::Env()->ExceptionCheck()) {
+                    Java::Env()->ExceptionClear();
+                    Java::Env()->DeleteGlobalRef(cachedTarget);
+                    cachedTarget = nullptr;
+                    targetHasHitbox = false;
+                    prevFrameHadTarget = false;
+                    forceScan = true;
+                } else {
+                    // Basic distance check to see if we should drop it immediately
+                    double localX = player.getPosX();
+                    double localY = player.getPosY();
+                    double localZ = player.getPosZ();
+                    double dx = cX - localX;
+                    double dy = cY - localY;
+                    double dz = cZ - localZ;
+                    double dist = std::sqrt(dx * dx + dy * dy + dz * dz);
+                    double maxDist = entityLock ? (settings.distance + 1.5f) : settings.distance;
+
+                    // If angle error is large, force slow scan to re-acquire smoothly
+                    float localYaw = player.getYaw();
+                    float yawToTarget = getAngles(localX, localY, localZ, cX, cY, cZ).first;
+                    float yawDiff = std::abs(wrapTo180(-(localYaw - yawToTarget)));
+                    float limit = entityLock ? std::max(90.0f, settings.fov * 0.5f) : (settings.fov * 0.5f);
+
+                    char dbg[256];
+                    snprintf(dbg, sizeof(dbg), "AimAssist fast path: dist=%.2f max=%.2f yawDiff=%.2f lim=%.2f",
+                             dist, maxDist, (double)yawDiff, (double)limit);
+                    COBBLE_TRACE(dbg);
+
+                    if (dist > maxDist || dist < 0.2f || yawDiff > limit) {
+                        COBBLE_TRACE("AimAssist fast path: target failed validation, dropping lock");
+                        Java::Env()->DeleteGlobalRef(cachedTarget);
+                        cachedTarget = nullptr;
+                        targetHasHitbox = false;
+                        prevFrameHadTarget = false;
+                        forceScan = true;  // force slow scan to drop/find new target
+                    } else {
+                        targetX = cX;
+                        targetY = cY;
+                        targetZ = cZ;
+                        return true;
+                    }
+                }
             }
-
-            // Update position
-            double cX = Java::Env()->GetDoubleField(cachedTarget, JniCache::fid_posX);
-            double cY = Java::Env()->GetDoubleField(cachedTarget, JniCache::fid_posY);
-            double cZ = Java::Env()->GetDoubleField(cachedTarget, JniCache::fid_posZ);
-
-            if (Java::Env()->ExceptionCheck()) {
-                Java::Env()->ExceptionClear();
-                Java::Env()->DeleteGlobalRef(cachedTarget);
-                cachedTarget = nullptr;
-                targetHasHitbox = false;
-                prevFrameHadTarget = false;
-                return false;
-            }
-
-            // Basic distance check to see if we should drop it immediately?
-            // For now, assume stickiness for 50ms is fine.
-
-            // If angle error is large, force slow scan to re-acquire smoothly
-            float localYaw = player.getYaw();
-            double localX = player.getPosX();
-            double localY = player.getPosY();
-            double localZ = player.getPosZ();
-            float yawToTarget = getAngles(localX, localY, localZ, cX, cY, cZ).first;
-            float yawDiff = std::abs(wrapTo180(-(localYaw - yawToTarget)));
-            if (yawDiff > settings.fov * 0.5f) {
-                return false;  // force slow scan/ramp
-            }
-
-            targetX = cX;
-            targetY = cY;
-            targetZ = cZ;
-            return true;
         }
     }
 
     // SLOW PATH GUARD: If we didn't take the fast path, checks if we are allowed to scan
-    if (scanTimer.Elapsed<>() < 50 && !wantHitboxRefresh) {
+    if (!forceScan && scanTimer.Elapsed<>() < 50 && !wantHitboxRefresh) {
         return false;  // Skip scan (rate limited)
     }
 
     // SLOW PATH: Full Scan
     scanTimer.Start();
+    COBBLE_TRACE("AimAssist: running full scan (slow path)");
 
     auto players = mc.getPlayerList();
+    char dbg_scan[128];
+    snprintf(dbg_scan, sizeof(dbg_scan), "AimAssist slow path: players size=%zu", players.size());
+    COBBLE_TRACE(dbg_scan);
 
     // Clear any exceptions that occurred during player list fetch
     if (env && env->ExceptionCheck()) {
@@ -654,7 +610,6 @@ bool AimAssist::findTarget(double& targetX, double& targetY, double& targetZ) {
     if (friendsManager) {
         friendsManager->resolvePending(players);
     }
-
 
     if (players.empty()) {
         if (cachedTarget) {
@@ -673,7 +628,6 @@ bool AimAssist::findTarget(double& targetX, double& targetY, double& targetZ) {
     float lowestHealth = FLT_MAX;
     float minimalAngleDiff = (float)settings.fov / 2.f;
     float closestDistance = FLT_MAX;
-    int lowestHurtTime = INT_MAX;     // For HurtTime sorting (lower = better, 0 = can take damage)
     float bestSwitchScore = FLT_MAX;  // Combined score for Switch mode
     bool found = false;
 
@@ -718,7 +672,8 @@ bool AimAssist::findTarget(double& targetX, double& targetY, double& targetZ) {
         double dz = p.posZ - localZ;
         float dist = (float)std::sqrt(dx * dx + dy * dy + dz * dz);
 
-        if (dist > settings.distance || dist < 0.2f) {
+        float maxDist = (entityLock && sameAsLocked) ? (settings.distance + 1.5f) : settings.distance;
+        if (dist > maxDist || dist < 0.2f) {
             releasePlayerRef(p);
             continue;
         }
@@ -787,7 +742,8 @@ bool AimAssist::findTarget(double& targetX, double& targetY, double& targetZ) {
         float yawToTarget = getAngles(localX, localY, localZ, p.posX, p.posY, p.posZ).first;
         float yawDiff = std::abs(wrapTo180(-(localYaw - yawToTarget)));
 
-        if (yawDiff > settings.fov * 0.5f) {
+        float maxYawDiff = (entityLock && sameAsLocked) ? std::max(90.0f, settings.fov * 0.5f) : (settings.fov * 0.5f);
+        if (yawDiff > maxYawDiff) {
             releasePlayerRef(p);
             continue;
         }
@@ -841,8 +797,6 @@ bool AimAssist::findTarget(double& targetX, double& targetY, double& targetZ) {
                     score = yawDiff + tieBreaker;
                     break;
                 case SortBy::HURT_TIME:
-                    // Lower hurtTime = better (0 means they can take damage now)
-                    // Add distance tie-breaker to prevent flickering when multiple players have same hurtTime
                     score = (float)p.hurtTime + tieBreaker;
                     break;
             }
@@ -882,6 +836,11 @@ bool AimAssist::findTarget(double& targetX, double& targetY, double& targetZ) {
         releasePlayerRef(p);
     }
 
+    char dbg_res[256];
+    snprintf(dbg_res, sizeof(dbg_res), "AimAssist slow path scan result: found=%d name=%s",
+             found, found ? closestPlayer.name.c_str() : "none");
+    COBBLE_TRACE(dbg_res);
+
     if (found) {
         targetX = closestPlayer.posX;
         targetY = closestPlayer.posY;
@@ -903,7 +862,6 @@ bool AimAssist::findTarget(double& targetX, double& targetY, double& targetZ) {
     if (found && bestPlayerObjLocal) {
         if (cachedTarget) {
             // Check if it's the SAME object to avoid delete/new overhead?
-            // IsSameObject is cheap.
             if (!Java::Env()->IsSameObject(cachedTarget, bestPlayerObjLocal)) {
                 Java::Env()->DeleteGlobalRef(cachedTarget);
                 cachedTarget = Java::Env()->NewGlobalRef(bestPlayerObjLocal);

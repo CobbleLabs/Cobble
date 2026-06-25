@@ -304,13 +304,31 @@ static void renderSettingsPage() {
     {
         ui::begin_child("Actions", {ImGui::GetWindowWidth() - GImGui->Style.WindowPadding.x * 2, bottomRowHeight});
         {
-            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.6f, 0.1f, 0.2f, 1.0f));
-            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.7f, 0.15f, 0.25f, 1.0f));
-            ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.5f, 0.08f, 0.15f, 1.0f));
+            float buttonWidth = (ImGui::GetContentRegionAvail().x - ui::s(10)) / 2;
 
-            ImGui::SetCursorPosY((ImGui::GetWindowHeight() - ui::s(32)) * 0.5f);
+            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.7f, 0.1f, 0.15f, 1.0f));
+            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.85f, 0.15f, 0.2f, 1.0f));
+            ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.6f, 0.08f, 0.1f, 1.0f));
 
-            if (ImGui::Button("EJECT CLIENT", ImVec2(ImGui::GetContentRegionAvail().x, ui::s(32)))) {
+            if (ImGui::Button("PANIC", ImVec2(buttonWidth, ui::s(32)))) {
+                if (moduleManager) {
+                    for (auto mod : moduleManager->getModules()) {
+                        if (mod) {
+                            mod->setEnabled(false);
+                        }
+                    }
+                }
+            }
+
+            ImGui::PopStyleColor(3);
+
+            ImGui::SameLine();
+
+            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.5f, 0.1f, 0.15f, 1.0f));
+            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.6f, 0.15f, 0.2f, 1.0f));
+            ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.4f, 0.08f, 0.1f, 1.0f));
+
+            if (ImGui::Button("EJECT CLIENT", ImVec2(buttonWidth, ui::s(32)))) {
                 cobble::context::is_running = false;
                 Menu::isOpen = false;
             }

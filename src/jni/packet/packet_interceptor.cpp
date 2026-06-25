@@ -87,8 +87,8 @@ bool Init() {
 void Shutdown() {
     JNIEnv* env = Java::Env();
     if (env) {
-        SlowDownGate::Shutdown(env);
-        BytecodePatcher::Shutdown(env);
+        bool safeToUnregister = BytecodePatcher::Shutdown(env);
+        SlowDownGate::Shutdown(env, safeToUnregister);
     }
     initialized = false;
 }
