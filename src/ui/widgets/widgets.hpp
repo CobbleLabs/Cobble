@@ -126,11 +126,22 @@ bool Combo(const char* label, int* current, const char* const items[], int count
 
 // ==================== TAB SYSTEM ====================
 
+// Per-category view state: a Module_Category either shows its module list or a
+// selected module's config page. Animated identically to cur/next_subtab via
+// content_anim (committed at the animation midpoint in handle_anims).
+enum class CategoryView { List, Config };
+
 struct tab_t {
     const char* m_icon;
     const char* m_name;
     int cur_subtab = 0;
     int next_subtab = 0;
+
+    // Per-category view state (List vs Config). In-class default initializers
+    // keep the existing constructor signature unchanged.
+    CategoryView cur_view = CategoryView::List;
+    CategoryView next_view = CategoryView::List;
+
     std::vector<const char*> m_subtabs;
 
     tab_t(const char* icon, const char* name, std::vector<const char*> subtabs)
@@ -154,7 +165,7 @@ void subtab(int num, int tab_num);
 // ==================== STYLE ====================
 void apply_style();
 
-// Base window size (larger for better 1080p visibility)
-inline ImVec2 baseSize{960, 640};
-inline ImVec2 size{960, 640};
+// Base window size
+inline ImVec2 baseSize{745, 520};
+inline ImVec2 size{745, 520};
 }  // namespace ui

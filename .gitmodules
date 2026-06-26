@@ -1,3 +1,6 @@
 [submodule "vmprotect"]
 	path = vmprotect
 	url = https://github.com/SyraTechnology/cobble-vmprotect.git
+[submodule "infra/ext/rapidcheck"]
+	path = infra/ext/rapidcheck
+	url = https://github.com/emil-e/rapidcheck

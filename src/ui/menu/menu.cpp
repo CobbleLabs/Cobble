@@ -50,8 +50,10 @@
 #include "../widgets/icons.hpp"
 #include "../widgets/theme.hpp"
 #include "../widgets/widgets.hpp"
+#include "menu_nav.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <cstring>
 #include <string>
 #include <vector>
@@ -568,39 +570,293 @@ static void renderConfigsPage() {
         });
 }
 
-// Render current page - calls module's onRenderMenu() dynamically
-static void renderPage() {
-    if (ui::cur_tab >= ui::tabs.size())
-        return;
-    auto& tab = ui::tabs[ui::cur_tab];
-
-    // Special tabs (no subtabs)
-    const int settingsIdx = (int)ui::tabs.size() - 1;
-    const int configsIdx = settingsIdx - 1;
-
-    // Used to trigger a one-shot refresh when entering the Configs tab.
-    static int s_prevTab = -1;
-    if (s_prevTab != ui::cur_tab && ui::cur_tab == configsIdx) {
-        g_configsNeedsRefresh = true;
-    }
-    s_prevTab = ui::cur_tab;
-
-    if (ui::cur_tab == settingsIdx) {
-        ui::SetDescriptionContext("Settings");
-        renderSettingsPage();
-        return;
-    }
-    if (ui::cur_tab == configsIdx) {
-        ui::SetDescriptionContext("Configs");
-        renderConfigsPage();
+// Module_List_View: render the active category's modules as a Two_Column_Grid
+// of rounded Module_Cards in the main content area. Each Module_Card carries two
+// disjoint hit areas drawn with the drawlist + ButtonBehavior pattern (no raw
+// ImGui interactive widgets, so the grid fades with the menu):
+//   * Name_Region (left, id #name)       -> Module_Toggle via m->toggle()
+//   * Gear_Control (right, id #name##gear)-> open the Module_Config_View
+// Routing stays centralized in getModuleForSubtab. Left column is filled first
+// with the leading prefix (nav::columnSplit), so odd counts bias the extra card
+// to the left column.
+// Draws an accent "comet" that travels around the perimeter of a rounded rect
+// in a smooth, continuous loop (like a loading spinner). headT in [0,1) is the
+// head position along the perimeter; trailFrac is how much of the perimeter the
+// glowing tail covers; intensity scales overall opacity (fades with enable anim).
+static void drawSpinningBorder(ImDrawList* dl, ImVec2 mn, ImVec2 mx, float rounding, float headT, float trailFrac,
+                               float thickness, float intensity) {
+    // Build the rounded-rect perimeter polyline using ImGui's own path builder,
+    // copy it out, then clear the path so nothing is drawn from it directly.
+    dl->PathRect(mn, mx, rounding);
+    int n = dl->_Path.Size;
+    if (n < 2) {
+        dl->PathClear();
         return;
     }
+    std::vector<ImVec2> pts(dl->_Path.Data, dl->_Path.Data + n);
+    dl->PathClear();
 
-    // Get module for current subtab
-    if (tab.cur_subtab >= tab.m_subtabs.size())
+    // Per-segment lengths around the closed loop.
+    std::vector<float> seglen(n);
+    float total = 0.f;
+    for (int i = 0; i < n; ++i) {
+        ImVec2 a = pts[i];
+        ImVec2 b = pts[(i + 1) % n];
+        float dx = b.x - a.x, dy = b.y - a.y;
+        seglen[i] = sqrtf(dx * dx + dy * dy);
+        total += seglen[i];
+    }
+    if (total <= 0.f)
         return;
 
-    Module* mod = getModuleForSubtab(ui::cur_tab, tab.cur_subtab);
+    // Resample the perimeter into many equally-spaced points so the comet glides
+    // smoothly across the long straight edges instead of jumping per segment.
+    const int kSamples = 224;
+    std::vector<ImVec2> rs(kSamples);
+    float step = total / kSamples;
+    int seg = 0;
+    float segStart = 0.f;
+    for (int k = 0; k < kSamples; ++k) {
+        float target = k * step;
+        while (seg < n - 1 && segStart + seglen[seg] < target) {
+            segStart += seglen[seg];
+            ++seg;
+        }
+        float segL = seglen[seg] > 0.f ? seglen[seg] : 1.f;
+        float t = (target - segStart) / segL;
+        ImVec2 a = pts[seg];
+        ImVec2 b = pts[(seg + 1) % n];
+        rs[k] = ImVec2(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t);
+    }
+
+    // Light each resampled segment by how far it sits behind the moving head,
+    // with a smoothstep falloff for a soft comet tail.
+    for (int k = 0; k < kSamples; ++k) {
+        float mid = (k + 0.5f) / kSamples;
+        float d = headT - mid;
+        if (d < 0.f)
+            d += 1.f;
+        if (d < trailFrac) {
+            float a = 1.f - d / trailFrac;  // 1 at the head, 0 at the tail
+            a = a * a * (3.f - 2.f * a);    // smoothstep
+            dl->AddLine(rs[k], rs[(k + 1) % kSamples], GetSchemeColor(a * intensity), thickness);
+        }
+    }
+}
+
+static void renderModuleList(int tab) {
+    if (tab < 0 || tab >= (int)ui::tabs.size())
+        return;
+
+    // Repeated labels in this list aren't module options, so keep the generic
+    // description context (matches ui::subtab behavior for the sidebar rows).
+    ui::SetDescriptionContext("__modules__");
+
+    auto& t = ui::tabs[tab];
+
+    ImGuiWindow* window = ImGui::GetCurrentWindow();
+
+    const int n = (int)t.m_subtabs.size();
+    const int split = nav::columnSplit(n);  // left = [0, split), right = [split, n)
+
+    const float gapX = ui::s(8);                                 // between columns (Req 6.4)
+    const float cardGapY = ui::s(6);                             // between cards (Req 5.2)
+    const float cardH = ui::s(32);
+    const float cardRound = ui::s(ui::theme::rounding::ModuleCard);  // Req 7.3
+    const float gearZoneW = ui::s(26);
+
+    const float avail = ImGui::GetContentRegionAvail().x;
+    const float cardW = (avail - gapX) / 2.f;  // per-column card width
+
+    // Tight, explicit spacing: the only vertical gap between cards is cardGapY.
+    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0, cardGapY));
+
+    // Render one Module_Card at the current group cursor.
+    auto drawCard = [&](int i) {
+        const char* name = t.m_subtabs[i];
+
+        // Centralized routing (Req 3.3 / 4.4). m == nullptr for the Visuals
+        // ArrayList (7) and Notifications (9) special pages.
+        Module* m = getModuleForSubtab(tab, i);
+        bool isLocked = m && m->showsDeveloperOnly();
+        bool isEnabled = m && m->enabled;
+
+        ImGui::PushID(i);
+
+        // Reserve the card rect; ItemSize advances the cursor (cardGapY between).
+        ImVec2 pos = window->DC.CursorPos;
+        ImRect bb{pos, pos + ImVec2(cardW, cardH)};
+        ImGui::ItemSize(bb);
+
+        // --- Gear_Control: register first so it owns its right-edge zone ---
+        ImRect gearRect{ImVec2(bb.Max.x - gearZoneW, bb.Min.y), bb.Max};
+        ImGuiID gearId = window->GetID((std::string(name) + "##gear").c_str());
+        ImGui::ItemAdd(gearRect, gearId);
+        bool gHovered, gHeld;
+        bool gPressed = ImGui::ButtonBehavior(gearRect, gearId, &gHovered, &gHeld);
+        if (gPressed) {
+            // SelectEntry(i): open the Module_Config_View (works for null
+            // modules too -> inline ArrayList/Notifications config).
+            t.next_subtab = i;
+            t.next_view = ui::CategoryView::Config;
+            ui::content_anim_dst = 0.f;
+        }
+
+        // --- Name_Region: register over the remaining left area ---
+        ImRect nameRect{bb.Min, ImVec2(bb.Max.x - gearZoneW, bb.Max.y)};
+        ImGuiID nameId = window->GetID(name);
+        ImGui::ItemAdd(nameRect, nameId);
+        bool nHovered, nHeld;
+        bool nPressed = ImGui::ButtonBehavior(nameRect, nameId, &nHovered, &nHeld);
+        if (nPressed && m) {
+            // Existing toggle path only (Req 14.3). toggle() guards locked /
+            // canToggle internally; no-op when m == nullptr per design.
+            m->toggle();
+        }
+
+        struct card_state {
+            float hover;
+            float gearHover;
+            float enabled;
+        };
+        auto& obj = ui::anim_obj(name, 2, card_state{0.f, 0.f, 0.f});
+        obj.hover = ui::animate(obj.hover, 0.f, 1.f, nHovered || gHovered);
+        obj.gearHover = ui::animate(obj.gearHover, 0.f, 1.f, gHovered);
+        obj.enabled = ui::animate(obj.enabled, 0.f, 1.f, isEnabled);
+
+        ImDrawList* draw = window->DrawList;
+
+        // Card background: a flat neutral fill that lifts on hover. When enabled,
+        // blend toward a subtle accent tint and add a clean accent outline -- no
+        // detached side bar, so the active state reads cleanly (Req 3.2 / 5.1).
+        ImU32 baseCol = ui::col_anim(ui::GetColor(ImGuiCol_FrameBg, 1.f),
+                                     ui::GetColor(ImGuiCol_FrameBgHovered, 1.f), obj.hover);
+        ImU32 bgCol = ui::col_anim(baseCol, GetSchemeColor(0.16f), obj.enabled);
+        draw->AddRectFilled(bb.Min, bb.Max, bgCol, cardRound);
+
+        // When enabled, the card border lights up: a faint accent outline plus an
+        // accent "comet" that travels around the perimeter in a continuous loop.
+        if (obj.enabled > 0.01f) {
+            draw->AddRect(bb.Min, bb.Max, GetSchemeColor(0.28f * obj.enabled), cardRound, 0, ui::s(1.f));
+            float headT = fmodf((float)ImGui::GetTime() * 0.45f, 1.f);  // ~2.2s per lap
+            drawSpinningBorder(draw, bb.Min, bb.Max, cardRound, headT, 0.32f, ui::s(1.8f), obj.enabled);
+        }
+
+        // Name text (left region).
+        const char* nameEnd = ImGui::FindRenderedTextEnd(name);
+        ImVec2 nameSize = ImGui::CalcTextSize(name, nameEnd);
+        float textX = nameRect.Min.x + ui::s(10);
+        float textY = bb.GetCenter().y - nameSize.y / 2.f;
+        ImU32 textCol;
+        if (isLocked) {
+            // Existing locked (grayed) presentation.
+            textCol = IM_COL32(100, 100, 100, 150);
+        } else {
+            float accentT = ImMax(obj.enabled, obj.hover);
+            textCol = ui::col_anim(ui::GetColor(ImGuiCol_Text, 0.85f), GetSchemeColor(), accentT);
+        }
+        draw->AddText(ImVec2(textX, textY), textCol, name, nameEnd);
+
+        // Gear glyph centered in the gear zone (replaces the old chevron).
+        const char* gear = ICON_FA_COG;
+        const char* gearEnd = ImGui::FindRenderedTextEnd(gear);
+        ImVec2 gearSize = ImGui::CalcTextSize(gear, gearEnd);
+        ImVec2 gearPos(gearRect.GetCenter().x - gearSize.x / 2.f, gearRect.GetCenter().y - gearSize.y / 2.f);
+        ImU32 gearCol = ui::GetColor(ImGuiCol_TextDisabled, 0.45f + obj.gearHover * 0.55f);
+        draw->AddText(gearPos, gearCol, gear, gearEnd);
+
+        ui::HoverDescription(name, nHovered || gHovered,
+                             isLocked ? "Developer only (for now.)" : ui::GetModuleDescription(name), isLocked);
+
+        ImGui::PopID();
+    };
+
+    // Left column: leading prefix [0, split). Right column: [split, n).
+    ImGui::BeginGroup();
+    for (int i = 0; i < split; ++i)
+        drawCard(i);
+    ImGui::EndGroup();
+
+    ImGui::SameLine(0, gapX);
+
+    ImGui::BeginGroup();
+    for (int i = split; i < n; ++i)
+        drawCard(i);
+    ImGui::EndGroup();
+
+    ImGui::PopStyleVar();
+}
+
+// Module_Config_View: render a Back_Control at the top followed by the selected
+// module's configuration body. The body is the existing per-module logic moved
+// in verbatim (locked/unlock prompt, mod->onRenderMenu(), the inline ArrayList
+// page at Visuals subtab 7, and the inline Notifications page at Visuals subtab
+// 9), with a neutral placeholder for any other unresolved entry.
+//
+// NOTE (task 9.1): this temporarily duplicates the body still present in
+// renderPage(); task 10.1 removes the copy in renderPage and wires dispatch.
+// The duplicated blocks are local code (function-local statics included), so
+// there is no ODR/global-symbol conflict. All rendering uses ui:: wrappers,
+// runs on the GL render thread, and routes through getModuleForSubtab.
+static void renderModuleConfig(int tab) {
+    if (tab < 0 || tab >= (int)ui::tabs.size())
+        return;
+
+    auto& t = ui::tabs[tab];
+
+    // ----- Back_Control -----
+    // Minimalist back row drawn with the same drawlist + ButtonBehavior pattern
+    // as the module list rows so it fades with the menu (no raw ImGui widgets).
+    {
+        ImGuiWindow* window = ImGui::GetCurrentWindow();
+        const char* backLabel = "Back";
+        ImGuiID id = window->GetID("##module_config_back");
+
+        float rowHeight = ui::s(28);
+        float availWidth = ImGui::GetContentRegionAvail().x;
+        ImRect bb{window->DC.CursorPos, window->DC.CursorPos + ImVec2(availWidth, rowHeight)};
+        ImGui::ItemAdd(bb, id);
+        ImGui::ItemSize(bb);
+
+        bool hovered, held;
+        bool pressed = ImGui::ButtonBehavior(bb, id, &hovered, &held);
+
+        // Back: return to the Module_List_View for the active category.
+        if (pressed) {
+            t.next_view = ui::CategoryView::List;
+            ui::content_anim_dst = 0.f;
+        }
+
+        struct back_state {
+            float hover;
+        };
+        auto& obj = ui::anim_obj("##module_config_back", 1, back_state{0.f});
+        obj.hover = ui::animate(obj.hover, 0.f, 1.f, hovered);
+
+        // Subtle hover background for the row.
+        if (obj.hover > 0.01f) {
+            window->DrawList->AddRectFilled(bb.Min, bb.Max,
+                                            ui::GetColor(ImGuiCol_FrameBgHovered, obj.hover * 0.35f),
+                                            ui::s(4));
+        }
+
+        ImU32 col = ui::col_anim(ui::GetColor(ImGuiCol_Text, 0.85f), GetSchemeColor(), obj.hover);
+
+        const char* chevron = ICON_FA_CHEVRON_LEFT;
+        ImVec2 chevSize = ImGui::CalcTextSize(chevron, 0, 1);
+        float chevX = bb.Min.x + ui::s(6);
+        window->DrawList->AddText(ImVec2(chevX, bb.GetCenter().y - chevSize.y / 2), col, chevron,
+                                  ImGui::FindRenderedTextEnd(chevron));
+
+        ImVec2 labelSize = ImGui::CalcTextSize(backLabel, 0, 1);
+        window->DrawList->AddText(ImVec2(chevX + chevSize.x + ui::s(6), bb.GetCenter().y - labelSize.y / 2), col,
+                                  backLabel, ImGui::FindRenderedTextEnd(backLabel));
+    }
+
+    ImGui::Spacing();
+
+    // ----- Module body (moved as-is from renderPage) -----
+    Module* mod = getModuleForSubtab(ui::cur_tab, t.cur_subtab);
     if (mod) {
         ui::SetDescriptionContext(mod->name);
         // Locked Module UI
@@ -670,45 +926,100 @@ static void renderPage() {
         }
     }
     // Special pages (ArrayList, Notifications) - no Module, render inline
-    else if (ui::cur_tab == 1) {
-        // Visuals tab
-        if (tab.cur_subtab == 7) {
-            // ArrayList settings
-            ui::SetDescriptionContext("ArrayList");
-            ui::two_column(
-                "Settings",
-                []() {
-                    ui::Checkbox("Enabled", &ArrayListRenderer::enabled);
-                    ui::Checkbox("Rainbow", &ArrayListRenderer::rainbow);
-                    ui::Checkbox("Color Bar", &ArrayListRenderer::colorBar);
-                    ui::Checkbox("Background", &ArrayListRenderer::showBackground);
-                },
-                "Options",
-                []() {
-                    ui::Checkbox("Sort by Length", &ArrayListRenderer::sortByLength);
-                    ui::Checkbox("Show Info", &ArrayListRenderer::showInfo);
-                    ui::SliderFloat("Size", &ArrayListRenderer::scale, 0.5f, 2.0f, "%.1fx");
+    else if (ui::cur_tab == 1 && t.cur_subtab == 7) {
+        // ArrayList settings
+        ui::SetDescriptionContext("ArrayList");
+        ui::two_column(
+            "Settings",
+            []() {
+                ui::Checkbox("Enabled", &ArrayListRenderer::enabled);
+                ui::Checkbox("Rainbow", &ArrayListRenderer::rainbow);
+                ui::Checkbox("Color Bar", &ArrayListRenderer::colorBar);
+                ui::Checkbox("Background", &ArrayListRenderer::showBackground);
+            },
+            "Options",
+            []() {
+                ui::Checkbox("Sort by Length", &ArrayListRenderer::sortByLength);
+                ui::Checkbox("Show Info", &ArrayListRenderer::showInfo);
+                ui::SliderFloat("Size", &ArrayListRenderer::scale, 0.5f, 2.0f, "%.1fx");
 
-                    // Position/Anchor selector
-                    const char* anchorItems[] = {"Top Right", "Top Left", "Bottom Right", "Bottom Left"};
-                    ui::Combo("Position", &ArrayListRenderer::anchor, anchorItems, 4);
+                // Position/Anchor selector
+                const char* anchorItems[] = {"Top Right", "Top Left", "Bottom Right", "Bottom Left"};
+                ui::Combo("Position", &ArrayListRenderer::anchor, anchorItems, 4);
 
-                    if (ArrayListRenderer::rainbow) {
-                        bool highSat = ArrayListRenderer::rainbowSaturation > 0.6f;
-                        if (ui::Checkbox("High Saturation", &highSat)) {
-                            ArrayListRenderer::rainbowSaturation = highSat ? 0.8f : 0.4f;
-                        }
+                if (ArrayListRenderer::rainbow) {
+                    bool highSat = ArrayListRenderer::rainbowSaturation > 0.6f;
+                    if (ui::Checkbox("High Saturation", &highSat)) {
+                        ArrayListRenderer::rainbowSaturation = highSat ? 0.8f : 0.4f;
                     }
-                    if (!ArrayListRenderer::rainbow) {
-                        ui::color("Color", ArrayListRenderer::color);
-                    }
-                });
-        } else if (tab.cur_subtab == 9) {
-            // Notifications settings
-            ui::SetDescriptionContext("Notifications");
-            ui::section("Settings", []() { ui::Checkbox("Enabled", &NotificationManager::enabled); });
-        }
+                }
+                if (!ArrayListRenderer::rainbow) {
+                    ui::color("Color", ArrayListRenderer::color);
+                }
+            });
+    } else if (ui::cur_tab == 1 && t.cur_subtab == 9) {
+        // Notifications settings
+        ui::SetDescriptionContext("Notifications");
+        ui::section("Settings", []() { ui::Checkbox("Enabled", &NotificationManager::enabled); });
     }
+    // Any other unresolved (category, entry): neutral placeholder so the menu
+    // never crashes or shows a blank page. The list entry stays selectable.
+    else {
+        const char* msg = "Couldn't load this page.";
+        float width = ImGui::GetContentRegionAvail().x;
+        ImVec2 msgSize = ImGui::CalcTextSize(msg);
+        ImGui::Spacing();
+        ImGui::Spacing();
+        ImGui::SetCursorPosX((width - msgSize.x) / 2);
+        ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetColorU32(ImGuiCol_TextDisabled));
+        ImGui::Text(msg);
+        ImGui::PopStyleColor();
+    }
+}
+
+// Render current page - calls module's onRenderMenu() dynamically
+static void renderPage() {
+    if (ui::cur_tab >= ui::tabs.size())
+        return;
+    auto& tab = ui::tabs[ui::cur_tab];
+
+    // Special tabs (no subtabs)
+    const int settingsIdx = (int)ui::tabs.size() - 1;
+    const int configsIdx = settingsIdx - 1;
+
+    // Used to trigger a one-shot refresh when entering the Configs tab.
+    static int s_prevTab = -1;
+    if (s_prevTab != ui::cur_tab && ui::cur_tab == configsIdx) {
+        g_configsNeedsRefresh = true;
+    }
+    s_prevTab = ui::cur_tab;
+
+    if (ui::cur_tab == settingsIdx) {
+        ui::SetDescriptionContext("Settings");
+        renderSettingsPage();
+        return;
+    }
+    if (ui::cur_tab == configsIdx) {
+        ui::SetDescriptionContext("Configs");
+        renderConfigsPage();
+        return;
+    }
+
+    // Module_Category: dispatch on the per-category view state. The full
+    // per-module body (locked/unlock prompt, onRenderMenu, inline ArrayList /
+    // Notifications, placeholder) lives in renderModuleConfig; the selectable
+    // module list lives in renderModuleList. Routing stays centralized via
+    // getModuleForSubtab inside those functions.
+    //
+    // Safe bounds guard: renderModuleList / renderModuleConfig also guard the
+    // subtab index, but keep renderPage safe against an out-of-range subtab.
+    if (tab.cur_subtab >= tab.m_subtabs.size())
+        return;
+
+    if (ui::tabs[ui::cur_tab].cur_view == ui::CategoryView::List)
+        renderModuleList(ui::cur_tab);
+    else
+        renderModuleConfig(ui::cur_tab);
 }
 
 void Menu::ApplyStyle() {
@@ -800,50 +1111,60 @@ void Menu::Render() {
             ImGui::BeginChild("tabs", {ImGui::GetWindowWidth(), ImGui::GetWindowHeight() - ui::s(50)}, 0,
                               ImGuiWindowFlags_NoBackground);
             {
-                ImGui::GetWindowDrawList()->AddRectFilled(ImGui::GetWindowPos(),
-                                                          ImGui::GetWindowPos() + ImGui::GetWindowSize(),
-                                                          ui::GetColor(ImGuiCol_WindowBg, 1.0f),
-                                                          GImGui->Style.WindowRounding, ImDrawFlags_RoundCornersBottom);
-
-                ImGui::Dummy({0, ui::s(6)});
+                // Recessed, darker panel for the categories so they read as
+                // sitting "further back" than the brand and the main content.
+                ImDrawList* navDraw = ImGui::GetWindowDrawList();
+                ImVec2 panelMin = ImGui::GetWindowPos();
+                ImVec2 panelMax = panelMin + ImGui::GetWindowSize();
+                navDraw->AddRectFilled(panelMin, panelMax,
+                                       ImGui::GetColorU32(ImVec4(0.039f, 0.039f, 0.039f, 1.0f)),
+                                       GImGui->Style.WindowRounding, ImDrawFlags_RoundCornersBottom);
+                // Inner top shadow: a soft gradient so the brand area above
+                // appears to cast onto the recessed categories panel.
+                float shadowH = ui::s(20);
+                navDraw->AddRectFilledMultiColor(panelMin, ImVec2(panelMax.x, panelMin.y + shadowH),
+                                                 ImGui::GetColorU32(ImVec4(0, 0, 0, 0.45f)),
+                                                 ImGui::GetColorU32(ImVec4(0, 0, 0, 0.45f)),
+                                                 ImGui::GetColorU32(ImVec4(0, 0, 0, 0.0f)),
+                                                 ImGui::GetColorU32(ImVec4(0, 0, 0, 0.0f)));
 
                 ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {1, 1});
 
-                // Main tabs (Combat, Visuals, Movement) - all except Settings
+                // Center the whole category group (Settings inline) vertically.
+                const int tabCount = (int)ui::tabs.size();
+                const float rowH = ui::s(38);  // ui::tab fixed row height
+                // Account for the {1,1} ItemSpacing pushed around the group.
+                const float groupH = rowH * tabCount + (tabCount > 1 ? (tabCount - 1) * 1.f : 0.f);
+                const float availH = ImGui::GetContentRegionAvail().y;
+                const float topOffset = ImMax(0.f, (availH - groupH) * 0.5f);
+
+                ImGui::Dummy({0, topOffset});
+
                 ImGui::BeginGroup();
                 {
-                    for (size_t i = 0; i < ui::tabs.size() - 1; ++i) {
-                        ui::tab((int)i);
+                    for (int i = 0; i < tabCount; ++i) {
+                        ui::tab(i);
                     }
                 }
                 ImGui::EndGroup();
-
-                // Settings tab pinned to bottom
-                float settingsHeight = ui::s(38);
-                float availableSpace = ImGui::GetWindowHeight() - ImGui::GetCursorPosY() - settingsHeight - ui::s(10);
-
-                // Push to bottom
-                if (availableSpace > 0) {
-                    ImGui::Dummy({0, availableSpace});
-                }
-
-                // Subtle separator above Settings
-                ImGui::GetWindowDrawList()->AddLine(
-                    {ImGui::GetWindowPos().x + ui::s(15), ImGui::GetWindowPos().y + ImGui::GetCursorPosY()},
-                    {ImGui::GetWindowPos().x + ImGui::GetWindowWidth() - ui::s(15),
-                     ImGui::GetWindowPos().y + ImGui::GetCursorPosY()},
-                    ui::GetColor(ImGuiCol_Border, 0.5f));
-
-                ImGui::Dummy({0, ui::s(4)});
-
-                // Render Settings tab
-                ui::tab((int)(ui::tabs.size() - 1));
 
                 ImGui::PopStyleVar();
             }
             ImGui::EndChild();
         }
         ImGui::EndChild();
+
+        // Vertical seam shadow between the recessed sidebar and the main content
+        // so the categories panel reads as sitting behind the modules area.
+        {
+            float seamX = windowPos.x + ui::s(176);
+            float seamTop = windowPos.y + ui::s(8);
+            float seamBot = windowMax.y - ui::s(8);
+            windowDraw->AddRectFilledMultiColor(
+                {seamX, seamTop}, {seamX + ui::s(12), seamBot},
+                ImGui::GetColorU32(ImVec4(0, 0, 0, 0.32f)), ImGui::GetColorU32(ImVec4(0, 0, 0, 0.0f)),
+                ImGui::GetColorU32(ImVec4(0, 0, 0, 0.0f)), ImGui::GetColorU32(ImVec4(0, 0, 0, 0.32f)));
+        }
 
         // ===== MAIN CONTENT =====
         ImGui::SetCursorPos({ui::s(185), 0});
@@ -877,7 +1198,15 @@ void Menu::Render() {
                                                     ImGui::GetColorU32(ImGuiCol_TextDisabled, ui::anim), name);
 
                 // Breadcrumb / Subtab Name
-                if (ui::tabs[ui::cur_tab].m_subtabs.size() > 0) {
+                // Special categories (Configs/Settings) and Module_List_View show the
+                // category name only. The breadcrumb (arrow + selected module name) is
+                // gated on a Module_Category being in Config view.
+                const int settingsIdx = (int)ui::tabs.size() - 1;
+                const int configsIdx = settingsIdx - 1;
+                const bool isSpecial = (ui::cur_tab == settingsIdx || ui::cur_tab == configsIdx);
+                const ui::tab_t& curTab = ui::tabs[ui::cur_tab];
+                if (!isSpecial && curTab.cur_view == ui::CategoryView::Config &&
+                    curTab.cur_subtab < (int)curTab.m_subtabs.size()) {
                     float nameWidth = titleFont->CalcTextSizeA(titleFont->FontSize, FLT_MAX, 0.f, name).x;
 
                     ImGui::RenderArrow(ImGui::GetWindowDrawList(),
@@ -885,7 +1214,7 @@ void Menu::Render() {
                                        ImGui::GetColorU32(ImGuiCol_Text, ui::anim * ui::content_anim), ImGuiDir_Right,
                                        ui::s(12));
 
-                    const char* subtabName = ui::tabs[ui::cur_tab].m_subtabs[ui::tabs[ui::cur_tab].cur_subtab];
+                    const char* subtabName = curTab.m_subtabs[curTab.cur_subtab];
 
                     ImGui::GetWindowDrawList()->AddText(subFont, subFont->FontSize,
                                                         {ImGui::GetWindowPos().x + ui::s(40) + nameWidth, baselineY},

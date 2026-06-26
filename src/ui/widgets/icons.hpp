@@ -16,6 +16,7 @@
 #define ICON_FA_TIMES           "\xef\x80\x8d"  // f00d - Close
 #define ICON_FA_CHECK           "\xef\x80\x8c"  // f00c - Checkmark
 #define ICON_FA_CHEVRON_RIGHT   "\xef\x81\x94"  // f054 - Arrow right
+#define ICON_FA_CHEVRON_LEFT    "\xef\x81\x93"  // f053 - Arrow left (back)
 #define ICON_FA_CHEVRON_DOWN    "\xef\x81\xb8"  // f078 - Arrow down
 #define ICON_FA_KEYBOARD        "\xef\x84\x9c"  // f11c - Keyboard
 #define ICON_FA_MOUSE           "\xef\xa1\xbc"  // f87c - Mouse (if available)

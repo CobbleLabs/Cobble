@@ -405,8 +405,10 @@ void ui::handle_anims() {
     content_anim = ImLerp(content_anim, content_anim_dst, 21.f * ImGui::GetIO().DeltaTime);
     if (abs(content_anim - content_anim_dst) < 0.01f) {
         content_anim_dst = 1.f;
-        if (cur_tab < tabs.size())
+        if (cur_tab < tabs.size()) {
             tabs[cur_tab].cur_subtab = tabs[cur_tab].next_subtab;
+            tabs[cur_tab].cur_view = tabs[cur_tab].next_view;
+        }
     }
 }
 
@@ -1518,24 +1520,39 @@ void ui::tab(int num) {
     bool hovered, held;
     bool pressed = ButtonBehavior(bb, id, &hovered, &held);
 
-    if (pressed && !selected) {
-        ui::next_tab = num;
-        ui::anim_dst = 0.f;
+    if (pressed) {
+        if (!selected) {
+            // Selecting a different category: animate the whole content area.
+            ui::next_tab = num;
+            ui::anim_dst = 0.f;
+        } else if (num == ui::cur_tab && tabs[num].cur_view == ui::CategoryView::Config) {
+            // Re-selecting the already-active module category while it is showing a
+            // module config issues a Back-equivalent: return to its module list.
+            tabs[num].next_view = ui::CategoryView::List;
+            content_anim_dst = 0.f;
+        }
     }
 
     struct tab_state {
         float cur;
         float hover;
-        float rad;
         ImColor col;
     };
-    auto& obj = anim_obj(name, 0, tab_state{0.f, 0.f, 0.f, 0});
+    auto& obj = anim_obj(name, 0, tab_state{0.f, 0.f, 0});
 
     obj.cur = animate(obj.cur, 0.f, 1.f, selected);
     obj.hover = animate(obj.hover, 0.f, 1.f, hovered);
-    obj.rad = animate(obj.rad, 0.f, IM_PI, selected);
     obj.col = col_anim(col_anim(GetColor(ImGuiCol_TextDisabled), GetColor(ImGuiCol_Text, 0.75f), obj.hover),
                        GetColor(ImGuiCol_Text), obj.cur);
+
+    // Rounded selection/hover highlight pill behind the row (drawn first so the
+    // icon + label sit on top). Cleaner than per-row separator lines.
+    float pillT = ImMax(obj.cur, obj.hover * 0.55f);
+    if (pillT > 0.01f) {
+        ImVec2 pillMin{bb.Min.x + s(8), bb.Min.y + s(3)};
+        ImVec2 pillMax{bb.Max.x - s(8), bb.Max.y - s(3)};
+        window->DrawList->AddRectFilled(pillMin, pillMax, GetSchemeColor(0.14f * pillT), s(6));
+    }
 
     // Hide icons on small resolutions
     bool showIcons = ImGui::GetIO().DisplaySize.y >= 600.0f;
@@ -1553,28 +1570,8 @@ void ui::tab(int num) {
                               {bb.Min.x + textOffsetX, bb.GetCenter().y - name_size.y / 2}, obj.col, name,
                               FindRenderedTextEnd(name));
 
-    if (tabs[num].m_subtabs.size() > 0) {
-        rotate_start();
-        RenderArrow(window->DrawList, {bb.Max.x - s(22), bb.GetCenter().y - s(5)}, GetColor(ImGuiCol_Text),
-                    ImGuiDir_Down, 0.65f);
-        rotate_end(obj.rad, rotation_center());
-    }
-
-    window->DrawList->AddLine({bb.Min.x + s(40), window->DC.CursorPos.y}, {bb.Max.x, window->DC.CursorPos.y},
-                              GetColor(ImGuiCol_Border, 0.5f));
-
-    if (tabs[num].m_subtabs.size() > 0 && selected) {
-        PushStyleVar(ImGuiStyleVar_ItemSpacing, {s(8), s(6)});
-        Dummy({0, s(2)});
-
-        for (size_t i = 0; i < tabs[num].m_subtabs.size(); ++i) {
-            SetCursorPosX(GetCursorPosX() + s(40));
-            ui::subtab((int)i, num);
-        }
-
-        Dummy({0, s(4)});
-        PopStyleVar();
-    }
+    // Category rows are select-only: no expansion arrow, no module rows, and no
+    // per-row separator line (the selection pill above conveys state instead).
 }
 
 void ui::subtab(int num, int tab_num) {
