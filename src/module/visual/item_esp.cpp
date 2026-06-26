@@ -4,6 +4,8 @@
 #include <cfloat>
 #include <cmath>
 #include <cstdio>
+#include <cstring>
+#include <string>
 #include "../../../infra/ext/imgui/imgui.h"
 #include "../../sdk/core/minecraft.h"
 #include "../../sdk/player/render_data.h"
@@ -11,8 +13,93 @@
 #include "../../util/math/worldToScreen.h"
 #include "../../util/logger.hpp"
 #include "../../util/network/json.hpp"
+#include "../../util/textures/item_textures.h"
 
 ItemESP* itemEsp = nullptr;
+
+struct MinecraftItem {
+    int id;
+    const char* name;
+};
+
+static const MinecraftItem ALL_MINECRAFT_ITEMS[] = {
+    // ── Swords ─────────────────────────────────────────────
+    { 268, "Wooden Sword" },
+    { 272, "Stone Sword" },
+    { 267, "Iron Sword" },
+    { 276, "Diamond Sword" },
+    { 283, "Golden Sword" },
+    // ── Axes ───────────────────────────────────────────────
+    { 271, "Wooden Axe" },
+    { 275, "Stone Axe" },
+    { 258, "Iron Axe" },
+    { 279, "Diamond Axe" },
+    { 286, "Golden Axe" },
+    // ── Bow & Arrows ───────────────────────────────────────
+    { 261, "Bow" },
+    { 262, "Arrow" },
+    // ── Helmets ────────────────────────────────────────────
+    { 298, "Leather Helmet" },
+    { 302, "Chainmail Helmet" },
+    { 306, "Iron Helmet" },
+    { 310, "Diamond Helmet" },
+    { 314, "Golden Helmet" },
+    // ── Chestplates ────────────────────────────────────────
+    { 299, "Leather Chestplate" },
+    { 303, "Chainmail Chestplate" },
+    { 307, "Iron Chestplate" },
+    { 311, "Diamond Chestplate" },
+    { 315, "Golden Chestplate" },
+    // ── Leggings ───────────────────────────────────────────
+    { 300, "Leather Leggings" },
+    { 304, "Chainmail Leggings" },
+    { 308, "Iron Leggings" },
+    { 312, "Diamond Leggings" },
+    { 316, "Golden Leggings" },
+    // ── Boots ──────────────────────────────────────────────
+    { 301, "Leather Boots" },
+    { 305, "Chainmail Boots" },
+    { 309, "Iron Boots" },
+    { 313, "Diamond Boots" },
+    { 317, "Golden Boots" },
+    // ── Potions ────────────────────────────────────────────
+    { 373, "Potion" },
+    { 438, "Splash Potion" },
+    // ── Throwables ─────────────────────────────────────────
+    { 368, "Ender Pearl" },
+    { 344, "Egg" },
+    { 332, "Snowball" },
+    { 385, "Fire Charge" },
+    // ── Food ───────────────────────────────────────────────
+    { 260, "Apple" },
+    { 322, "Golden Apple" },
+    { 297, "Bread" },
+    { 364, "Cooked Beef" },
+    { 366, "Cooked Chicken" },
+    { 320, "Cooked Porkchop" },
+    { 391, "Carrot" },
+    { 396, "Golden Carrot" },
+    { 360, "Melon Slice" },
+    { 393, "Baked Potato" },
+    // ── Pickaxes ───────────────────────────────────────────
+    { 270, "Wooden Pickaxe" },
+    { 274, "Stone Pickaxe" },
+    { 257, "Iron Pickaxe" },
+    { 278, "Diamond Pickaxe" },
+    // ── Other PvP Tools ────────────────────────────────────
+    { 259, "Flint and Steel" },
+    { 346, "Fishing Rod" },
+    { 359, "Shears" },
+    { 403, "Enchanted Book" },
+    { 384, "Bottle o' Enchanting" },
+    // ── Materials ──────────────────────────────────────────
+    { 264, "Diamond" },
+    { 265, "Iron Ingot" },
+    { 266, "Gold Ingot" },
+    { 388, "Emerald" },
+    { 263, "Coal" },
+    { 331, "Redstone" },
+};
 
 ItemESP::ItemESP() : Module("ItemESP") {
     keybind = 0;
@@ -21,6 +108,7 @@ ItemESP::ItemESP() : Module("ItemESP") {
     settings.outline = true;
     settings.box3D = false;
     settings.showQuantity = true;
+    std::memset(enabledItemIds, 0, sizeof(enabledItemIds));
 }
 
 void ItemESP::onEnable() {
@@ -214,6 +302,10 @@ void ItemESP::onRender() {
 
         if (dist > settings.range) continue;
 
+        if (item.itemId >= 0 && item.itemId < 512 && !enabledItemIds[item.itemId]) {
+            continue;
+        }
+
         // Entities don't have lastTickPos in our struct yet, so we just use current pos
         // Or we could add lastTickPos to ItemEntityInfo if we want smooth interpolation
         // For items, they usually don't move fast unless sliding. 
@@ -283,7 +375,79 @@ void ItemESP::onRenderMenu() {
     bool enabledValue = enabled;
 
     ui::two_column(
-        "Settings",
+        "Target Items",
+        [this]() {
+            ImGui::Text("Presets:");
+            
+            auto togglePreset = [this](const char* label, int id) {
+                bool val = enabledItemIds[id];
+                std::string idStr = "preset_" + std::to_string(id);
+                ImGui::PushID(idStr.c_str());
+                unsigned int texId = ItemTextureManager::get().getTexture(id);
+                if (texId > 0) {
+                    ImGui::Image((ImTextureID)(intptr_t)texId, ImVec2(18, 18), ImVec2(0, 0), ImVec2(1, 1));
+                    ImGui::SameLine();
+                } else {
+                    ImGui::Dummy(ImVec2(18, 18));
+                    ImGui::SameLine();
+                }
+                if (ui::Checkbox(label, &val)) {
+                    enabledItemIds[id] = val;
+                }
+                ImGui::PopID();
+            };
+            
+            togglePreset("Diamond Sword", 276);
+            togglePreset("Golden Apple", 322);
+            togglePreset("Bow", 261);
+            togglePreset("Ender Pearl", 368);
+            togglePreset("Potion", 373);
+
+            ImGui::Spacing();
+            ImGui::Separator();
+            ImGui::Spacing();
+            
+            ImGui::Text("Search & Customize:");
+            
+            static char searchFilter[64] = "";
+            ImGui::InputText("Filter Items", searchFilter, sizeof(searchFilter));
+            
+            ImGui::SetNextItemWidth(-1);
+            if (ImGui::BeginListBox("##ItemSelectionList", ImVec2(-1, 150))) {
+            
+            std::string filterStr = searchFilter;
+            std::transform(filterStr.begin(), filterStr.end(), filterStr.begin(), [](unsigned char c){ return std::tolower(c); });
+            
+            for (const auto& item : ALL_MINECRAFT_ITEMS) {
+                std::string itemName = item.name;
+                std::string itemNameLower = itemName;
+                std::transform(itemNameLower.begin(), itemNameLower.end(), itemNameLower.begin(), [](unsigned char c){ return std::tolower(c); });
+                
+                if (!filterStr.empty() && itemNameLower.find(filterStr) == std::string::npos) {
+                    continue;
+                }
+                
+                std::string idStr = "list_" + std::to_string(item.id);
+                ImGui::PushID(idStr.c_str());
+                unsigned int texId = ItemTextureManager::get().getTexture(item.id);
+                if (texId > 0) {
+                    ImGui::Image((ImTextureID)(intptr_t)texId, ImVec2(18, 18), ImVec2(0, 0), ImVec2(1, 1));
+                    ImGui::SameLine();
+                } else {
+                    ImGui::Dummy(ImVec2(18, 18));
+                    ImGui::SameLine();
+                }
+                
+                bool isEnabled = enabledItemIds[item.id];
+                if (ImGui::Checkbox(itemName.c_str(), &isEnabled)) {
+                    enabledItemIds[item.id] = isEnabled;
+                }
+                ImGui::PopID();
+            }
+            ImGui::EndListBox();
+            }
+        },
+        "Item ESP",
         [this, &enabledValue]() {
             if (ui::CheckboxBind("Enabled", &enabledValue, &keybind)) {
                 if (enabledValue != enabled) {
@@ -297,9 +461,9 @@ void ItemESP::onRenderMenu() {
             ui::Checkbox("Outline", &settings.outline);
             ui::Checkbox("Show Quantity", &settings.showQuantity);
             ui::SliderFloat("Range", &settings.range, 16.0f, 256.0f, "%.0fm");
-        },
-        "Colors",
-        [this]() {
+            ImGui::Spacing();
+            ImGui::Separator();
+            ImGui::Spacing();
             ui::color("Box Color", settings.boxColor);
             ui::color("Fill Color", settings.filledColor);
             ui::color("Outline Color", settings.outlineColor);
@@ -313,9 +477,15 @@ std::string ItemESP::getDisplayInfo() {
     return "";
 }
 
-
-
 void ItemESP::saveSettings(json::Value& node) const {
+    std::string customStr = "";
+    for (int i = 0; i < 512; i++) {
+        if (enabledItemIds[i]) {
+            if (!customStr.empty()) customStr += ",";
+            customStr += std::to_string(i);
+        }
+    }
+    node["customItems"] = customStr;
     node["box"] = settings.box;
     node["box3D"] = settings.box3D;
     node["filled"] = settings.filled;
@@ -328,6 +498,29 @@ void ItemESP::saveSettings(json::Value& node) const {
 }
 
 void ItemESP::loadSettings(const json::Value& node) {
+    if (node.has("customItems")) {
+        std::memset(enabledItemIds, 0, sizeof(enabledItemIds));
+        std::string s = node["customItems"].as_string("");
+        if (!s.empty()) {
+            size_t start = 0, end;
+            while ((end = s.find(',', start)) != std::string::npos) {
+                std::string num = s.substr(start, end - start);
+                if (!num.empty()) {
+                    int id = std::stoi(num);
+                    if (id >= 0 && id < 512) enabledItemIds[id] = true;
+                }
+                start = end + 1;
+            }
+            std::string num = s.substr(start);
+            if (!num.empty()) {
+                int lastId = std::stoi(num);
+                if (lastId >= 0 && lastId < 512) enabledItemIds[lastId] = true;
+            }
+        }
+    } else {
+        // No saved config — keep items disabled by default (user must opt-in)
+        std::memset(enabledItemIds, 0, sizeof(enabledItemIds));
+    }
     settings.box = node["box"].as_bool(settings.box);
     settings.box3D = node["box3D"].as_bool(settings.box3D);
     settings.filled = node["filled"].as_bool(settings.filled);

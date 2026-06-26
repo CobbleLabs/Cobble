@@ -247,7 +247,15 @@ bool FakeLag::queuePacket(JNIEnv* env, jobject packet, bool movement) {
 
     if (hasPopped) {
         if (poppedEntry.packet) {
+            // This send happens on the outgoing-gate thread and re-enters the
+            // gate via addToSendQueue. Mark FakeLag as releasing so the nested
+            // gate pass short-circuits instead of re-processing/re-queuing the
+            // same movement packet (which caused recursion, duplicate/out-of-
+            // order positions, and crashes). Restore the prior flag value so we
+            // never clear a release in progress on another thread.
+            const bool wasReleasing = releasing_.exchange(true, std::memory_order_acq_rel);
             mc.sendPacket(poppedEntry.packet);
+            releasing_.store(wasReleasing, std::memory_order_release);
             env->DeleteGlobalRef(poppedEntry.packet);
         }
         if (poppedEntry.movement) {

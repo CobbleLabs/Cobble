@@ -37,6 +37,8 @@ public:
         float range = 128.0f;
     } settings;
 
+    bool enabledItemIds[512];
+
 private:
     // Thread-safe cache
     std::mutex cacheMutex;

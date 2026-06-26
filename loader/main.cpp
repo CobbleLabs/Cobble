@@ -82,9 +82,10 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
             int integrityCheck = 0;
             CHECK_CODE_INTEGRITY(integrityCheck, 1);
             if (integrityCheck != 1) {
-                Telemetry::ReportImmediate("VMPROTECT_TAMPER", Telemetry::Severity::CRITICAL, 100,
+                // Report but do not terminate - CRC false positives can occur
+                // when antivirus software touches the binary on disk.
+                Telemetry::ReportImmediate("VMPROTECT_CRC_MISMATCH", Telemetry::Severity::WARN, 30,
                                            "CHECK_CODE_INTEGRITY");
-                return 1;
             }
 
             // Debugger detection

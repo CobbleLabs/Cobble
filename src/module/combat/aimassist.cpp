@@ -364,6 +364,16 @@ void AimAssist::onUpdate() {
     if (mc.isInGui())
         return;
 
+    // Toggle the armor filter on/off with its dedicated keybind (edge-triggered).
+    if (settings.armorFilterKeybind != 0) {
+        bool keyDown = (GetAsyncKeyState(settings.armorFilterKeybind) & 0x8000) != 0;
+        if (keyDown && !armorFilterKeyPrev_) {
+            settings.armorFilterEnabled = !settings.armorFilterEnabled;
+            NotificationManager::add("Armor Filter", settings.armorFilterEnabled);
+        }
+        armorFilterKeyPrev_ = keyDown;
+    }
+
     bool mouseDown = (GetAsyncKeyState(VK_LBUTTON) & 0x8000) != 0;
 
     if (!settings.alwaysAim && !mouseDown) {
@@ -681,6 +691,10 @@ bool AimAssist::findTarget(double& targetX, double& targetY, double& targetZ) {
             releasePlayerRef(p);
             continue;
         }
+        if (settings.antiBot && p.isNPC) {
+            releasePlayerRef(p);
+            continue;
+        }
         if (p.health <= 0.0f) {
             releasePlayerRef(p);
             continue;
@@ -738,6 +752,34 @@ bool AimAssist::findTarget(double& targetX, double& targetY, double& targetZ) {
                 continue;
             }
         }
+
+        // ── Armor filter ──────────────────────────────────────────────────────
+        if (settings.armorFilterEnabled && settings.armorFilter != AimAssist::ArmorFilter::ANY) {
+            auto isArmorTier = [](int id, AimAssist::ArmorFilter tier) -> bool {
+                switch (tier) {
+                    case AimAssist::ArmorFilter::LEATHER:   return id >= 298 && id <= 301;
+                    case AimAssist::ArmorFilter::CHAINMAIL: return id >= 302 && id <= 305;
+                    case AimAssist::ArmorFilter::IRON:      return id >= 306 && id <= 309;
+                    case AimAssist::ArmorFilter::DIAMOND:   return id >= 310 && id <= 313;
+                    case AimAssist::ArmorFilter::GOLD:      return id >= 314 && id <= 317;
+                    default: return false;
+                }
+            };
+            if (settings.armorFilter == AimAssist::ArmorFilter::NONE) {
+                bool hasAnyArmor = false;
+                for (const auto& piece : p.armor) {
+                    if (piece.id > 0) { hasAnyArmor = true; break; }
+                }
+                if (hasAnyArmor) { releasePlayerRef(p); continue; }
+            } else {
+                bool hasTier = false;
+                for (const auto& piece : p.armor) {
+                    if (isArmorTier(piece.id, settings.armorFilter)) { hasTier = true; break; }
+                }
+                if (!hasTier) { releasePlayerRef(p); continue; }
+            }
+        }
+        // ─────────────────────────────────────────────────────────────────────
 
         float yawToTarget = getAngles(localX, localY, localZ, p.posX, p.posY, p.posZ).first;
         float yawDiff = std::abs(wrapTo180(-(localYaw - yawToTarget)));
@@ -1348,13 +1390,17 @@ bool AimAssist::getAimPoint(double targetX, double targetY, double targetZ, doub
 void AimAssist::onRenderMenu() {
     static const char* targetModes[] = {"Lowest Health", "Closest to Player", "Closest to Crosshair", "Switch"};
     static const char* sortByModes[] = {"Distance", "Health", "FOV", "Hurt Time"};
+    static const char* armorFilterNames[] = {
+        "Any", "No Armor", "Leather", "Chainmail", "Iron", "Gold", "Diamond"
+    };
     int currentMode = static_cast<int>(settings.targetMode);
     int currentSortBy = static_cast<int>(settings.switchSortBy);
+    int currentArmorFilter = static_cast<int>(settings.armorFilter);
 
     bool enabledValue = enabled;
     ui::two_column(
         "Settings",
-        [this, &currentMode, &currentSortBy, &enabledValue]() {
+        [this, &currentMode, &currentSortBy, &currentArmorFilter, &enabledValue]() {
             if (ui::CheckboxBind("Enabled", &enabledValue, &keybind)) {
                 if (enabledValue != enabled) {
                     setEnabled(enabledValue);
@@ -1368,13 +1414,14 @@ void AimAssist::onRenderMenu() {
             ui::SliderFloat("Jitter", &settings.jitterPercent, 0.0f, 100.0f, "%.0f%%");
         },
         "Options",
-        [this, &currentMode, &currentSortBy]() {
+        [this, &currentMode, &currentSortBy, &currentArmorFilter]() {
             ui::Checkbox("Always Aim", &settings.alwaysAim);
             ui::Checkbox("Break Blocks", &settings.breakBlocks);
             ui::Checkbox("Weapon Only", &settings.weaponOnly);
             ui::Checkbox("Aim Closest Point", &settings.aimAtClosestPoint);
             ui::Checkbox("Target Invisibles", &settings.invisibles);
             ui::Checkbox("Stop On Hitbox", &settings.stopOnHitbox);
+            ui::Checkbox("Anti Bot", &settings.antiBot);
             bool entityLock = entityLockEnabled_.load(std::memory_order_acquire);
             if (ui::Checkbox("Entity Lock", &entityLock))
                 setEntityLock(entityLock);
@@ -1396,6 +1443,23 @@ void AimAssist::onRenderMenu() {
                         ImGui::TextDisabled("Targets least recently hit player");
                     }
                 }
+            }
+            ImGui::Spacing();
+            // Armor Filter dropdown
+            if (ui::Combo("Armor Filter", &currentArmorFilter, armorFilterNames, IM_ARRAYSIZE(armorFilterNames))) {
+                settings.armorFilter = static_cast<ArmorFilter>(currentArmorFilter);
+            }
+            if (settings.armorFilter != ArmorFilter::ANY) {
+                if (settings.armorFilter == ArmorFilter::NONE)
+                    ImGui::TextDisabled("Only targets players with no armor");
+                else
+                    ImGui::TextDisabled("Only targets players wearing this tier");
+
+                // Optional key to toggle the armor filter on/off in-game.
+                ui::Binder("Armor Filter Key", &settings.armorFilterKeybind);
+                if (settings.armorFilterKeybind != 0)
+                    ImGui::TextDisabled("Filter is currently %s",
+                                        settings.armorFilterEnabled ? "ON" : "OFF");
             }
         });
 }
@@ -1425,6 +1489,10 @@ void AimAssist::saveSettings(json::Value& node) const {
     node["entityLock"] = settings.entityLock;
     node["stopOnHitbox"] = settings.stopOnHitbox;
     node["jitterPercent"] = settings.jitterPercent;
+    node["antiBot"] = settings.antiBot;
+    node["armorFilter"] = static_cast<int>(settings.armorFilter);
+    node["armorFilterEnabled"] = settings.armorFilterEnabled;
+    node["armorFilterKeybind"] = settings.armorFilterKeybind;
 }
 
 void AimAssist::loadSettings(const json::Value& node) {
@@ -1452,4 +1520,9 @@ void AimAssist::loadSettings(const json::Value& node) {
     settings.stopOnHitbox = node["stopOnHitbox"].as_bool(settings.stopOnHitbox);
     settings.jitterPercent =
         (std::clamp)(node["jitterPercent"].as_float(settings.jitterPercent), 0.0f, 100.0f);
+    settings.antiBot = node["antiBot"].as_bool(settings.antiBot);
+    settings.armorFilter =
+        static_cast<ArmorFilter>(node["armorFilter"].as_int(static_cast<int>(settings.armorFilter)));
+    settings.armorFilterEnabled = node["armorFilterEnabled"].as_bool(settings.armorFilterEnabled);
+    settings.armorFilterKeybind = node["armorFilterKeybind"].as_int(settings.armorFilterKeybind);
 }

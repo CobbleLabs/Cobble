@@ -1,6 +1,8 @@
 #include "blockesp.h"
 #include <Windows.h>
 #include <cmath>
+#include <algorithm>
+#include <cctype>
 #include "../../../infra/ext/imgui/imgui.h"
 #include "../../sdk/core/minecraft.h"
 #include "../../sdk/player/render_data.h"
@@ -9,6 +11,7 @@
 #include "../../util/logger.hpp"
 #include "../../util/math/worldToScreen.h"
 #include "../../util/network/json.hpp"
+#include "../../util/textures/item_textures.h"
 
 BlockESP* blockESP = nullptr;
 
@@ -25,10 +28,244 @@ enum BlockID {
     CHEST = 54
 };
 
+struct MinecraftBlock {
+    int id;
+    const char* name;
+};
+
+static const MinecraftBlock ALL_MINECRAFT_BLOCKS[] = {
+    { 1, "Stone" },
+    { 2, "Grass Block" },
+    { 3, "Dirt" },
+    { 4, "Cobblestone" },
+    { 5, "Oak Wood Planks" },
+    { 6, "Oak Sapling" },
+    { 7, "Bedrock" },
+    { 8, "Flowing Water" },
+    { 9, "Still Water" },
+    { 10, "Flowing Lava" },
+    { 11, "Still Lava" },
+    { 12, "Sand" },
+    { 13, "Gravel" },
+    { 14, "Gold Ore" },
+    { 15, "Iron Ore" },
+    { 16, "Coal Ore" },
+    { 17, "Oak Wood" },
+    { 18, "Oak Leaves" },
+    { 19, "Sponge" },
+    { 20, "Glass" },
+    { 21, "Lapis Lazuli Ore" },
+    { 22, "Lapis Lazuli Block" },
+    { 23, "Dispenser" },
+    { 24, "Sandstone" },
+    { 25, "Note Block" },
+    { 26, "Bed Block" },
+    { 27, "Powered Rail" },
+    { 28, "Detector Rail" },
+    { 29, "Sticky Piston" },
+    { 30, "Cobweb" },
+    { 31, "Tall Grass" },
+    { 32, "Dead Bush" },
+    { 33, "Piston" },
+    { 34, "Piston Head" },
+    { 35, "Wool" },
+    { 37, "Dandelion" },
+    { 38, "Poppy" },
+    { 39, "Brown Mushroom" },
+    { 40, "Red Mushroom" },
+    { 41, "Block of Gold" },
+    { 42, "Block of Iron" },
+    { 43, "Double Stone Slab" },
+    { 44, "Stone Slab" },
+    { 45, "Bricks" },
+    { 46, "TNT" },
+    { 47, "Bookshelf" },
+    { 48, "Mossy Cobblestone" },
+    { 49, "Obsidian" },
+    { 50, "Torch" },
+    { 51, "Fire" },
+    { 52, "Monster Spawner" },
+    { 53, "Oak Wood Stairs" },
+    { 54, "Chest" },
+    { 55, "Redstone Wire" },
+    { 56, "Diamond Ore" },
+    { 57, "Block of Diamond" },
+    { 58, "Crafting Table" },
+    { 59, "Wheat Crops" },
+    { 60, "Farmland" },
+    { 61, "Furnace" },
+    { 62, "Burning Furnace" },
+    { 63, "Standing Sign Block" },
+    { 64, "Oak Door Block" },
+    { 65, "Ladder" },
+    { 66, "Rail" },
+    { 67, "Cobblestone Stairs" },
+    { 68, "Wall Sign Block" },
+    { 69, "Lever" },
+    { 70, "Stone Pressure Plate" },
+    { 71, "Iron Door Block" },
+    { 72, "Wooden Pressure Plate" },
+    { 73, "Redstone Ore" },
+    { 74, "Glowing Redstone Ore" },
+    { 75, "Redstone Torch (off)" },
+    { 76, "Redstone Torch (on)" },
+    { 77, "Stone Button" },
+    { 78, "Snow" },
+    { 79, "Ice" },
+    { 80, "Snow Block" },
+    { 81, "Cactus" },
+    { 82, "Clay" },
+    { 83, "Sugar Canes" },
+    { 84, "Jukebox" },
+    { 85, "Oak Fence" },
+    { 86, "Pumpkin" },
+    { 87, "Netherrack" },
+    { 88, "Soul Sand" },
+    { 89, "Glowstone" },
+    { 90, "Nether Portal" },
+    { 91, "Jack o'Lantern" },
+    { 92, "Cake Block" },
+    { 93, "Repeater (off)" },
+    { 94, "Repeater (on)" },
+    { 95, "Stained Glass" },
+    { 96, "Wooden Trapdoor" },
+    { 97, "Monster Egg" },
+    { 98, "Stone Bricks" },
+    { 99, "Brown Mushroom Block" },
+    { 100, "Red Mushroom Block" },
+    { 101, "Iron Bars" },
+    { 102, "Glass Pane" },
+    { 103, "Melon Block" },
+    { 104, "Pumpkin Stem" },
+    { 105, "Melon Stem" },
+    { 106, "Vines" },
+    { 107, "Oak Fence Gate" },
+    { 108, "Brick Stairs" },
+    { 109, "Stone Brick Stairs" },
+    { 110, "Mycelium" },
+    { 111, "Lily Pad" },
+    { 112, "Nether Brick" },
+    { 113, "Nether Brick Fence" },
+    { 114, "Nether Brick Stairs" },
+    { 115, "Nether Wart" },
+    { 116, "Enchantment Table" },
+    { 117, "Brewing Stand" },
+    { 118, "Cauldron" },
+    { 119, "End Portal" },
+    { 120, "End Portal Frame" },
+    { 121, "End Stone" },
+    { 122, "Dragon Egg" },
+    { 123, "Redstone Lamp (off)" },
+    { 124, "Redstone Lamp (on)" },
+    { 125, "Double Wooden Slab" },
+    { 126, "Wooden Slab" },
+    { 127, "Cocoa" },
+    { 128, "Sandstone Stairs" },
+    { 129, "Emerald Ore" },
+    { 130, "Ender Chest" },
+    { 131, "Tripwire Hook" },
+    { 132, "Tripwire" },
+    { 133, "Block of Emerald" },
+    { 134, "Spruce Wood Stairs" },
+    { 135, "Birch Wood Stairs" },
+    { 136, "Jungle Wood Stairs" },
+    { 137, "Command Block" },
+    { 138, "Beacon" },
+    { 139, "Cobblestone Wall" },
+    { 140, "Flower Pot" },
+    { 141, "Carrots" },
+    { 142, "Potatoes" },
+    { 143, "Wooden Button" },
+    { 144, "Mob Head" },
+    { 145, "Anvil" },
+    { 146, "Trapped Chest" },
+    { 147, "Weighted Plate (light)" },
+    { 148, "Weighted Plate (heavy)" },
+    { 149, "Comparator (off)" },
+    { 150, "Comparator (on)" },
+    { 151, "Daylight Sensor" },
+    { 152, "Block of Redstone" },
+    { 153, "Nether Quartz Ore" },
+    { 154, "Hopper" },
+    { 155, "Block of Quartz" },
+    { 156, "Quartz Stairs" },
+    { 157, "Activator Rail" },
+    { 158, "Dropper" },
+    { 159, "Stained Clay" },
+    { 160, "Stained Glass Pane" },
+    { 161, "Leaves (Acacia/Dark Oak)" },
+    { 162, "Wood (Acacia/Dark Oak)" },
+    { 163, "Acacia Wood Stairs" },
+    { 164, "Dark Oak Wood Stairs" },
+    { 165, "Slime Block" },
+    { 166, "Barrier" },
+    { 167, "Iron Trapdoor" },
+    { 168, "Prismarine" },
+    { 169, "Sea Lantern" },
+    { 170, "Hay Bale" },
+    { 171, "Carpet" },
+    { 172, "Coarse Dirt" },
+    { 173, "Block of Coal" },
+    { 174, "Packed Ice" },
+    { 175, "Double Flowers" },
+    { 176, "Standing Banner" },
+    { 177, "Wall Banner" },
+    { 178, "Inverted Daylight Sensor" },
+    { 179, "Red Sandstone" },
+    { 180, "Red Sandstone Stairs" },
+    { 181, "Double Red Sandstone Slab" },
+    { 182, "Red Sandstone Slab" },
+    { 183, "Spruce Fence Gate" },
+    { 184, "Birch Fence Gate" },
+    { 185, "Jungle Fence Gate" },
+    { 186, "Dark Oak Fence Gate" },
+    { 187, "Acacia Fence Gate" },
+    { 188, "Spruce Fence" },
+    { 189, "Birch Fence" },
+    { 190, "Jungle Fence" },
+    { 191, "Dark Oak Fence" },
+    { 192, "Acacia Fence" },
+    { 193, "Spruce Door Block" },
+    { 194, "Birch Door Block" },
+    { 195, "Jungle Door Block" },
+    { 196, "Acacia Door Block" },
+    { 197, "Dark Oak Door Block" }
+};
+
 BlockESP::BlockESP() : Module("BlockESP") {
     keybind = 0;
     renders = true;
     usesPlayerCache = true;
+    std::memset(enabledBlockIds, 0, sizeof(enabledBlockIds));
+    enabledBlockIds[56] = true;  // Diamond Ore
+    enabledBlockIds[129] = true; // Emerald Ore
+    enabledBlockIds[15] = true;  // Iron Ore
+    enabledBlockIds[14] = true;  // Gold Ore
+    enabledBlockIds[54] = true;  // Chest
+
+    // Initialize default colors
+    for (int i = 0; i < 256; i++) {
+        blockColors[i][0] = 1.0f;
+        blockColors[i][1] = 1.0f;
+        blockColors[i][2] = 1.0f;
+    }
+    // Diamond Ore: Light Blue
+    blockColors[56][0] = 0.1f; blockColors[56][1] = 0.7f; blockColors[56][2] = 1.0f;
+    // Emerald Ore: Green
+    blockColors[129][0] = 0.2f; blockColors[129][1] = 0.7f; blockColors[129][2] = 0.2f;
+    // Iron Ore: Orange/Brown
+    blockColors[15][0] = 0.7f; blockColors[15][1] = 0.4f; blockColors[15][2] = 0.2f;
+    // Gold Ore: Yellow
+    blockColors[14][0] = 0.7f; blockColors[14][1] = 0.6f; blockColors[14][2] = 0.2f;
+    // Lapis Ore: Blue
+    blockColors[21][0] = 0.2f; blockColors[21][1] = 0.2f; blockColors[21][2] = 0.9f;
+    // Coal Ore: Dark Gray
+    blockColors[16][0] = 0.1f; blockColors[16][1] = 0.1f; blockColors[16][2] = 0.1f;
+    // Redstone Ore: Red
+    blockColors[73][0] = 0.7f; blockColors[73][1] = 0.1f; blockColors[73][2] = 0.1f;
+    blockColors[74][0] = 0.7f; blockColors[74][1] = 0.1f; blockColors[74][2] = 0.1f;
+    // Chest: Brown
+    blockColors[54][0] = 0.4f; blockColors[54][1] = 0.23f; blockColors[54][2] = 0.125f;
 }
 
 void BlockESP::onEnable() {
@@ -47,62 +284,16 @@ void BlockESP::onDisable() {
 }
 
 void BlockESP::getBlockColor(int blockId, float* outColor) {
-    switch (blockId) {
-        case DIAMOND_ORE:
-            outColor[0] = 0.1f;
-            outColor[1] = 0.7f;
-            outColor[2] = 1.0f;
-            outColor[3] = settings.opacity / 100.0f;
-            break;
-        case EMERALD_ORE:
-            outColor[0] = 0.2f;
-            outColor[1] = 0.7f;
-            outColor[2] = 0.2f;
-            outColor[3] = settings.opacity / 100.0f;
-            break;
-        case IRON_ORE:
-            outColor[0] = 0.7f;
-            outColor[1] = 0.4f;
-            outColor[2] = 0.2f;
-            outColor[3] = settings.opacity / 100.0f;
-            break;
-        case GOLD_ORE:
-            outColor[0] = 0.7f;
-            outColor[1] = 0.6f;
-            outColor[2] = 0.2f;
-            outColor[3] = settings.opacity / 100.0f;
-            break;
-        case LAPIS_ORE:
-            outColor[0] = 0.2f;
-            outColor[1] = 0.2f;
-            outColor[2] = 0.9f;
-            outColor[3] = settings.opacity / 100.0f;
-            break;
-        case COAL_ORE:
-            outColor[0] = 0.1f;
-            outColor[1] = 0.1f;
-            outColor[2] = 0.1f;
-            outColor[3] = settings.opacity / 100.0f;
-            break;
-        case REDSTONE_ORE:
-        case REDSTONE_ORE_LIT:
-            outColor[0] = 0.7f;
-            outColor[1] = 0.1f;
-            outColor[2] = 0.1f;
-            outColor[3] = settings.opacity / 100.0f;
-            break;
-        case CHEST:
-            outColor[0] = 0.4f;
-            outColor[1] = 0.23f;
-            outColor[2] = 0.125f;
-            outColor[3] = settings.opacity / 100.0f;
-            break;
-        default:
-            outColor[0] = 1.0f;
-            outColor[1] = 1.0f;
-            outColor[2] = 1.0f;
-            outColor[3] = settings.opacity / 100.0f;
-            break;
+    if (blockId >= 0 && blockId < 256) {
+        outColor[0] = blockColors[blockId][0];
+        outColor[1] = blockColors[blockId][1];
+        outColor[2] = blockColors[blockId][2];
+        outColor[3] = settings.opacity / 100.0f;
+    } else {
+        outColor[0] = 1.0f;
+        outColor[1] = 1.0f;
+        outColor[2] = 1.0f;
+        outColor[3] = settings.opacity / 100.0f;
     }
 }
 
@@ -134,26 +325,7 @@ void BlockESP::scanBlocks() {
                     continue;
                 int blockId = mc.getBlockId(x, y, z);
 
-                // Check if this is a block type we want to highlight
-                bool shouldRender = false;
-                if (settings.drawDiamond && blockId == DIAMOND_ORE)
-                    shouldRender = true;
-                else if (settings.drawEmerald && blockId == EMERALD_ORE)
-                    shouldRender = true;
-                else if (settings.drawIron && blockId == IRON_ORE)
-                    shouldRender = true;
-                else if (settings.drawGold && blockId == GOLD_ORE)
-                    shouldRender = true;
-                else if (settings.drawLapis && blockId == LAPIS_ORE)
-                    shouldRender = true;
-                else if (settings.drawCoal && blockId == COAL_ORE)
-                    shouldRender = true;
-                else if (settings.drawRedstone && (blockId == REDSTONE_ORE || blockId == REDSTONE_ORE_LIT))
-                    shouldRender = true;
-                else if (settings.drawChests && blockId == CHEST)
-                    shouldRender = true;
-
-                if (shouldRender) {
+                if (blockId >= 0 && blockId < 256 && enabledBlockIds[blockId]) {
                     BlockData block;
                     block.blockId = blockId;
                     block.x = x;
@@ -204,14 +376,13 @@ void BlockESP::onUpdate() {
     double moveDistance = std::sqrt(dx * dx + dy * dy + dz * dz);
 
     unsigned int signature = (unsigned int)(std::clamp((int)settings.range, 8, 32) << 8);
-    signature |= settings.drawDiamond ? 1u << 0 : 0;
-    signature |= settings.drawEmerald ? 1u << 1 : 0;
-    signature |= settings.drawIron ? 1u << 2 : 0;
-    signature |= settings.drawGold ? 1u << 3 : 0;
-    signature |= settings.drawLapis ? 1u << 4 : 0;
-    signature |= settings.drawRedstone ? 1u << 5 : 0;
-    signature |= settings.drawCoal ? 1u << 6 : 0;
-    signature |= settings.drawChests ? 1u << 7 : 0;
+    unsigned int hash = 0;
+    for (int i = 0; i < 256; i++) {
+        if (enabledBlockIds[i]) {
+            hash = hash * 31 + i;
+        }
+    }
+    signature ^= hash;
     bool shouldRescan = moveDistance > 3.0 || currentTime - lastScanTime >= 1500 ||
                         signature != lastSettingsSignature;
 
@@ -407,7 +578,116 @@ void BlockESP::onRender() {
 void BlockESP::onRenderMenu() {
     bool enabledValue = enabled;
     ui::two_column(
-        "Block Types",
+        "Target Blocks",
+        [this]() {
+            ImGui::Text("Presets:");
+            
+            auto togglePreset = [this](const char* label, int id) {
+                bool val = enabledBlockIds[id];
+                std::string idStr = "preset_" + std::to_string(id);
+                ImGui::PushID(idStr.c_str());
+                unsigned int texId = ItemTextureManager::get().getTexture(id);
+                if (texId > 0) {
+                    ImGui::Image((ImTextureID)(intptr_t)texId, ImVec2(18, 18), ImVec2(0, 0), ImVec2(1, 1));
+                    ImGui::SameLine();
+                } else {
+                    ImGui::Dummy(ImVec2(18, 18));
+                    ImGui::SameLine();
+                }
+                if (ui::Checkbox(label, &val)) {
+                    enabledBlockIds[id] = val;
+                    if (id == 73) {
+                        enabledBlockIds[74] = val;
+                    }
+                    lastScanTime = 0;
+                }
+                if (val) {
+                    ImGui::SameLine();
+                    ImGui::PushItemWidth(40);
+                    if (ImGui::ColorEdit3("##color", blockColors[id], ImGuiColorEditFlags_NoInputs | ImGuiColorEditFlags_NoLabel)) {
+                        if (id == 73) {
+                            blockColors[74][0] = blockColors[73][0];
+                            blockColors[74][1] = blockColors[73][1];
+                            blockColors[74][2] = blockColors[73][2];
+                        }
+                        lastScanTime = 0;
+                    }
+                    ImGui::PopItemWidth();
+                }
+                ImGui::PopID();
+            };
+            
+            togglePreset("Diamond Ore", 56);
+            togglePreset("Emerald Ore", 129);
+            togglePreset("Iron Ore", 15);
+            togglePreset("Gold Ore", 14);
+            togglePreset("Lapis Ore", 21);
+            togglePreset("Redstone Ore", 73);
+            togglePreset("Coal Ore", 16);
+            togglePreset("Chests", 54);
+            
+            ImGui::Spacing();
+            ImGui::Separator();
+            ImGui::Spacing();
+            
+            ImGui::Text("Search & Customize:");
+            
+            static char searchFilter[64] = "";
+            ImGui::InputText("Filter Blocks", searchFilter, sizeof(searchFilter));
+            
+            ImGui::SetNextItemWidth(-1);
+            if (ImGui::BeginListBox("##BlockSelectionList", ImVec2(-1, 150))) {
+            
+            std::string filterStr = searchFilter;
+            std::transform(filterStr.begin(), filterStr.end(), filterStr.begin(), [](unsigned char c){ return std::tolower(c); });
+            
+            for (const auto& block : ALL_MINECRAFT_BLOCKS) {
+                std::string blockName = block.name;
+                std::string blockNameLower = blockName;
+                std::transform(blockNameLower.begin(), blockNameLower.end(), blockNameLower.begin(), [](unsigned char c){ return std::tolower(c); });
+                
+                if (!filterStr.empty() && blockNameLower.find(filterStr) == std::string::npos) {
+                    continue;
+                }
+                
+                std::string idStr = "list_" + std::to_string(block.id);
+                ImGui::PushID(idStr.c_str());
+                unsigned int texId = ItemTextureManager::get().getTexture(block.id);
+                if (texId > 0) {
+                    ImGui::Image((ImTextureID)(intptr_t)texId, ImVec2(18, 18), ImVec2(0, 0), ImVec2(1, 1));
+                    ImGui::SameLine();
+                } else {
+                    ImGui::Dummy(ImVec2(18, 18));
+                    ImGui::SameLine();
+                }
+                
+                bool isEnabled = enabledBlockIds[block.id];
+                if (ImGui::Checkbox(blockName.c_str(), &isEnabled)) {
+                    enabledBlockIds[block.id] = isEnabled;
+                    if (block.id == 73) {
+                        enabledBlockIds[74] = isEnabled;
+                    }
+                    lastScanTime = 0;
+                }
+                if (isEnabled) {
+                    ImGui::SameLine();
+                    ImGui::PushItemWidth(40);
+                    if (ImGui::ColorEdit3("##color", blockColors[block.id], ImGuiColorEditFlags_NoInputs | ImGuiColorEditFlags_NoLabel)) {
+                        if (block.id == 73) {
+                            blockColors[74][0] = blockColors[73][0];
+                            blockColors[74][1] = blockColors[73][1];
+                            blockColors[74][2] = blockColors[73][2];
+                        }
+                        lastScanTime = 0;
+                    }
+                    ImGui::PopItemWidth();
+                }
+                ImGui::PopID();
+            }
+            ImGui::EndListBox();
+            }
+        },
+        "Block ESP",
         [this, &enabledValue]() {
             if (ui::CheckboxBind("Enabled", &enabledValue, &keybind)) {
                 if (enabledValue != enabled) {
@@ -415,49 +695,105 @@ void BlockESP::onRenderMenu() {
                 }
             }
             ImGui::Spacing();
-
-            ui::Checkbox("Diamond Ore", &settings.drawDiamond);
-            ui::Checkbox("Emerald Ore", &settings.drawEmerald);
-            ui::Checkbox("Iron Ore", &settings.drawIron);
-            ui::Checkbox("Gold Ore", &settings.drawGold);
-            ui::Checkbox("Lapis Ore", &settings.drawLapis);
-            ui::Checkbox("Redstone Ore", &settings.drawRedstone);
-            ui::Checkbox("Coal Ore", &settings.drawCoal);
-            ui::Checkbox("Chests", &settings.drawChests);
-        },
-        "Settings",
-        [this]() {
             ui::SliderFloat("Range", &settings.range, 8.0f, 32.0f, "%.0f blocks");
             ui::SliderInt("Opacity", &settings.opacity, 10, 100, "%d%%");
             ui::Checkbox("Fade with Distance", &settings.fadeWithDistance);
         });
 }
 
-
-
 void BlockESP::saveSettings(json::Value& node) const {
-    node["drawDiamond"] = settings.drawDiamond;
-    node["drawEmerald"] = settings.drawEmerald;
-    node["drawIron"] = settings.drawIron;
-    node["drawGold"] = settings.drawGold;
-    node["drawLapis"] = settings.drawLapis;
-    node["drawRedstone"] = settings.drawRedstone;
-    node["drawCoal"] = settings.drawCoal;
-    node["drawChests"] = settings.drawChests;
+    std::string customStr = "";
+    for (int i = 0; i < 256; i++) {
+        if (enabledBlockIds[i]) {
+            if (!customStr.empty()) customStr += ",";
+            customStr += std::to_string(i);
+        }
+    }
+    node["customBlocks"] = customStr;
+
+    // Save block colors
+    std::string colorsStr = "";
+    for (int i = 0; i < 256; i++) {
+        if (enabledBlockIds[i]) {
+            if (!colorsStr.empty()) colorsStr += ";";
+            colorsStr += std::to_string(i) + ":" + std::to_string(blockColors[i][0]) + "," + std::to_string(blockColors[i][1]) + "," + std::to_string(blockColors[i][2]);
+        }
+    }
+    node["blockColors"] = colorsStr;
+
     node["range"] = settings.range;
     node["opacity"] = settings.opacity;
     node["fadeWithDistance"] = settings.fadeWithDistance;
 }
 
+void BlockESP::parseBlockColorEntry(const std::string& entry) {
+    if (entry.empty()) return;
+    size_t colon = entry.find(':');
+    if (colon == std::string::npos) return;
+    std::string idStr = entry.substr(0, colon);
+    std::string colorsPart = entry.substr(colon + 1);
+    try {
+        int id = std::stoi(idStr);
+        if (id < 0 || id >= 256) return;
+        
+        size_t comma1 = colorsPart.find(',');
+        if (comma1 == std::string::npos) return;
+        size_t comma2 = colorsPart.find(',', comma1 + 1);
+        if (comma2 == std::string::npos) return;
+        
+        blockColors[id][0] = std::stof(colorsPart.substr(0, comma1));
+        blockColors[id][1] = std::stof(colorsPart.substr(comma1 + 1, comma2 - comma1 - 1));
+        blockColors[id][2] = std::stof(colorsPart.substr(comma2 + 1));
+    } catch (...) {}
+}
+
 void BlockESP::loadSettings(const json::Value& node) {
-    settings.drawDiamond = node["drawDiamond"].as_bool(settings.drawDiamond);
-    settings.drawEmerald = node["drawEmerald"].as_bool(settings.drawEmerald);
-    settings.drawIron = node["drawIron"].as_bool(settings.drawIron);
-    settings.drawGold = node["drawGold"].as_bool(settings.drawGold);
-    settings.drawLapis = node["drawLapis"].as_bool(settings.drawLapis);
-    settings.drawRedstone = node["drawRedstone"].as_bool(settings.drawRedstone);
-    settings.drawCoal = node["drawCoal"].as_bool(settings.drawCoal);
-    settings.drawChests = node["drawChests"].as_bool(settings.drawChests);
+    if (node.has("customBlocks")) {
+        std::memset(enabledBlockIds, 0, sizeof(enabledBlockIds));
+        std::string s = node["customBlocks"].as_string("");
+        if (!s.empty()) {
+            size_t start = 0, end;
+            while ((end = s.find(',', start)) != std::string::npos) {
+                std::string num = s.substr(start, end - start);
+                if (!num.empty()) {
+                    int id = std::stoi(num);
+                    if (id >= 0 && id < 256) enabledBlockIds[id] = true;
+                }
+                start = end + 1;
+            }
+            std::string num = s.substr(start);
+            if (!num.empty()) {
+                int lastId = std::stoi(num);
+                if (lastId >= 0 && lastId < 256) enabledBlockIds[lastId] = true;
+            }
+        }
+    } else {
+        std::memset(enabledBlockIds, 0, sizeof(enabledBlockIds));
+        enabledBlockIds[16] = node["drawCoal"].as_bool(false);
+        enabledBlockIds[15] = node["drawIron"].as_bool(true);
+        enabledBlockIds[14] = node["drawGold"].as_bool(true);
+        enabledBlockIds[56] = node["drawDiamond"].as_bool(true);
+        enabledBlockIds[21] = node["drawLapis"].as_bool(false);
+        enabledBlockIds[129] = node["drawEmerald"].as_bool(true);
+        enabledBlockIds[73] = node["drawRedstone"].as_bool(false);
+        enabledBlockIds[74] = node["drawRedstone"].as_bool(false);
+        enabledBlockIds[54] = node["drawChests"].as_bool(true);
+    }
+
+    if (node.has("blockColors")) {
+        std::string s = node["blockColors"].as_string("");
+        if (!s.empty()) {
+            size_t start = 0, end;
+            while ((end = s.find(';', start)) != std::string::npos) {
+                std::string entry = s.substr(start, end - start);
+                parseBlockColorEntry(entry);
+                start = end + 1;
+            }
+            std::string entry = s.substr(start);
+            parseBlockColorEntry(entry);
+        }
+    }
+
     settings.range = (std::clamp)(node["range"].as_float(settings.range), 8.0f, 32.0f);
     settings.opacity = (std::clamp)(node["opacity"].as_int(settings.opacity), 10, 100);
     settings.fadeWithDistance = node["fadeWithDistance"].as_bool(settings.fadeWithDistance);

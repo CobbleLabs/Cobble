@@ -62,6 +62,17 @@ public:
     enum class TargetMode { HEALTH, DISTANCE, FOV, SWITCH };
     enum class SortBy { DISTANCE, HEALTH, FOV, HURT_TIME };
 
+    // Armor tier filter: only lock onto players wearing this armor tier (on any slot)
+    enum class ArmorFilter {
+        ANY       = 0,  // No restriction (default)
+        NONE      = 1,  // Target players with NO armor
+        LEATHER   = 2,
+        CHAINMAIL = 3,
+        IRON      = 4,
+        GOLD      = 5,
+        DIAMOND   = 6,
+    };
+
     struct Settings {
         bool horizontalOnly = true;
         bool invisibles = false;
@@ -71,6 +82,7 @@ public:
         bool entityLock = false;  // Keep the acquired entity until it becomes invalid
         bool weaponOnly = false;
         bool stopOnHitbox = false;  // Stops aim assist when crosshair is inside hitbox
+        bool antiBot = true;
 
         TargetMode targetMode = TargetMode::DISTANCE;
         SortBy switchSortBy = SortBy::DISTANCE;  // Only used when targetMode is SWITCH
@@ -80,6 +92,10 @@ public:
         float speed = 50.0f;
         float jitterPercent = 0.0f;
         int reactionTime = 50;  // ms
+
+        ArmorFilter armorFilter = ArmorFilter::ANY;  // Armor tier filter
+        bool armorFilterEnabled = true;              // Master toggle for the armor filter (key-toggleable)
+        int armorFilterKeybind = 0;                  // Virtual key to toggle armorFilterEnabled (0 = none)
     } settings;
 
 private:
@@ -128,6 +144,7 @@ private:
     float targetHitboxMaxX = 0.0f;
     float targetHitboxMaxY = 0.0f;
     float targetHitboxMaxZ = 0.0f;
+    bool armorFilterKeyPrev_ = false;  // Edge-detection state for armor filter keybind
     bool prevFrameHadTarget = false;
     bool targetChangedThisFrame = false;
     bool clickStartedThisFrame = false;

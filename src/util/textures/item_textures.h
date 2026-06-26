@@ -1,7 +1,8 @@
 #pragma once
 
 #include <string>
-#include <unordered_map>
+#include <vector>
+#include <utility>
 
 // Manages loading and caching of Minecraft item textures
 // Textures are loaded from PNG files and converted to OpenGL textures
@@ -32,6 +33,6 @@ private:
     std::string getTextureFilename(int itemId, int damage = 0);
 
     std::string basePath;
-    std::unordered_map<int, unsigned int> textureCache;  // cacheKey -> GL texture ID
+    std::vector<std::pair<int, unsigned int>> textureCache;  // cacheKey -> GL texture ID
     bool initialized = false;
 };

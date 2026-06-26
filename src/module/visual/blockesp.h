@@ -29,21 +29,14 @@ public:
     void loadSettings(const json::Value& node) override;
 
     struct Settings {
-        // Block types
-        bool drawDiamond = true;
-        bool drawEmerald = true;
-        bool drawIron = true;
-        bool drawGold = true;
-        bool drawLapis = false;
-        bool drawRedstone = false;
-        bool drawCoal = false;
-        bool drawChests = true;
-
         // Visual settings
         float range = 20.0f;  // Scan radius in blocks
         int opacity = 35;     // 0-100%
         bool fadeWithDistance = true;
     } settings;
+
+    bool enabledBlockIds[256];
+    float blockColors[256][3];
 
 private:
     // Thread-safe block cache
@@ -69,6 +62,8 @@ private:
 
     // Get block color based on type
     void getBlockColor(int blockId, float* outColor);
+
+    void parseBlockColorEntry(const std::string& entry);
 };
 
 extern BlockESP* blockESP;
