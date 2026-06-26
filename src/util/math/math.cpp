@@ -51,16 +51,16 @@ Vector2 Math::getAngles(Vector3 pos, Vector3 pos1) {
     double d_z = pos1.z - pos.z;
 
     double hypothenuse = sqrt(d_x * d_x + d_z * d_z);
-    float yaw = radiantsToDeg(atan2(d_z, d_x)) - 90.f;
-    float pitch = radiantsToDeg(-atan2(d_y, hypothenuse));
+    float yaw = radiantsToDeg(static_cast<float>(atan2(d_z, d_x))) - 90.f;
+    float pitch = radiantsToDeg(static_cast<float>(-atan2(d_y, hypothenuse)));
 
     return Vector2(yaw, pitch);
 }
 
 float Math::radiantsToDeg(float x) {
-    return x * 180.f / PI;
+    return x * 180.f / static_cast<float>(PI);
 }
 
 float Math::degToRadiants(float x) {
-    return x * PI / 180.f;
+    return x * static_cast<float>(PI) / 180.f;
 }

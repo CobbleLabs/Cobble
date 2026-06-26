@@ -62,17 +62,24 @@ bool Init() {
             bool sdInit = SlowDownGate::Init(env);
             COBBLE_TRACE(sdInit ? "PacketInterceptor::Init: SlowDownGate::Init ok" : "PacketInterceptor::Init: SlowDownGate::Init failed");
 
-            // Only patch EntityLivingBase.onLivingUpdate (which injects a call to the
-            // SlowDownHook.onSlowDown native) once the native is actually registered.
-            // Otherwise the first ticking entity hits an unbound native and the JVM
-            // dies with UnsatisfiedLinkError on world join.
-            targets.slowdown = sdInit;
+            // DISABLED: patching EntityLivingBase.onLivingUpdate to call the
+            // SlowDownHook.onSlowDown native crashed the JVM on world join.
+            // Rewriting that large vanilla method requires patching its StackMapTable,
+            // and the injected invokestatic must resolve SlowDownHook across Lunar's
+            // class loader — both are fragile and brought the client down on server
+            // join. NoSlowDown does not need this: it applies movement every tick from
+            // NoSlowDown::onUpdate() (the module-loop fallback). The native bridge was
+            // only a low-latency supplement, so leaving it off costs nothing visible.
+            targets.slowdown = false;
             BytecodePatcher::SetTargets(targets);
 
             bool instHook = BytecodePatcher::InstallBytecodeHook(env);
             COBBLE_TRACE(instHook ? "PacketInterceptor::Init: InstallBytecodeHook ok" : "PacketInterceptor::Init: InstallBytecodeHook failed");
 
-            if (regHooks && sdInit && instHook) {
+            // interceptReady no longer depends on sdInit — the slowdown native is off,
+            // and NoItemRelease/Apollo/nametags must stay live regardless.
+            (void)sdInit;
+            if (regHooks && instHook) {
                 interceptReady = true;
             }
         }

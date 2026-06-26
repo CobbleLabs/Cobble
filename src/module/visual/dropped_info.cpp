@@ -1,4 +1,6 @@
+#ifndef IMGUI_DEFINE_MATH_OPERATORS
 #define IMGUI_DEFINE_MATH_OPERATORS
+#endif
 #include "dropped_info.h"
 #include "../../sdk/core/minecraft.h"
 #include "../../ui/widgets/widgets.hpp"

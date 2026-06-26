@@ -518,12 +518,12 @@ bool Clutch::place(const Placement& placement, int slot) {
 
 
     COBBLE_TRACE("Clutch::place sending right click");
-    HWND hwnd = GetForegroundWindow();
-    if (hwnd) {
-        mc.setRightClickDelay(0);
-        PostMessage(hwnd, WM_RBUTTONDOWN, MK_RBUTTON, 0);
-        PostMessage(hwnd, WM_RBUTTONUP, 0, 0);
-    }
+    // Drive the game's own right-click action instead of injecting OS-level mouse
+    // messages. The synthetic WM_RBUTTONDOWN/UP was unreliable (silently dropped
+    // whenever the window lacked foreground focus) and an obvious, easily-detected
+    // input pattern. rightClickMouse() runs the same path a real click would.
+    mc.setRightClickDelay(0);
+    mc.rightClickMouse();
     COBBLE_TRACE("Clutch::place right click sent");
     return true;
 }
@@ -723,12 +723,12 @@ void Clutch::onUpdate() {
 
     COBBLE_TRACE("Clutch::onUpdate checking nextPlaceMs_");
     const std::uint64_t now = nowMs();
-    if (nextPlaceMs_ == 0) {
-        const int baseDelay = std::clamp(settings.placeDelayMs, 40, 200);
-        const int jitter = static_cast<int>((now ^ (now >> 7u)) % 31u) - 8;
-        nextPlaceMs_ = now + static_cast<std::uint64_t>(std::max(30, baseDelay + jitter));
-    }
-
+    // Attempt the first save the instant danger is detected. The Place Delay used
+    // to run BEFORE the first attempt, so while already falling into the void you
+    // burned 40-200ms doing nothing — often the difference between clutching and
+    // dying. nextPlaceMs_ is 0 here on a fresh danger episode (resetPlacement()
+    // clears it), so the first attempt fires immediately; the delay only throttles
+    // BETWEEN placements once nextPlaceMs_ is set after a successful place() below.
     if (now < nextPlaceMs_) {
         COBBLE_TRACE("Clutch::onUpdate waiting nextPlaceMs");
         return;

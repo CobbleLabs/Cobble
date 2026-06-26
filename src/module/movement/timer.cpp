@@ -86,7 +86,7 @@ void TimerMod::onUpdate() {
 
     // Apply timer speed or reset to normal
     if (shouldApply) {
-        mc.setTimerSpeed(settings.speed);
+        mc.setTimerSpeed(static_cast<float>(settings.speed));
     } else {
         mc.setTimerSpeed(1.0f);
     }

@@ -1,4 +1,6 @@
+#ifndef IMGUI_DEFINE_MATH_OPERATORS
 #define IMGUI_DEFINE_MATH_OPERATORS
+#endif
 #include "menu.h"
 #include "../../cobble.hpp"
 #include "../../config/config.hpp"
