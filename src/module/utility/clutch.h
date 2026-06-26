@@ -27,6 +27,7 @@ public:
     } settings;
 
     bool hasSilentRotation = false;
+    bool silentRotationSent_ = false;
     float silentYaw = 0.0f;
     float silentPitch = 0.0f;
 

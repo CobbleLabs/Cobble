@@ -62,22 +62,34 @@ bool Init() {
             bool sdInit = SlowDownGate::Init(env);
             COBBLE_TRACE(sdInit ? "PacketInterceptor::Init: SlowDownGate::Init ok" : "PacketInterceptor::Init: SlowDownGate::Init failed");
 
-            // DISABLED: patching EntityLivingBase.onLivingUpdate to call the
-            // SlowDownHook.onSlowDown native crashed the JVM on world join.
-            // Rewriting that large vanilla method requires patching its StackMapTable,
-            // and the injected invokestatic must resolve SlowDownHook across Lunar's
-            // class loader — both are fragile and brought the client down on server
-            // join. NoSlowDown does not need this: it applies movement every tick from
-            // NoSlowDown::onUpdate() (the module-loop fallback). The native bridge was
-            // only a low-latency supplement, so leaving it off costs nothing visible.
-            targets.slowdown = false;
+            // Native slowdown bridge. This is the ONLY reliable no-slow path: the
+            // module-loop fallback (NoSlowDown::onUpdate) cannot hit the right
+            // window — EntityPlayerSP.onLivingUpdate resets MovementInput via
+            // updatePlayerMoveState() and EntityPlayer applies the 0.2x slowdown
+            // in the same call, microseconds before the move is consumed, so a
+            // 2ms async loop never lands between them. The bridge injects
+            // SlowDownHook.onSlowDown(this) into EntityLivingBase.onLivingUpdate
+            // and restores the movement at exactly that point.
+            //
+            // It was previously disabled after a crash on world join. Two things
+            // make re-enabling safe now: (1) SlowDownHook is defined in
+            // Java::ClassLoader, the SAME loader that loads net.minecraft.* incl.
+            // EntityLivingBase, so the injected invokestatic resolves in-namespace
+            // (no cross-loader NoClassDefFoundError); (2) the StackMapTable/exception
+            // rewrite is the same path already proven on NetworkManager.channelRead0,
+            // and if it ever emits bytecode the verifier rejects, RetransformClasses
+            // fails verification cleanly (logged, class left untouched) instead of
+            // crashing. Gate on sdInit so we never enable the injected call when the
+            // hook class itself failed to define.
+            targets.slowdown = sdInit;
             BytecodePatcher::SetTargets(targets);
 
             bool instHook = BytecodePatcher::InstallBytecodeHook(env);
             COBBLE_TRACE(instHook ? "PacketInterceptor::Init: InstallBytecodeHook ok" : "PacketInterceptor::Init: InstallBytecodeHook failed");
 
-            // interceptReady no longer depends on sdInit — the slowdown native is off,
-            // and NoItemRelease/Apollo/nametags must stay live regardless.
+            // interceptReady gates on the packet hooks (NoItemRelease/Apollo/nametags),
+            // not on the slowdown bridge — if the slowdown retransform fails, no-slow
+            // just won't work, but everything else must stay live.
             (void)sdInit;
             if (regHooks && instHook) {
                 interceptReady = true;

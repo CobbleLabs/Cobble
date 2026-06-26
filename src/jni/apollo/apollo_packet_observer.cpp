@@ -6,6 +6,7 @@
 #include <cctype>
 #include <cstdint>
 #include <cstring>
+#include <mutex>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -1212,9 +1213,23 @@ void SetDebugEntityEffects(bool enabled) {
     }
 }
 
+// Serializes the whole observer. The hook sits on NetworkManager.channelRead0,
+// which fires for EVERY NetworkManager instance — so on server transfers or
+// Lunar's secondary (Apollo) connection, this runs on multiple Netty IO threads
+// concurrently. All the function-local `static` std::unordered_map/set/string
+// state below (and the lazily-built reflection caches g_effAdd/g_equip/g_anim/…)
+// is otherwise unsynchronized; two threads mutating the same hashtable race its
+// bucket array and crash with a null-bucket deref during a rehash. This is
+// best-effort telemetry/team parsing, not latency-critical, so a single lock is
+// the cheap, correct fix. Lock order is always this → friendsManager.mutex_
+// (never the reverse), so it cannot deadlock with the main thread.
+static std::mutex g_onReceiveMutex;
+
 void JNICALL ApolloPacketObserver::NativeOnReceive(JNIEnv* env, jclass, jobject packet) {
     if (!packet)
         return;
+
+    std::lock_guard<std::mutex> receiveLock(g_onReceiveMutex);
 
     // Removed g_seenApolloSinceWorldChange - serial validation handles stale data
 
@@ -2127,9 +2142,13 @@ void JNICALL ApolloPacketObserver::NativeOnReceive(JNIEnv* env, jclass, jobject 
         std::vector<std::string> teamPlayers;
         if (playersCollection) {
             jclass cls_Collection = env->FindClass(OBFUSCATE_STRING("java/util/Collection").c_str());
-            jmethodID mid_size = env->GetMethodID(cls_Collection, OBFUSCATE_STRING("size").c_str(), OBFUSCATE_STRING("()I").c_str());
-            jmethodID mid_iterator = env->GetMethodID(cls_Collection, OBFUSCATE_STRING("iterator").c_str(),
-                                                      OBFUSCATE_STRING("()Ljava/util/Iterator;").c_str());
+            if (env->ExceptionCheck())
+                env->ExceptionClear();
+            // FindClass can return null on a Netty thread (class-loader context);
+            // GetMethodID with a null class dereferences null and crashes.
+            jmethodID mid_size = cls_Collection ? env->GetMethodID(cls_Collection, OBFUSCATE_STRING("size").c_str(), OBFUSCATE_STRING("()I").c_str()) : nullptr;
+            jmethodID mid_iterator = cls_Collection ? env->GetMethodID(cls_Collection, OBFUSCATE_STRING("iterator").c_str(),
+                                                      OBFUSCATE_STRING("()Ljava/util/Iterator;").c_str()) : nullptr;
             if (mid_size) {
                 playersCount = env->CallIntMethod(playersCollection, mid_size);
             }
@@ -2137,10 +2156,12 @@ void JNICALL ApolloPacketObserver::NativeOnReceive(JNIEnv* env, jclass, jobject 
                 jobject iterator = env->CallObjectMethod(playersCollection, mid_iterator);
                 if (iterator) {
                     jclass cls_Iterator = env->FindClass(OBFUSCATE_STRING("java/util/Iterator").c_str());
-                    jmethodID mid_hasNext = env->GetMethodID(cls_Iterator, OBFUSCATE_STRING("hasNext").c_str(),
-                                                            OBFUSCATE_STRING("()Z").c_str());
-                    jmethodID mid_next = env->GetMethodID(cls_Iterator, OBFUSCATE_STRING("next").c_str(),
-                                                         OBFUSCATE_STRING("()Ljava/lang/Object;").c_str());
+                    if (env->ExceptionCheck())
+                        env->ExceptionClear();
+                    jmethodID mid_hasNext = cls_Iterator ? env->GetMethodID(cls_Iterator, OBFUSCATE_STRING("hasNext").c_str(),
+                                                            OBFUSCATE_STRING("()Z").c_str()) : nullptr;
+                    jmethodID mid_next = cls_Iterator ? env->GetMethodID(cls_Iterator, OBFUSCATE_STRING("next").c_str(),
+                                                         OBFUSCATE_STRING("()Ljava/lang/Object;").c_str()) : nullptr;
                     while (mid_hasNext && mid_next && env->CallBooleanMethod(iterator, mid_hasNext)) {
                         jobject value = env->CallObjectMethod(iterator, mid_next);
                         if (value) {
@@ -2148,11 +2169,13 @@ void JNICALL ApolloPacketObserver::NativeOnReceive(JNIEnv* env, jclass, jobject 
                             env->DeleteLocalRef(value);
                         }
                     }
-                    env->DeleteLocalRef(cls_Iterator);
+                    if (cls_Iterator)
+                        env->DeleteLocalRef(cls_Iterator);
                     env->DeleteLocalRef(iterator);
                 }
             }
-            env->DeleteLocalRef(cls_Collection);
+            if (cls_Collection)
+                env->DeleteLocalRef(cls_Collection);
             env->DeleteLocalRef(playersCollection);
         }
 

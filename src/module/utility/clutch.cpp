@@ -45,6 +45,18 @@ constexpr std::array<Direction, 6> kDirections = {
     Direction{1, 0, 0}, Direction{-1, 0, 0}, Direction{0, 1, 0},
     Direction{0, -1, 0}, Direction{0, 0, 1}, Direction{0, 0, -1}};
 
+// One tick of vanilla 1.8 player physics: advance by velocity, then apply air
+// drag (0.91 horizontal) and gravity (vertical -0.08, then 0.98 damping).
+// Shared by the void-danger prediction so it stays in sync with the visual path.
+inline void stepPhysics(double& x, double& y, double& z, double& mx, double& my, double& mz) {
+    x += mx;
+    y += my;
+    z += mz;
+    mx *= 0.91;
+    mz *= 0.91;
+    my = (my - 0.08) * 0.98;
+}
+
 jclass g_C03PacketPlayer = nullptr;
 jfieldID g_fid_yaw = nullptr;
 jfieldID g_fid_pitch = nullptr;
@@ -113,7 +125,7 @@ void Clutch::onEnable() {
     lastSetYaw_ = 0.0f;
     lastSetPitch_ = 0.0f;
     hasSilentRotation = false;
-
+    silentRotationSent_ = false;
 }
 
 void Clutch::restoreSlot() {
@@ -129,6 +141,7 @@ void Clutch::resetPlacement() {
     lastSetYaw_ = 0.0f;
     lastSetPitch_ = 0.0f;
     hasSilentRotation = false;
+    silentRotationSent_ = false;
 
     {
         std::lock_guard<std::mutex> lock(pathMutex_);
@@ -385,14 +398,44 @@ bool Clutch::place(const Placement& placement, int slot) {
         const float originalYaw = player.getYaw();
         const float originalPitch = player.getPitch();
 
-        // Lock silent rotation for outgoing movement packets
-        silentYaw = targetYaw;
-        silentPitch = targetPitch;
+        // Quantize the placement aim onto the client's mouse-movement grid.
+        // Raw atan2 angles are arbitrary floats; a real mouse can only ever
+        // produce rotation deltas that are integer multiples of the GCD
+        // (= (sensitivity*0.6+0.2)^3 * 1.2). The server's AimModulo360 check
+        // flags any packet whose yaw/pitch delta from the previous one isn't a
+        // multiple of that GCD — which is exactly why the old raw silent aim
+        // tripped it and the server rejected the placement (ghost blocks).
+        // Quantizing relative to the player's real current rotation keeps both
+        // this injected delta AND the player's later real-mouse deltas on the
+        // same grid, so the whole sequence stays valid.
+        float quantYaw = targetYaw;
+        float quantPitch = targetPitch;
+        const float sensitivity = mc.getMouseSensitivity();
+        const float gcdFactor = sensitivity * 0.6f + 0.2f;
+        const float gcd = gcdFactor * gcdFactor * gcdFactor * 1.2f;
+        if (gcd > 0.0001f) {
+            const float diffYaw = wrapDegrees(targetYaw - originalYaw);
+            const float diffPitch = wrapDegrees(targetPitch - originalPitch);
+            quantYaw = originalYaw + std::round(diffYaw / gcd) * gcd;
+            quantPitch = originalPitch + std::round(diffPitch / gcd) * gcd;
+        }
+        quantPitch = std::clamp(quantPitch, -90.0f, 90.0f);
+
+        // Stage and ARM the silent rotation. From here until the danger passes
+        // (resetPlacement disarms it), every NATURAL outgoing movement packet has
+        // its yaw/pitch rewritten to this aim in onOutgoingPacket. We do NOT emit
+        // a separate C05PacketPlayerLook: that extra flying packet is a second
+        // rotation packet in the same tick and is exactly what trips the server's
+        // BadPackets (duplicate / order) checks. Riding the natural packet keeps
+        // us at one flying packet per tick, like vanilla.
+        silentYaw = quantYaw;
+        silentPitch = quantPitch;
         hasSilentRotation = true;
 
-        // Temporarily set client-side rotation to calculate raycast/placement
-        player.setYaw(targetYaw);
-        player.setPitch(targetPitch);
+        // Drive the local raycast with the SAME quantized rotation we will send,
+        // so the client-side hit test matches what the server validates.
+        player.setYaw(quantYaw);
+        player.setPitch(quantPitch);
 
         // Update raytrace
         mc.updateMouseOver();
@@ -403,29 +446,24 @@ bool Clutch::place(const Placement& placement, int slot) {
             static_cast<int>(std::floor(targeted.y)) == placement.supportY &&
             static_cast<int>(std::floor(targeted.z)) == placement.supportZ) {
 
-            if (originalSlot_ < 0)
-                originalSlot_ = player.getCurrentSlot();
-            if (player.getCurrentSlot() != slot)
-                player.setCurrentSlot(slot);
+            // Only fire the placement once a real movement packet has actually
+            // carried the silent aim to the server. The server validates the C08
+            // block-placement packet (InteractionRaytrace) against the LAST
+            // rotation it received, so right-clicking before any flying packet
+            // has shipped the aim gets the placement rejected and the block
+            // rolled back (the ghost-block symptom). silentRotationSent_ is set
+            // in onOutgoingPacket when the rewrite first lands; until then we
+            // keep the aim armed and simply wait a tick — no extra packet.
+            if (silentRotationSent_) {
+                if (originalSlot_ < 0)
+                    originalSlot_ = player.getCurrentSlot();
+                if (player.getCurrentSlot() != slot)
+                    player.setCurrentSlot(slot);
 
-            // Send look packet immediately before placement so server raytrace check (InteractionRaytrace) succeeds
-            JNIEnv* env = Java::Env();
-            jclass lookClass = nullptr;
-            if (env && Java::AssignClass("net.minecraft.network.play.client.C03PacketPlayer$C05PacketPlayerLook", lookClass)) {
-                jmethodID ctor = env->GetMethodID(lookClass, "<init>", "(FFZ)V");
-                if (ctor) {
-                    jobject packet = env->NewObject(lookClass, ctor, targetYaw, targetPitch, player.isOnGround() ? JNI_TRUE : JNI_FALSE);
-                    if (packet) {
-                        mc.sendPacket(packet);
-                        env->DeleteLocalRef(packet);
-                    }
-                }
-                env->DeleteLocalRef(lookClass);
+                mc.setRightClickDelay(0);
+                mc.rightClickMouse();
+                placed = true;
             }
-
-            mc.setRightClickDelay(0);
-            mc.rightClickMouse();
-            placed = true;
         }
 
         // Restore visual client rotation immediately
@@ -541,11 +579,14 @@ void Clutch::onOutgoingPacket(JNIEnv* env, jobject packet) {
 
             if (env->ExceptionCheck()) env->ExceptionClear();
 
-            hasSilentRotation = false;
+            // A real movement packet has now carried the placement aim to the
+            // server, so place() may right-click. Do NOT disarm hasSilentRotation
+            // here: keep rewriting every flying packet for the whole clutch
+            // window (resetPlacement disarms when danger passes) so the server's
+            // last-seen rotation is always the placement aim when the C08 lands.
+            silentRotationSent_ = true;
         }
     }
-
-
 }
 
 void Clutch::onUpdate() {
@@ -683,14 +724,8 @@ void Clutch::onUpdate() {
     }
     COBBLE_TRACE("Clutch::onUpdate computing prediction");
     const int ticks = std::clamp((settings.predictionMs + 49) / 50, 2, 12);
-    for (int tick = 0; tick < ticks; ++tick) {
-        x += motionX;
-        y += motionY;
-        z += motionZ;
-        motionX *= 0.91;
-        motionZ *= 0.91;
-        motionY = (motionY - 0.08) * 0.98;
-    }
+    for (int tick = 0; tick < ticks; ++tick)
+        stepPhysics(x, y, z, motionX, motionY, motionZ);
 
     COBBLE_TRACE("Clutch::onUpdate before isDangerous");
     if (!isDangerous(x, y, z)) {
@@ -704,12 +739,16 @@ void Clutch::onUpdate() {
     if (!isPlacementUsable(activePlacement_)) {
         const std::uint64_t now = nowMs();
         if (now >= nextSearchMs_) {
+            // Primary: a block under the predicted landing spot.
             activePlacement_ = findPlacement(x, y, z);
-            if (!activePlacement_.valid) {
-                nextSearchMs_ = now + 50u;
-            } else {
-                nextSearchMs_ = 0;
-            }
+            // Emergency: if nothing reachable was found near the predicted landing
+            // — which sits far below you when falling fast or straight down — look
+            // for any reachable block around the player's CURRENT position. This is
+            // the "slap a block under your feet right now" save that catches ledge
+            // missteps the look-ahead search keeps out of reach.
+            if (!activePlacement_.valid)
+                activePlacement_ = findPlacement(player.getPosX(), player.getPosY(), player.getPosZ());
+            nextSearchMs_ = activePlacement_.valid ? 0 : now + 50u;
         }
     }
     {
@@ -747,6 +786,13 @@ void Clutch::onUpdate() {
         nextPlaceMs_ = now + static_cast<std::uint64_t>(std::max(30, baseDelay + jitter));
     } else {
         COBBLE_TRACE("Clutch::onUpdate place failure");
+        // Throttle failed attempts. onUpdate runs every ~2ms, so without a
+        // cooldown a placement that keeps missing (raytrace not lined up yet,
+        // rotation still converging) re-ran place() ~500x/second — hammering
+        // the raytrace and, on the old explicit-look path, flooding outgoing
+        // packets. A short delay keeps the save responsive (~30 tries/sec)
+        // while the danger window (hundreds of ms) stays comfortably covered.
+        nextPlaceMs_ = now + 30u;
     }
 }
 
