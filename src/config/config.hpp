@@ -126,6 +126,53 @@ public:
     bool loadUserConfig(const std::string& name, std::string* err = nullptr);
     bool deleteUserConfig(const std::string& name, std::string* err = nullptr);
 
+    // Public / shareable configs.
+    //
+    // A public config is a portable snapshot of *gameplay* settings only. It
+    // deliberately excludes anything personal or identifying:
+    //   - per-module keybinds (a personal preference)
+    //   - the friends list (identifies people the user knows)
+    //   - AltManager's spoofed name (the user's own identity)
+    //
+    // Import is non-destructive and never toggles modules: it applies each
+    // module's settings via Module::loadSettings() but leaves enabled/keybind
+    // untouched, so previewing someone else's config can't suddenly switch on
+    // combat modules. The transport (upload/browse/download) lives in
+    // cobble-server; these two methods are the client-side hooks it drives.
+    std::string exportPublicConfig();
+    bool importPublicConfig(const std::string& jsonStr, std::string* err = nullptr);
+
+    // ─── Public-config browse/transport (async, UI-driven) ─────────────────
+    //
+    // Network calls run on detached threads (WinHTTP blocks up to 5s) and write
+    // their results into browseState_ under browseMutex_. The Configs page polls
+    // getBrowseState() every frame — same poll pattern as the user-config list.
+    struct PublicConfigEntry {
+        std::string id;
+        std::string owner;
+        std::string name;
+        std::string description;
+        int downloads = 0;
+    };
+    struct BrowseState {
+        enum Status { Idle, Loading, Ready, Error };
+        Status status = Idle;
+        std::vector<PublicConfigEntry> entries;
+        std::string message;  // error text or last action result
+    };
+
+    // Snapshot the current browse state for rendering (thread-safe copy).
+    BrowseState getBrowseState() const {
+        std::lock_guard<std::mutex> lock(browseMutex_);
+        return browseState_;
+    }
+
+    // Fire-and-forget async actions. Each spawns a detached worker; the UI
+    // observes progress/result through getBrowseState().
+    void publishPublicConfigAsync(const std::string& name, const std::string& description);
+    void refreshPublicConfigsAsync();
+    void downloadAndApplyPublicConfigAsync(const std::string& id);
+
     // Get current config as JSON (for debugging)
     std::string getConfigJson() const {
         std::lock_guard<std::mutex> lock(configMutex_);
@@ -495,7 +542,16 @@ private:
     void buildConfigFromModules();
     void migrateConfig(int fromVersion);
 
+    // Verify a {payload_b64, sig_b64} Ed25519 envelope from the server and
+    // parse the inner payload into outPayload. Returns false on any tamper /
+    // parse failure. Shared by the public-config workers.
+    bool verifySignedEnvelope(const std::string& responseBody, json::Value& outPayload);
+
     static constexpr int CONFIG_VERSION = 1;
+
+    // Public-config schema version. Bumped independently of CONFIG_VERSION
+    // because the shareable format evolves separately from the on-disk one.
+    static constexpr int PUBLIC_CONFIG_VERSION = 1;
 
     mutable std::mutex configMutex_;
     mutable std::mutex fileWriteMutex_;
@@ -507,6 +563,10 @@ private:
     std::atomic<bool> pendingSync_{false};
     std::atomic<bool> syncRunning_{true};
     std::chrono::steady_clock::time_point lastChangeTime_;
+
+    // Public-config browse state (written by detached workers, read by UI).
+    mutable std::mutex browseMutex_;
+    BrowseState browseState_;
 
     void loadSessionToken() {
         if (configPath_.empty())

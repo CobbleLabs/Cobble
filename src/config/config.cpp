@@ -1,6 +1,7 @@
 #include "config.hpp"
 #include "../module/module.h"
 #include "../module/module_manager.h"
+#include "../security/session_validator.hpp"
 #include "../ui/hud/arraylist.h"
 #include "../ui/hud/notifications.h"
 #include "../ui/menu/menu.h"
@@ -236,7 +237,282 @@ bool ConfigManager::deleteUserConfig(const std::string& name, std::string* err) 
     return true;
 }
 
-// Apply default config (used when no config file exists)
+// Serialize a portable, shareable snapshot of gameplay settings only.
+// Reuses buildConfigFromModules() for a fresh snapshot, then copies the
+// module nodes while stripping the three personal fields: per-module
+// "keybind", AltManager's "spoofedName", and the whole top-level "friends"
+// block (excluded simply by never copying it). "enabled" is kept in the
+// payload but import ignores it — see importPublicConfig().
+std::string ConfigManager::exportPublicConfig() {
+    // Refresh config_ from live module state (locks configMutex_ internally).
+    buildConfigFromModules();
+
+    std::lock_guard<std::mutex> lock(configMutex_);
+
+    json::Value pub;
+    pub["version"] = PUBLIC_CONFIG_VERSION;
+
+    if (config_.has("modules")) {
+        const auto& modules = config_["modules"].object();
+        for (const auto& kv : modules) {
+            json::Value node = kv.second;  // deep copy of this module's node
+            node.object().erase("keybind");
+            if (kv.first == "AltManager")
+                node.object().erase("spoofedName");
+            pub["modules"][kv.first] = node;
+        }
+    }
+
+    return pub.serialize();
+}
+
+// Apply a public config received as a JSON string. Non-destructive: applies
+// each module's own settings via loadSettings() but NEVER touches enabled or
+// keybind, so importing someone else's config can't switch combat modules on
+// or remap the user's keys. Parsed through sehParse() because the input is
+// untrusted (it comes from another user / the server).
+bool ConfigManager::importPublicConfig(const std::string& jsonStr, std::string* err) {
+    if (!moduleManager) {
+        if (err)
+            *err = "Modules not ready";
+        return false;
+    }
+
+    json::Value parsed;
+    if (!sehParse(jsonStr, parsed)) {
+        if (err)
+            *err = "Failed to parse config";
+        return false;
+    }
+
+    if (!parsed.has("modules") || !parsed["modules"].is_object()) {
+        if (err)
+            *err = "Not a valid public config";
+        return false;
+    }
+
+    const auto& modules = parsed["modules"].object();
+    int applied = 0;
+    for (const auto& kv : modules) {
+        const std::string& name = kv.first;
+        for (auto* mod : moduleManager->getModules()) {
+            if (std::string(mod->name) != name)
+                continue;
+            // Settings only — enabled/keybind are intentionally left as-is.
+            mod->loadSettings(kv.second);
+            applied++;
+            break;
+        }
+    }
+
+    if (applied == 0) {
+        if (err)
+            *err = "No matching modules in config";
+        return false;
+    }
+
+    // Persist the merged result and sync like any other setting change.
+    onSettingChanged();
+    return true;
+}
+
+// Verify a server {payload_b64, sig_b64} envelope and parse the inner payload.
+// Mirrors the verification in fetchServerConfig(): Ed25519 over the raw payload
+// bytes with the build-time public key. Any tamper/parse failure returns false.
+bool ConfigManager::verifySignedEnvelope(const std::string& responseBody, json::Value& outPayload) {
+    json::Value envelope;
+    if (!json::Parser::parse(responseBody, envelope))
+        return false;
+
+    std::string payloadB64 = envelope["payload_b64"].as_string("");
+    std::string sigB64 = envelope["sig_b64"].as_string("");
+    if (payloadB64.empty() || sigB64.empty())
+        return false;
+
+    auto payloadBytes = b64decode(payloadB64);
+    auto sigBytes = b64decode(sigB64);
+    if (payloadBytes.empty() || sigBytes.size() != 64)
+        return false;
+
+    uint8_t pubkey[32];
+    cobble_keys::GetPublicKey(pubkey);
+    bool sigOk = tweetnacl::verify(sigBytes.data(), payloadBytes.data(), payloadBytes.size(), pubkey);
+    SecureZeroMemory(pubkey, 32);
+    if (!sigOk)
+        return false;
+
+    return json::Parser::parse(std::string(payloadBytes.begin(), payloadBytes.end()), outPayload);
+}
+
+// Publish the current gameplay settings as a named public config. Builds the
+// stripped payload on the calling side, then POSTs on a detached worker so the
+// UI never blocks on WinHTTP.
+void ConfigManager::publishPublicConfigAsync(const std::string& name, const std::string& description) {
+    // Use the live handshake session token (rotates each heartbeat), NOT the
+    // cloud-sync token in sessionToken_ — that one is opt-in and often empty.
+    std::string hwid = SessionValidator::snapshotToken(SessionValidator::g_HWID);
+    std::string token = SessionValidator::snapshotToken(SessionValidator::g_SessionToken);
+    if (hwid.empty() || token.empty()) {
+        std::lock_guard<std::mutex> lock(browseMutex_);
+        browseState_.status = BrowseState::Error;
+        browseState_.message = "Not signed in";
+        return;
+    }
+
+    std::string publicJson = exportPublicConfig();
+    {
+        std::lock_guard<std::mutex> lock(browseMutex_);
+        browseState_.status = BrowseState::Loading;
+        browseState_.message = "Publishing...";
+    }
+
+    std::string body = "{\"hwid\":\"" + http::json_escape(hwid) + "\",\"token\":\"" +
+                       http::json_escape(token) + "\",\"name\":\"" + http::json_escape(name) +
+                       "\",\"description\":\"" + http::json_escape(description) + "\",\"config\":" + publicJson + "}";
+
+    std::thread([this, body] {
+        auto response = http::post(cobble_config::GetServerHostW().c_str(), CONFIG_SERVER_PORT,
+                                   OBFUSCATE_WSTRING(L"/api/configs/public/publish").c_str(), body, true);
+
+        json::Value payload;
+        bool verified = response.success && verifySignedEnvelope(response.body, payload);
+        bool ok = verified && payload["success"].as_bool(false);
+
+        {
+            std::lock_guard<std::mutex> lock(browseMutex_);
+            browseState_.status = ok ? BrowseState::Ready : BrowseState::Error;
+            if (ok)
+                browseState_.message = "Published";
+            else if (!response.success)
+                browseState_.message = "Publish failed (HTTP " + std::to_string(response.statusCode) + ")";
+            else if (!verified)
+                browseState_.message = "Publish failed (bad signature)";
+            else
+                browseState_.message = "Publish rejected: " + payload["message"].as_string("server error");
+        }
+
+        // Show the freshly-published config in the list right away.
+        if (ok)
+            refreshPublicConfigsAsync();
+    }).detach();
+}
+
+// Fetch the public-config browse list. Result lands in browseState_.entries.
+void ConfigManager::refreshPublicConfigsAsync() {
+    std::string hwid = SessionValidator::snapshotToken(SessionValidator::g_HWID);
+    std::string token = SessionValidator::snapshotToken(SessionValidator::g_SessionToken);
+    if (hwid.empty() || token.empty()) {
+        std::lock_guard<std::mutex> lock(browseMutex_);
+        browseState_.status = BrowseState::Error;
+        browseState_.message = "Not signed in";
+        return;
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(browseMutex_);
+        browseState_.status = BrowseState::Loading;
+        browseState_.message = "Loading...";
+    }
+
+    std::string body =
+        "{\"hwid\":\"" + http::json_escape(hwid) + "\",\"token\":\"" + http::json_escape(token) + "\"}";
+
+    std::thread([this, body] {
+        auto response = http::post(cobble_config::GetServerHostW().c_str(), CONFIG_SERVER_PORT,
+                                   OBFUSCATE_WSTRING(L"/api/configs/public/list").c_str(), body, true);
+
+        json::Value payload;
+        bool verified = response.success && verifySignedEnvelope(response.body, payload);
+        bool ok = verified && payload["success"].as_bool(false);
+
+        std::lock_guard<std::mutex> lock(browseMutex_);
+        if (!ok) {
+            browseState_.status = BrowseState::Error;
+            if (!response.success)
+                browseState_.message = "Load failed (HTTP " + std::to_string(response.statusCode) + ")";
+            else if (!verified)
+                browseState_.message = "Load failed (bad signature)";
+            else
+                browseState_.message = "Load rejected: " + payload["message"].as_string("server error");
+            return;
+        }
+
+        browseState_.entries.clear();
+        if (payload.has("configs")) {
+            // Server sends an object keyed "0","1",... (client JSON has no arrays).
+            for (const auto& kv : payload["configs"].object()) {
+                const json::Value& e = kv.second;
+                PublicConfigEntry entry;
+                entry.id = e["id"].as_string("");
+                entry.owner = e["owner"].as_string("");
+                entry.name = e["name"].as_string("");
+                entry.description = e["description"].as_string("");
+                entry.downloads = e["downloads"].as_int(0);
+                if (!entry.id.empty())
+                    browseState_.entries.push_back(std::move(entry));
+            }
+        }
+        // Most-downloaded first (map iteration order is unspecified).
+        std::sort(browseState_.entries.begin(), browseState_.entries.end(),
+                  [](const PublicConfigEntry& a, const PublicConfigEntry& b) { return a.downloads > b.downloads; });
+
+        browseState_.status = BrowseState::Ready;
+        browseState_.message = browseState_.entries.empty() ? "No configs found" : "";
+    }).detach();
+}
+
+// Download one public config by id and apply it via importPublicConfig (which
+// never toggles modules). Result/message lands in browseState_.
+void ConfigManager::downloadAndApplyPublicConfigAsync(const std::string& id) {
+    std::string hwid = SessionValidator::snapshotToken(SessionValidator::g_HWID);
+    std::string token = SessionValidator::snapshotToken(SessionValidator::g_SessionToken);
+    if (hwid.empty() || token.empty() || id.empty()) {
+        std::lock_guard<std::mutex> lock(browseMutex_);
+        browseState_.status = BrowseState::Error;
+        browseState_.message = "Not signed in";
+        return;
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(browseMutex_);
+        browseState_.status = BrowseState::Loading;
+        browseState_.message = "Downloading...";
+    }
+
+    std::string body = "{\"hwid\":\"" + http::json_escape(hwid) + "\",\"token\":\"" +
+                       http::json_escape(token) + "\",\"id\":\"" + http::json_escape(id) + "\"}";
+
+    std::thread([this, body] {
+        auto response = http::post(cobble_config::GetServerHostW().c_str(), CONFIG_SERVER_PORT,
+                                   OBFUSCATE_WSTRING(L"/api/configs/public/get").c_str(), body, true);
+
+        json::Value payload;
+        bool verified = response.success && verifySignedEnvelope(response.body, payload);
+        bool ok = verified && payload["success"].as_bool(false);
+
+        std::string resultMsg;
+        if (ok) {
+            std::string cfg = payload["config"].as_string("");
+            std::string err;
+            if (importPublicConfig(cfg, &err))
+                resultMsg = "Applied: " + payload["name"].as_string("config");
+            else
+                resultMsg = "Apply failed: " + err;
+        } else if (!response.success) {
+            resultMsg = "Download failed (HTTP " + std::to_string(response.statusCode) + ")";
+        } else if (!verified) {
+            resultMsg = "Download failed (bad signature)";
+        } else {
+            resultMsg = "Download rejected: " + payload["message"].as_string("server error");
+        }
+
+        std::lock_guard<std::mutex> lock(browseMutex_);
+        browseState_.status = ok ? BrowseState::Ready : BrowseState::Error;
+        browseState_.message = resultMsg;
+    }).detach();
+}
+
+
 void ConfigManager::applyDefaults() {
     COBBLE_TRACE("applyDefaults:enter");
     std::lock_guard<std::mutex> lock(configMutex_);

@@ -387,6 +387,29 @@ static void renderConfigsPage() {
         }
     }
 
+    // View toggle: Local vs Public. Only one renders at a time so the single
+    // two_column fills the page height normally (stacking two would push the
+    // second off-screen, since two_column expands to all available height).
+    static int configView = 0;  // 0 = local, 1 = public
+    static int prevConfigView = -1;
+    {
+        float halfW = (ImGui::GetContentRegionAvail().x - GImGui->Style.ItemSpacing.x) / 2;
+        auto viewBtn = [&](const char* label, int idx) {
+            bool active = (configView == idx);
+            if (active)
+                ImGui::PushStyleColor(ImGuiCol_Button, GetSchemeColor());
+            if (ImGui::Button(label, ImVec2(halfW, 0)))
+                configView = idx;
+            if (active)
+                ImGui::PopStyleColor();
+        };
+        viewBtn("Local", 0);
+        ImGui::SameLine();
+        viewBtn("Public", 1);
+    }
+    ImGui::Spacing();
+
+    if (configView == 0)
     ui::two_column(
         "Saved",
         [&]() {
@@ -448,6 +471,99 @@ static void renderConfigsPage() {
                 } else {
                     NotificationManager::addSystem("Error: " + (err.empty() ? std::string("delete failed") : err));
                 }
+            }
+        });
+
+    // ── Public configs (browse / publish / apply) ─────────────────────────
+    static char pubNameBuf[64] = "";
+    static char pubDescBuf[128] = "";
+    static int pubSelected = -1;
+    static double pubLastPoll = 0.0;
+    constexpr double kPubPollIntervalSec = 15.0;
+
+    // Fetch the list when entering the Public view, then poll periodically so
+    // configs published by others show up without manual refresh.
+    if (configView == 1 && prevConfigView != 1) {
+        ConfigManager::get().refreshPublicConfigsAsync();
+        pubLastPoll = ImGui::GetTime();
+    }
+    prevConfigView = configView;
+
+    if (configView != 1)
+        return;
+
+    if (ImGui::GetTime() - pubLastPoll >= kPubPollIntervalSec) {
+        ConfigManager::get().refreshPublicConfigsAsync();
+        pubLastPoll = ImGui::GetTime();
+    }
+
+    auto browse = ConfigManager::get().getBrowseState();
+
+    ui::two_column(
+        "Browse Public",
+        [&]() {
+            // List fills the panel down to the bottom; reserve a few lines for
+            // the description only when an entry is selected (keeps layout
+            // stable when nothing is selected).
+            bool hasSel = (pubSelected >= 0 && pubSelected < (int)browse.entries.size());
+            float reserve = hasSel ? ui::s(72) : 0.0f;
+            float listH = ImGui::GetContentRegionAvail().y - reserve;
+            if (listH < ui::s(60))
+                listH = ui::s(60);
+            if (ImGui::BeginListBox("##pubconfiglist", ImVec2(ImGui::GetContentRegionAvail().x, listH))) {
+                for (int i = 0; i < (int)browse.entries.size(); i++) {
+                    const auto& e = browse.entries[i];
+                    std::string label = e.name + "  by " + e.owner + "  (" + std::to_string(e.downloads) + ")";
+                    if (ImGui::Selectable(label.c_str(), i == pubSelected))
+                        pubSelected = i;
+                }
+                ImGui::EndListBox();
+            }
+            // Description of the highlighted entry.
+            if (hasSel) {
+                ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetColorU32(ImGuiCol_TextDisabled));
+                ImGui::TextWrapped("%s", browse.entries[pubSelected].description.c_str());
+                ImGui::PopStyleColor();
+            }
+        },
+        "Share",
+        [&]() {
+            if (ImGui::Button("Refresh", ImVec2(ImGui::GetContentRegionAvail().x, 0)))
+                ConfigManager::get().refreshPublicConfigsAsync();
+
+            bool busy = (browse.status == ConfigManager::BrowseState::Loading);
+            if (ImGui::Button("Apply Selected", ImVec2(ImGui::GetContentRegionAvail().x, 0)) && !busy) {
+                if (pubSelected >= 0 && pubSelected < (int)browse.entries.size())
+                    ConfigManager::get().downloadAndApplyPublicConfigAsync(browse.entries[pubSelected].id);
+                else
+                    NotificationManager::addSystem("Error: select a config");
+            }
+
+            ImGui::Spacing();
+            ImGui::Separator();
+            ImGui::Spacing();
+
+            ImGui::Text("Publish current settings");
+            ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
+            ImGui::InputTextWithHint("##pubname", "Name", pubNameBuf, sizeof(pubNameBuf));
+            ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
+            ImGui::InputTextWithHint("##pubdesc", "Description", pubDescBuf, sizeof(pubDescBuf));
+            if (ImGui::Button("Publish", ImVec2(ImGui::GetContentRegionAvail().x, 0)) && !busy) {
+                if (pubNameBuf[0] == '\0') {
+                    NotificationManager::addSystem("Error: enter a name");
+                } else {
+                    ConfigManager::get().publishPublicConfigAsync(pubNameBuf, pubDescBuf);
+                }
+            }
+
+            // Status line from the async worker.
+            if (!browse.message.empty()) {
+                ImGui::Spacing();
+                bool isErr = (browse.status == ConfigManager::BrowseState::Error);
+                ImGui::PushStyleColor(ImGuiCol_Text, isErr ? IM_COL32(255, 90, 90, 255)
+                                                           : ImGui::GetColorU32(ImGuiCol_TextDisabled));
+                ImGui::TextWrapped("%s", browse.message.c_str());
+                ImGui::PopStyleColor();
             }
         });
 }
