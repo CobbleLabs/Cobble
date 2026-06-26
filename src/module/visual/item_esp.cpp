@@ -103,6 +103,10 @@ static const MinecraftItem ALL_MINECRAFT_ITEMS[] = {
 
 ItemESP::ItemESP() : Module("ItemESP") {
     keybind = 0;
+    // Mark as a rendering module so the overlay keeps drawing ImGui frames while
+    // the menu is closed. Without this, hasRenderWork() returns false and the
+    // overlay skips the whole frame, so the ESP box only showed with the GUI open.
+    renders = true;
     settings.box = true;
     settings.filled = true;
     settings.outline = true;
@@ -257,7 +261,10 @@ void ItemESP::onRender() {
     if (!RenderData::updated) return;
     if (GetTickCount64() - lastUpdateTick > 300) return;
 
-    ImDrawList* draw = ImGui::GetWindowDrawList();
+    // Background draw list renders every frame regardless of whether an ImGui
+    // window is active. GetWindowDrawList() only draws reliably while the menu
+    // is open, which made the boxes flicker on/off when the GUI was closed.
+    ImDrawList* draw = ImGui::GetBackgroundDrawList();
     if (!draw) return;
 
     std::vector<ItemEntityInfo> localCache;
@@ -370,8 +377,6 @@ void ItemESP::onRender() {
 }
 
 void ItemESP::onRenderMenu() {
-    bool prevBox2D = settings.box;
-    bool prevBox3D = settings.box3D;
     bool enabledValue = enabled;
 
     ui::two_column(
@@ -455,8 +460,16 @@ void ItemESP::onRenderMenu() {
                 }
             }
             ImGui::Spacing();
-            ui::Checkbox("Box 2D", &settings.box);
-            ui::Checkbox("Box 3D", &settings.box3D);
+            // Box 2D / Box 3D act like radio buttons: enabling one disables the
+            // other. Done inline on the click so the switch is immediate and
+            // always leaves a consistent state (the old prev-flag logic could
+            // leave both off, which looked like the box "not working").
+            if (ui::Checkbox("Box 2D", &settings.box)) {
+                if (settings.box) settings.box3D = false;
+            }
+            if (ui::Checkbox("Box 3D", &settings.box3D)) {
+                if (settings.box3D) settings.box = false;
+            }
             ui::Checkbox("Filled", &settings.filled);
             ui::Checkbox("Outline", &settings.outline);
             ui::Checkbox("Show Quantity", &settings.showQuantity);
@@ -468,9 +481,6 @@ void ItemESP::onRenderMenu() {
             ui::color("Fill Color", settings.filledColor);
             ui::color("Outline Color", settings.outlineColor);
         });
-
-    if (settings.box && !prevBox2D) settings.box3D = false;
-    if (settings.box3D && !prevBox3D) settings.box = false;
 }
 
 std::string ItemESP::getDisplayInfo() {

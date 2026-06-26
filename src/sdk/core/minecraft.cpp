@@ -195,7 +195,12 @@ std::vector<ItemEntityInfo> Minecraft::getItemEntityList() {
              jobject itemStack = env->CallObjectMethod(entity, JniCache::mid_getEntityItem);
              if (itemStack) {
                  ItemEntityInfo info;
-                 info.instance = entity; // Caller must delete
+                 // We extract everything we need below and never use the entity
+                 // ref afterwards, so don't keep it — holding the local ref every
+                 // tick overflows the JNI local reference table (~512) within ~1s
+                 // and makes getItemEntityList start returning empty, which shows
+                 // up as the ESP box flickering on/off. Deleted before continue.
+                 info.instance = nullptr;
 
                  // Position
                  if (JniCache::fid_posX) info.posX = env->GetDoubleField(entity, JniCache::fid_posX);
@@ -227,11 +232,12 @@ std::vector<ItemEntityInfo> Minecraft::getItemEntityList() {
                  }
                  
                  env->DeleteLocalRef(itemStack);
+                 env->DeleteLocalRef(entity); // done with it — avoid local ref leak
                  result.push_back(info);
-                 continue; // entity ownership passed to info
+                 continue;
              }
         }
-        
+
         // If we reached here, we didn't use the entity
         env->DeleteLocalRef(entity);
     }

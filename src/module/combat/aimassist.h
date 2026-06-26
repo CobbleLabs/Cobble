@@ -73,6 +73,18 @@ public:
         DIAMOND   = 6,
     };
 
+    // Multi-select armor filter: a bitmask of tiers to target. A player matches
+    // if ANY of their armor pieces is one of the checked tiers (ARMOR_NO_ARMOR
+    // matches players wearing nothing). 0 = no restriction (target everyone).
+    enum ArmorTierBit {
+        ARMOR_NO_ARMOR = 1 << 0,  // players wearing NO armor
+        ARMOR_LEATHER  = 1 << 1,
+        ARMOR_CHAIN    = 1 << 2,
+        ARMOR_IRON     = 1 << 3,
+        ARMOR_GOLD     = 1 << 4,
+        ARMOR_DIAMOND  = 1 << 5,
+    };
+
     struct Settings {
         bool horizontalOnly = true;
         bool invisibles = false;
@@ -93,7 +105,8 @@ public:
         float jitterPercent = 0.0f;
         int reactionTime = 50;  // ms
 
-        ArmorFilter armorFilter = ArmorFilter::ANY;  // Armor tier filter
+        ArmorFilter armorFilter = ArmorFilter::ANY;  // Legacy single-select (kept for config migration)
+        int armorTierMask = 0;                       // Multi-select bitmask of ArmorTierBit (0 = no restriction)
         bool armorFilterEnabled = true;              // Master toggle for the armor filter (key-toggleable)
         int armorFilterKeybind = 0;                  // Virtual key to toggle armorFilterEnabled (0 = none)
     } settings;

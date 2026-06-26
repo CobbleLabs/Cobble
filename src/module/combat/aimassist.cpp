@@ -753,31 +753,30 @@ bool AimAssist::findTarget(double& targetX, double& targetY, double& targetZ) {
             }
         }
 
-        // ── Armor filter ──────────────────────────────────────────────────────
-        if (settings.armorFilterEnabled && settings.armorFilter != AimAssist::ArmorFilter::ANY) {
-            auto isArmorTier = [](int id, AimAssist::ArmorFilter tier) -> bool {
-                switch (tier) {
-                    case AimAssist::ArmorFilter::LEATHER:   return id >= 298 && id <= 301;
-                    case AimAssist::ArmorFilter::CHAINMAIL: return id >= 302 && id <= 305;
-                    case AimAssist::ArmorFilter::IRON:      return id >= 306 && id <= 309;
-                    case AimAssist::ArmorFilter::DIAMOND:   return id >= 310 && id <= 313;
-                    case AimAssist::ArmorFilter::GOLD:      return id >= 314 && id <= 317;
-                    default: return false;
-                }
+        // ── Armor filter (multi-select tiers) ─────────────────────────────────
+        // Target the player if ANY of their armor pieces matches ANY checked
+        // tier. ARMOR_NO_ARMOR matches players wearing nothing. Mask 0 = off.
+        if (settings.armorFilterEnabled && settings.armorTierMask != 0) {
+            auto tierBit = [](int id) -> int {
+                if (id >= 298 && id <= 301) return AimAssist::ARMOR_LEATHER;
+                if (id >= 302 && id <= 305) return AimAssist::ARMOR_CHAIN;
+                if (id >= 306 && id <= 309) return AimAssist::ARMOR_IRON;
+                if (id >= 310 && id <= 313) return AimAssist::ARMOR_DIAMOND;
+                if (id >= 314 && id <= 317) return AimAssist::ARMOR_GOLD;
+                return 0;
             };
-            if (settings.armorFilter == AimAssist::ArmorFilter::NONE) {
-                bool hasAnyArmor = false;
-                for (const auto& piece : p.armor) {
-                    if (piece.id > 0) { hasAnyArmor = true; break; }
+            bool match = false;
+            bool hasAnyArmor = false;
+            for (const auto& piece : p.armor) {
+                if (piece.id > 0) {
+                    hasAnyArmor = true;
+                    int b = tierBit(piece.id);
+                    if (b && (settings.armorTierMask & b)) { match = true; break; }
                 }
-                if (hasAnyArmor) { releasePlayerRef(p); continue; }
-            } else {
-                bool hasTier = false;
-                for (const auto& piece : p.armor) {
-                    if (isArmorTier(piece.id, settings.armorFilter)) { hasTier = true; break; }
-                }
-                if (!hasTier) { releasePlayerRef(p); continue; }
             }
+            if (!match && (settings.armorTierMask & AimAssist::ARMOR_NO_ARMOR) && !hasAnyArmor)
+                match = true;
+            if (!match) { releasePlayerRef(p); continue; }
         }
         // ─────────────────────────────────────────────────────────────────────
 
@@ -1390,17 +1389,13 @@ bool AimAssist::getAimPoint(double targetX, double targetY, double targetZ, doub
 void AimAssist::onRenderMenu() {
     static const char* targetModes[] = {"Lowest Health", "Closest to Player", "Closest to Crosshair", "Switch"};
     static const char* sortByModes[] = {"Distance", "Health", "FOV", "Hurt Time"};
-    static const char* armorFilterNames[] = {
-        "Any", "No Armor", "Leather", "Chainmail", "Iron", "Gold", "Diamond"
-    };
     int currentMode = static_cast<int>(settings.targetMode);
     int currentSortBy = static_cast<int>(settings.switchSortBy);
-    int currentArmorFilter = static_cast<int>(settings.armorFilter);
 
     bool enabledValue = enabled;
     ui::two_column(
         "Settings",
-        [this, &currentMode, &currentSortBy, &currentArmorFilter, &enabledValue]() {
+        [this, &currentMode, &currentSortBy, &enabledValue]() {
             if (ui::CheckboxBind("Enabled", &enabledValue, &keybind)) {
                 if (enabledValue != enabled) {
                     setEnabled(enabledValue);
@@ -1414,7 +1409,7 @@ void AimAssist::onRenderMenu() {
             ui::SliderFloat("Jitter", &settings.jitterPercent, 0.0f, 100.0f, "%.0f%%");
         },
         "Options",
-        [this, &currentMode, &currentSortBy, &currentArmorFilter]() {
+        [this, &currentMode, &currentSortBy]() {
             ui::Checkbox("Always Aim", &settings.alwaysAim);
             ui::Checkbox("Break Blocks", &settings.breakBlocks);
             ui::Checkbox("Weapon Only", &settings.weaponOnly);
@@ -1445,15 +1440,26 @@ void AimAssist::onRenderMenu() {
                 }
             }
             ImGui::Spacing();
-            // Armor Filter dropdown
-            if (ui::Combo("Armor Filter", &currentArmorFilter, armorFilterNames, IM_ARRAYSIZE(armorFilterNames))) {
-                settings.armorFilter = static_cast<ArmorFilter>(currentArmorFilter);
-            }
-            if (settings.armorFilter != ArmorFilter::ANY) {
-                if (settings.armorFilter == ArmorFilter::NONE)
-                    ImGui::TextDisabled("Only targets players with no armor");
-                else
-                    ImGui::TextDisabled("Only targets players wearing this tier");
+            // Armor Filter (multi-select): check every tier you want to target.
+            // A player is aimed at if they wear ANY of the checked tiers.
+            ImGui::Text("Armor Filter (target tiers):");
+            auto tierCheckbox = [this](const char* label, int bit) {
+                bool on = (settings.armorTierMask & bit) != 0;
+                if (ui::Checkbox(label, &on)) {
+                    if (on) settings.armorTierMask |= bit;
+                    else settings.armorTierMask &= ~bit;
+                }
+            };
+            tierCheckbox("No Armor", ARMOR_NO_ARMOR);
+            tierCheckbox("Leather", ARMOR_LEATHER);
+            tierCheckbox("Chainmail", ARMOR_CHAIN);
+            tierCheckbox("Iron", ARMOR_IRON);
+            tierCheckbox("Gold", ARMOR_GOLD);
+            tierCheckbox("Diamond", ARMOR_DIAMOND);
+            if (settings.armorTierMask == 0) {
+                ImGui::TextDisabled("No tiers checked - targets everyone");
+            } else {
+                ImGui::TextDisabled("Targets players matching any checked tier");
 
                 // Optional key to toggle the armor filter on/off in-game.
                 ui::Binder("Armor Filter Key", &settings.armorFilterKeybind);
@@ -1491,6 +1497,7 @@ void AimAssist::saveSettings(json::Value& node) const {
     node["jitterPercent"] = settings.jitterPercent;
     node["antiBot"] = settings.antiBot;
     node["armorFilter"] = static_cast<int>(settings.armorFilter);
+    node["armorTierMask"] = settings.armorTierMask;
     node["armorFilterEnabled"] = settings.armorFilterEnabled;
     node["armorFilterKeybind"] = settings.armorFilterKeybind;
 }
@@ -1523,6 +1530,20 @@ void AimAssist::loadSettings(const json::Value& node) {
     settings.antiBot = node["antiBot"].as_bool(settings.antiBot);
     settings.armorFilter =
         static_cast<ArmorFilter>(node["armorFilter"].as_int(static_cast<int>(settings.armorFilter)));
+    if (node.has("armorTierMask")) {
+        settings.armorTierMask = node["armorTierMask"].as_int(settings.armorTierMask);
+    } else {
+        // Migrate legacy single-select enum into the new multi-select bitmask.
+        switch (settings.armorFilter) {
+            case ArmorFilter::NONE:      settings.armorTierMask = ARMOR_NO_ARMOR; break;
+            case ArmorFilter::LEATHER:   settings.armorTierMask = ARMOR_LEATHER;  break;
+            case ArmorFilter::CHAINMAIL: settings.armorTierMask = ARMOR_CHAIN;    break;
+            case ArmorFilter::IRON:      settings.armorTierMask = ARMOR_IRON;     break;
+            case ArmorFilter::GOLD:      settings.armorTierMask = ARMOR_GOLD;     break;
+            case ArmorFilter::DIAMOND:   settings.armorTierMask = ARMOR_DIAMOND;  break;
+            default:                     settings.armorTierMask = 0;              break;
+        }
+    }
     settings.armorFilterEnabled = node["armorFilterEnabled"].as_bool(settings.armorFilterEnabled);
     settings.armorFilterKeybind = node["armorFilterKeybind"].as_int(settings.armorFilterKeybind);
 }
