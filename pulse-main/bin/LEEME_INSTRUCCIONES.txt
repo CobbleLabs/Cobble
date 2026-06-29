@@ -1,0 +1,17 @@
+========================================================
+       PULSE NETWORK OPTIMIZER — INSTRUCCIONES
+========================================================
+
+1. DESCOMPRIME toda esta carpeta en tu escritorio.
+2. EJECUTA "Pulse.exe".
+3. PEGA la clave de licencia única que te dio el administrador.
+4. Dale a "ACTIVATE".
+
+--- NOTA PARA EL ADMINISTRADOR (TÚ) ---
+Si vas a alojar el servidor en una IP pública, Radmin VPN, Hamachi o Ngrok:
+Crea un archivo llamado "server.txt" en esta misma carpeta y pon dentro el link
+de tu servidor (por ejemplo: http://192.168.1.50:3000 o https://tu-link.ngrok.io).
+
+Si tus amigos están en tu misma red local o Hamachi/Radmin, pon tu IP de Hamachi/Radmin:3000.
+Si no creas "server.txt", el programa intentará buscar el servidor en localhost.
+========================================================

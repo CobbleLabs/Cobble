@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pulse — Admin Panel</title>
+    <meta name="description" content="Pulse License Management Admin Panel">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <!-- ─── Sidebar ─────────────────────────────────────────────────────── -->
+    <aside class="sidebar" id="sidebar">
+        <div class="sidebar-brand">
+            <svg class="brand-logo" viewBox="0 0 40 24" fill="none">
+                <polyline points="2,12 8,12 11,4 14,22 17,2 20,22 23,12 38,12" 
+                    stroke="#FF3B3F" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+            <span class="brand-text">PULSE</span>
+            <span class="brand-sub">ADMIN</span>
+        </div>
+
+        <nav class="sidebar-nav">
+            <button class="nav-item active" data-page="dashboard" id="nav-dashboard">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="3" y="3" width="7" height="7" rx="1"/>
+                    <rect x="14" y="3" width="7" height="7" rx="1"/>
+                    <rect x="3" y="14" width="7" height="7" rx="1"/>
+                    <rect x="14" y="14" width="7" height="7" rx="1"/>
+                </svg>
+                <span>Dashboard</span>
+            </button>
+            <button class="nav-item" data-page="users" id="nav-users">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/>
+                    <circle cx="9" cy="7" r="4"/>
+                    <path d="M22 21v-2a4 4 0 0 0-3-3.87"/>
+                    <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+                </svg>
+                <span>Users</span>
+            </button>
+            <button class="nav-item" data-page="keys" id="nav-keys">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/>
+                </svg>
+                <span>License Keys</span>
+            </button>
+            <button class="nav-item" data-page="logs" id="nav-logs">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                    <polyline points="14 2 14 8 20 8"/>
+                    <line x1="16" y1="13" x2="8" y2="13"/>
+                    <line x1="16" y1="17" x2="8" y2="17"/>
+                    <polyline points="10 9 9 9 8 9"/>
+                </svg>
+                <span>Logs</span>
+            </button>
+        </nav>
+
+        <div class="sidebar-footer">
+            <div class="server-status" id="server-status">
+                <span class="status-dot"></span>
+                <span class="status-text">Connecting...</span>
+            </div>
+        </div>
+    </aside>
+
+    <!-- ─── Main Content ────────────────────────────────────────────────── -->
+    <main class="main-content">
+        <!-- Header -->
+        <header class="top-header">
+            <div class="header-left">
+                <h1 id="page-title">Dashboard</h1>
+            </div>
+            <div class="header-right">
+                <div class="admin-key-input">
+                    <input type="password" id="admin-key" placeholder="Admin Secret Key" autocomplete="off">
+                    <button id="btn-connect" class="btn btn-accent btn-sm">Connect</button>
+                </div>
+            </div>
+        </header>
+
+        <!-- Pages -->
+        <div class="page-container">
+            <!-- Dashboard Page -->
+            <section class="page active" id="page-dashboard">
+                <div class="stats-grid" id="stats-grid">
+                    <div class="stat-card">
+                        <div class="stat-icon users-icon">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/>
+                                <circle cx="9" cy="7" r="4"/>
+                            </svg>
+                        </div>
+                        <div class="stat-info">
+                            <span class="stat-value" id="stat-total-users">—</span>
+                            <span class="stat-label">Total Users</span>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon active-icon">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
+                                <polyline points="22 4 12 14.01 9 11.01"/>
+                            </svg>
+                        </div>
+                        <div class="stat-info">
+                            <span class="stat-value" id="stat-active-users">—</span>
+                            <span class="stat-label">Active Users</span>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon banned-icon">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <circle cx="12" cy="12" r="10"/>
+                                <line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/>
+                            </svg>
+                        </div>
+                        <div class="stat-info">
+                            <span class="stat-value" id="stat-banned">—</span>
+                            <span class="stat-label">Banned</span>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon keys-icon">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/>
+                            </svg>
+                        </div>
+                        <div class="stat-info">
+                            <span class="stat-value" id="stat-unused-keys">—</span>
+                            <span class="stat-label">Unused Keys</span>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon warning-icon">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <circle cx="12" cy="12" r="10"/>
+                                <polyline points="12 6 12 12 16 14"/>
+                            </svg>
+                        </div>
+                        <div class="stat-info">
+                            <span class="stat-value" id="stat-expiring">—</span>
+                            <span class="stat-label">Expiring Soon</span>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Users Page -->
+            <section class="page" id="page-users">
+                <div class="table-container">
+                    <table class="data-table" id="users-table">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>HWID</th>
+                                <th>Note</th>
+                                <th>License</th>
+                                <th>Expires</th>
+                                <th>Status</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="users-tbody">
+                            <tr><td colspan="7" class="empty-state">Connect to load users</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- Keys Page -->
+            <section class="page" id="page-keys">
+                <div class="create-key-form">
+                    <h3>Generate License Key</h3>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="new-key-type">Duration</label>
+                            <select id="new-key-type">
+                                <option value="3_days">3 Days</option>
+                                <option value="1_week">1 Week</option>
+                                <option value="1_month">1 Month</option>
+                                <option value="lifetime">Lifetime</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="new-key-note">For / Note</label>
+                            <input type="text" id="new-key-note" placeholder="Client name or note..." autocomplete="off">
+                        </div>
+                        <button id="btn-generate-key" class="btn btn-accent">Generate Key</button>
+                    </div>
+                    <div class="generated-key-display" id="generated-key-display" style="display:none;">
+                        <span class="generated-label">Generated Key:</span>
+                        <code class="generated-value" id="generated-key-value"></code>
+                        <button class="btn btn-xs btn-outline" id="btn-copy-generated">Copy</button>
+                    </div>
+                </div>
+
+                <div class="table-container">
+                    <table class="data-table" id="keys-table">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Key</th>
+                                <th>Type</th>
+                                <th>Note</th>
+                                <th>Status</th>
+                                <th>Created</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="keys-tbody">
+                            <tr><td colspan="7" class="empty-state">Connect to load keys</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- Logs Page -->
+            <section class="page" id="page-logs">
+                <div class="table-container">
+                    <table class="data-table" id="logs-table">
+                        <thead>
+                            <tr>
+                                <th>Time</th>
+                                <th>Action</th>
+                                <th>Target</th>
+                                <th>Details</th>
+                            </tr>
+                        </thead>
+                        <tbody id="logs-tbody">
+                            <tr><td colspan="4" class="empty-state">Connect to load logs</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+        </div>
+    </main>
+
+    <!-- Toast Container -->
+    <div class="toast-container" id="toast-container"></div>
+
+    <script src="app.js"></script>
+</body>
+</html>
