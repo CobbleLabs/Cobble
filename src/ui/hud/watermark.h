@@ -10,6 +10,10 @@ inline bool enabled = true;
 inline bool rainbow = true;  // flowing gradient on "Cobble" (vs flat accent color)
 inline float scale = 1.0f;
 
+// Smoothed FPS readout: eases toward RenderData::gameFps so the number
+// doesn't jitter frame-to-frame. Seeded lazily on the first render.
+inline float fpsSmooth = 0.0f;
+
 // Free positioning: absolute top-left of the box, in screen pixels.
 // -1 means "not placed yet" -> default to the top-left corner.
 inline float posX = -1.0f;

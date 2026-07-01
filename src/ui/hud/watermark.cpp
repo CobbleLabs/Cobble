@@ -91,8 +91,16 @@ void Watermark::render() {
     // Text segments: "Cobble"  " v1.3.2"   "240"  " FPS"
     const char* nameStr = "Cobble";
     const std::string verStr = " v" COBBLE_VERSION;
+
+    // Ease the displayed FPS toward the real value (seed on first frame so it
+    // doesn't animate up from zero when the watermark first appears).
+    float fpsTarget = static_cast<float>(RenderData::gameFps);
+    float dt = ImGui::GetIO().DeltaTime;
+    if (dt <= 0.0f || dt > 0.25f) dt = 1.0f / 60.0f;  // guard against hitches / first frame
+    if (fpsSmooth <= 0.0f) fpsSmooth = fpsTarget;
+    fpsSmooth += (fpsTarget - fpsSmooth) * (std::min)(1.0f, dt * 8.0f);
     char fpsNum[16];
-    std::snprintf(fpsNum, sizeof(fpsNum), "%d", RenderData::gameFps);
+    std::snprintf(fpsNum, sizeof(fpsNum), "%d", (int)(fpsSmooth + 0.5f));
     const char* fpsSuf = " FPS";
     const char* sep = "  ";
 
@@ -162,20 +170,93 @@ void Watermark::render() {
     float x1 = posX, y1 = posY;
     float x2 = x1 + boxW, y2 = y1 + boxH;
 
-    // ---- Background: rounded pill + accent edge + glass highlight -------------
-    // Solid rounded fill (AddRectFilledMultiColor can't round corners, which is
-    // why the previous gradient showed square corners). Rounded fill first, then
-    // a subtle accent border and a soft top highlight line inside the rounding.
-    ImU32 bg = IM_COL32(20, 20, 24, 212);
-    draw->AddRectFilled(ImVec2(x1, y1), ImVec2(x2, y2), bg, rounding);
-    draw->AddRect(ImVec2(x1, y1), ImVec2(x2, y2), IM_COL32((int)ac.r, (int)ac.g, (int)ac.b, 90), rounding, 0,
+    // ---- Background: soft glow + gradient pill + accent edge + glass highlight -
+    // Outer drop shadow / glow: a few expanding rounded rects with falling alpha
+    // give the box a soft lift off the HUD instead of a hard edge.
+    for (int i = 4; i >= 1; --i) {
+        float gExp = i * 2.0f * s;
+        int gA = 44 / i;  // 11, 14, 22, 44 -> outer softer
+        draw->AddRectFilled(ImVec2(x1 - gExp, y1 - gExp), ImVec2(x2 + gExp, y2 + gExp),
+                            IM_COL32(0, 0, 0, gA), rounding + gExp);
+    }
+    // Accent halo hugging the border so the pill reads as lit by the theme color.
+    // Breathes very gently in sync with the accent bar below.
+    float halo = 0.6f + 0.4f * (float)std::sin(time * 1.6);
+    for (int i = 3; i >= 1; --i) {
+        float hExp = i * 1.6f * s;
+        int hA = (int)((26 / i) * halo);
+        draw->AddRect(ImVec2(x1 - hExp, y1 - hExp), ImVec2(x2 + hExp, y2 + hExp),
+                      IM_COL32((int)ac.r, (int)ac.g, (int)ac.b, hA), rounding + hExp, 0, 1.5f * s);
+    }
+
+    // Rounded fill (AddRectFilledMultiColor can't round corners) with a manual
+    // vertical gradient: two stacked rects, darker at the bottom, clipped to the
+    // rounded shape via the base fill drawn first.
+    ImU32 bgTop = IM_COL32(30, 30, 36, 220);
+    ImU32 bgBot = IM_COL32(16, 16, 20, 220);
+    draw->AddRectFilled(ImVec2(x1, y1), ImVec2(x2, y2), bgBot, rounding);
+    draw->AddRectFilledMultiColor(ImVec2(x1 + rounding, y1), ImVec2(x2 - rounding, y2), bgTop, bgTop, bgBot,
+                                  bgBot);
+
+    // Accent border + a slightly brighter inner ring for depth.
+    draw->AddRect(ImVec2(x1, y1), ImVec2(x2, y2), IM_COL32((int)ac.r, (int)ac.g, (int)ac.b, 110), rounding, 0,
                   1.0f * s);
-    draw->AddLine(ImVec2(x1 + rounding, y1 + 1.0f), ImVec2(x2 - rounding, y1 + 1.0f),
-                  IM_COL32(255, 255, 255, 24), 1.0f);
-    // Animated accent bar on the left edge (brightness pulses gently).
+    // Soft top glass highlight, brightest in the middle and fading to the rounded
+    // ends (two mirrored gradient strips) so it reads like light catching glass.
+    {
+        float hlY0 = y1 + 1.0f, hlY1 = y1 + 2.5f * s;
+        float hlL = x1 + rounding, hlR = x2 - rounding, hlM = (hlL + hlR) * 0.5f;
+        ImU32 hlEdge = IM_COL32(255, 255, 255, 0);
+        ImU32 hlMid = IM_COL32(255, 255, 255, 55);
+        draw->AddRectFilledMultiColor(ImVec2(hlL, hlY0), ImVec2(hlM, hlY1), hlEdge, hlMid, hlMid, hlEdge);
+        draw->AddRectFilledMultiColor(ImVec2(hlM, hlY0), ImVec2(hlR, hlY1), hlMid, hlEdge, hlEdge, hlMid);
+    }
+
+    // Animated accent bar on the left edge: a vertical gradient (bright top ->
+    // accent bottom) whose overall brightness pulses gently, wrapped in a faint
+    // outward glow so it reads as a lit strip rather than a flat rect.
     float pulse = 0.75f + 0.25f * (float)std::sin(time * 2.0);
-    ImU32 barCol = IM_COL32((int)(ac.r * pulse), (int)(ac.g * pulse), (int)(ac.b * pulse), 255);
-    draw->AddRectFilled(ImVec2(x1, y1), ImVec2(x1 + barW, y2), barCol, rounding, ImDrawFlags_RoundCornersLeft);
+    ImU32 barGlow = IM_COL32((int)ac.r, (int)ac.g, (int)ac.b, (int)(80 * pulse));
+    draw->AddRectFilled(ImVec2(x1 - 1.0f * s, y1), ImVec2(x1 + barW + 2.5f * s, y2), barGlow, rounding,
+                        ImDrawFlags_RoundCornersLeft);
+    ImU32 barTop = IM_COL32((int)(std::min)(255.0f, ac.r * 1.35f + 40.0f),
+                            (int)(std::min)(255.0f, ac.g * 1.35f + 40.0f),
+                            (int)(std::min)(255.0f, ac.b * 1.35f + 40.0f), 255);
+    ImU32 barBot = IM_COL32((int)(ac.r * pulse), (int)(ac.g * pulse), (int)(ac.b * pulse), 255);
+    // Base rounded fill (rounding on the left), then a vertical gradient on top of
+    // the straight portion so the corners stay rounded but the strip has depth.
+    draw->AddRectFilled(ImVec2(x1, y1), ImVec2(x1 + barW, y2), barBot, rounding, ImDrawFlags_RoundCornersLeft);
+    draw->AddRectFilledMultiColor(ImVec2(x1 + rounding * 0.5f, y1), ImVec2(x1 + barW, y2), barTop, barTop,
+                                  barBot, barBot);
+
+    // ---- Sheen sweep: a soft diagonal glare crosses the pill every few seconds -
+    // Clipped to the box so it stays inside the rounded shape. Off most of the
+    // time (long period), then a quick bright pass for a "glass" catch of light.
+    {
+        const double sweepPeriod = 4.5;   // seconds between passes
+        const double sweepDur = 0.85;     // seconds the glare takes to cross
+        double sp = std::fmod(time, sweepPeriod);
+        if (sp < sweepDur) {
+            float n = (float)(sp / sweepDur);          // 0..1 across the box
+            float w = 9.0f * s;                        // glare half-width
+            float slant = boxH * 0.5f;                 // diagonal lean
+            float travel = boxW + slant + 4.0f * w;
+            float sx = x1 - 2.0f * w + n * travel;     // leading edge x
+            // Fade in/out at the ends of the pass so it doesn't pop.
+            float edge = (std::min)(n, 1.0f - n) * 2.0f;
+            edge = (std::clamp)(edge, 0.0f, 1.0f);
+            draw->PushClipRect(ImVec2(x1, y1), ImVec2(x2, y2), true);
+            // Three stacked parallelograms: dim, bright, dim -> soft band.
+            const struct { float off; int a; } bands[] = {{-w, 16}, {0.0f, 40}, {w, 16}};
+            for (const auto& bnd : bands) {
+                float cx = sx + bnd.off;
+                ImU32 col = IM_COL32(255, 255, 255, (int)(bnd.a * edge));
+                draw->AddQuadFilled(ImVec2(cx, y1), ImVec2(cx + w, y1), ImVec2(cx + w - slant, y2),
+                                    ImVec2(cx - slant, y2), col);
+            }
+            draw->PopClipRect();
+        }
+    }
 
     // ---- Text -----------------------------------------------------------------
     float tx = x1 + barW + padX;

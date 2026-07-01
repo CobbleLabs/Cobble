@@ -20,6 +20,8 @@
 #include <cmath>
 #include <cstring>
 #include <string>
+#include <unordered_map>
+#include <unordered_set>
 
 // RGB struct for HSB conversion
 struct RGB {
@@ -78,6 +80,28 @@ static ImU32 GetRainbowColor(int moduleIndex, float saturation, long long timeMs
     RGB rgb = FromHSB(hue, saturation, 0.9f);
 
     return IM_COL32((int)rgb.r, (int)rgb.g, (int)rgb.b, 255);
+}
+
+// Per-row appear animation state (module name -> progress 0..1), persisted
+// across frames. render() runs single-threaded on the GL thread, so a plain
+// static map is safe here.
+static std::unordered_map<std::string, float> g_rowAnim;
+
+// Scale the alpha channel of a packed color by f (0..1), clamped.
+static ImU32 ColScaleAlpha(ImU32 c, float f) {
+    int a = (int)(((c >> IM_COL32_A_SHIFT) & 0xFF) * f);
+    a = a < 0 ? 0 : (a > 255 ? 255 : a);
+    return (c & ~IM_COL32_A_MASK) | ((ImU32)a << IM_COL32_A_SHIFT);
+}
+
+// Add `add` to each RGB channel (clamped), keeping alpha untouched.
+static ImU32 ColBrighten(ImU32 c, int add) {
+    auto cl = [](int v) { return v < 0 ? 0 : (v > 255 ? 255 : v); };
+    int r = (c >> IM_COL32_R_SHIFT) & 0xFF;
+    int g = (c >> IM_COL32_G_SHIFT) & 0xFF;
+    int b = (c >> IM_COL32_B_SHIFT) & 0xFF;
+    int a = (c >> IM_COL32_A_SHIFT) & 0xFF;
+    return IM_COL32(cl(r + add), cl(g + add), cl(b + add), a);
 }
 
 void ArrayListRenderer::render() {
@@ -269,13 +293,31 @@ void ArrayListRenderer::render() {
     int idx = 0;
 
     // Colors
-    ImU32 bgColor = showBackground ? IM_COL32(19, 19, 19, 150) : IM_COL32(0, 0, 0, 0);
     ImU32 infoColor = IM_COL32(180, 180, 180, 255);  // Light gray for info
 
     long long rainbowTimeMs = 0;
     if (rainbow) {
         auto now = std::chrono::system_clock::now().time_since_epoch();
         rainbowTimeMs = std::chrono::duration_cast<std::chrono::milliseconds>(now).count();
+    }
+
+    // Row animation timing + a gentle global pulse shared by every accent bar.
+    float dtA = ImGui::GetIO().DeltaTime;
+    if (dtA <= 0.0f || dtA > 0.25f) dtA = 1.0f / 60.0f;  // guard hitches / first frame
+    double time = ImGui::GetTime();
+    float pulse = 0.85f + 0.15f * (float)std::sin(time * 2.0);
+
+    // Forget animation state for rows no longer shown, so a module re-animates
+    // the next time it turns on instead of snapping in fully lit.
+    {
+        std::unordered_set<std::string> seen;
+        for (const auto& e : entries) seen.insert(e.name);
+        for (auto it = g_rowAnim.begin(); it != g_rowAnim.end();) {
+            if (seen.find(it->first) == seen.end())
+                it = g_rowAnim.erase(it);
+            else
+                ++it;
+        }
     }
 
     for (const auto& entry : entries) {
@@ -318,14 +360,39 @@ void ArrayListRenderer::render() {
             barX2 = rightEdge;
         }
 
-        // Background with rounded corners
-        draw->AddRectFilled(ImVec2(rectX1, y), ImVec2(rectX2, y + lineHeight), bgColor,
-                            4.0f * scale  // Rounded corners
-        );
+        // Per-row appear animation: slide in from the anchored edge + fade in.
+        float& prog = g_rowAnim[entry.name];
+        prog = (std::min)(1.0f, prog + dtA * 6.0f);  // ~0.17s to settle
+        float eased = 1.0f - (1.0f - prog) * (1.0f - prog) * (1.0f - prog);  // easeOutCubic
+        float slide = (1.0f - eased) * 14.0f * scale;
+        if (anchorLeft) slide = -slide;  // come in from whichever edge the block hugs
+        rectX1 += slide;
+        rectX2 += slide;
+        textX += slide;
+        barX1 += slide;
+        barX2 += slide;
+
+        float rounding = 4.0f * scale;
+
+        // Background: rounded dark base + a soft module-colored wash hugging the
+        // bar side, so each row is subtly tinted by its own accent color.
+        if (showBackground) {
+            draw->AddRectFilled(ImVec2(rectX1, y), ImVec2(rectX2, y + lineHeight),
+                                ColScaleAlpha(IM_COL32(19, 19, 19, 150), eased), rounding);
+            ImU32 washOn = ColScaleAlpha(moduleColor, 0.16f * eased);
+            ImU32 washOff = ColScaleAlpha(moduleColor, 0.0f);
+            ImVec2 wmin(rectX1 + rounding, y), wmax(rectX2 - rounding, y + lineHeight);
+            if (wmax.x > wmin.x) {
+                if (anchorLeft)
+                    draw->AddRectFilledMultiColor(wmin, wmax, washOn, washOff, washOff, washOn);
+                else
+                    draw->AddRectFilledMultiColor(wmin, wmax, washOff, washOn, washOn, washOff);
+            }
+        }
 
         // Text shadow for readability when background is off
         if (!showBackground) {
-            ImU32 shadowColor = IM_COL32(0, 0, 0, 200);
+            ImU32 shadowColor = ColScaleAlpha(IM_COL32(0, 0, 0, 200), eased);
             float sd = 1.0f * scale;
             draw->AddText(arrayFont, fontSize, ImVec2(textX + sd, y + sd), shadowColor, entry.name.c_str());
             if (!entry.info.empty()) {
@@ -334,17 +401,36 @@ void ArrayListRenderer::render() {
             }
         }
 
-        // Draw name with module color
-        draw->AddText(arrayFont, fontSize, ImVec2(textX, y), moduleColor, entry.name.c_str());
+        // Draw name with module color (fades in with the row)
+        draw->AddText(arrayFont, fontSize, ImVec2(textX, y), ColScaleAlpha(moduleColor, eased), entry.name.c_str());
 
         // Draw info with gray color
         if (!entry.info.empty()) {
-            draw->AddText(arrayFont, fontSize, ImVec2(textX + entry.nameSize.x, y), infoColor, entry.infoText.c_str());
+            draw->AddText(arrayFont, fontSize, ImVec2(textX + entry.nameSize.x, y), ColScaleAlpha(infoColor, eased),
+                          entry.infoText.c_str());
         }
 
-        // Color bar on edge
+        // Color bar on edge: a bright lit strip (brighter on the outer edge) with
+        // a soft inner glow that gently pulses, so it reads like an LED, not a line.
         if (colorBar) {
-            draw->AddRectFilled(ImVec2(barX1, y), ImVec2(barX2, y + lineHeight), moduleColor);
+            ImU32 mc = ColScaleAlpha(moduleColor, eased);
+            ImU32 barBright = ColScaleAlpha(ColBrighten(moduleColor, (int)(70 * pulse)), eased);
+            float glowW = 4.0f * scale;
+            ImU32 glowOn = ColScaleAlpha(moduleColor, 0.45f * eased * pulse);
+            ImU32 glowOff = ColScaleAlpha(moduleColor, 0.0f);
+            if (anchorLeft) {
+                // bar hugs the left edge; glow spills to the right, over the text
+                draw->AddRectFilledMultiColor(ImVec2(barX2, y), ImVec2(barX2 + glowW, y + lineHeight), glowOn,
+                                              glowOff, glowOff, glowOn);
+                draw->AddRectFilledMultiColor(ImVec2(barX1, y), ImVec2(barX2, y + lineHeight), barBright, mc, mc,
+                                              barBright);
+            } else {
+                // bar hugs the right edge; glow spills to the left, over the text
+                draw->AddRectFilledMultiColor(ImVec2(barX1 - glowW, y), ImVec2(barX1, y + lineHeight), glowOff,
+                                              glowOn, glowOn, glowOff);
+                draw->AddRectFilledMultiColor(ImVec2(barX1, y), ImVec2(barX2, y + lineHeight), mc, barBright,
+                                              barBright, mc);
+            }
         }
 
         y += lineHeight;
