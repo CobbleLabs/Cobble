@@ -95,6 +95,7 @@ public:
         bool weaponOnly = false;
         bool stopOnHitbox = false;  // Stops aim assist when crosshair is inside hitbox
         bool antiBot = true;
+        bool onlyVisible = true;
 
         TargetMode targetMode = TargetMode::DISTANCE;
         SortBy switchSortBy = SortBy::DISTANCE;  // Only used when targetMode is SWITCH

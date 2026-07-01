@@ -580,7 +580,7 @@ bool AimAssist::findTarget(double& targetX, double& targetY, double& targetZ) {
                              dist, maxDist, (double)yawDiff, (double)limit);
                     COBBLE_TRACE(dbg);
 
-                    if (dist > maxDist || dist < 0.2f || yawDiff > limit) {
+                    if (dist > maxDist || dist < 0.2f || yawDiff > limit || (settings.onlyVisible && !mc.canEntityBeSeen(cachedTarget))) {
                         COBBLE_TRACE("AimAssist fast path: target failed validation, dropping lock");
                         Java::Env()->DeleteGlobalRef(cachedTarget);
                         cachedTarget = nullptr;
@@ -696,6 +696,11 @@ bool AimAssist::findTarget(double& targetX, double& targetY, double& targetZ) {
             continue;
         }
         if (p.health <= 0.0f) {
+            releasePlayerRef(p);
+            continue;
+        }
+
+        if (settings.onlyVisible && !mc.canEntityBeSeen(p.instance)) {
             releasePlayerRef(p);
             continue;
         }
@@ -1418,6 +1423,7 @@ void AimAssist::onRenderMenu() {
             ui::Checkbox("Weapon Only", &settings.weaponOnly);
             ui::Checkbox("Aim Closest Point", &settings.aimAtClosestPoint);
             ui::Checkbox("Target Invisibles", &settings.invisibles);
+            ui::Checkbox("Only Visible", &settings.onlyVisible);
             ui::Checkbox("Stop On Hitbox", &settings.stopOnHitbox);
             ui::Checkbox("Anti Bot", &settings.antiBot);
             bool entityLock = entityLockEnabled_.load(std::memory_order_acquire);
@@ -1495,6 +1501,7 @@ void AimAssist::saveSettings(json::Value& node) const {
     node["aimAtClosestPoint"] = settings.aimAtClosestPoint;
     node["alwaysAim"] = settings.alwaysAim;
     node["invisibles"] = settings.invisibles;
+    node["onlyVisible"] = settings.onlyVisible;
     node["entityLock"] = settings.entityLock;
     node["stopOnHitbox"] = settings.stopOnHitbox;
     node["jitterPercent"] = settings.jitterPercent;
@@ -1521,6 +1528,7 @@ void AimAssist::loadSettings(const json::Value& node) {
     settings.aimAtClosestPoint = node["aimAtClosestPoint"].as_bool(settings.aimAtClosestPoint);
     settings.alwaysAim = node["alwaysAim"].as_bool(settings.alwaysAim);
     settings.invisibles = node["invisibles"].as_bool(settings.invisibles);
+    settings.onlyVisible = node["onlyVisible"].as_bool(settings.onlyVisible);
     // Legacy "lockAim" was renamed to "entityLock"; honor either key so old
     // configs keep working. setEntityLock() also flips the atomic flag used
     // by the runtime.

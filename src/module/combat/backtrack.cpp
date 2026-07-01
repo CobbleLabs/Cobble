@@ -223,6 +223,14 @@ void Backtrack::onUpdate() {
 
     std::vector<PlayerInfo> players = mc.getPlayerList();
 
+    auto cleanup = [&players, env]() {
+        for (auto& p : players) {
+            if (p.instance) {
+                env->DeleteGlobalRef(p.instance);
+                p.instance = nullptr;
+            }
+        }
+    };
 
     double closestDist = 999.0;
     PlayerInfo* closestTarget = nullptr;
@@ -248,6 +256,7 @@ void Backtrack::onUpdate() {
         isLagging = false;
         clearHistory();
         currentTargetUUID = "";
+        cleanup();
         return;
     }
 
@@ -265,6 +274,7 @@ void Backtrack::onUpdate() {
     if (timeSinceChange < settings.cooldown) {
         isBacktracking = false;
         isLagging = false;
+        cleanup();
         return;
     }
 
@@ -305,13 +315,7 @@ void Backtrack::onUpdate() {
     }
 
     // Cleanup JNI GlobalRefs to prevent memory leak
-    // Each PlayerInfo.instance is a GlobalRef that must be freed with DeleteGlobalRef
-    for (auto& p : players) {
-        if (p.instance) {
-            env->DeleteGlobalRef(p.instance);
-            p.instance = nullptr;
-        }
-    }
+    cleanup();
 
     // Clear any exceptions that occurred during iteration
     if (env->ExceptionCheck()) {

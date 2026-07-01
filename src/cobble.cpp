@@ -1,6 +1,7 @@
 #include "cobble.hpp"
 #include "config/config.hpp"
 #include "module/combat/aimassist.h"
+#include "module/combat/aimbow.h"
 #include "module/combat/autoclicker.h"
 #include "module/combat/backtrack.h"
 #include "module/combat/hitselect.h"
@@ -164,6 +165,8 @@ void cobble::context::initialize(HMODULE hModule) {
     autoClicker = new AutoClicker();
     COBBLE_TRACE("alloc:AimAssist");
     aimAssist = new AimAssist();
+    COBBLE_TRACE("alloc:AimBow");
+    aimBow = new AimBow();
     COBBLE_TRACE("alloc:ArmorSwitch");
     armorSwitch = new ArmorSwitch();
     COBBLE_TRACE("alloc:AutoRefill");
@@ -243,6 +246,7 @@ void cobble::context::initialize(HMODULE hModule) {
     log_raw("Registering modules...");
     moduleManager->registerModule(autoClicker);
     moduleManager->registerModule(aimAssist);
+    moduleManager->registerModule(aimBow);
     moduleManager->registerModule(armorSwitch);
     moduleManager->registerModule(autoRefill);
     moduleManager->registerModule(velocity);
@@ -439,7 +443,7 @@ void cobble::context::initialize(HMODULE hModule) {
     }
 
     shutdown();
-    ExitThread(0);
+    FreeLibraryAndExitThread(moduleHandle, 0);
 }
 
 void cobble::context::shutdown() {
@@ -461,6 +465,8 @@ void cobble::context::shutdown() {
         autoClicker->setEnabled(false);
     if (aimAssist)
         aimAssist->setEnabled(false);
+    if (aimBow)
+        aimBow->setEnabled(false);
     if (armorSwitch)
         armorSwitch->setEnabled(false);
     if (autoRefill)
@@ -573,6 +579,10 @@ void cobble::context::shutdown() {
     if (aimAssist) {
         delete aimAssist;
         aimAssist = nullptr;
+    }
+    if (aimBow) {
+        delete aimBow;
+        aimBow = nullptr;
     }
     if (armorSwitch) {
         delete armorSwitch;

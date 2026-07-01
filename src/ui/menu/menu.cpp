@@ -5,6 +5,7 @@
 #include "../../cobble.hpp"
 #include "../../config/config.hpp"
 #include "../../module/combat/aimassist.h"
+#include "../../module/combat/aimbow.h"
 #include "../../module/combat/autoclicker.h"
 #include "../../module/combat/backtrack.h"
 #include "../../module/combat/hitselect.h"
@@ -90,6 +91,8 @@ Module* getModuleForSubtab(int tabIdx, int subtabIdx) {
                 return backtrack;
             case 9:
                 return piercing;
+            case 10:
+                return aimBow;
         }
     }
     // Visuals Tab (1)

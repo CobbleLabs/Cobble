@@ -50,6 +50,7 @@ bool Minecraft::isTargetingBlock() {
         return false;
 
     jobject mouseOver = env->GetObjectField(instance, JniCache::fid_objectMouseOver);
+    if (env->ExceptionCheck()) { env->ExceptionClear(); return false; }
     if (!mouseOver)
         return false;
 
@@ -59,6 +60,7 @@ bool Minecraft::isTargetingBlock() {
     }
 
     jobject typeOfHit = env->GetObjectField(mouseOver, JniCache::fid_typeOfHit);
+    if (env->ExceptionCheck()) { env->ExceptionClear(); env->DeleteLocalRef(mouseOver); return false; }
     env->DeleteLocalRef(mouseOver);
 
     if (!typeOfHit)
@@ -66,18 +68,19 @@ bool Minecraft::isTargetingBlock() {
 
     // Compare with BLOCK enum constant
     bool result = false;
-    if (JniCache::fid_BLOCK) {
-        jclass typeClass = env->GetObjectClass(typeOfHit);
-        if (typeClass) {
-            jobject blockEnum = env->GetStaticObjectField(typeClass, JniCache::fid_BLOCK);
+    if (JniCache::fid_BLOCK && JniCache::cls_MovingObjectType) {
+        jobject blockEnum = env->GetStaticObjectField(JniCache::cls_MovingObjectType, JniCache::fid_BLOCK);
+        if (env->ExceptionCheck()) {
+            env->ExceptionClear();
+        } else {
             result = env->IsSameObject(typeOfHit, blockEnum);
             if (blockEnum)
                 env->DeleteLocalRef(blockEnum);
-            env->DeleteLocalRef(typeClass);
         }
     }
 
     env->DeleteLocalRef(typeOfHit);
+    if (env->ExceptionCheck()) env->ExceptionClear();
     return result;
 }
 
@@ -99,6 +102,7 @@ Minecraft::Vec3 Minecraft::getTargetedBlockPos() {
         return result;
 
     jobject mouseOver = env->GetObjectField(instance, JniCache::fid_objectMouseOver);
+    if (env->ExceptionCheck()) { env->ExceptionClear(); return result; }
     if (!mouseOver)
         return result;
 
@@ -107,14 +111,16 @@ Minecraft::Vec3 Minecraft::getTargetedBlockPos() {
     // Method 1: 1.8.x - getBlockPos() -> BlockPos
     if (JniCache::mid_getBlockPos && JniCache::mid_getX && JniCache::mid_getY && JniCache::mid_getZ) {
         jobject blockPosObj = env->CallObjectMethod(mouseOver, JniCache::mid_getBlockPos);
-        if (blockPosObj) {
+        if (env->ExceptionCheck()) {
+            env->ExceptionClear();
+        } else if (blockPosObj) {
             result.x = (float)env->CallIntMethod(blockPosObj, JniCache::mid_getX);
             result.y = (float)env->CallIntMethod(blockPosObj, JniCache::mid_getY);
             result.z = (float)env->CallIntMethod(blockPosObj, JniCache::mid_getZ);
             env->DeleteLocalRef(blockPosObj);
             gotPosition = true;
         }
-        env->ExceptionClear();
+        if (env->ExceptionCheck()) env->ExceptionClear();
     }
 
     // Method 2: 1.7.10 - direct blockX/blockY/blockZ fields
@@ -122,10 +128,15 @@ Minecraft::Vec3 Minecraft::getTargetedBlockPos() {
         result.x = (float)env->GetIntField(mouseOver, JniCache::fid_blockX);
         result.y = (float)env->GetIntField(mouseOver, JniCache::fid_blockY);
         result.z = (float)env->GetIntField(mouseOver, JniCache::fid_blockZ);
-        gotPosition = true;
+        if (env->ExceptionCheck()) {
+            env->ExceptionClear();
+        } else {
+            gotPosition = true;
+        }
     }
 
     env->DeleteLocalRef(mouseOver);
+    if (env->ExceptionCheck()) env->ExceptionClear();
     return result;
 }
 
@@ -145,6 +156,7 @@ bool Minecraft::isTargetingEntity() {
         return false;
 
     jobject mouseOver = env->GetObjectField(instance, JniCache::fid_objectMouseOver);
+    if (env->ExceptionCheck()) { env->ExceptionClear(); return false; }
     if (!mouseOver)
         return false;
 
@@ -154,6 +166,7 @@ bool Minecraft::isTargetingEntity() {
     }
 
     jobject typeOfHit = env->GetObjectField(mouseOver, JniCache::fid_typeOfHit);
+    if (env->ExceptionCheck()) { env->ExceptionClear(); env->DeleteLocalRef(mouseOver); return false; }
     env->DeleteLocalRef(mouseOver);
 
     if (!typeOfHit)
@@ -161,18 +174,19 @@ bool Minecraft::isTargetingEntity() {
 
     // Compare with ENTITY enum constant
     bool result = false;
-    if (JniCache::fid_ENTITY) {
-        jclass typeClass = env->GetObjectClass(typeOfHit);
-        if (typeClass) {
-            jobject entityEnum = env->GetStaticObjectField(typeClass, JniCache::fid_ENTITY);
+    if (JniCache::fid_ENTITY && JniCache::cls_MovingObjectType) {
+        jobject entityEnum = env->GetStaticObjectField(JniCache::cls_MovingObjectType, JniCache::fid_ENTITY);
+        if (env->ExceptionCheck()) {
+            env->ExceptionClear();
+        } else {
             result = env->IsSameObject(typeOfHit, entityEnum);
             if (entityEnum)
                 env->DeleteLocalRef(entityEnum);
-            env->DeleteLocalRef(typeClass);
         }
     }
 
     env->DeleteLocalRef(typeOfHit);
+    if (env->ExceptionCheck()) env->ExceptionClear();
     return result;
 }
 
@@ -192,6 +206,7 @@ int Minecraft::getTargetedEntityHurtTime() {
         return 0;
 
     jobject mouseOver = env->GetObjectField(instance, JniCache::fid_objectMouseOver);
+    if (env->ExceptionCheck()) { env->ExceptionClear(); return 0; }
     if (!mouseOver)
         return 0;
 
@@ -201,6 +216,7 @@ int Minecraft::getTargetedEntityHurtTime() {
     }
 
     jobject entityHit = env->GetObjectField(mouseOver, JniCache::fid_entityHit);
+    if (env->ExceptionCheck()) { env->ExceptionClear(); env->DeleteLocalRef(mouseOver); return 0; }
     env->DeleteLocalRef(mouseOver);
 
     if (!entityHit)
@@ -209,15 +225,18 @@ int Minecraft::getTargetedEntityHurtTime() {
     // Check if it's a living entity
     if (!JniCache::cls_EntityLivingBase || !env->IsInstanceOf(entityHit, JniCache::cls_EntityLivingBase)) {
         env->DeleteLocalRef(entityHit);
+        if (env->ExceptionCheck()) env->ExceptionClear();
         return 0;
     }
 
     int hurtTime = 0;
     if (JniCache::fid_hurtTime) {
         hurtTime = env->GetIntField(entityHit, JniCache::fid_hurtTime);
+        if (env->ExceptionCheck()) { env->ExceptionClear(); hurtTime = 0; }
     }
 
     env->DeleteLocalRef(entityHit);
+    if (env->ExceptionCheck()) env->ExceptionClear();
     return hurtTime;
 }
 

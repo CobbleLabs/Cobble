@@ -1245,27 +1245,6 @@ static std::unordered_set<std::string> s_loggedApolloTypes;
 
 static std::mutex g_onReceiveMutex;
 
-// Crash-pinpoint marker (dev builds only). Overwrites a single-line file each
-// step; after a JVM crash in this observer the file holds the last section
-// entered, which names the culprit even when the JVM handler pre-empts ours.
-#ifdef COBBLE_DEV_BUILD
-static void obsStep(const char* s) {
-    const char* tmp = getenv("TEMP");
-    if (!tmp)
-        return;
-    std::string path = std::string(tmp) + "\\cobble_obs.log";
-    FILE* fp = nullptr;
-    fopen_s(&fp, path.c_str(), "w");
-    if (fp) {
-        fputs(s, fp);
-        fclose(fp);
-    }
-}
-#define OBS_STEP(s) obsStep(s)
-#else
-#define OBS_STEP(s) ((void)0)
-#endif
-
 // Real observer body. Runs under the SEH guard installed by NativeOnReceive
 // (below) so a null-deref while parsing a malformed/unexpected inbound packet
 // on the Netty IO thread drops that packet instead of taking down the game.
@@ -1274,18 +1253,13 @@ static void obsStep(const char* s) {
 static void NativeOnReceiveImpl(JNIEnv* env, jobject packet) {
     // packet null-check and the g_onReceiveMutex lock are handled by the
     // NativeOnReceive wrapper (so the mutex survives SEH unwinding).
-    OBS_STEP("enter");
-
     // Removed g_seenApolloSinceWorldChange - serial validation handles stale data
 
     // Track entity effects (used by NameTags "Show Effects" fallback).
-    OBS_STEP("effect");
     try_handle_entity_effect_packets(env, packet);
 
     // Track held item and "eat/drink" animations for potion inference on servers that don't send S1D while tracked.
-    OBS_STEP("equip");
     try_handle_equipment_packet(env, packet);
-    OBS_STEP("anim");
     try_handle_animation_packet(env, packet);
 
     if (friendsManager && isWorldChangePacket(env, packet)) {
@@ -1381,7 +1355,6 @@ static void NativeOnReceiveImpl(JNIEnv* env, jobject packet) {
     }
 
     // If this is a CustomPayload packet, check for lunar:apollo channel
-    OBS_STEP("apollo-parse");
     if (cls_S3FPacketCustomPayload && env->IsInstanceOf(packet, cls_S3FPacketCustomPayload)) {
         jmethodID channelMethod = mid_getChannelName ? mid_getChannelName : mid_getChannelName_legacy;
         if (channelMethod) {
@@ -2202,8 +2175,25 @@ static void NativeOnReceiveImpl(JNIEnv* env, jobject packet) {
                                                             OBFUSCATE_STRING("()Z").c_str()) : nullptr;
                     jmethodID mid_next = cls_Iterator ? env->GetMethodID(cls_Iterator, OBFUSCATE_STRING("next").c_str(),
                                                          OBFUSCATE_STRING("()Ljava/lang/Object;").c_str()) : nullptr;
-                    while (mid_hasNext && mid_next && env->CallBooleanMethod(iterator, mid_hasNext)) {
+                    // Guard cap + exception checks: on disconnect the scoreboard
+                    // collection is torn down mid-iteration, throwing
+                    // ConcurrentModificationException. Without clearing it,
+                    // hasNext() spins forever and freezes the Netty thread (and
+                    // with it the whole disconnect). Cap iterations as a backstop.
+                    int iterGuard = 0;
+                    while (mid_hasNext && mid_next && iterGuard++ < 1024) {
+                        if (!env->CallBooleanMethod(iterator, mid_hasNext) || env->ExceptionCheck()) {
+                            if (env->ExceptionCheck())
+                                env->ExceptionClear();
+                            break;
+                        }
                         jobject value = env->CallObjectMethod(iterator, mid_next);
+                        if (env->ExceptionCheck()) {
+                            env->ExceptionClear();
+                            if (value)
+                                env->DeleteLocalRef(value);
+                            break;
+                        }
                         if (value) {
                             teamPlayers.push_back(jstringToString((jstring)value));
                             env->DeleteLocalRef(value);
@@ -2264,11 +2254,9 @@ static void NativeOnReceiveImpl(JNIEnv* env, jobject packet) {
     }
 
     // Process Lunar Client nametag packets (legacy path)
-    OBS_STEP("nametag-legacy");
     if (!blockActive && LunarPacketListener::IsReady()) {
         LunarPacketListener::processIncomingPacket(env, packet);
     }
-    OBS_STEP("done");
 }
 
 // SEH filter: log the contained fault (code + address) and swallow it. The

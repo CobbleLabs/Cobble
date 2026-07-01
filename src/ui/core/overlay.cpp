@@ -150,6 +150,11 @@ void SetupImGui() {
 }
 
 LRESULT CALLBACK HookedWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+    if (!Overlay::initialized || !originalWndProc) {
+        return originalWndProc ? CallWindowProcA(originalWndProc, hWnd, msg, wParam, lParam)
+                               : DefWindowProcA(hWnd, msg, wParam, lParam);
+    }
+
     // Don't toggle menu if a keybind binder is active (user is selecting a new key)
     if (msg == WM_KEYDOWN && wParam == Menu::menuKey && !ui::IsBinderActive()) {
         Menu::isOpen = !Menu::isOpen;
@@ -176,7 +181,7 @@ LRESULT CALLBACK HookedWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam
         int quickKey = friendsManager->quickAddKey;
 
         // Detect key/mouse press based on VK code
-        if (quickKey == VK_MBUTTON && msg == WM_MBUTTONDOWN)
+        if (quickKey == VK_MBUTTON && msg == WM_MBUTTONDOWN && (GetAsyncKeyState(VK_SHIFT) & 0x8000))
             quickAddPressed = true;
         else if (quickKey == VK_XBUTTON1 && msg == WM_XBUTTONDOWN && GET_XBUTTON_WPARAM(wParam) == XBUTTON1)
             quickAddPressed = true;
@@ -432,7 +437,6 @@ BOOL __stdcall HookedSwapBuffers(HDC hdc) {
             Menu::moduleToBind = nullptr;
             io.MouseDrawCursor = false;
             mc.restoreMovementKeys();
-            mc.grabMouse();
             ConfigManager::get().onSettingChanged();
         }
 

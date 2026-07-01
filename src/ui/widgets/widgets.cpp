@@ -23,6 +23,7 @@ static std::string g_descriptionContext;
 static const DescriptionEntry kModuleDescriptions[] = {
     {"", "AutoClicker", "", "Clicks automatically while you hold the attack button."},
     {"", "AimAssist", "", "Smoothly guides your aim toward a valid player target."},
+    {"", "AimBow", "", "Aims the bow at the nearest player, solving the arrow arc and lead."},
     {"", "Velocity", "", "Controls how much enemy knockback affects your movement."},
     {"", "Reach", "", "Extends the distance at which attacks can connect."},
     {"", "HitSelect", "", "Times attacks around combo state to improve hit selection."},
@@ -325,7 +326,7 @@ std::vector<ui::tab_t> ui::tabs = {
     {ICON_FA_CROSSHAIRS,
      "Combat",
      {"AutoClicker", "AimAssist", "Velocity", "Reach", "HitSelect", "NoHitDelay", "Criticals", "WTap",
-      "Backtrack", "Piercing"}},
+      "Backtrack", "Piercing", "AimBow"}},
     {ICON_FA_EYE,
      "Visuals",
      {"NameTags", "ESP", "ItemESP", "Tracers", "BlockESP", "Trajectories", "AntiDebuff", "ArrayList",
