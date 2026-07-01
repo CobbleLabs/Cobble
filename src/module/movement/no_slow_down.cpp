@@ -108,6 +108,13 @@ NoSlowDown::NoSlowDown() : Module("NoSlowDown") {
 }
 
 void NoSlowDown::onDisable() {
+    // applyMovement() runs on BOTH the main loop (onUpdate) and the JVM game
+    // thread (NativeOnSlowDown), both under player.instanceMutex. onDisable()
+    // runs on the main thread from toggle()/keybind and mutates the SAME state
+    // (cachedPlayerClass GlobalRef + field IDs). Without the lock we can
+    // DeleteGlobalRef a ref the game thread is mid-use -> use-after-free crash.
+    std::lock_guard<std::recursive_mutex> lock(player.instanceMutex);
+
     // Release cached GlobalRef so it doesn't leak across enable/disable cycles
     JNIEnv* env = Java::Env();
     if (env && cachedPlayerClass) {

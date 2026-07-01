@@ -5,6 +5,8 @@
 #include <chrono>
 #include <cctype>
 #include <cstdint>
+#include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <mutex>
 #include <string>
@@ -18,6 +20,14 @@
 #include "../../util/logger.hpp"
 #include "../../util/team/friends_manager.h"
 #include "../../module/movement/blink.h"
+
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <Windows.h>
 
 // Shared logging budget so it can be bumped externally (e.g., manual requests)
 static std::atomic<int> g_typeLogBudget{0};
@@ -1235,19 +1245,47 @@ static std::unordered_set<std::string> s_loggedApolloTypes;
 
 static std::mutex g_onReceiveMutex;
 
-void JNICALL ApolloPacketObserver::NativeOnReceive(JNIEnv* env, jclass, jobject packet) {
-    if (!packet)
+// Crash-pinpoint marker (dev builds only). Overwrites a single-line file each
+// step; after a JVM crash in this observer the file holds the last section
+// entered, which names the culprit even when the JVM handler pre-empts ours.
+#ifdef COBBLE_DEV_BUILD
+static void obsStep(const char* s) {
+    const char* tmp = getenv("TEMP");
+    if (!tmp)
         return;
+    std::string path = std::string(tmp) + "\\cobble_obs.log";
+    FILE* fp = nullptr;
+    fopen_s(&fp, path.c_str(), "w");
+    if (fp) {
+        fputs(s, fp);
+        fclose(fp);
+    }
+}
+#define OBS_STEP(s) obsStep(s)
+#else
+#define OBS_STEP(s) ((void)0)
+#endif
 
-    std::lock_guard<std::mutex> receiveLock(g_onReceiveMutex);
+// Real observer body. Runs under the SEH guard installed by NativeOnReceive
+// (below) so a null-deref while parsing a malformed/unexpected inbound packet
+// on the Netty IO thread drops that packet instead of taking down the game.
+// Kept separate because it holds C++ objects with destructors (std::string /
+// std::vector locals), which MSVC forbids in a function that also uses __try.
+static void NativeOnReceiveImpl(JNIEnv* env, jobject packet) {
+    // packet null-check and the g_onReceiveMutex lock are handled by the
+    // NativeOnReceive wrapper (so the mutex survives SEH unwinding).
+    OBS_STEP("enter");
 
     // Removed g_seenApolloSinceWorldChange - serial validation handles stale data
 
     // Track entity effects (used by NameTags "Show Effects" fallback).
+    OBS_STEP("effect");
     try_handle_entity_effect_packets(env, packet);
 
     // Track held item and "eat/drink" animations for potion inference on servers that don't send S1D while tracked.
+    OBS_STEP("equip");
     try_handle_equipment_packet(env, packet);
+    OBS_STEP("anim");
     try_handle_animation_packet(env, packet);
 
     if (friendsManager && isWorldChangePacket(env, packet)) {
@@ -1343,6 +1381,7 @@ void JNICALL ApolloPacketObserver::NativeOnReceive(JNIEnv* env, jclass, jobject 
     }
 
     // If this is a CustomPayload packet, check for lunar:apollo channel
+    OBS_STEP("apollo-parse");
     if (cls_S3FPacketCustomPayload && env->IsInstanceOf(packet, cls_S3FPacketCustomPayload)) {
         jmethodID channelMethod = mid_getChannelName ? mid_getChannelName : mid_getChannelName_legacy;
         if (channelMethod) {
@@ -2225,9 +2264,40 @@ void JNICALL ApolloPacketObserver::NativeOnReceive(JNIEnv* env, jclass, jobject 
     }
 
     // Process Lunar Client nametag packets (legacy path)
+    OBS_STEP("nametag-legacy");
     if (!blockActive && LunarPacketListener::IsReady()) {
         LunarPacketListener::processIncomingPacket(env, packet);
     }
+    OBS_STEP("done");
+}
+
+// SEH filter: log the contained fault (code + address) and swallow it. The
+// faults seen here are reads (e.g. reading 0x8 off a null base while parsing
+// Apollo team/nametag protobuf), which don't corrupt state — dropping the
+// packet is safe and keeps javaw alive instead of writing an hs_err crash.
+static int observerSehFilter(EXCEPTION_POINTERS* ep) {
+    unsigned long code = (ep && ep->ExceptionRecord) ? ep->ExceptionRecord->ExceptionCode : 0;
+    void* addr = (ep && ep->ExceptionRecord) ? ep->ExceptionRecord->ExceptionAddress : nullptr;
+    log_warn("[PacketObserver] contained fault 0x%08lx at %p on incoming packet — dropped", code, addr);
+    return EXCEPTION_EXECUTE_HANDLER;
+}
+
+void JNICALL ApolloPacketObserver::NativeOnReceive(JNIEnv* env, jclass, jobject packet) {
+    if (!packet)
+        return;
+
+    // Serialize observer calls across the multiple Netty IO threads, but lock
+    // MANUALLY (not std::lock_guard) so the mutex is always released — even when
+    // the SEH filter swallows a fault. A lock_guard destructor does NOT run
+    // during an SEH unwind (/EHsc), which would leave the mutex locked forever
+    // and deadlock channelRead0 (freezing all incoming packets / the game).
+    g_onReceiveMutex.lock();
+    __try {
+        NativeOnReceiveImpl(env, packet);
+    } __except (observerSehFilter(GetExceptionInformation())) {
+        // Swallowed — a single bad packet must not crash the game.
+    }
+    g_onReceiveMutex.unlock();
 }
 
 void ApolloPacketObserver::BoostLogBudget(int count) {

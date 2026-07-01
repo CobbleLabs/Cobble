@@ -386,6 +386,36 @@ void Minecraft::setTimerSpeed(float speed) {
     Java::Env()->DeleteLocalRef(timer);
 }
 
+int Minecraft::getGameFps() {
+    if (!isValid() || !cls)
+        return 0;
+    JNIEnv* env = Java::Env();
+    if (!env)
+        return 0;
+
+    // Static int Minecraft.debugFPS. Resolve once; SRG fallback for non-MCP maps.
+    static jfieldID fid_debugFPS = nullptr;
+    static bool triedResolve = false;
+    if (!fid_debugFPS && !triedResolve) {
+        triedResolve = true;
+        fid_debugFPS = env->GetStaticFieldID(cls, OBFUSCATE_STRING("debugFPS").c_str(), OBFUSCATE_STRING("I").c_str());
+        if (!fid_debugFPS) {
+            env->ExceptionClear();
+            fid_debugFPS =
+                env->GetStaticFieldID(cls, OBFUSCATE_STRING("field_71470_ab").c_str(), OBFUSCATE_STRING("I").c_str());
+        }
+        if (env->ExceptionCheck())
+            env->ExceptionClear();
+    }
+    if (!fid_debugFPS)
+        return 0;
+
+    int fps = env->GetStaticIntField(cls, fid_debugFPS);
+    if (env->ExceptionCheck())
+        env->ExceptionClear();
+    return fps;
+}
+
 void Minecraft::sendPacket(jobject packet) {
     if (!isValid() || !packet)
         return;

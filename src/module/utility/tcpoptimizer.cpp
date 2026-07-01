@@ -394,12 +394,18 @@ void TcpOptimizer::applyOptimizations() {
 
     std::wstring tcpIfPath = L"HKLM\\SYSTEM\\CurrentControlSet\\Services\\Tcpip\\Parameters\\Interfaces\\" + adapterId;
     std::wstring mmPath = L"HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Multimedia\\SystemProfile";
+    std::wstring tcpParamsPath = L"HKLM\\SYSTEM\\CurrentControlSet\\Services\\Tcpip\\Parameters";
 
     regBackups.push_back(backupRegValue(tcpIfPath, L"TcpAckFrequency"));
     regBackups.push_back(backupRegValue(tcpIfPath, L"TCPNoDelay"));
     regBackups.push_back(backupRegValue(tcpIfPath, L"TcpDelAckTicks"));
     regBackups.push_back(backupRegValue(mmPath, L"NetworkThrottlingIndex"));
     regBackups.push_back(backupRegValue(mmPath, L"SystemResponsiveness"));
+    // Global TCP/IP stack tuning (latency-oriented, all restored on disable).
+    regBackups.push_back(backupRegValue(tcpParamsPath, L"DefaultTTL"));
+    regBackups.push_back(backupRegValue(tcpParamsPath, L"Tcp1323Opts"));
+    regBackups.push_back(backupRegValue(tcpParamsPath, L"MaxUserPort"));
+    regBackups.push_back(backupRegValue(tcpParamsPath, L"TcpTimedWaitDelay"));
 
     originalRscState = queryRscState();
     originalMtu = 1500;
@@ -438,6 +444,40 @@ void TcpOptimizer::applyOptimizations() {
 
     if (smartPackets) {
         cmds.push_back(L"netsh interface tcp set global rsc=disabled");
+    }
+
+    // ---- Global TCP/IP stack tuning (always applied) -------------------------
+    // Lower fixed TTL, window-scaling on with timestamps off (Tcp1323Opts=1),
+    // wider ephemeral port range and fast TIME_WAIT reuse for quick reconnects.
+    cmds.push_back(regSetDwordCmd(tcpParamsPath, L"DefaultTTL", 64));
+    cmds.push_back(regSetDwordCmd(tcpParamsPath, L"Tcp1323Opts", 1));
+    cmds.push_back(regSetDwordCmd(tcpParamsPath, L"MaxUserPort", 65534));
+    cmds.push_back(regSetDwordCmd(tcpParamsPath, L"TcpTimedWaitDelay", 30));
+
+    // Strip per-packet overhead / spurious retransmit resilience that adds jitter,
+    // and shrink the initial retransmit timeout so lost hits recover faster.
+    cmds.push_back(L"netsh interface tcp set global timestamps=disabled");
+    cmds.push_back(L"netsh interface tcp set global nonsackrttresiliency=disabled");
+    cmds.push_back(L"netsh interface tcp set global initialRto=2000");
+    cmds.push_back(L"netsh interface tcp set global rss=enabled");
+
+    // ---- Aggressive NIC latency tuning (high Hit Reg tier) -------------------
+    // Disables the driver features that batch/delay packets or sleep the link,
+    // trading a little CPU for lower, more consistent latency (fewer whiffs).
+    if (hitReg >= 61.0f) {
+        auto nicProp = [&](const wchar_t* disp, const wchar_t* val) {
+            cmds.push_back(L"Set-NetAdapterAdvancedProperty -Name '" + esc + L"' -DisplayName '" +
+                           std::wstring(disp) + L"' -DisplayValue '" + val +
+                           L"' -NoReboot -Confirm:$false -ErrorAction SilentlyContinue");
+        };
+        nicProp(L"Interrupt Moderation", L"Disabled");
+        nicProp(L"Flow Control", L"Disabled");
+        nicProp(L"Energy-Efficient Ethernet", L"Disabled");
+        nicProp(L"Green Ethernet", L"Disabled");
+        nicProp(L"Gigabit Lite", L"Disabled");
+        nicProp(L"Power Saving Mode", L"Disabled");
+        nicProp(L"Ultra Low Power Mode", L"Disabled");
+        cmds.push_back(L"Disable-NetAdapterRsc -Name '" + esc + L"' -IPv4 -IPv6 -NoRestart -ErrorAction SilentlyContinue");
     }
 
     std::wstring tuning = (connectionType == 1) ? L"highlyrestricted" : L"normal";
@@ -503,9 +543,20 @@ void TcpOptimizer::restoreAll() {
         if (!originalRxBuffers.empty()) {
             cmds.push_back(L"Set-NetAdapterAdvancedProperty -Name '" + esc + L"' -DisplayName 'Receive Buffers' -DisplayValue '" + originalRxBuffers + L"' -NoReboot -Confirm:$false -ErrorAction SilentlyContinue");
         }
+
+        // Reset the aggressive NIC latency properties back to driver defaults.
+        const wchar_t* resetProps[] = {L"Interrupt Moderation", L"Flow Control", L"Energy-Efficient Ethernet",
+                                       L"Green Ethernet", L"Gigabit Lite", L"Power Saving Mode", L"Ultra Low Power Mode"};
+        for (auto* dp : resetProps) {
+            cmds.push_back(L"Reset-NetAdapterAdvancedProperty -Name '" + esc + L"' -DisplayName '" +
+                           std::wstring(dp) + L"' -NoRestart -ErrorAction SilentlyContinue");
+        }
+        cmds.push_back(L"Enable-NetAdapterRsc -Name '" + esc + L"' -IPv4 -IPv6 -NoRestart -ErrorAction SilentlyContinue");
     }
 
     cmds.push_back(L"netsh interface tcp set global autotuninglevel=normal");
+    cmds.push_back(L"netsh interface tcp set global nonsackrttresiliency=enabled");
+    cmds.push_back(L"netsh interface tcp set global initialRto=3000");
     cmds.push_back(L"bcdedit.exe /set disabledynamictick no");
 
     if (!adapterName.empty()) {

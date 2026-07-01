@@ -250,6 +250,10 @@ void ArmorSwitch::onUpdate() {
     if (!player.isValid())
         return;
 
+    // Refresh the cached set on this (main/JNI) thread so getDisplayInfo() —
+    // which runs on the render thread — can read it without touching JNI.
+    cachedCurrentSet.store(detectCurrentSet(), std::memory_order_relaxed);
+
     // Passive mode: monitor for inventory open
     if (settings.onInventoryOpen && state == State::Idle) {
         bool inventoryOpen = mc.isInventoryOpen();
@@ -739,17 +743,16 @@ std::string ArmorSwitch::getDisplayInfo() {
         return "Inv Open";
     }
 
-    // Safety check - don't query if not in game
-    if (!mc.isValid() || !player.isValid())
-        return "---";
-
-    int currentSet = detectCurrentSet();
+    // Read the cached set (refreshed in onUpdate on the main thread). NEVER call
+    // detectCurrentSet() here — getDisplayInfo() runs on the render thread and
+    // detectCurrentSet() does JNI (mc.getArmorSlots()), which crashes it.
+    int currentSet = cachedCurrentSet.load(std::memory_order_relaxed);
     if (currentSet == 0) {
         return std::string("Set 1 - ") + materialNames[settings.set1Material];
     } else if (currentSet == 1) {
         return std::string("Set 2 - ") + materialNames[settings.set2Material];
     }
-    return "Mixed";
+    return "---";
 }
 
 

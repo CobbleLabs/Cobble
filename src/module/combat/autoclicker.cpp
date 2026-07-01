@@ -323,39 +323,6 @@ void AutoClicker::calculateNextDelay() {
     float phase = lastClickWasDown ? clickDownFraction : (1.0f - clickDownFraction);
     float delay = currentClickIntervalMs * phase;
     nextDelayMs = std::clamp(static_cast<int>(std::lround(delay)), 8, 500);
-    return;
-
-    // Add non-uniform jitter based on current mode
-    int jitterAmount = 0;
-    switch (currentJitterMode) {
-        case 0:  // No jitter
-            jitterAmount = 0;
-            break;
-        case 1:  // Small jitter Â±2ms
-        {
-            std::uniform_int_distribution<int> jitterDist(-2, 2);
-            jitterAmount = jitterDist(rng);
-        } break;
-        case 2:  // Medium jitter Â±5ms
-        {
-            std::uniform_int_distribution<int> jitterDist(-5, 5);
-            jitterAmount = jitterDist(rng);
-        } break;
-        case 3:  // Large jitter Â±12ms
-        {
-            std::uniform_int_distribution<int> jitterDist(-12, 12);
-            jitterAmount = jitterDist(rng);
-        } break;
-    }
-    delay += jitterAmount;
-
-    // Halve the delay because alternating pattern needs 2 calls per click
-    delay *= 0.5f;
-
-    // Clamp to sane values (these are per-event, not per-click)
-    nextDelayMs = static_cast<int>(delay);
-    nextDelayMs = (std::max)(nextDelayMs, 20);   // Min ~25 CPS
-    nextDelayMs = (std::min)(nextDelayMs, 100);  // Max ~5 CPS
 }
 
 void AutoClicker::reseedSecureRng() {

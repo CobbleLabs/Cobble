@@ -152,6 +152,10 @@ struct Minecraft {
     // Mouse sensitivity (for proper aim assist scaling)
     float getMouseSensitivity();
 
+    // Real in-game FPS (reads the static Minecraft.debugFPS field).
+    // Must be called on the main JNI thread; cache it for the render thread.
+    int getGameFps();
+
     // Timer speed control (1.0 = normal, higher = faster game speed)
     void setTimerSpeed(float speed);
 
@@ -185,6 +189,12 @@ struct Minecraft {
     // Returns block ID at given coordinates (0 = air)
     int getBlockId(int x, int y, int z);
     bool damageBlock(int x, int y, int z);
+
+    // Damage the block under the crosshair using the game's own objectMouseOver
+    // block position AND side. Because pos+facing match vanilla exactly, the
+    // START/STOP digging packets stay consistent and the server accepts the
+    // break instead of reverting it (avoids ghost blocks on fast break).
+    bool damageTargetedBlock();
 
     struct Vec3 {
         float x = 0, y = 0, z = 0;

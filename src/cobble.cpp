@@ -26,6 +26,7 @@
 #include "module/utility/bridgeassist.h"
 #include "module/utility/clutch.h"
 #include "module/utility/fastplace.h"
+#include "module/utility/fastbreak.h"
 #include "module/utility/noitemrelease.h"
 #include "module/utility/inventorymanager.h"
 #include "module/utility/altmanager.h"
@@ -202,6 +203,8 @@ void cobble::context::initialize(HMODULE hModule) {
     fakeLag = new FakeLag();
     COBBLE_TRACE("alloc:FastPlace");
     fastPlace = new FastPlace();
+    COBBLE_TRACE("alloc:FastBreak");
+    fastBreak = new FastBreak();
     COBBLE_TRACE("alloc:TimerMod");
     timerModule = new TimerMod();
     COBBLE_TRACE("alloc:TimerRange");
@@ -260,6 +263,7 @@ void cobble::context::initialize(HMODULE hModule) {
     moduleManager->registerModule(blink);
     moduleManager->registerModule(fakeLag);
     moduleManager->registerModule(fastPlace);
+    moduleManager->registerModule(fastBreak);
     moduleManager->registerModule(timerModule);
     moduleManager->registerModule(timerRange);
     moduleManager->registerModule(sprint);
@@ -417,6 +421,8 @@ void cobble::context::initialize(HMODULE hModule) {
         if (now - lastRenderUpdate >= RENDERDATA_UPDATE_INTERVAL) {
             DIAG_SCOPE("RenderData::Update");
             RenderData::Update();
+            // Cache real game FPS here (main JNI thread) for the HUD/watermark.
+            RenderData::gameFps = mc.getGameFps();
             lastRenderUpdate = now;
         }
 
@@ -501,6 +507,8 @@ void cobble::context::shutdown() {
         fakeLag->setEnabled(false);
     if (fastPlace)
         fastPlace->setEnabled(false);
+    if (fastBreak)
+        fastBreak->setEnabled(false);
     if (timerModule)
         timerModule->setEnabled(false);
     if (timerRange)
@@ -642,6 +650,10 @@ void cobble::context::shutdown() {
     if (fastPlace) {
         delete fastPlace;
         fastPlace = nullptr;
+    }
+    if (fastBreak) {
+        delete fastBreak;
+        fastBreak = nullptr;
     }
     if (timerModule) {
         delete timerModule;

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <atomic>
 #include <chrono>
 #include <vector>
 #include <algorithm>
@@ -141,6 +142,12 @@ private:
 
     // Track inventory open state for passive mode
     bool wasInventoryOpen = false;
+
+    // Cached current armor set for getDisplayInfo(). Refreshed in onUpdate() on
+    // the main/JNI thread. getDisplayInfo() runs on the render thread and must
+    // NOT call detectCurrentSet() (it does JNI -> crashes the render thread).
+    // -1 = unknown / mixed, 0 = set 1, 1 = set 2.
+    std::atomic<int> cachedCurrentSet{-1};
 };
 
 extern ArmorSwitch* armorSwitch;

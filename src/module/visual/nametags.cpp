@@ -381,19 +381,30 @@ void NameTags::onUpdate() {
 
         // Mojang name resolution for obfuscated GameProfiles
         // Always lookup, but only override display name if different from server name
+        // NOTE: mojangCache is also written by the detached lookup threads below,
+        // which lock cacheMutex. EVERY access here must hold the same lock or the
+        // unordered_map rehash races the threads -> heap corruption. Decide under
+        // the lock, then spawn the thread AFTER releasing it.
         if (!p.uuid.empty()) {
-            auto& entry = mojangCache[p.uuid];
+            bool needLookup = false;
+            std::string uuidCopy = p.uuid;
+            {
+                std::lock_guard<std::mutex> lock(cacheMutex);
+                auto& entry = mojangCache[p.uuid];
 
-            if (entry.lookupDone) {
-                // Compare with server name - only use Mojang if different
-                if (!entry.realName.empty() && entry.realName != p.name) {
-                    cached.mojangName = entry.realName;
+                if (entry.lookupDone) {
+                    // Compare with server name - only use Mojang if different
+                    if (!entry.realName.empty() && entry.realName != p.name) {
+                        cached.mojangName = entry.realName;
+                    }
+                } else if (!entry.lookupQueued) {
+                    // Queue async lookup
+                    entry.lookupQueued = true;
+                    needLookup = true;
                 }
-            } else if (!entry.lookupQueued) {
-                // Queue async lookup
-                entry.lookupQueued = true;
-                std::string uuidCopy = p.uuid;
+            }
 
+            if (needLookup) {
                 std::thread([this, uuidCopy]() {
                     std::string realName = http::lookupMojangName(uuidCopy);
                     if (!realName.empty()) {

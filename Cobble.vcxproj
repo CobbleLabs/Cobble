@@ -111,6 +111,7 @@
     <ClCompile Include="src\module\utility\breaker.cpp" />
 
     <ClCompile Include="src\module\utility\fastplace.cpp" />
+    <ClCompile Include="src\module\utility\fastbreak.cpp" />
     <ClCompile Include="src\module\movement\timer.cpp" />
     <ClCompile Include="src\module\movement\timerrange.cpp" />
     <ClCompile Include="src\module\movement\sprint.cpp" />
@@ -132,6 +133,7 @@
     <ClCompile Include="src\ui\menu\menu.cpp" />
     <ClCompile Include="src\ui\hud\notifications.cpp" />
     <ClCompile Include="src\ui\hud\arraylist.cpp" />
+    <ClCompile Include="src\ui\hud\watermark.cpp" />
     <ClCompile Include="src\ui\widgets\widgets.cpp" />
     <ClCompile Include="src\ui\widgets\theme.cpp" />
     <!-- Config system -->
@@ -199,6 +201,7 @@
     <ClInclude Include="src\module\utility\breaker.h" />
 
     <ClInclude Include="src\module\utility\fastplace.h" />
+    <ClInclude Include="src\module\utility\fastbreak.h" />
     <ClInclude Include="src\module\movement\timer.h" />
     <ClInclude Include="src\module\movement\timerrange.h" />
     <ClInclude Include="src\module\movement\sprint.h" />
@@ -218,6 +221,7 @@
     <ClInclude Include="src\ui\core\overlay.h" />
     <ClInclude Include="src\ui\menu\menu.h" />
     <ClInclude Include="src\ui\hud\arraylist.h" />
+    <ClInclude Include="src\ui\hud\watermark.h" />
     <ClInclude Include="src\ui\hud\notifications.h" />
     <ClInclude Include="src\ui\widgets\widgets.hpp" />
     <ClInclude Include="src\ui\widgets\theme.hpp" />

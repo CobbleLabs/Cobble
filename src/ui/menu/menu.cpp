@@ -30,6 +30,7 @@
 #include "../../module/utility/bridgeassist.h"
 #include "../../module/utility/clutch.h"
 #include "../../module/utility/fastplace.h"
+#include "../../module/utility/fastbreak.h"
 #include "../../module/utility/noitemrelease.h"
 #include "../../module/utility/inventorymanager.h"
 #include "../../module/utility/altmanager.h"
@@ -47,6 +48,7 @@
 #include "../../util/network/http.hpp"
 #include "../../util/team/friends_manager.h"
 #include "../hud/arraylist.h"
+#include "../hud/watermark.h"
 #include "../hud/notifications.h"
 #include "../widgets/icons.hpp"
 #include "../widgets/theme.hpp"
@@ -159,6 +161,8 @@ Module* getModuleForSubtab(int tabIdx, int subtabIdx) {
                 return altManager;
             case 10:
                 return tcpOptimizer;
+            case 11:
+                return fastBreak;
         }
     }
     // Configs/Settings tabs - no module, handled specially
@@ -1007,6 +1011,8 @@ static void renderModuleConfig(int tab) {
                 ui::Checkbox("Rainbow", &ArrayListRenderer::rainbow);
                 ui::Checkbox("Color Bar", &ArrayListRenderer::colorBar);
                 ui::Checkbox("Background", &ArrayListRenderer::showBackground);
+                ui::Checkbox("Watermark", &Watermark::enabled);
+                ui::Checkbox("Watermark Rainbow", &Watermark::rainbow);
             },
             "Options",
             []() {
@@ -1024,6 +1030,17 @@ static void renderModuleConfig(int tab) {
                 ui::DescribeLastItem("Move ArrayList",
                                      "Pega la ArrayList al cursor; haz click para soltarla donde quieras. "
                                      "Tambien puedes arrastrarla directamente con el mouse.");
+
+                // Move the watermark the same way as the ArrayList.
+                if (ImGui::Button("Move Watermark")) {
+                    Watermark::enabled = true;  // must be on to be visible/placeable
+                    Watermark::placing = true;
+                    Menu::hidden = true;
+                }
+                ui::DescribeLastItem("Move Watermark",
+                                     "Pega el watermark al cursor; haz click para soltarlo donde quieras. "
+                                     "Tambien puedes arrastrarlo directamente con el mouse.");
+                ui::SliderFloat("Watermark Size", &Watermark::scale, 0.5f, 2.0f, "%.1fx");
 
                 // Changing this resets the block back to the chosen corner.
                 const char* anchorItems[] = {"Top Right", "Top Left", "Bottom Right", "Bottom Left"};

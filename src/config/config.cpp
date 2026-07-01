@@ -3,6 +3,7 @@
 #include "../module/module_manager.h"
 #include "../security/session_validator.hpp"
 #include "../ui/hud/arraylist.h"
+#include "../ui/hud/watermark.h"
 #include "../ui/hud/notifications.h"
 #include "../ui/menu/menu.h"
 #include "../ui/widgets/theme.hpp"
@@ -534,6 +535,7 @@ void ConfigManager::applyDefaults() {
 
     // HUD
     config_["hud"]["arrayList"] = true;
+    config_["hud"]["watermark"] = true;
     config_["hud"]["notifications"] = true;
     COBBLE_TRACE("applyDefaults:hud set");
 
@@ -572,6 +574,11 @@ void ConfigManager::applyConfig() {
         anchor = config_["hud"]["arrayListAnchor"].as_int(0);
         posX = config_["hud"]["arrayListPosX"].as_float(-1.0f);
         posY = config_["hud"]["arrayListPosY"].as_float(-1.0f);
+        Watermark::enabled = config_["hud"]["watermark"].as_bool(true);
+        Watermark::rainbow = config_["hud"]["watermarkRainbow"].as_bool(true);
+        Watermark::scale = config_["hud"]["watermarkScale"].as_float(1.0f);
+        Watermark::posX = config_["hud"]["watermarkPosX"].as_float(-1.0f);
+        Watermark::posY = config_["hud"]["watermarkPosY"].as_float(-1.0f);
         NotificationManager::enabled = config_["hud"]["notifications"].as_bool(true);
     }
 
@@ -677,6 +684,11 @@ void ConfigManager::buildConfigFromModules() {
     config_["hud"]["arrayListAnchor"] = anchor;
     config_["hud"]["arrayListPosX"] = posX;
     config_["hud"]["arrayListPosY"] = posY;
+    config_["hud"]["watermark"] = Watermark::enabled;
+    config_["hud"]["watermarkRainbow"] = Watermark::rainbow;
+    config_["hud"]["watermarkScale"] = Watermark::scale;
+    config_["hud"]["watermarkPosX"] = Watermark::posX;
+    config_["hud"]["watermarkPosY"] = Watermark::posY;
     config_["hud"]["notifications"] = NotificationManager::enabled;
 
     // Friends

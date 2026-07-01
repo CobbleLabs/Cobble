@@ -9,6 +9,7 @@
 #include "../../util/textures/item_textures.h"
 #include "../hud/arraylist.h"
 #include "../hud/notifications.h"
+#include "../hud/watermark.h"
 #include "../menu/menu.h"
 #include "../widgets/icons.hpp"
 #include "../widgets/widgets.hpp"
@@ -405,8 +406,12 @@ BOOL __stdcall HookedSwapBuffers(HDC hdc) {
         bool hasRenderWork = moduleManager && moduleManager->hasRenderWork();
         bool hasNotifications = NotificationManager::hasActive();
         bool hasArrayList = ArrayListRenderer::hasActive();
+        // Watermark is tied to the ArrayList: it only shows while the ArrayList
+        // is enabled (but still has its own on/off toggle).
+        bool hasWatermark = Watermark::enabled && ArrayListRenderer::enabled;
         bool menuAnimating = Menu::openAnim > 0.01f;
-        if (!Menu::isOpen && !menuAnimating && !hasRenderWork && !hasNotifications && !hasArrayList) {
+        if (!Menu::isOpen && !menuAnimating && !hasRenderWork && !hasNotifications && !hasArrayList &&
+            !hasWatermark) {
             return originalSwapBuffers(hdc);
         }
 
@@ -545,6 +550,7 @@ void Overlay::Shutdown() {
 void Overlay::Render() {
     moduleManager->onRender();
     ArrayListRenderer::render();
+    Watermark::render();
     NotificationManager::update();
     NotificationManager::render();
 }

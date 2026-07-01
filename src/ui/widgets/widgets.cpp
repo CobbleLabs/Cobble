@@ -59,6 +59,7 @@ static const DescriptionEntry kModuleDescriptions[] = {
     {"", "InvManager", "", "Organizes the inventory and hotbar using your saved preferences."},
     {"", "AltManager", "", "Spoofs the local username when joining compatible offline servers."},
     {"", "TCP Optimizer", "", "Optimizes Windows TCP settings, packet priority and adapter tuning for Minecraft."},
+    {"", "FastBreak", "", "Removes the cooldown between block mining hits so blocks break faster."},
 };
 
 static const DescriptionEntry kOptionDescriptions[] = {
@@ -333,7 +334,7 @@ std::vector<ui::tab_t> ui::tabs = {
     {ICON_FA_KEYBOARD,
      "Utility",
      {"ArmorSwitch", "AutoRefill", "FastPlace", "NoItemRelease", "BridgeAssist", "Clutch", "Breaker", "AutoTool",
-      "InvManager", "AltManager", "TCP Optimizer"}},
+      "InvManager", "AltManager", "TCP Optimizer", "FastBreak"}},
     {ICON_FA_SAVE, "Configs", {}},
     {ICON_FA_GEAR, "Settings", {}}};
 

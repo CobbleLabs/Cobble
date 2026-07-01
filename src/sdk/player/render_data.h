@@ -24,6 +24,10 @@ struct RenderData {
     static inline int screenWidth = 0;
     static inline int screenHeight = 0;
 
+    // Real in-game FPS (Minecraft.debugFPS), cached on the main thread so the
+    // render thread (watermark/HUD) can read it without touching JNI.
+    static inline int gameFps = 0;
+
     // Cached JNI IDs
     static inline jclass activeRenderInfoClass = nullptr;
     static inline jfieldID projectionField = nullptr;

@@ -3,6 +3,7 @@
 #include "../../sdk/player/player.h"
 #include "../../ui/menu/menu.h"
 #include "../../ui/widgets/widgets.hpp"
+#include "../../util/diagnostics.hpp"
 #include "../../util/network/json.hpp"
 
 #ifndef WIN32_LEAN_AND_MEAN
@@ -54,14 +55,17 @@ bool Criticals::canDoCritical() {
     if (!player.isValid())
         return false;
 
-    // Must be on ground
-    if (!player.isOnGround())
-        return false;
-
-    // Check delay
+    // Check delay first — cheap, and avoids hammering JNI every tick in MS mode.
     unsigned long now = GetTickCount();
     if (now - lastCriticalTime < (unsigned long)settings.maxDelayMs)
         return false;
+
+    // Must be on ground
+    {
+        DIAG_SCOPE("Criticals.isOnGround");
+        if (!player.isOnGround())
+            return false;
+    }
 
     // Check conditions
     if (settings.onlyWhileAttacking) {
@@ -70,20 +74,39 @@ bool Criticals::canDoCritical() {
     }
 
     if (settings.lookingAtPlayer) {
+        DIAG_SCOPE("Criticals.isLookingAtPlayer");
         if (!isLookingAtPlayer())
             return false;
     }
 
     if (settings.onlyWithSword) {
+        DIAG_SCOPE("Criticals.isHoldingSword");
         if (!isHoldingSword())
             return false;
     }
 
     // Don't do criticals while sneaking
-    if (player.isSneaking())
-        return false;
+    {
+        DIAG_SCOPE("Criticals.isSneaking");
+        if (player.isSneaking())
+            return false;
+    }
 
     return checkChance();
+}
+
+void Criticals::doCritical() {
+    // A small real movement is safer than constructing version-specific
+    // packets from the module worker thread.
+    {
+        DIAG_SCOPE("Criticals.setMotionY");
+        player.setMotionY(0.12);
+    }
+    {
+        DIAG_SCOPE("Criticals.setOnGround");
+        player.setOnGround(false);
+    }
+    lastCriticalTime = GetTickCount();
 }
 
 void Criticals::onUpdate() {
@@ -97,12 +120,16 @@ void Criticals::onUpdate() {
 
     const bool isAttacking = (GetAsyncKeyState(VK_LBUTTON) & 0x8000) != 0;
 
-    if (isAttacking && !wasAttacking && canDoCritical()) {
-        // A small real movement is safer than constructing version-specific
-        // packets from the module worker thread.
-        player.setMotionY(0.12);
-        player.setOnGround(false);
-        lastCriticalTime = GetTickCount();
+    if (settings.mode == MODE_MS) {
+        // Interval mode: hop on the ms timer whenever conditions hold, no need
+        // to wait for a fresh click. canDoCritical() enforces maxDelayMs as the
+        // interval and re-rolls chance each pulse.
+        if (canDoCritical())
+            doCritical();
+    } else {
+        // Attack mode: only on the rising edge of a click (per swing).
+        if (isAttacking && !wasAttacking && canDoCritical())
+            doCritical();
     }
 
     wasAttacking = isAttacking;
@@ -120,8 +147,14 @@ void Criticals::onRenderMenu() {
             }
             ImGui::Spacing();
 
+            static const char* kModeNames[] = {"Attack", "MS"};
+            int modeIdx = settings.mode;
+            if (ui::Combo("Mode", &modeIdx, kModeNames, IM_ARRAYSIZE(kModeNames)))
+                settings.mode = modeIdx;
+
             int delay = settings.maxDelayMs;
-            if (ui::SliderInt("Delay", &delay, 50, 500, "%dms"))
+            const char* delayLabel = settings.mode == MODE_MS ? "Interval" : "Delay";
+            if (ui::SliderInt(delayLabel, &delay, 50, 500, "%dms"))
                 settings.maxDelayMs = delay;
 
             int chance = settings.chance;
@@ -139,6 +172,7 @@ void Criticals::onRenderMenu() {
 
 
 void Criticals::saveSettings(json::Value& node) const {
+    node["mode"] = settings.mode;
     node["maxDelayMs"] = settings.maxDelayMs;
     node["chance"] = settings.chance;
     node["onlyWhileAttacking"] = settings.onlyWhileAttacking;
@@ -147,6 +181,7 @@ void Criticals::saveSettings(json::Value& node) const {
 }
 
 void Criticals::loadSettings(const json::Value& node) {
+    settings.mode = node["mode"].as_int(settings.mode);
     settings.maxDelayMs = node["maxDelayMs"].as_int(settings.maxDelayMs);
     settings.chance = node["chance"].as_int(settings.chance);
     settings.onlyWhileAttacking = node["onlyWhileAttacking"].as_bool(settings.onlyWhileAttacking);

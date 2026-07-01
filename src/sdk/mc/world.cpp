@@ -166,6 +166,88 @@ bool Minecraft::damageBlock(int x, int y, int z) {
 }
 
 // =============================================================================
+// damageTargetedBlock - Damage the crosshair block with vanilla's exact target
+// =============================================================================
+
+bool Minecraft::damageTargetedBlock() {
+    JNIEnv* env = Java::Env();
+    if (!isValid() || !env)
+        return false;
+    if (!JniCache::fid_playerController || !JniCache::fid_objectMouseOver || !JniCache::mid_getBlockPos ||
+        !JniCache::cls_MovingObjectPosition)
+        return false;
+
+    if (env->PushLocalFrame(16) < 0)
+        return false;
+
+    bool damaged = false;
+    do {
+        jobject controller = env->GetObjectField(instance, JniCache::fid_playerController);
+        if (!controller)
+            break;
+
+        jobject mouseOver = env->GetObjectField(instance, JniCache::fid_objectMouseOver);
+        if (!mouseOver)
+            break;
+
+        // Block position exactly as the game sees it under the crosshair.
+        jobject blockPos = env->CallObjectMethod(mouseOver, JniCache::mid_getBlockPos);
+        if (!blockPos || env->ExceptionCheck()) {
+            env->ExceptionClear();
+            break;
+        }
+
+        // sideHit : EnumFacing — the exact face vanilla reports for this hit.
+        // Using the real side keeps our STOP_DESTROY_BLOCK consistent with the
+        // START the game already sent. SRG name fallback for non-MCP mappings.
+        jfieldID fidSideHit =
+            env->GetFieldID(JniCache::cls_MovingObjectPosition, OBFUSCATE_STRING("sideHit").c_str(),
+                            OBFUSCATE_STRING("Lnet/minecraft/util/EnumFacing;").c_str());
+        if (!fidSideHit) {
+            env->ExceptionClear();
+            fidSideHit =
+                env->GetFieldID(JniCache::cls_MovingObjectPosition, OBFUSCATE_STRING("field_178784_b").c_str(),
+                                OBFUSCATE_STRING("Lnet/minecraft/util/EnumFacing;").c_str());
+        }
+        if (!fidSideHit) {
+            env->ExceptionClear();
+            break;
+        }
+        jobject sideHit = env->GetObjectField(mouseOver, fidSideHit);
+        if (!sideHit)
+            break;
+
+        jclass controllerClass = env->GetObjectClass(controller);
+        if (!controllerClass)
+            break;
+
+        jmethodID damageMethod = env->GetMethodID(
+            controllerClass, OBFUSCATE_STRING("onPlayerDamageBlock").c_str(),
+            OBFUSCATE_STRING("(Lnet/minecraft/util/BlockPos;Lnet/minecraft/util/EnumFacing;)Z").c_str());
+        if (!damageMethod) {
+            env->ExceptionClear();
+            damageMethod = env->GetMethodID(
+                controllerClass, OBFUSCATE_STRING("func_180512_c").c_str(),
+                OBFUSCATE_STRING("(Lnet/minecraft/util/BlockPos;Lnet/minecraft/util/EnumFacing;)Z").c_str());
+        }
+        if (!damageMethod) {
+            env->ExceptionClear();
+            break;
+        }
+
+        damaged = env->CallBooleanMethod(controller, damageMethod, blockPos, sideHit) == JNI_TRUE;
+    } while (false);
+
+    if (env->ExceptionCheck()) {
+        env->ExceptionClear();
+        damaged = false;
+    }
+
+    env->PopLocalFrame(nullptr);
+    return damaged;
+}
+
+// =============================================================================
 // rayTraceBlocks - Cast a ray and find block hit position
 // =============================================================================
 
