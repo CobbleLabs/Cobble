@@ -24,3 +24,4 @@
 #define ICON_FA_LOCK            "\xef\x80\xa3"  // f023 - Lock (experimental modules)
 #define ICON_FA_SEARCH          "\xef\x80\x82"  // f002 - Search
 #define ICON_FA_SAVE            "\xef\x83\x87"  // f0c7 - Save (Configs)
+#define ICON_FA_WIFI            "\xef\x87\xab"  // f1eb - Network

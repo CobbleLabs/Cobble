@@ -88,10 +88,8 @@ Module* getModuleForSubtab(int tabIdx, int subtabIdx) {
             case 7:
                 return wTap;
             case 8:
-                return backtrack;
-            case 9:
                 return piercing;
-            case 10:
+            case 9:
                 return aimBow;
         }
     }
@@ -120,7 +118,7 @@ Module* getModuleForSubtab(int tabIdx, int subtabIdx) {
                 return nullptr;  // Notifications - special handling
         }
     }
-    // Movement Tab (2): Timer, TimerRange, NoSlowDown, NoJumpDelay, FakeLag, Blink, Sprint
+    // Movement Tab (2): Timer, TimerRange, NoSlowDown, NoJumpDelay, Sprint
     else if (tabIdx == 2) {
         switch (subtabIdx) {
             case 0:
@@ -132,10 +130,6 @@ Module* getModuleForSubtab(int tabIdx, int subtabIdx) {
             case 3:
                 return noJumpDelay;
             case 4:
-                return fakeLag;
-            case 5:
-                return blink;
-            case 6:
                 return sprint;
         }
     }
@@ -163,9 +157,20 @@ Module* getModuleForSubtab(int tabIdx, int subtabIdx) {
             case 9:
                 return altManager;
             case 10:
-                return tcpOptimizer;
-            case 11:
                 return fastBreak;
+        }
+    }
+    // Network Tab (4)
+    else if (tabIdx == 4) {
+        switch (subtabIdx) {
+            case 0:
+                return backtrack;
+            case 1:
+                return blink;
+            case 2:
+                return fakeLag;
+            case 3:
+                return tcpOptimizer;
         }
     }
     // Configs/Settings tabs - no module, handled specially
@@ -580,80 +585,15 @@ static void renderConfigsPage() {
         });
 }
 
-// Module_List_View: render the active category's modules as a Two_Column_Grid
-// of rounded Module_Cards in the main content area. Each Module_Card carries two
-// disjoint hit areas drawn with the drawlist + ButtonBehavior pattern (no raw
-// ImGui interactive widgets, so the grid fades with the menu):
-//   * Name_Region (left, id #name)       -> Module_Toggle via m->toggle()
-//   * Gear_Control (right, id #name##gear)-> open the Module_Config_View
-// Routing stays centralized in getModuleForSubtab. Left column is filled first
-// with the leading prefix (nav::columnSplit), so odd counts bias the extra card
-// to the left column.
-// Draws an accent "comet" that travels around the perimeter of a rounded rect
-// in a smooth, continuous loop (like a loading spinner). headT in [0,1) is the
-// head position along the perimeter; trailFrac is how much of the perimeter the
-// glowing tail covers; intensity scales overall opacity (fades with enable anim).
-static void drawSpinningBorder(ImDrawList* dl, ImVec2 mn, ImVec2 mx, float rounding, float headT, float trailFrac,
-                               float thickness, float intensity) {
-    // Build the rounded-rect perimeter polyline using ImGui's own path builder,
-    // copy it out, then clear the path so nothing is drawn from it directly.
-    dl->PathRect(mn, mx, rounding);
-    int n = dl->_Path.Size;
-    if (n < 2) {
-        dl->PathClear();
-        return;
-    }
-    std::vector<ImVec2> pts(dl->_Path.Data, dl->_Path.Data + n);
-    dl->PathClear();
-
-    // Per-segment lengths around the closed loop.
-    std::vector<float> seglen(n);
-    float total = 0.f;
-    for (int i = 0; i < n; ++i) {
-        ImVec2 a = pts[i];
-        ImVec2 b = pts[(i + 1) % n];
-        float dx = b.x - a.x, dy = b.y - a.y;
-        seglen[i] = sqrtf(dx * dx + dy * dy);
-        total += seglen[i];
-    }
-    if (total <= 0.f)
-        return;
-
-    // Resample the perimeter into many equally-spaced points so the comet glides
-    // smoothly across the long straight edges instead of jumping per segment.
-    const int kSamples = 224;
-    std::vector<ImVec2> rs(kSamples);
-    float step = total / kSamples;
-    int seg = 0;
-    float segStart = 0.f;
-    for (int k = 0; k < kSamples; ++k) {
-        float target = k * step;
-        while (seg < n - 1 && segStart + seglen[seg] < target) {
-            segStart += seglen[seg];
-            ++seg;
-        }
-        float segL = seglen[seg] > 0.f ? seglen[seg] : 1.f;
-        float t = (target - segStart) / segL;
-        ImVec2 a = pts[seg];
-        ImVec2 b = pts[(seg + 1) % n];
-        rs[k] = ImVec2(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t);
-    }
-
-    // Light each resampled segment by how far it sits behind the moving head,
-    // with a smoothstep falloff for a soft comet tail.
-    for (int k = 0; k < kSamples; ++k) {
-        float mid = (k + 0.5f) / kSamples;
-        float d = headT - mid;
-        if (d < 0.f)
-            d += 1.f;
-        if (d < trailFrac) {
-            float a = 1.f - d / trailFrac;  // 1 at the head, 0 at the tail
-            a = a * a * (3.f - 2.f * a);    // smoothstep
-            dl->AddLine(rs[k], rs[(k + 1) % kSamples], GetSchemeColor(a * intensity), thickness);
-        }
-    }
-}
-
+// Module_List_View: render the active category's modules as a single-column
+// list of rounded Module_Cards in the main content area. Each Module_Card
+// carries two disjoint hit areas drawn with the drawlist + ButtonBehavior
+// pattern (no raw ImGui interactive widgets, so the grid fades with the menu):
+//   * Name_Region (left, id #name)        -> Module_Toggle via m->toggle()
+//   * Gear_Control (right, id #name##gear) -> open the Module_Config_View
+// A right-click anywhere on the card also opens its config. Routing stays
+// centralized in getModuleForSubtab. Active + hover states use the same soft
+// accent pill the sidebar category rows use.
 static void renderModuleList(int tab) {
     if (tab < 0 || tab >= (int)ui::tabs.size())
         return;
@@ -696,11 +636,12 @@ static void renderModuleList(int tab) {
             filteredResults.push_back({tab, i, t.m_subtabs[i]});
         }
     } else {
-        // Active search query: search globally across Combat (0), Visuals (1), Movement (2), and Utility (3)
+        // Active search query: search globally across every module category.
+        // Configs/Settings have no subtabs, so they contribute nothing.
         std::string searchStr = searchBuf;
         std::transform(searchStr.begin(), searchStr.end(), searchStr.begin(), ::tolower);
 
-        for (int tIdx = 0; tIdx < 4; ++tIdx) {
+        for (int tIdx = 0; tIdx < (int)ui::tabs.size(); ++tIdx) {
             auto& otherTab = ui::tabs[tIdx];
             const int n = (int)otherTab.m_subtabs.size();
             for (int i = 0; i < n; ++i) {
@@ -715,16 +656,13 @@ static void renderModuleList(int tab) {
     }
 
     const int filteredCount = (int)filteredResults.size();
-    const int split = nav::columnSplit(filteredCount);  // left = [0, split), right = [split, filteredCount)
 
-    const float gapX = ui::s(8);                                 // between columns (Req 6.4)
-    const float cardGapY = ui::s(6);                             // between cards (Req 5.2)
-    const float cardH = ui::s(32);
-    const float cardRound = ui::s(ui::theme::rounding::ModuleCard);  // Req 7.3
-    const float gearZoneW = ui::s(26);
+    const float cardGapY = ui::s(6);   // between cards
+    const float cardH = ui::s(56);     // room for name + subtitle
+    const float cardRound = ui::s(ui::theme::rounding::ModuleCard);
 
     const float avail = ImGui::GetContentRegionAvail().x;
-    const float cardW = (avail - gapX) / 2.f;  // per-column card width
+    const float cardW = avail;  // single full-width column
 
     // Tight, explicit spacing: the only vertical gap between cards is cardGapY.
     ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0, cardGapY));
@@ -755,14 +693,15 @@ static void renderModuleList(int tab) {
         ImRect bb{pos, pos + ImVec2(cardW, cardH)};
         ImGui::ItemSize(bb);
 
-        // --- Gear_Control: register first so it owns its right-edge zone ---
-        ImRect gearRect{ImVec2(bb.Max.x - gearZoneW, bb.Min.y), bb.Max};
-        ImGuiID gearId = window->GetID((std::string(name) + "##gear").c_str());
-        ImGui::ItemAdd(gearRect, gearId);
-        bool gHovered, gHeld;
-        bool gPressed = ImGui::ButtonBehavior(gearRect, gearId, &gHovered, &gHeld);
-        if (gPressed) {
-            // SelectEntry: open the Module_Config_View.
+        // Gear control lives at the far right; the name + subtitle fill the rest.
+        const float padR = ui::s(14);
+        const float gearZoneW = ui::s(30);
+
+        ImRect gearRect{ImVec2(bb.Max.x - padR - gearZoneW, bb.Min.y), ImVec2(bb.Max.x - padR, bb.Max.y)};
+
+        // Open the Module_Config_View for this card. Shared by the gear control
+        // and by a right-click anywhere on the card.
+        auto openConfig = [&]() {
             // If the module belongs to another tab, sync the current active tab.
             if (ui::cur_tab != originalTab) {
                 ui::cur_tab = originalTab;
@@ -771,18 +710,12 @@ static void renderModuleList(int tab) {
             activeTab.next_subtab = originalSubtab;
             activeTab.next_view = ui::CategoryView::Config;
             ui::content_anim_dst = 0.f;
-        }
+        };
 
-        // --- Name_Region: register over the remaining left area ---
-        ImRect nameRect{bb.Min, ImVec2(bb.Max.x - gearZoneW, bb.Max.y)};
-        ImGuiID nameId = window->GetID(name);
-        ImGui::ItemAdd(nameRect, nameId);
-        bool nHovered, nHeld;
-        bool nPressed = ImGui::ButtonBehavior(nameRect, nameId, &nHovered, &nHeld);
-        if (nPressed) {
+        // Toggle this card's module / special page on or off.
+        auto toggleModule = [&]() {
             if (m) {
-                // Existing toggle path only (Req 14.3). toggle() guards locked /
-                // canToggle internally.
+                // toggle() guards locked / canToggle internally.
                 m->toggle();
             } else if (isArrayList) {
                 // No config save here (render thread); persists on menu close.
@@ -790,6 +723,30 @@ static void renderModuleList(int tab) {
             } else if (isNotifications) {
                 NotificationManager::enabled = !NotificationManager::enabled;
             }
+        };
+
+        // --- Gear_Control: register first so it owns its right-edge zone ---
+        ImGuiID gearId = window->GetID((std::string(name) + "##gear").c_str());
+        ImGui::ItemAdd(gearRect, gearId);
+        bool gHovered, gHeld;
+        bool gPressed = ImGui::ButtonBehavior(gearRect, gearId, &gHovered, &gHeld);
+        if (gPressed) {
+            openConfig();
+        }
+
+        // --- Name_Region: the remaining left area toggles the module ---
+        ImRect nameRect{bb.Min, ImVec2(gearRect.Min.x, bb.Max.y)};
+        ImGuiID nameId = window->GetID(name);
+        ImGui::ItemAdd(nameRect, nameId);
+        bool nHovered, nHeld;
+        bool nPressed = ImGui::ButtonBehavior(nameRect, nameId, &nHovered, &nHeld);
+        if (nPressed) {
+            toggleModule();
+        }
+
+        // Right-click anywhere on the card opens its config, same as the gear.
+        if ((nHovered || gHovered) && ImGui::IsMouseClicked(ImGuiMouseButton_Right)) {
+            openConfig();
         }
 
         struct card_state {
@@ -804,38 +761,40 @@ static void renderModuleList(int tab) {
 
         ImDrawList* draw = window->DrawList;
 
-        // Card background: a flat neutral fill that lifts on hover. When enabled,
-        // blend toward a subtle accent tint and add a clean accent outline -- no
-        // detached side bar, so the active state reads cleanly (Req 3.2 / 5.1).
-        ImU32 baseCol = ui::col_anim(ui::GetColor(ImGuiCol_FrameBg, 1.f),
-                                     ui::GetColor(ImGuiCol_FrameBgHovered, 1.f), obj.hover);
-        ImU32 bgCol = ui::col_anim(baseCol, GetSchemeColor(0.16f), obj.enabled);
-        draw->AddRectFilled(bb.Min, bb.Max, bgCol, cardRound);
-
-        // When enabled, the card border lights up: a faint accent outline plus an
-        // accent "comet" that travels around the perimeter in a continuous loop.
-        if (obj.enabled > 0.01f) {
-            draw->AddRect(bb.Min, bb.Max, GetSchemeColor(0.28f * obj.enabled), cardRound, 0, ui::s(1.f));
-            float headT = fmodf((float)ImGui::GetTime() * 0.45f, 1.f);  // ~2.2s per lap
-            drawSpinningBorder(draw, bb.Min, bb.Max, cardRound, headT, 0.32f, ui::s(1.8f), obj.enabled);
+        // Soft accent "pill" behind the card for both the active and hover states,
+        // matching the sidebar category selection (no bright border, no comet).
+        // Active state is fully lit; hover is a lighter wash.
+        float pillT = ImMax(obj.enabled, obj.hover * 0.55f);
+        if (pillT > 0.01f) {
+            draw->AddRectFilled(bb.Min, bb.Max, GetSchemeColor(0.14f * pillT), cardRound);
         }
 
-        // Name text (left region).
+        // Name + subtitle stacked on the left.
         const char* nameEnd = ImGui::FindRenderedTextEnd(name);
-        ImVec2 nameSize = ImGui::CalcTextSize(name, nameEnd);
-        float textX = nameRect.Min.x + ui::s(10);
-        float textY = bb.GetCenter().y - nameSize.y / 2.f;
-        ImU32 textCol;
+        const char* subtitle = ui::GetModuleDescription(name);
+        ImFont* nameFont = font(2);  // bold
+        ImFont* subFont = font(0);   // regular
+        const float nameFS = nameFont->FontSize * 0.96f;
+        const float subFS = subFont->FontSize * 0.9f;
+        ImVec2 nameSize = nameFont->CalcTextSizeA(nameFS, FLT_MAX, 0.f, name, nameEnd);
+        const float textX = nameRect.Min.x + ui::s(14);
+        const float lineGap = ui::s(2);
+        const float blockH = nameSize.y + lineGap + subFS;
+        const float nameY = bb.GetCenter().y - blockH * 0.5f;
+
+        ImU32 nameCol;
         if (isLocked) {
-            // Existing locked (grayed) presentation.
-            textCol = IM_COL32(100, 100, 100, 150);
+            nameCol = IM_COL32(100, 100, 100, 150);
         } else {
             float accentT = ImMax(obj.enabled, obj.hover);
-            textCol = ui::col_anim(ui::GetColor(ImGuiCol_Text, 0.85f), GetSchemeColor(), accentT);
+            nameCol = ui::col_anim(ui::GetColor(ImGuiCol_Text, 0.9f), GetSchemeColor(), accentT);
         }
-        draw->AddText(ImVec2(textX, textY), textCol, name, nameEnd);
+        draw->AddText(nameFont, nameFS, ImVec2(textX, nameY), nameCol, name, nameEnd);
 
-        // Gear glyph centered in the gear zone (replaces the old chevron).
+        ImU32 subCol = isLocked ? IM_COL32(90, 90, 90, 130) : ui::GetColor(ImGuiCol_TextDisabled, 0.75f);
+        draw->AddText(subFont, subFS, ImVec2(textX, nameY + nameSize.y + lineGap), subCol, subtitle);
+
+        // Gear glyph centered in its zone.
         const char* gear = ICON_FA_COG;
         const char* gearEnd = ImGui::FindRenderedTextEnd(gear);
         ImVec2 gearSize = ImGui::CalcTextSize(gear, gearEnd);
@@ -844,21 +803,14 @@ static void renderModuleList(int tab) {
         draw->AddText(gearPos, gearCol, gear, gearEnd);
 
         ui::HoverDescription(name, nHovered || gHovered,
-                             isLocked ? "Developer only (for now.)" : ui::GetModuleDescription(name), isLocked);
+                             isLocked ? "Developer only (for now.)" : subtitle, isLocked);
 
         ImGui::PopID();
     };
 
-    // Left column: leading prefix [0, split). Right column: [split, filteredCount).
+    // Single full-width column.
     ImGui::BeginGroup();
-    for (int i = 0; i < split; ++i)
-        drawCard(i);
-    ImGui::EndGroup();
-
-    ImGui::SameLine(0, gapX);
-
-    ImGui::BeginGroup();
-    for (int i = split; i < filteredCount; ++i)
+    for (int i = 0; i < filteredCount; ++i)
         drawCard(i);
     ImGui::EndGroup();
 
@@ -1235,23 +1187,28 @@ void Menu::Render() {
 
                 ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {1, 1});
 
-                // Center the whole category group (Settings inline) vertically.
+                // Modules pinned to the top, Settings pinned to the bottom edge
+                // (Configs stays with the modules just above Settings).
                 const int tabCount = (int)ui::tabs.size();
-                const float rowH = ui::s(38);  // ui::tab fixed row height
-                // Account for the {1,1} ItemSpacing pushed around the group.
-                const float groupH = rowH * tabCount + (tabCount > 1 ? (tabCount - 1) * 1.f : 0.f);
+                const int settingsIdx = tabCount - 1;
+                const float rowH = ui::s(38);   // ui::tab fixed row height
+                const float topPad = ui::s(8);  // clear the seam shadow cast by the brand
+                const float botPad = ui::s(8);  // breathing room above the rounded corner
+                const float startY = ImGui::GetCursorPosY();
                 const float availH = ImGui::GetContentRegionAvail().y;
-                const float topOffset = ImMax(0.f, (availH - groupH) * 0.5f);
 
-                ImGui::Dummy({0, topOffset});
-
-                ImGui::BeginGroup();
-                {
-                    for (int i = 0; i < tabCount; ++i) {
-                        ui::tab(i);
-                    }
+                ImGui::Dummy({0, topPad});
+                for (int i = 0; i < settingsIdx; ++i) {
+                    ui::tab(i);
                 }
-                ImGui::EndGroup();
+
+                // Push Settings down to the bottom. If the panel is too short to
+                // fit everything, it just follows the modules in natural flow.
+                const float settingsY = startY + availH - rowH - botPad;
+                if (settingsY > ImGui::GetCursorPosY()) {
+                    ImGui::SetCursorPosY(settingsY);
+                }
+                ui::tab(settingsIdx);
 
                 ImGui::PopStyleVar();
             }

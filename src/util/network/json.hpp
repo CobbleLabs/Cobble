@@ -81,7 +81,11 @@ public:
                 if (number_ == static_cast<int>(number_))
                     ss << static_cast<int>(number_);
                 else
-                    ss << std::fixed << std::setprecision(2) << number_;
+                    // Significant-digit precision (not std::fixed) so floats like
+                    // color components (0.0549) round-trip instead of being
+                    // truncated to 2 decimals and drifting on every save/load.
+                    // 9 digits is float max_digits10; no trailing-zero bloat.
+                    ss << std::setprecision(9) << number_;
                 break;
             case String:
                 ss << '"';
