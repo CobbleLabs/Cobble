@@ -343,9 +343,9 @@ static void renderSettingsPage() {
 
             ImGui::SameLine();
 
-            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.5f, 0.1f, 0.15f, 1.0f));
-            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.6f, 0.15f, 0.2f, 1.0f));
-            ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.4f, 0.08f, 0.1f, 1.0f));
+            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.7f, 0.1f, 0.15f, 1.0f));
+            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.85f, 0.15f, 0.2f, 1.0f));
+            ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.6f, 0.08f, 0.1f, 1.0f));
 
             if (ImGui::Button("EJECT CLIENT", ImVec2(buttonWidth, ui::s(32)))) {
                 cobble::context::is_running = false;
@@ -1130,10 +1130,20 @@ void Menu::Render() {
         ImDrawList* windowDraw = ImGui::GetWindowDrawList();
         const ImVec2 windowPos = ImGui::GetWindowPos();
         const ImVec2 windowMax = windowPos + ImGui::GetWindowSize();
-        windowDraw->AddRectFilled(windowPos, windowMax, ui::GetColor(ImGuiCol_WindowBg),
+        // Draw separate background rectangles for left and right panels to keep the separator transparent
+        ImVec2 leftPanelMin = windowPos;
+        ImVec2 leftPanelMax = windowPos + ImVec2(ui::s(176), ImGui::GetWindowHeight());
+        windowDraw->AddRectFilled(leftPanelMin, leftPanelMax, ui::GetColor(ImGuiCol_WindowBg),
                                   GImGui->Style.WindowRounding);
-        windowDraw->AddRect(windowPos, windowMax, ui::GetColor(ImGuiCol_Border, 1.0f),
-                           GImGui->Style.WindowRounding, 0, ui::s(1.0f));
+        windowDraw->AddRect(leftPanelMin, leftPanelMax, ui::GetColor(ImGuiCol_Border, 1.0f),
+                            GImGui->Style.WindowRounding, 0, ui::s(1.0f));
+
+        ImVec2 rightPanelMin = windowPos + ImVec2(ui::s(185), 0);
+        ImVec2 rightPanelMax = windowPos + ImGui::GetWindowSize();
+        windowDraw->AddRectFilled(rightPanelMin, rightPanelMax, ui::GetColor(ImGuiCol_WindowBg),
+                                  GImGui->Style.WindowRounding);
+        windowDraw->AddRect(rightPanelMin, rightPanelMax, ui::GetColor(ImGuiCol_Border, 1.0f),
+                            GImGui->Style.WindowRounding, 0, ui::s(1.0f));
 
         // ===== LEFT NAV =====
         ImGui::BeginChild("nav", {ui::s(176), ImGui::GetWindowHeight()}, 0,
@@ -1219,7 +1229,7 @@ void Menu::Render() {
         // Vertical seam shadow between the recessed sidebar and the main content
         // so the categories panel reads as sitting behind the modules area.
         {
-            float seamX = windowPos.x + ui::s(176);
+            float seamX = windowPos.x + ui::s(185);
             float seamTop = windowPos.y + ui::s(8);
             float seamBot = windowMax.y - ui::s(8);
             windowDraw->AddRectFilledMultiColor(
