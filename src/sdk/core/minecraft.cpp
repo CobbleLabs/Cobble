@@ -10,6 +10,7 @@
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
 #include <Windows.h>
+#include <mutex>
 
 Minecraft mc;
 
@@ -152,98 +153,87 @@ bool Minecraft::isInGui() {
 // getItemEntityList - Get all item entities
 // =============================================================================
 
+static std::vector<ItemEntityInfo> s_cachedItemEntityList;
+static ULONGLONG s_lastItemCacheTime = 0;
+static std::mutex s_itemCacheMutex;
+
 std::vector<ItemEntityInfo> Minecraft::getItemEntityList() {
-    std::vector<ItemEntityInfo> result;
-    if (!isValid())
-        return result;
-
     JNIEnv* env = Java::Env();
-    if (!env)
-        return result;
+    if (!env || !isValid())
+        return std::vector<ItemEntityInfo>();
 
-    jobject world = getWorld();
-    if (!world)
-        return result;
+    std::lock_guard<std::mutex> lock(s_itemCacheMutex);
+    ULONGLONG now = GetTickCount64();
 
-    // Use loadedEntityList (contains all entities)
-    if (!JniCache::fid_loadedEntityList) {
-        env->DeleteLocalRef(world);
-        return result;
-    }
+    if (now - s_lastItemCacheTime > 5 || s_cachedItemEntityList.empty()) {
+        s_cachedItemEntityList.clear();
 
-    jobject entityList = env->GetObjectField(world, JniCache::fid_loadedEntityList);
-    env->DeleteLocalRef(world);
+        jobject world = getWorld();
+        if (world) {
+            if (JniCache::fid_loadedEntityList) {
+                jobject entityList = env->GetObjectField(world, JniCache::fid_loadedEntityList);
+                env->DeleteLocalRef(world);
 
-    if (!entityList)
-        return result;
+                if (entityList) {
+                    int size = env->CallIntMethod(entityList, JniCache::mid_listSize);
+                    if (size > 0) {
+                        s_cachedItemEntityList.reserve(size / 4); // Heuristic
 
-    int size = env->CallIntMethod(entityList, JniCache::mid_listSize);
-    if (size <= 0) {
-        env->DeleteLocalRef(entityList);
-        return result;
-    }
+                        for (int i = 0; i < size; i++) {
+                            jobject entity = env->CallObjectMethod(entityList, JniCache::mid_listGet, i);
+                            if (!entity)
+                                continue;
 
-    result.reserve(size / 4); // Heuristic
+                            if (JniCache::cls_EntityItem && env->IsInstanceOf(entity, JniCache::cls_EntityItem)) {
+                                jobject itemStack = env->CallObjectMethod(entity, JniCache::mid_getEntityItem);
+                                if (itemStack) {
+                                    ItemEntityInfo info;
+                                    info.instance = nullptr;
 
-    for (int i = 0; i < size; i++) {
-        jobject entity = env->CallObjectMethod(entityList, JniCache::mid_listGet, i);
-        if (!entity)
-            continue;
+                                    if (JniCache::fid_posX) info.posX = env->GetDoubleField(entity, JniCache::fid_posX);
+                                    if (JniCache::fid_posY) info.posY = env->GetDoubleField(entity, JniCache::fid_posY);
+                                    if (JniCache::fid_posZ) info.posZ = env->GetDoubleField(entity, JniCache::fid_posZ);
 
-        // Check if EntityItem
-        if (JniCache::cls_EntityItem && env->IsInstanceOf(entity, JniCache::cls_EntityItem)) {
-             jobject itemStack = env->CallObjectMethod(entity, JniCache::mid_getEntityItem);
-             if (itemStack) {
-                 ItemEntityInfo info;
-                 // We extract everything we need below and never use the entity
-                 // ref afterwards, so don't keep it — holding the local ref every
-                 // tick overflows the JNI local reference table (~512) within ~1s
-                 // and makes getItemEntityList start returning empty, which shows
-                 // up as the ESP box flickering on/off. Deleted before continue.
-                 info.instance = nullptr;
+                                    if (JniCache::fid_stackSize) {
+                                        info.stackSize = env->GetIntField(itemStack, JniCache::fid_stackSize);
+                                    }
 
-                 // Position
-                 if (JniCache::fid_posX) info.posX = env->GetDoubleField(entity, JniCache::fid_posX);
-                 if (JniCache::fid_posY) info.posY = env->GetDoubleField(entity, JniCache::fid_posY);
-                 if (JniCache::fid_posZ) info.posZ = env->GetDoubleField(entity, JniCache::fid_posZ);
+                                    if (JniCache::mid_getItem) {
+                                        jobject item = env->CallObjectMethod(itemStack, JniCache::mid_getItem);
+                                        if (item) {
+                                            if (JniCache::mid_getIdFromItem) {
+                                                info.itemId = env->CallStaticIntMethod(JniCache::cls_Item, JniCache::mid_getIdFromItem, item);
+                                            }
+                                            if (JniCache::mid_getItemStackLimit) {
+                                                info.maxStackSize = env->CallIntMethod(item, JniCache::mid_getItemStackLimit);
+                                            }
+                                            env->DeleteLocalRef(item);
+                                        }
+                                    }
 
-                 // Stack Size
-                 if (JniCache::fid_stackSize) {
-                     info.stackSize = env->GetIntField(itemStack, JniCache::fid_stackSize);
-                 }
+                                    if (JniCache::mid_getItemDamage) {
+                                        info.damage = env->CallIntMethod(itemStack, JniCache::mid_getItemDamage);
+                                    }
 
-                 // Item ID and Max Stack
-                 if (JniCache::mid_getItem) {
-                     jobject item = env->CallObjectMethod(itemStack, JniCache::mid_getItem);
-                     if (item) {
-                         if (JniCache::mid_getIdFromItem) {
-                             info.itemId = env->CallStaticIntMethod(JniCache::cls_Item, JniCache::mid_getIdFromItem, item);
-                         }
-                         if (JniCache::mid_getItemStackLimit) {
-                             info.maxStackSize = env->CallIntMethod(item, JniCache::mid_getItemStackLimit);
-                         }
-                         env->DeleteLocalRef(item);
-                     }
-                 }
-                 
-                 // Damage/Metadata
-                 if (JniCache::mid_getItemDamage) {
-                     info.damage = env->CallIntMethod(itemStack, JniCache::mid_getItemDamage);
-                 }
-                 
-                 env->DeleteLocalRef(itemStack);
-                 env->DeleteLocalRef(entity); // done with it — avoid local ref leak
-                 result.push_back(info);
-                 continue;
-             }
+                                    env->DeleteLocalRef(itemStack);
+                                    env->DeleteLocalRef(entity);
+                                    s_cachedItemEntityList.push_back(info);
+                                    continue;
+                                }
+                            }
+                            env->DeleteLocalRef(entity);
+                        }
+                    }
+                    env->DeleteLocalRef(entityList);
+                }
+            } else {
+                env->DeleteLocalRef(world);
+            }
         }
-
-        // If we reached here, we didn't use the entity
-        env->DeleteLocalRef(entity);
+        s_lastItemCacheTime = now;
     }
 
-    env->DeleteLocalRef(entityList);
-    return result;
+    return s_cachedItemEntityList;
 }
 
 void Minecraft::clickMouse() {

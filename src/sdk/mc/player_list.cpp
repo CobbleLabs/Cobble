@@ -11,6 +11,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <mutex>
 
 // =============================================================================
 // Helper: read an enchantment level from an ItemStack (0 if absent).
@@ -427,536 +428,474 @@ static bool detectIsNPC(const std::string& name, const std::string& displayName,
 // getPlayerList - Get all players in the world (excluding local player)
 // =============================================================================
 
+static std::vector<PlayerInfo> s_cachedPlayerList;
+static ULONGLONG s_lastCacheTime = 0;
+static std::mutex s_cacheMutex;
+
 std::vector<PlayerInfo> Minecraft::getPlayerList() {
-    std::vector<PlayerInfo> result;
-    if (!isValid())
-        return result;
-
     JNIEnv* env = Java::Env();
-    if (!env)
-        return result;
+    if (!env || !isValid())
+        return std::vector<PlayerInfo>();
 
-    // CRITICAL: Wrap entire function in a local frame to prevent JNI ref table overflow.
-    // getPlayerList() allocates dozens of local refs per player per call (every 4ms).
-    if (env->PushLocalFrame(32) < 0)
-        return result;
+    std::lock_guard<std::mutex> lock(s_cacheMutex);
+    ULONGLONG now = GetTickCount64();
 
-    jobject world = getWorld();
-    if (!world) {
-        env->PopLocalFrame(nullptr);
-        return result;
-    }
-
-    // Get playerEntities list from world
-    if (!JniCache::fid_playerEntities) {
-        env->PopLocalFrame(nullptr);
-        return result;
-    }
-
-    jobject playerList = env->GetObjectField(world, JniCache::fid_playerEntities);
-
-    if (!playerList) {
-        env->PopLocalFrame(nullptr);
-        return result;
-    }
-
-    // Get List methods
-    if (!JniCache::cls_List || !JniCache::mid_listSize || !JniCache::mid_listGet) {
-        env->PopLocalFrame(nullptr);
-        return result;
-    }
-
-    int size = env->CallIntMethod(playerList, JniCache::mid_listSize);
-    if (size <= 0) {
-        env->PopLocalFrame(nullptr);
-        return result;
-    }
-
-    result.reserve(size);
-
-    jobject localPlayer = getPlayer();
-
-    // Static cache for display name methods (one-time init)
-    static jmethodID mid_getDisplayName_cached = nullptr;
-    static jmethodID mid_getUnformattedText_cached = nullptr;
-    static jmethodID mid_getFormattedText_cached = nullptr;
-    static jmethodID mid_isOnSameTeam_cached = nullptr;
-    static bool displayNameInit = false;
-    static bool sameTeamInit = false;
-
-    if (!displayNameInit && JniCache::cls_EntityPlayer) {
-        mid_getDisplayName_cached = JniCache::mid_getDisplayName;
-        mid_getUnformattedText_cached = JniCache::mid_getUnformattedText;
-        mid_getFormattedText_cached = JniCache::mid_getFormattedText;
-        displayNameInit = true;
-    }
-    if (!sameTeamInit && localPlayer) {
-        jclass localPlayerClass = env->GetObjectClass(localPlayer);
-        if (localPlayerClass) {
-            mid_isOnSameTeam_cached =
-                env->GetMethodID(localPlayerClass, "isOnSameTeam", "(Lnet/minecraft/entity/EntityLivingBase;)Z");
-            if (env->ExceptionCheck())
-                env->ExceptionClear();
-            env->DeleteLocalRef(localPlayerClass);
-        }
-        sameTeamInit = true;
-    }
-
-    for (int i = 0; i < size; i++) {
-        // Each player iteration gets its own sub-frame: UUID, displayName, armor, potions, etc.
-        // = ~60-100 local refs per player; this ensures they're all freed after each iteration.
-        if (env->PushLocalFrame(64) < 0)
-            continue;
-
-        jobject entity = env->CallObjectMethod(playerList, JniCache::mid_listGet, i);
-        if (!entity) {
-            env->PopLocalFrame(nullptr);
-            continue;
-        }
-
-        // Only track real players; drop fakes/armor stands early
-        bool isPlayerClass = JniCache::cls_EntityPlayer && env->IsInstanceOf(entity, JniCache::cls_EntityPlayer);
-        bool isArmorStand = JniCache::cls_EntityArmorStand && env->IsInstanceOf(entity, JniCache::cls_EntityArmorStand);
-        if (!isPlayerClass || isArmorStand) {
-            env->PopLocalFrame(nullptr);
-            continue;
-        }
-
-        // Skip local player
-        if (localPlayer && env->IsSameObject(entity, localPlayer)) {
-            env->PopLocalFrame(nullptr);
-            continue;
-        }
-
-        PlayerInfo info;
-        // Promote entity to GlobalRef so it survives the PopLocalFrame at end of this iteration.
-        // Callers are responsible for calling env->DeleteGlobalRef(p.instance) when done.
-        info.instance = env->NewGlobalRef(entity);
-        if (localPlayer && mid_isOnSameTeam_cached) {
-            info.isOnLocalTeam = env->CallBooleanMethod(localPlayer, mid_isOnSameTeam_cached, entity);
-            if (env->ExceptionCheck()) {
-                env->ExceptionClear();
-                info.isOnLocalTeam = false;
+    // Cache lifetime: 5ms. Since modules tick every 2ms and there are many modules,
+    // this avoids duplicate JNI scans within the same loop tick.
+    if (now - s_lastCacheTime > 5 || s_cachedPlayerList.empty()) {
+        // Clear previous cache and release its JNI Global References
+        for (auto& p : s_cachedPlayerList) {
+            if (p.instance) {
+                env->DeleteGlobalRef(p.instance);
+                p.instance = nullptr;
             }
         }
+        s_cachedPlayerList.clear();
 
-        // Entity ID (used to match incoming effect packets)
-        if (JniCache::mid_getEntityId) {
-            info.entityId = env->CallIntMethod(entity, JniCache::mid_getEntityId);
-            if (env->ExceptionCheck()) {
-                env->ExceptionClear();
-                info.entityId = 0;
-            }
-        }
+        // Perform the JNI lookup to populate the cache (original logic)
+        if (env->PushLocalFrame(32) >= 0) {
+            jobject world = getWorld();
+            if (world) {
+                if (JniCache::fid_playerEntities) {
+                    jobject playerList = env->GetObjectField(world, JniCache::fid_playerEntities);
+                    if (playerList) {
+                        if (JniCache::cls_List && JniCache::mid_listSize && JniCache::mid_listGet) {
+                            int size = env->CallIntMethod(playerList, JniCache::mid_listSize);
+                            if (size > 0) {
+                                s_cachedPlayerList.reserve(size);
+                                jobject localPlayer = getPlayer();
 
-        // Position data
-        if (JniCache::fid_posX)
-            info.posX = env->GetDoubleField(entity, JniCache::fid_posX);
-        if (JniCache::fid_posY)
-            info.posY = env->GetDoubleField(entity, JniCache::fid_posY);
-        if (JniCache::fid_posZ)
-            info.posZ = env->GetDoubleField(entity, JniCache::fid_posZ);
-        if (JniCache::fid_lastTickPosX)
-            info.lastPosX = env->GetDoubleField(entity, JniCache::fid_lastTickPosX);
-        if (JniCache::fid_lastTickPosY)
-            info.lastPosY = env->GetDoubleField(entity, JniCache::fid_lastTickPosY);
-        if (JniCache::fid_lastTickPosZ)
-            info.lastPosZ = env->GetDoubleField(entity, JniCache::fid_lastTickPosZ);
+                                static jmethodID mid_getDisplayName_cached = nullptr;
+                                static jmethodID mid_getUnformattedText_cached = nullptr;
+                                static jmethodID mid_getFormattedText_cached = nullptr;
+                                static jmethodID mid_isOnSameTeam_cached = nullptr;
+                                static bool displayNameInit = false;
+                                static bool sameTeamInit = false;
 
-        // Visibility
-        if (JniCache::mid_isInvisible) {
-            info.isInvisible = env->CallBooleanMethod(entity, JniCache::mid_isInvisible);
-            if (env->ExceptionCheck()) {
-                env->ExceptionClear();
-                info.isInvisible = false;  // Safe default
-            }
-        }
-
-        // UUID - Stable player identity (CANNOT be modified by server plugins)
-        // This is the ONLY reliable identifier on protected servers
-        if (JniCache::mid_getUniqueID && JniCache::mid_uuidToString) {
-            jobject uuidObj = env->CallObjectMethod(entity, JniCache::mid_getUniqueID);
-            if (uuidObj) {
-                jstring uuidStr = (jstring)env->CallObjectMethod(uuidObj, JniCache::mid_uuidToString);
-                if (uuidStr) {
-                    info.uuid = jstringToString(uuidStr);
-                    env->DeleteLocalRef(uuidStr);
-                }
-                env->DeleteLocalRef(uuidObj);
-            }
-            env->ExceptionClear();
-        }
-
-        // GameProfile name (real, not spoofable by plugins)
-        if (JniCache::mid_getGameProfile && JniCache::mid_getProfileName) {
-            jobject gp = env->CallObjectMethod(entity, JniCache::mid_getGameProfile);
-            if (gp) {
-                jstring profileName = (jstring)env->CallObjectMethod(gp, JniCache::mid_getProfileName);
-                if (profileName) {
-                    info.profileName = jstringToString(profileName);
-                    env->DeleteLocalRef(profileName);
-                }
-                env->DeleteLocalRef(gp);
-            }
-            env->ExceptionClear();
-        }
-
-        // Name - Use getName() directly from entity
-        // NOTE: On protected servers, this may return a server-modified name
-        // The UUID is the only reliable identifier for player matching
-        if (JniCache::mid_getName) {
-            jstring nameStr = (jstring)env->CallObjectMethod(entity, JniCache::mid_getName);
-            if (nameStr) {
-                info.name = jstringToString(nameStr);
-                env->DeleteLocalRef(nameStr);
-            }
-        }
-        if (info.name.empty())
-            info.name = "Unknown";
-
-        // Display name for team color detection ONLY
-        // We use getFormattedText to get the color codes, but NOT to override info.name
-        if (mid_getDisplayName_cached) {
-            jobject displayResult = env->CallObjectMethod(entity, mid_getDisplayName_cached);
-            if (displayResult) {
-                // Check type and extract display name
-                jclass strCls = env->FindClass("java/lang/String");
-                if (strCls && env->IsInstanceOf(displayResult, strCls)) {
-                    info.displayName = jstringToString((jstring)displayResult);
-                } else if (JniCache::cls_IChatComponent &&
-                           env->IsInstanceOf(displayResult, JniCache::cls_IChatComponent)) {
-                    // Get formatted text for team color (has color codes)
-                    if (mid_getFormattedText_cached) {
-                        jstring formatted = (jstring)env->CallObjectMethod(displayResult, mid_getFormattedText_cached);
-                        if (formatted) {
-                            info.displayName = jstringToString(formatted);
-                            env->DeleteLocalRef(formatted);
-                        }
-                    }
-                }
-                if (strCls)
-                    env->DeleteLocalRef(strCls);
-                env->DeleteLocalRef(displayResult);
-            }
-            env->ExceptionClear();
-        }
-
-        // Parse team color from displayName (which has color codes)
-        if (!info.displayName.empty()) {
-            info.teamColor = parseTeamColor(info.displayName);
-        }
-
-        // NPC detection (bots, server entities, fake players)
-        info.isNPC = detectIsNPC(info.name, info.displayName, info.isInvisible);
-
-        // Health data
-        if (JniCache::mid_getHealth)
-            info.health = env->CallFloatMethod(entity, JniCache::mid_getHealth);
-        if (JniCache::mid_getMaxHealth)
-            info.maxHealth = env->CallFloatMethod(entity, JniCache::mid_getMaxHealth);
-        if (JniCache::fid_hurtTime)
-            info.hurtTime = env->GetIntField(entity, JniCache::fid_hurtTime);
-
-        // Sneaking state
-        if (JniCache::mid_isSneaking) {
-            info.isSneaking = env->CallBooleanMethod(entity, JniCache::mid_isSneaking);
-        }
-
-        // Hitbox (bounding box)
-        if (JniCache::fid_boundingBox && JniCache::cls_AxisAlignedBB) {
-            jobject aabb = env->GetObjectField(entity, JniCache::fid_boundingBox);
-            if (aabb) {
-                if (JniCache::fid_aabb_minX)
-                    info.hitboxMinX = (float)env->GetDoubleField(aabb, JniCache::fid_aabb_minX);
-                if (JniCache::fid_aabb_minY)
-                    info.hitboxMinY = (float)env->GetDoubleField(aabb, JniCache::fid_aabb_minY);
-                if (JniCache::fid_aabb_minZ)
-                    info.hitboxMinZ = (float)env->GetDoubleField(aabb, JniCache::fid_aabb_minZ);
-                if (JniCache::fid_aabb_maxX)
-                    info.hitboxMaxX = (float)env->GetDoubleField(aabb, JniCache::fid_aabb_maxX);
-                if (JniCache::fid_aabb_maxY)
-                    info.hitboxMaxY = (float)env->GetDoubleField(aabb, JniCache::fid_aabb_maxY);
-                if (JniCache::fid_aabb_maxZ)
-                    info.hitboxMaxZ = (float)env->GetDoubleField(aabb, JniCache::fid_aabb_maxZ);
-                env->DeleteLocalRef(aabb);
-            }
-        }
-
-        // Armor
-        if (JniCache::fid_inventory && JniCache::fid_armorInventory) {
-            jobject inventory = env->GetObjectField(entity, JniCache::fid_inventory);
-            if (inventory) {
-                jobjectArray armorList = (jobjectArray)env->GetObjectField(inventory, JniCache::fid_armorInventory);
-                if (armorList) {
-                    int len = env->GetArrayLength(armorList);
-                    for (int k = 0; k < len; k++) {
-                        jobject stack = env->GetObjectArrayElement(armorList, k);
-                        PlayerInfo::ArmorItem itemInfo;
-                        if (stack) {
-                            if (JniCache::mid_getItem && JniCache::mid_getIdFromItem) {
-                                jobject item = env->CallObjectMethod(stack, JniCache::mid_getItem);
-                                if (item) {
-                                    itemInfo.id = env->CallStaticIntMethod(JniCache::cls_Item, JniCache::mid_getIdFromItem, item);
-                                    if (JniCache::mid_getMaxDamage)
-                                        itemInfo.maxDamage = env->CallIntMethod(item, JniCache::mid_getMaxDamage);
-                                    env->DeleteLocalRef(item);
+                                if (!displayNameInit && JniCache::cls_EntityPlayer) {
+                                    mid_getDisplayName_cached = JniCache::mid_getDisplayName;
+                                    mid_getUnformattedText_cached = JniCache::mid_getUnformattedText;
+                                    mid_getFormattedText_cached = JniCache::mid_getFormattedText;
+                                    displayNameInit = true;
                                 }
-                            }
-                            if (JniCache::mid_getItemDamage) {
-                                itemInfo.damage = env->CallIntMethod(stack, JniCache::mid_getItemDamage);
-                            }
-                            if (itemInfo.id > 0) {
-                                itemInfo.protection = readEnchantLevel(env, stack, 0);  // Protection = id 0
-                            }
-                            env->DeleteLocalRef(stack);
-                        }
-                        info.armor.push_back(itemInfo);
-                    }
-                    env->DeleteLocalRef(armorList);
-                }
-                
-                // Main Inventory (Potions)
-                // NOTE: On many servers, remote player inventory is NOT synced to the client!
-                // This usually only works if the server sends the data (e.g. some 1.7 servers or plugins).
-                
-                static bool loggedMissingField = false;
-                if (!JniCache::fid_mainInventory) {
-                    if (!loggedMissingField) {
-                         log_debug("[SDK] Missing fid_mainInventory - cannot count potions");
-                         loggedMissingField = true;
-                    }
-                } else {
-                    jobjectArray mainList = (jobjectArray)env->GetObjectField(inventory, JniCache::fid_mainInventory);
-                    if (mainList) {
-                        int len = env->GetArrayLength(mainList);
-                        for (int k = 0; k < len; k++) {
-                             jobject stack = env->GetObjectArrayElement(mainList, k);
-                             if (stack) {
-                                 int id = 0;
-                                 int damage = 0;
-                                 int amount = 1;
-                                 
-                                 // Get ID
-                                 if (JniCache::mid_getItem && JniCache::mid_getIdFromItem) {
-                                      jobject item = env->CallObjectMethod(stack, JniCache::mid_getItem);
-                                      if (item) {
-                                           id = env->CallStaticIntMethod(JniCache::cls_Item, JniCache::mid_getIdFromItem, item);
-                                           env->DeleteLocalRef(item);
-                                      }
-                                 }
-                                 
-                                 if (id == 373) { // Potion
-                                      // Get Damage/Metadata
-                                      if (JniCache::mid_getItemDamage) {
-                                           damage = env->CallIntMethod(stack, JniCache::mid_getItemDamage);
-                                      }
-                                      
-                                      // get Stack Size
-                                      if (JniCache::fid_stackSize) {
-                                           amount = env->GetIntField(stack, JniCache::fid_stackSize);
-                                      }
-                                      
-                                      // Check for various Health potion IDs (Splash II, Drink II, Splash I, etc)
-                                      // 16421: Splash Health II
-                                      // 16453: Splash Health II (Alt)
-                                      // 8229: Drink Health II
-                                      // 16389: Splash Health I
-                                      // 8261: Drink Health I
-                                      if (damage == 16421 || damage == 8229 || damage == 16453 || damage == 16389 || damage == 8261) {
-                                           info.totalHealthPotions += amount;
-                                      }
-                                      
-                                      // DEBUG logging (rate limited)
-                                      // if (every_ms(5000)) {
-                                      //      log_debug("[SDK] Found Potion ID: %d Metadata: %d Amount: %d", id, damage, amount);
-                                      // }
-                                 }
-                                 
-                                 env->DeleteLocalRef(stack);
-                             }
-                        }
-                        env->DeleteLocalRef(mainList);
-                    }
-                }
-
-                // Held weapon (sword/axe) + Sharpness, from mainInventory[currentItem].
-                // NOTE: many servers don't sync remote players' held items -> stays empty.
-                if (JniCache::fid_currentItem && JniCache::fid_mainInventory) {
-                    int curSlot = env->GetIntField(inventory, JniCache::fid_currentItem);
-                    jobjectArray mainArr = (jobjectArray)env->GetObjectField(inventory, JniCache::fid_mainInventory);
-                    if (mainArr) {
-                        int mlen = env->GetArrayLength(mainArr);
-                        if (curSlot >= 0 && curSlot < mlen) {
-                            jobject hstack = env->GetObjectArrayElement(mainArr, curSlot);
-                            if (hstack) {
-                                int hid = 0;
-                                if (JniCache::mid_getItem && JniCache::mid_getIdFromItem) {
-                                    jobject item = env->CallObjectMethod(hstack, JniCache::mid_getItem);
-                                    if (item) {
-                                        hid = env->CallStaticIntMethod(JniCache::cls_Item, JniCache::mid_getIdFromItem,
-                                                                       item);
-                                        if (isWeaponId(hid)) {
-                                            info.weapon.id = hid;
-                                            if (JniCache::mid_getMaxDamage)
-                                                info.weapon.maxDamage = env->CallIntMethod(item, JniCache::mid_getMaxDamage);
-                                        }
-                                        env->DeleteLocalRef(item);
+                                if (!sameTeamInit && localPlayer) {
+                                    jclass localPlayerClass = env->GetObjectClass(localPlayer);
+                                    if (localPlayerClass) {
+                                        mid_isOnSameTeam_cached =
+                                            env->GetMethodID(localPlayerClass, "isOnSameTeam", "(Lnet/minecraft/entity/EntityLivingBase;)Z");
+                                        if (env->ExceptionCheck())
+                                            env->ExceptionClear();
+                                        env->DeleteLocalRef(localPlayerClass);
                                     }
+                                    sameTeamInit = true;
                                 }
-                                if (isWeaponId(hid)) {
-                                    if (JniCache::mid_getItemDamage)
-                                        info.weapon.damage = env->CallIntMethod(hstack, JniCache::mid_getItemDamage);
-                                    info.weapon.sharpness = readEnchantLevel(env, hstack, 16);  // Sharpness = id 16
+
+                                for (int i = 0; i < size; i++) {
+                                    if (env->PushLocalFrame(64) < 0)
+                                        continue;
+
+                                    jobject entity = env->CallObjectMethod(playerList, JniCache::mid_listGet, i);
+                                    if (!entity) {
+                                        env->PopLocalFrame(nullptr);
+                                        continue;
+                                    }
+
+                                    bool isPlayerClass = JniCache::cls_EntityPlayer && env->IsInstanceOf(entity, JniCache::cls_EntityPlayer);
+                                    bool isArmorStand = JniCache::cls_EntityArmorStand && env->IsInstanceOf(entity, JniCache::cls_EntityArmorStand);
+                                    if (!isPlayerClass || isArmorStand) {
+                                        env->PopLocalFrame(nullptr);
+                                        continue;
+                                    }
+
+                                    if (localPlayer && env->IsSameObject(entity, localPlayer)) {
+                                        env->PopLocalFrame(nullptr);
+                                        continue;
+                                    }
+
+                                    PlayerInfo info;
+                                    info.instance = env->NewGlobalRef(entity);
+                                    if (localPlayer && mid_isOnSameTeam_cached) {
+                                        info.isOnLocalTeam = env->CallBooleanMethod(localPlayer, mid_isOnSameTeam_cached, entity);
+                                        if (env->ExceptionCheck()) {
+                                            env->ExceptionClear();
+                                            info.isOnLocalTeam = false;
+                                        }
+                                    }
+
+                                    if (JniCache::mid_getEntityId) {
+                                        info.entityId = env->CallIntMethod(entity, JniCache::mid_getEntityId);
+                                        if (env->ExceptionCheck()) {
+                                            env->ExceptionClear();
+                                            info.entityId = 0;
+                                        }
+                                    }
+
+                                    if (JniCache::fid_posX)
+                                        info.posX = env->GetDoubleField(entity, JniCache::fid_posX);
+                                    if (JniCache::fid_posY)
+                                        info.posY = env->GetDoubleField(entity, JniCache::fid_posY);
+                                    if (JniCache::fid_posZ)
+                                        info.posZ = env->GetDoubleField(entity, JniCache::fid_posZ);
+                                    if (JniCache::fid_lastTickPosX)
+                                        info.lastPosX = env->GetDoubleField(entity, JniCache::fid_lastTickPosX);
+                                    if (JniCache::fid_lastTickPosY)
+                                        info.lastPosY = env->GetDoubleField(entity, JniCache::fid_lastTickPosY);
+                                    if (JniCache::fid_lastTickPosZ)
+                                        info.lastPosZ = env->GetDoubleField(entity, JniCache::fid_lastTickPosZ);
+
+                                    if (JniCache::mid_isInvisible) {
+                                        info.isInvisible = env->CallBooleanMethod(entity, JniCache::mid_isInvisible);
+                                        if (env->ExceptionCheck()) {
+                                            env->ExceptionClear();
+                                            info.isInvisible = false;
+                                        }
+                                    }
+
+                                    if (JniCache::mid_getUniqueID && JniCache::mid_uuidToString) {
+                                        jobject uuidObj = env->CallObjectMethod(entity, JniCache::mid_getUniqueID);
+                                        if (uuidObj) {
+                                            jstring uuidStr = (jstring)env->CallObjectMethod(uuidObj, JniCache::mid_uuidToString);
+                                            if (uuidStr) {
+                                                info.uuid = jstringToString(uuidStr);
+                                                env->DeleteLocalRef(uuidStr);
+                                            }
+                                            env->DeleteLocalRef(uuidObj);
+                                        }
+                                        env->ExceptionClear();
+                                    }
+
+                                    if (JniCache::mid_getGameProfile && JniCache::mid_getProfileName) {
+                                        jobject gp = env->CallObjectMethod(entity, JniCache::mid_getGameProfile);
+                                        if (gp) {
+                                            jstring profileName = (jstring)env->CallObjectMethod(gp, JniCache::mid_getProfileName);
+                                            if (profileName) {
+                                                info.profileName = jstringToString(profileName);
+                                                env->DeleteLocalRef(profileName);
+                                            }
+                                            env->DeleteLocalRef(gp);
+                                        }
+                                        env->ExceptionClear();
+                                    }
+
+                                    if (JniCache::mid_getName) {
+                                        jstring nameStr = (jstring)env->CallObjectMethod(entity, JniCache::mid_getName);
+                                        if (nameStr) {
+                                            info.name = jstringToString(nameStr);
+                                            env->DeleteLocalRef(nameStr);
+                                        }
+                                    }
+                                    if (info.name.empty())
+                                        info.name = "Unknown";
+
+                                    if (mid_getDisplayName_cached) {
+                                        jobject displayResult = env->CallObjectMethod(entity, mid_getDisplayName_cached);
+                                        if (displayResult) {
+                                            jclass strCls = env->FindClass("java/lang/String");
+                                            if (strCls && env->IsInstanceOf(displayResult, strCls)) {
+                                                info.displayName = jstringToString((jstring)displayResult);
+                                            } else if (JniCache::cls_IChatComponent &&
+                                                       env->IsInstanceOf(displayResult, JniCache::cls_IChatComponent)) {
+                                                if (mid_getFormattedText_cached) {
+                                                    jstring formatted = (jstring)env->CallObjectMethod(displayResult, mid_getFormattedText_cached);
+                                                    if (formatted) {
+                                                        info.displayName = jstringToString(formatted);
+                                                        env->DeleteLocalRef(formatted);
+                                                    }
+                                                }
+                                            }
+                                            if (strCls)
+                                                env->DeleteLocalRef(strCls);
+                                            env->DeleteLocalRef(displayResult);
+                                        }
+                                        env->ExceptionClear();
+                                    }
+
+                                    if (!info.displayName.empty()) {
+                                        info.teamColor = parseTeamColor(info.displayName);
+                                    }
+
+                                    info.isNPC = detectIsNPC(info.name, info.displayName, info.isInvisible);
+
+                                    if (JniCache::mid_getHealth)
+                                        info.health = env->CallFloatMethod(entity, JniCache::mid_getHealth);
+                                    if (JniCache::mid_getMaxHealth)
+                                        info.maxHealth = env->CallFloatMethod(entity, JniCache::mid_getMaxHealth);
+                                    if (JniCache::fid_hurtTime)
+                                        info.hurtTime = env->GetIntField(entity, JniCache::fid_hurtTime);
+
+                                    if (JniCache::mid_isSneaking) {
+                                        info.isSneaking = env->CallBooleanMethod(entity, JniCache::mid_isSneaking);
+                                    }
+
+                                    if (JniCache::fid_boundingBox && JniCache::cls_AxisAlignedBB) {
+                                        jobject aabb = env->GetObjectField(entity, JniCache::fid_boundingBox);
+                                        if (aabb) {
+                                            if (JniCache::fid_aabb_minX)
+                                                info.hitboxMinX = (float)env->GetDoubleField(aabb, JniCache::fid_aabb_minX);
+                                            if (JniCache::fid_aabb_minY)
+                                                info.hitboxMinY = (float)env->GetDoubleField(aabb, JniCache::fid_aabb_minY);
+                                            if (JniCache::fid_aabb_minZ)
+                                                info.hitboxMinZ = (float)env->GetDoubleField(aabb, JniCache::fid_aabb_minZ);
+                                            if (JniCache::fid_aabb_maxX)
+                                                info.hitboxMaxX = (float)env->GetDoubleField(aabb, JniCache::fid_aabb_maxX);
+                                            if (JniCache::fid_aabb_maxY)
+                                                info.hitboxMaxY = (float)env->GetDoubleField(aabb, JniCache::fid_aabb_maxY);
+                                            if (JniCache::fid_aabb_maxZ)
+                                                info.hitboxMaxZ = (float)env->GetDoubleField(aabb, JniCache::fid_aabb_maxZ);
+                                            env->DeleteLocalRef(aabb);
+                                        }
+                                    }
+
+                                    if (JniCache::fid_inventory && JniCache::fid_armorInventory) {
+                                        jobject inventory = env->GetObjectField(entity, JniCache::fid_inventory);
+                                        if (inventory) {
+                                            jobjectArray armorList = (jobjectArray)env->GetObjectField(inventory, JniCache::fid_armorInventory);
+                                            if (armorList) {
+                                                int len = env->GetArrayLength(armorList);
+                                                for (int k = 0; k < len; k++) {
+                                                    jobject stack = env->GetObjectArrayElement(armorList, k);
+                                                    PlayerInfo::ArmorItem itemInfo;
+                                                    if (stack) {
+                                                        if (JniCache::mid_getItem && JniCache::mid_getIdFromItem) {
+                                                            jobject item = env->CallObjectMethod(stack, JniCache::mid_getItem);
+                                                            if (item) {
+                                                                itemInfo.id = env->CallStaticIntMethod(JniCache::cls_Item, JniCache::mid_getIdFromItem, item);
+                                                                if (JniCache::mid_getMaxDamage)
+                                                                    itemInfo.maxDamage = env->CallIntMethod(item, JniCache::mid_getMaxDamage);
+                                                                env->DeleteLocalRef(item);
+                                                            }
+                                                        }
+                                                        if (JniCache::mid_getItemDamage) {
+                                                            itemInfo.damage = env->CallIntMethod(stack, JniCache::mid_getItemDamage);
+                                                        }
+                                                        if (itemInfo.id > 0) {
+                                                            itemInfo.protection = readEnchantLevel(env, stack, 0);
+                                                        }
+                                                        env->DeleteLocalRef(stack);
+                                                    }
+                                                    info.armor.push_back(itemInfo);
+                                                }
+                                                env->DeleteLocalRef(armorList);
+                                            }
+
+                                            if (JniCache::fid_mainInventory) {
+                                                jobjectArray mainList = (jobjectArray)env->GetObjectField(inventory, JniCache::fid_mainInventory);
+                                                if (mainList) {
+                                                    int len = env->GetArrayLength(mainList);
+                                                    for (int k = 0; k < len; k++) {
+                                                        jobject stack = env->GetObjectArrayElement(mainList, k);
+                                                        if (stack) {
+                                                            int id = 0;
+                                                            int damage = 0;
+                                                            int amount = 1;
+
+                                                            if (JniCache::mid_getItem && JniCache::mid_getIdFromItem) {
+                                                                jobject item = env->CallObjectMethod(stack, JniCache::mid_getItem);
+                                                                if (item) {
+                                                                    id = env->CallStaticIntMethod(JniCache::cls_Item, JniCache::mid_getIdFromItem, item);
+                                                                    env->DeleteLocalRef(item);
+                                                                }
+                                                            }
+
+                                                            if (id == 373) {
+                                                                if (JniCache::mid_getItemDamage) {
+                                                                    damage = env->CallIntMethod(stack, JniCache::mid_getItemDamage);
+                                                                }
+                                                                if (JniCache::fid_stackSize) {
+                                                                    amount = env->GetIntField(stack, JniCache::fid_stackSize);
+                                                                }
+                                                                if (damage == 16421 || damage == 8229 || damage == 16453 || damage == 16389 || damage == 8261) {
+                                                                    info.totalHealthPotions += amount;
+                                                                }
+                                                            }
+                                                            env->DeleteLocalRef(stack);
+                                                        }
+                                                    }
+                                                    env->DeleteLocalRef(mainList);
+                                                }
+                                            }
+
+                                            if (JniCache::fid_currentItem && JniCache::fid_mainInventory) {
+                                                int curSlot = env->GetIntField(inventory, JniCache::fid_currentItem);
+                                                jobjectArray mainArr = (jobjectArray)env->GetObjectField(inventory, JniCache::fid_mainInventory);
+                                                if (mainArr) {
+                                                    int mlen = env->GetArrayLength(mainArr);
+                                                    if (curSlot >= 0 && curSlot < mlen) {
+                                                        jobject hstack = env->GetObjectArrayElement(mainArr, curSlot);
+                                                        if (hstack) {
+                                                            int hid = 0;
+                                                            if (JniCache::mid_getItem && JniCache::mid_getIdFromItem) {
+                                                                jobject item = env->CallObjectMethod(hstack, JniCache::mid_getItem);
+                                                                if (item) {
+                                                                    hid = env->CallStaticIntMethod(JniCache::cls_Item, JniCache::mid_getIdFromItem, item);
+                                                                    if (isWeaponId(hid)) {
+                                                                        info.weapon.id = hid;
+                                                                        if (JniCache::mid_getMaxDamage)
+                                                                            info.weapon.maxDamage = env->CallIntMethod(item, JniCache::mid_getMaxDamage);
+                                                                    }
+                                                                    env->DeleteLocalRef(item);
+                                                                }
+                                                            }
+                                                            if (isWeaponId(hid)) {
+                                                                if (JniCache::mid_getItemDamage)
+                                                                    info.weapon.damage = env->CallIntMethod(hstack, JniCache::mid_getItemDamage);
+                                                                info.weapon.sharpness = readEnchantLevel(env, hstack, 16);
+                                                            }
+                                                            env->DeleteLocalRef(hstack);
+                                                        }
+                                                    }
+                                                    env->DeleteLocalRef(mainArr);
+                                                }
+                                            }
+                                            env->DeleteLocalRef(inventory);
+                                        }
+                                    }
+
+                                    if (JniCache::fid_activePotionsMap && JniCache::mid_mapValues && JniCache::mid_collectionToArray) {
+                                        jobject potionMap = env->GetObjectField(entity, JniCache::fid_activePotionsMap);
+                                        if (potionMap) {
+                                            jobject values = env->CallObjectMethod(potionMap, JniCache::mid_mapValues);
+                                            if (values) {
+                                                jobjectArray arr = (jobjectArray)env->CallObjectMethod(values, JniCache::mid_collectionToArray);
+                                                if (arr) {
+                                                    int len = env->GetArrayLength(arr);
+                                                    for (int k = 0; k < len; k++) {
+                                                        jobject effect = env->GetObjectArrayElement(arr, k);
+                                                        if (effect) {
+                                                            PlayerInfo::PotionEffectInfo effInfo;
+                                                            if (JniCache::mid_getPotionID)
+                                                                effInfo.id = env->CallIntMethod(effect, JniCache::mid_getPotionID);
+                                                            if (JniCache::mid_getDuration)
+                                                                effInfo.duration = env->CallIntMethod(effect, JniCache::mid_getDuration);
+                                                            if (JniCache::mid_getAmplifier)
+                                                                effInfo.amplifier = env->CallIntMethod(effect, JniCache::mid_getAmplifier);
+                                                            info.potions.push_back(effInfo);
+                                                            env->DeleteLocalRef(effect);
+                                                        }
+                                                    }
+                                                    env->DeleteLocalRef(arr);
+                                                }
+                                                env->DeleteLocalRef(values);
+                                            }
+                                            env->DeleteLocalRef(potionMap);
+                                        }
+                                    }
+
+                                    if (info.potions.empty() && JniCache::mid_getActivePotionEffects && JniCache::mid_collectionToArray) {
+                                        jobject coll = env->CallObjectMethod(entity, JniCache::mid_getActivePotionEffects);
+                                        if (coll) {
+                                            jobjectArray arr = (jobjectArray)env->CallObjectMethod(coll, JniCache::mid_collectionToArray);
+                                            if (arr) {
+                                                int len = env->GetArrayLength(arr);
+                                                for (int k = 0; k < len; k++) {
+                                                    jobject effect = env->GetObjectArrayElement(arr, k);
+                                                    if (effect) {
+                                                        PlayerInfo::PotionEffectInfo effInfo;
+                                                        if (JniCache::mid_getPotionID)
+                                                            effInfo.id = env->CallIntMethod(effect, JniCache::mid_getPotionID);
+                                                        if (JniCache::mid_getDuration)
+                                                            effInfo.duration = env->CallIntMethod(effect, JniCache::mid_getDuration);
+                                                        if (JniCache::mid_getAmplifier)
+                                                            effInfo.amplifier = env->CallIntMethod(effect, JniCache::mid_getAmplifier);
+                                                        if (effInfo.id > 0 && effInfo.duration > 0) {
+                                                            info.potions.push_back(effInfo);
+                                                        }
+                                                        env->DeleteLocalRef(effect);
+                                                    }
+                                                }
+                                                env->DeleteLocalRef(arr);
+                                            }
+                                            env->DeleteLocalRef(coll);
+                                        }
+                                        env->ExceptionClear();
+                                    }
+
+                                    if (info.potions.empty() && JniCache::mid_mapValues && JniCache::mid_collectionToArray && JniCache::cls_PotionEffect) {
+                                        jobject potionMap = try_get_active_potions_map_reflect(env, entity);
+                                        if (potionMap) {
+                                            jobject values = env->CallObjectMethod(potionMap, JniCache::mid_mapValues);
+                                            if (values) {
+                                                jobjectArray arr = (jobjectArray)env->CallObjectMethod(values, JniCache::mid_collectionToArray);
+                                                if (arr) {
+                                                    int len = env->GetArrayLength(arr);
+                                                    for (int k = 0; k < len; k++) {
+                                                        jobject effect = env->GetObjectArrayElement(arr, k);
+                                                        if (effect) {
+                                                            PlayerInfo::PotionEffectInfo effInfo;
+                                                            if (JniCache::mid_getPotionID)
+                                                                effInfo.id = env->CallIntMethod(effect, JniCache::mid_getPotionID);
+                                                            if (JniCache::mid_getDuration)
+                                                                effInfo.duration = env->CallIntMethod(effect, JniCache::mid_getDuration);
+                                                            if (JniCache::mid_getAmplifier)
+                                                                effInfo.amplifier = env->CallIntMethod(effect, JniCache::mid_getAmplifier);
+                                                            if (effInfo.id > 0 && effInfo.duration > 0) {
+                                                                info.potions.push_back(effInfo);
+                                                            }
+                                                            env->DeleteLocalRef(effect);
+                                                        }
+                                                    }
+                                                    env->DeleteLocalRef(arr);
+                                                }
+                                                env->DeleteLocalRef(values);
+                                            }
+                                            env->DeleteLocalRef(potionMap);
+                                        }
+                                        env->ExceptionClear();
+                                    }
+
+                                    if (info.entityId > 0) {
+                                        if (!info.uuid.empty()) {
+                                            EffectTracker::AssociateEntity(info.entityId, info.uuid);
+                                        }
+                                        auto tracked = EffectTracker::GetEffects(info.entityId);
+                                        if (!tracked.empty()) {
+                                            if (info.potions.empty()) {
+                                                info.potions = std::move(tracked);
+                                            } else {
+                                                for (const auto& te : tracked) {
+                                                    bool found = false;
+                                                    for (auto& pe : info.potions) {
+                                                        if (pe.id == te.id) {
+                                                            found = true;
+                                                            if (te.amplifier > pe.amplifier ||
+                                                                (te.amplifier == pe.amplifier && te.duration > pe.duration)) {
+                                                                pe = te;
+                                                            }
+                                                            break;
+                                                        }
+                                                    }
+                                                    if (!found) {
+                                                        info.potions.push_back(te);
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    s_cachedPlayerList.push_back(std::move(info));
+                                    env->PopLocalFrame(nullptr);
                                 }
-                                env->DeleteLocalRef(hstack);
-                            }
-                        }
-                        env->DeleteLocalRef(mainArr);
-                    }
-                }
 
-                env->DeleteLocalRef(inventory);
-            }
-        }
-
-        // Potions
-        if (JniCache::fid_activePotionsMap && JniCache::mid_mapValues && JniCache::mid_collectionToArray) {
-            jobject potionMap = env->GetObjectField(entity, JniCache::fid_activePotionsMap);
-            if (potionMap) {
-                jobject values = env->CallObjectMethod(potionMap, JniCache::mid_mapValues);
-                if (values) {
-                    jobjectArray arr = (jobjectArray)env->CallObjectMethod(values, JniCache::mid_collectionToArray);
-                    if (arr) {
-                        int len = env->GetArrayLength(arr);
-                        for (int k = 0; k < len; k++) {
-                            jobject effect = env->GetObjectArrayElement(arr, k);
-                            if (effect) {
-                                PlayerInfo::PotionEffectInfo effInfo;
-                                if (JniCache::mid_getPotionID)
-                                    effInfo.id = env->CallIntMethod(effect, JniCache::mid_getPotionID);
-                                if (JniCache::mid_getDuration)
-                                    effInfo.duration = env->CallIntMethod(effect, JniCache::mid_getDuration);
-                                if (JniCache::mid_getAmplifier)
-                                    effInfo.amplifier = env->CallIntMethod(effect, JniCache::mid_getAmplifier);
-                                info.potions.push_back(effInfo);
-                                env->DeleteLocalRef(effect);
-                            }
-                        }
-                        env->DeleteLocalRef(arr);
-                    }
-                    env->DeleteLocalRef(values);
-                }
-                env->DeleteLocalRef(potionMap);
-            }
-        }
-
-        // Fallback: some builds/servers may not expose activePotionsMap reliably. Try getActivePotionEffects().
-        if (info.potions.empty() && JniCache::mid_getActivePotionEffects && JniCache::mid_collectionToArray) {
-            jobject coll = env->CallObjectMethod(entity, JniCache::mid_getActivePotionEffects);
-            if (coll) {
-                jobjectArray arr = (jobjectArray)env->CallObjectMethod(coll, JniCache::mid_collectionToArray);
-                if (arr) {
-                    int len = env->GetArrayLength(arr);
-                    for (int k = 0; k < len; k++) {
-                        jobject effect = env->GetObjectArrayElement(arr, k);
-                        if (effect) {
-                            PlayerInfo::PotionEffectInfo effInfo;
-                            if (JniCache::mid_getPotionID)
-                                effInfo.id = env->CallIntMethod(effect, JniCache::mid_getPotionID);
-                            if (JniCache::mid_getDuration)
-                                effInfo.duration = env->CallIntMethod(effect, JniCache::mid_getDuration);
-                            if (JniCache::mid_getAmplifier)
-                                effInfo.amplifier = env->CallIntMethod(effect, JniCache::mid_getAmplifier);
-                            if (effInfo.id > 0 && effInfo.duration > 0) {
-                                info.potions.push_back(effInfo);
-                            }
-                            env->DeleteLocalRef(effect);
-                        }
-                    }
-                    env->DeleteLocalRef(arr);
-                }
-                env->DeleteLocalRef(coll);
-            }
-            env->ExceptionClear();
-        }
-
-        // Reflection fallback for obfuscated environments (Notch-mapped, Lunar, etc.)
-        // Try to locate EntityLivingBase's active potion map by scanning fields and looking for Map values that
-        // contain PotionEffect instances.
-        if (info.potions.empty() && JniCache::mid_mapValues && JniCache::mid_collectionToArray && JniCache::cls_PotionEffect) {
-            jobject potionMap = try_get_active_potions_map_reflect(env, entity);
-            if (potionMap) {
-                jobject values = env->CallObjectMethod(potionMap, JniCache::mid_mapValues);
-                if (values) {
-                    jobjectArray arr = (jobjectArray)env->CallObjectMethod(values, JniCache::mid_collectionToArray);
-                    if (arr) {
-                        int len = env->GetArrayLength(arr);
-                        for (int k = 0; k < len; k++) {
-                            jobject effect = env->GetObjectArrayElement(arr, k);
-                            if (effect) {
-                                PlayerInfo::PotionEffectInfo effInfo;
-                                if (JniCache::mid_getPotionID)
-                                    effInfo.id = env->CallIntMethod(effect, JniCache::mid_getPotionID);
-                                if (JniCache::mid_getDuration)
-                                    effInfo.duration = env->CallIntMethod(effect, JniCache::mid_getDuration);
-                                if (JniCache::mid_getAmplifier)
-                                    effInfo.amplifier = env->CallIntMethod(effect, JniCache::mid_getAmplifier);
-                                if (effInfo.id > 0 && effInfo.duration > 0) {
-                                    info.potions.push_back(effInfo);
+                                if (localPlayer) {
+                                    env->DeleteLocalRef(localPlayer);
                                 }
-                                env->DeleteLocalRef(effect);
                             }
                         }
-                        env->DeleteLocalRef(arr);
-                    }
-                    env->DeleteLocalRef(values);
-                }
-                env->DeleteLocalRef(potionMap);
-            }
-            env->ExceptionClear();
-        }
-
-        // If the client isn't updating EntityLivingBase.activePotionsMap for remote players (server-dependent),
-        // fall back to tracking S1D/S1E packets (EffectTracker).
-        if (info.entityId > 0) {
-            if (!info.uuid.empty()) {
-                EffectTracker::AssociateEntity(info.entityId, info.uuid);
-            }
-            auto tracked = EffectTracker::GetEffects(info.entityId);
-            if (!tracked.empty()) {
-                if (info.potions.empty()) {
-                    info.potions = std::move(tracked);
-                } else {
-                    // Merge (prefer longer duration / stronger amp for same effect id)
-                    for (const auto& te : tracked) {
-                        bool found = false;
-                        for (auto& pe : info.potions) {
-                            if (pe.id == te.id) {
-                                found = true;
-                                if (te.amplifier > pe.amplifier ||
-                                    (te.amplifier == pe.amplifier && te.duration > pe.duration)) {
-                                    pe = te;
-                                }
-                                break;
-                            }
-                        }
-                        if (!found) {
-                            info.potions.push_back(te);
-                        }
+                        env->DeleteLocalRef(playerList);
                     }
                 }
             }
+            env->PopLocalFrame(nullptr);
         }
-
-        result.push_back(std::move(info));
-        // Free all local refs in this player iteration (entity, uuid, displayName, armor, potions, etc.).
-        // info.instance is a GlobalRef and survives this pop.
-        env->PopLocalFrame(nullptr);
+        s_lastCacheTime = now;
     }
 
-    // Pop the outer function frame (releases world, playerList, localPlayer, etc.)
-    env->PopLocalFrame(nullptr);
-
+    std::vector<PlayerInfo> result = s_cachedPlayerList;
+    for (auto& p : result) {
+        if (p.instance) {
+            p.instance = env->NewGlobalRef(p.instance);
+        }
+    }
     return result;
 }
 

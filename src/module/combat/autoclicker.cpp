@@ -6,6 +6,7 @@
 #include "../../util/logger.hpp"
 #include "../../util/network/json.hpp"
 #include "hitselect.h"
+#include "../../sdk/player/visual_cache.h"
 
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
@@ -413,31 +414,17 @@ bool AutoClicker::isTargetingBlock() {
 }
 
 bool AutoClicker::isTargetingPlayer() {
-    // Check if the objectMouseOver is an entity (type 1 = block, type 2 = entity)
-    // For now, we use a simpler check: if not targeting block and in combat range
-
-    JNIEnv* env = Java::Env();
-    if (!env)
-        return false;
-
-    // Clear any pending JNI exceptions from previous operations
-    if (env->ExceptionCheck()) {
-        env->ExceptionClear();
-    }
-
     if (isTargetingBlock())
         return false;
 
-    // Get player list and check if any are in reach
-    auto players = mc.getPlayerList();
-    if (players.empty())
+    auto snap = VisualCache::GetSnapshot();
+    if (!snap.valid || snap.players.empty())
         return false;
 
-    float playerX = static_cast<float>(player.getPosX());
-    float playerZ = static_cast<float>(player.getPosZ());
+    float playerX = static_cast<float>(snap.localX);
+    float playerZ = static_cast<float>(snap.localZ);
 
-    bool found = false;
-    for (auto& p : players) {
+    for (const auto& p : snap.players) {
         // Calculate distance
         float dx = static_cast<float>(p.posX) - playerX;
         float dz = static_cast<float>(p.posZ) - playerZ;
@@ -445,22 +432,11 @@ bool AutoClicker::isTargetingPlayer() {
 
         // Within 4.5 blocks (reach + some buffer)
         if (distSq < 20.25f) {  // 4.5^2
-            found = true;
-        }
-
-        // Always cleanup GlobalRef - don't break early
-        if (p.instance) {
-            env->DeleteGlobalRef(p.instance);
-            p.instance = nullptr;
+            return true;
         }
     }
 
-    // Clear any exceptions that occurred during iteration
-    if (env->ExceptionCheck()) {
-        env->ExceptionClear();
-    }
-
-    return found;
+    return false;
 }
 
 int AutoClicker::getHeldItemId() {
