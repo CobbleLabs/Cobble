@@ -8,40 +8,14 @@
 #include "../hud/arraylist.h"
 #include "../menu/menu.h"
 #include "../widgets/widgets.hpp"
+#include "hud_color.hpp"
 #include "generated/version.h"  // COBBLE_VERSION
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <string>
-
-namespace {
-struct RGBf {
-    float r, g, b;
-};
-
-// HSB -> RGB (0..255), same math the ArrayList uses for its rainbow.
-RGBf FromHSB(float h, float s, float b) {
-    float c = b * s;
-    float x = c * (1.0f - std::fabs(std::fmod(h * 6.0f, 2.0f) - 1.0f));
-    float m = b - c;
-    float r, g, bl;
-    if (h < 1.0f / 6.0f) {
-        r = c; g = x; bl = 0;
-    } else if (h < 2.0f / 6.0f) {
-        r = x; g = c; bl = 0;
-    } else if (h < 3.0f / 6.0f) {
-        r = 0; g = c; bl = x;
-    } else if (h < 4.0f / 6.0f) {
-        r = 0; g = x; bl = c;
-    } else if (h < 5.0f / 6.0f) {
-        r = x; g = 0; bl = c;
-    } else {
-        r = c; g = 0; bl = x;
-    }
-    return RGBf{(r + m) * 255.0f, (g + m) * 255.0f, (bl + m) * 255.0f};
-}
-}  // namespace
 
 void Watermark::render() {
     auto cancelMove = []() {
@@ -82,7 +56,7 @@ void Watermark::render() {
     const double time = ImGui::GetTime();
 
     // Accent color from the active theme.
-    RGBf ac{g_SchemeColor[0] * 255.0f, g_SchemeColor[1] * 255.0f, g_SchemeColor[2] * 255.0f};
+    hud::RGB ac{g_SchemeColor[0] * 255.0f, g_SchemeColor[1] * 255.0f, g_SchemeColor[2] * 255.0f};
     ImU32 accent = IM_COL32((int)ac.r, (int)ac.g, (int)ac.b, 255);
     ImU32 white = IM_COL32(238, 238, 240, 255);
     ImU32 gray = IM_COL32(150, 155, 165, 255);
@@ -263,14 +237,19 @@ void Watermark::render() {
     float ty = y1 + padY;
 
     // "Cobble" as a flowing per-character gradient (rainbow) or flat accent.
+    // Uses the same rainbow cycle + saturation setting as the ArrayList so both
+    // HUD elements stay in sync.
+    long long rainbowTimeMs = 0;
+    if (rainbow) {
+        auto now = std::chrono::system_clock::now().time_since_epoch();
+        rainbowTimeMs = std::chrono::duration_cast<std::chrono::milliseconds>(now).count();
+    }
     float cx = tx;
     for (int i = 0; nameStr[i]; ++i) {
         char ch[2] = {nameStr[i], 0};
         ImU32 col;
         if (rainbow) {
-            float hue = std::fmod((float)(time * 0.22) + i * 0.055f, 1.0f);
-            RGBf c = FromHSB(hue, 0.55f, 1.0f);
-            col = IM_COL32((int)c.r, (int)c.g, (int)c.b, 255);
+            col = hud::GetRainbowColor(i, ArrayListRenderer::rainbowSaturation, rainbowTimeMs);
         } else {
             col = accent;
         }

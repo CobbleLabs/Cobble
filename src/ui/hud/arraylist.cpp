@@ -14,6 +14,7 @@
 #include "../core/overlay.h"
 #include "../menu/menu.h"
 #include "../widgets/widgets.hpp"
+#include "hud_color.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -23,86 +24,10 @@
 #include <unordered_map>
 #include <unordered_set>
 
-// RGB struct for HSB conversion
-struct RGB {
-    float r, g, b;
-};
-
-// HSB to RGB conversion
-static RGB FromHSB(float h, float s, float b) {
-    float c = b * s;
-    float x = c * (1.0f - std::fabs(std::fmod(h * 6.0f, 2.0f) - 1.0f));
-    float m = b - c;
-
-    float r, g, bl;
-    if (h < 1.0f / 6.0f) {
-        r = c;
-        g = x;
-        bl = 0;
-    } else if (h < 2.0f / 6.0f) {
-        r = x;
-        g = c;
-        bl = 0;
-    } else if (h < 3.0f / 6.0f) {
-        r = 0;
-        g = c;
-        bl = x;
-    } else if (h < 4.0f / 6.0f) {
-        r = 0;
-        g = x;
-        bl = c;
-    } else if (h < 5.0f / 6.0f) {
-        r = x;
-        g = 0;
-        bl = c;
-    } else {
-        r = c;
-        g = 0;
-        bl = x;
-    }
-
-    return RGB{(r + m) * 255.0f, (g + m) * 255.0f, (bl + m) * 255.0f};
-}
-
-static ImU32 GetRainbowColor(int moduleIndex, float saturation, long long timeMs) {
-    // Use modulo to keep the number small and avoid precision issues
-    // 8000ms = 8 second full rainbow cycle
-    float cycleMs = 8000.0f;
-    float timeInCycle = std::fmod((float)(timeMs % 8000), cycleMs);
-
-    // Each module offset for flowing effect (100ms offset per module)
-    float moduleOffset = (moduleIndex * 100.0f);
-
-    // Calculate hue (0-1 range)
-    float hue = std::fmod((timeInCycle + moduleOffset) / cycleMs, 1.0f);
-
-    // HSB to RGB
-    RGB rgb = FromHSB(hue, saturation, 0.9f);
-
-    return IM_COL32((int)rgb.r, (int)rgb.g, (int)rgb.b, 255);
-}
-
 // Per-row appear animation state (module name -> progress 0..1), persisted
 // across frames. render() runs single-threaded on the GL thread, so a plain
 // static map is safe here.
 static std::unordered_map<std::string, float> g_rowAnim;
-
-// Scale the alpha channel of a packed color by f (0..1), clamped.
-static ImU32 ColScaleAlpha(ImU32 c, float f) {
-    int a = (int)(((c >> IM_COL32_A_SHIFT) & 0xFF) * f);
-    a = a < 0 ? 0 : (a > 255 ? 255 : a);
-    return (c & ~IM_COL32_A_MASK) | ((ImU32)a << IM_COL32_A_SHIFT);
-}
-
-// Add `add` to each RGB channel (clamped), keeping alpha untouched.
-static ImU32 ColBrighten(ImU32 c, int add) {
-    auto cl = [](int v) { return v < 0 ? 0 : (v > 255 ? 255 : v); };
-    int r = (c >> IM_COL32_R_SHIFT) & 0xFF;
-    int g = (c >> IM_COL32_G_SHIFT) & 0xFF;
-    int b = (c >> IM_COL32_B_SHIFT) & 0xFF;
-    int a = (c >> IM_COL32_A_SHIFT) & 0xFF;
-    return IM_COL32(cl(r + add), cl(g + add), cl(b + add), a);
-}
 
 void ArrayListRenderer::render() {
     // If a move/drag is in progress but the list can't draw (disabled, no player,
@@ -327,7 +252,7 @@ void ArrayListRenderer::render() {
         // Get color (rainbow or accent)
         ImU32 moduleColor;
         if (rainbow) {
-            moduleColor = GetRainbowColor(idx, rainbowSaturation, rainbowTimeMs);
+            moduleColor = hud::GetRainbowColor(idx, rainbowSaturation, rainbowTimeMs);
         } else {
             // Use custom color if set, otherwise use accent color
             if (color[0] < 0) {
@@ -378,9 +303,9 @@ void ArrayListRenderer::render() {
         // bar side, so each row is subtly tinted by its own accent color.
         if (showBackground) {
             draw->AddRectFilled(ImVec2(rectX1, y), ImVec2(rectX2, y + lineHeight),
-                                ColScaleAlpha(IM_COL32(19, 19, 19, 150), eased), rounding);
-            ImU32 washOn = ColScaleAlpha(moduleColor, 0.16f * eased);
-            ImU32 washOff = ColScaleAlpha(moduleColor, 0.0f);
+                                hud::ColScaleAlpha(IM_COL32(19, 19, 19, 150), eased), rounding);
+            ImU32 washOn = hud::ColScaleAlpha(moduleColor, 0.16f * eased);
+            ImU32 washOff = hud::ColScaleAlpha(moduleColor, 0.0f);
             ImVec2 wmin(rectX1 + rounding, y), wmax(rectX2 - rounding, y + lineHeight);
             if (wmax.x > wmin.x) {
                 if (anchorLeft)
@@ -392,7 +317,7 @@ void ArrayListRenderer::render() {
 
         // Text shadow for readability when background is off
         if (!showBackground) {
-            ImU32 shadowColor = ColScaleAlpha(IM_COL32(0, 0, 0, 200), eased);
+            ImU32 shadowColor = hud::ColScaleAlpha(IM_COL32(0, 0, 0, 200), eased);
             float sd = 1.0f * scale;
             draw->AddText(arrayFont, fontSize, ImVec2(textX + sd, y + sd), shadowColor, entry.name.c_str());
             if (!entry.info.empty()) {
@@ -402,22 +327,22 @@ void ArrayListRenderer::render() {
         }
 
         // Draw name with module color (fades in with the row)
-        draw->AddText(arrayFont, fontSize, ImVec2(textX, y), ColScaleAlpha(moduleColor, eased), entry.name.c_str());
+        draw->AddText(arrayFont, fontSize, ImVec2(textX, y), hud::ColScaleAlpha(moduleColor, eased), entry.name.c_str());
 
         // Draw info with gray color
         if (!entry.info.empty()) {
-            draw->AddText(arrayFont, fontSize, ImVec2(textX + entry.nameSize.x, y), ColScaleAlpha(infoColor, eased),
+            draw->AddText(arrayFont, fontSize, ImVec2(textX + entry.nameSize.x, y), hud::ColScaleAlpha(infoColor, eased),
                           entry.infoText.c_str());
         }
 
         // Color bar on edge: a bright lit strip (brighter on the outer edge) with
         // a soft inner glow that gently pulses, so it reads like an LED, not a line.
         if (colorBar) {
-            ImU32 mc = ColScaleAlpha(moduleColor, eased);
-            ImU32 barBright = ColScaleAlpha(ColBrighten(moduleColor, (int)(70 * pulse)), eased);
+            ImU32 mc = hud::ColScaleAlpha(moduleColor, eased);
+            ImU32 barBright = hud::ColScaleAlpha(hud::ColBrighten(moduleColor, (int)(70 * pulse)), eased);
             float glowW = 4.0f * scale;
-            ImU32 glowOn = ColScaleAlpha(moduleColor, 0.45f * eased * pulse);
-            ImU32 glowOff = ColScaleAlpha(moduleColor, 0.0f);
+            ImU32 glowOn = hud::ColScaleAlpha(moduleColor, 0.45f * eased * pulse);
+            ImU32 glowOff = hud::ColScaleAlpha(moduleColor, 0.0f);
             if (anchorLeft) {
                 // bar hugs the left edge; glow spills to the right, over the text
                 draw->AddRectFilledMultiColor(ImVec2(barX2, y), ImVec2(barX2 + glowW, y + lineHeight), glowOn,
