@@ -105,13 +105,15 @@ public:
 
     // Shutdown: save config
     void shutdown() {
+        log_raw("[CFG] shutdown() -> saveLocalSync()");
         syncRunning_ = false;
         saveLocalSync();
-        log_raw("ConfigManager shutdown");
+        log_raw("[CFG] shutdown complete");
     }
 
     // Called when any module setting changes (from UI)
     void onSettingChanged() {
+        log_raw("[CFG] onSettingChanged() -> saveLocal + debounced sync");
         saveLocal();
         enqueueSyncDebounced();
     }
@@ -284,6 +286,25 @@ private:
 
         if (!parseOk) {
             COBBLE_TRACE("loadLocal:parse failed -> applyDefaults");
+            // Report exactly WHERE and WHY the parser bailed. On a normal
+            // failure s_errWhy/s_errPos are set. On a HARD FAULT (access
+            // violation) the SEH in sehParse() swallows the crash before any
+            // error path runs, so s_errWhy stays empty and s_errPos stays 0 —
+            // in that case s_maxPos (the furthest byte reached, updated as we
+            // go and surviving the unwind) is the crash location.
+            size_t ep = json::Parser::s_errPos;
+            size_t mp = json::Parser::s_maxPos;
+            log_err("[CFG] PARSE FAIL: why='%s' errPos=%d maxPos=%d maxDepth=%d badToken='%s'",
+                    json::Parser::s_errWhy, (int)ep, (int)mp, json::Parser::s_maxDepth,
+                    json::Parser::s_errBadToken.c_str());
+            // Context around the crash/failure point (prefer maxPos when the
+            // normal error position wasn't set — i.e. a hard fault).
+            size_t at = (ep > 0) ? ep : mp;
+            if (at < content.size()) {
+                size_t from = at > 40 ? at - 40 : 0;
+                std::string ctx = content.substr(from, 80);
+                log_err("[CFG] PARSE FAIL context @%d: ...%s...", (int)at, ctx.c_str());
+            }
             log_warn("ConfigManager: Failed to parse config, using defaults");
             applyDefaults();
             COBBLE_TRACE("loadLocal:applyDefaults done (parse fail)");
@@ -307,8 +328,10 @@ private:
     }
 
     void saveLocalSync() {
-        if (configPath_.empty())
+        if (configPath_.empty()) {
+            log_warn("[CFG] saveLocalSync: no configPath_, skipping");
             return;
+        }
 
         // Build config from current module state
         buildConfigFromModules();
@@ -318,18 +341,25 @@ private:
             std::lock_guard<std::mutex> lock(configMutex_);
             content = config_.serialize();
         }
+
+        log_raw("[CFG] saveLocalSync: writing %d bytes to disk", (int)content.size());
 
         std::lock_guard<std::mutex> lock(fileWriteMutex_);
         std::ofstream file(configPath_);
         if (file.is_open()) {
             file << content;
             file.close();
+            log_raw("[CFG] saveLocalSync: write OK");
+        } else {
+            log_err("[CFG] saveLocalSync: FAILED to open file for write");
         }
     }
 
     void saveLocal() {
-        if (configPath_.empty())
+        if (configPath_.empty()) {
+            log_warn("[CFG] saveLocal: no configPath_, skipping");
             return;
+        }
 
         // Build config from current module state
         buildConfigFromModules();
@@ -339,6 +369,8 @@ private:
             std::lock_guard<std::mutex> lock(configMutex_);
             content = config_.serialize();
         }
+
+        log_raw("[CFG] saveLocal: queuing async write of %d bytes", (int)content.size());
 
         std::thread([this, content] {
             std::lock_guard<std::mutex> lock(fileWriteMutex_);
@@ -346,6 +378,9 @@ private:
             if (file.is_open()) {
                 file << content;
                 file.close();
+                log_raw("[CFG] saveLocal: async write OK (%d bytes)", (int)content.size());
+            } else {
+                log_err("[CFG] saveLocal: async write FAILED to open file");
             }
         }).detach();
     }

@@ -24,6 +24,7 @@ struct VisualPlayer {
     float maxHealth = 20.0f;
     std::vector<PlayerInfo::ArmorItem> armor;
     std::vector<PlayerInfo::PotionEffectInfo> potions;
+    PlayerInfo::HeldItem weapon;
     int totalHealthPotions = 0;
 };
 
@@ -99,6 +100,7 @@ inline void Update() {
         cached.maxHealth = p.maxHealth;
         cached.armor = std::move(p.armor);
         cached.potions = std::move(p.potions);
+        cached.weapon = p.weapon;
         cached.totalHealthPotions = p.totalHealthPotions;
         newPlayers.push_back(std::move(cached));
 

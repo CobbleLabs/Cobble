@@ -5,6 +5,7 @@
 #include "../../cobble.hpp"
 #include "../../config/config.hpp"
 #include "../../module/combat/aimassist.h"
+#include "../../module/combat/aimbow.h"
 #include "../../module/combat/autoclicker.h"
 #include "../../module/combat/backtrack.h"
 #include "../../module/combat/hitselect.h"
@@ -30,9 +31,11 @@
 #include "../../module/utility/bridgeassist.h"
 #include "../../module/utility/clutch.h"
 #include "../../module/utility/fastplace.h"
+#include "../../module/utility/fastbreak.h"
 #include "../../module/utility/noitemrelease.h"
 #include "../../module/utility/inventorymanager.h"
 #include "../../module/utility/altmanager.h"
+#include "../../module/utility/tcpoptimizer.h"
 #include "../../module/visual/blockesp.h"
 #include "../../module/visual/esp.h"
 #include "../../module/visual/item_esp.h"
@@ -46,6 +49,7 @@
 #include "../../util/network/http.hpp"
 #include "../../util/team/friends_manager.h"
 #include "../hud/arraylist.h"
+#include "../hud/watermark.h"
 #include "../hud/notifications.h"
 #include "../widgets/icons.hpp"
 #include "../widgets/theme.hpp"
@@ -84,9 +88,9 @@ Module* getModuleForSubtab(int tabIdx, int subtabIdx) {
             case 7:
                 return wTap;
             case 8:
-                return backtrack;
-            case 9:
                 return piercing;
+            case 9:
+                return aimBow;
         }
     }
     // Visuals Tab (1)
@@ -112,9 +116,11 @@ Module* getModuleForSubtab(int tabIdx, int subtabIdx) {
                 return droppedInfo;  // DroppedInfo
             case 9:
                 return nullptr;  // Notifications - special handling
+            case 10:
+                return nullptr;  // Watermark - special handling
         }
     }
-    // Movement Tab (2): Timer, TimerRange, NoSlowDown, NoJumpDelay, FakeLag, Blink, Sprint
+    // Movement Tab (2): Timer, TimerRange, NoSlowDown, NoJumpDelay, Sprint
     else if (tabIdx == 2) {
         switch (subtabIdx) {
             case 0:
@@ -126,10 +132,6 @@ Module* getModuleForSubtab(int tabIdx, int subtabIdx) {
             case 3:
                 return noJumpDelay;
             case 4:
-                return fakeLag;
-            case 5:
-                return blink;
-            case 6:
                 return sprint;
         }
     }
@@ -156,6 +158,21 @@ Module* getModuleForSubtab(int tabIdx, int subtabIdx) {
                 return inventoryManager;
             case 9:
                 return altManager;
+            case 10:
+                return fastBreak;
+        }
+    }
+    // Network Tab (4)
+    else if (tabIdx == 4) {
+        switch (subtabIdx) {
+            case 0:
+                return backtrack;
+            case 1:
+                return blink;
+            case 2:
+                return fakeLag;
+            case 3:
+                return tcpOptimizer;
         }
     }
     // Configs/Settings tabs - no module, handled specially
@@ -229,7 +246,6 @@ static void renderSettingsPage() {
 
                     // Step 2: If Mojang fails, try to find in current world
                     if (!added) {
-                        Minecraft mc;
                         PlayerInfo found = mc.findPlayerByName(inputName);
                         if (!found.uuid.empty()) {
                             friendsManager->addFriendByUUID(found.uuid, inputName);
@@ -322,15 +338,18 @@ static void renderSettingsPage() {
                         }
                     }
                 }
+                // Persist the all-off state immediately so PANIC survives a
+                // hard close, not just a clean menu-close.
+                ConfigManager::get().onSettingChanged();
             }
 
             ImGui::PopStyleColor(3);
 
             ImGui::SameLine();
 
-            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.5f, 0.1f, 0.15f, 1.0f));
-            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.6f, 0.15f, 0.2f, 1.0f));
-            ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.4f, 0.08f, 0.1f, 1.0f));
+            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.7f, 0.1f, 0.15f, 1.0f));
+            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.85f, 0.15f, 0.2f, 1.0f));
+            ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.6f, 0.08f, 0.1f, 1.0f));
 
             if (ImGui::Button("EJECT CLIENT", ImVec2(buttonWidth, ui::s(32)))) {
                 cobble::context::is_running = false;
@@ -411,70 +430,93 @@ static void renderConfigsPage() {
     }
     ImGui::Spacing();
 
-    if (configView == 0)
-    ui::two_column(
-        "Saved",
-        [&]() {
-            if (ImGui::BeginListBox("##configlist", ImVec2(ImGui::GetContentRegionAvail().x, ui::s(280)))) {
-                for (int i = 0; i < (int)configs.size(); i++) {
-                    const bool isSel = (i == selected);
-                    if (ImGui::Selectable(configs[i].c_str(), isSel)) {
-                        selected = i;
-                        strncpy_s(nameBuf, sizeof(nameBuf), configs[i].c_str(), _TRUNCATE);
+    // Two fixed-width columns via begin_child (matches the Settings page). Unlike
+    // ui::two_column, this makes GetContentRegionAvail() report each column's own
+    // width, so the listbox/buttons/inputs below size to their column instead of
+    // spilling across the whole page.
+    const float colHalfWidth =
+        (ImGui::GetWindowWidth() - GImGui->Style.WindowPadding.x * 2) / 2 - GImGui->Style.ItemSpacing.x / 2;
+    const float colHeight = ImGui::GetContentRegionAvail().y;
+
+    if (configView == 0) {
+        ImGui::BeginGroup();
+        {
+            ui::begin_child("Saved", {colHalfWidth, colHeight});
+            {
+                if (ImGui::BeginListBox("##configlist", ImGui::GetContentRegionAvail())) {
+                    for (int i = 0; i < (int)configs.size(); i++) {
+                        const bool isSel = (i == selected);
+                        if (ImGui::Selectable(configs[i].c_str(), isSel)) {
+                            selected = i;
+                            strncpy_s(nameBuf, sizeof(nameBuf), configs[i].c_str(), _TRUNCATE);
+                        }
+                    }
+                    ImGui::EndListBox();
+                }
+            }
+            ui::end_child();
+        }
+        ImGui::EndGroup();
+
+        ImGui::SameLine();
+
+        ImGui::BeginGroup();
+        {
+            ui::begin_child("Actions", {colHalfWidth, colHeight});
+            {
+                ImGui::Text("Name");
+                ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
+                ImGui::InputText("##configname", nameBuf, sizeof(nameBuf));
+
+                ImGui::Spacing();
+
+                std::string err;
+                std::string n =
+                    nameBuf[0] != '\0'
+                        ? std::string(nameBuf)
+                        : (selected >= 0 && selected < (int)configs.size() ? configs[selected] : std::string());
+
+                if (ImGui::Button("Save", ImVec2(ImGui::GetContentRegionAvail().x, 0))) {
+                    if (n.empty()) {
+                        NotificationManager::addSystem("Error: enter a name");
+                    } else if (ConfigManager::get().saveUserConfig(n, &err)) {
+                        NotificationManager::addSystem("Saved config: " + n);
+                        refresh();
+                    } else {
+                        NotificationManager::addSystem("Error: " + (err.empty() ? std::string("save failed") : err));
                     }
                 }
-                ImGui::EndListBox();
-            }
-        },
-        "Actions",
-        [&]() {
-            ImGui::Text("Name");
-            ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
-            ImGui::InputText("##configname", nameBuf, sizeof(nameBuf));
 
-            ImGui::Spacing();
+                if (ImGui::Button("Load", ImVec2(ImGui::GetContentRegionAvail().x, 0))) {
+                    if (n.empty()) {
+                        NotificationManager::addSystem("Error: select a config");
+                    } else if (ConfigManager::get().loadUserConfig(n, &err)) {
+                        NotificationManager::addSystem("Loaded config: " + n);
+                    } else {
+                        NotificationManager::addSystem("Error: " + (err.empty() ? std::string("load failed") : err));
+                    }
+                }
 
-            std::string err;
-            std::string n = nameBuf[0] != '\0'
-                                ? std::string(nameBuf)
-                                : (selected >= 0 && selected < (int)configs.size() ? configs[selected] : std::string());
-
-            if (ImGui::Button("Save", ImVec2(ImGui::GetContentRegionAvail().x, 0))) {
-                if (n.empty()) {
-                    NotificationManager::addSystem("Error: enter a name");
-                } else if (ConfigManager::get().saveUserConfig(n, &err)) {
-                    NotificationManager::addSystem("Saved config: " + n);
-                    refresh();
-                } else {
-                    NotificationManager::addSystem("Error: " + (err.empty() ? std::string("save failed") : err));
+                if (ImGui::Button("Delete", ImVec2(ImGui::GetContentRegionAvail().x, 0))) {
+                    if (n.empty()) {
+                        NotificationManager::addSystem("Error: select a config");
+                    } else if (ConfigManager::get().deleteUserConfig(n, &err)) {
+                        NotificationManager::addSystem("Deleted config: " + n);
+                        if (selected >= 0 && selected < (int)configs.size() && configs[selected] == n)
+                            selected = -1;
+                        if (std::string(nameBuf) == n)
+                            nameBuf[0] = '\0';
+                        refresh();
+                    } else {
+                        NotificationManager::addSystem("Error: " +
+                                                       (err.empty() ? std::string("delete failed") : err));
+                    }
                 }
             }
-
-            if (ImGui::Button("Load", ImVec2(ImGui::GetContentRegionAvail().x, 0))) {
-                if (n.empty()) {
-                    NotificationManager::addSystem("Error: select a config");
-                } else if (ConfigManager::get().loadUserConfig(n, &err)) {
-                    NotificationManager::addSystem("Loaded config: " + n);
-                } else {
-                    NotificationManager::addSystem("Error: " + (err.empty() ? std::string("load failed") : err));
-                }
-            }
-
-            if (ImGui::Button("Delete", ImVec2(ImGui::GetContentRegionAvail().x, 0))) {
-                if (n.empty()) {
-                    NotificationManager::addSystem("Error: select a config");
-                } else if (ConfigManager::get().deleteUserConfig(n, &err)) {
-                    NotificationManager::addSystem("Deleted config: " + n);
-                    if (selected >= 0 && selected < (int)configs.size() && configs[selected] == n)
-                        selected = -1;
-                    if (std::string(nameBuf) == n)
-                        nameBuf[0] = '\0';
-                    refresh();
-                } else {
-                    NotificationManager::addSystem("Error: " + (err.empty() ? std::string("delete failed") : err));
-                }
-            }
-        });
+            ui::end_child();
+        }
+        ImGui::EndGroup();
+    }
 
     // ── Public configs (browse / publish / apply) ─────────────────────────
     static char pubNameBuf[64] = "";
@@ -501,9 +543,10 @@ static void renderConfigsPage() {
 
     auto browse = ConfigManager::get().getBrowseState();
 
-    ui::two_column(
-        "Browse Public",
-        [&]() {
+    ImGui::BeginGroup();
+    {
+        ui::begin_child("Browse Public", {colHalfWidth, colHeight});
+        {
             // List fills the panel down to the bottom; reserve a few lines for
             // the description only when an entry is selected (keeps layout
             // stable when nothing is selected).
@@ -527,9 +570,17 @@ static void renderConfigsPage() {
                 ImGui::TextWrapped("%s", browse.entries[pubSelected].description.c_str());
                 ImGui::PopStyleColor();
             }
-        },
-        "Share",
-        [&]() {
+        }
+        ui::end_child();
+    }
+    ImGui::EndGroup();
+
+    ImGui::SameLine();
+
+    ImGui::BeginGroup();
+    {
+        ui::begin_child("Share", {colHalfWidth, colHeight});
+        {
             if (ImGui::Button("Refresh", ImVec2(ImGui::GetContentRegionAvail().x, 0)))
                 ConfigManager::get().refreshPublicConfigsAsync();
 
@@ -567,83 +618,21 @@ static void renderConfigsPage() {
                 ImGui::TextWrapped("%s", browse.message.c_str());
                 ImGui::PopStyleColor();
             }
-        });
+        }
+        ui::end_child();
+    }
+    ImGui::EndGroup();
 }
 
-// Module_List_View: render the active category's modules as a Two_Column_Grid
-// of rounded Module_Cards in the main content area. Each Module_Card carries two
-// disjoint hit areas drawn with the drawlist + ButtonBehavior pattern (no raw
-// ImGui interactive widgets, so the grid fades with the menu):
-//   * Name_Region (left, id #name)       -> Module_Toggle via m->toggle()
-//   * Gear_Control (right, id #name##gear)-> open the Module_Config_View
-// Routing stays centralized in getModuleForSubtab. Left column is filled first
-// with the leading prefix (nav::columnSplit), so odd counts bias the extra card
-// to the left column.
-// Draws an accent "comet" that travels around the perimeter of a rounded rect
-// in a smooth, continuous loop (like a loading spinner). headT in [0,1) is the
-// head position along the perimeter; trailFrac is how much of the perimeter the
-// glowing tail covers; intensity scales overall opacity (fades with enable anim).
-static void drawSpinningBorder(ImDrawList* dl, ImVec2 mn, ImVec2 mx, float rounding, float headT, float trailFrac,
-                               float thickness, float intensity) {
-    // Build the rounded-rect perimeter polyline using ImGui's own path builder,
-    // copy it out, then clear the path so nothing is drawn from it directly.
-    dl->PathRect(mn, mx, rounding);
-    int n = dl->_Path.Size;
-    if (n < 2) {
-        dl->PathClear();
-        return;
-    }
-    std::vector<ImVec2> pts(dl->_Path.Data, dl->_Path.Data + n);
-    dl->PathClear();
-
-    // Per-segment lengths around the closed loop.
-    std::vector<float> seglen(n);
-    float total = 0.f;
-    for (int i = 0; i < n; ++i) {
-        ImVec2 a = pts[i];
-        ImVec2 b = pts[(i + 1) % n];
-        float dx = b.x - a.x, dy = b.y - a.y;
-        seglen[i] = sqrtf(dx * dx + dy * dy);
-        total += seglen[i];
-    }
-    if (total <= 0.f)
-        return;
-
-    // Resample the perimeter into many equally-spaced points so the comet glides
-    // smoothly across the long straight edges instead of jumping per segment.
-    const int kSamples = 224;
-    std::vector<ImVec2> rs(kSamples);
-    float step = total / kSamples;
-    int seg = 0;
-    float segStart = 0.f;
-    for (int k = 0; k < kSamples; ++k) {
-        float target = k * step;
-        while (seg < n - 1 && segStart + seglen[seg] < target) {
-            segStart += seglen[seg];
-            ++seg;
-        }
-        float segL = seglen[seg] > 0.f ? seglen[seg] : 1.f;
-        float t = (target - segStart) / segL;
-        ImVec2 a = pts[seg];
-        ImVec2 b = pts[(seg + 1) % n];
-        rs[k] = ImVec2(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t);
-    }
-
-    // Light each resampled segment by how far it sits behind the moving head,
-    // with a smoothstep falloff for a soft comet tail.
-    for (int k = 0; k < kSamples; ++k) {
-        float mid = (k + 0.5f) / kSamples;
-        float d = headT - mid;
-        if (d < 0.f)
-            d += 1.f;
-        if (d < trailFrac) {
-            float a = 1.f - d / trailFrac;  // 1 at the head, 0 at the tail
-            a = a * a * (3.f - 2.f * a);    // smoothstep
-            dl->AddLine(rs[k], rs[(k + 1) % kSamples], GetSchemeColor(a * intensity), thickness);
-        }
-    }
-}
-
+// Module_List_View: render the active category's modules as a single-column
+// list of rounded Module_Cards in the main content area. Each Module_Card
+// carries two disjoint hit areas drawn with the drawlist + ButtonBehavior
+// pattern (no raw ImGui interactive widgets, so the grid fades with the menu):
+//   * Name_Region (left, id #name)        -> Module_Toggle via m->toggle()
+//   * Gear_Control (right, id #name##gear) -> open the Module_Config_View
+// A right-click anywhere on the card also opens its config. Routing stays
+// centralized in getModuleForSubtab. Active + hover states use the same soft
+// accent pill the sidebar category rows use.
 static void renderModuleList(int tab) {
     if (tab < 0 || tab >= (int)ui::tabs.size())
         return;
@@ -654,64 +643,155 @@ static void renderModuleList(int tab) {
 
     auto& t = ui::tabs[tab];
 
+    // ── Module search bar ──
+    static char searchBuf[64] = "";
+    {
+        ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, ui::s(ui::theme::rounding::Frame));
+        ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(ui::s(8), ui::s(6)));
+
+        // Simple, native input text with hint
+        ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
+        ImGui::InputTextWithHint("##modulesearch", "Search settings...", searchBuf, sizeof(searchBuf));
+
+        ImGui::PopStyleVar(2);
+    }
+
     ImGuiWindow* window = ImGui::GetCurrentWindow();
 
-    const int n = (int)t.m_subtabs.size();
-    const int split = nav::columnSplit(n);  // left = [0, split), right = [split, n)
+    // Unified SearchResult structure for global searching
+    struct SearchResult {
+        int tabIdx;
+        int subtabIdx;
+        const char* name;
+    };
 
-    const float gapX = ui::s(8);                                 // between columns (Req 6.4)
-    const float cardGapY = ui::s(6);                             // between cards (Req 5.2)
-    const float cardH = ui::s(32);
-    const float cardRound = ui::s(ui::theme::rounding::ModuleCard);  // Req 7.3
-    const float gearZoneW = ui::s(26);
+    std::vector<SearchResult> filteredResults;
+    if (searchBuf[0] == '\0') {
+        // Empty search query: show only the subtabs from the current tab
+        const int n = (int)t.m_subtabs.size();
+        for (int i = 0; i < n; ++i) {
+            filteredResults.push_back({tab, i, t.m_subtabs[i]});
+        }
+    } else {
+        // Active search query: search globally across every module category.
+        // Configs/Settings have no subtabs, so they contribute nothing.
+        std::string searchStr = searchBuf;
+        std::transform(searchStr.begin(), searchStr.end(), searchStr.begin(), ::tolower);
+
+        for (int tIdx = 0; tIdx < (int)ui::tabs.size(); ++tIdx) {
+            auto& otherTab = ui::tabs[tIdx];
+            const int n = (int)otherTab.m_subtabs.size();
+            for (int i = 0; i < n; ++i) {
+                const char* name = otherTab.m_subtabs[i];
+                std::string nameStr = name;
+                std::transform(nameStr.begin(), nameStr.end(), nameStr.begin(), ::tolower);
+                if (nameStr.find(searchStr) != std::string::npos) {
+                    filteredResults.push_back({tIdx, i, name});
+                }
+            }
+        }
+    }
+
+    const int filteredCount = (int)filteredResults.size();
+
+    const float cardGapY = ui::s(6);   // between cards
+    const float cardH = ui::s(56);     // room for name + subtitle
+    const float cardRound = ui::s(ui::theme::rounding::ModuleCard);
 
     const float avail = ImGui::GetContentRegionAvail().x;
-    const float cardW = (avail - gapX) / 2.f;  // per-column card width
+    const float cardW = avail;  // single full-width column
 
     // Tight, explicit spacing: the only vertical gap between cards is cardGapY.
     ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0, cardGapY));
 
     // Render one Module_Card at the current group cursor.
-    auto drawCard = [&](int i) {
-        const char* name = t.m_subtabs[i];
+    auto drawCard = [&](int idx) {
+        const auto& result = filteredResults[idx];
+        const char* name = result.name;
+        int originalTab = result.tabIdx;
+        int originalSubtab = result.subtabIdx;
 
         // Centralized routing (Req 3.3 / 4.4). m == nullptr for the Visuals
-        // ArrayList (7) and Notifications (9) special pages.
-        Module* m = getModuleForSubtab(tab, i);
+        // ArrayList (7), Notifications (9) and Watermark (10) special pages.
+        Module* m = getModuleForSubtab(originalTab, originalSubtab);
         bool isLocked = m && m->showsDeveloperOnly();
-        bool isEnabled = m && m->enabled;
+        // Special pages (no Module): reflect their own enabled flag so the card
+        // glows when active and can be toggled from the list like a module.
+        bool isArrayList = !m && strcmp(name, "ArrayList") == 0;
+        bool isNotifications = !m && strcmp(name, "Notifications") == 0;
+        bool isWatermark = !m && strcmp(name, "Watermark") == 0;
+        bool isEnabled = m ? m->enabled
+                           : (isArrayList ? ArrayListRenderer::enabled
+                                          : (isNotifications ? NotificationManager::enabled
+                                                             : (isWatermark ? Watermark::enabled : false)));
 
-        ImGui::PushID(i);
+        ImGui::PushID(idx);
 
         // Reserve the card rect; ItemSize advances the cursor (cardGapY between).
         ImVec2 pos = window->DC.CursorPos;
         ImRect bb{pos, pos + ImVec2(cardW, cardH)};
         ImGui::ItemSize(bb);
 
+        // Gear control lives at the far right; the name + subtitle fill the rest.
+        const float padR = ui::s(14);
+        const float gearZoneW = ui::s(30);
+
+        ImRect gearRect{ImVec2(bb.Max.x - padR - gearZoneW, bb.Min.y), ImVec2(bb.Max.x - padR, bb.Max.y)};
+
+        // Open the Module_Config_View for this card (transforms the content area
+        // in place). Shared by the gear control and by a right-click on the card.
+        auto openConfig = [&]() {
+            // If the module belongs to another tab, sync the current active tab.
+            if (ui::cur_tab != originalTab) {
+                ui::cur_tab = originalTab;
+            }
+            auto& activeTab = ui::tabs[originalTab];
+            activeTab.next_subtab = originalSubtab;
+            activeTab.next_view = ui::CategoryView::Config;
+            ui::content_anim_dst = 0.f;
+        };
+
+        // Toggle this card's module / special page on or off, then persist
+        // immediately. Saving from the render thread is safe here (local write
+        // only, no JNI) and matches the alt-tab auto-close path in overlay.cpp.
+        // Persisting on the toggle itself means state survives even if the game
+        // is closed without a clean menu-close, or the main thread later freezes.
+        auto toggleModule = [&]() {
+            if (m) {
+                // toggle() guards locked / canToggle internally.
+                m->toggle();
+            } else if (isArrayList) {
+                ArrayListRenderer::enabled = !ArrayListRenderer::enabled;
+            } else if (isNotifications) {
+                NotificationManager::enabled = !NotificationManager::enabled;
+            } else if (isWatermark) {
+                Watermark::enabled = !Watermark::enabled;
+            }
+            ConfigManager::get().onSettingChanged();
+        };
+
         // --- Gear_Control: register first so it owns its right-edge zone ---
-        ImRect gearRect{ImVec2(bb.Max.x - gearZoneW, bb.Min.y), bb.Max};
         ImGuiID gearId = window->GetID((std::string(name) + "##gear").c_str());
         ImGui::ItemAdd(gearRect, gearId);
         bool gHovered, gHeld;
         bool gPressed = ImGui::ButtonBehavior(gearRect, gearId, &gHovered, &gHeld);
         if (gPressed) {
-            // SelectEntry(i): open the Module_Config_View (works for null
-            // modules too -> inline ArrayList/Notifications config).
-            t.next_subtab = i;
-            t.next_view = ui::CategoryView::Config;
-            ui::content_anim_dst = 0.f;
+            openConfig();
         }
 
-        // --- Name_Region: register over the remaining left area ---
-        ImRect nameRect{bb.Min, ImVec2(bb.Max.x - gearZoneW, bb.Max.y)};
+        // --- Name_Region: the remaining left area toggles the module ---
+        ImRect nameRect{bb.Min, ImVec2(gearRect.Min.x, bb.Max.y)};
         ImGuiID nameId = window->GetID(name);
         ImGui::ItemAdd(nameRect, nameId);
         bool nHovered, nHeld;
         bool nPressed = ImGui::ButtonBehavior(nameRect, nameId, &nHovered, &nHeld);
-        if (nPressed && m) {
-            // Existing toggle path only (Req 14.3). toggle() guards locked /
-            // canToggle internally; no-op when m == nullptr per design.
-            m->toggle();
+        if (nPressed) {
+            toggleModule();
+        }
+
+        // Right-click anywhere on the card opens its config, same as the gear.
+        if ((nHovered || gHovered) && ImGui::IsMouseClicked(ImGuiMouseButton_Right)) {
+            openConfig();
         }
 
         struct card_state {
@@ -726,38 +806,40 @@ static void renderModuleList(int tab) {
 
         ImDrawList* draw = window->DrawList;
 
-        // Card background: a flat neutral fill that lifts on hover. When enabled,
-        // blend toward a subtle accent tint and add a clean accent outline -- no
-        // detached side bar, so the active state reads cleanly (Req 3.2 / 5.1).
-        ImU32 baseCol = ui::col_anim(ui::GetColor(ImGuiCol_FrameBg, 1.f),
-                                     ui::GetColor(ImGuiCol_FrameBgHovered, 1.f), obj.hover);
-        ImU32 bgCol = ui::col_anim(baseCol, GetSchemeColor(0.16f), obj.enabled);
-        draw->AddRectFilled(bb.Min, bb.Max, bgCol, cardRound);
-
-        // When enabled, the card border lights up: a faint accent outline plus an
-        // accent "comet" that travels around the perimeter in a continuous loop.
-        if (obj.enabled > 0.01f) {
-            draw->AddRect(bb.Min, bb.Max, GetSchemeColor(0.28f * obj.enabled), cardRound, 0, ui::s(1.f));
-            float headT = fmodf((float)ImGui::GetTime() * 0.45f, 1.f);  // ~2.2s per lap
-            drawSpinningBorder(draw, bb.Min, bb.Max, cardRound, headT, 0.32f, ui::s(1.8f), obj.enabled);
+        // Soft accent "pill" behind the card for both the active and hover states,
+        // matching the sidebar category selection (no bright border, no comet).
+        // Active state is fully lit; hover is a lighter wash.
+        float pillT = ImMax(obj.enabled, obj.hover * 0.55f);
+        if (pillT > 0.01f) {
+            draw->AddRectFilled(bb.Min, bb.Max, GetSchemeColor(0.14f * pillT), cardRound);
         }
 
-        // Name text (left region).
+        // Name + subtitle stacked on the left.
         const char* nameEnd = ImGui::FindRenderedTextEnd(name);
-        ImVec2 nameSize = ImGui::CalcTextSize(name, nameEnd);
-        float textX = nameRect.Min.x + ui::s(10);
-        float textY = bb.GetCenter().y - nameSize.y / 2.f;
-        ImU32 textCol;
+        const char* subtitle = ui::GetModuleDescription(name);
+        ImFont* nameFont = font(2);  // bold
+        ImFont* subFont = font(0);   // regular
+        const float nameFS = nameFont->FontSize * 0.96f;
+        const float subFS = subFont->FontSize * 0.9f;
+        ImVec2 nameSize = nameFont->CalcTextSizeA(nameFS, FLT_MAX, 0.f, name, nameEnd);
+        const float textX = nameRect.Min.x + ui::s(14);
+        const float lineGap = ui::s(2);
+        const float blockH = nameSize.y + lineGap + subFS;
+        const float nameY = bb.GetCenter().y - blockH * 0.5f;
+
+        ImU32 nameCol;
         if (isLocked) {
-            // Existing locked (grayed) presentation.
-            textCol = IM_COL32(100, 100, 100, 150);
+            nameCol = IM_COL32(100, 100, 100, 150);
         } else {
             float accentT = ImMax(obj.enabled, obj.hover);
-            textCol = ui::col_anim(ui::GetColor(ImGuiCol_Text, 0.85f), GetSchemeColor(), accentT);
+            nameCol = ui::col_anim(ui::GetColor(ImGuiCol_Text, 0.9f), GetSchemeColor(), accentT);
         }
-        draw->AddText(ImVec2(textX, textY), textCol, name, nameEnd);
+        draw->AddText(nameFont, nameFS, ImVec2(textX, nameY), nameCol, name, nameEnd);
 
-        // Gear glyph centered in the gear zone (replaces the old chevron).
+        ImU32 subCol = isLocked ? IM_COL32(90, 90, 90, 130) : ui::GetColor(ImGuiCol_TextDisabled, 0.75f);
+        draw->AddText(subFont, subFS, ImVec2(textX, nameY + nameSize.y + lineGap), subCol, subtitle);
+
+        // Gear glyph centered in its zone.
         const char* gear = ICON_FA_COG;
         const char* gearEnd = ImGui::FindRenderedTextEnd(gear);
         ImVec2 gearSize = ImGui::CalcTextSize(gear, gearEnd);
@@ -766,21 +848,14 @@ static void renderModuleList(int tab) {
         draw->AddText(gearPos, gearCol, gear, gearEnd);
 
         ui::HoverDescription(name, nHovered || gHovered,
-                             isLocked ? "Developer only (for now.)" : ui::GetModuleDescription(name), isLocked);
+                             isLocked ? "Developer only (for now.)" : subtitle, isLocked);
 
         ImGui::PopID();
     };
 
-    // Left column: leading prefix [0, split). Right column: [split, n).
+    // Single full-width column.
     ImGui::BeginGroup();
-    for (int i = 0; i < split; ++i)
-        drawCard(i);
-    ImGui::EndGroup();
-
-    ImGui::SameLine(0, gapX);
-
-    ImGui::BeginGroup();
-    for (int i = split; i < n; ++i)
+    for (int i = 0; i < filteredCount; ++i)
         drawCard(i);
     ImGui::EndGroup();
 
@@ -804,19 +879,34 @@ static void renderModuleConfig(int tab) {
 
     auto& t = ui::tabs[tab];
 
+    // Top of the content region: Back is pinned top-right, then the cursor snaps
+    // back up so the first section header sits on the same line as Back.
+    const float bodyTopY = ImGui::GetCursorPosY();
+    float bodyMargin = 0.f;  // symmetric horizontal margin used to center the body
+
     // ----- Back_Control -----
-    // Minimalist back row drawn with the same drawlist + ButtonBehavior pattern
-    // as the module list rows so it fades with the menu (no raw ImGui widgets).
+    // Compact "< Back" pinned to the top-right, drawn with the same drawlist +
+    // ButtonBehavior pattern as the module list rows so it fades with the menu.
     {
         ImGuiWindow* window = ImGui::GetCurrentWindow();
         const char* backLabel = "Back";
         ImGuiID id = window->GetID("##module_config_back");
 
-        float rowHeight = ui::s(28);
+        const char* chevron = ICON_FA_CHEVRON_LEFT;
+        ImVec2 chevSize = ImGui::CalcTextSize(chevron, 0, 1);
+        ImVec2 labelSize = ImGui::CalcTextSize(backLabel, 0, 1);
+        float iconGap = ui::s(6);
+        float padX = ui::s(8);
+        float rowHeight = ui::s(26);
+        float controlW = padX + chevSize.x + iconGap + labelSize.x + padX;
+
+        // Right-aligned within the content region.
         float availWidth = ImGui::GetContentRegionAvail().x;
-        ImRect bb{window->DC.CursorPos, window->DC.CursorPos + ImVec2(availWidth, rowHeight)};
+        ImVec2 origin = window->DC.CursorPos;
+        ImVec2 bbMin{origin.x + availWidth - controlW, origin.y};
+        ImRect bb{bbMin, bbMin + ImVec2(controlW, rowHeight)};
         ImGui::ItemAdd(bb, id);
-        ImGui::ItemSize(bb);
+        ImGui::ItemSize(ImVec2(availWidth, rowHeight));
 
         bool hovered, held;
         bool pressed = ImGui::ButtonBehavior(bb, id, &hovered, &held);
@@ -833,7 +923,6 @@ static void renderModuleConfig(int tab) {
         auto& obj = ui::anim_obj("##module_config_back", 1, back_state{0.f});
         obj.hover = ui::animate(obj.hover, 0.f, 1.f, hovered);
 
-        // Subtle hover background for the row.
         if (obj.hover > 0.01f) {
             window->DrawList->AddRectFilled(bb.Min, bb.Max,
                                             ui::GetColor(ImGuiCol_FrameBgHovered, obj.hover * 0.35f),
@@ -842,20 +931,25 @@ static void renderModuleConfig(int tab) {
 
         ImU32 col = ui::col_anim(ui::GetColor(ImGuiCol_Text, 0.85f), GetSchemeColor(), obj.hover);
 
-        const char* chevron = ICON_FA_CHEVRON_LEFT;
-        ImVec2 chevSize = ImGui::CalcTextSize(chevron, 0, 1);
-        float chevX = bb.Min.x + ui::s(6);
+        float chevX = bb.Min.x + padX;
         window->DrawList->AddText(ImVec2(chevX, bb.GetCenter().y - chevSize.y / 2), col, chevron,
                                   ImGui::FindRenderedTextEnd(chevron));
-
-        ImVec2 labelSize = ImGui::CalcTextSize(backLabel, 0, 1);
-        window->DrawList->AddText(ImVec2(chevX + chevSize.x + ui::s(6), bb.GetCenter().y - labelSize.y / 2), col,
+        window->DrawList->AddText(ImVec2(chevX + chevSize.x + iconGap, bb.GetCenter().y - labelSize.y / 2), col,
                                   backLabel, ImGui::FindRenderedTextEnd(backLabel));
     }
 
-    ImGui::Spacing();
+    // Snap the cursor back to the top so the body starts level with Back. Keep a
+    // small symmetric inset so the columns nearly span the full content width
+    // instead of sitting narrow and centered.
+    ImGui::SetCursorPosY(bodyTopY);
+    {
+        float availWidth = ImGui::GetContentRegionAvail().x;
+        bodyMargin = ui::s(6.f);
+        ImGui::Indent(bodyMargin);
+        ImGui::PushItemWidth(availWidth - bodyMargin * 2.f);
+    }
 
-    // ----- Module body (moved as-is from renderPage) -----
+    // ----- Module body -----
     Module* mod = getModuleForSubtab(ui::cur_tab, t.cur_subtab);
     if (mod) {
         ui::SetDescriptionContext(mod->name);
@@ -943,9 +1037,18 @@ static void renderModuleConfig(int tab) {
                 ui::Checkbox("Show Info", &ArrayListRenderer::showInfo);
                 ui::SliderFloat("Size", &ArrayListRenderer::scale, 0.5f, 2.0f, "%.1fx");
 
-                // Position/Anchor selector
+                // The ArrayList is dragged directly on screen (same manner as
+                // Dropped Pots): with the menu open, grab the block and drop it.
+                ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetColorU32(ImGuiCol_TextDisabled));
+                ImGui::TextWrapped("Drag the ArrayList directly on screen to move it.");
+                ImGui::PopStyleColor();
+
+                // Changing this resets the block back to the chosen corner.
                 const char* anchorItems[] = {"Top Right", "Top Left", "Bottom Right", "Bottom Left"};
-                ui::Combo("Position", &ArrayListRenderer::anchor, anchorItems, 4);
+                if (ui::Combo("Position (reset corner)", &ArrayListRenderer::anchor, anchorItems, 4)) {
+                    ArrayListRenderer::posX = -1.0f;  // -1 -> re-derive from the new corner
+                    ArrayListRenderer::posY = -1.0f;
+                }
 
                 if (ArrayListRenderer::rainbow) {
                     bool highSat = ArrayListRenderer::rainbowSaturation > 0.6f;
@@ -961,6 +1064,24 @@ static void renderModuleConfig(int tab) {
         // Notifications settings
         ui::SetDescriptionContext("Notifications");
         ui::section("Settings", []() { ui::Checkbox("Enabled", &NotificationManager::enabled); });
+    } else if (ui::cur_tab == 1 && t.cur_subtab == 10) {
+        // Watermark settings (its own page now, independent of the ArrayList)
+        ui::SetDescriptionContext("Watermark");
+        ui::two_column(
+            "Settings",
+            []() {
+                ui::Checkbox("Enabled", &Watermark::enabled);
+                ui::Checkbox("Rainbow", &Watermark::rainbow);
+            },
+            "Options",
+            []() {
+                ui::SliderFloat("Size", &Watermark::scale, 0.5f, 2.0f, "%.1fx");
+
+                // Dragged directly on screen, same manner as the ArrayList.
+                ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetColorU32(ImGuiCol_TextDisabled));
+                ImGui::TextWrapped("Drag the Watermark directly on screen to move it.");
+                ImGui::PopStyleColor();
+            });
     }
     // Any other unresolved (category, entry): neutral placeholder so the menu
     // never crashes or shows a blank page. The list entry stays selectable.
@@ -975,6 +1096,10 @@ static void renderModuleConfig(int tab) {
         ImGui::Text(msg);
         ImGui::PopStyleColor();
     }
+
+    // Close the centering inset opened before the module body.
+    ImGui::PopItemWidth();
+    ImGui::Unindent(bodyMargin);
 }
 
 // Render current page - calls module's onRenderMenu() dynamically
@@ -1005,11 +1130,10 @@ static void renderPage() {
         return;
     }
 
-    // Module_Category: dispatch on the per-category view state. The full
-    // per-module body (locked/unlock prompt, onRenderMenu, inline ArrayList /
-    // Notifications, placeholder) lives in renderModuleConfig; the selectable
-    // module list lives in renderModuleList. Routing stays centralized via
-    // getModuleForSubtab inside those functions.
+    // Module_Category: dispatch on the per-category view state. The content area
+    // transforms in place -- the selectable module list (renderModuleList) or the
+    // selected module's config body (renderModuleConfig), which carries its own
+    // Back row. Routing stays centralized via getModuleForSubtab.
     //
     // Safe bounds guard: renderModuleList / renderModuleConfig also guard the
     // subtab index, but keep renderPage safe against an out-of-range subtab.
@@ -1073,10 +1197,20 @@ void Menu::Render() {
         ImDrawList* windowDraw = ImGui::GetWindowDrawList();
         const ImVec2 windowPos = ImGui::GetWindowPos();
         const ImVec2 windowMax = windowPos + ImGui::GetWindowSize();
-        windowDraw->AddRectFilled(windowPos, windowMax, ui::GetColor(ImGuiCol_WindowBg),
+        // Draw separate background rectangles for left and right panels to keep the separator transparent
+        ImVec2 leftPanelMin = windowPos;
+        ImVec2 leftPanelMax = windowPos + ImVec2(ui::s(176), ImGui::GetWindowHeight());
+        windowDraw->AddRectFilled(leftPanelMin, leftPanelMax, ui::GetColor(ImGuiCol_WindowBg),
                                   GImGui->Style.WindowRounding);
-        windowDraw->AddRect(windowPos, windowMax, ui::GetColor(ImGuiCol_Border, 1.0f),
-                           GImGui->Style.WindowRounding, 0, ui::s(1.0f));
+        windowDraw->AddRect(leftPanelMin, leftPanelMax, ui::GetColor(ImGuiCol_Border, 1.0f),
+                            GImGui->Style.WindowRounding, 0, ui::s(1.0f));
+
+        ImVec2 rightPanelMin = windowPos + ImVec2(ui::s(185), 0);
+        ImVec2 rightPanelMax = windowPos + ImGui::GetWindowSize();
+        windowDraw->AddRectFilled(rightPanelMin, rightPanelMax, ui::GetColor(ImGuiCol_WindowBg),
+                                  GImGui->Style.WindowRounding);
+        windowDraw->AddRect(rightPanelMin, rightPanelMax, ui::GetColor(ImGuiCol_Border, 1.0f),
+                            GImGui->Style.WindowRounding, 0, ui::s(1.0f));
 
         // ===== LEFT NAV =====
         ImGui::BeginChild("nav", {ui::s(176), ImGui::GetWindowHeight()}, 0,
@@ -1130,23 +1264,28 @@ void Menu::Render() {
 
                 ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {1, 1});
 
-                // Center the whole category group (Settings inline) vertically.
+                // Modules pinned to the top, Settings pinned to the bottom edge
+                // (Configs stays with the modules just above Settings).
                 const int tabCount = (int)ui::tabs.size();
-                const float rowH = ui::s(38);  // ui::tab fixed row height
-                // Account for the {1,1} ItemSpacing pushed around the group.
-                const float groupH = rowH * tabCount + (tabCount > 1 ? (tabCount - 1) * 1.f : 0.f);
+                const int settingsIdx = tabCount - 1;
+                const float rowH = ui::s(38);   // ui::tab fixed row height
+                const float topPad = ui::s(8);  // clear the seam shadow cast by the brand
+                const float botPad = ui::s(8);  // breathing room above the rounded corner
+                const float startY = ImGui::GetCursorPosY();
                 const float availH = ImGui::GetContentRegionAvail().y;
-                const float topOffset = ImMax(0.f, (availH - groupH) * 0.5f);
 
-                ImGui::Dummy({0, topOffset});
-
-                ImGui::BeginGroup();
-                {
-                    for (int i = 0; i < tabCount; ++i) {
-                        ui::tab(i);
-                    }
+                ImGui::Dummy({0, topPad});
+                for (int i = 0; i < settingsIdx; ++i) {
+                    ui::tab(i);
                 }
-                ImGui::EndGroup();
+
+                // Push Settings down to the bottom. If the panel is too short to
+                // fit everything, it just follows the modules in natural flow.
+                const float settingsY = startY + availH - rowH - botPad;
+                if (settingsY > ImGui::GetCursorPosY()) {
+                    ImGui::SetCursorPosY(settingsY);
+                }
+                ui::tab(settingsIdx);
 
                 ImGui::PopStyleVar();
             }
@@ -1157,7 +1296,7 @@ void Menu::Render() {
         // Vertical seam shadow between the recessed sidebar and the main content
         // so the categories panel reads as sitting behind the modules area.
         {
-            float seamX = windowPos.x + ui::s(176);
+            float seamX = windowPos.x + ui::s(185);
             float seamTop = windowPos.y + ui::s(8);
             float seamBot = windowMax.y - ui::s(8);
             windowDraw->AddRectFilledMultiColor(
@@ -1230,7 +1369,9 @@ void Menu::Render() {
                                                       ImDrawFlags_RoundCornersBottom);
 
             // Content
-            ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {ui::s(10), ui::s(10)});
+            // Slightly wider vertical item spacing so module config rows
+            // (checkboxes, sliders) breathe instead of stacking tightly.
+            ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {ui::s(10), ui::s(13)});
             ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {ui::s(15), ui::s(15)});
 
             // Sync alpha_mod for custom widgets BEFORE pushing style

@@ -1,6 +1,7 @@
 #include "cobble.hpp"
 #include "config/config.hpp"
 #include "module/combat/aimassist.h"
+#include "module/combat/aimbow.h"
 #include "module/combat/autoclicker.h"
 #include "module/combat/backtrack.h"
 #include "module/combat/hitselect.h"
@@ -26,9 +27,11 @@
 #include "module/utility/bridgeassist.h"
 #include "module/utility/clutch.h"
 #include "module/utility/fastplace.h"
+#include "module/utility/fastbreak.h"
 #include "module/utility/noitemrelease.h"
 #include "module/utility/inventorymanager.h"
 #include "module/utility/altmanager.h"
+#include "module/utility/tcpoptimizer.h"
 #include "module/visual/blockesp.h"
 #include "module/visual/esp.h"
 #include "module/visual/item_esp.h"
@@ -39,6 +42,7 @@
 #include "module/visual/dropped_info.h"
 
 #include "hooks/winsock_hooks.h"
+#include "jni/packet/bytecode_patcher.hpp"
 #include "jni/packet/packet_interceptor.hpp"
 #include "sdk/network/lunar_packet_listener.hpp"
 #include "sdk/network/lunar_sender.hpp"
@@ -162,6 +166,8 @@ void cobble::context::initialize(HMODULE hModule) {
     autoClicker = new AutoClicker();
     COBBLE_TRACE("alloc:AimAssist");
     aimAssist = new AimAssist();
+    COBBLE_TRACE("alloc:AimBow");
+    aimBow = new AimBow();
     COBBLE_TRACE("alloc:ArmorSwitch");
     armorSwitch = new ArmorSwitch();
     COBBLE_TRACE("alloc:AutoRefill");
@@ -201,6 +207,8 @@ void cobble::context::initialize(HMODULE hModule) {
     fakeLag = new FakeLag();
     COBBLE_TRACE("alloc:FastPlace");
     fastPlace = new FastPlace();
+    COBBLE_TRACE("alloc:FastBreak");
+    fastBreak = new FastBreak();
     COBBLE_TRACE("alloc:TimerMod");
     timerModule = new TimerMod();
     COBBLE_TRACE("alloc:TimerRange");
@@ -213,6 +221,8 @@ void cobble::context::initialize(HMODULE hModule) {
     inventoryManager = new InventoryManager();
     COBBLE_TRACE("alloc:AltManager");
     altManager = new AltManager();
+    COBBLE_TRACE("alloc:TcpOptimizer");
+    tcpOptimizer = new TcpOptimizer();
     COBBLE_TRACE("alloc:NameTags");
     nameTags = new NameTags();
     COBBLE_TRACE("alloc:AntiDebuff");
@@ -237,6 +247,7 @@ void cobble::context::initialize(HMODULE hModule) {
     log_raw("Registering modules...");
     moduleManager->registerModule(autoClicker);
     moduleManager->registerModule(aimAssist);
+    moduleManager->registerModule(aimBow);
     moduleManager->registerModule(armorSwitch);
     moduleManager->registerModule(autoRefill);
     moduleManager->registerModule(velocity);
@@ -257,12 +268,14 @@ void cobble::context::initialize(HMODULE hModule) {
     moduleManager->registerModule(blink);
     moduleManager->registerModule(fakeLag);
     moduleManager->registerModule(fastPlace);
+    moduleManager->registerModule(fastBreak);
     moduleManager->registerModule(timerModule);
     moduleManager->registerModule(timerRange);
     moduleManager->registerModule(sprint);
     moduleManager->registerModule(autoTool);
     moduleManager->registerModule(inventoryManager);
     moduleManager->registerModule(altManager);
+    moduleManager->registerModule(tcpOptimizer);
     moduleManager->registerModule(nameTags);
     moduleManager->registerModule(antiDebuff);
     moduleManager->registerModule(esp);
@@ -413,6 +426,8 @@ void cobble::context::initialize(HMODULE hModule) {
         if (now - lastRenderUpdate >= RENDERDATA_UPDATE_INTERVAL) {
             DIAG_SCOPE("RenderData::Update");
             RenderData::Update();
+            // Cache real game FPS here (main JNI thread) for the HUD/watermark.
+            RenderData::gameFps = mc.getGameFps();
             lastRenderUpdate = now;
         }
 
@@ -429,7 +444,7 @@ void cobble::context::initialize(HMODULE hModule) {
     }
 
     shutdown();
-    ExitThread(0);
+    FreeLibraryAndExitThread(moduleHandle, 0);
 }
 
 void cobble::context::shutdown() {
@@ -451,6 +466,8 @@ void cobble::context::shutdown() {
         autoClicker->setEnabled(false);
     if (aimAssist)
         aimAssist->setEnabled(false);
+    if (aimBow)
+        aimBow->setEnabled(false);
     if (armorSwitch)
         armorSwitch->setEnabled(false);
     if (autoRefill)
@@ -497,6 +514,8 @@ void cobble::context::shutdown() {
         fakeLag->setEnabled(false);
     if (fastPlace)
         fastPlace->setEnabled(false);
+    if (fastBreak)
+        fastBreak->setEnabled(false);
     if (timerModule)
         timerModule->setEnabled(false);
     if (timerRange)
@@ -525,6 +544,14 @@ void cobble::context::shutdown() {
         trajectories->setEnabled(false);
     if (droppedInfo)
         droppedInfo->setEnabled(false);
+
+    // Disabling NameTags above flipped the "hide vanilla names" flag back to
+    // restore, but the retransform that actually applies it only runs on the
+    // module-manager update loop -- which has already stopped by the time we
+    // reach shutdown. Flush it here, while the JVM and the bytecode hook are
+    // still valid, so ejecting doesn't leave Minecraft with permanently
+    // no-op'd renderName (names never come back until a game restart).
+    BytecodePatcher::ApplyHideVanillaNames(Java::Env());
 
     LunarPacketListener::Shutdown();
     PacketInterceptor::Shutdown();
@@ -561,6 +588,10 @@ void cobble::context::shutdown() {
     if (aimAssist) {
         delete aimAssist;
         aimAssist = nullptr;
+    }
+    if (aimBow) {
+        delete aimBow;
+        aimBow = nullptr;
     }
     if (armorSwitch) {
         delete armorSwitch;
@@ -638,6 +669,10 @@ void cobble::context::shutdown() {
     if (fastPlace) {
         delete fastPlace;
         fastPlace = nullptr;
+    }
+    if (fastBreak) {
+        delete fastBreak;
+        fastBreak = nullptr;
     }
     if (timerModule) {
         delete timerModule;

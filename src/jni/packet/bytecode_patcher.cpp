@@ -37,7 +37,11 @@ static inline std::string kRenderPlayerSlash()         { return OBFUSCATE_STRING
 static inline std::string kRenderPlayerDot()           { return OBFUSCATE_STRING("net.minecraft.client.renderer.entity.RenderPlayer"); }
 static inline std::string kRendererLivingSlash()       { return OBFUSCATE_STRING("net/minecraft/client/renderer/entity/RendererLivingEntity"); }
 static inline std::string kRendererLivingDot()         { return OBFUSCATE_STRING("net.minecraft.client.renderer.entity.RendererLivingEntity"); }
+static inline std::string kRenderArmorStandSlash()     { return OBFUSCATE_STRING("net/minecraft/client/renderer/entity/RenderArmorStand"); }
+static inline std::string kRenderArmorStandDot()       { return OBFUSCATE_STRING("net.minecraft.client.renderer.entity.RenderArmorStand"); }
 static inline std::string kRenderNameMethod()          { return OBFUSCATE_STRING("renderName"); }
+static inline std::string kPassSpecialRenderMethod()   { return OBFUSCATE_STRING("passSpecialRender"); }
+static inline std::string kPassSpecialRenderMethodObf() { return OBFUSCATE_STRING("func_177069_a"); }
 
 static HookTargets g_targets{};
 static std::atomic<bool> g_hideVanillaNames{false};
@@ -1522,7 +1526,9 @@ static int patchRenderNameNoop(const uint8_t* data, size_t len, std::vector<uint
             const std::string& name = utf8[m_name];
             const std::string& desc = utf8[m_desc];
             bool concrete = (m_access & (0x0100 | 0x0400)) == 0;  // not native/abstract
-            if (concrete && name == kRenderNameMethod() && !desc.empty() && desc.back() == 'V')
+            if (concrete && 
+                (name == kRenderNameMethod() || name == kPassSpecialRenderMethod() || name == kPassSpecialRenderMethodObf()) && 
+                !desc.empty() && desc.back() == 'V')
                 is_target = true;
         }
 
@@ -1605,7 +1611,8 @@ static void JNICALL onClassFileLoadHook(jvmtiEnv* jvmti_env, JNIEnv* jni_env, jc
     // and the original bytes are kept.
     if (g_hideVanillaNames.load() &&
         (strcmp(name, kRenderPlayerSlash().c_str()) == 0 ||
-         strcmp(name, kRendererLivingSlash().c_str()) == 0)) {
+         strcmp(name, kRendererLivingSlash().c_str()) == 0 ||
+         strcmp(name, kRenderArmorStandSlash().c_str()) == 0)) {
         std::vector<uint8_t> patched;
         int n = patchRenderNameNoop(class_data, static_cast<size_t>(class_data_len), patched);
         if (n > 0) {
@@ -1770,7 +1777,7 @@ bool ApplyHideVanillaNames(JNIEnv* env) {
     if (!env || !Java::tiEnv || !bytecodeHookInstalled.load())
         return false;
 
-    jclass classes[2];
+    jclass classes[3];
     jint count = 0;
     jclass rp = nullptr;
     if (Java::AssignClass(kRenderPlayerDot(), rp)) {
@@ -1781,6 +1788,12 @@ bool ApplyHideVanillaNames(JNIEnv* env) {
     jclass rl = nullptr;
     if (Java::AssignClass(kRendererLivingDot(), rl)) {
         classes[count++] = rl;
+    } else if (env->ExceptionCheck()) {
+        env->ExceptionClear();
+    }
+    jclass ra = nullptr;
+    if (Java::AssignClass(kRenderArmorStandDot(), ra)) {
+        classes[count++] = ra;
     } else if (env->ExceptionCheck()) {
         env->ExceptionClear();
     }

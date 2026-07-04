@@ -328,6 +328,8 @@ extern jmethodID mid_getItem;
 extern jfieldID fid_stackSize;
 extern jmethodID mid_getItemDamage;
 extern jfieldID fid_itemDamage;
+extern jmethodID mid_itemStackGetDisplayName;  // ItemStack.getDisplayName() -> String (may include § codes)
+extern jmethodID mid_itemStackHasDisplayName;  // ItemStack.hasDisplayName() -> bool (custom NBT name)
 
 // =============================================================================
 // Item class IDs

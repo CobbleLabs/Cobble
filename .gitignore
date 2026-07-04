@@ -56,3 +56,10 @@ loader/src/security/integrity_gen.hpp
 generated/
 cobble.json
 !cobble.json.example
+
+# Bloat
+mcp/
+textures/
+event/
+.kiro/
+tests/

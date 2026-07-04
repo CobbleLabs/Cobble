@@ -3,6 +3,7 @@
 #include "../module/module_manager.h"
 #include "../security/session_validator.hpp"
 #include "../ui/hud/arraylist.h"
+#include "../ui/hud/watermark.h"
 #include "../ui/hud/notifications.h"
 #include "../ui/menu/menu.h"
 #include "../ui/widgets/theme.hpp"
@@ -148,6 +149,7 @@ bool ConfigManager::saveUserConfig(const std::string& name, std::string* err) {
 
     std::ofstream file(path, std::ios::trunc);
     if (!file.is_open()) {
+        log_err("[CFG] saveUserConfig('%s'): FAILED to open file", safe.c_str());
         if (err)
             *err = "Failed to open file for write";
         return false;
@@ -156,6 +158,7 @@ bool ConfigManager::saveUserConfig(const std::string& name, std::string* err) {
     file << content;
     file.close();
 
+    log_raw("[CFG] saveUserConfig('%s'): wrote %d bytes", safe.c_str(), (int)content.size());
     return true;
 }
 
@@ -186,8 +189,11 @@ bool ConfigManager::loadUserConfig(const std::string& name, std::string* err) {
     std::string content((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
     file.close();
 
+    log_raw("[CFG] loadUserConfig('%s'): read %d bytes, parsing", safe.c_str(), (int)content.size());
+
     json::Value loaded;
     if (!json::Parser::parse(content, loaded)) {
+        log_err("[CFG] loadUserConfig('%s'): PARSE FAILED", safe.c_str());
         if (err)
             *err = "Failed to parse JSON";
         return false;
@@ -204,6 +210,7 @@ bool ConfigManager::loadUserConfig(const std::string& name, std::string* err) {
         migrateConfig(version);
     }
 
+    log_raw("[CFG] loadUserConfig('%s'): parse OK, applying", safe.c_str());
     applyConfig();
 
     // Persist and (if enabled) sync like any other setting change.
@@ -229,11 +236,13 @@ bool ConfigManager::deleteUserConfig(const std::string& name, std::string* err) 
 
     std::string path = dir + "\\" + safe + ".json";
     if (!DeleteFileA(path.c_str())) {
+        log_err("[CFG] deleteUserConfig('%s'): DeleteFile FAILED (err=%lu)", safe.c_str(), GetLastError());
         if (err)
             *err = "Failed to delete file";
         return false;
     }
 
+    log_raw("[CFG] deleteUserConfig('%s'): deleted", safe.c_str());
     return true;
 }
 
@@ -256,9 +265,9 @@ std::string ConfigManager::exportPublicConfig() {
         const auto& modules = config_["modules"].object();
         for (const auto& kv : modules) {
             json::Value node = kv.second;  // deep copy of this module's node
-            node.object().erase("keybind");
+            node.remove("keybind");
             if (kv.first == "AltManager")
-                node.object().erase("spoofedName");
+                node.remove("spoofedName");
             pub["modules"][kv.first] = node;
         }
     }
@@ -534,6 +543,7 @@ void ConfigManager::applyDefaults() {
 
     // HUD
     config_["hud"]["arrayList"] = true;
+    config_["hud"]["watermark"] = true;
     config_["hud"]["notifications"] = true;
     COBBLE_TRACE("applyDefaults:hud set");
 
@@ -570,6 +580,13 @@ void ConfigManager::applyConfig() {
         scale = config_["hud"]["arrayListScale"].as_float(1.0f);
         rainbowSaturation = config_["hud"]["arrayListSaturation"].as_float(0.7f);
         anchor = config_["hud"]["arrayListAnchor"].as_int(0);
+        posX = config_["hud"]["arrayListPosX"].as_float(-1.0f);
+        posY = config_["hud"]["arrayListPosY"].as_float(-1.0f);
+        Watermark::enabled = config_["hud"]["watermark"].as_bool(true);
+        Watermark::rainbow = config_["hud"]["watermarkRainbow"].as_bool(true);
+        Watermark::scale = config_["hud"]["watermarkScale"].as_float(1.0f);
+        Watermark::posX = config_["hud"]["watermarkPosX"].as_float(-1.0f);
+        Watermark::posY = config_["hud"]["watermarkPosY"].as_float(-1.0f);
         NotificationManager::enabled = config_["hud"]["notifications"].as_bool(true);
     }
 
@@ -611,14 +628,20 @@ void ConfigManager::applyConfig() {
     }
 
     // Apply module configs
-    if (!config_.has("modules"))
+    if (!config_.has("modules")) {
+        log_warn("[CFG] applyConfig: config has NO 'modules' key -> nothing applied");
         return;
+    }
 
     if (!config_["modules"].has("AntiDebuff") && config_["modules"].has("NoVisualEffects"))
         config_["modules"]["AntiDebuff"] = config_["modules"]["NoVisualEffects"];
 
     const auto& modules = config_["modules"].object();
+    log_raw("[CFG] applyConfig: %d module nodes in config, AimAssist.speed(json)=%d enabled(json)=%d",
+            (int)modules.size(), (int)config_["modules"]["AimAssist"]["speed"].as_float(-1.0f),
+            (int)config_["modules"]["AimAssist"]["enabled"].as_bool(false));
 
+    int matched = 0, enabledCount = 0;
     for (const auto& kv : modules) {
         const std::string& name = kv.first;
         const json::Value& data = kv.second;
@@ -628,12 +651,15 @@ void ConfigManager::applyConfig() {
             if (std::string(mod->name) != name)
                 continue;
 
+            matched++;
             // Apply base settings
             mod->keybind = data["keybind"].as_int(0);
             bool shouldEnable = data["enabled"].as_bool(false);
             if (shouldEnable != mod->enabled && mod->isAccessible()) {
                 mod->setEnabled(shouldEnable);
             }
+            if (mod->enabled)
+                enabledCount++;
 
             // Each module deserializes its own keys into its settings.
             // Base "enabled"/"keybind" are already handled above; saveSettings()
@@ -643,6 +669,8 @@ void ConfigManager::applyConfig() {
             break;
         }
     }
+    log_raw("[CFG] applyConfig done: matched %d/%d nodes, %d modules now enabled",
+            matched, (int)modules.size(), enabledCount);
 }
 
 // Build config from current module state
@@ -673,6 +701,13 @@ void ConfigManager::buildConfigFromModules() {
     config_["hud"]["arrayListScale"] = scale;
     config_["hud"]["arrayListSaturation"] = rainbowSaturation;
     config_["hud"]["arrayListAnchor"] = anchor;
+    config_["hud"]["arrayListPosX"] = posX;
+    config_["hud"]["arrayListPosY"] = posY;
+    config_["hud"]["watermark"] = Watermark::enabled;
+    config_["hud"]["watermarkRainbow"] = Watermark::rainbow;
+    config_["hud"]["watermarkScale"] = Watermark::scale;
+    config_["hud"]["watermarkPosX"] = Watermark::posX;
+    config_["hud"]["watermarkPosY"] = Watermark::posY;
     config_["hud"]["notifications"] = NotificationManager::enabled;
 
     // Friends
@@ -703,17 +738,23 @@ void ConfigManager::buildConfigFromModules() {
     }
 
     // Build modules config
+    int enabledCount = 0;
     for (auto* mod : moduleManager->getModules()) {
         std::string name = mod->name;
 
         config_["modules"][name]["enabled"] = mod->enabled;
         config_["modules"][name]["keybind"] = mod->keybind;
+        if (mod->enabled)
+            enabledCount++;
 
         // Each module serializes its own keys into its node. Base
         // "enabled"/"keybind" were written above; saveSettings() owns the
         // rest and is the single source of truth per module.
         mod->saveSettings(config_["modules"][name]);
     }
+    log_raw("[CFG] buildConfigFromModules: %d modules enabled, AimAssist.speed(live)=%d enabled(live)=%d",
+            enabledCount, (int)config_["modules"]["AimAssist"]["speed"].as_float(-1.0f),
+            (int)config_["modules"]["AimAssist"]["enabled"].as_bool(false));
 }
 
 // Migrate config from older version

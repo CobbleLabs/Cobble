@@ -222,6 +222,8 @@ jmethodID mid_getItem = nullptr;
 jfieldID fid_stackSize = nullptr;
 jmethodID mid_getItemDamage = nullptr;
 jfieldID fid_itemDamage = nullptr;
+jmethodID mid_itemStackGetDisplayName = nullptr;
+jmethodID mid_itemStackHasDisplayName = nullptr;
 
 // Item IDs
 jmethodID mid_getIdFromItem = nullptr;
@@ -915,6 +917,17 @@ bool Init() {
         TRY_FIELD(fid_itemDamage, cls_ItemStack, "itemDamage", "I");
         if (!fid_itemDamage) {
             TRY_FIELD(fid_itemDamage, cls_ItemStack, "field_77991_e", "I");
+        }
+
+        // Custom display name (server-set NBT name, may carry § color codes).
+        // 1.8: getDisplayName()/hasDisplayName(); fall back to obf names (1.7.10).
+        TRY_METHOD(mid_itemStackGetDisplayName, cls_ItemStack, "getDisplayName", "()Ljava/lang/String;");
+        if (!mid_itemStackGetDisplayName) {
+            TRY_METHOD(mid_itemStackGetDisplayName, cls_ItemStack, "func_82833_r", "()Ljava/lang/String;");
+        }
+        TRY_METHOD(mid_itemStackHasDisplayName, cls_ItemStack, "hasDisplayName", "()Z");
+        if (!mid_itemStackHasDisplayName) {
+            TRY_METHOD(mid_itemStackHasDisplayName, cls_ItemStack, "func_82837_s", "()Z");
         }
     }
 

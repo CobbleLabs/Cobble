@@ -5,6 +5,7 @@
 #include "../../sdk/core/minecraft.h"
 #include "../../ui/widgets/widgets.hpp"
 #include "../../../infra/ext/imgui/imgui.h"
+#include "../../ui/hud/hud_drag.hpp"
 #include "../../ui/menu/menu.h"
 #include "../../util/network/json.hpp"
 
@@ -14,7 +15,7 @@ DroppedInfo* droppedInfo = nullptr;
 
 DroppedInfo::DroppedInfo() : Module("DroppedInfo") {
     keybind = 0;
-    enabled = true;  // Enabled by default
+    enabled = false;
     renders = true;  // Must be true for onRender to be called
 }
 
@@ -62,71 +63,67 @@ void DroppedInfo::onRender() {
     if (!draw)
         return;
 
+    ImFont* f = font(2); // Bold font
+    if (!f) return;
+
     int count = 0;
     {
         std::lock_guard<std::mutex> lock(mutex);
         count = potionCount;
     }
 
-    char buf[64];
-    snprintf(buf, sizeof(buf), "Dropped Pots: %d", count);
-
-    // Always render text if enabled, or if menu is open (for positioning)
+    // When disabled but menu is open, show 0 for preview
     if (!enabled && open) {
-        snprintf(buf, sizeof(buf), "Dropped Pots: 0");
+        count = 0;
     } else if (!enabled) {
         return;
     }
 
-    float scale = settings.scale;
-    ImGui::SetWindowFontScale(scale);
+    float s = settings.scale;
+    float fontSize = 20.0f * s;
+    float padX = 10.0f * s;
+    float padY = 6.0f * s;
+    float rounding = 6.0f * s;
 
-    ImVec2 textSize = ImGui::CalcTextSize(buf);
-    float x = settings.x;
-    float y = settings.y;
-    float padding = 5.0f * scale;
+    ImU32 accent = IM_COL32((int)(g_SchemeColor[0] * 255.0f), 
+                            (int)(g_SchemeColor[1] * 255.0f), 
+                            (int)(g_SchemeColor[2] * 255.0f), 255);
+    ImU32 gray = IM_COL32(150, 155, 165, 255);
+    ImU32 shadow = IM_COL32(0, 0, 0, 200);
 
-    // Draggable logic: initiation requires menu open, drag continues with menu hidden
-    ImVec2 mousePos = ImGui::GetMousePos();
+    const char* labelStr = "Dropped Pots: ";
+    char numStr[16];
+    snprintf(numStr, sizeof(numStr), "%d", count);
 
-    if (open && !dragging) {
-        bool hover = mousePos.x >= x - padding && mousePos.x <= x + textSize.x + padding && mousePos.y >= y - padding &&
-                     mousePos.y <= y + textSize.y + padding;
+    ImVec2 labelSz = f->CalcTextSizeA(fontSize, FLT_MAX, 0.0f, labelStr);
+    ImVec2 numSz = f->CalcTextSizeA(fontSize, FLT_MAX, 0.0f, numStr);
 
-        if (hover) {
-            draw->AddRect(ImVec2(x - padding, y - padding), ImVec2(x + textSize.x + padding, y + textSize.y + padding),
-                          IM_COL32(255, 255, 255, 255));
+    float boxW = padX + labelSz.x + numSz.x + padX;
+    float boxH = padY + labelSz.y + padY;
 
-            if (ImGui::IsMouseClicked(0)) {
-                dragging = true;
-                dragOffsetX = mousePos.x - x;
-                dragOffsetY = mousePos.y - y;
-                Menu::hidden = true;  // Hide menu visually (don't close it)
-            }
-        }
-    }
+    // Shared grab-and-drag
+    hud::dragBox(settings.x, settings.y, boxW, boxH, 2.0f, dragging, dragOffsetX, dragOffsetY);
 
-    if (dragging) {
-        if (ImGui::IsMouseDown(0)) {
-            settings.x = mousePos.x - dragOffsetX;
-            settings.y = mousePos.y - dragOffsetY;
-            x = settings.x;
-            y = settings.y;
-        } else {
-            dragging = false;
-            Menu::hidden = false;  // Show menu again
-        }
-    }
+    float x1 = settings.x;
+    float y1 = settings.y;
+    float x2 = x1 + boxW;
+    float y2 = y1 + boxH;
 
     if (settings.background) {
-        draw->AddRectFilled(ImVec2(x - padding, y - padding),
-                            ImVec2(x + textSize.x + padding, y + textSize.y + padding), IM_COL32(0, 0, 0, 160), 4.0f);
+        draw->AddRectFilled(ImVec2(x1, y1), ImVec2(x2, y2), IM_COL32(19, 19, 19, 210), rounding);
     }
 
-    draw->AddText(ImVec2(x + 1, y + 1), IM_COL32(0, 0, 0, 255), buf);
-    draw->AddText(ImVec2(x, y), IM_COL32(255, 85, 85, 255), buf);  // Red for Health
+    float tx = x1 + padX;
+    float ty = y1 + padY;
+    float sd = 1.0f * s;
 
-    ImGui::SetWindowFontScale(1.0f);
+    // Shadow
+    draw->AddText(f, fontSize, ImVec2(tx + sd, ty + sd), shadow, labelStr);
+    draw->AddText(f, fontSize, ImVec2(tx + labelSz.x + sd, ty + sd), shadow, numStr);
+
+    // Text
+    draw->AddText(f, fontSize, ImVec2(tx, ty), gray, labelStr);
+    draw->AddText(f, fontSize, ImVec2(tx + labelSz.x, ty), accent, numStr);
 }
 
 void DroppedInfo::onRenderMenu() {

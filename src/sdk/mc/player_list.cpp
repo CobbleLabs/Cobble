@@ -1,6 +1,7 @@
 // Player list and entity-related functions for Minecraft SDK
 // Handles getPlayerList, canEntityBeSeen, getLocalPlayerTeamColor
 
+#include "../../util/aes_string.hpp"
 #include "../../util/logger.hpp"
 #include "../../util/team/friends_manager.h"
 #include "../core/minecraft.h"
@@ -10,6 +11,163 @@
 
 #include <algorithm>
 #include <cctype>
+
+// =============================================================================
+// Helper: read an enchantment level from an ItemStack (0 if absent).
+// Reused for Protection (id 0) on armor and Sharpness (id 16) on weapons.
+// Method/field IDs are resolved once and cached -- this runs on the hot
+// per-player path (every ~4ms), so per-call GetMethodID would be wasteful.
+// =============================================================================
+
+static int readEnchantLevel(JNIEnv* env, jobject itemStack, int wantEnchantId) {
+    if (!env || !itemStack)
+        return 0;
+
+    static bool s_init = false;
+    static jclass s_nbtCompoundCls = nullptr;
+    static jmethodID s_getShort = nullptr;
+    static jmethodID s_getInteger = nullptr;
+    static jmethodID s_getEnchantTagList = nullptr;
+    static jmethodID s_tagCount = nullptr;
+    static jmethodID s_getCompoundAt = nullptr;
+    static jstring s_strId = nullptr;
+    static jstring s_strLvl = nullptr;
+
+    if (!s_init) {
+        s_init = true;
+        jclass cmp = nullptr;
+        Java::AssignClass(OBFUSCATE_STRING("net.minecraft.nbt.NBTTagCompound"), cmp);
+        if (cmp) {
+            s_nbtCompoundCls = (jclass)env->NewGlobalRef(cmp);
+            s_getShort = env->GetMethodID(cmp, OBFUSCATE_STRING("getShort").c_str(),
+                                          OBFUSCATE_STRING("(Ljava/lang/String;)S").c_str());
+            if (!s_getShort) {
+                env->ExceptionClear();
+                s_getShort = env->GetMethodID(cmp, OBFUSCATE_STRING("func_74765_d").c_str(),
+                                              OBFUSCATE_STRING("(Ljava/lang/String;)S").c_str());
+                if (!s_getShort) {
+                    env->ExceptionClear();
+                }
+            }
+            s_getInteger = env->GetMethodID(cmp, OBFUSCATE_STRING("getInteger").c_str(),
+                                            OBFUSCATE_STRING("(Ljava/lang/String;)I").c_str());
+            if (!s_getInteger) {
+                env->ExceptionClear();
+                s_getInteger = env->GetMethodID(cmp, OBFUSCATE_STRING("func_74762_e").c_str(),
+                                                OBFUSCATE_STRING("(Ljava/lang/String;)I").c_str());
+                if (!s_getInteger) {
+                    env->ExceptionClear();
+                }
+            }
+            env->DeleteLocalRef(cmp);
+        }
+        jclass stackCls = env->GetObjectClass(itemStack);
+        if (stackCls) {
+            s_getEnchantTagList =
+                env->GetMethodID(stackCls, OBFUSCATE_STRING("getEnchantmentTagList").c_str(),
+                                 OBFUSCATE_STRING("()Lnet/minecraft/nbt/NBTTagList;").c_str());
+            if (!s_getEnchantTagList) {
+                env->ExceptionClear();
+                s_getEnchantTagList =
+                    env->GetMethodID(stackCls, OBFUSCATE_STRING("func_77986_q").c_str(),
+                                     OBFUSCATE_STRING("()Lnet/minecraft/nbt/NBTTagList;").c_str());
+                if (!s_getEnchantTagList) {
+                    env->ExceptionClear();
+                }
+            }
+            env->DeleteLocalRef(stackCls);
+        }
+        jclass tlc = nullptr;
+        Java::AssignClass(OBFUSCATE_STRING("net.minecraft.nbt.NBTTagList"), tlc);
+        if (tlc) {
+            s_tagCount = env->GetMethodID(tlc, OBFUSCATE_STRING("tagCount").c_str(), OBFUSCATE_STRING("()I").c_str());
+            if (!s_tagCount) {
+                env->ExceptionClear();
+                s_tagCount = env->GetMethodID(tlc, OBFUSCATE_STRING("func_74745_c").c_str(), OBFUSCATE_STRING("()I").c_str());
+                if (!s_tagCount) {
+                    env->ExceptionClear();
+                }
+            }
+            s_getCompoundAt = env->GetMethodID(tlc, OBFUSCATE_STRING("getCompoundTagAt").c_str(),
+                                               OBFUSCATE_STRING("(I)Lnet/minecraft/nbt/NBTTagCompound;").c_str());
+            if (!s_getCompoundAt) {
+                env->ExceptionClear();
+                s_getCompoundAt = env->GetMethodID(tlc, OBFUSCATE_STRING("func_150305_b").c_str(),
+                                                   OBFUSCATE_STRING("(I)Lnet/minecraft/nbt/NBTTagCompound;").c_str());
+                if (!s_getCompoundAt) {
+                    env->ExceptionClear();
+                }
+            }
+            env->DeleteLocalRef(tlc);
+        }
+        jstring lid = env->NewStringUTF(OBFUSCATE_STRING("id").c_str());
+        jstring llvl = env->NewStringUTF(OBFUSCATE_STRING("lvl").c_str());
+        s_strId = (jstring)env->NewGlobalRef(lid);
+        s_strLvl = (jstring)env->NewGlobalRef(llvl);
+        env->DeleteLocalRef(lid);
+        env->DeleteLocalRef(llvl);
+    }
+
+    if (!s_getEnchantTagList || !s_getShort || !s_tagCount || !s_getCompoundAt || !s_strId || !s_strLvl)
+        return 0;
+
+    int level = 0;
+    jobject tagList = env->CallObjectMethod(itemStack, s_getEnchantTagList);
+    if (env->ExceptionCheck()) {
+        env->ExceptionClear();
+        return 0;
+    }
+    if (tagList) {
+        int count = env->CallIntMethod(tagList, s_tagCount);
+        bool found = false;
+        for (int e = 0; e < count; e++) {
+            jobject compound = env->CallObjectMethod(tagList, s_getCompoundAt, e);
+            if (compound) {
+                int eid = 0;
+                if (s_getShort) {
+                    eid = env->CallShortMethod(compound, s_getShort, s_strId);
+                }
+                if (eid == 0 && s_getInteger) {
+                    eid = env->CallIntMethod(compound, s_getInteger, s_strId);
+                }
+
+                if (eid == wantEnchantId) {
+                    if (s_getShort) {
+                        level = env->CallShortMethod(compound, s_getShort, s_strLvl);
+                    }
+                    if (level == 0 && s_getInteger) {
+                        level = env->CallIntMethod(compound, s_getInteger, s_strLvl);
+                    }
+                    found = true;
+                    env->DeleteLocalRef(compound);
+                    break;
+                }
+                env->DeleteLocalRef(compound);
+            }
+        }
+
+        // Smart estimation: if the item is enchanted (has tagList) but the server obfuscates the levels,
+        // fall back to estimating Protection 2 / Sharpness 2 (standard for HCF/competitive).
+        if (!found) {
+            level = 2;
+        }
+
+        env->DeleteLocalRef(tagList);
+    }
+    return level;
+}
+
+// Vanilla 1.8 sword/axe item IDs -- only these are treated as "weapons" for the
+// held-item readout (so blocks/tools in hand don't clutter the nametag).
+static bool isWeaponId(int id) {
+    switch (id) {
+        case 268: case 272: case 267: case 276: case 283:  // swords: wood/stone/iron/diamond/gold
+        case 271: case 275: case 258: case 279: case 286:  // axes:   wood/stone/iron/diamond/gold
+            return true;
+        default:
+            return false;
+    }
+}
 
 // =============================================================================
 // Helper: rate-limited logging
@@ -547,6 +705,9 @@ std::vector<PlayerInfo> Minecraft::getPlayerList() {
                             if (JniCache::mid_getItemDamage) {
                                 itemInfo.damage = env->CallIntMethod(stack, JniCache::mid_getItemDamage);
                             }
+                            if (itemInfo.id > 0) {
+                                itemInfo.protection = readEnchantLevel(env, stack, 0);  // Protection = id 0
+                            }
                             env->DeleteLocalRef(stack);
                         }
                         info.armor.push_back(itemInfo);
@@ -615,6 +776,42 @@ std::vector<PlayerInfo> Minecraft::getPlayerList() {
                              }
                         }
                         env->DeleteLocalRef(mainList);
+                    }
+                }
+
+                // Held weapon (sword/axe) + Sharpness, from mainInventory[currentItem].
+                // NOTE: many servers don't sync remote players' held items -> stays empty.
+                if (JniCache::fid_currentItem && JniCache::fid_mainInventory) {
+                    int curSlot = env->GetIntField(inventory, JniCache::fid_currentItem);
+                    jobjectArray mainArr = (jobjectArray)env->GetObjectField(inventory, JniCache::fid_mainInventory);
+                    if (mainArr) {
+                        int mlen = env->GetArrayLength(mainArr);
+                        if (curSlot >= 0 && curSlot < mlen) {
+                            jobject hstack = env->GetObjectArrayElement(mainArr, curSlot);
+                            if (hstack) {
+                                int hid = 0;
+                                if (JniCache::mid_getItem && JniCache::mid_getIdFromItem) {
+                                    jobject item = env->CallObjectMethod(hstack, JniCache::mid_getItem);
+                                    if (item) {
+                                        hid = env->CallStaticIntMethod(JniCache::cls_Item, JniCache::mid_getIdFromItem,
+                                                                       item);
+                                        if (isWeaponId(hid)) {
+                                            info.weapon.id = hid;
+                                            if (JniCache::mid_getMaxDamage)
+                                                info.weapon.maxDamage = env->CallIntMethod(item, JniCache::mid_getMaxDamage);
+                                        }
+                                        env->DeleteLocalRef(item);
+                                    }
+                                }
+                                if (isWeaponId(hid)) {
+                                    if (JniCache::mid_getItemDamage)
+                                        info.weapon.damage = env->CallIntMethod(hstack, JniCache::mid_getItemDamage);
+                                    info.weapon.sharpness = readEnchantLevel(env, hstack, 16);  // Sharpness = id 16
+                                }
+                                env->DeleteLocalRef(hstack);
+                            }
+                        }
+                        env->DeleteLocalRef(mainArr);
                     }
                 }
 

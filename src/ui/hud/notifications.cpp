@@ -151,8 +151,8 @@ void NotificationManager::render() {
     const float height = ui::s(50.0f);
     const float rounding = ui::s(5.0f);
     const float padding = ui::s(10.0f);
-    const float titleSize = ui::s(12.5f);
-    const float messageSize = ui::s(10.5f);
+    const float titleSize = ui::s(14.0f);
+    const float messageSize = ui::s(12.0f);
     const float enterDuration = 0.18f;
     const float exitDuration = 0.26f;
     const auto now = std::chrono::steady_clock::now();

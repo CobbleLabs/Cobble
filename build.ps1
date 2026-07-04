@@ -106,6 +106,27 @@ function Get-SHA256 {
     return (Get-FileHash -Path $Path -Algorithm SHA256).Hash.ToLower()
 }
 
+# Write $Content to $Path only if it differs from what's already there. Returns
+# $true if it wrote, $false if the file was already up to date.
+#
+# This matters because several generated headers are force-included into every
+# translation unit (build_flags.h) or pulled in by many TUs (generated/*.h). A
+# plain Out-File updates the file's mtime even when the bytes are identical,
+# which makes MSBuild treat every dependent TU as dirty and recompile the whole
+# project. Comparing content first keeps incremental builds incremental.
+function Write-IfChanged {
+    param([string]$Path, [string]$Content, [string]$Encoding = "UTF8")
+    if (Test-Path -LiteralPath $Path) {
+        $existing = Get-Content -LiteralPath $Path -Raw -ErrorAction SilentlyContinue
+        if ($null -ne $existing -and
+            $existing.TrimEnd("`r", "`n") -eq $Content.TrimEnd("`r", "`n")) {
+            return $false
+        }
+    }
+    $Content | Out-File -FilePath $Path -Encoding $Encoding
+    return $true
+}
+
 function Assert-ProtectedPE {
     param(
         [string]$OriginalHash,
@@ -232,7 +253,9 @@ function Write-BuildFlags {
 // Pack build: COBBLE_DEV_BUILD intentionally undefined.
 "@
     }
-    $content | Out-File -FilePath "$outDir\build_flags.h" -Encoding ASCII
+    # Force-included into every TU: touching its mtime would recompile the whole
+    # project, so only rewrite when the flag actually flips (Dev <-> Pack).
+    return (Write-IfChanged -Path "$outDir\build_flags.h" -Content $content -Encoding ASCII)
 }
 
 # --- Interactive mode selector -----------------------------------------------
@@ -343,8 +366,13 @@ if ($Clean) {
 # --- Build flags header (force-included into every TU) -----------------------
 
 $DevBuild = (-not $Pack -and -not $SignExisting)
-Write-Log "Writing generated/build_flags.h (DevBuild=$([bool]$DevBuild))..." STEP
-Write-BuildFlags -DevBuild:$DevBuild
+$flagsChanged = Write-BuildFlags -DevBuild:$DevBuild
+if ($flagsChanged) {
+    Write-Log "Wrote generated/build_flags.h (DevBuild=$([bool]$DevBuild))" STEP
+}
+else {
+    Write-Log "build_flags.h unchanged (DevBuild=$([bool]$DevBuild)) - not rewritten" OK
+}
 
 if ($ProtectArtifacts) {
     Assert-File $Paths.VMProtectBuild "VMProtect source is missing at $($Paths.VMProtectDir)"
@@ -359,15 +387,41 @@ if ($ProtectArtifacts) {
 Write-Log "Generating config headers from cobble.json..." STEP
 Assert-File $Paths.ConfigJson "cobble.json not found - copy cobble.json.example and fill in values"
 
-& "$($Paths.Root)\generate_config.ps1" -ConfigPath $Paths.ConfigJson
-Assert-File "$($Paths.Root)\generated\server_config.h" "Config generation failed"
+# Regenerating rewrites generated/*.h with fresh random XOR masks, which dirties
+# every TU that includes them. Pack builds MUST regenerate every time (the
+# per-build polymorphic masks are a security property). Dev builds may reuse the
+# cached headers when cobble.json is unchanged and all four already exist -- the
+# masks don't matter for a dev build, so this avoids needless recompilation.
+$generatedDir = "$($Paths.Root)\generated"
+$configStamp = "$generatedDir\.config_stamp"
+$generatedHeaders = @("server_config.h", "keys.h", "payload_key.h", "version.h") |
+    ForEach-Object { "$generatedDir\$_" }
+$configHash = Get-SHA256 $Paths.ConfigJson
+
+$missingHeaders = @($generatedHeaders | Where-Object { -not (Test-Path $_) }).Count
+$stampValue = if (Test-Path $configStamp) {
+    $raw = Get-Content $configStamp -Raw -ErrorAction SilentlyContinue
+    if ($raw) { $raw.Trim() } else { "" }
+}
+else { "" }
+
+$canReuseConfig = $DevBuild -and ($missingHeaders -eq 0) -and ($stampValue -eq $configHash)
+
+if ($canReuseConfig) {
+    Write-Log "Config headers unchanged - reusing cached generated/*.h" OK
+}
+else {
+    & "$($Paths.Root)\generate_config.ps1" -ConfigPath $Paths.ConfigJson
+    Assert-File "$generatedDir\server_config.h" "Config generation failed"
+    $configHash | Out-File -FilePath $configStamp -Encoding ASCII
+    Write-Log "Config headers generated" OK
+}
 
 $cobbleConfig = Get-Content $Paths.ConfigJson -Raw | ConvertFrom-Json
 if (-not $env:PAYLOAD_KEY) { $env:PAYLOAD_KEY = $cobbleConfig.payload_key }
 if (-not $env:PAYLOAD_KEY) {
     Write-Log "PAYLOAD_KEY not set - add payload_key to cobble.json or set the env var" FAIL; exit 1
 }
-Write-Log "Config headers generated" OK
 
 function New-SignedRelease {
     param(

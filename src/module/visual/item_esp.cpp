@@ -103,6 +103,101 @@ static const MinecraftItem ALL_MINECRAFT_ITEMS[] = {
     { 331, "Redstone" },
 };
 
+// Look up a human-readable name for an item id from the known-items table.
+// Falls back to a generic label so unknown drops still show something.
+static const char* itemNameForId(int id) {
+    for (const auto& it : ALL_MINECRAFT_ITEMS) {
+        if (it.id == id)
+            return it.name;
+    }
+    return "Item";
+}
+
+// A run of text painted in one color/style, produced by splitting a Minecraft
+// display name on its § color+format codes.
+struct ColoredRun {
+    std::string text;
+    ImU32 color;
+    bool bold = false;
+};
+
+// Map a Minecraft color code char (after §) to an RGB color. Returns false for
+// formatting codes (k-o, r) and unknown chars so the caller can handle them.
+static bool mcColorForCode(char c, ImU32& out) {
+    switch (c) {
+        case '0': out = IM_COL32(0, 0, 0, 255); return true;
+        case '1': out = IM_COL32(0, 0, 170, 255); return true;
+        case '2': out = IM_COL32(0, 170, 0, 255); return true;
+        case '3': out = IM_COL32(0, 170, 170, 255); return true;
+        case '4': out = IM_COL32(170, 0, 0, 255); return true;
+        case '5': out = IM_COL32(170, 0, 170, 255); return true;
+        case '6': out = IM_COL32(255, 170, 0, 255); return true;
+        case '7': out = IM_COL32(170, 170, 170, 255); return true;
+        case '8': out = IM_COL32(85, 85, 85, 255); return true;
+        case '9': out = IM_COL32(85, 85, 255, 255); return true;
+        case 'a': out = IM_COL32(85, 255, 85, 255); return true;
+        case 'b': out = IM_COL32(85, 255, 255, 255); return true;
+        case 'c': out = IM_COL32(255, 85, 85, 255); return true;
+        case 'd': out = IM_COL32(255, 85, 255, 255); return true;
+        case 'e': out = IM_COL32(255, 255, 85, 255); return true;
+        case 'f': out = IM_COL32(255, 255, 255, 255); return true;
+        default:  return false;  // k-o (formatting), r (reset), or unknown
+    }
+}
+
+// Split a display name into colored runs. The § sign arrives as the UTF-8 pair
+// 0xC2 0xA7 (modified UTF-8 from JNI); a bare 0xA7 is handled too. Text before
+// any code, and after a reset/unknown code, uses `defaultCol`.
+static std::vector<ColoredRun> parseColoredName(const std::string& s, ImU32 defaultCol) {
+    std::vector<ColoredRun> runs;
+    ColoredRun cur{"", defaultCol, false};
+    // Emit the current run (if any) before changing color/style state.
+    auto flush = [&]() {
+        if (!cur.text.empty()) {
+            runs.push_back(cur);
+            cur.text.clear();
+        }
+    };
+    for (size_t i = 0; i < s.size(); ++i) {
+        unsigned char ch = (unsigned char)s[i];
+        bool isSection = false;
+        size_t codeIdx = 0;
+        if (ch == 0xC2 && i + 2 < s.size() && (unsigned char)s[i + 1] == 0xA7) {
+            isSection = true;
+            codeIdx = i + 2;
+        } else if (ch == 0xA7 && i + 1 < s.size()) {
+            isSection = true;
+            codeIdx = i + 1;
+        }
+
+        if (isSection) {
+            char code = (char)std::tolower((unsigned char)s[codeIdx]);
+            ImU32 col;
+            if (mcColorForCode(code, col)) {
+                // A color code sets the color AND resets formatting (vanilla rule),
+                // so "§l§cX" is red non-bold while "§c§lX" is red bold.
+                flush();
+                cur.color = col;
+                cur.bold = false;
+            } else if (code == 'r') {
+                flush();
+                cur.color = defaultCol;
+                cur.bold = false;
+            } else if (code == 'l') {
+                // Bold: keep the current color, just enable the bold font.
+                flush();
+                cur.bold = true;
+            }
+            // Other formatting codes (k, m, n, o) are ignored (no visual change).
+            i = codeIdx;  // skip the code char (loop's ++i steps past it)
+            continue;
+        }
+        cur.text.push_back((char)ch);
+    }
+    flush();
+    return runs;
+}
+
 ItemESP::ItemESP() : Module("ItemESP") {
     keybind = 0;
     // Mark as a rendering module so the overlay keeps drawing ImGui frames while
@@ -301,6 +396,7 @@ void ItemESP::onRender() {
     auto outlineCol = ImGui::ColorConvertFloat4ToU32(ImVec4(settings.outlineColor[0], settings.outlineColor[1], settings.outlineColor[2], settings.outlineColor[3]));
     auto boxCol = ImGui::ColorConvertFloat4ToU32(ImVec4(settings.boxColor[0], settings.boxColor[1], settings.boxColor[2], settings.boxColor[3]));
     auto fillCol = ImGui::ColorConvertFloat4ToU32(ImVec4(settings.filledColor[0], settings.filledColor[1], settings.filledColor[2], settings.filledColor[3]));
+    auto nameCol = ImGui::ColorConvertFloat4ToU32(ImVec4(settings.nameColor[0], settings.nameColor[1], settings.nameColor[2], settings.nameColor[3]));
 
     for (const auto& item : localCache) {
         // Distance check
@@ -364,14 +460,57 @@ void ItemESP::onRender() {
              }
         }
 
+        // Track how far above the box we've drawn so stacked labels don't overlap.
+        float labelBaseY = sTop.y - 2.0f;
+
+        // Large item name, centered above the box (big text with a shadow so it
+        // reads over any terrain). A server-set custom name keeps its § colors
+        // (e.g. "Espada DEMON"); otherwise the generic type name is drawn in the
+        // box color.
+        if (settings.showName) {
+            ImFont* regular = ImGui::GetFont();
+            ImFont* boldFont = font(2);  // bold face (same one the ArrayList uses)
+            if (!boldFont) boldFont = regular;
+            float nameFS = regular->FontSize * settings.nameScale;
+            float sh = (std::max)(1.0f, settings.nameScale);  // shadow offset scales with text
+
+            std::vector<ColoredRun> runs;
+            if (item.hasCustomName)
+                runs = parseColoredName(item.customName, nameCol);
+            else
+                runs.push_back({itemNameForId(item.itemId), nameCol, false});
+
+            // §l segments render in the bold font; the rest in the regular one.
+            auto runFont = [&](const ColoredRun& r) { return r.bold ? boldFont : regular; };
+
+            // Total width to center the whole label; row height from the tallest run.
+            float totalW = 0.0f, rowH = 0.0f;
+            for (const auto& run : runs) {
+                ImVec2 sz = runFont(run)->CalcTextSizeA(nameFS, FLT_MAX, 0.0f, run.text.c_str());
+                totalW += sz.x;
+                if (sz.y > rowH) rowH = sz.y;
+            }
+
+            float nX = sBot.x - totalW * 0.5f;
+            float nY = labelBaseY - rowH;
+            float cursorX = nX;
+            for (const auto& run : runs) {
+                ImFont* rf = runFont(run);
+                draw->AddText(rf, nameFS, ImVec2(cursorX + sh, nY + sh), IM_COL32(0, 0, 0, 220), run.text.c_str());
+                draw->AddText(rf, nameFS, ImVec2(cursorX, nY), run.color, run.text.c_str());
+                cursorX += rf->CalcTextSizeA(nameFS, FLT_MAX, 0.0f, run.text.c_str()).x;
+            }
+            labelBaseY = nY - 2.0f;  // push the quantity above the name
+        }
+
         // Quantity (Show Quantity)
         if (settings.showQuantity && item.isStackable()) {
              std::string qty = "x" + std::to_string(item.stackSize);
-             
+
              ImVec2 textSize = ImGui::CalcTextSize(qty.c_str());
              float tX = sBot.x - textSize.x * 0.5f; // Center horizontally
-             float tY = sTop.y - textSize.y - 2.0f; // Above the box
-             
+             float tY = labelBaseY - textSize.y;    // Above the box / name
+
              draw->AddText(ImVec2(tX + 1, tY + 1), IM_COL32(0, 0, 0, 255), qty.c_str()); // Shadow
              draw->AddText(ImVec2(tX, tY), IM_COL32(255, 255, 255, 255), qty.c_str());
         }
@@ -381,59 +520,95 @@ void ItemESP::onRender() {
 void ItemESP::onRenderMenu() {
     bool enabledValue = enabled;
 
+    // Settings + Colors as two columns, exactly like the ESP module (all ui::
+    // wrappers, which respect the column width). The item list can't share a
+    // column -- its listbox/filter use full width -- so it goes full-width below.
     ui::two_column(
-        "Target Items",
+        "Settings",
+        [this, &enabledValue]() {
+            if (ui::CheckboxBind("Enabled", &enabledValue, &keybind)) {
+                if (enabledValue != enabled) {
+                    setEnabled(enabledValue);
+                }
+            }
+            ImGui::Spacing();
+            // Box 2D / Box 3D act like radio buttons: enabling one disables the
+            // other. Done inline so the switch is immediate and consistent.
+            if (ui::Checkbox("Box 2D", &settings.box)) {
+                if (settings.box) settings.box3D = false;
+            }
+            if (ui::Checkbox("Box 3D", &settings.box3D)) {
+                if (settings.box3D) settings.box = false;
+            }
+            ui::Checkbox("Filled", &settings.filled);
+            ui::Checkbox("Outline", &settings.outline);
+            ui::Checkbox("Show Quantity", &settings.showQuantity);
+            ui::Checkbox("Show Name", &settings.showName);
+            if (settings.showName)
+                ui::SliderFloat("Name Size", &settings.nameScale, 1.0f, 3.0f, "%.1fx");
+            ui::SliderFloat("Range", &settings.range, 16.0f, 256.0f, "%.0fm");
+        },
+        "Colors",
         [this]() {
-            ImGui::Text("Presets:");
-            
-            auto togglePreset = [this](const char* label, int id) {
-                bool val = enabledItemIds[id];
-                std::string idStr = "preset_" + std::to_string(id);
-                ImGui::PushID(idStr.c_str());
-                unsigned int texId = ItemTextureManager::get().getTexture(id);
-                if (texId > 0) {
-                    ImGui::Image((ImTextureID)(intptr_t)texId, ImVec2(18, 18), ImVec2(0, 0), ImVec2(1, 1));
-                    ImGui::SameLine();
-                } else {
-                    ImGui::Dummy(ImVec2(18, 18));
-                    ImGui::SameLine();
-                }
-                if (ui::Checkbox(label, &val)) {
-                    enabledItemIds[id] = val;
-                }
-                ImGui::PopID();
-            };
-            
-            togglePreset("Diamond Sword", 276);
-            togglePreset("Golden Apple", 322);
-            togglePreset("Bow", 261);
-            togglePreset("Ender Pearl", 368);
-            togglePreset("Potion", 373);
+            ui::color("Box Color", settings.boxColor);
+            ui::color("Fill Color", settings.filledColor);
+            ui::color("Outline Color", settings.outlineColor);
+            if (settings.showName)
+                ui::color("Name Color", settings.nameColor);
+        });
 
-            ImGui::Spacing();
-            ImGui::Separator();
-            ImGui::Spacing();
-            
-            ImGui::Text("Search & Customize:");
-            
-            static char searchFilter[64] = "";
-            ImGui::InputText("Filter Items", searchFilter, sizeof(searchFilter));
-            
-            ImGui::SetNextItemWidth(-1);
-            if (ImGui::BeginListBox("##ItemSelectionList", ImVec2(-1, 150))) {
-            
+    ui::section("Target Items", [this]() {
+        ImGui::Text("Presets:");
+
+        auto togglePreset = [this](const char* label, int id) {
+            bool val = enabledItemIds[id];
+            std::string idStr = "preset_" + std::to_string(id);
+            ImGui::PushID(idStr.c_str());
+            unsigned int texId = ItemTextureManager::get().getTexture(id);
+            if (texId > 0) {
+                ImGui::Image((ImTextureID)(intptr_t)texId, ImVec2(18, 18), ImVec2(0, 0), ImVec2(1, 1));
+                ImGui::SameLine();
+            } else {
+                ImGui::Dummy(ImVec2(18, 18));
+                ImGui::SameLine();
+            }
+            if (ui::Checkbox(label, &val)) {
+                enabledItemIds[id] = val;
+            }
+            ImGui::PopID();
+        };
+
+        togglePreset("Diamond Sword", 276);
+        togglePreset("Golden Apple", 322);
+        togglePreset("Bow", 261);
+        togglePreset("Ender Pearl", 368);
+        togglePreset("Potion", 373);
+
+        ImGui::Spacing();
+        ImGui::Separator();
+        ImGui::Spacing();
+
+        ImGui::Text("Search & Customize:");
+
+        static char searchFilter[64] = "";
+        ImGui::SetNextItemWidth(-1);
+        ImGui::InputTextWithHint("##ItemFilter", "Filter items...", searchFilter, sizeof(searchFilter));
+
+        if (ImGui::BeginListBox("##ItemSelectionList", ImVec2(-1, ui::s(220)))) {
             std::string filterStr = searchFilter;
-            std::transform(filterStr.begin(), filterStr.end(), filterStr.begin(), [](unsigned char c){ return std::tolower(c); });
-            
+            std::transform(filterStr.begin(), filterStr.end(), filterStr.begin(),
+                           [](unsigned char c) { return std::tolower(c); });
+
             for (const auto& item : ALL_MINECRAFT_ITEMS) {
                 std::string itemName = item.name;
                 std::string itemNameLower = itemName;
-                std::transform(itemNameLower.begin(), itemNameLower.end(), itemNameLower.begin(), [](unsigned char c){ return std::tolower(c); });
-                
+                std::transform(itemNameLower.begin(), itemNameLower.end(), itemNameLower.begin(),
+                               [](unsigned char c) { return std::tolower(c); });
+
                 if (!filterStr.empty() && itemNameLower.find(filterStr) == std::string::npos) {
                     continue;
                 }
-                
+
                 std::string idStr = "list_" + std::to_string(item.id);
                 ImGui::PushID(idStr.c_str());
                 unsigned int texId = ItemTextureManager::get().getTexture(item.id);
@@ -444,7 +619,7 @@ void ItemESP::onRenderMenu() {
                     ImGui::Dummy(ImVec2(18, 18));
                     ImGui::SameLine();
                 }
-                
+
                 bool isEnabled = enabledItemIds[item.id];
                 if (ImGui::Checkbox(itemName.c_str(), &isEnabled)) {
                     enabledItemIds[item.id] = isEnabled;
@@ -452,37 +627,8 @@ void ItemESP::onRenderMenu() {
                 ImGui::PopID();
             }
             ImGui::EndListBox();
-            }
-        },
-        "Item ESP",
-        [this, &enabledValue]() {
-            if (ui::CheckboxBind("Enabled", &enabledValue, &keybind)) {
-                if (enabledValue != enabled) {
-                    setEnabled(enabledValue);
-                }
-            }
-            ImGui::Spacing();
-            // Box 2D / Box 3D act like radio buttons: enabling one disables the
-            // other. Done inline on the click so the switch is immediate and
-            // always leaves a consistent state (the old prev-flag logic could
-            // leave both off, which looked like the box "not working").
-            if (ui::Checkbox("Box 2D", &settings.box)) {
-                if (settings.box) settings.box3D = false;
-            }
-            if (ui::Checkbox("Box 3D", &settings.box3D)) {
-                if (settings.box3D) settings.box = false;
-            }
-            ui::Checkbox("Filled", &settings.filled);
-            ui::Checkbox("Outline", &settings.outline);
-            ui::Checkbox("Show Quantity", &settings.showQuantity);
-            ui::SliderFloat("Range", &settings.range, 16.0f, 256.0f, "%.0fm");
-            ImGui::Spacing();
-            ImGui::Separator();
-            ImGui::Spacing();
-            ui::color("Box Color", settings.boxColor);
-            ui::color("Fill Color", settings.filledColor);
-            ui::color("Outline Color", settings.outlineColor);
-        });
+        }
+    });
 }
 
 std::string ItemESP::getDisplayInfo() {
@@ -503,10 +649,13 @@ void ItemESP::saveSettings(json::Value& node) const {
     node["filled"] = settings.filled;
     node["outline"] = settings.outline;
     node["showQuantity"] = settings.showQuantity;
+    node["showName"] = settings.showName;
+    node["nameScale"] = settings.nameScale;
     node["range"] = settings.range;
     json::writeColor(node, "boxColor", settings.boxColor);
     json::writeColor(node, "filledColor", settings.filledColor);
     json::writeColor(node, "outlineColor", settings.outlineColor);
+    json::writeColor(node, "nameColor", settings.nameColor);
 }
 
 void ItemESP::loadSettings(const json::Value& node) {
@@ -538,8 +687,11 @@ void ItemESP::loadSettings(const json::Value& node) {
     settings.filled = node["filled"].as_bool(settings.filled);
     settings.outline = node["outline"].as_bool(settings.outline);
     settings.showQuantity = node["showQuantity"].as_bool(settings.showQuantity);
+    settings.showName = node["showName"].as_bool(settings.showName);
+    settings.nameScale = node["nameScale"].as_float(settings.nameScale);
     settings.range = node["range"].as_float(settings.range);
     json::readColor(node, "boxColor", settings.boxColor);
     json::readColor(node, "filledColor", settings.filledColor);
     json::readColor(node, "outlineColor", settings.outlineColor);
+    json::readColor(node, "nameColor", settings.nameColor);
 }

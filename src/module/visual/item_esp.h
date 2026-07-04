@@ -29,10 +29,13 @@ public:
         bool filled = true;
         bool outline = true;
         bool showQuantity = true;
+        bool showName = true;       // Large item name above the box
+        float nameScale = 1.5f;     // Multiplier for the item-name font size
 
         float boxColor[4] = {0.0f, 1.0f, 1.0f, 1.0f};      // Cyan default
         float filledColor[4] = {0.0f, 1.0f, 1.0f, 0.15f};  // Transparent cyan
         float outlineColor[4] = {0.0f, 0.0f, 0.0f, 1.0f};  // Black outline
+        float nameColor[4] = {1.0f, 1.0f, 1.0f, 1.0f};     // Default item-name text (white)
         
         float range = 128.0f;
     } settings;

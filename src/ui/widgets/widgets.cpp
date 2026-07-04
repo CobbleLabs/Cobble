@@ -23,6 +23,7 @@ static std::string g_descriptionContext;
 static const DescriptionEntry kModuleDescriptions[] = {
     {"", "AutoClicker", "", "Clicks automatically while you hold the attack button."},
     {"", "AimAssist", "", "Smoothly guides your aim toward a valid player target."},
+    {"", "AimBow", "", "Aims the bow at the nearest player, solving the arrow arc and lead."},
     {"", "Velocity", "", "Controls how much enemy knockback affects your movement."},
     {"", "Reach", "", "Extends the distance at which attacks can connect."},
     {"", "HitSelect", "", "Times attacks around combo state to improve hit selection."},
@@ -39,6 +40,7 @@ static const DescriptionEntry kModuleDescriptions[] = {
     {"", "Trajectories", "", "Predicts the flight path and landing point of projectiles."},
     {"", "AntiDebuff", "", "Removes disruptive visual effects such as blindness and nausea."},
     {"", "ArrayList", "", "Controls the on-screen list of currently enabled modules."},
+    {"", "Watermark", "", "Shows the Cobble client tag, version and FPS in the HUD."},
     {"", "DroppedInfo", "", "Shows extra information about the item you just dropped."},
     {"", "Notifications", "", "Controls pop-up messages for module and client events."},
     {"", "Timer", "", "Changes the client game timer to speed up or slow down actions."},
@@ -58,6 +60,8 @@ static const DescriptionEntry kModuleDescriptions[] = {
     {"", "AutoTool", "", "Selects the best hotbar tool for the block or target."},
     {"", "InvManager", "", "Organizes the inventory and hotbar using your saved preferences."},
     {"", "AltManager", "", "Spoofs the local username when joining compatible offline servers."},
+    {"", "TCP Optimizer", "", "Optimizes Windows TCP settings, packet priority and adapter tuning for Minecraft."},
+    {"", "FastBreak", "", "Removes the cooldown between block mining hits so blocks break faster."},
 };
 
 static const DescriptionEntry kOptionDescriptions[] = {
@@ -215,8 +219,8 @@ static const DescriptionEntry kOptionDescriptions[] = {
     {"AimAssist", "Sort By", "FOV", "Ranks switch targets by smallest angle from your crosshair."},
     {"AimAssist", "Sort By", "Hurt Time", "Ranks targets by when they can receive the next hit."},
     {"AutoClicker", "Randomization", "Random", "Uses the standard pseudo-random generator for each CPS interval."},
-    {"AutoClicker", "Randomization", "SecureRandom", "Uses a separately seeded 64-bit generator for CPS and click timing."},
-    {"AutoClicker", "Randomization", "SecureRandom+", "Uses secure draws with changing CPS clusters, random walks, and asymmetric press timing."},
+    {"AutoClicker", "Randomization", "Natural", "Uses a separately seeded 64-bit generator for CPS and click timing."},
+    {"AutoClicker", "Randomization", "Adaptive", "Uses secure draws with changing CPS clusters, random walks, and asymmetric press timing."},
     {"Velocity", "Mode", "Regular", "Directly scales horizontal and vertical knockback by the configured percentages."},
     {"Velocity", "Mode", "Jump", "Attempts a timed jump after taking knockback to preserve movement control."},
     {"Velocity", "Mode", "Reduce", "Reduces knockback after the configured tick delay instead of applying it immediately."},
@@ -309,12 +313,11 @@ static void DrawSliderGradient(ImDrawList* draw, const ImRect& bounds, float wid
     if (!draw || width <= 0.0f)
         return;
 
+    // Solid accent fill (no gradient) for the active portion of the slider track.
     const ImVec2 maximum(bounds.Min.x + width, bounds.Max.y);
     const ImU32 accent = GetSchemeColor();
-    const ImU32 dark = IM_COL32(7, 8, 10, static_cast<int>(255.0f * ImGui::GetStyle().Alpha * ui::alpha_mod));
     draw->PushClipRect(bounds.Min, maximum, true);
-    draw->AddRectFilledMultiColor(bounds.Min, maximum, accent, dark, dark, accent);
-    draw->AddRect(bounds.Min, maximum, IM_COL32(0, 0, 0, 0), rounding);
+    draw->AddRectFilled(bounds.Min, maximum, accent, rounding);
     draw->PopClipRect();
 }
 
@@ -323,16 +326,17 @@ std::vector<ui::tab_t> ui::tabs = {
     {ICON_FA_CROSSHAIRS,
      "Combat",
      {"AutoClicker", "AimAssist", "Velocity", "Reach", "HitSelect", "NoHitDelay", "Criticals", "WTap",
-      "Backtrack", "Piercing"}},
+      "Piercing", "AimBow"}},
     {ICON_FA_EYE,
      "Visuals",
      {"NameTags", "ESP", "ItemESP", "Tracers", "BlockESP", "Trajectories", "AntiDebuff", "ArrayList",
-      "DroppedInfo", "Notifications"}},
-    {ICON_FA_RUNNING, "Movement", {"Timer", "TimerRange", "NoSlowDown", "NoJumpDelay", "FakeLag", "Blink", "Sprint"}},
+      "DroppedInfo", "Notifications", "Watermark"}},
+    {ICON_FA_RUNNING, "Movement", {"Timer", "TimerRange", "NoSlowDown", "NoJumpDelay", "Sprint"}},
     {ICON_FA_KEYBOARD,
      "Utility",
      {"ArmorSwitch", "AutoRefill", "FastPlace", "NoItemRelease", "BridgeAssist", "Clutch", "Breaker", "AutoTool",
-      "InvManager", "AltManager"}},
+      "InvManager", "AltManager", "FastBreak"}},
+    {ICON_FA_WIFI, "Network", {"Backtrack", "Blink", "FakeLag", "TCP Optimizer"}},
     {ICON_FA_SAVE, "Configs", {}},
     {ICON_FA_GEAR, "Settings", {}}};
 
@@ -414,42 +418,59 @@ void ui::handle_anims() {
 
 // ==================== LAYOUT HELPERS ====================
 
+// Inline section: a lightweight header (label + accent underline) followed by
+// its content flowing directly in the current window -- no bordered box, no
+// fixed height. Sections stack continuously one after another so the config
+// reads as a single scrolling column instead of separate cards.
+static void inline_section(const char* title, const std::function<void()>& content) {
+    ImGuiWindow* window = ImGui::GetCurrentWindow();
+    ImDrawList* draw = window->DrawList;
+
+    if (title && ImGui::CalcTextSize(title, 0, 1).x > 0) {
+        // Section header: clearly larger/bolder than body text, no separator line.
+        // The header occupies a reference row the same height as the Back control
+        // (s(26)) with its text vertically centered, so a top-row header lines up
+        // with Back instead of sitting a few pixels higher (the larger header font
+        // would otherwise start above Back's centered label).
+        ImFont* f = font(2);                          // bold, bigger than the 18px body font
+        const float headerFS = f->FontSize * 1.18f;   // enlarge "Settings"/"Options" titles
+        const float rowRef = ui::s(26.f);             // matches the Back control row height
+        const float offsetY = ImMax(0.f, (rowRef - headerFS) * 0.5f);
+        ImVec2 pos = window->DC.CursorPos;
+        draw->AddText(f, headerFS, {pos.x, pos.y + offsetY}, ui::GetColor(ImGuiCol_Text), title,
+                      ImGui::FindRenderedTextEnd(title));
+        ImGui::Dummy({0, rowRef + ui::s(10)});
+    }
+
+    content();
+}
+
 void ui::two_column(const char* leftTitle, std::function<void()> leftContent, const char* rightTitle,
                     std::function<void()> rightContent) {
-    float halfWidth =
-        (ImGui::GetWindowWidth() - GImGui->Style.WindowPadding.x * 2) / 2 - GImGui->Style.ItemSpacing.x / 2;
+    float spacing = ui::s(40.f);  // gap between the two config columns
+    float halfWidth = (ImGui::GetContentRegionAvail().x - spacing) * 0.5f;
 
     ImGui::BeginGroup();
-    {
-        begin_child(leftTitle, {halfWidth, 0});
-        leftContent();
-        end_child();
-    }
+    ImGui::PushItemWidth(halfWidth);
+    inline_section(leftTitle, leftContent);
+    ImGui::PopItemWidth();
     ImGui::EndGroup();
 
-    ImGui::SameLine();
+    ImGui::SameLine(0, spacing);
 
     ImGui::BeginGroup();
-    {
-        begin_child(rightTitle, {halfWidth, 0});
-        rightContent();
-        end_child();
-    }
+    ImGui::PushItemWidth(halfWidth);
+    inline_section(rightTitle, rightContent);
+    ImGui::PopItemWidth();
     ImGui::EndGroup();
 }
 
 void ui::section(const char* title, std::function<void()> content) {
-    float fullWidth = ImGui::GetWindowWidth() - GImGui->Style.WindowPadding.x * 2;
-
-    ImGui::BeginGroup();
-    begin_child(title, {fullWidth, 0});
-    content();
-    end_child();
-    ImGui::EndGroup();
+    inline_section(title, content);
 }
 
 void ui::full_width(const char* title, std::function<void()> content) {
-    section(title, content);
+    inline_section(title, content);
 }
 
 // ==================== CHILD CONTAINERS ====================
@@ -1467,8 +1488,19 @@ bool ui::color(const char* name, float col[4], bool alpha) {
 // ==================== COMBO ====================
 
 bool ui::Combo(const char* label, int* current, const char* const items[], int count) {
-    const bool changed = ImGui::Combo(label, current, items, count);
-    const bool hovered = ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled);
+    ImVec2 labelPos = ImGui::GetCursorPos();
+    ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::GetColor(ImGuiCol_TextDisabled)), "%s", label);
+    
+    std::string hidden_label = std::string("##") + label;
+    const bool changed = ImGui::Combo(hidden_label.c_str(), current, items, count);
+    
+    bool hovered = ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled);
+    // Also consider it hovered if mouse is over the label text
+    ImVec2 labelSize = ImGui::CalcTextSize(label);
+    if (ImGui::IsMouseHoveringRect(ImGui::GetWindowPos() + labelPos, ImGui::GetWindowPos() + labelPos + labelSize)) {
+        hovered = true;
+    }
+    
     const char* selectedValue = current && *current >= 0 && *current < count ? items[*current] : "";
     HoverDescription(label, hovered, resolveOptionDescription(label, selectedValue));
     return changed;

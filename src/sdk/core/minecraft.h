@@ -52,6 +52,7 @@ struct PlayerInfo {
         int id = 0;
         int damage = 0;
         int maxDamage = 0;
+        int protection = 0;  // Protection enchant level (0 = none)
     };
 
     struct PotionEffectInfo {
@@ -60,8 +61,17 @@ struct PlayerInfo {
         int amplifier = 0;
     };
 
+    // Currently held weapon (sword/axe). id == 0 means none / not synced by server.
+    struct HeldItem {
+        int id = 0;
+        int damage = 0;
+        int maxDamage = 0;
+        int sharpness = 0;  // Sharpness enchant level (0 = none)
+    };
+
     std::vector<ArmorItem> armor;
     std::vector<PotionEffectInfo> potions;
+    HeldItem weapon;
     int totalHealthPotions = 0;
 };
 
@@ -72,6 +82,8 @@ struct ItemEntityInfo {
     int damage = 0; // Metadata
     int stackSize = 0;
     int maxStackSize = 64;
+    bool hasCustomName = false;  // Item carries a server-set NBT name
+    std::string customName;      // Raw display name, may include § color codes
     bool isStackable() const { return maxStackSize > 1; }
 };
 
@@ -142,6 +154,10 @@ struct Minecraft {
     // Mouse sensitivity (for proper aim assist scaling)
     float getMouseSensitivity();
 
+    // Real in-game FPS (reads the static Minecraft.debugFPS field).
+    // Must be called on the main JNI thread; cache it for the render thread.
+    int getGameFps();
+
     // Timer speed control (1.0 = normal, higher = faster game speed)
     void setTimerSpeed(float speed);
 
@@ -175,6 +191,12 @@ struct Minecraft {
     // Returns block ID at given coordinates (0 = air)
     int getBlockId(int x, int y, int z);
     bool damageBlock(int x, int y, int z);
+
+    // Damage the block under the crosshair using the game's own objectMouseOver
+    // block position AND side. Because pos+facing match vanilla exactly, the
+    // START/STOP digging packets stay consistent and the server accepts the
+    // break instead of reverting it (avoids ghost blocks on fast break).
+    bool damageTargetedBlock();
 
     struct Vec3 {
         float x = 0, y = 0, z = 0;

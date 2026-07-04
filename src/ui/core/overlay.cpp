@@ -9,6 +9,7 @@
 #include "../../util/textures/item_textures.h"
 #include "../hud/arraylist.h"
 #include "../hud/notifications.h"
+#include "../hud/watermark.h"
 #include "../menu/menu.h"
 #include "../widgets/icons.hpp"
 #include "../widgets/widgets.hpp"
@@ -149,6 +150,11 @@ void SetupImGui() {
 }
 
 LRESULT CALLBACK HookedWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+    if (!Overlay::initialized || !originalWndProc) {
+        return originalWndProc ? CallWindowProcA(originalWndProc, hWnd, msg, wParam, lParam)
+                               : DefWindowProcA(hWnd, msg, wParam, lParam);
+    }
+
     // Don't toggle menu if a keybind binder is active (user is selecting a new key)
     if (msg == WM_KEYDOWN && wParam == Menu::menuKey && !ui::IsBinderActive()) {
         Menu::isOpen = !Menu::isOpen;
@@ -175,7 +181,7 @@ LRESULT CALLBACK HookedWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam
         int quickKey = friendsManager->quickAddKey;
 
         // Detect key/mouse press based on VK code
-        if (quickKey == VK_MBUTTON && msg == WM_MBUTTONDOWN)
+        if (quickKey == VK_MBUTTON && msg == WM_MBUTTONDOWN && (GetAsyncKeyState(VK_SHIFT) & 0x8000))
             quickAddPressed = true;
         else if (quickKey == VK_XBUTTON1 && msg == WM_XBUTTONDOWN && GET_XBUTTON_WPARAM(wParam) == XBUTTON1)
             quickAddPressed = true;
@@ -210,34 +216,46 @@ LRESULT CALLBACK HookedWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam
 
     if (Menu::isOpen) {
         if (Menu::moduleToBind != nullptr) {
+            // Persist the keybind the moment it's assigned/cleared. Previously
+            // this only hit disk on menu close; a hard close (or a main-thread
+            // freeze that stops INSERT/ESC from being processed) would lose it.
             if (msg == WM_KEYDOWN) {
+                bool bound = false;
                 if (wParam == VK_ESCAPE) {
                     Menu::moduleToBind->keybind = 0;
                     Menu::moduleToBind = nullptr;
+                    bound = true;
                 } else if (wParam != Menu::menuKey) {
                     Menu::moduleToBind->keybind = (int)wParam;
                     Menu::moduleToBind = nullptr;
+                    bound = true;
                 }
+                if (bound)
+                    ConfigManager::get().onSettingChanged();
                 return 1;
             }
             switch (msg) {
                 case WM_LBUTTONDOWN:
                     Menu::moduleToBind->keybind = VK_LBUTTON;
                     Menu::moduleToBind = nullptr;
+                    ConfigManager::get().onSettingChanged();
                     return 1;
                 case WM_RBUTTONDOWN:
                     Menu::moduleToBind->keybind = VK_RBUTTON;
                     Menu::moduleToBind = nullptr;
+                    ConfigManager::get().onSettingChanged();
                     return 1;
                 case WM_MBUTTONDOWN:
                     Menu::moduleToBind->keybind = VK_MBUTTON;
                     Menu::moduleToBind = nullptr;
+                    ConfigManager::get().onSettingChanged();
                     return 1;
                 case WM_XBUTTONDOWN: {
                     int xbutton = GET_XBUTTON_WPARAM(wParam);
                     int vk = (xbutton == XBUTTON1) ? VK_XBUTTON1 : VK_XBUTTON2;
                     Menu::moduleToBind->keybind = vk;
                     Menu::moduleToBind = nullptr;
+                    ConfigManager::get().onSettingChanged();
                     return 1;
                 }
             }
@@ -405,8 +423,11 @@ BOOL __stdcall HookedSwapBuffers(HDC hdc) {
         bool hasRenderWork = moduleManager && moduleManager->hasRenderWork();
         bool hasNotifications = NotificationManager::hasActive();
         bool hasArrayList = ArrayListRenderer::hasActive();
+        // Watermark is an independent HUD element with its own on/off toggle.
+        bool hasWatermark = Watermark::enabled;
         bool menuAnimating = Menu::openAnim > 0.01f;
-        if (!Menu::isOpen && !menuAnimating && !hasRenderWork && !hasNotifications && !hasArrayList) {
+        if (!Menu::isOpen && !menuAnimating && !hasRenderWork && !hasNotifications && !hasArrayList &&
+            !hasWatermark) {
             return originalSwapBuffers(hdc);
         }
 
@@ -427,7 +448,6 @@ BOOL __stdcall HookedSwapBuffers(HDC hdc) {
             Menu::moduleToBind = nullptr;
             io.MouseDrawCursor = false;
             mc.restoreMovementKeys();
-            mc.grabMouse();
             ConfigManager::get().onSettingChanged();
         }
 
@@ -545,6 +565,7 @@ void Overlay::Shutdown() {
 void Overlay::Render() {
     moduleManager->onRender();
     ArrayListRenderer::render();
+    Watermark::render();
     NotificationManager::update();
     NotificationManager::render();
 }

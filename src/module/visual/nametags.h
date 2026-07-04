@@ -25,6 +25,7 @@ struct CachedPlayer {
     bool valid = false;
     std::vector<PlayerInfo::ArmorItem> armor;
     std::vector<PlayerInfo::PotionEffectInfo> potions;
+    PlayerInfo::HeldItem weapon;
 
     // Get display name (prefers Mojang real name if available)
     const std::string& getDisplayName() const { return !mojangName.empty() ? mojangName : name; }
@@ -50,9 +51,12 @@ public:
         bool showHealth = true;
         bool showDistance = true;
         bool showArmor = true;
+        bool showWeapon = true;     // Held sword/axe icon next to the name
+        bool showEnchants = true;   // Protection/Sharpness level numbers
+        bool armorOnSide = false;   // Armor/weapon row above the name (vs beside it)
         bool showEffects = true;
         bool debugEffects = false;
-        bool hideVanilla = false;  // No-op vanilla renderName so only our tag shows
+        bool hideVanilla = true;  // No-op vanilla renderName so only our tag shows
         float normalColor[4] = {1.0f, 1.0f, 1.0f, 1.0f};
         float friendColor[4] = {0.0f, 1.0f, 0.35f, 1.0f};
     } settings;
@@ -90,7 +94,7 @@ private:
 
     void renderPlayerTag(ImDrawList* draw, float screenX, float screenY, const char* name, unsigned int nameColor,
                          float distance, float health, float maxHealth, const std::vector<PlayerInfo::ArmorItem>& armor,
-                         const std::vector<PlayerInfo::PotionEffectInfo>& potions);
+                         const std::vector<PlayerInfo::PotionEffectInfo>& potions, const PlayerInfo::HeldItem& weapon);
 };
 
 extern NameTags* nameTags;

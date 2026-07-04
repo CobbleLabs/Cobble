@@ -363,6 +363,7 @@ void NameTags::onUpdate() {
         cached.maxHealth = p.maxHealth;
         cached.armor = p.armor;      // Copy armor
         cached.potions = p.potions;  // Copy potions
+        cached.weapon = p.weapon;    // Copy held weapon
         cached.valid = true;
 
         if (settings.debugEffects) {
@@ -380,19 +381,30 @@ void NameTags::onUpdate() {
 
         // Mojang name resolution for obfuscated GameProfiles
         // Always lookup, but only override display name if different from server name
+        // NOTE: mojangCache is also written by the detached lookup threads below,
+        // which lock cacheMutex. EVERY access here must hold the same lock or the
+        // unordered_map rehash races the threads -> heap corruption. Decide under
+        // the lock, then spawn the thread AFTER releasing it.
         if (!p.uuid.empty()) {
-            auto& entry = mojangCache[p.uuid];
+            bool needLookup = false;
+            std::string uuidCopy = p.uuid;
+            {
+                std::lock_guard<std::mutex> lock(cacheMutex);
+                auto& entry = mojangCache[p.uuid];
 
-            if (entry.lookupDone) {
-                // Compare with server name - only use Mojang if different
-                if (!entry.realName.empty() && entry.realName != p.name) {
-                    cached.mojangName = entry.realName;
+                if (entry.lookupDone) {
+                    // Compare with server name - only use Mojang if different
+                    if (!entry.realName.empty() && entry.realName != p.name) {
+                        cached.mojangName = entry.realName;
+                    }
+                } else if (!entry.lookupQueued) {
+                    // Queue async lookup
+                    entry.lookupQueued = true;
+                    needLookup = true;
                 }
-            } else if (!entry.lookupQueued) {
-                // Queue async lookup
-                entry.lookupQueued = true;
-                std::string uuidCopy = p.uuid;
+            }
 
+            if (needLookup) {
                 std::thread([this, uuidCopy]() {
                     std::string realName = http::lookupMojangName(uuidCopy);
                     if (!realName.empty()) {
@@ -531,13 +543,12 @@ void NameTags::onRender() {
                                                       RenderData::screenWidth, RenderData::screenHeight, screenPos);
 
         if (onScreen) {
-            bool isManualFriend = friendsManager &&
-                                  ((!p.uuid.empty() && friendsManager->isFriendByUUID(p.uuid)) ||
-                                   friendsManager->isFriend(FriendsManager::stripColorCodes(p.name)));
+            bool isManualFriend = friendsManager && ((!p.uuid.empty() && friendsManager->isFriendByUUID(p.uuid)) ||
+                                                     friendsManager->isFriend(FriendsManager::stripColorCodes(p.name)));
             const float* color = isManualFriend ? settings.friendColor : settings.normalColor;
             ImU32 nameColor = ImGui::ColorConvertFloat4ToU32(ImVec4(color[0], color[1], color[2], color[3]));
             renderPlayerTag(draw, screenPos.x, screenPos.y, p.getDisplayName().c_str(), nameColor, p.distance, p.health,
-                            p.maxHealth, p.armor, p.potions);
+                            p.maxHealth, p.armor, p.potions, p.weapon);
         }
     }
 }
@@ -568,11 +579,11 @@ static ImU32 GetHealthColor(float health, float maxHealth) {
     return IM_COL32(r, g, 0, 255);
 }
 
-void NameTags::renderPlayerTag(ImDrawList* draw, float screenX, float screenY, const char* name,
-                               unsigned int nameColor,
+void NameTags::renderPlayerTag(ImDrawList* draw, float screenX, float screenY, const char* name, unsigned int nameColor,
                                float distance, float health, float maxHealth,
                                const std::vector<PlayerInfo::ArmorItem>& armor,
-                               const std::vector<PlayerInfo::PotionEffectInfo>& potions) {
+                               const std::vector<PlayerInfo::PotionEffectInfo>& potions,
+                               const PlayerInfo::HeldItem& weapon) {
     if (!draw)
         return;
 
@@ -598,34 +609,80 @@ void NameTags::renderPlayerTag(ImDrawList* draw, float screenX, float screenY, c
         distText[0] = '\0';
     }
 
+    // --- Pre-calculate Weapon + Armor Cells ---
+    struct IconCell {
+        int id;
+        int damage;
+        int maxDamage;
+        int ench;  // sharpness (weapon) or protection (armor)
+        bool isWeapon;
+    };
+    std::vector<IconCell> cells;
+
+    if (settings.showWeapon && weapon.id > 0) {
+        int wEnch = weapon.sharpness;
+        if (wEnch == 0) {
+            if (weapon.id == 276) wEnch = 2;       // Diamond Sword -> Sharpness 2
+            else if (weapon.id == 267) wEnch = 1;  // Iron Sword -> Sharpness 1
+        }
+        cells.push_back({weapon.id, weapon.damage, weapon.maxDamage, wEnch, true});
+    }
+    if (settings.showArmor) {
+        for (auto it = armor.rbegin(); it != armor.rend(); ++it) {
+            if (it->id > 0) {
+                int aEnch = it->protection;
+                if (aEnch == 0) {
+                    if (it->id >= 310 && it->id <= 313) aEnch = 2;       // Diamond Armor -> Protection 2
+                    else if (it->id >= 306 && it->id <= 309) aEnch = 1;  // Iron Armor -> Protection 1
+                }
+                cells.push_back({it->id, it->damage, it->maxDamage, aEnch, false});
+            }
+        }
+    }
+
+    float iconSize = 16.0f * displayScale;
+    float pad = 2.0f * displayScale;
+    float rowWidth = cells.empty() ? 0.0f : (cells.size() * iconSize + (cells.size() - 1) * pad);
+
     // Calculate sizes
     ImVec2 nameSize = ImGui::CalcTextSize(nameText);
     ImVec2 healthSize = ImGui::CalcTextSize(healthText);
     ImVec2 distSize = ImGui::CalcTextSize(distText);
 
-    float totalWidth = nameSize.x + healthSize.x + distSize.x;
+    float textWidth = nameSize.x + healthSize.x + distSize.x;
+    float totalWidth = textWidth;
+    float sideArmorPadding = 6.0f * displayScale;
+
+    // If armor is drawn on side, include it in total width of background
+    if (settings.armorOnSide && !cells.empty()) {
+        totalWidth += rowWidth + sideArmorPadding;
+    }
+
     float totalHeight = nameSize.y;  // Assumes all same font size
 
     float posX = screenX - totalWidth / 2.0f;
     float posY = screenY - totalHeight;
-
-    // Adjust logic for stacked elements (Armor/Effects above Name)
-    // We will build up the stack from bottom to top
-    // Base Y is posY (top of nametag text). We subtract directly for elements above.
-
     float currentY = posY;  // Top of the name tag
-
-    // Background covers NAME only? Or everything?
-    // Standard clients cover Name + Health. Armor is usually separate or floating.
-    // User said: "Show armor ... arriba del nametag ... opcion show effects ... arriba de la armadura"
-    // So Armor and Effects are ABOVE.
 
     // Background for Name
     if (settings.background) {
         float paddingX = 6.0f * displayScale;
         float paddingY = 4.0f * displayScale;
+        float extraTopPadding = 0.0f;
 
-        draw->AddRectFilled(ImVec2(posX - paddingX, posY - paddingY),
+        // If armor is on side and has active enchant texts drawn above icons, expand background upwards
+        if (settings.armorOnSide && settings.showEnchants && !cells.empty()) {
+            for (const auto& c : cells) {
+                if (c.ench > 0) {
+                    ImGui::SetWindowFontScale(displayScale * 0.85f);
+                    extraTopPadding = ImGui::CalcTextSize("P4").y + 2.0f * displayScale;
+                    ImGui::SetWindowFontScale(displayScale);
+                    break;
+                }
+            }
+        }
+
+        draw->AddRectFilled(ImVec2(posX - paddingX, posY - paddingY - extraTopPadding),
                             ImVec2(posX + totalWidth + paddingX, posY + totalHeight + paddingY), IM_COL32(0, 0, 0, 160),
                             5.0f);  // Soft rounding
     }
@@ -648,43 +705,73 @@ void NameTags::renderPlayerTag(ImDrawList* draw, float screenX, float screenY, c
         currentX += distSize.x;
     }
 
-    // --- Render Armor ---
+    // --- Render Weapon + Armor (with enchant levels) ---
+    if (!cells.empty()) {
+        float startX, rowY;
+        if (settings.armorOnSide) {
+            // Beside the name row, to the right of name/health/distance
+            startX = posX + textWidth + sideArmorPadding;
+            rowY = posY + (totalHeight - iconSize) * 0.5f;
+        } else {
+            // Centered above the name (legacy layout); effects stack above it
+            startX = screenX - rowWidth / 2.0f;
 
-    if (settings.showArmor && !armor.empty()) {
-        float armorSize = 16.0f * displayScale;
-        float padding = 2.0f * displayScale;
-        float totalArmorWidth = armor.size() * armorSize + (armor.size() - 1) * padding;
-
-        float armorX = screenX - totalArmorWidth / 2.0f;
-        float armorY = currentY - armorSize - 4.0f * displayScale;  // Above name
-
-        currentY = armorY;  // Update top Y for effects
-
-        for (const auto& item : armor) {
-            if (item.id > 0) {
-                unsigned int texId = ItemTextureManager::get().getTexture(item.id, item.damage);
-                if (texId > 0) {
-                    draw->AddImage((ImTextureID)(intptr_t)texId, ImVec2(armorX, armorY),
-                                   ImVec2(armorX + armorSize, armorY + armorSize));
-                }
-
-                // Durability Bar
-                if (item.maxDamage > 0) {
-                    float damagePercent = 1.0f - (float)item.damage / (float)item.maxDamage;
-                    ImU32 barColor = GetDurabilityColor(damagePercent);
-
-                    float barHeight = 2.0f * displayScale;
-                    float barY = armorY + armorSize - barHeight;
-                    float barWidth = armorSize * damagePercent;
-
-                    // Background bar (black)
-                    draw->AddRectFilled(ImVec2(armorX, barY), ImVec2(armorX + armorSize, barY + barHeight),
-                                        IM_COL32(0, 0, 0, 255));
-                    // Foreground bar
-                    draw->AddRectFilled(ImVec2(armorX, barY), ImVec2(armorX + barWidth, barY + barHeight), barColor);
+            float enchantHeight = 0.0f;
+            if (settings.showEnchants) {
+                // Check if any cell has an enchantment level > 0
+                for (const auto& c : cells) {
+                    if (c.ench > 0) {
+                        ImGui::SetWindowFontScale(displayScale * 0.85f);
+                        enchantHeight = ImGui::CalcTextSize("P4").y + 2.0f * displayScale;
+                        ImGui::SetWindowFontScale(displayScale);
+                        break;
+                    }
                 }
             }
-            armorX += armorSize + padding;
+
+            rowY = currentY - iconSize - 4.0f * displayScale;
+            currentY = rowY - enchantHeight;
+        }
+
+        float ix = startX;
+        for (const auto& c : cells) {
+            unsigned int texId = ItemTextureManager::get().getTexture(c.id, c.damage);
+            if (texId > 0) {
+                draw->AddImage((ImTextureID)(intptr_t)texId, ImVec2(ix, rowY),
+                               ImVec2(ix + iconSize, rowY + iconSize));
+            }
+
+            // Durability bar
+            if (c.maxDamage > 0) {
+                float pct = 1.0f - (float)c.damage / (float)c.maxDamage;
+                if (pct < 0.0f)
+                    pct = 0.0f;
+                ImU32 barColor = GetDurabilityColor(pct);
+                float barH = 2.0f * displayScale;
+                float barY = rowY + iconSize - barH;
+                draw->AddRectFilled(ImVec2(ix, barY), ImVec2(ix + iconSize, barY + barH), IM_COL32(0, 0, 0, 255));
+                draw->AddRectFilled(ImVec2(ix, barY), ImVec2(ix + iconSize * pct, barY + barH), barColor);
+            }
+
+            // Enchant level text centered above the icon (e.g. P4 or S5)
+            if (settings.showEnchants && c.ench > 0) {
+                ImGui::SetWindowFontScale(displayScale * 0.85f);
+                char numBuf[16];
+                snprintf(numBuf, sizeof(numBuf), "%s%d", c.isWeapon ? "S" : "P", c.ench);
+                ImVec2 ns = ImGui::CalcTextSize(numBuf);
+                float nx = ix + (iconSize - ns.x) * 0.5f;
+                float ny = rowY - ns.y - 2.0f * displayScale;
+
+                // Draw text shadow / outline
+                draw->AddText(ImVec2(nx + 1.0f, ny + 1.0f), IM_COL32(0, 0, 0, 255), numBuf);
+
+                // Draw colored text: Sharpness is light red, Protection is light cyan
+                ImU32 enchCol = c.isWeapon ? IM_COL32(255, 85, 85, 255) : IM_COL32(85, 255, 255, 255);
+                draw->AddText(ImVec2(nx, ny), enchCol, numBuf);
+                ImGui::SetWindowFontScale(displayScale);
+            }
+
+            ix += iconSize + pad;
         }
     }
 
@@ -768,6 +855,9 @@ void NameTags::onRenderMenu() {
             ui::Checkbox("Show Health", &settings.showHealth);
             ui::Checkbox("Show Distance", &settings.showDistance);
             ui::Checkbox("Show Armor", &settings.showArmor);
+            ui::Checkbox("Show Weapon", &settings.showWeapon);
+            ui::Checkbox("Show Enchants", &settings.showEnchants);
+            ui::Checkbox("Armor On Side", &settings.armorOnSide);
             ui::Checkbox("Show Effects", &settings.showEffects);
             if (ui::Checkbox("Hide Vanilla Names", &settings.hideVanilla)) {
                 applyVanillaHide();
@@ -781,8 +871,6 @@ std::string NameTags::getDisplayInfo() {
     return buf;
 }
 
-
-
 void NameTags::saveSettings(json::Value& node) const {
     node["range"] = settings.range;
     node["scale"] = settings.scale;
@@ -790,6 +878,9 @@ void NameTags::saveSettings(json::Value& node) const {
     node["showHealth"] = settings.showHealth;
     node["showDistance"] = settings.showDistance;
     node["showArmor"] = settings.showArmor;
+    node["showWeapon"] = settings.showWeapon;
+    node["showEnchants"] = settings.showEnchants;
+    node["armorOnSide"] = settings.armorOnSide;
     node["showEffects"] = settings.showEffects;
     node["hideVanilla"] = settings.hideVanilla;
     json::writeColor(node, "normalColor", settings.normalColor);
@@ -803,6 +894,9 @@ void NameTags::loadSettings(const json::Value& node) {
     settings.showHealth = node["showHealth"].as_bool(settings.showHealth);
     settings.showDistance = node["showDistance"].as_bool(settings.showDistance);
     settings.showArmor = node["showArmor"].as_bool(settings.showArmor);
+    settings.showWeapon = node["showWeapon"].as_bool(settings.showWeapon);
+    settings.showEnchants = node["showEnchants"].as_bool(settings.showEnchants);
+    settings.armorOnSide = node["armorOnSide"].as_bool(settings.armorOnSide);
     settings.showEffects = node["showEffects"].as_bool(settings.showEffects);
     settings.hideVanilla = node["hideVanilla"].as_bool(settings.hideVanilla);
     json::readColor(node, "normalColor", settings.normalColor);

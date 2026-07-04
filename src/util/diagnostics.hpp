@@ -21,6 +21,7 @@
 #pragma comment(lib, "DbgHelp.lib")
 
 #include "logger.hpp"
+#include "inject_trace.hpp"
 
 namespace Diagnostics {
 
@@ -120,6 +121,50 @@ inline void stopWatchdog() {
 inline LONG WINAPI crashHandler(EXCEPTION_POINTERS* ep) {
     const char* op = g_currentOperation.load();
     bool inWorldChange = g_inWorldChange.load();
+
+    // The dev console is disabled (it crashed Minecraft), so log_err() below
+    // goes nowhere. Mirror the essentials into %TEMP%\cobble_trace.log using the
+    // crash-safe Win32-only tracer so the failure is actually recoverable.
+    // Use only wsprintfA + GetModuleHandleEx here (no CRT, no allocation).
+    {
+        char tbuf[1024];
+        wsprintfA(tbuf, "CRASH! code=0x%08X addr=0x%p op=%s worldChange=%d",
+                  (unsigned)ep->ExceptionRecord->ExceptionCode, ep->ExceptionRecord->ExceptionAddress,
+                  op ? op : "unknown", inWorldChange ? 1 : 0);
+        COBBLE_TRACE(tbuf);
+
+        if (ep->ExceptionRecord->ExceptionCode == EXCEPTION_ACCESS_VIOLATION) {
+            ULONG_PTR at = ep->ExceptionRecord->ExceptionInformation[0];
+            char abuf[256];
+            wsprintfA(abuf, "CRASH! access=%s faultAddr=0x%p",
+                      at == 0 ? "READ" : (at == 1 ? "WRITE" : "EXEC"),
+                      (void*)ep->ExceptionRecord->ExceptionInformation[1]);
+            COBBLE_TRACE(abuf);
+        }
+
+        // Resolve which module the faulting instruction lives in — tells us if
+        // the crash is inside Cobble.dll, the GL driver, javaw, etc.
+        HMODULE faultMod = nullptr;
+        if (GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                               (LPCSTR)ep->ExceptionRecord->ExceptionAddress, &faultMod) &&
+            faultMod) {
+            char modPath[MAX_PATH];
+            if (GetModuleFileNameA(faultMod, modPath, MAX_PATH)) {
+                char mbuf[MAX_PATH + 64];
+                wsprintfA(mbuf, "CRASH! module=%s base=0x%p", modPath, (void*)faultMod);
+                COBBLE_TRACE(mbuf);
+            }
+        } else {
+            COBBLE_TRACE("CRASH! module=<unknown / not in a loaded module>");
+        }
+
+#ifdef _WIN64
+        char rbuf[256];
+        wsprintfA(rbuf, "CRASH! RIP=0x%p RSP=0x%p RBP=0x%p", (void*)ep->ContextRecord->Rip,
+                  (void*)ep->ContextRecord->Rsp, (void*)ep->ContextRecord->Rbp);
+        COBBLE_TRACE(rbuf);
+#endif
+    }
 
     log_err("========================================");
     log_err("[DIAG] CRASH DETECTED!");

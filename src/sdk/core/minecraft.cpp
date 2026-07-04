@@ -230,7 +230,22 @@ std::vector<ItemEntityInfo> Minecraft::getItemEntityList() {
                  if (JniCache::mid_getItemDamage) {
                      info.damage = env->CallIntMethod(itemStack, JniCache::mid_getItemDamage);
                  }
-                 
+
+                 // Custom display name (server-set NBT name). Only read the string
+                 // when hasDisplayName() is true so normal drops don't pay the
+                 // GetStringUTFChars cost every tick. Keeps the raw § color codes;
+                 // the renderer parses them.
+                 if (JniCache::mid_itemStackHasDisplayName && JniCache::mid_itemStackGetDisplayName) {
+                     if (env->CallBooleanMethod(itemStack, JniCache::mid_itemStackHasDisplayName)) {
+                         jobject nameObj = env->CallObjectMethod(itemStack, JniCache::mid_itemStackGetDisplayName);
+                         if (nameObj) {
+                             info.customName = jstringToString((jstring)nameObj);
+                             info.hasCustomName = !info.customName.empty();
+                             env->DeleteLocalRef(nameObj);
+                         }
+                     }
+                 }
+
                  env->DeleteLocalRef(itemStack);
                  env->DeleteLocalRef(entity); // done with it — avoid local ref leak
                  result.push_back(info);
@@ -384,6 +399,36 @@ void Minecraft::setTimerSpeed(float speed) {
 
     Java::Env()->SetFloatField(timer, JniCache::fid_timerSpeed, speed);
     Java::Env()->DeleteLocalRef(timer);
+}
+
+int Minecraft::getGameFps() {
+    if (!isValid() || !cls)
+        return 0;
+    JNIEnv* env = Java::Env();
+    if (!env)
+        return 0;
+
+    // Static int Minecraft.debugFPS. Resolve once; SRG fallback for non-MCP maps.
+    static jfieldID fid_debugFPS = nullptr;
+    static bool triedResolve = false;
+    if (!fid_debugFPS && !triedResolve) {
+        triedResolve = true;
+        fid_debugFPS = env->GetStaticFieldID(cls, OBFUSCATE_STRING("debugFPS").c_str(), OBFUSCATE_STRING("I").c_str());
+        if (!fid_debugFPS) {
+            env->ExceptionClear();
+            fid_debugFPS =
+                env->GetStaticFieldID(cls, OBFUSCATE_STRING("field_71470_ab").c_str(), OBFUSCATE_STRING("I").c_str());
+        }
+        if (env->ExceptionCheck())
+            env->ExceptionClear();
+    }
+    if (!fid_debugFPS)
+        return 0;
+
+    int fps = env->GetStaticIntField(cls, fid_debugFPS);
+    if (env->ExceptionCheck())
+        env->ExceptionClear();
+    return fps;
 }
 
 void Minecraft::sendPacket(jobject packet) {

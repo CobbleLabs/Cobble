@@ -20,6 +20,16 @@ inline float color[3] = {-1.0f, -1.0f, -1.0f};  // Use accent color by default (
 inline float yOffset = 5.0f;
 inline int anchor = 0;  // 0=TopRight, 1=TopLeft, 2=BottomRight, 3=BottomLeft
 
+// Free positioning: absolute top-left of the whole block, in screen pixels.
+// -1 means "not placed yet" -> derive the start position from `anchor`.
+inline float posX = -1.0f;
+inline float posY = -1.0f;
+// Drag state (same pattern as DroppedInfo): grab the block with the menu open,
+// it follows the mouse while the menu is visually hidden, drop to place it.
+inline bool dragging = false;
+inline float dragOffsetX = 0.0f;
+inline float dragOffsetY = 0.0f;
+
 void render();
 bool hasActive();
 }  // namespace ArrayListRenderer
