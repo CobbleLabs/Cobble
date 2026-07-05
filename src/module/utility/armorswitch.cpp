@@ -34,17 +34,6 @@ static void sendLwjglKey(int lwjglKeyCode) {
     SendInput(2, inputs, sizeof(INPUT));
 }
 
-// Send keyboard input using VK code
-static void sendKey(WORD vk) {
-    INPUT inputs[2] = {};
-    inputs[0].type = INPUT_KEYBOARD;
-    inputs[0].ki.wVk = vk;
-    inputs[1].type = INPUT_KEYBOARD;
-    inputs[1].ki.wVk = vk;
-    inputs[1].ki.dwFlags = KEYEVENTF_KEYUP;
-    SendInput(2, inputs, sizeof(INPUT));
-}
-
 ArmorSwitch::ArmorSwitch() : Module("ArmorSwitch") {
     keybind = 0;
 }
@@ -232,9 +221,10 @@ void ArmorSwitch::onDisable() {
 }
 
 void ArmorSwitch::finishSwap(bool fromOnInventoryOpen) {
-    // Only close inventory if not in passive mode AND not silent mode
+    // Close via JNI, not SendInput(VK_ESCAPE): with Ctrl held, Ctrl+Esc opens
+    // the Windows Start menu.
     if (!fromOnInventoryOpen && !settings.silentMode && mc.isInventoryOpen()) {
-        sendKey(VK_ESCAPE);
+        mc.closeInventory();
     }
 
     state = State::Idle;
