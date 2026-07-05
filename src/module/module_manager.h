@@ -14,6 +14,8 @@ public:
     bool needsPlayerCache() const;
     void checkKeybinds();
 
+    void onWorldChange();
+
     const std::vector<Module*>& getModules() const { return modules; }
 
 private:

@@ -281,3 +281,8 @@ extern Minecraft mc;
 
 // Initialize SDK after Java::Init()
 void SDK_Init();
+
+// Poll for a world/server/dimension change (main JNI loop only).
+// On change: re-resolves JNI IDs via Reinit(), clears stale SDK caches.
+// Returns true on the tick a change is detected.
+bool SDK_PollWorldChange();

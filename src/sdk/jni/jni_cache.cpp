@@ -257,8 +257,10 @@ jmethodID mid_setGrabbed = nullptr;
 // Helper macros for cleaner initialization
 // =============================================================================
 
+// Idempotent resolver macros -- skip if already resolved (safe for Reinit).
 #define CACHE_CLASS(var, name)                                      \
     do {                                                            \
+        if (var) break;                                             \
         jclass local = nullptr;                                     \
         if (Java::AssignClass(OBFUSCATE_STRING(name), local)) {     \
             var = (jclass)env->NewGlobalRef(local);                 \
@@ -268,6 +270,7 @@ jmethodID mid_setGrabbed = nullptr;
 
 #define CACHE_CLASS_CRITICAL(var, name)                                \
     do {                                                               \
+        if (var) break;                                                \
         jclass local = nullptr;                                        \
         if (!Java::AssignClass(OBFUSCATE_STRING(name), local)) {       \
             log_err("JniCache: Failed to find critical class");        \
@@ -279,6 +282,7 @@ jmethodID mid_setGrabbed = nullptr;
 
 #define TRY_METHOD(var, cls, name, sig)                     \
     do {                                                    \
+        if (var) break;                                     \
         std::string _mn = OBFUSCATE_STRING(name);           \
         std::string _ms = OBFUSCATE_STRING(sig);            \
         var = env->GetMethodID(cls, _mn.c_str(), _ms.c_str()); \
@@ -288,6 +292,7 @@ jmethodID mid_setGrabbed = nullptr;
 
 #define TRY_STATIC_METHOD(var, cls, name, sig)                        \
     do {                                                              \
+        if (var) break;                                               \
         std::string _mn = OBFUSCATE_STRING(name);                     \
         std::string _ms = OBFUSCATE_STRING(sig);                      \
         var = env->GetStaticMethodID(cls, _mn.c_str(), _ms.c_str());  \
@@ -297,6 +302,7 @@ jmethodID mid_setGrabbed = nullptr;
 
 #define TRY_FIELD(var, cls, name, sig)                      \
     do {                                                    \
+        if (var) break;                                     \
         std::string _fn = OBFUSCATE_STRING(name);           \
         std::string _fs = OBFUSCATE_STRING(sig);            \
         var = env->GetFieldID(cls, _fn.c_str(), _fs.c_str()); \
@@ -306,6 +312,7 @@ jmethodID mid_setGrabbed = nullptr;
 
 #define TRY_STATIC_FIELD(var, cls, name, sig)                        \
     do {                                                             \
+        if (var) break;                                              \
         std::string _fn = OBFUSCATE_STRING(name);                    \
         std::string _fs = OBFUSCATE_STRING(sig);                     \
         var = env->GetStaticFieldID(cls, _fn.c_str(), _fs.c_str()); \
@@ -317,16 +324,8 @@ jmethodID mid_setGrabbed = nullptr;
 // Initialization
 // =============================================================================
 
-bool Init() {
-    if (g_initialized)
-        return true;
-
-    JNIEnv* env = Java::Env();
-    if (!env) {
-        log_err("JniCache::Init: No JNI environment");
-        return false;
-    }
-
+// Resolve all cached IDs. Idempotent — skips already-resolved entries.
+static bool resolveIds(JNIEnv* env) {
     bool is_1_7_10 = (Java::Version == MinecraftVersion::MC_1_7_10);
 
     // =========================================================================
@@ -373,21 +372,38 @@ bool Init() {
         CACHE_CLASS(cls_IChatComponent, "net.minecraft.util.IChatComponent");
     }
 
-    // Java classes
-    cls_List = env->FindClass(OBFUSCATE_STRING("java/util/List").c_str());
-    if (cls_List) cls_List = (jclass)env->NewGlobalRef(cls_List);
+    // Java classes (idempotent: only resolve if not already held as a GlobalRef)
+    if (!cls_List) {
+        jclass local = env->FindClass(OBFUSCATE_STRING("java/util/List").c_str());
+        if (local) {
+            cls_List = (jclass)env->NewGlobalRef(local);
+            env->DeleteLocalRef(local);
+        }
+    }
 
-    cls_Map = env->FindClass("java/util/Map");
-    if (cls_Map) cls_Map = (jclass)env->NewGlobalRef(cls_Map);
+    if (!cls_Map) {
+        jclass local = env->FindClass("java/util/Map");
+        if (local) {
+            cls_Map = (jclass)env->NewGlobalRef(local);
+            env->DeleteLocalRef(local);
+        }
+    }
 
-    cls_Collection = env->FindClass("java/util/Collection");
-    if (cls_Collection) cls_Collection = (jclass)env->NewGlobalRef(cls_Collection);
+    if (!cls_Collection) {
+        jclass local = env->FindClass("java/util/Collection");
+        if (local) {
+            cls_Collection = (jclass)env->NewGlobalRef(local);
+            env->DeleteLocalRef(local);
+        }
+    }
 
     // LWJGL (may not be available)
-    jclass mouseLocal = env->FindClass(OBFUSCATE_STRING("org/lwjgl/input/Mouse").c_str());
-    if (mouseLocal) {
-        cls_Mouse = (jclass)env->NewGlobalRef(mouseLocal);
-        env->DeleteLocalRef(mouseLocal);
+    if (!cls_Mouse) {
+        jclass mouseLocal = env->FindClass(OBFUSCATE_STRING("org/lwjgl/input/Mouse").c_str());
+        if (mouseLocal) {
+            cls_Mouse = (jclass)env->NewGlobalRef(mouseLocal);
+            env->DeleteLocalRef(mouseLocal);
+        }
     }
     env->ExceptionClear();
 
@@ -399,6 +415,12 @@ bool Init() {
     TRY_METHOD(mid_clickMouse, cls_Minecraft, "clickMouse", "()V");
     TRY_METHOD(mid_getNetHandler, cls_Minecraft, "getNetHandler",
                "()Lnet/minecraft/client/network/NetHandlerPlayClient;");
+    if (!mid_getNetHandler) {
+        // SRG/obfuscated fallback (1.8.9). Without this, sendPacket() and
+        // getLocalPlayerPing() silently no-op on non-MCP mappings.
+        TRY_METHOD(mid_getNetHandler, cls_Minecraft, "func_147114_u",
+                   "()Lnet/minecraft/client/network/NetHandlerPlayClient;");
+    }
 
     // Version-specific player field
     if (is_1_7_10) {
@@ -465,13 +487,15 @@ bool Init() {
     }
 
     // java.util.UUID class (for player identity)
-    jclass uuidLocal = env->FindClass("java/util/UUID");
-    if (uuidLocal) {
-        cls_UUID = (jclass)env->NewGlobalRef(uuidLocal);
-        env->DeleteLocalRef(uuidLocal);
-        if (cls_UUID) {
-            TRY_METHOD(mid_uuidToString, cls_UUID, "toString", "()Ljava/lang/String;");
+    if (!cls_UUID) {
+        jclass uuidLocal = env->FindClass("java/util/UUID");
+        if (uuidLocal) {
+            cls_UUID = (jclass)env->NewGlobalRef(uuidLocal);
+            env->DeleteLocalRef(uuidLocal);
         }
+    }
+    if (cls_UUID) {
+        TRY_METHOD(mid_uuidToString, cls_UUID, "toString", "()Ljava/lang/String;");
     }
     env->ExceptionClear();
 
@@ -485,6 +509,11 @@ bool Init() {
 
         // addToSendQueue(Packet) -> void
         TRY_METHOD(mid_addToSendQueue, cls_NetHandlerPlayClient, "addToSendQueue", "(Lnet/minecraft/network/Packet;)V");
+        if (!mid_addToSendQueue) {
+            // SRG/obfuscated fallback (1.8.9).
+            TRY_METHOD(mid_addToSendQueue, cls_NetHandlerPlayClient, "func_147297_a",
+                       "(Lnet/minecraft/network/Packet;)V");
+        }
     } else {
         log_debug("[JniCache] NetHandlerPlayClient class: FAILED");
     }
@@ -1000,9 +1029,36 @@ bool Init() {
         TRY_STATIC_METHOD(mid_setGrabbed, cls_Mouse, "setGrabbed", "(Z)V");
     }
 
+    return true;
+}
+
+bool Init() {
+    if (g_initialized)
+        return true;
+
+    JNIEnv* env = Java::Env();
+    if (!env) {
+        log_err("JniCache::Init: No JNI environment");
+        return false;
+    }
+
+    if (!resolveIds(env))
+        return false;
+
     g_initialized = true;
     log_ok("JniCache initialized");
     return true;
+}
+
+// Re-resolve IDs that are still null. Called on world change so classes not
+// loaded at inject time (menu) get their IDs filled in. Idempotent.
+bool Reinit() {
+    JNIEnv* env = Java::Env();
+    if (!env)
+        return false;
+    if (!g_initialized)
+        return Init();
+    return resolveIds(env);
 }
 
 // =============================================================================

@@ -87,6 +87,12 @@ inline void onCacheReady() {
     g_stateFlags = 0x1;  // Mark as initialized
 }
 
+// Re-baseline the tamper checksum after Reinit() legitimately changes cached
+// IDs. Only call while isOperational() is true.
+inline void rebaselineChecksum() {
+    g_initialChecksum = computeChecksum();
+}
+
 // Mark state as corrupted - will trigger poison on next check.
 // Used by the loader-validation gate when startup checks (parent process,
 // timing, suspicious modules) fire. Sets multiple independent state bits so

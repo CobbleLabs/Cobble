@@ -380,6 +380,10 @@ extern jmethodID mid_setGrabbed;
 // Returns true if core IDs were found, false on critical failure
 bool Init();
 
+// Re-resolve IDs that are still null (idempotent, never leaks GlobalRefs).
+// Call after a world/server change to fill in classes not loaded at inject time.
+bool Reinit();
+
 // Cleanup all GlobalRefs. Call before DLL unload
 void Cleanup();
 

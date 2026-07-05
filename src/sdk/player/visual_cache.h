@@ -140,4 +140,11 @@ inline VisualSnapshot GetSnapshot() {
     snap.valid = cachedValid;
     return snap;
 }
+
+// Clear cached players on world/server change. Thread-safe.
+inline void Reset() {
+    std::lock_guard<std::mutex> lock(mutex);
+    cachedPlayers.clear();
+    cachedValid = false;
+}
 }  // namespace VisualCache

@@ -6,6 +6,10 @@
 #include "../../util/inventory/inventory_hooks.h"
 #include "../../util/logger.hpp"
 #include "../jni/jni_cache.h"
+#include "../player/effect_tracker.h"
+#include "../player/render_data.h"
+#include "../player/visual_cache.h"
+#include "../../util/state.hpp"
 
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
@@ -165,8 +169,8 @@ std::vector<ItemEntityInfo> Minecraft::getItemEntityList() {
     if (!world)
         return result;
 
-    // Use loadedEntityList (contains all entities)
-    if (!JniCache::fid_loadedEntityList) {
+    // Bail if required IDs are not yet resolved.
+    if (!JniCache::fid_loadedEntityList || !JniCache::mid_listSize || !JniCache::mid_listGet) {
         env->DeleteLocalRef(world);
         return result;
     }
@@ -191,7 +195,8 @@ std::vector<ItemEntityInfo> Minecraft::getItemEntityList() {
             continue;
 
         // Check if EntityItem
-        if (JniCache::cls_EntityItem && env->IsInstanceOf(entity, JniCache::cls_EntityItem)) {
+        if (JniCache::cls_EntityItem && JniCache::mid_getEntityItem &&
+            env->IsInstanceOf(entity, JniCache::cls_EntityItem)) {
              jobject itemStack = env->CallObjectMethod(entity, JniCache::mid_getEntityItem);
              if (itemStack) {
                  ItemEntityInfo info;
@@ -216,7 +221,7 @@ std::vector<ItemEntityInfo> Minecraft::getItemEntityList() {
                  if (JniCache::mid_getItem) {
                      jobject item = env->CallObjectMethod(itemStack, JniCache::mid_getItem);
                      if (item) {
-                         if (JniCache::mid_getIdFromItem) {
+                         if (JniCache::mid_getIdFromItem && JniCache::cls_Item) {
                              info.itemId = env->CallStaticIntMethod(JniCache::cls_Item, JniCache::mid_getIdFromItem, item);
                          }
                          if (JniCache::mid_getItemStackLimit) {
@@ -439,13 +444,24 @@ void Minecraft::sendPacket(jobject packet) {
     if (!env)
         return;
 
+    // Bail if IDs are not yet resolved (inject-in-menu or poisoned cache).
+    if (!JniCache::mid_getNetHandler || !JniCache::mid_addToSendQueue)
+        return;
+
+    if (env->ExceptionCheck())
+        env->ExceptionClear();
+
     // Get NetHandlerPlayClient connection
     jobject netHandler = env->CallObjectMethod(instance, JniCache::mid_getNetHandler);
+    if (env->ExceptionCheck())
+        env->ExceptionClear();
     if (!netHandler)
         return;
 
     // Call addToSendQueue(packet)
     env->CallVoidMethod(netHandler, JniCache::mid_addToSendQueue, packet);
+    if (env->ExceptionCheck())
+        env->ExceptionClear();
 
     env->DeleteLocalRef(netHandler);
 }
@@ -583,4 +599,56 @@ void Minecraft::cleanup() {
             cls_keyBinding = nullptr;
         }
     }
+}
+
+// =============================================================================
+// World / server change detection (main JNI thread only)
+// =============================================================================
+bool SDK_PollWorldChange() {
+    JNIEnv* env = Java::Env();
+    if (!env || !Java::Initialized)
+        return false;
+
+    // Track the current world by GlobalRef identity across ticks.
+    static jobject s_lastWorldRef = nullptr;
+
+    jobject currentWorld = mc.getWorld();  // fresh local ref (null while in a menu)
+
+    bool changed = false;
+    if (s_lastWorldRef == nullptr && currentWorld != nullptr) {
+        changed = true;  // menu -> world (first join / reconnect)
+    } else if (s_lastWorldRef != nullptr && currentWorld == nullptr) {
+        changed = true;  // world -> menu (disconnect)
+    } else if (s_lastWorldRef != nullptr && currentWorld != nullptr) {
+        if (env->IsSameObject(s_lastWorldRef, currentWorld) == JNI_FALSE)
+            changed = true;  // server -> server / dimension change
+    }
+
+    if (changed) {
+        // Refresh our GlobalRef to point at the current world.
+        if (s_lastWorldRef) {
+            env->DeleteGlobalRef(s_lastWorldRef);
+            s_lastWorldRef = nullptr;
+        }
+        if (currentWorld)
+            s_lastWorldRef = env->NewGlobalRef(currentWorld);
+
+        // Re-resolve JNI IDs that were unavailable at inject time and
+        // re-baseline the checksum so validateState() doesn't flag it.
+        if (sdk::internal::isOperational()) {
+            JniCache::Reinit();
+            sdk::internal::rebaselineChecksum();
+        }
+
+        // Drop stale cross-world caches.
+        VisualCache::Reset();
+        EffectTracker::Clear();
+        RenderData::initialized = false;
+        RenderData::Reset();
+    }
+
+    if (currentWorld)
+        env->DeleteLocalRef(currentWorld);
+
+    return changed;
 }

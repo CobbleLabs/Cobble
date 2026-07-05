@@ -75,6 +75,12 @@ void ModuleManager::update() {
     COBBLE_DLL_ULTRA_END();
 }
 
+void ModuleManager::onWorldChange() {
+    for (auto* mod : modules) {
+        mod->onWorldChange();
+    }
+}
+
 void ModuleManager::onRender() {
     // Distributed state check #2: gateD uses an indirect function pointer
     // wired at boot. The render loop has its own enforcement so a patch to

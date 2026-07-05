@@ -693,7 +693,7 @@ std::vector<PlayerInfo> Minecraft::getPlayerList() {
                         jobject stack = env->GetObjectArrayElement(armorList, k);
                         PlayerInfo::ArmorItem itemInfo;
                         if (stack) {
-                            if (JniCache::mid_getItem && JniCache::mid_getIdFromItem) {
+                            if (JniCache::mid_getItem && JniCache::mid_getIdFromItem && JniCache::cls_Item) {
                                 jobject item = env->CallObjectMethod(stack, JniCache::mid_getItem);
                                 if (item) {
                                     itemInfo.id = env->CallStaticIntMethod(JniCache::cls_Item, JniCache::mid_getIdFromItem, item);
@@ -737,7 +737,7 @@ std::vector<PlayerInfo> Minecraft::getPlayerList() {
                                  int amount = 1;
                                  
                                  // Get ID
-                                 if (JniCache::mid_getItem && JniCache::mid_getIdFromItem) {
+                                 if (JniCache::mid_getItem && JniCache::mid_getIdFromItem && JniCache::cls_Item) {
                                       jobject item = env->CallObjectMethod(stack, JniCache::mid_getItem);
                                       if (item) {
                                            id = env->CallStaticIntMethod(JniCache::cls_Item, JniCache::mid_getIdFromItem, item);
@@ -790,7 +790,7 @@ std::vector<PlayerInfo> Minecraft::getPlayerList() {
                             jobject hstack = env->GetObjectArrayElement(mainArr, curSlot);
                             if (hstack) {
                                 int hid = 0;
-                                if (JniCache::mid_getItem && JniCache::mid_getIdFromItem) {
+                                if (JniCache::mid_getItem && JniCache::mid_getIdFromItem && JniCache::cls_Item) {
                                     jobject item = env->CallObjectMethod(hstack, JniCache::mid_getItem);
                                     if (item) {
                                         hid = env->CallStaticIntMethod(JniCache::cls_Item, JniCache::mid_getIdFromItem,

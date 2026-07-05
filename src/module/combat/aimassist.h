@@ -53,6 +53,7 @@ public:
     void onEnable() override;
     void onDisable() override;
     void onUpdate() override;
+    void onWorldChange() override;
     void onRenderMenu() override;
     std::string getDisplayInfo() override;
     void setEntityLock(bool enabled);

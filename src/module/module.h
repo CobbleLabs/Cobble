@@ -45,6 +45,9 @@ struct Module {
     // Called when module is disabled
     virtual void onDisable() {}
 
+    // Called on world/server/dimension change. Reset transient per-world state.
+    virtual void onWorldChange() {}
+
     // Called every tick while enabled
     virtual void onUpdate() {}
 

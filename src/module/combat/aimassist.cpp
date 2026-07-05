@@ -257,6 +257,11 @@ void AimAssist::setEntityLock(bool enabled) {
     targetResetRequested_.store(true, std::memory_order_release);
 }
 
+void AimAssist::onWorldChange() {
+    resetTargetState(Java::Env());
+    targetResetRequested_.store(true, std::memory_order_release);
+}
+
 void AimAssist::onEnable() {
     log_ok("AimAssist enabled");
 

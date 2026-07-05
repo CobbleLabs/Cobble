@@ -406,6 +406,12 @@ void cobble::context::initialize(HMODULE hModule) {
         if (now - lastPlayerRefresh >= PLAYER_REFRESH_INTERVAL) {
             DIAG_SCOPE("player.refresh");
             player.refresh();
+
+            // Detect world changes: re-resolve JNI IDs + clear stale caches.
+            if (SDK_PollWorldChange() && moduleManager) {
+                moduleManager->onWorldChange();
+            }
+
             lastPlayerRefresh = now;
         }
 
