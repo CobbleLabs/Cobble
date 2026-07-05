@@ -3,6 +3,7 @@
 #include <string>
 #include "../ui/hud/notifications.h"
 #include "../util/aes_string.hpp"
+#include "../util/logger.hpp"
 #include "../util/state.hpp"
 
 namespace json {
@@ -94,6 +95,9 @@ struct Module {
             onEnable();
         else
             onDisable();
+
+        // Log lifecycle transition (trace file in dev builds)
+        log_debug("[MOD] %s: %s", name, enabled ? "ENABLED" : "DISABLED");
 
         // Send notification
         NotificationManager::add(name, enabled);

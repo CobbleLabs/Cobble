@@ -1,9 +1,12 @@
 #include "winsock_hooks.h"
+
+// WinSock2.h MUST be included before Windows.h to avoid redefinition errors
+#include <WinSock2.h>
+
 #include "../sdk/core/minecraft.h"
 #include "../util/logger.hpp"
 
 #include <Windows.h>
-#include <WinSock2.h>
 #include <winternl.h>  // For NTSTATUS
 #include "../../infra/ext/minhook/minhook.h"
 
@@ -140,23 +143,32 @@ bool WinsockHooks::Init() {
         LPVOID pWSARecv = (LPVOID)GetProcAddress(ws2_32, "WSARecv");
         LPVOID pSend = (LPVOID)GetProcAddress(ws2_32, "send");
 
+        log_debug("[WSA] hooking WSASend @ 0x%p", pWSASend);
         if (pWSASend) {
             if (MH_CreateHook(pWSASend, &HookedWSASend, (LPVOID*)&OriginalWSASend) == MH_OK) {
                 MH_EnableHook(pWSASend);
+                log_debug("[WSA] WSASend hooked");
+            } else {
+                log_warn("[WSA] WSASend hook FAILED");
             }
         }
 
-        if (pSend) {
-            if (MH_CreateHook(pSend, &HookedSend, (LPVOID*)&OriginalSend) == MH_OK) {
-                MH_EnableHook(pSend);
-            }
-        }
+        // NOTE: send() hook removed — it was debug-only (packet counting) and
+        // caused crashes due to race conditions with game threads calling send()
+        // during prologue patching. NtDeviceIoControlFile + WSASend cover all
+        // actual blocking needs.
 
+        log_debug("[WSA] hooking WSARecv @ 0x%p", pWSARecv);
         if (pWSARecv) {
             if (MH_CreateHook(pWSARecv, &HookedWSARecv, (LPVOID*)&OriginalWSARecv) == MH_OK) {
                 MH_EnableHook(pWSARecv);
+                log_debug("[WSA] WSARecv hooked");
+            } else {
+                log_warn("[WSA] WSARecv hook FAILED");
             }
         }
+    } else {
+        log_warn("[WSA] WS2_32.dll not found");
     }
 
     hooksInitialized = true;

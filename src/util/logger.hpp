@@ -1,5 +1,15 @@
 #pragma once
 
+// ============================================================================
+// Cobble Logger
+//
+// Dev builds: all log macros write to %TEMP%\cobble_trace.log via the
+// crash-safe Win32 tracer (inject_trace.hpp). This replaces the previous
+// printf-to-nowhere approach (the dev console is disabled).
+//
+// Pack builds: all macros expand to ((void)0), zero overhead.
+// ============================================================================
+
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
 #endif
@@ -13,37 +23,66 @@
 
 #ifdef COBBLE_DEV_BUILD
 
+#include "inject_trace.hpp"
+
+namespace cobble_log {
+
+// Formats a log line with level prefix and writes to the trace file.
+// Uses a simple static buffer with a spinlock since thread_local can be
+// unreliable in injected DLLs (TLS slots may not be properly initialized).
+inline void write(const char* level, const char* fmt, ...) {
+    static volatile LONG g_logLock = 0;
+
+    // Spinlock acquire
+    while (InterlockedCompareExchange(&g_logLock, 1, 0) != 0) {
+        Sleep(0);
+    }
+
+    static char buf[2048];
+
+    // Write level prefix
+    int prefixLen = wsprintfA(buf, "[%s] ", level);
+    if (prefixLen < 0) prefixLen = 0;
+
+    // Format user message with va_list
+    va_list args;
+    va_start(args, fmt);
+    int msgLen = wvsprintfA(buf + prefixLen, fmt, args);
+    va_end(args);
+
+    if (msgLen < 0) msgLen = 0;
+
+    // Null-terminate
+    buf[prefixLen + msgLen] = '\0';
+
+    // Write to trace file (crash-safe, append, flush, close)
+    cobble_trace::write_step(buf);
+
+    // Spinlock release
+    InterlockedExchange(&g_logLock, 0);
+}
+
+}  // namespace cobble_log
+
 class c_logger {
-private:
-    static inline FILE* fp_stdout = nullptr;
-    static inline FILE* fp_stderr = nullptr;
-    static inline FILE* fp_stdin = nullptr;
 public:
     static void initialize() {
-        /*
-        if (AllocConsole()) {
-            freopen_s(&fp_stdout, "CONOUT$", "w", stdout);
-            freopen_s(&fp_stderr, "CONOUT$", "w", stderr);
-            freopen_s(&fp_stdin, "CONIN$", "r", stdin);
-            SetConsoleTitleA("Cobble Developer Console");
-        }
-        */
+        // Trace file is already active from DllMain (COBBLE_TRACE_RESET).
+        // Nothing else needed — no console allocation.
+        cobble_trace::write_step("=== Logger initialized ===");
     }
     static void shutdown() {
-        if (fp_stdout) fclose(fp_stdout);
-        if (fp_stderr) fclose(fp_stderr);
-        if (fp_stdin) fclose(fp_stdin);
-        FreeConsole();
+        cobble_trace::write_step("=== Logger shutdown ===");
     }
 };
 
-#define log_debug(fmt, ...) std::printf("[DEBUG] " fmt "\n", ##__VA_ARGS__)
-#define log_ok(fmt, ...) std::printf("[ OK  ] " fmt "\n", ##__VA_ARGS__)
-#define log_err(fmt, ...) std::printf("[ERROR] " fmt "\n", ##__VA_ARGS__)
-#define log_warn(fmt, ...) std::printf("[WARN ] " fmt "\n", ##__VA_ARGS__)
-#define log_raw(fmt, ...) std::printf(fmt "\n", ##__VA_ARGS__)
+#define log_debug(fmt, ...) ::cobble_log::write("DEBUG", fmt, ##__VA_ARGS__)
+#define log_ok(fmt, ...) ::cobble_log::write(" OK  ", fmt, ##__VA_ARGS__)
+#define log_err(fmt, ...) ::cobble_log::write("ERROR", fmt, ##__VA_ARGS__)
+#define log_warn(fmt, ...) ::cobble_log::write("WARN ", fmt, ##__VA_ARGS__)
+#define log_raw(fmt, ...) ::cobble_log::write(" --- ", fmt, ##__VA_ARGS__)
 
-#else // !COBBLE_DEV_BUILD
+#else  // !COBBLE_DEV_BUILD
 
 class c_logger {
 public:

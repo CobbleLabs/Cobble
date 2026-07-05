@@ -580,13 +580,8 @@ bool AimAssist::findTarget(double& targetX, double& targetY, double& targetZ) {
                     float yawDiff = std::abs(wrapTo180(-(localYaw - yawToTarget)));
                     float limit = entityLock ? std::max(90.0f, settings.fov * 0.5f) : (settings.fov * 0.5f);
 
-                    char dbg[256];
-                    snprintf(dbg, sizeof(dbg), "AimAssist fast path: dist=%.2f max=%.2f yawDiff=%.2f lim=%.2f",
-                             dist, maxDist, (double)yawDiff, (double)limit);
-                    COBBLE_TRACE(dbg);
-
                     if (dist > maxDist || dist < 0.2f || yawDiff > limit) {
-                        COBBLE_TRACE("AimAssist fast path: target failed validation, dropping lock");
+                        log_debug("[AimAssist] target dropped: dist=%.1f yaw=%.1f", dist, yawDiff);
                         Java::Env()->DeleteGlobalRef(cachedTarget);
                         cachedTarget = nullptr;
                         targetHasHitbox = false;
@@ -610,12 +605,8 @@ bool AimAssist::findTarget(double& targetX, double& targetY, double& targetZ) {
 
     // SLOW PATH: Full Scan
     scanTimer.Start();
-    COBBLE_TRACE("AimAssist: running full scan (slow path)");
 
     auto players = mc.getPlayerList();
-    char dbg_scan[128];
-    snprintf(dbg_scan, sizeof(dbg_scan), "AimAssist slow path: players size=%zu", players.size());
-    COBBLE_TRACE(dbg_scan);
 
     // Clear any exceptions that occurred during player list fetch
     if (env && env->ExceptionCheck()) {
@@ -881,11 +872,6 @@ bool AimAssist::findTarget(double& targetX, double& targetY, double& targetZ) {
 
         releasePlayerRef(p);
     }
-
-    char dbg_res[256];
-    snprintf(dbg_res, sizeof(dbg_res), "AimAssist slow path scan result: found=%d name=%s",
-             found, found ? closestPlayer.name.c_str() : "none");
-    COBBLE_TRACE(dbg_res);
 
     if (found) {
         targetX = closestPlayer.posX;

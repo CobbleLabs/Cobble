@@ -89,7 +89,7 @@ inline void watchdogThread() {
 
                 log_err("========================================");
                 log_err("[DIAG] FREEZE DETECTED!");
-                log_err("  Last tick: %llu ms ago", delta);
+                log_err("  Last tick: %I64u ms ago", delta);
                 log_err("  Current operation: %s", op ? op : "unknown");
                 log_err("  In world change: %s", inWorldChange ? "YES" : "NO");
                 log_err("========================================");
@@ -251,11 +251,12 @@ inline LONG WINAPI crashHandler(EXCEPTION_POINTERS* ep) {
     CONTEXT* ctx = ep->ContextRecord;
     log_err("  Registers:");
 #ifdef _WIN64
-    log_err("    RAX=0x%016llX RBX=0x%016llX", ctx->Rax, ctx->Rbx);
-    log_err("    RCX=0x%016llX RDX=0x%016llX", ctx->Rcx, ctx->Rdx);
-    log_err("    RSP=0x%016llX RBP=0x%016llX", ctx->Rsp, ctx->Rbp);
-    log_err("    RSI=0x%016llX RDI=0x%016llX", ctx->Rsi, ctx->Rdi);
-    log_err("    RIP=0x%016llX", ctx->Rip);
+    // NOTE: log_err uses wvsprintfA which doesn't support %llX. Use %I64X.
+    log_err("    RAX=0x%016I64X RBX=0x%016I64X", ctx->Rax, ctx->Rbx);
+    log_err("    RCX=0x%016I64X RDX=0x%016I64X", ctx->Rcx, ctx->Rdx);
+    log_err("    RSP=0x%016I64X RBP=0x%016I64X", ctx->Rsp, ctx->Rbp);
+    log_err("    RSI=0x%016I64X RDI=0x%016I64X", ctx->Rsi, ctx->Rdi);
+    log_err("    RIP=0x%016I64X", ctx->Rip);
 #else
     log_err("    EAX=0x%08X EBX=0x%08X", ctx->Eax, ctx->Ebx);
     log_err("    ECX=0x%08X EDX=0x%08X", ctx->Ecx, ctx->Edx);

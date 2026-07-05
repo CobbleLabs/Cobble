@@ -359,7 +359,8 @@ BOOL __stdcall HookedSwapBuffers(HDC hdc) {
         bool contextChanged = (targetContext != nullptr && targetContext != currentOriginalContext);
 
         if (contextChanged && Overlay::initialized) {
-            log_debug("Overlay: GL context changed, reinitializing...");
+            log_debug("Overlay: GL context changed (old=0x%p new=0x%p), reinitializing...",
+                      (void*)targetContext, (void*)currentOriginalContext);
 
             Menu::isOpen = false;
             Menu::moduleToBind = nullptr;
@@ -378,17 +379,22 @@ BOOL __stdcall HookedSwapBuffers(HDC hdc) {
                 contextChangeCount = 0;
             }
             if (++contextChangeCount >= 3) {
-                overlaySuspendUntil = now + std::chrono::milliseconds(1500);
+                overlaySuspendUntil = now + std::chrono::milliseconds(2500);
                 contextChangeCount = 0;
-                log_warn("Overlay: frequent context switches, suspending overlay briefly");
+                log_warn("Overlay: frequent context switches, suspending overlay for 2.5s");
                 return originalSwapBuffers(hdc);
             }
+
+            // Give the driver time to stabilize the new context (fullscreen transitions)
+            return originalSwapBuffers(hdc);
         }
         lastOriginalContext = currentOriginalContext;
         lastHDC = hdc;
         Overlay::originalContext = currentOriginalContext;
 
         if (!Overlay::initialized) {
+            log_debug("Overlay: attempting SetupImGui (ctx=0x%p, wnd=0x%p)",
+                      (void*)currentOriginalContext, (void*)Overlay::gameWindow);
             SetupImGui();
             if (Overlay::initialized && (!originalWndProc || lastWindow != Overlay::gameWindow)) {
                 originalWndProc =
@@ -406,6 +412,13 @@ BOOL __stdcall HookedSwapBuffers(HDC hdc) {
             return originalSwapBuffers(hdc);
         if (reinitCooldown > 0) {
             --reinitCooldown;
+            return originalSwapBuffers(hdc);
+        }
+
+        // Validate GL context is still healthy before rendering
+        GLenum glErr = glGetError();
+        if (glErr != GL_NO_ERROR) {
+            log_warn("Overlay: GL error 0x%X before render, skipping frame", glErr);
             return originalSwapBuffers(hdc);
         }
 
