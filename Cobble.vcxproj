@@ -95,6 +95,7 @@
     <ClCompile Include="src\sdk\mc\player_list.cpp" />
     <ClCompile Include="src\module\module_manager.cpp" />
     <ClCompile Include="src\module\combat\autoclicker.cpp" />
+    <ClCompile Include="src\module\combat\blockhit.cpp" />
     <ClCompile Include="src\module\combat\aimassist.cpp" />
     <ClCompile Include="src\module\combat\aimbow.cpp" />
     <ClCompile Include="src\module\utility\armorswitch.cpp" />

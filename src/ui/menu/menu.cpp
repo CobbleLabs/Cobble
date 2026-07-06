@@ -8,6 +8,7 @@
 #include "../../module/combat/aimassist.h"
 #include "../../module/combat/aimbow.h"
 #include "../../module/combat/autoclicker.h"
+#include "../../module/combat/blockhit.h"
 #include "../../module/combat/backtrack.h"
 #include "../../module/combat/hitselect.h"
 #include "../../module/combat/nohitdelay.h"
@@ -94,6 +95,8 @@ Module* getModuleForSubtab(int tabIdx, int subtabIdx) {
                 return piercing;
             case 9:
                 return aimBow;
+            case 10:
+                return blockHit;
         }
     }
     // Visuals Tab (1)

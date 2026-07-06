@@ -41,12 +41,6 @@ public:
 
         // Anti-detection
         bool attackingOnly = false;  // Only click when player in crosshair
-
-        // Block hit: hold right-click (sword block) around attacks. Constant =
-        // always block while clicking a sword; Calculated = only block when
-        // actually taking hits (reacts to incoming damage).
-        bool blockHit = false;
-        int blockHitMode = 0;  // 0 = Constant, 1 = Calculated
     } settings;
 
 private:
@@ -97,7 +91,6 @@ public:
     void calculateNextDelay();
     void regenerateDelayRange();
     void doClick();
-    void updateBlockHit(bool active);  // hold/release the sword block for Block Hit
 
     // Humanization
     void updateFatigue();
@@ -116,7 +109,6 @@ public:
 
 private:
     float delayAccumulator = 0.0f;
-    bool blocking_ = false;  // true while the Block Hit right-click is held
 };
 
 extern AutoClicker* autoClicker;

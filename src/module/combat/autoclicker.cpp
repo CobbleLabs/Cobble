@@ -93,12 +93,6 @@ void AutoClicker::onDisable() {
         PostMessage(hwnd, WM_LBUTTONUP, 0, 0);
         lastClickWasDown = false;
     }
-
-    // Release the Block Hit sword block if we were holding it.
-    if (blocking_ && hwnd) {
-        PostMessage(hwnd, WM_RBUTTONUP, 0, 0);
-        blocking_ = false;
-    }
 }
 
 void AutoClicker::regenerateDelayRange() {
@@ -128,15 +122,6 @@ void AutoClicker::onUpdate() {
     // Only click when Minecraft window is focused (prevents issues with window resizing)
     if (hwnd != Overlay::gameWindow)
         return;
-
-    // Block Hit: hold the sword block around attacks while holding left-click.
-    {
-        bool bhActive = settings.blockHit && (GetAsyncKeyState(VK_LBUTTON) & 0x8000) != 0 && !mc.isInGui() &&
-                        isHoldingWeapon();
-        if (bhActive && settings.blockHitMode == 1)
-            bhActive = player.getHurtTime() > 0;  // Calculated: only block while taking hits
-        updateBlockHit(bhActive);
-    }
 
     // Not holding left mouse button - resync timeline to prevent burst on re-press
     if (!(GetAsyncKeyState(VK_LBUTTON) & 0x8000)) {
@@ -450,25 +435,6 @@ void AutoClicker::doClick() {
     }
 }
 
-void AutoClicker::updateBlockHit(bool active) {
-    HWND hwnd = GetForegroundWindow();
-    // Never leave the block held if we lose focus / go inactive.
-    if (!hwnd || hwnd != Overlay::gameWindow) {
-        if (blocking_ && hwnd) {
-            PostMessage(hwnd, WM_RBUTTONUP, 0, 0);
-            blocking_ = false;
-        }
-        return;
-    }
-    if (active && !blocking_) {
-        PostMessage(hwnd, WM_RBUTTONDOWN, MK_RBUTTON, 0);  // start blocking (sword raise)
-        blocking_ = true;
-    } else if (!active && blocking_) {
-        PostMessage(hwnd, WM_RBUTTONUP, 0, 0);
-        blocking_ = false;
-    }
-}
-
 bool AutoClicker::isHoldingWeapon() {
     int id = getHeldItemId();
     if (id == -1)
@@ -688,11 +654,6 @@ void AutoClicker::onRenderMenu() {
             ui::Checkbox("Weapon Only", &settings.weaponOnly);
             ui::Checkbox("Break Blocks", &settings.breakBlocks);
             ui::Checkbox("Inventory", &settings.workInInventory);
-            ui::Checkbox("Block Hit", &settings.blockHit);
-            if (settings.blockHit) {
-                static const char* bhModes[] = {"Constant", "Calculated"};
-                ui::Combo("Block Mode", &settings.blockHitMode, bhModes, IM_ARRAYSIZE(bhModes));
-            }
         });
 }
 
@@ -720,8 +681,6 @@ void AutoClicker::saveSettings(json::Value& node) const {
     node["spikeMultiplier"] = settings.spikeMultiplier;
     node["kurtosis"] = settings.kurtosis;
     node["attackingOnly"] = settings.attackingOnly;
-    node["blockHit"] = settings.blockHit;
-    node["blockHitMode"] = settings.blockHitMode;
 }
 
 void AutoClicker::loadSettings(const json::Value& node) {
@@ -741,6 +700,4 @@ void AutoClicker::loadSettings(const json::Value& node) {
     settings.spikeMultiplier = node["spikeMultiplier"].as_float(settings.spikeMultiplier);
     settings.kurtosis = node["kurtosis"].as_float(settings.kurtosis);
     settings.attackingOnly = node["attackingOnly"].as_bool(settings.attackingOnly);
-    settings.blockHit = node["blockHit"].as_bool(settings.blockHit);
-    settings.blockHitMode = node["blockHitMode"].as_int(settings.blockHitMode);
 }
