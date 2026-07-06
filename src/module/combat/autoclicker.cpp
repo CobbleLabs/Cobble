@@ -93,6 +93,12 @@ void AutoClicker::onDisable() {
         PostMessage(hwnd, WM_LBUTTONUP, 0, 0);
         lastClickWasDown = false;
     }
+
+    // Release the Block Hit sword block if we were holding it.
+    if (blocking_ && hwnd) {
+        PostMessage(hwnd, WM_RBUTTONUP, 0, 0);
+        blocking_ = false;
+    }
 }
 
 void AutoClicker::regenerateDelayRange() {
@@ -122,6 +128,15 @@ void AutoClicker::onUpdate() {
     // Only click when Minecraft window is focused (prevents issues with window resizing)
     if (hwnd != Overlay::gameWindow)
         return;
+
+    // Block Hit: hold the sword block around attacks while holding left-click.
+    {
+        bool bhActive = settings.blockHit && (GetAsyncKeyState(VK_LBUTTON) & 0x8000) != 0 && !mc.isInGui() &&
+                        isHoldingWeapon();
+        if (bhActive && settings.blockHitMode == 1)
+            bhActive = player.getHurtTime() > 0;  // Calculated: only block while taking hits
+        updateBlockHit(bhActive);
+    }
 
     // Not holding left mouse button - resync timeline to prevent burst on re-press
     if (!(GetAsyncKeyState(VK_LBUTTON) & 0x8000)) {
@@ -304,58 +319,27 @@ void AutoClicker::calculateNextDelay() {
     if (settings.stableCPS)
         return;
 
-    // Update humanization systems (only in randomized mode)
+    // Pick this click's full interval + hold fraction once per click cycle (at
+    // the start, when the button is up). The down/up phases split that interval.
     if (!lastClickWasDown) {
-        float targetCps = generateTargetCps(minCps, maxCps);
-        currentClickIntervalMs = 1000.0f / std::max(targetCps, 0.1f);
-
-        if (settings.randomizationMode == RandomizationMode::RANDOM) {
-            clickDownFraction = 0.5f;
-        } else if (settings.randomizationMode == RandomizationMode::SECURE_RANDOM) {
-            clickDownFraction = 0.38f + static_cast<float>(secureUnit()) * 0.12f;
+        if (settings.randomization) {
+            // Randomization ON = always human-style humanization.
+            updateFatigue();
+            updateBurstMode();
+            currentClickIntervalMs = generateHumanIntervalMs(minCps, maxCps);
+            float holdMs = 32.0f + static_cast<float>(secureUnit()) * 34.0f;
+            clickDownFraction = std::clamp(holdMs / std::max(currentClickIntervalMs, 1.0f), 0.15f, 0.6f);
         } else {
-            double a = secureUnit();
-            double b = secureUnit();
-            clickDownFraction = 0.27f + static_cast<float>((a + b) * 0.5) * 0.24f;
+            // Randomization OFF = plain uniform CPS in the band.
+            std::uniform_real_distribution<float> d(minCps, maxCps);
+            currentClickIntervalMs = 1000.0f / std::max(d(rng), 0.1f);
+            clickDownFraction = 0.5f;
         }
     }
 
     float phase = lastClickWasDown ? clickDownFraction : (1.0f - clickDownFraction);
     float delay = currentClickIntervalMs * phase;
     nextDelayMs = std::clamp(static_cast<int>(std::lround(delay)), 8, 500);
-    return;
-
-    // Add non-uniform jitter based on current mode
-    int jitterAmount = 0;
-    switch (currentJitterMode) {
-        case 0:  // No jitter
-            jitterAmount = 0;
-            break;
-        case 1:  // Small jitter Â±2ms
-        {
-            std::uniform_int_distribution<int> jitterDist(-2, 2);
-            jitterAmount = jitterDist(rng);
-        } break;
-        case 2:  // Medium jitter Â±5ms
-        {
-            std::uniform_int_distribution<int> jitterDist(-5, 5);
-            jitterAmount = jitterDist(rng);
-        } break;
-        case 3:  // Large jitter Â±12ms
-        {
-            std::uniform_int_distribution<int> jitterDist(-12, 12);
-            jitterAmount = jitterDist(rng);
-        } break;
-    }
-    delay += jitterAmount;
-
-    // Halve the delay because alternating pattern needs 2 calls per click
-    delay *= 0.5f;
-
-    // Clamp to sane values (these are per-event, not per-click)
-    nextDelayMs = static_cast<int>(delay);
-    nextDelayMs = (std::max)(nextDelayMs, 20);   // Min ~25 CPS
-    nextDelayMs = (std::min)(nextDelayMs, 100);  // Max ~5 CPS
 }
 
 void AutoClicker::reseedSecureRng() {
@@ -390,22 +374,65 @@ float AutoClicker::generateTargetCps(float minCps, float maxCps) {
         return distribution(rng);
     }
 
-    if (settings.randomizationMode == RandomizationMode::SECURE_RANDOM) {
-        return minCps + static_cast<float>(secureUnit()) * range;
-    }
+    // SECURE_RANDOM: bell-weighted (average of two secure draws) so it isn't a
+    // dead-flat uniform histogram, but keeps it simple. The Human mode has the
+    // full realistic model.
+    const float u = static_cast<float>((secureUnit() + secureUnit()) * 0.5);
+    return minCps + u * range;
+}
 
+// Human click interval (ms), full down-to-down. Models how a person actually
+// clicks: a tempo that slowly wanders, session fatigue, occasional bursts, and
+// log-normal jitter that gives the right-skewed, positively-kurtotic interval
+// distribution real humans produce — with hard bounds so it never emits an
+// impossible CPS peak, while still allowing natural slow pauses.
+float AutoClicker::generateHumanIntervalMs(float minCps, float maxCps) {
+    minCps = std::clamp(minCps, 1.0f, 20.0f);
+    maxCps = std::clamp(maxCps, minCps, 20.0f);
+
+    // Slowly-wandering tempo: re-target every few clicks toward a bell-weighted
+    // point in the band, then mean-revert (natural autocorrelation, not a fixed
+    // rate and not the too-rigid clamp the old "+" mode used).
     if (plusStateClicksRemaining <= 0) {
-        const float center = minCps + static_cast<float>((secureUnit() + secureUnit()) * 0.5) * range;
-        plusCpsState = std::clamp(center, minCps, maxCps);
-        plusStateClicksRemaining = 3 + static_cast<int>(secureUnit() * 10.0);
+        const double u = (secureUnit() + secureUnit() + secureUnit()) / 3.0;  // central tendency
+        const float target = minCps + static_cast<float>(u) * (maxCps - minCps);
+        plusCpsState = std::clamp(0.5f * plusCpsState + 0.5f * target, minCps, maxCps);
+        plusStateClicksRemaining = 4 + static_cast<int>(secureUnit() * 9.0);  // hold 4-12 clicks
+    }
+    --plusStateClicksRemaining;
+    const float center = (minCps + maxCps) * 0.5f;
+    const float step = static_cast<float>(secureUnit() - secureUnit()) * (maxCps - minCps) * 0.14f;
+    plusCpsState = std::clamp(plusCpsState + step + (center - plusCpsState) * 0.06f, minCps, maxCps);
+
+    float interval = 1000.0f / std::max(plusCpsState, 1.0f);
+    interval *= fatigueMultiplier;     // session fatigue: >1 = gradually slower
+    interval *= burstSpeedMultiplier;  // bursts: <1 = faster cluster, >1 = slower cluster
+
+    // Log-normal multiplicative jitter (Box-Muller normal in log space). This is
+    // what lifts the kurtosis and adds the right-hand tail humans have; the
+    // -0.5*sigma^2 term keeps the mean interval unbiased.
+    const double u1 = std::max(1e-9, secureUnit());
+    const double u2 = secureUnit();
+    const double z = std::sqrt(-2.0 * std::log(u1)) * std::cos(6.283185307179586 * u2);
+    const double sigma = 0.24;  // ~24% coefficient of variation (more human deviation)
+    interval *= static_cast<float>(std::exp(sigma * z - 0.5 * sigma * sigma));
+
+    // Rare human quirks.
+    const double q = secureUnit();
+    if (q < 0.03) {
+        // Hesitation / attention lapse — an occasional noticeably longer pause.
+        interval += 40.0f + static_cast<float>(secureUnit()) * 160.0f;
+    } else if (q < 0.05) {
+        // Quick double-tap — a shorter gap (still floored below).
+        interval *= 0.70f + static_cast<float>(secureUnit()) * 0.12f;
     }
 
-    --plusStateClicksRemaining;
-    const float randomWalk = static_cast<float>((secureUnit() - secureUnit()) * range * 0.18);
-    const float microVariation = static_cast<float>((secureUnit() + secureUnit() - 1.0) * range * 0.07);
-    const float centerPull = ((minCps + maxCps) * 0.5f - plusCpsState) * 0.08f;
-    plusCpsState = std::clamp(plusCpsState + randomWalk + centerPull, minCps, maxCps);
-    return std::clamp(plusCpsState + microVariation, minCps, maxCps);
+    // Hard bounds: floor prevents an impossible CPS peak (never faster than
+    // ~maxCps*1.08, and never under 48ms ≈ 20.8 CPS); ceiling still allows
+    // natural slow pauses down to ~45% of the min CPS.
+    const float hardFloor = std::max(1000.0f / (maxCps * 1.08f), 48.0f);
+    const float hardCeil = 1000.0f / std::max(minCps * 0.45f, 1.0f);
+    return std::clamp(interval, hardFloor, hardCeil);
 }
 
 void AutoClicker::doClick() {
@@ -420,6 +447,25 @@ void AutoClicker::doClick() {
     } else {
         PostMessage(hwnd, WM_LBUTTONDOWN, MK_LBUTTON, 0);
         lastClickWasDown = true;
+    }
+}
+
+void AutoClicker::updateBlockHit(bool active) {
+    HWND hwnd = GetForegroundWindow();
+    // Never leave the block held if we lose focus / go inactive.
+    if (!hwnd || hwnd != Overlay::gameWindow) {
+        if (blocking_ && hwnd) {
+            PostMessage(hwnd, WM_RBUTTONUP, 0, 0);
+            blocking_ = false;
+        }
+        return;
+    }
+    if (active && !blocking_) {
+        PostMessage(hwnd, WM_RBUTTONDOWN, MK_RBUTTON, 0);  // start blocking (sword raise)
+        blocking_ = true;
+    } else if (!active && blocking_) {
+        PostMessage(hwnd, WM_RBUTTONUP, 0, 0);
+        blocking_ = false;
     }
 }
 
@@ -603,7 +649,7 @@ void AutoClicker::updateJitterMode() {
 }
 
 void AutoClicker::onRenderMenu() {
-    static const char* randomizationModes[] = {"Random", "SecureRandom", "SecureRandom+"};
+    static const char* randomizationModes[] = {"Random", "SecureRandom", "Human"};
     bool enabledValue = enabled;
     int randomizationMode = static_cast<int>(settings.randomizationMode);
     ui::two_column(
@@ -631,12 +677,9 @@ void AutoClicker::onRenderMenu() {
                 float maxLimit = 20.0f;
                 ui::SliderFloat("Min CPS", &settings.minCPS, 1.0f, 20.0f, &minLimit, &settings.maxCPS, "%.1f");
                 ui::SliderFloat("Max CPS", &settings.maxCPS, 1.0f, 20.0f, &settings.minCPS, &maxLimit, "%.1f");
-                if (ui::Combo("Randomization", &randomizationMode, randomizationModes,
-                              IM_ARRAYSIZE(randomizationModes))) {
-                    settings.randomizationMode = static_cast<RandomizationMode>(randomizationMode);
-                    plusStateClicksRemaining = 0;
-                    calculateNextDelay();
-                }
+                (void)randomizationMode;
+                (void)randomizationModes;
+                ui::Checkbox("Randomization", &settings.randomization);
             }
         },
         "Conditions",
@@ -645,22 +688,18 @@ void AutoClicker::onRenderMenu() {
             ui::Checkbox("Weapon Only", &settings.weaponOnly);
             ui::Checkbox("Break Blocks", &settings.breakBlocks);
             ui::Checkbox("Inventory", &settings.workInInventory);
+            ui::Checkbox("Block Hit", &settings.blockHit);
+            if (settings.blockHit) {
+                static const char* bhModes[] = {"Constant", "Calculated"};
+                ui::Combo("Block Mode", &settings.blockHitMode, bhModes, IM_ARRAYSIZE(bhModes));
+            }
         });
 }
 
 std::string AutoClicker::getDisplayInfo() {
     if (settings.stableCPS)
         return "Stable";
-
-    switch (settings.randomizationMode) {
-        case RandomizationMode::RANDOM:
-            return "Random";
-        case RandomizationMode::SECURE_RANDOM:
-            return "SecureRandom";
-        case RandomizationMode::SECURE_RANDOM_PLUS:
-            return "SecureRandom+";
-    }
-    return "Random";
+    return "";
 }
 
 
@@ -672,6 +711,7 @@ void AutoClicker::saveSettings(json::Value& node) const {
     node["breakBlocks"] = settings.breakBlocks;
     node["workInInventory"] = settings.workInInventory;
     node["randomizationMode"] = static_cast<int>(settings.randomizationMode);
+    node["randomization"] = settings.randomization;
     node["stableCps"] = settings.stableCPS;
     node["stableCpsValue"] = settings.stableCPSValue;
     node["advancedMode"] = settings.advancedMode;
@@ -680,6 +720,8 @@ void AutoClicker::saveSettings(json::Value& node) const {
     node["spikeMultiplier"] = settings.spikeMultiplier;
     node["kurtosis"] = settings.kurtosis;
     node["attackingOnly"] = settings.attackingOnly;
+    node["blockHit"] = settings.blockHit;
+    node["blockHitMode"] = settings.blockHitMode;
 }
 
 void AutoClicker::loadSettings(const json::Value& node) {
@@ -690,6 +732,7 @@ void AutoClicker::loadSettings(const json::Value& node) {
     settings.workInInventory = node["workInInventory"].as_bool(settings.workInInventory);
     settings.randomizationMode = static_cast<RandomizationMode>(
         (std::clamp)(node["randomizationMode"].as_int(static_cast<int>(settings.randomizationMode)), 0, 2));
+    settings.randomization = node["randomization"].as_bool(settings.randomization);
     settings.stableCPS = node["stableCps"].as_bool(settings.stableCPS);
     settings.stableCPSValue = node["stableCpsValue"].as_float(settings.stableCPSValue);
     settings.advancedMode = node["advancedMode"].as_bool(settings.advancedMode);
@@ -698,4 +741,6 @@ void AutoClicker::loadSettings(const json::Value& node) {
     settings.spikeMultiplier = node["spikeMultiplier"].as_float(settings.spikeMultiplier);
     settings.kurtosis = node["kurtosis"].as_float(settings.kurtosis);
     settings.attackingOnly = node["attackingOnly"].as_bool(settings.attackingOnly);
+    settings.blockHit = node["blockHit"].as_bool(settings.blockHit);
+    settings.blockHitMode = node["blockHitMode"].as_int(settings.blockHitMode);
 }

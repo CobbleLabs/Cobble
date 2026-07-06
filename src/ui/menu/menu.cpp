@@ -4,6 +4,7 @@
 #include "menu.h"
 #include "../../cobble.hpp"
 #include "../../config/config.hpp"
+#include "../../spectate/spectate.hpp"
 #include "../../module/combat/aimassist.h"
 #include "../../module/combat/aimbow.h"
 #include "../../module/combat/autoclicker.h"
@@ -51,6 +52,7 @@
 #include "../../util/team/friends_manager.h"
 #include "../hud/arraylist.h"
 #include "../hud/watermark.h"
+#include "../../module/visual/target_hud.h"
 #include "../hud/notifications.h"
 #include "../widgets/icons.hpp"
 #include "../widgets/theme.hpp"
@@ -119,6 +121,8 @@ Module* getModuleForSubtab(int tabIdx, int subtabIdx) {
                 return nullptr;  // Notifications - special handling
             case 10:
                 return nullptr;  // Watermark - special handling
+            case 11:
+                return targetHud;
         }
     }
     // Movement Tab (2): Timer, TimerRange, NoSlowDown, NoJumpDelay, Sprint
@@ -361,6 +365,262 @@ static void renderSettingsPage() {
         }
         ui::end_child();
     }
+    ImGui::EndGroup();
+}
+
+// Spectate tab content - Cobble Spectate: privacy, player browser, live view.
+static void renderSpectatePage() {
+    auto& sm = SpectateManager::get();
+
+    static double specLastPoll = 0.0;
+    constexpr double kSpecPoll = 5.0;
+    static std::string specSelected;         // selected target username
+    static bool showOtherSpectators = true;  // include players who are themselves spectating
+
+    double nowT = ImGui::GetTime();
+    if (nowT - specLastPoll >= kSpecPoll) {
+        sm.refreshListAsync();
+        specLastPoll = nowT;
+    }
+
+    // Privacy toggles + "who is watching you" counter. Set every frame (atomic).
+    {
+        bool allow = sm.allowSpectate();
+        ui::Checkbox("Allow others to spectate me", &allow);
+        sm.setAllowSpectate(allow);
+
+        bool cfg = sm.allowConfigView();
+        ui::Checkbox("Allow spectators to view my config", &cfg);
+        sm.setAllowConfigView(cfg);
+
+        if (sm.allowSpectate()) {
+            ImGui::SameLine();
+            ImGui::Text("     Spectators watching you: %d", sm.spectatorCount());
+        }
+    }
+    ImGui::Spacing();
+    ImGui::Separator();
+    ImGui::Spacing();
+
+    const float colW =
+        (ImGui::GetWindowWidth() - GImGui->Style.WindowPadding.x * 2) / 2 - GImGui->Style.ItemSpacing.x / 2;
+    const float colH = ImGui::GetContentRegionAvail().y;
+
+    // ── Active spectate session: live telemetry view + entity radar ──
+    if (sm.isSpectating()) {
+        spectate::SpectateSnapshot snap;
+        bool have = sm.getLatestSnapshot(snap);
+
+        ImGui::BeginGroup();
+        ui::begin_child("SpectateView", {colW, colH});
+        {
+            ImGui::Text("Spectating: %s", sm.currentTarget().c_str());
+            ImGui::SameLine();
+            {
+                // Live indicator: a growing frame count means frames are flowing.
+                bool live = (sm.framesReceived() % 2) == 0;
+                ImGui::TextColored(sm.framesReceived() > 0 ? (live ? ImVec4(0.4f, 0.9f, 0.4f, 1) : ImVec4(0.3f, 0.8f, 0.3f, 1))
+                                                           : ImVec4(0.9f, 0.5f, 0.3f, 1),
+                                   "  [frames: %u]", sm.framesReceived());
+            }
+            ImGui::Spacing();
+            ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetColorU32(ImGuiCol_TextDisabled));
+            if (have) {
+                ImGui::Text("Health: %.1f", snap.health);
+                ImGui::Text("Pos: %.0f, %.0f, %.0f", snap.x, snap.y, snap.z);
+                if (!snap.activity.empty())
+                    ImGui::Text("Activity: %s", snap.activity.c_str());
+                ImGui::Text("Entities: %d   Blocks: %d", (int)snap.entities.size(), (int)snap.blocks.size());
+            } else {
+                ImGui::TextWrapped("Waiting for frames...");
+            }
+            ImGui::PopStyleColor();
+            ImGui::Spacing();
+            if (ImGui::Button("Stop Spectating", ImVec2(ImGui::GetContentRegionAvail().x, 0)))
+                sm.stopSpectating();
+        }
+        ui::end_child();
+        ImGui::EndGroup();
+
+        ImGui::SameLine();
+
+        ImGui::BeginGroup();
+        ui::begin_child("SpectateRadar", {colW, colH});
+        {
+            ImGui::Text("World (third-person)");
+            ImVec2 avail = ImGui::GetContentRegionAvail();
+            float side = avail.x < avail.y ? avail.x : avail.y;
+            if (side < ui::s(80))
+                side = ui::s(80);
+            ImVec2 p0 = ImGui::GetCursorScreenPos();
+            ImVec2 vc = ImVec2(p0.x + side * 0.5f, p0.y + side * 0.5f);
+            ImDrawList* dl = ImGui::GetWindowDrawList();
+            dl->AddRectFilled(p0, ImVec2(p0.x + side, p0.y + side), IM_COL32(24, 26, 32, 255), 4.0f);
+            dl->AddRect(p0, ImVec2(p0.x + side, p0.y + side), ImGui::GetColorU32(ImGuiCol_Border), 4.0f);
+            dl->PushClipRect(p0, ImVec2(p0.x + side, p0.y + side), true);
+
+            if (have) {
+                // Third-person perspective camera: sits behind the host along its
+                // look vector, looking the same way. Real 3D projection.
+                const float d2r = 3.14159265f / 180.0f;
+                const float cyaw = snap.yaw * d2r, cpitch = snap.pitch * d2r;
+                const float fx = -std::sin(cyaw) * std::cos(cpitch);
+                const float fy = -std::sin(cpitch);
+                const float fz = std::cos(cyaw) * std::cos(cpitch);
+                float rx = -fz, rz = fx;  // right = normalize(cross(fwd, up))
+                float rl = std::sqrt(rx * rx + rz * rz);
+                if (rl < 1e-4f)
+                    rl = 1.0f;
+                rx /= rl;
+                rz /= rl;
+                const float ux = -rz * fy, uy = rz * fx - rx * fz, uz = rx * fy;  // up = cross(right, fwd)
+                const float camDist = 4.5f, focal = side * 0.85f;
+                const double ehx = snap.x, ehy = snap.y + 1.62, ehz = snap.z;  // host eye
+                const double cpx = ehx - fx * camDist, cpy = ehy - fy * camDist, cpz = ehz - fz * camDist;
+
+                auto project = [&](double wx, double wy, double wz, float& ox, float& oy, float& depth) -> bool {
+                    double relx = wx - cpx, rely = wy - cpy, relz = wz - cpz;
+                    double cz = relx * fx + rely * fy + relz * fz;
+                    if (cz < 0.1)
+                        return false;
+                    double cx = relx * rx + relz * rz;              // right has no y
+                    double cy = relx * ux + rely * uy + relz * uz;  // up
+                    ox = vc.x + (float)(cx / cz) * focal;
+                    oy = vc.y - (float)(cy / cz) * focal;
+                    depth = (float)cz;
+                    return true;
+                };
+
+                struct BV { float x, y, depth; ImU32 col; };
+                std::vector<BV> vis;
+                vis.reserve(4096);
+                for (const auto& b : snap.blocks) {
+                    double wx = (double)snap.originX + b.dx, wy = (double)snap.originY + b.dy,
+                           wz = (double)snap.originZ + b.dz;
+                    float ox, oy, od;
+                    if (!project(wx, wy, wz, ox, oy, od))
+                        continue;
+                    if (ox < p0.x - 30 || ox > p0.x + side + 30 || oy < p0.y - 30 || oy > p0.y + side + 30)
+                        continue;
+                    ImU32 col = IM_COL32(60 + (b.id * 37) % 170, 60 + (b.id * 61) % 170, 60 + (b.id * 97) % 170, 255);
+                    vis.push_back({ox, oy, od, col});
+                    if (vis.size() >= 5000)
+                        break;
+                }
+                std::sort(vis.begin(), vis.end(), [](const BV& a, const BV& b) { return a.depth > b.depth; });
+                for (const auto& v : vis) {
+                    float s = focal / v.depth * 0.55f;
+                    if (s < 1.0f) s = 1.0f;
+                    if (s > 42.0f) s = 42.0f;
+                    dl->AddRectFilled(ImVec2(v.x - s * 0.5f, v.y - s * 0.5f), ImVec2(v.x + s * 0.5f, v.y + s * 0.5f),
+                                      v.col);
+                }
+
+                // Host avatar (feet -> head).
+                float fxs, fys, fdd, hxs, hys, hdd;
+                if (project(snap.x, snap.y, snap.z, fxs, fys, fdd) &&
+                    project(snap.x, snap.y + 1.8, snap.z, hxs, hys, hdd)) {
+                    float lw = focal / fdd * 0.30f;
+                    dl->AddLine(ImVec2(fxs, fys), ImVec2(hxs, hys), IM_COL32(90, 200, 255, 255), lw < 2 ? 2 : lw);
+                    dl->AddCircleFilled(ImVec2(hxs, hys), lw < 3 ? 3 : lw * 0.6f, IM_COL32(120, 210, 255, 255));
+                }
+
+                // Entities.
+                for (const auto& e : snap.entities) {
+                    float ox, oy, od;
+                    if (!project(e.x, e.y, e.z, ox, oy, od))
+                        continue;
+                    float s = focal / od * 0.4f;
+                    if (s < 2.0f) s = 2.0f;
+                    if (s > 22.0f) s = 22.0f;
+                    ImU32 col = e.type == 0 ? IM_COL32(255, 90, 90, 255) : IM_COL32(255, 210, 90, 255);
+                    dl->AddCircleFilled(ImVec2(ox, oy), s, col);
+                }
+            }
+            dl->PopClipRect();
+            ImGui::Dummy(ImVec2(side, side));
+        }
+        ui::end_child();
+        ImGui::EndGroup();
+        return;
+    }
+
+    // ── Not spectating: player browser ──
+    auto browse = sm.getBrowseState();
+    bool busy = (browse.status == SpectateManager::BrowseState::Loading);
+
+    std::vector<const SpectateManager::BrowseEntry*> visible;
+    for (const auto& e : browse.entries) {
+        if (!showOtherSpectators && e.isSpectator)
+            continue;
+        visible.push_back(&e);
+    }
+    const SpectateManager::BrowseEntry* sel = nullptr;
+    for (auto* e : visible) {
+        if (e->username == specSelected) {
+            sel = e;
+            break;
+        }
+    }
+    if (!sel)
+        specSelected.clear();
+
+    ImGui::BeginGroup();
+    ui::begin_child("SpectateList", {colW, colH});
+    {
+        ui::Checkbox("Show other spectators", &showOtherSpectators);
+        ImGui::Spacing();
+        if (visible.empty()) {
+            ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetColorU32(ImGuiCol_TextDisabled));
+            ImGui::TextWrapped("%s", browse.entries.empty() ? "No players available to spectate." : "");
+            ImGui::PopStyleColor();
+        }
+        const float cardH = ui::s(46);
+        const float pad = ui::s(6);
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        for (auto* e : visible) {
+            ImGui::PushID(e->username.c_str());
+            ImVec2 cp = ImGui::GetCursorScreenPos();
+            if (ImGui::Selectable("##srow", e->username == specSelected, 0, ImVec2(0, cardH)))
+                specSelected = e->username;
+            dl->AddText(ImVec2(cp.x + pad, cp.y + pad), ImGui::GetColorU32(ImGuiCol_Text), e->username.c_str());
+            std::string sub = (e->activity.empty() ? std::string("In game") : e->activity) + "   \xC2\xB7   " +
+                              std::to_string(e->spectatorCount) + " watching";
+            dl->AddText(ImVec2(cp.x + pad, cp.y + pad + ui::s(20)), ImGui::GetColorU32(ImGuiCol_TextDisabled),
+                        sub.c_str());
+            ImGui::PopID();
+        }
+    }
+    ui::end_child();
+    ImGui::EndGroup();
+
+    ImGui::SameLine();
+
+    ImGui::BeginGroup();
+    ui::begin_child("SpectateDetail", {colW, colH});
+    {
+        if (sel) {
+            ImGui::Text("%s", sel->username.c_str());
+            ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetColorU32(ImGuiCol_TextDisabled));
+            ImGui::TextWrapped("%s", sel->activity.empty() ? "In game" : sel->activity.c_str());
+            ImGui::Text("%d watching", sel->spectatorCount);
+            ImGui::PopStyleColor();
+            ImGui::Spacing();
+            if (ImGui::Button("Spectate", ImVec2(ImGui::GetContentRegionAvail().x, 0)) && !busy)
+                sm.startSpectatingAsync(sel->username);
+        } else {
+            ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetColorU32(ImGuiCol_TextDisabled));
+            ImGui::TextWrapped("Select a player to spectate.");
+            ImGui::PopStyleColor();
+        }
+        if (!browse.message.empty()) {
+            ImGui::Spacing();
+            ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetColorU32(ImGuiCol_TextDisabled));
+            ImGui::TextWrapped("%s", browse.message.c_str());
+            ImGui::PopStyleColor();
+        }
+    }
+    ui::end_child();
     ImGui::EndGroup();
 }
 
@@ -1198,6 +1458,7 @@ static void renderPage() {
     // Special tabs (no subtabs)
     const int settingsIdx = (int)ui::tabs.size() - 1;
     const int configsIdx = settingsIdx - 1;
+    const int spectateIdx = settingsIdx - 2;
 
     // Used to trigger a one-shot refresh when entering the Configs tab.
     static int s_prevTab = -1;
@@ -1209,6 +1470,11 @@ static void renderPage() {
     if (ui::cur_tab == settingsIdx) {
         ui::SetDescriptionContext("Settings");
         renderSettingsPage();
+        return;
+    }
+    if (ui::cur_tab == spectateIdx) {
+        ui::SetDescriptionContext("Spectate");
+        renderSpectatePage();
         return;
     }
     if (ui::cur_tab == configsIdx) {

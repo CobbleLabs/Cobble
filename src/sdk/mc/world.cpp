@@ -338,3 +338,200 @@ Minecraft::RAYTRACE_BLOCKS_RESULT Minecraft::rayTraceBlocks(Vec3 from, Vec3 dire
 
     return RAYTRACE_BLOCKS_RESULT::RAYTRACE_ERROR;
 }
+
+// =============================================================================
+// captureBlocks - bulk read non-air blocks around an origin (Cobble Spectate)
+//
+// Reads the raw ExtendedBlockStorage char[] palette per 16x16x16 chunk section
+// (one GetCharArrayRegion per section) instead of one getBlockState call per
+// block — the difference between a few hundred JNI calls and millions. Block id
+// = stateId >> 4 (vanilla 1.8 palette). All JNI is guarded; on any resolution
+// failure it disables itself so `out` just stays empty (view degrades to
+// telemetry + entities) rather than crashing.
+// =============================================================================
+
+void Minecraft::captureBlocks(int radiusXZ, int radiusY, int originX, int originY, int originZ, size_t maxBlocks,
+                              std::vector<BlockSample>& out) {
+    out.clear();
+    if (!isValid())
+        return;
+    // Section-array layout is 1.8+; 1.7.10 stores blocks differently.
+    if (Java::Version == MinecraftVersion::MC_1_7_10)
+        return;
+
+    JNIEnv* env = Java::Env();
+    if (!env)
+        return;
+
+    jobject world = getWorld();
+    if (!world)
+        return;
+
+    // Resolve+cache method IDs once. state: 0=unknown, 1=ready, 2=unavailable.
+    static int state = 0;
+    static jmethodID mid_getChunk = nullptr;
+    static jmethodID mid_getStorage = nullptr;
+    static jmethodID mid_getData = nullptr;
+    if (state == 2)
+        return;
+
+    if (!mid_getChunk) {
+        jclass worldCls = env->GetObjectClass(world);
+        mid_getChunk = env->GetMethodID(worldCls, OBFUSCATE_STRING("getChunkFromChunkCoords").c_str(),
+                                        OBFUSCATE_STRING("(II)Lnet/minecraft/world/chunk/Chunk;").c_str());
+        if (!mid_getChunk) {
+            env->ExceptionClear();
+            mid_getChunk = env->GetMethodID(worldCls, OBFUSCATE_STRING("func_72964_e").c_str(),
+                                            OBFUSCATE_STRING("(II)Lnet/minecraft/world/chunk/Chunk;").c_str());
+        }
+        if (worldCls)
+            env->DeleteLocalRef(worldCls);
+        if (!mid_getChunk) {
+            env->ExceptionClear();
+            state = 2;
+            return;
+        }
+        state = 1;
+    }
+
+    const int minX = originX - radiusXZ, maxX = originX + radiusXZ;
+    const int minZ = originZ - radiusXZ, maxZ = originZ + radiusXZ;
+    const int minY = (originY - radiusY < 0) ? 0 : (originY - radiusY);
+    const int maxY = (originY + radiusY > 255) ? 255 : (originY + radiusY);
+    const int cxMin = minX >> 4, cxMax = maxX >> 4;
+    const int czMin = minZ >> 4, czMax = maxZ >> 4;
+
+    for (int cx = cxMin; cx <= cxMax; ++cx) {
+        for (int cz = czMin; cz <= czMax; ++cz) {
+            if (out.size() >= maxBlocks)
+                return;
+            if (env->PushLocalFrame(64) < 0)
+                return;
+
+            jobject chunk = env->CallObjectMethod(world, mid_getChunk, cx, cz);
+            if (env->ExceptionCheck()) {
+                env->ExceptionClear();
+                chunk = nullptr;
+            }
+            if (!chunk) {
+                env->PopLocalFrame(nullptr);
+                continue;
+            }
+
+            if (!mid_getStorage) {
+                jclass chunkCls = env->GetObjectClass(chunk);
+                mid_getStorage =
+                    env->GetMethodID(chunkCls, OBFUSCATE_STRING("getBlockStorageArray").c_str(),
+                                     OBFUSCATE_STRING("()[Lnet/minecraft/world/chunk/storage/ExtendedBlockStorage;").c_str());
+                if (!mid_getStorage) {
+                    env->ExceptionClear();
+                    mid_getStorage =
+                        env->GetMethodID(chunkCls, OBFUSCATE_STRING("func_76587_i").c_str(),
+                                         OBFUSCATE_STRING("()[Lnet/minecraft/world/chunk/storage/ExtendedBlockStorage;").c_str());
+                }
+                if (chunkCls)
+                    env->DeleteLocalRef(chunkCls);
+                if (!mid_getStorage) {
+                    env->ExceptionClear();
+                    env->PopLocalFrame(nullptr);
+                    state = 2;
+                    return;
+                }
+            }
+
+            jobjectArray storArray = (jobjectArray)env->CallObjectMethod(chunk, mid_getStorage);
+            if (env->ExceptionCheck()) {
+                env->ExceptionClear();
+                storArray = nullptr;
+            }
+            if (!storArray) {
+                env->PopLocalFrame(nullptr);
+                continue;
+            }
+
+            const jsize nSec = env->GetArrayLength(storArray);
+            for (jsize si = 0; si < nSec; ++si) {
+                const int baseY = (int)si * 16;
+                if (baseY + 15 < minY || baseY > maxY)
+                    continue;
+
+                jobject section = env->GetObjectArrayElement(storArray, si);
+                if (!section)
+                    continue;  // empty section = all air
+
+                if (!mid_getData) {
+                    jclass secCls = env->GetObjectClass(section);
+                    mid_getData = env->GetMethodID(secCls, OBFUSCATE_STRING("getData").c_str(),
+                                                   OBFUSCATE_STRING("()[C").c_str());
+                    if (!mid_getData) {
+                        env->ExceptionClear();
+                        mid_getData = env->GetMethodID(secCls, OBFUSCATE_STRING("func_177487_g").c_str(),
+                                                       OBFUSCATE_STRING("()[C").c_str());
+                    }
+                    if (secCls)
+                        env->DeleteLocalRef(secCls);
+                    if (!mid_getData) {
+                        env->ExceptionClear();
+                        env->DeleteLocalRef(section);
+                        env->PopLocalFrame(nullptr);
+                        state = 2;
+                        return;
+                    }
+                }
+
+                jcharArray dataArr = (jcharArray)env->CallObjectMethod(section, mid_getData);
+                if (env->ExceptionCheck()) {
+                    env->ExceptionClear();
+                    dataArr = nullptr;
+                }
+                if (!dataArr) {
+                    env->DeleteLocalRef(section);
+                    continue;
+                }
+
+                if (env->GetArrayLength(dataArr) >= 4096) {
+                    jchar buf[4096];
+                    env->GetCharArrayRegion(dataArr, 0, 4096, buf);
+                    if (env->ExceptionCheck()) {
+                        env->ExceptionClear();
+                    } else {
+                        for (int ly = 0; ly < 16; ++ly) {
+                            const int wy = baseY + ly;
+                            if (wy < minY || wy > maxY)
+                                continue;
+                            for (int lz = 0; lz < 16; ++lz) {
+                                const int wz = (cz << 4) + lz;
+                                if (wz < minZ || wz > maxZ)
+                                    continue;
+                                for (int lx = 0; lx < 16; ++lx) {
+                                    const int wx = (cx << 4) + lx;
+                                    if (wx < minX || wx > maxX)
+                                        continue;
+                                    const jchar v = buf[(ly << 8) | (lz << 4) | lx];
+                                    const int id = v >> 4;
+                                    if (id == 0)
+                                        continue;  // air
+                                    BlockSample b;
+                                    b.dx = (int16_t)(wx - originX);
+                                    b.dy = (int16_t)(wy - originY);
+                                    b.dz = (int16_t)(wz - originZ);
+                                    b.id = (uint16_t)id;
+                                    out.push_back(b);
+                                    if (out.size() >= maxBlocks) {
+                                        env->DeleteLocalRef(dataArr);
+                                        env->DeleteLocalRef(section);
+                                        env->PopLocalFrame(nullptr);
+                                        return;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                env->DeleteLocalRef(dataArr);
+                env->DeleteLocalRef(section);
+            }
+            env->PopLocalFrame(nullptr);
+        }
+    }
+}

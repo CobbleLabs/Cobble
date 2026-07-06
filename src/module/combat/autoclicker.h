@@ -7,7 +7,7 @@
 
 class AutoClicker : public Module {
 public:
-    enum class RandomizationMode { RANDOM, SECURE_RANDOM, SECURE_RANDOM_PLUS };
+    enum class RandomizationMode { RANDOM, SECURE_RANDOM, HUMAN };
 
     AutoClicker();
 
@@ -25,7 +25,8 @@ public:
         bool weaponOnly = false;
         bool breakBlocks = false;  // Skip clicking when targeting block
         bool workInInventory = true;
-        RandomizationMode randomizationMode = RandomizationMode::SECURE_RANDOM;
+        RandomizationMode randomizationMode = RandomizationMode::HUMAN;
+        bool randomization = true;  // ON = human humanization; OFF = plain uniform CPS
 
         // Stable CPS mode - no randomization, exact CPS
         bool stableCPS = false;
@@ -40,6 +41,12 @@ public:
 
         // Anti-detection
         bool attackingOnly = false;  // Only click when player in crosshair
+
+        // Block hit: hold right-click (sword block) around attacks. Constant =
+        // always block while clicking a sword; Calculated = only block when
+        // actually taking hits (reacts to incoming damage).
+        bool blockHit = false;
+        int blockHitMode = 0;  // 0 = Constant, 1 = Calculated
     } settings;
 
 private:
@@ -90,6 +97,7 @@ public:
     void calculateNextDelay();
     void regenerateDelayRange();
     void doClick();
+    void updateBlockHit(bool active);  // hold/release the sword block for Block Hit
 
     // Humanization
     void updateFatigue();
@@ -98,6 +106,7 @@ public:
     void reseedSecureRng();
     double secureUnit();
     float generateTargetCps(float minCps, float maxCps);
+    float generateHumanIntervalMs(float minCps, float maxCps);
 
     // Checks
     bool isHoldingWeapon();
@@ -107,6 +116,7 @@ public:
 
 private:
     float delayAccumulator = 0.0f;
+    bool blocking_ = false;  // true while the Block Hit right-click is held
 };
 
 extern AutoClicker* autoClicker;

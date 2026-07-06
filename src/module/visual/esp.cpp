@@ -6,6 +6,7 @@
 #include "../../sdk/core/minecraft.h"
 #include "../../sdk/player/visual_cache.h"
 #include "../../sdk/player/render_data.h"
+#include "../../util/health_predictor.hpp"
 #include "../../ui/widgets/widgets.hpp"
 #include "../../util/diagnostics.hpp"
 #include "../../util/logger.hpp"

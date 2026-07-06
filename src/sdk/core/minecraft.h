@@ -1,6 +1,7 @@
 #pragma once
 
 #include <atomic>
+#include <cstdint>
 #include <map>
 #include <string>
 #include <vector>
@@ -92,6 +93,13 @@ struct RenderPos {
     double x = 0.0;
     double y = 0.0;
     double z = 0.0;
+};
+
+// One captured non-air block for a Cobble Spectate world snapshot. Coordinates
+// are relative to the snapshot origin (host position).
+struct BlockSample {
+    int16_t dx = 0, dy = 0, dz = 0;
+    uint16_t id = 0;
 };
 
 // Item slot info for inventory operations
@@ -190,6 +198,13 @@ struct Minecraft {
     // World block query for Bridge Assist
     // Returns block ID at given coordinates (0 = air)
     int getBlockId(int x, int y, int z);
+
+    // Bulk-capture non-air blocks in a box around (originX,originY,originZ) by
+    // reading chunk-section arrays directly (Cobble Spectate world snapshots).
+    // Best-effort: leaves `out` empty if the JNI chunk layout can't be resolved.
+    // Must run on the JVM thread.
+    void captureBlocks(int radiusXZ, int radiusY, int originX, int originY, int originZ, size_t maxBlocks,
+                       std::vector<BlockSample>& out);
     bool damageBlock(int x, int y, int z);
 
     // Damage the block under the crosshair using the game's own objectMouseOver

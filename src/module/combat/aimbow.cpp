@@ -271,11 +271,26 @@ void AimBow::onUpdate() {
     }
     hasTarget = true;
 
-    // Per-tick velocity for movement prediction. Horizontal only — leading the
-    // vertical axis makes the camera jerk up/down because vertical velocity is
-    // noisy (jumps, server position updates).
-    const double vx = tX - tLX;
-    const double vz = tZ - tLZ;
+    // Movement prediction (horizontal only — vertical lead jerks the camera).
+    // Raw per-tick deltas are 0 on most ticks and spike when the server sends a
+    // position update, which makes naive prediction useless. Reject teleport/
+    // target-switch spikes and EMA the rest so the lead is smooth and accurate:
+    // motion frames pull the estimate faster, idle frames decay it slowly (so it
+    // persists between the server's sparse updates).
+    {
+        const double rawVx = tX - tLX;
+        const double rawVz = tZ - tLZ;
+        if (std::fabs(rawVx) > 1.5 || std::fabs(rawVz) > 1.5) {
+            smoothVx_ = 0.0;  // teleport / switch / server correction — don't lead on it
+            smoothVz_ = 0.0;
+        } else {
+            const double a = (std::fabs(rawVx) + std::fabs(rawVz) > 0.002) ? 0.35 : 0.06;
+            smoothVx_ += (rawVx - smoothVx_) * a;
+            smoothVz_ += (rawVz - smoothVz_) * a;
+        }
+    }
+    const double vx = smoothVx_;
+    const double vz = smoothVz_;
     const double pstr = settings.predict ? (double)settings.predictStrength : 0.0;
 
     // Iteratively solve: predict target position at time-of-flight, then re-solve

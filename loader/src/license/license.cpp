@@ -477,8 +477,8 @@ bool FetchPayloadKey(const std::string& serverUrl) {
         return false;
     }
 
-    DWORD timeout = 5000;
-    ConfigureInternet(hInternet, timeout);
+    DWORD timeout = 15000;  // 5s was too tight: a cold TLS handshake through Cloudflare on a
+    ConfigureInternet(hInternet, timeout);  // fresh PC (e.g. after HWID reset) can exceed it -> E12002
 
     URL_COMPONENTSA urlComp = {0};
     urlComp.dwStructSize = sizeof(urlComp);
@@ -650,8 +650,8 @@ bool Verify(const std::string& serverUrl) {
         return false;
     }
 
-    DWORD timeout = 5000;
-    ConfigureInternet(hInternet, timeout);
+    DWORD timeout = 15000;  // 5s was too tight: a cold TLS handshake through Cloudflare on a
+    ConfigureInternet(hInternet, timeout);  // fresh PC (e.g. after HWID reset) can exceed it -> E12002
 
     URL_COMPONENTSA urlComp = {0};
     urlComp.dwStructSize = sizeof(urlComp);
@@ -914,7 +914,7 @@ bool LoginWithCredentials(const std::string& serverUrl, const std::string& usern
         return false;
     }
 
-    DWORD timeout = 8000;
+    DWORD timeout = 15000;  // was 8000; matched to the verify path so a slow cold connect can't E12002
     ConfigureInternet(hInternet, timeout);
 
     URL_COMPONENTSA urlComp = {0};

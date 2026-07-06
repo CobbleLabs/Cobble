@@ -139,10 +139,12 @@
     <ClCompile Include="src\ui\hud\notifications.cpp" />
     <ClCompile Include="src\ui\hud\arraylist.cpp" />
     <ClCompile Include="src\ui\hud\watermark.cpp" />
+    <ClCompile Include="src\module\visual\target_hud.cpp" />
     <ClCompile Include="src\ui\widgets\widgets.cpp" />
     <ClCompile Include="src\ui\widgets\theme.cpp" />
     <!-- Config system -->
     <ClCompile Include="src\config\config.cpp" />
+    <ClCompile Include="src\spectate\spectate.cpp" />
     <!-- Utilities -->
     <ClCompile Include="src\util\math\math.cpp" />
     <ClCompile Include="src\util\math\worldToScreen.cpp" />

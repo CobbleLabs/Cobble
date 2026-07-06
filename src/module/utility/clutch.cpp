@@ -98,6 +98,7 @@ void resolveC03(JNIEnv* env) {
 Clutch::Clutch() : Module("Clutch") {
     renders = true;
     usesPlayerCache = true;
+    locked = true;  // Bloqueado: la mecánica se ve artificial/imposible por ahora
 }
 
 Clutch::~Clutch() {

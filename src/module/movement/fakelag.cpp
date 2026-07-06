@@ -72,7 +72,7 @@ bool packetClassContains(JNIEnv* env, jobject packet, const char* needle) {
 
 FakeLag::FakeLag() : Module("FakeLag") {
     renders = true;
-    locked = false;
+    locked = true;  // Bloqueado
 }
 
 FakeLag::~FakeLag() {
@@ -245,26 +245,14 @@ bool FakeLag::queuePacket(JNIEnv* env, jobject packet, bool movement) {
         }
     }
 
-    if (hasPopped) {
-        if (poppedEntry.packet) {
-            // This send happens on the outgoing-gate thread and re-enters the
-            // gate via addToSendQueue. Mark FakeLag as releasing so the nested
-            // gate pass short-circuits instead of re-processing/re-queuing the
-            // same movement packet (which caused recursion, duplicate/out-of-
-            // order positions, and crashes). Restore the prior flag value so we
-            // never clear a release in progress on another thread.
-            const bool wasReleasing = releasing_.exchange(true, std::memory_order_acq_rel);
-            mc.sendPacket(poppedEntry.packet);
-            releasing_.store(wasReleasing, std::memory_order_release);
-            env->DeleteGlobalRef(poppedEntry.packet);
-        }
-        if (poppedEntry.movement) {
-            std::lock_guard<std::mutex> lock(stateMutex_);
-            serverX_ = poppedEntry.x;
-            serverY_ = poppedEntry.y;
-            serverZ_ = poppedEntry.z;
-            hasServerPosition_ = true;
-        }
+    if (hasPopped && poppedEntry.packet) {
+        // Drop the oldest position on overflow instead of force-sending it here.
+        // That send ran outside releaseMutex_, so it could interleave with
+        // releaseEligible() on the main thread and deliver positions OUT OF ORDER
+        // (the "bad packets"). Positions are absolute, so skipping the single
+        // oldest one is harmless — the next queued position supersedes it, and it
+        // avoids rubberbanding the player back to an ancient position.
+        env->DeleteGlobalRef(poppedEntry.packet);
         if (env->ExceptionCheck())
             env->ExceptionClear();
     }
@@ -295,6 +283,22 @@ void FakeLag::releaseEligible(std::uint64_t ageMs, int limit) {
     JNIEnv* env = Java::Env();
     if (!env || limit <= 0)
         return;
+
+    // Don't replay stale positions into an invalid context (mid server-switch or
+    // disconnect) — that also surfaces as bad packets/kicks. Drop the backlog.
+    if (!player.isValid()) {
+        std::deque<QueuedPacket> discard;
+        {
+            std::lock_guard<std::mutex> lock(queueMutex_);
+            discard.swap(queuedPackets_);
+        }
+        for (auto& e : discard)
+            if (e.packet)
+                env->DeleteGlobalRef(e.packet);
+        if (env->ExceptionCheck())
+            env->ExceptionClear();
+        return;
+    }
 
     std::vector<QueuedPacket> send;
     const std::uint64_t now = nowMs();

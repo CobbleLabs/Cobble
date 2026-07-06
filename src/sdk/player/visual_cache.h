@@ -6,6 +6,7 @@
 #include "../core/minecraft.h"
 #include "player.h"
 #include "effect_tracker.h"
+#include "../../util/health_predictor.hpp"
 
 struct VisualPlayer {
     int entityId = 0;
@@ -79,6 +80,7 @@ inline void Update() {
     double localLastZ = player.getLastPosZ();
 
     auto players = mc.getPlayerList();
+    const int myWeaponId = player.getHeldItemId();
     std::vector<VisualPlayer> newPlayers;
     newPlayers.reserve(players.size());
 
@@ -96,7 +98,7 @@ inline void Update() {
         cached.lastPosX = p.lastPosX;
         cached.lastPosY = p.lastPosY;
         cached.lastPosZ = p.lastPosZ;
-        cached.health = p.health;
+        cached.health = HealthPredictor::get().query(p, myWeaponId);
         cached.maxHealth = p.maxHealth;
         cached.armor = std::move(p.armor);
         cached.potions = std::move(p.potions);

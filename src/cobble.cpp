@@ -40,6 +40,7 @@
 #include "module/visual/tracers.h"
 #include "module/visual/trajectories.h"
 #include "module/visual/dropped_info.h"
+#include "module/visual/target_hud.h"
 
 #include "hooks/winsock_hooks.h"
 #include "jni/packet/bytecode_patcher.hpp"
@@ -239,6 +240,8 @@ void cobble::context::initialize(HMODULE hModule) {
     trajectories = new Trajectories();
     COBBLE_TRACE("alloc:DroppedInfo");
     droppedInfo = new DroppedInfo();
+    COBBLE_TRACE("alloc:TargetHUD");
+    targetHud = new TargetHUD();
     COBBLE_TRACE("alloc:FriendsManager");
     friendsManager = new FriendsManager();
     log_ok("Modules allocated");
@@ -284,6 +287,7 @@ void cobble::context::initialize(HMODULE hModule) {
     moduleManager->registerModule(blockESP);
     moduleManager->registerModule(trajectories);
     moduleManager->registerModule(droppedInfo);
+    moduleManager->registerModule(targetHud);
     log_ok("Modules registered");
     COBBLE_TRACE("modules registered");
 

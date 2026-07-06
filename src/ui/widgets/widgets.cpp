@@ -330,13 +330,14 @@ std::vector<ui::tab_t> ui::tabs = {
     {ICON_FA_EYE,
      "Visuals",
      {"NameTags", "ESP", "ItemESP", "Tracers", "BlockESP", "Trajectories", "AntiDebuff", "ArrayList",
-      "DroppedInfo", "Notifications", "Watermark"}},
+      "DroppedInfo", "Notifications", "Watermark", "TargetHUD"}},
     {ICON_FA_RUNNING, "Movement", {"Timer", "TimerRange", "NoSlowDown", "NoJumpDelay", "Sprint"}},
     {ICON_FA_KEYBOARD,
      "Utility",
      {"ArmorSwitch", "AutoRefill", "FastPlace", "NoItemRelease", "BridgeAssist", "Clutch", "Breaker", "AutoTool",
       "InvManager", "AltManager", "FastBreak"}},
     {ICON_FA_WIFI, "Network", {"Backtrack", "Blink", "FakeLag", "TCP Optimizer"}},
+    {ICON_FA_EYE, "Spectate", {}},
     {ICON_FA_SAVE, "Configs", {}},
     {ICON_FA_GEAR, "Settings", {}}};
 

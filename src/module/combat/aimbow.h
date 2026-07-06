@@ -55,6 +55,12 @@ private:
     bool hasTarget = false;
     bool armorFilterKeyPrev_ = false;  // edge detection for the armor filter keybind
 
+    // Smoothed target velocity (blocks/tick) for stable movement prediction.
+    // Per-tick position deltas are 0 most ticks and spike on server updates, so
+    // we EMA them and reject teleport/switch spikes.
+    double smoothVx_ = 0.0;
+    double smoothVz_ = 0.0;
+
     float manualYaw = 0.0f;
     float manualPitch = 0.0f;
     float lastOverrideYaw = 0.0f;

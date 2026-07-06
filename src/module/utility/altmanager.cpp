@@ -9,6 +9,7 @@ AltManager* altManager = nullptr;
 
 AltManager::AltManager() : Module("AltManager") {
     keybind = 0;
+    locked = true;  // Bloqueado
 }
 
 bool AltManager::validateName(const char* name) {
