@@ -450,7 +450,17 @@ static void renderSpectatePage() {
         ImGui::BeginGroup();
         ui::begin_child("SpectateRadar", {colW, colH});
         {
-            ImGui::Text("World (third-person)");
+            static int specCamMode = 0;  // 0 = third person, 1 = first person
+            static float freeYaw = 0.0f, freePitch = 0.0f;
+            if (ImGui::SmallButton(specCamMode == 1 ? "View: 1st" : "View: 3rd"))
+                specCamMode ^= 1;
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Reset")) {
+                freeYaw = 0.0f;
+                freePitch = 0.0f;
+            }
+            ImGui::SameLine();
+            ImGui::TextDisabled("drag = freelook");
             ImVec2 avail = ImGui::GetContentRegionAvail();
             float side = avail.x < avail.y ? avail.x : avail.y;
             if (side < ui::s(80))
@@ -465,8 +475,17 @@ static void renderSpectatePage() {
             if (have) {
                 // Third-person perspective camera: sits behind the host along its
                 // look vector, looking the same way. Real 3D projection.
+                // Freelook: drag inside the panel to orbit the camera around the
+                // host's shared scene.
+                if (ImGui::IsMouseHoveringRect(p0, ImVec2(p0.x + side, p0.y + side)) && ImGui::IsMouseDragging(0)) {
+                    ImVec2 dd = ImGui::GetMouseDragDelta(0);
+                    freeYaw += dd.x * 0.4f;
+                    freePitch = std::clamp(freePitch + dd.y * 0.4f, -80.0f, 80.0f);
+                    ImGui::ResetMouseDragDelta(0);
+                }
                 const float d2r = 3.14159265f / 180.0f;
-                const float cyaw = snap.yaw * d2r, cpitch = snap.pitch * d2r;
+                const float cyaw = (snap.yaw + freeYaw) * d2r;
+                const float cpitch = std::clamp(snap.pitch + freePitch, -89.0f, 89.0f) * d2r;
                 const float fx = -std::sin(cyaw) * std::cos(cpitch);
                 const float fy = -std::sin(cpitch);
                 const float fz = std::cos(cyaw) * std::cos(cpitch);
@@ -477,7 +496,7 @@ static void renderSpectatePage() {
                 rx /= rl;
                 rz /= rl;
                 const float ux = -rz * fy, uy = rz * fx - rx * fz, uz = rx * fy;  // up = cross(right, fwd)
-                const float camDist = 4.5f, focal = side * 0.85f;
+                const float camDist = specCamMode == 1 ? 0.2f : 4.5f, focal = side * 0.85f;
                 const double ehx = snap.x, ehy = snap.y + 1.62, ehz = snap.z;  // host eye
                 const double cpx = ehx - fx * camDist, cpy = ehy - fy * camDist, cpz = ehz - fz * camDist;
 

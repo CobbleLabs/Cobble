@@ -267,7 +267,7 @@ void SpectateManager::fetchFrameAsync(const std::string& target) {
     }).detach();
 }
 
-spectate::SpectateSnapshot SpectateManager::captureSnapshot() const {
+spectate::SpectateSnapshot SpectateManager::captureSnapshot() {
     spectate::SpectateSnapshot s;
 
     if (player.isValid()) {
@@ -307,10 +307,35 @@ spectate::SpectateSnapshot SpectateManager::captureSnapshot() const {
         s.entities.push_back(std::move(e));
     }
 
-    // Lightweight spectate: NO block/world capture. Reading a 2-chunk box out of
-    // the chunk arrays every frame was the perf hit on the spectated player. We
-    // stream only position + nearby entities, and the spectator renders everyone
-    // as dots/boxes + nicks (no world reconstruction). Blocks stay empty.
+    // Throttled world capture — the host's rendered surroundings, so the
+    // spectator can freelook inside them ("share screen"). Re-read the chunk box
+    // only ~1 Hz (terrain barely changes) and cache it, so it costs the host
+    // almost nothing instead of a chunk read every frame.
+    const auto now = clock::now();
+    if (cachedBlocks_.empty() || now - lastBlockCapture_ >= std::chrono::milliseconds(1000)) {
+        lastBlockCapture_ = now;
+        blockOriginX_ = (int32_t)std::floor(s.x);
+        blockOriginY_ = (int32_t)std::floor(s.y);
+        blockOriginZ_ = (int32_t)std::floor(s.z);
+        std::vector<BlockSample> blocks;
+        mc.captureBlocks(16, 16, blockOriginX_, blockOriginY_, blockOriginZ_, spectate::kMaxBlocks, blocks);
+        cachedBlocks_.clear();
+        cachedBlocks_.reserve(blocks.size());
+        for (const auto& b : blocks) {
+            spectate::SpectateBlock sb;
+            sb.dx = b.dx;
+            sb.dy = b.dy;
+            sb.dz = b.dz;
+            sb.id = b.id;
+            cachedBlocks_.push_back(sb);
+        }
+    }
+    // Blocks are relative to the (fixed-until-recapture) block origin; the host
+    // position stays absolute, so both project consistently in world space.
+    s.originX = blockOriginX_;
+    s.originY = blockOriginY_;
+    s.originZ = blockOriginZ_;
+    s.blocks = cachedBlocks_;
     return s;
 }
 

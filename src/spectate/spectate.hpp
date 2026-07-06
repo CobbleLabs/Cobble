@@ -85,7 +85,7 @@ private:
     SpectateManager& operator=(const SpectateManager&) = delete;
 
     // Build a snapshot from live SDK state (must run on the JNI/client thread).
-    spectate::SpectateSnapshot captureSnapshot() const;
+    spectate::SpectateSnapshot captureSnapshot();
 
     // Detached network workers.
     void heartbeatPresenceAsync(const std::string& activity);
@@ -113,6 +113,12 @@ private:
     clock::time_point lastPresence_{};
     clock::time_point lastUpload_{};
     clock::time_point lastFetch_{};
+
+    // Throttled world capture (host FPS protection): blocks captured ~1 Hz and
+    // cached; every frame reuses the cache. Origin is the host floor at capture.
+    std::vector<spectate::SpectateBlock> cachedBlocks_;
+    int32_t blockOriginX_ = 0, blockOriginY_ = 0, blockOriginZ_ = 0;
+    clock::time_point lastBlockCapture_{};
     // Guards against overlapping in-flight uploads/fetches (one at a time).
     std::atomic<bool> uploadInFlight_{false};
     std::atomic<bool> fetchInFlight_{false};
