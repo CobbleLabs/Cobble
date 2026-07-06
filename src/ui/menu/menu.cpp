@@ -526,6 +526,12 @@ static void renderSpectatePage() {
                     float lw = focal / fdd * 0.30f;
                     dl->AddLine(ImVec2(fxs, fys), ImVec2(hxs, hys), IM_COL32(90, 200, 255, 255), lw < 2 ? 2 : lw);
                     dl->AddCircleFilled(ImVec2(hxs, hys), lw < 3 ? 3 : lw * 0.6f, IM_COL32(120, 210, 255, 255));
+                    std::string tn = sm.currentTarget();
+                    if (!tn.empty()) {
+                        ImVec2 tsz = ImGui::GetFont()->CalcTextSizeA(13.0f, FLT_MAX, 0, tn.c_str());
+                        dl->AddText(ImGui::GetFont(), 13.0f, ImVec2(hxs - tsz.x * 0.5f, hys - 18),
+                                    IM_COL32(120, 210, 255, 255), tn.c_str());
+                    }
                 }
 
                 // Entities.
@@ -538,6 +544,11 @@ static void renderSpectatePage() {
                     if (s > 22.0f) s = 22.0f;
                     ImU32 col = e.type == 0 ? IM_COL32(255, 90, 90, 255) : IM_COL32(255, 210, 90, 255);
                     dl->AddCircleFilled(ImVec2(ox, oy), s, col);
+                    if (e.type == 0 && !e.name.empty()) {
+                        ImVec2 tsz = ImGui::GetFont()->CalcTextSizeA(12.0f, FLT_MAX, 0, e.name.c_str());
+                        dl->AddText(ImGui::GetFont(), 12.0f, ImVec2(ox - tsz.x * 0.5f, oy - s - 14),
+                                    IM_COL32(255, 255, 255, 235), e.name.c_str());
+                    }
                 }
             }
             dl->PopClipRect();

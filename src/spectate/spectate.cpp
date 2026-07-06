@@ -307,19 +307,10 @@ spectate::SpectateSnapshot SpectateManager::captureSnapshot() const {
         s.entities.push_back(std::move(e));
     }
 
-    // Bulk world capture: non-air blocks in a box around the host (best-effort;
-    // stays empty if the JNI chunk layout can't be resolved).
-    std::vector<BlockSample> blocks;
-    mc.captureBlocks(16, 16, s.originX, s.originY, s.originZ, spectate::kMaxBlocks, blocks);
-    s.blocks.reserve(blocks.size());
-    for (const auto& b : blocks) {
-        spectate::SpectateBlock sb;
-        sb.dx = b.dx;
-        sb.dy = b.dy;
-        sb.dz = b.dz;
-        sb.id = b.id;
-        s.blocks.push_back(sb);
-    }
+    // Lightweight spectate: NO block/world capture. Reading a 2-chunk box out of
+    // the chunk arrays every frame was the perf hit on the spectated player. We
+    // stream only position + nearby entities, and the spectator renders everyone
+    // as dots/boxes + nicks (no world reconstruction). Blocks stay empty.
     return s;
 }
 
