@@ -155,6 +155,7 @@ public:
         std::string name;
         std::string description;
         int downloads = 0;
+        bool owned = false;
     };
     struct BrowseState {
         enum Status { Idle, Loading, Ready, Error };
@@ -171,9 +172,10 @@ public:
 
     // Fire-and-forget async actions. Each spawns a detached worker; the UI
     // observes progress/result through getBrowseState().
-    void publishPublicConfigAsync(const std::string& name, const std::string& description);
+    void publishPublicConfigAsync(const std::string& name, const std::string& description, bool anonymous);
     void refreshPublicConfigsAsync();
     void downloadAndApplyPublicConfigAsync(const std::string& id);
+    void deletePublicConfigAsync(const std::string& id);
 
     // Get current config as JSON (for debugging)
     std::string getConfigJson() const {

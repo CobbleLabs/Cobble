@@ -3,29 +3,7 @@
 #include "../../ui/widgets/widgets.hpp"
 #include "../../util/network/json.hpp"
 
-#ifndef WIN32_LEAN_AND_MEAN
-#define WIN32_LEAN_AND_MEAN
-#endif
-#ifndef NOMINMAX
-#define NOMINMAX
-#endif
-#include <Windows.h>
-
 AutoRefill* autoRefill = nullptr;
-
-static void sendKey(WORD vk) {
-    HWND hwnd = GetForegroundWindow();
-    if (!hwnd)
-        return;
-
-    INPUT inputs[2] = {};
-    inputs[0].type = INPUT_KEYBOARD;
-    inputs[0].ki.wVk = vk;
-    inputs[1].type = INPUT_KEYBOARD;
-    inputs[1].ki.wVk = vk;
-    inputs[1].ki.dwFlags = KEYEVENTF_KEYUP;
-    SendInput(2, inputs, sizeof(INPUT));
-}
 
 AutoRefill::AutoRefill() : Module("AutoRefill") {
     keybind = 0;  // No default keybind
@@ -37,7 +15,7 @@ bool AutoRefill::canToggle() {
 }
 
 void AutoRefill::onEnable() {
-    // Manual mode: one-shot refill
+    // Manual mode: one-shot refill driven entirely by packets (no GUI, no SendInput).
     if (mc.isInGui()) {
         enabled = false;
         return;
@@ -50,16 +28,10 @@ void AutoRefill::onEnable() {
         return;
     }
 
-    if (settings.silentMode) {
-        mc.sendInventoryOpenPacket();
-        state = State::Refilling;
-        stateStartTime = std::chrono::steady_clock::now();
-        lastMoveTime = stateStartTime - std::chrono::milliseconds(settings.speed);
-    } else {
-        sendKey('E');
-        state = State::Waiting;
-        stateStartTime = std::chrono::steady_clock::now();
-    }
+    mc.sendInventoryOpenPacket();
+    state = State::Refilling;
+    stateStartTime = std::chrono::steady_clock::now();
+    lastMoveTime = stateStartTime - std::chrono::milliseconds(settings.speed);
 }
 
 void AutoRefill::onDisable() {
@@ -67,16 +39,11 @@ void AutoRefill::onDisable() {
     pendingRefills.clear();
 }
 
-void AutoRefill::finishRefill(bool fromOnInventoryOpen) {
-    // Only close inventory if not in onInventoryOpen mode and not in silent mode
-    if (!fromOnInventoryOpen && !settings.silentMode && mc.isInventoryOpen()) {
-        sendKey(VK_ESCAPE);
-    }
-
+void AutoRefill::finishRefill() {
     state = State::Idle;
     pendingRefills.clear();
 
-    // Don't disable module in onInventoryOpen mode (stays active to detect next inventory open)
+    // Passive mode stays enabled to catch the next inventory open.
     if (!settings.onInventoryOpen) {
         enabled = false;
     }
@@ -86,14 +53,12 @@ void AutoRefill::onUpdate() {
     if (!player.isValid())
         return;
 
-    // onInventoryOpen mode: always monitor for inventory open (passive mode)
+    // Passive mode: refill when the user opens their inventory GUI.
     if (settings.onInventoryOpen && state == State::Idle) {
         bool inventoryOpen = mc.isInventoryOpen();
 
         if (inventoryOpen && !wasInventoryOpen) {
-            // User just opened inventory - start refilling
             scanForRefills();
-
             if (!pendingRefills.empty()) {
                 state = State::Refilling;
                 stateStartTime = std::chrono::steady_clock::now();
@@ -114,25 +79,9 @@ void AutoRefill::onUpdate() {
         case State::Idle:
             break;
 
-        case State::Waiting: {
-            if (mc.isInventoryOpen()) {
-                stateStartTime = now;
-                state = State::Refilling;
-                lastMoveTime = now - std::chrono::milliseconds(settings.speed);
-            } else if (elapsed > 1000) {
-                finishRefill();
-            }
-            break;
-        }
-
         case State::Refilling: {
             if (elapsed < settings.speed)
                 return;
-
-            if (!mc.isInventoryOpen() && !settings.silentMode) {
-                finishRefill(settings.onInventoryOpen);
-                return;
-            }
 
             if (pendingRefills.empty()) {
                 state = State::Closing;
@@ -147,27 +96,29 @@ void AutoRefill::onUpdate() {
             RefillTask task = pendingRefills.front();
             pendingRefills.erase(pendingRefills.begin());
 
-            mc.windowClick(task.sourceSlot, 0);
+            mc.windowClick(task.sourceSlot, 0);  // sends the real C0E click packet on window 0
             lastMoveTime = now;
             break;
         }
 
         case State::Closing: {
-            if (settings.silentMode) {
-                mc.sendInventoryClosePacket();
-                finishRefill(settings.onInventoryOpen);
-            } else if (elapsed >= settings.speed) {
-                // Validation: retry if items are still missing
-                scanForRefills();
+            if (elapsed < settings.speed)
+                return;
 
-                if (!pendingRefills.empty()) {
-                    state = State::Refilling;
-                    lastMoveTime = now;
-                    return;
-                }
-
-                finishRefill(settings.onInventoryOpen);
+            // Validation: re-scan and retry if items are still missing.
+            scanForRefills();
+            if (!pendingRefills.empty()) {
+                state = State::Refilling;
+                stateStartTime = now;
+                lastMoveTime = now - std::chrono::milliseconds(settings.speed);
+                return;
             }
+
+            // Only send a close packet in manual mode; in passive mode the user
+            // owns the open inventory, so leave it untouched.
+            if (!settings.onInventoryOpen)
+                mc.sendInventoryClosePacket();
+            finishRefill();
             break;
         }
     }
@@ -242,10 +193,6 @@ void AutoRefill::onRenderMenu() {
         [this]() {
             ui::Checkbox("Refill Soup", &settings.refillSoup);
             ui::Checkbox("Refill Potions", &settings.refillPotions);
-            ui::Checkbox("Silent Mode", &settings.silentMode);
-            if (ImGui::IsItemHovered()) {
-                ImGui::SetTooltip("Refills without opening inventory");
-            }
         });
 }
 
@@ -260,7 +207,6 @@ void AutoRefill::saveSettings(json::Value& node) const {
     node["refillPotions"] = settings.refillPotions;
     node["speed"] = settings.speed;
     node["onInventoryOpen"] = settings.onInventoryOpen;
-    node["silentMode"] = settings.silentMode;
 }
 
 void AutoRefill::loadSettings(const json::Value& node) {
@@ -268,5 +214,4 @@ void AutoRefill::loadSettings(const json::Value& node) {
     settings.refillPotions = node["refillPotions"].as_bool(settings.refillPotions);
     settings.speed = node["speed"].as_int(settings.speed);
     settings.onInventoryOpen = node["onInventoryOpen"].as_bool(settings.onInventoryOpen);
-    settings.silentMode = node["silentMode"].as_bool(settings.silentMode);
 }

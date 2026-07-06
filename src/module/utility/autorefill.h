@@ -36,15 +36,11 @@ public:
 
         // On Inventory Open: trigger refill when user opens inventory manually
         bool onInventoryOpen = false;
-
-        // Silent Mode: perform actions without opening GUI
-        bool silentMode = false;
     } settings;
 
 private:
     enum class State {
         Idle,
-        Waiting,    // Waiting for inventory to open
         Refilling,  // Moving items
         Closing     // Waiting before closing
     };
@@ -63,7 +59,7 @@ private:
     bool wasInventoryOpen = false;
 
     void scanForRefills();
-    void finishRefill(bool fromOnInventoryOpen = false);
+    void finishRefill();
 };
 
 extern AutoRefill* autoRefill;

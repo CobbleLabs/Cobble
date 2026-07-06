@@ -45,6 +45,7 @@
 #include "../../module/visual/trajectories.h"
 #include "../../module/visual/dropped_info.h"
 #include "../../sdk/core/minecraft.h"
+#include "../../security/session_validator.hpp"
 #include "../../util/logger.hpp"
 #include "../../util/network/http.hpp"
 #include "../../util/team/friends_manager.h"
@@ -518,15 +519,16 @@ static void renderConfigsPage() {
         ImGui::EndGroup();
     }
 
-    // ── Public configs (browse / publish / apply) ─────────────────────────
+    // ── Community configs (browse / detail / publish) ─────────────────────
     static char pubNameBuf[64] = "";
     static char pubDescBuf[128] = "";
-    static int pubSelected = -1;
+    static std::string pubSelectedId;  // selection by id: survives re-sort/refresh/filter
+    static bool pubAnonymous = false;  // publish author choice
+    static int pubFilter = 0;          // 0 = Browse (all), 1 = Mine (owned)
     static double pubLastPoll = 0.0;
     constexpr double kPubPollIntervalSec = 15.0;
 
-    // Fetch the list when entering the Public view, then poll periodically so
-    // configs published by others show up without manual refresh.
+    // Fetch when entering the Public view, then poll so others' uploads appear.
     if (configView == 1 && prevConfigView != 1) {
         ConfigManager::get().refreshPublicConfigsAsync();
         pubLastPoll = ImGui::GetTime();
@@ -542,33 +544,84 @@ static void renderConfigsPage() {
     }
 
     auto browse = ConfigManager::get().getBrowseState();
+    bool busy = (browse.status == ConfigManager::BrowseState::Loading);
 
+    // Browse / Mine filter (same styled-button pattern as the Local/Public toggle).
+    {
+        float halfW = (ImGui::GetContentRegionAvail().x - GImGui->Style.ItemSpacing.x) / 2;
+        auto filterBtn = [&](const char* label, int idx) {
+            bool active = (pubFilter == idx);
+            if (active)
+                ImGui::PushStyleColor(ImGuiCol_Button, GetSchemeColor());
+            if (ImGui::Button(label, ImVec2(halfW, 0)))
+                pubFilter = idx;
+            if (active)
+                ImGui::PopStyleColor();
+        };
+        filterBtn("Browse", 0);
+        ImGui::SameLine();
+        filterBtn("Mine", 1);
+    }
+    ImGui::Spacing();
+
+    // Visible subset (apply the Mine filter). Pointers into `browse` (frame-stable).
+    std::vector<const ConfigManager::PublicConfigEntry*> visible;
+    for (const auto& e : browse.entries) {
+        if (pubFilter == 1 && !e.owned)
+            continue;
+        visible.push_back(&e);
+    }
+
+    // Resolve current selection; clear it if the id vanished (e.g. just deleted).
+    const ConfigManager::PublicConfigEntry* sel = nullptr;
+    for (auto* e : visible) {
+        if (e->id == pubSelectedId) {
+            sel = e;
+            break;
+        }
+    }
+    if (!sel)
+        pubSelectedId.clear();
+
+    const float pubColWidth =
+        (ImGui::GetWindowWidth() - GImGui->Style.WindowPadding.x * 2) / 2 - GImGui->Style.ItemSpacing.x / 2;
+    const float pubColHeight = ImGui::GetContentRegionAvail().y;
+
+    // Left: scrollable list of config cards.
     ImGui::BeginGroup();
     {
-        ui::begin_child("Browse Public", {colHalfWidth, colHeight});
+        ui::begin_child("Browse Public", {pubColWidth, pubColHeight});
         {
-            // List fills the panel down to the bottom; reserve a few lines for
-            // the description only when an entry is selected (keeps layout
-            // stable when nothing is selected).
-            bool hasSel = (pubSelected >= 0 && pubSelected < (int)browse.entries.size());
-            float reserve = hasSel ? ui::s(72) : 0.0f;
-            float listH = ImGui::GetContentRegionAvail().y - reserve;
-            if (listH < ui::s(60))
-                listH = ui::s(60);
-            if (ImGui::BeginListBox("##pubconfiglist", ImVec2(ImGui::GetContentRegionAvail().x, listH))) {
-                for (int i = 0; i < (int)browse.entries.size(); i++) {
-                    const auto& e = browse.entries[i];
-                    std::string label = e.name + "  by " + e.owner + "  (" + std::to_string(e.downloads) + ")";
-                    if (ImGui::Selectable(label.c_str(), i == pubSelected))
-                        pubSelected = i;
-                }
-                ImGui::EndListBox();
-            }
-            // Description of the highlighted entry.
-            if (hasSel) {
+            if (visible.empty()) {
                 ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetColorU32(ImGuiCol_TextDisabled));
-                ImGui::TextWrapped("%s", browse.entries[pubSelected].description.c_str());
+                ImGui::TextWrapped("%s", pubFilter == 1
+                                             ? "You haven't published any configs."
+                                             : (browse.entries.empty() ? "No configs found." : ""));
                 ImGui::PopStyleColor();
+            }
+
+            const float cardH = ui::s(62);
+            const float pad = ui::s(6);
+            ImDrawList* dl = ImGui::GetWindowDrawList();
+            for (auto* e : visible) {
+                ImGui::PushID(e->id.c_str());
+                ImVec2 p0 = ImGui::GetCursorScreenPos();
+                bool selected = (e->id == pubSelectedId);
+                if (ImGui::Selectable("##card", selected, 0, ImVec2(0, cardH)))
+                    pubSelectedId = e->id;
+
+                ImU32 nameCol = ImGui::GetColorU32(ImGuiCol_Text);
+                ImU32 subCol = ImGui::GetColorU32(ImGuiCol_TextDisabled);
+                dl->AddText(ImVec2(p0.x + pad, p0.y + pad), nameCol, e->name.c_str());
+                std::string meta = "by " + e->owner + "  \xC2\xB7  " + std::to_string(e->downloads) + " downloads";
+                dl->AddText(ImVec2(p0.x + pad, p0.y + pad + ui::s(20)), subCol, meta.c_str());
+                if (!e->description.empty()) {
+                    std::string snip = e->description.substr(0, 48);
+                    if (e->description.size() > 48)
+                        snip += "...";
+                    dl->AddText(ImVec2(p0.x + pad, p0.y + pad + ui::s(38)), subCol, snip.c_str());
+                }
+                ImGui::PopID();
             }
         }
         ui::end_child();
@@ -577,19 +630,34 @@ static void renderConfigsPage() {
 
     ImGui::SameLine();
 
+    // Right: detail of the selected card + publish panel.
     ImGui::BeginGroup();
     {
-        ui::begin_child("Share", {colHalfWidth, colHeight});
+        ui::begin_child("Detail", {pubColWidth, pubColHeight});
         {
-            if (ImGui::Button("Refresh", ImVec2(ImGui::GetContentRegionAvail().x, 0)))
-                ConfigManager::get().refreshPublicConfigsAsync();
+            if (sel) {
+                ImGui::TextWrapped("%s", sel->name.c_str());
+                ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetColorU32(ImGuiCol_TextDisabled));
+                std::string meta = "by " + sel->owner + "  \xC2\xB7  " + std::to_string(sel->downloads) + " downloads";
+                ImGui::TextWrapped("%s", meta.c_str());
+                ImGui::PopStyleColor();
+                ImGui::Spacing();
+                if (!sel->description.empty())
+                    ImGui::TextWrapped("%s", sel->description.c_str());
+                ImGui::Spacing();
 
-            bool busy = (browse.status == ConfigManager::BrowseState::Loading);
-            if (ImGui::Button("Apply Selected", ImVec2(ImGui::GetContentRegionAvail().x, 0)) && !busy) {
-                if (pubSelected >= 0 && pubSelected < (int)browse.entries.size())
-                    ConfigManager::get().downloadAndApplyPublicConfigAsync(browse.entries[pubSelected].id);
-                else
-                    NotificationManager::addSystem("Error: select a config");
+                if (ImGui::Button("Apply", ImVec2(ImGui::GetContentRegionAvail().x, 0)) && !busy)
+                    ConfigManager::get().downloadAndApplyPublicConfigAsync(sel->id);
+                if (sel->owned) {
+                    if (ImGui::Button("Delete", ImVec2(ImGui::GetContentRegionAvail().x, 0)) && !busy) {
+                        ConfigManager::get().deletePublicConfigAsync(sel->id);
+                        pubSelectedId.clear();
+                    }
+                }
+            } else {
+                ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetColorU32(ImGuiCol_TextDisabled));
+                ImGui::TextWrapped("Select a config to view details.");
+                ImGui::PopStyleColor();
             }
 
             ImGui::Spacing();
@@ -601,15 +669,34 @@ static void renderConfigsPage() {
             ImGui::InputTextWithHint("##pubname", "Name", pubNameBuf, sizeof(pubNameBuf));
             ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
             ImGui::InputTextWithHint("##pubdesc", "Description", pubDescBuf, sizeof(pubDescBuf));
-            if (ImGui::Button("Publish", ImVec2(ImGui::GetContentRegionAvail().x, 0)) && !busy) {
-                if (pubNameBuf[0] == '\0') {
-                    NotificationManager::addSystem("Error: enter a name");
-                } else {
-                    ConfigManager::get().publishPublicConfigAsync(pubNameBuf, pubDescBuf);
-                }
+
+            // Author selector: Anonymous | <cobble user>.
+            std::string uname = SessionValidator::GetUsername();
+            if (uname.empty())
+                uname = "My account";
+            {
+                float halfW = (ImGui::GetContentRegionAvail().x - GImGui->Style.ItemSpacing.x) / 2;
+                auto authorBtn = [&](const char* label, bool anon) {
+                    bool active = (pubAnonymous == anon);
+                    if (active)
+                        ImGui::PushStyleColor(ImGuiCol_Button, GetSchemeColor());
+                    if (ImGui::Button(label, ImVec2(halfW, 0)))
+                        pubAnonymous = anon;
+                    if (active)
+                        ImGui::PopStyleColor();
+                };
+                authorBtn("Anonymous", true);
+                ImGui::SameLine();
+                authorBtn(uname.c_str(), false);
             }
 
-            // Status line from the async worker.
+            if (ImGui::Button("Publish", ImVec2(ImGui::GetContentRegionAvail().x, 0)) && !busy) {
+                if (pubNameBuf[0] == '\0')
+                    NotificationManager::addSystem("Error: enter a name");
+                else
+                    ConfigManager::get().publishPublicConfigAsync(pubNameBuf, pubDescBuf, pubAnonymous);
+            }
+
             if (!browse.message.empty()) {
                 ImGui::Spacing();
                 bool isErr = (browse.status == ConfigManager::BrowseState::Error);

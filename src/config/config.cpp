@@ -356,7 +356,7 @@ bool ConfigManager::verifySignedEnvelope(const std::string& responseBody, json::
 // Publish the current gameplay settings as a named public config. Builds the
 // stripped payload on the calling side, then POSTs on a detached worker so the
 // UI never blocks on WinHTTP.
-void ConfigManager::publishPublicConfigAsync(const std::string& name, const std::string& description) {
+void ConfigManager::publishPublicConfigAsync(const std::string& name, const std::string& description, bool anonymous) {
     // Use the live handshake session token (rotates each heartbeat), NOT the
     // cloud-sync token in sessionToken_ — that one is opt-in and often empty.
     std::string hwid = SessionValidator::snapshotToken(SessionValidator::g_HWID);
@@ -377,7 +377,9 @@ void ConfigManager::publishPublicConfigAsync(const std::string& name, const std:
 
     std::string body = "{\"hwid\":\"" + http::json_escape(hwid) + "\",\"token\":\"" +
                        http::json_escape(token) + "\",\"name\":\"" + http::json_escape(name) +
-                       "\",\"description\":\"" + http::json_escape(description) + "\",\"config\":" + publicJson + "}";
+                       "\",\"description\":\"" + http::json_escape(description) +
+                       "\",\"anonymous\":" + (anonymous ? "true" : "false") +
+                       ",\"config\":" + publicJson + "}";
 
     std::thread([this, body] {
         auto response = http::post(cobble_config::GetServerHostW().c_str(), CONFIG_SERVER_PORT,
@@ -457,6 +459,7 @@ void ConfigManager::refreshPublicConfigsAsync() {
                 entry.name = e["name"].as_string("");
                 entry.description = e["description"].as_string("");
                 entry.downloads = e["downloads"].as_int(0);
+                entry.owned = e["owned"].as_bool(false);
                 if (!entry.id.empty())
                     browseState_.entries.push_back(std::move(entry));
             }
@@ -518,6 +521,53 @@ void ConfigManager::downloadAndApplyPublicConfigAsync(const std::string& id) {
         std::lock_guard<std::mutex> lock(browseMutex_);
         browseState_.status = ok ? BrowseState::Ready : BrowseState::Error;
         browseState_.message = resultMsg;
+    }).detach();
+}
+
+// Delete one of the user's own public configs by id. Server enforces ownership;
+// on success the browse list is refreshed so the row disappears immediately.
+void ConfigManager::deletePublicConfigAsync(const std::string& id) {
+    std::string hwid = SessionValidator::snapshotToken(SessionValidator::g_HWID);
+    std::string token = SessionValidator::snapshotToken(SessionValidator::g_SessionToken);
+    if (hwid.empty() || token.empty() || id.empty()) {
+        std::lock_guard<std::mutex> lock(browseMutex_);
+        browseState_.status = BrowseState::Error;
+        browseState_.message = "Not signed in";
+        return;
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(browseMutex_);
+        browseState_.status = BrowseState::Loading;
+        browseState_.message = "Deleting...";
+    }
+
+    std::string body = "{\"hwid\":\"" + http::json_escape(hwid) + "\",\"token\":\"" +
+                       http::json_escape(token) + "\",\"id\":\"" + http::json_escape(id) + "\"}";
+
+    std::thread([this, body] {
+        auto response = http::post(cobble_config::GetServerHostW().c_str(), CONFIG_SERVER_PORT,
+                                   OBFUSCATE_WSTRING(L"/api/configs/public/delete").c_str(), body, true);
+
+        json::Value payload;
+        bool verified = response.success && verifySignedEnvelope(response.body, payload);
+        bool ok = verified && payload["success"].as_bool(false);
+
+        {
+            std::lock_guard<std::mutex> lock(browseMutex_);
+            browseState_.status = ok ? BrowseState::Ready : BrowseState::Error;
+            if (ok)
+                browseState_.message = "Deleted";
+            else if (!response.success)
+                browseState_.message = "Delete failed (HTTP " + std::to_string(response.statusCode) + ")";
+            else if (!verified)
+                browseState_.message = "Delete failed (bad signature)";
+            else
+                browseState_.message = "Delete rejected: " + payload["message"].as_string("server error");
+        }
+
+        if (ok)
+            refreshPublicConfigsAsync();
     }).detach();
 }
 
