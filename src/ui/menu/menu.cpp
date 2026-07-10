@@ -372,6 +372,9 @@ static void renderSettingsPage() {
 }
 
 // Spectate tab content - Cobble Spectate: privacy, player browser, live view.
+// Shelved for a future update; gated behind COBBLE_SPECTATE_ENABLED so the
+// full implementation stays in the tree without surfacing in the UI.
+#if COBBLE_SPECTATE_ENABLED
 static void renderSpectatePage() {
     auto& sm = SpectateManager::get();
 
@@ -656,6 +659,7 @@ static void renderSpectatePage() {
     ui::end_child();
     ImGui::EndGroup();
 }
+#endif // COBBLE_SPECTATE_ENABLED
 
 // Configs tab content - special case (not a module)
 static void renderConfigsPage() {
@@ -1538,7 +1542,9 @@ static void renderPage() {
     // Special tabs (no subtabs)
     const int settingsIdx = (int)ui::tabs.size() - 1;
     const int configsIdx = settingsIdx - 1;
+#if COBBLE_SPECTATE_ENABLED
     const int spectateIdx = settingsIdx - 2;
+#endif
 
     // Used to trigger a one-shot refresh when entering the Configs tab.
     static int s_prevTab = -1;
@@ -1552,11 +1558,13 @@ static void renderPage() {
         renderSettingsPage();
         return;
     }
+#if COBBLE_SPECTATE_ENABLED
     if (ui::cur_tab == spectateIdx) {
         ui::SetDescriptionContext("Spectate");
         renderSpectatePage();
         return;
     }
+#endif
     if (ui::cur_tab == configsIdx) {
         ui::SetDescriptionContext("Configs");
         renderConfigsPage();

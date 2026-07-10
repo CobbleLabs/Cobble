@@ -337,7 +337,9 @@ std::vector<ui::tab_t> ui::tabs = {
      {"ArmorSwitch", "AutoRefill", "FastPlace", "NoItemRelease", "BridgeAssist", "Clutch", "Breaker", "AutoTool",
       "InvManager", "AltManager", "FastBreak"}},
     {ICON_FA_WIFI, "Network", {"Backtrack", "Blink", "FakeLag", "TCP Optimizer"}},
+#if COBBLE_SPECTATE_ENABLED
     {ICON_FA_EYE, "Spectate", {}},
+#endif
     {ICON_FA_SAVE, "Configs", {}},
     {ICON_FA_GEAR, "Settings", {}}};
 
