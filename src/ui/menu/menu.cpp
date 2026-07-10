@@ -1004,6 +1004,48 @@ static void renderConfigsPage() {
     ImGui::EndGroup();
 }
 
+// ---- Gradient / glow helpers -------------------------------------------------
+// Shared by the Module_Cards (and reusable elsewhere) so the accent "glow"
+// around active modules reads as one consistent style.
+
+// Lerp a color's RGB toward white by t (0..1), preserving alpha. Used to build
+// the light top-of-pill sheen from the accent color.
+static ImU32 MixWhite(ImU32 c, float t) {
+    ImVec4 v = ImGui::ColorConvertU32ToFloat4(c);
+    v.x += (1.f - v.x) * t;
+    v.y += (1.f - v.y) * t;
+    v.z += (1.f - v.z) * t;
+    return ImGui::ColorConvertFloat4ToU32(v);
+}
+
+// Fill a rounded rect with a vertical color gradient (top RGB -> bottom RGB).
+// AddRectFilled lays down the rounded geometry at `top` (which also fixes the
+// per-vertex alpha), then ShadeVertsLinearColorGradientKeepAlpha lerps the RGB
+// down to `bot` while keeping that alpha, so the rounded corners are preserved.
+static void AddRoundedGradientV(ImDrawList* draw, const ImVec2& a, const ImVec2& b, ImU32 top, ImU32 bot,
+                                float rounding) {
+    if (!draw)
+        return;
+    const int idx0 = draw->VtxBuffer.Size;
+    draw->AddRectFilled(a, b, top, rounding);
+    const int idx1 = draw->VtxBuffer.Size;
+    ImGui::ShadeVertsLinearColorGradientKeepAlpha(draw, idx0, idx1, a, ImVec2(a.x, b.y), top, bot);
+}
+
+// Soft accent halo around a rounded rect: a few expanding rounded fills with
+// falling alpha accumulate into a glow. `t` scales the whole effect (0 = none).
+static void AddAccentGlow(ImDrawList* draw, const ImVec2& a, const ImVec2& b, float rounding, float t) {
+    if (!draw || t <= 0.01f)
+        return;
+    const int layers = 4;
+    for (int g = layers; g >= 1; --g) {
+        float spread = ui::s(2.0f) * g;
+        float alpha = (0.05f * t) * (1.0f - (float)(g - 1) / layers);
+        draw->AddRectFilled(ImVec2(a.x - spread, a.y - spread), ImVec2(b.x + spread, b.y + spread),
+                            GetSchemeColor(alpha), rounding + spread);
+    }
+}
+
 // Module_List_View: render the active category's modules as a single-column
 // list of rounded Module_Cards in the main content area. Each Module_Card
 // carries two disjoint hit areas drawn with the drawlist + ButtonBehavior
@@ -1011,8 +1053,8 @@ static void renderConfigsPage() {
 //   * Name_Region (left, id #name)        -> Module_Toggle via m->toggle()
 //   * Gear_Control (right, id #name##gear) -> open the Module_Config_View
 // A right-click anywhere on the card also opens its config. Routing stays
-// centralized in getModuleForSubtab. Active + hover states use the same soft
-// accent pill the sidebar category rows use.
+// centralized in getModuleForSubtab. Active + hover states use an accent glow
+// + vertical gradient pill (matching the module glow style).
 static void renderModuleList(int tab) {
     if (tab < 0 || tab >= (int)ui::tabs.size())
         return;
@@ -1186,12 +1228,17 @@ static void renderModuleList(int tab) {
 
         ImDrawList* draw = window->DrawList;
 
-        // Soft accent "pill" behind the card for both the active and hover states,
-        // matching the sidebar category selection (no bright border, no comet).
-        // Active state is fully lit; hover is a lighter wash.
+        // Accent glow + vertical-gradient "pill" behind the card for the active
+        // and hover states. The glow is a soft halo that surrounds the module;
+        // the pill fades from a light accent sheen at the top to accent at the
+        // bottom, with a thin accent edge to crisp it. Hover is a lighter wash.
         float pillT = ImMax(obj.enabled, obj.hover * 0.55f);
+        AddAccentGlow(draw, bb.Min, bb.Max, cardRound, ImMax(obj.enabled, obj.hover * 0.5f));
         if (pillT > 0.01f) {
-            draw->AddRectFilled(bb.Min, bb.Max, GetSchemeColor(0.14f * pillT), cardRound);
+            ImU32 top = MixWhite(GetSchemeColor(0.20f * pillT), 0.35f);
+            ImU32 bot = GetSchemeColor(0.10f * pillT);
+            AddRoundedGradientV(draw, bb.Min, bb.Max, top, bot, cardRound);
+            draw->AddRect(bb.Min, bb.Max, GetSchemeColor(0.28f * pillT), cardRound, 0, ui::s(1.0f));
         }
 
         // Name + subtitle stacked on the left.
