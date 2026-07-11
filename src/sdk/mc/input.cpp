@@ -88,6 +88,13 @@ int Minecraft::getForwardKey() {
     return env ? getKeyBindCode(env, instance, JniCache::fid_keyBindForward, 17) : 17;
 }
 
+int Minecraft::getJumpKey() {
+    if (!isValid())
+        return 57;  // SPACE default (LWJGL key code)
+    JNIEnv* env = Java::Env();
+    return env ? getKeyBindCode(env, instance, JniCache::fid_keyBindJump, 57) : 57;
+}
+
 int Minecraft::getBackKey() {
     if (!isValid())
         return 31;

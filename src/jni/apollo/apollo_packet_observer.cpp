@@ -18,6 +18,7 @@
 #include "../../util/logger.hpp"
 #include "../../util/team/friends_manager.h"
 #include "../../module/movement/blink.h"
+#include "../../module/visual/nametags.h"
 
 // Shared logging budget so it can be bumped externally (e.g., manual requests)
 static std::atomic<int> g_typeLogBudget{0};
@@ -1233,12 +1234,23 @@ void JNICALL ApolloPacketObserver::NativeOnReceive(JNIEnv* env, jclass, jobject 
 
     // Removed g_seenApolloSinceWorldChange - serial validation handles stale data
 
-    // Track entity effects (used by NameTags "Show Effects" fallback).
-    try_handle_entity_effect_packets(env, packet);
+    // These three feed EffectTracker, whose ONLY consumer is NameTags "Show
+    // Effects". They run on EVERY inbound packet on the Netty read thread —
+    // including the very frequent S0B animation and S04 equipment packets, where
+    // they also do reflected field reads, item-id lookups and a mutex-guarded
+    // held-item map. When nobody is displaying effects that is pure per-packet
+    // latency on the receive path (a small but real ping tax). Gate the whole
+    // block on the single consumer; EffectTracker self-populates the moment it is
+    // switched on, so nothing is lost by skipping it while it's off.
+    if (nameTags && nameTags->enabled && nameTags->settings.showEffects) {
+        // Track entity effects (used by NameTags "Show Effects" fallback).
+        try_handle_entity_effect_packets(env, packet);
 
-    // Track held item and "eat/drink" animations for potion inference on servers that don't send S1D while tracked.
-    try_handle_equipment_packet(env, packet);
-    try_handle_animation_packet(env, packet);
+        // Track held item and "eat/drink" animations for potion inference on servers
+        // that don't send S1D while tracked.
+        try_handle_equipment_packet(env, packet);
+        try_handle_animation_packet(env, packet);
+    }
 
     if (friendsManager && isWorldChangePacket(env, packet)) {
         friendsManager->notifyWorldChangePacket();

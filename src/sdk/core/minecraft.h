@@ -159,6 +159,12 @@ struct Minecraft {
     RenderPos getRenderPos();
     float getPartialTicks();
 
+    // Re-render an existing entity (by id) at an arbitrary world position. MUST be
+    // called on the render thread with a live GL context (e.g. from the injected
+    // RenderGlobal.renderEntities hook). Used by Backtrack to draw the target's
+    // real 3D model at its lagged position. 1.8.x only (instance RenderManager).
+    void renderGhostEntity(int entityId, double wx, double wy, double wz);
+
     // Mouse sensitivity (for proper aim assist scaling)
     float getMouseSensitivity();
 
@@ -243,6 +249,7 @@ struct Minecraft {
     int getSneakKey();      // Returns key code for sneak keybind
     int getSprintKey();     // Returns key code for sprint keybind
     int getForwardKey();    // Returns key code for forward keybind
+    int getJumpKey();       // Returns key code for jump keybind (default space)
     int getBackKey();       // Returns key code for back keybind
     int getInventoryKey();  // Returns key code for inventory keybind (default 'E')
 

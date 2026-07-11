@@ -25,10 +25,14 @@ Criticals::Criticals() : Module("Criticals") {
 void Criticals::onEnable() {
     lastCriticalTime = 0;
     wasAttacking = false;
+    groundSpoofTicks = 0;
+    smoothCancel = false;
 }
 
 void Criticals::onDisable() {
     wasAttacking = false;
+    groundSpoofTicks = 0;
+    smoothCancel = false;
 }
 
 bool Criticals::isHoldingSword() {
@@ -86,24 +90,98 @@ bool Criticals::canDoCritical() {
     return checkChance();
 }
 
+void Criticals::doPacketCritical() {
+    // Packet mode: don't perform a real jump. Spoof the airborne state so the
+    // outgoing movement packet reports onGround = false; the server then treats
+    // the hit as a critical without any visible client-side movement.
+    player.setOnGround(false);
+}
+
+void Criticals::doJumpCritical(double height) {
+    // Real movement: give the player a small upward velocity so the client
+    // actually leaves the ground for a frame. Visible, but works everywhere.
+    player.setMotionY(height);
+    player.setOnGround(false);
+}
+
+void Criticals::startCritical() {
+    // Fire the technique for the selected mode. Modes that span more than one
+    // tick seed sequence state that advanceSequence() drains on later ticks.
+    switch (settings.mode) {
+    case Mode::Packet:
+        doPacketCritical();
+        break;
+    case Mode::MiniJump:
+        doJumpCritical(0.12);
+        break;
+    case Mode::Jump:
+        doJumpCritical(0.42);
+        break;
+    case Mode::NoGround:
+        // Hold the airborne spoof for a few ticks so lenient/legacy checks
+        // register the fall over several movement packets.
+        player.setOnGround(false);
+        groundSpoofTicks = 3;
+        break;
+    case Mode::Hop:
+        // Lowest real hop that still leaves the ground; minimal displacement.
+        doJumpCritical(0.0625);
+        break;
+    case Mode::Smooth:
+        // Hop up now, cancel the velocity next tick so net movement is ~zero.
+        player.setMotionY(0.11);
+        player.setOnGround(false);
+        smoothCancel = true;
+        break;
+    case Mode::Grim:
+        // Prediction-safe critical. Grim (GroundSpoof/NoFall) flags and rewrites
+        // any onGround spoof, and its PredictionEngine only accepts the jump
+        // velocity when the player was genuinely on ground with the exact vanilla
+        // JumpPower. So use the game's real jump(): it reproduces vanilla physics
+        // (jump power + sprint boost + jump boost), which Grim's prediction is
+        // built to expect. No spoof. Gated to on-ground so it stays a valid jump.
+        if (player.isOnGround())
+            player.jump();
+        break;
+    case Mode::NCP:
+        // Legit jump-crit shape: only jump when strictly grounded so the
+        // movement matches a real player jump.
+        if (player.isOnGround())
+            doJumpCritical(0.42);
+        break;
+    }
+    lastCriticalTime = GetTickCount();
+}
+
+void Criticals::advanceSequence() {
+    // Continue any in-progress multi-tick technique.
+    if (groundSpoofTicks > 0) {
+        player.setOnGround(false);
+        groundSpoofTicks--;
+    }
+    if (smoothCancel) {
+        player.setMotionY(-0.11);
+        smoothCancel = false;
+    }
+}
+
 void Criticals::onUpdate() {
     if (!enabled)
         return;
 
     if (Menu::isOpen || mc.isInGui() || !player.isValid()) {
         wasAttacking = false;
+        groundSpoofTicks = 0;
+        smoothCancel = false;
         return;
     }
 
+    advanceSequence();
+
     const bool isAttacking = (GetAsyncKeyState(VK_LBUTTON) & 0x8000) != 0;
 
-    if (isAttacking && !wasAttacking && canDoCritical()) {
-        // A small real movement is safer than constructing version-specific
-        // packets from the module worker thread.
-        player.setMotionY(0.12);
-        player.setOnGround(false);
-        lastCriticalTime = GetTickCount();
-    }
+    if (isAttacking && !wasAttacking && canDoCritical())
+        startCritical();
 
     wasAttacking = isAttacking;
 }
@@ -119,6 +197,13 @@ void Criticals::onRenderMenu() {
                 }
             }
             ImGui::Spacing();
+
+            const char* modeItems[] = { "Packet", "MiniJump", "Jump",
+                                        "NoGround", "Hop", "Smooth",
+                                        "Grim", "NCP" };
+            int mode = static_cast<int>(settings.mode);
+            if (ui::Combo("Mode", &mode, modeItems, IM_ARRAYSIZE(modeItems)))
+                settings.mode = static_cast<Mode>(mode);
 
             int delay = settings.maxDelayMs;
             if (ui::SliderInt("Delay", &delay, 50, 500, "%dms"))
@@ -139,6 +224,7 @@ void Criticals::onRenderMenu() {
 
 
 void Criticals::saveSettings(json::Value& node) const {
+    node["mode"] = static_cast<int>(settings.mode);
     node["maxDelayMs"] = settings.maxDelayMs;
     node["chance"] = settings.chance;
     node["onlyWhileAttacking"] = settings.onlyWhileAttacking;
@@ -147,6 +233,7 @@ void Criticals::saveSettings(json::Value& node) const {
 }
 
 void Criticals::loadSettings(const json::Value& node) {
+    settings.mode = static_cast<Mode>(node["mode"].as_int(static_cast<int>(settings.mode)));
     settings.maxDelayMs = node["maxDelayMs"].as_int(settings.maxDelayMs);
     settings.chance = node["chance"].as_int(settings.chance);
     settings.onlyWhileAttacking = node["onlyWhileAttacking"].as_bool(settings.onlyWhileAttacking);

@@ -35,6 +35,7 @@
 extern float (&g_SchemeColor)[4];
 
 inline ImU32 GetSchemeColor(float alpha = 1.0f);
+ImU32 GetAccentRGB();  // accent (or rainbow) at full opacity, no fade applied
 
 // ==================== UI NAMESPACE ====================
 namespace ui {
@@ -132,6 +133,16 @@ bool color(const char* name, float col[4], bool alpha = true);
 // Combo/dropdown
 bool Combo(const char* label, int* current, const char* const items[], int count);
 
+// Hover tooltip explaining tick timing. Call immediately after any widget whose
+// value is measured in (or per) game ticks, so users know what a tick is.
+inline void TickTooltip() {
+    if (ImGui::IsItemHovered()) {
+        ImGui::SetTooltip("Measured in game ticks.\n"
+                          "The game runs at 20 ticks per second, so 1 tick = 50 ms.\n"
+                          "e.g. 4 ticks = 200 ms, 20 ticks = 1 second.");
+    }
+}
+
 // ==================== TAB SYSTEM ====================
 
 // Per-category view state: a Module_Category either shows its module list or a
@@ -176,4 +187,8 @@ void apply_style();
 // Base window size
 inline ImVec2 baseSize{745, 520};
 inline ImVec2 size{745, 520};
+
+// ClickGUI visual mode: 0 = Old (the original), 1 = New (redesigned). Toggled
+// from the "ClickGUI" card in Visuals; persisted in config.
+inline int gui_mode = 0;
 }  // namespace ui

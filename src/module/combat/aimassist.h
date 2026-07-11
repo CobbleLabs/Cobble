@@ -55,6 +55,12 @@ public:
     void onUpdate() override;
     void onWorldChange() override;
     void onRenderMenu() override;
+
+    // Called from the outgoing packet gate. When packetRotation is enabled, the
+    // aim jitter is kept OUT of the render rotation (smooth first-person camera)
+    // and applied here to the C03 movement packet instead, so the rotation the
+    // server / third-person observers see is randomized.
+    void onOutgoingPacket(JNIEnv* env, jobject packet);
     std::string getDisplayInfo() override;
     void setEntityLock(bool enabled);
     void saveSettings(json::Value& node) const override;
@@ -62,6 +68,15 @@ public:
 
     enum class TargetMode { HEALTH, DISTANCE, FOV, SWITCH };
     enum class SortBy { DISTANCE, HEALTH, FOV, HURT_TIME };
+
+    // Aim application style:
+    //   SMOOTH   - humanized, speed-limited tracking (the original behaviour).
+    //   ADAPTIVE - auto-tunes the speed each tick from the angle error, target
+    //              distance and target velocity (fast to catch up, slow for
+    //              precision when on target).
+    //   BLATANT  - instant hard lock: sets the exact rotation onto the target
+    //              every tick (obvious aimbot look, moves the real camera).
+    enum class AimMode { SMOOTH = 0, ADAPTIVE = 1, BLATANT = 2 };
 
     // Armor tier filter: only lock onto players wearing this armor tier (on any slot)
     enum class ArmorFilter {
@@ -87,7 +102,7 @@ public:
     };
 
     struct Settings {
-        bool horizontalOnly = true;
+        bool horizontalOnly = false;  // false = aim yaw AND pitch (vertical works)
         bool invisibles = false;
         bool alwaysAim = false;
         bool breakBlocks = false;
@@ -97,6 +112,7 @@ public:
         bool stopOnHitbox = false;  // Stops aim assist when crosshair is inside hitbox
         bool antiBot = true;
 
+        AimMode aimMode = AimMode::SMOOTH;
         TargetMode targetMode = TargetMode::DISTANCE;
         SortBy switchSortBy = SortBy::DISTANCE;  // Only used when targetMode is SWITCH
         bool hurtTimeLock = false;               // Instant aim when switching targets in Hurt Time mode
@@ -104,6 +120,8 @@ public:
         float distance = 5.0f;
         float speed = 50.0f;
         float jitterPercent = 0.0f;
+        float prediction = 0.0f;      // 0-100%: lead the aim by the target's velocity
+        bool packetRotation = false;  // Smooth camera, jitter only on the sent packet
         int reactionTime = 50;  // ms
 
         ArmorFilter armorFilter = ArmorFilter::ANY;  // Legacy single-select (kept for config migration)
@@ -191,8 +209,19 @@ private:
     double lockedTargetY = 0.0;
     double lockedTargetZ = 0.0;
 
+    // Target velocity estimate (blocks/sec, smoothed) for prediction + adaptive speed.
+    double predPrevX = 0.0, predPrevY = 0.0, predPrevZ = 0.0;
+    double predVelX = 0.0, predVelY = 0.0, predVelZ = 0.0;
+    Timer predTimer;
+
     std::mt19937 rng;
     mutable std::recursive_mutex targetMutex_;
+
+    // Packet-rotation (smooth camera) state. Written on the module thread,
+    // read on the network thread from onOutgoingPacket.
+    std::atomic<bool> hasServerRotation_{false};
+    std::atomic<float> serverYawOffset_{0.0f};
+    std::atomic<float> serverPitchOffset_{0.0f};
 };
 
 extern AimAssist* aimAssist;

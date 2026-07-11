@@ -72,13 +72,13 @@
     <ClCompile Include="src\jni\apollo\apollo_packet_observer.cpp" />
     <ClCompile Include="src\jni\apollo\apollo_handshake.cpp" />
     <ClCompile Include="src\jni\noitemrelease\noitemrelease_gate.cpp" />
-    <ClCompile Include="src\jni\altmanager\altmanager_gate.cpp" />
     <ClCompile Include="src\jni\packet\bytecode_patcher.cpp" />
     <ClCompile Include="src\jni\packet\packet_interceptor.cpp" />
     <ClCompile Include="src\jni\packet\outgoing_gate.cpp" />
     <ClCompile Include="src\jni\slowdown\slowdown_gate.cpp" />
     <ClCompile Include="src\jni\blink\blink_gate.cpp" />
     <ClCompile Include="src\jni\backtrack\backtrack_gate.cpp" />
+    <ClCompile Include="src\jni\render\backtrack_ghost_gate.cpp" />
     <ClCompile Include="src\module\movement\blink.cpp" />
     <ClCompile Include="src\module\movement\fakelag.cpp" />
     <ClCompile Include="src\sdk\core\minecraft.cpp" />
@@ -123,7 +123,6 @@
     <ClCompile Include="src\module\movement\sprint.cpp" />
     <ClCompile Include="src\module\utility\autotool.cpp" />
     <ClCompile Include="src\module\utility\inventorymanager.cpp" />
-    <ClCompile Include="src\module\utility\altmanager.cpp" />
     <ClCompile Include="src\module\utility\tcpoptimizer.cpp" />
     <ClCompile Include="src\module\visual\nametags.cpp" />
     <ClCompile Include="src\module\visual\anti_debuff.cpp" />
@@ -172,7 +171,6 @@
     <ClInclude Include="src\jni\packet\packet_hook_enc.hpp" />
     <ClInclude Include="src\jni\java.h" />
     <ClInclude Include="src\jni\noitemrelease\noitemrelease_gate.hpp" />
-    <ClInclude Include="src\jni\altmanager\altmanager_gate.hpp" />
     <ClInclude Include="src\jni\packet\packet_interceptor.hpp" />
     <ClInclude Include="src\jni\slowdown\slowdown_gate.hpp" />
     <ClInclude Include="src\jni\backtrack\backtrack_gate.hpp" />
@@ -216,7 +214,6 @@
     <ClInclude Include="src\module\movement\sprint.h" />
     <ClInclude Include="src\module\utility\autotool.h" />
     <ClInclude Include="src\module\utility\inventorymanager.h" />
-    <ClInclude Include="src\module\utility\altmanager.h" />
     <ClInclude Include="src\module\visual\nametags.h" />
     <ClInclude Include="src\module\visual\anti_debuff.h" />
     <ClInclude Include="src\module\movement\no_slow_down.h" />

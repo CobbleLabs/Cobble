@@ -19,6 +19,15 @@ Velocity* velocity = nullptr;
 
 static std::mt19937 rng(std::random_device{}());
 
+namespace {
+// True if the physical key bound to `lwjglKey` is actually held right now. Lets
+// us hand a keybind back to the player's real input instead of forcing it off.
+bool isPhysicalKeyDown(int lwjglKey) {
+    const UINT virtualKey = MapVirtualKeyA(static_cast<UINT>(lwjglKey), MAPVK_VSC_TO_VK);
+    return virtualKey != 0 && (GetAsyncKeyState(static_cast<int>(virtualKey)) & 0x8000) != 0;
+}
+}  // namespace
+
 Velocity::Velocity() : Module("Velocity") {
     keybind = 0;
 }
@@ -27,11 +36,15 @@ void Velocity::onEnable() {
     lastHurtTime = 0;
     queuedHit.active = false;
     pending.active = false;
+    legitTicks = 0;
+    inputsHeld = false;
 }
 
 void Velocity::onDisable() {
     queuedHit.active = false;
     pending.active = false;
+    legitTicks = 0;
+    releaseInputs();
 }
 
 bool Velocity::checkChance(float chance) {
@@ -117,8 +130,7 @@ void Velocity::queueHit(int hurtTime) {
     if (!checkFOV() || !checkConditions())
         return;
 
-    const float modeChance = settings.mode == Mode::Jump ? settings.jumpChance : settings.chance;
-    if (!checkChance(modeChance))
+    if (!checkChance(settings.chance))
         return;
 
     std::uniform_real_distribution<float> variance(-settings.percentageVariance, settings.percentageVariance);
@@ -128,12 +140,20 @@ void Velocity::queueHit(int hurtTime) {
     queuedHit.horizontal = (std::clamp)(settings.horizontal + variance(rng), 0.0f, 100.0f);
     queuedHit.vertical = (std::clamp)(settings.vertical + variance(rng), 0.0f, 100.0f);
 
-    int microDelay = 0;
-    if (settings.microDelayMs > 0) {
-        std::uniform_int_distribution<int> delay(0, settings.microDelayMs);
-        microDelay = delay(rng);
+    if (settings.mode == Mode::Ping) {
+        // Hold the reduction back by (roughly) the configured ping, with a little
+        // jitter so the timing isn't a constant fingerprint.
+        std::uniform_int_distribution<int> jitter(-10, 10);
+        int d = (std::max)(0, settings.pingDelay + jitter(rng));
+        queuedHit.applyAtMs = GetTickCount() + static_cast<unsigned long>(d);
+    } else {
+        int microDelay = 0;
+        if (settings.microDelayMs > 0) {
+            std::uniform_int_distribution<int> delay(0, settings.microDelayMs);
+            microDelay = delay(rng);
+        }
+        queuedHit.applyAtMs = GetTickCount() + static_cast<unsigned long>(microDelay);
     }
-    queuedHit.applyAtMs = GetTickCount() + static_cast<unsigned long>(microDelay);
 }
 
 void Velocity::applyQueuedHit(int hurtTime) {
@@ -141,6 +161,7 @@ void Velocity::applyQueuedHit(int hurtTime) {
     queuedHit.active = false;
 
     switch (hit.mode) {
+            case Mode::Ping:
             case Mode::Regular: {
                 if (settings.tickSpread > 0) {
                     pending.active = true;
@@ -168,19 +189,6 @@ void Velocity::applyQueuedHit(int hurtTime) {
                 break;
             }
 
-            case Mode::Jump: {
-                if (player.isOnGround())
-                    player.jump();
-                break;
-            }
-
-            case Mode::Reduce: {
-                player.setMotionX(player.getMotionX() * (hit.horizontal / 100.0));
-                player.setMotionY(player.getMotionY() * (hit.vertical / 100.0));
-                player.setMotionZ(player.getMotionZ() * (hit.horizontal / 100.0));
-                break;
-            }
-
             case Mode::Ignore: {
                 player.setMotionX(0);
                 player.setMotionZ(0);
@@ -197,6 +205,9 @@ void Velocity::applyQueuedHit(int hurtTime) {
                 }
                 break;
             }
+
+            default:
+                break;
     }
 }
 
@@ -226,23 +237,83 @@ void Velocity::continuePendingReduction(int hurtTime) {
     }
 }
 
-void Velocity::onUpdate() {
-    if (!enabled || Menu::isOpen || mc.isInGui() || !player.isValid())
+void Velocity::releaseInputs() {
+    if (!inputsHeld)
         return;
+    // Hand the jump bind back to the player's REAL physical key state rather than
+    // forcing it off, so we never eat a jump the player is actually holding.
+    if (player.isValid())
+        mc.setKeyBindState(mc.getJumpKey(), isPhysicalKeyDown(mc.getJumpKey()));
+    inputsHeld = false;
+}
+
+void Velocity::handleLegit(int hurtTime, bool justGotHit) {
+    // Open a short window on a fresh hit.
+    if (justGotHit && checkFOV() && checkConditions() && checkChance(settings.jumpChance))
+        legitTicks = settings.legitWindow;
+
+    if (legitTicks <= 0) {
+        releaseInputs();
+        return;
+    }
+
+    // Jump-reset through the player's REAL jump keybind — never a direct motionY
+    // write. Pressing space lets the vanilla movement tick perform the jump
+    // itself, so the position packet and the velocity stay self-consistent. That
+    // is what keeps a strict physics check (Intave) from seeing "moved
+    // incorrectly": a jump injected via player.jump() from our thread lands
+    // outside the physics pipeline and desyncs position vs velocity; a real
+    // keybound jump does not. We only press it while genuinely on the ground, so
+    // we never try to jump mid-knockback (when the server sees us airborne).
+    //
+    // Legit      - a single jump-reset on the hit tick (subtle, most legit).
+    // LegitAbuse - jump-reset on every grounded tick of the window (keeps
+    //              re-grounding to bleed the knockback faster). No sprint / no
+    //              forced forward: those inject speed the anticheat can't predict
+    //              (the sprint-jump boost was the large horizontal desync).
+    bool wantJump = false;
+    if (player.isOnGround()) {
+        if (settings.mode == Mode::LegitAbuse)
+            wantJump = true;  // continuous reset across the window
+        else
+            wantJump = (legitTicks >= settings.legitWindow - 1);  // just at the hit
+    }
+
+    if (wantJump) {
+        mc.setKeyBindState(mc.getJumpKey(), true);
+        inputsHeld = true;
+    } else {
+        releaseInputs();
+    }
+
+    legitTicks--;
+    if (legitTicks <= 0)
+        releaseInputs();
+}
+
+void Velocity::onUpdate() {
+    if (!enabled || Menu::isOpen || mc.isInGui() || !player.isValid()) {
+        releaseInputs();
+        return;
+    }
 
     const int currentHurtTime = player.getHurtTime();
     const bool justGotHit = currentHurtTime > 0 && currentHurtTime > lastHurtTime;
 
-    if (justGotHit)
-        queueHit(currentHurtTime);
+    if (settings.mode == Mode::Legit || settings.mode == Mode::LegitAbuse) {
+        handleLegit(currentHurtTime, justGotHit);
+    } else {
+        if (justGotHit)
+            queueHit(currentHurtTime);
 
-    const bool tickDelayElapsed = queuedHit.active && currentHurtTime <= queuedHit.applyAtHurtTime;
-    const bool microDelayElapsed = queuedHit.active &&
-                                   static_cast<long>(GetTickCount() - queuedHit.applyAtMs) >= 0;
-    if (tickDelayElapsed && microDelayElapsed)
-        applyQueuedHit(currentHurtTime);
+        const bool tickDelayElapsed = queuedHit.active && currentHurtTime <= queuedHit.applyAtHurtTime;
+        const bool microDelayElapsed = queuedHit.active &&
+                                       static_cast<long>(GetTickCount() - queuedHit.applyAtMs) >= 0;
+        if (tickDelayElapsed && microDelayElapsed)
+            applyQueuedHit(currentHurtTime);
 
-    continuePendingReduction(currentHurtTime);
+        continuePendingReduction(currentHurtTime);
+    }
 
     lastHurtTime = currentHurtTime;
 }
@@ -266,7 +337,7 @@ void Velocity::onRenderMenu() {
             ImGui::Spacing();
 
             // Mode selector
-            const char* modes[] = {"Regular", "Jump", "Reduce", "Ignore"};
+            const char* modes[] = {"Regular", "Legit", "LegitAbuse", "Ignore", "Ping"};
             int modeIdx = static_cast<int>(settings.mode);
             if (ui::Combo("Mode", &modeIdx, modes, IM_ARRAYSIZE(modes)))
                 settings.mode = static_cast<Mode>(modeIdx);
@@ -274,21 +345,29 @@ void Velocity::onRenderMenu() {
             ImGui::Spacing();
 
             // Mode-specific settings
-            if (settings.mode == Mode::Regular || settings.mode == Mode::Reduce) {
+            if (settings.mode == Mode::Regular) {
                 ui::SliderFloat("Horizontal", &settings.horizontal, 0.0f, 100.0f, "%.0f%%");
                 ui::SliderFloat("Vertical", &settings.vertical, 0.0f, 100.0f, "%.0f%%");
                 ui::SliderFloat("Chance", &settings.chance, 0.0f, 100.0f, "%.0f%%");
-                if (settings.mode == Mode::Reduce) {
-                    ui::Checkbox("Double Clicks", &settings.allowDoubleClicks);
-                }
-            } else if (settings.mode == Mode::Jump) {
-                ui::SliderFloat("Jump Chance", &settings.jumpChance, 0.0f, 100.0f, "%.0f%%");
+            } else if (settings.mode == Mode::Legit) {
+                ui::SliderFloat("Chance", &settings.jumpChance, 0.0f, 100.0f, "%.0f%%");
+                ui::SliderInt("Window", &settings.legitWindow, 4, 20, "%d ticks");
+                ui::TickTooltip();
+            } else if (settings.mode == Mode::LegitAbuse) {
+                ui::SliderFloat("Chance", &settings.jumpChance, 0.0f, 100.0f, "%.0f%%");
+                ui::SliderInt("Window", &settings.legitWindow, 4, 20, "%d ticks");
+                ui::TickTooltip();
             } else if (settings.mode == Mode::Ignore) {
                 ui::SliderFloat("Chance", &settings.chance, 0.0f, 100.0f, "%.0f%%");
                 const char* vertModes[] = {"Never", "Only Air", "Always"};
                 int vertIdx = static_cast<int>(settings.verticalMode);
                 if (ui::Combo("Vertical", &vertIdx, vertModes, IM_ARRAYSIZE(vertModes)))
                     settings.verticalMode = static_cast<VerticalMode>(vertIdx);
+            } else if (settings.mode == Mode::Ping) {
+                ui::SliderInt("Ping", &settings.pingDelay, 0, 400, "%d ms");
+                ui::SliderFloat("Horizontal", &settings.horizontal, 0.0f, 100.0f, "%.0f%%");
+                ui::SliderFloat("Vertical", &settings.vertical, 0.0f, 100.0f, "%.0f%%");
+                ui::SliderFloat("Chance", &settings.chance, 0.0f, 100.0f, "%.0f%%");
             }
 
             ui::SliderFloat("FOV", &settings.fov, 0.0f, 360.0f, "%.0f");
@@ -296,11 +375,12 @@ void Velocity::onRenderMenu() {
             int delay = settings.reduceDelay;
             if (ui::SliderInt("Delay", &delay, 0, 5, "%d ticks"))
                 settings.reduceDelay = delay;
+            ui::TickTooltip();
         },
         "Settings",
         [this]() {
-            // Anti-detection (only for Regular/Reduce modes)
-            if (settings.mode == Mode::Regular || settings.mode == Mode::Reduce) {
+            // Anti-detection (Regular mode only)
+            if (settings.mode == Mode::Regular) {
                 ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.7f, 0.7f, 0.7f, 1.0f));
                 ImGui::Text("Anti-Detection");
                 ImGui::PopStyleColor();
@@ -311,6 +391,7 @@ void Velocity::onRenderMenu() {
                 int spread = settings.tickSpread;
                 if (ui::SliderInt("Tick Spread", &spread, 0, 3, "%d"))
                     settings.tickSpread = spread;
+                ui::TickTooltip();
 
                 int microDelay = settings.microDelayMs;
                 if (ui::SliderInt("Micro Delay", &microDelay, 0, 50, "%dms"))
@@ -329,7 +410,7 @@ void Velocity::onRenderMenu() {
             ui::Checkbox("Mouse Pressed", &settings.onlyMousePressed);
             ui::Checkbox("Moving Forward", &settings.onlyMovingForward);
             ui::Checkbox("Holding Weapon", &settings.onlyHoldingWeapon);
-            if (settings.mode == Mode::Jump) {
+            if (settings.mode == Mode::Legit || settings.mode == Mode::LegitAbuse) {
                 ui::Checkbox("Only Sprinting", &settings.onlySprinting);
             }
         });
@@ -339,12 +420,14 @@ std::string Velocity::getDisplayInfo() {
     switch (settings.mode) {
         case Mode::Regular:
             return "Regular";
-        case Mode::Jump:
-            return "Jump";
-        case Mode::Reduce:
-            return "Reduce";
+        case Mode::Legit:
+            return "Legit";
+        case Mode::LegitAbuse:
+            return "LegitAbuse";
         case Mode::Ignore:
             return "Ignore";
+        case Mode::Ping:
+            return "Ping";
         default:
             return "";
     }
@@ -360,7 +443,9 @@ void Velocity::saveSettings(json::Value& node) const {
     node["fov"] = settings.fov;
     node["reduceDelay"] = settings.reduceDelay;
     node["jumpChance"] = settings.jumpChance;
-    node["allowDoubleClicks"] = settings.allowDoubleClicks;
+    node["forwardTap"] = settings.forwardTap;
+    node["legitWindow"] = settings.legitWindow;
+    node["pingDelay"] = settings.pingDelay;
     node["verticalMode"] = static_cast<int>(settings.verticalMode);
     node["onlyLookingAtPlayer"] = settings.onlyLookingAtPlayer;
     node["onlyMousePressed"] = settings.onlyMousePressed;
@@ -380,7 +465,9 @@ void Velocity::loadSettings(const json::Value& node) {
     settings.fov = node["fov"].as_float(settings.fov);
     settings.reduceDelay = node["reduceDelay"].as_int(settings.reduceDelay);
     settings.jumpChance = node["jumpChance"].as_float(settings.jumpChance);
-    settings.allowDoubleClicks = node["allowDoubleClicks"].as_bool(settings.allowDoubleClicks);
+    settings.forwardTap = node["forwardTap"].as_bool(settings.forwardTap);
+    settings.legitWindow = node["legitWindow"].as_int(settings.legitWindow);
+    settings.pingDelay = node["pingDelay"].as_int(settings.pingDelay);
     settings.verticalMode =
         static_cast<VerticalMode>(node["verticalMode"].as_int(static_cast<int>(settings.verticalMode)));
     settings.onlyLookingAtPlayer = node["onlyLookingAtPlayer"].as_bool(settings.onlyLookingAtPlayer);

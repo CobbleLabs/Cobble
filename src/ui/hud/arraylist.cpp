@@ -105,8 +105,10 @@ void ArrayListRenderer::render() {
         return;
     }
 
-    // Use Bold 22px font
-    ImFont* arrayFont = font(2);
+    // Font picker: 0 = Inter Regular (slot 5, clean default), 1 = Inter Bold (slot 2).
+    ImFont* arrayFont = font(fontStyle == 1 ? 2 : 5);
+    if (!arrayFont)
+        arrayFont = font(2);  // fall back to Bold if the regular slot is unavailable
     if (!arrayFont)
         return;
 
@@ -222,13 +224,12 @@ void ArrayListRenderer::render() {
         // Get color (rainbow or accent)
         ImU32 moduleColor;
         if (rainbow) {
-            moduleColor = hud::GetRainbowColor(idx, rainbowSaturation, rainbowTimeMs);
+            moduleColor = hud::GetRainbowColorEx(idx, rainbowSaturation, rainbowTimeMs, rainbowType);
         } else {
             // Use custom color if set, otherwise use accent color
             if (color[0] < 0) {
-                // Use accent color from theme
-                moduleColor = IM_COL32((int)(g_SchemeColor[0] * 255), (int)(g_SchemeColor[1] * 255),
-                                       (int)(g_SchemeColor[2] * 255), 255);
+                // Accent color from theme (follows the global accent + rainbow).
+                moduleColor = GetAccentRGB();
             } else {
                 moduleColor = IM_COL32((int)(color[0] * 255), (int)(color[1] * 255), (int)(color[2] * 255), 255);
             }

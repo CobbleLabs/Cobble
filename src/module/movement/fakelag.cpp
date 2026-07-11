@@ -21,6 +21,15 @@
 
 FakeLag* fakeLag = nullptr;
 
+// Set ONLY on the thread that is re-sending our own buffered packets, and only
+// for the duration of that single send. The re-sent packet re-enters this gate
+// on the same thread, so this lets it pass through without being re-queued —
+// while a genuinely concurrent movement packet from the game thread (which does
+// NOT have this flag set) is still queued behind the backlog instead of racing
+// out mid-release. That race is what delivered positions out of order = bad
+// packets.
+static thread_local bool tlSelfRelease = false;
+
 namespace {
 
 constexpr std::uint64_t kPingSampleIntervalMs = 250;
@@ -178,7 +187,12 @@ bool FakeLag::shouldQueueMovement() const {
 }
 
 bool FakeLag::handleOutgoingPacket(JNIEnv* env, jobject packet) {
-    if (!enabled || !active_.load(std::memory_order_acquire) || isReleasing())
+    // Only bypass for our OWN re-entrant re-sends (tlSelfRelease). Using the
+    // shared isReleasing() flag here let concurrent game-thread packets slip out
+    // during a release burst, interleaving fresh positions between replayed ones
+    // (out-of-order = bad packets). Concurrent packets now fall through to the
+    // ordering logic below and are appended behind the backlog instead.
+    if (!enabled || !active_.load(std::memory_order_acquire) || tlSelfRelease)
         return true;
 
     if (settings.flushOnAttack && isAttackPacket(env, packet)) {
@@ -328,8 +342,14 @@ void FakeLag::releaseEligible(std::uint64_t ageMs, int limit) {
 
     releasing_.store(true, std::memory_order_release);
     for (const auto& entry : send) {
-        if (entry.packet)
+        if (entry.packet) {
+            // Mark just this re-send so the re-entrant gate call passes it
+            // through; clear immediately so a game-thread packet arriving right
+            // after is still ordered behind the backlog.
+            tlSelfRelease = true;
             mc.sendPacket(entry.packet);
+            tlSelfRelease = false;
+        }
         if (entry.movement) {
             std::lock_guard<std::mutex> lock(stateMutex_);
             serverX_ = entry.x;
@@ -712,6 +732,7 @@ void FakeLag::onRenderMenu() {
 
             ui::SliderInt("Packet Limit", &settings.maxPackets, 8, kHardPacketLimit, "%d");
             ui::SliderInt("Release Rate", &settings.releaseRate, 1, 6, "%d/tick");
+            ui::TickTooltip();
             ui::Checkbox("Moving Only", &settings.movingOnly);
             ui::Checkbox("Smooth Release", &settings.smoothRelease);
             ui::Checkbox("Flush On Attack", &settings.flushOnAttack);

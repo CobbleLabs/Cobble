@@ -15,11 +15,23 @@ public:
     void loadSettings(const json::Value& node) override;
 
     // Mode enum
+    //   Regular    - simple % motion reduction (non-prediction servers only).
+    //   Legit      - single jump-reset on the hit tick, via the real jump keybind
+    //                (vanilla physics performs the jump -> position stays self-
+    //                consistent, so even strict physics checks like Intave don't
+    //                flag "moved incorrectly"). Subtle and safe.
+    //   LegitAbuse - same keybound jump-reset but on every grounded tick of the
+    //                window (re-grounds repeatedly to bleed knockback faster).
+    //                No sprint / no forced forward: injecting that speed is what a
+    //                strict AC can't predict. Never writes motion directly.
+    //   Ignore     - hard cancel motion to 0 (non-prediction servers only).
     enum class Mode {
-        Regular = 0,  // Simple reduction
-        Jump = 1,     // Jump after knockback
-        Reduce = 2,   // Attack slowdown abuse
-        Ignore = 3    // Cancel velocity completely
+        Regular = 0,
+        Legit = 1,
+        LegitAbuse = 2,
+        Ignore = 3,
+        Ping = 4  // Delays the knockback reduction by a set ping value so it reads
+                  // like natural latency (packet-timing based, no direct motion desync).
     };
 
     // Vertical mode for Ignore
@@ -38,16 +50,18 @@ public:
         float fov = 360.0f;         // FOV filter (360 = all angles)
         int reduceDelay = 0;        // Ticks before reduction
 
-        // Jump mode
-        float jumpChance = 100.0f;  // Chance to jump
+        // Legit / LegitAbuse
+        float jumpChance = 100.0f;  // Chance to trigger the jump-reset
+        bool forwardTap = true;     // LegitAbuse: press forward into the knockback
+        int legitWindow = 10;       // Ticks the jump-reset window stays active
 
-        // Reduce mode
-        bool allowDoubleClicks = false;
+        // Ping mode
+        int pingDelay = 100;        // ms the knockback reduction is held back (your "ping")
 
         // Ignore mode
         VerticalMode verticalMode = VerticalMode::Never;
 
-        // Anti-detection
+        // Anti-detection (Regular only)
         float percentageVariance = 3.0f;  // ±variance% randomization (0-10)
         int tickSpread = 1;               // Spread reduction across N ticks (0-3)
         int microDelayMs = 15;            // Random timing variance 0-N ms (0-50)
@@ -57,7 +71,7 @@ public:
         bool onlyMousePressed = false;
         bool onlyMovingForward = false;
         bool onlyHoldingWeapon = false;
-        bool onlySprinting = false;  // Jump mode only
+        bool onlySprinting = false;  // Legit / LegitAbuse only
     } settings;
 
 private:
@@ -72,7 +86,7 @@ private:
         float vertical = 100.0f;
     } queuedHit;
 
-    // Gradual application state
+    // Gradual application state (Regular)
     struct PendingReduction {
         bool active = false;
         double targetMotionX = 0.0;
@@ -82,6 +96,10 @@ private:
         int totalTicks = 0;
         int lastHurtTime = -1;
     } pending;
+
+    // Legit / LegitAbuse per-tick state
+    int legitTicks = 0;       // Ticks left in the active hurt window
+    bool inputsHeld = false;  // Whether we are currently overriding forward/sprint
 
     // Helper methods
     bool checkChance(float chance);
@@ -93,6 +111,8 @@ private:
     void queueHit(int hurtTime);
     void applyQueuedHit(int hurtTime);
     void continuePendingReduction(int hurtTime);
+    void handleLegit(int hurtTime, bool justGotHit);
+    void releaseInputs();
 };
 
 extern Velocity* velocity;

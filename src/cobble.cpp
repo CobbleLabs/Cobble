@@ -31,7 +31,6 @@
 #include "module/utility/fastbreak.h"
 #include "module/utility/noitemrelease.h"
 #include "module/utility/inventorymanager.h"
-#include "module/utility/altmanager.h"
 #include "module/utility/tcpoptimizer.h"
 #include "module/visual/blockesp.h"
 #include "module/visual/esp.h"
@@ -222,8 +221,6 @@ void cobble::context::initialize(HMODULE hModule) {
     autoTool = new AutoTool();
     COBBLE_TRACE("alloc:InventoryManager");
     inventoryManager = new InventoryManager();
-    COBBLE_TRACE("alloc:AltManager");
-    altManager = new AltManager();
     COBBLE_TRACE("alloc:TcpOptimizer");
     tcpOptimizer = new TcpOptimizer();
     COBBLE_TRACE("alloc:NameTags");
@@ -280,7 +277,6 @@ void cobble::context::initialize(HMODULE hModule) {
     moduleManager->registerModule(sprint);
     moduleManager->registerModule(autoTool);
     moduleManager->registerModule(inventoryManager);
-    moduleManager->registerModule(altManager);
     moduleManager->registerModule(tcpOptimizer);
     moduleManager->registerModule(nameTags);
     moduleManager->registerModule(antiDebuff);
@@ -539,8 +535,6 @@ void cobble::context::shutdown() {
         autoTool->setEnabled(false);
     if (inventoryManager)
         inventoryManager->setEnabled(false);
-    if (altManager)
-        altManager->setEnabled(false);
     if (nameTags)
         nameTags->setEnabled(false);
     if (antiDebuff)
@@ -706,10 +700,6 @@ void cobble::context::shutdown() {
     if (inventoryManager) {
         delete inventoryManager;
         inventoryManager = nullptr;
-    }
-    if (altManager) {
-        delete altManager;
-        altManager = nullptr;
     }
     if (nameTags) {
         delete nameTags;

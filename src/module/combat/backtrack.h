@@ -43,8 +43,12 @@ public:
         int ticks = 6;           // Number of previous positions to store (1-20)
         bool renderPreviousTicks = true;  // Render ghost at past positions
 
-        // Lag Based mode settings
-        int latency = 200;       // Added lag in ms (50-500)
+        // Lag Based mode settings — a dynamic latency WINDOW. Each lag session
+        // rolls an effective latency in [min, max] so the delay isn't a constant
+        // (harder to read, and the on-screen readout shows the range, not a fixed
+        // exact ping).
+        int latencyMin = 120;    // Min added lag in ms (50-500)
+        int latencyMax = 260;    // Max added lag in ms (50-500)
         bool renderServerPos = true;  // Render actual server position
 
         // Distance
@@ -73,6 +77,15 @@ public:
         z = backtrackedZ;
     }
 
+    // Effective (rolled) latency for the current lag session, in ms. Used by the
+    // packet gate so the actual hold matches the dynamic window.
+    int getCurrentLatency() const { return currentLatency; }
+
+    // Read the current 3D-ghost render target (entity id + backtracked world pos)
+    // for the injected render hook. Returns false when nothing should be drawn.
+    // Called from the render thread; the small race with the tick thread is benign.
+    bool getGhostRenderTarget(int& entityId, double& x, double& y, double& z) const;
+
     // Lag Based mode - called from BacktrackGate
     bool shouldDelayPacket() const;
     void onPacketDelayed();
@@ -90,14 +103,17 @@ private:
     bool isLagging = false;  // Lag Based mode active
     double backtrackedX = 0, backtrackedY = 0, backtrackedZ = 0;
     double currentRealX = 0, currentRealY = 0, currentRealZ = 0;  // Real position (for Lag Based indicator)
+    int ghostEntityId = -1;  // Entity id of the current backtrack target (for the 3D ghost render)
     std::string currentTargetUUID;
     std::chrono::steady_clock::time_point lastTargetChange;
 
     // Lag Based mode state
     std::chrono::steady_clock::time_point lagStartTime;
     int delayedPacketCount = 0;
+    int currentLatency = 200;  // Effective latency this lag session, rolled in [min,max]
 
     // Helpers
+    void rollLatency();  // pick currentLatency uniformly within [latencyMin, latencyMax]
     bool isHoldingWeapon();
     void recordPosition(const PlayerInfo& target);
     bool findBacktrackedPosition(double playerX, double playerY, double playerZ,

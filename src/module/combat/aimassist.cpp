@@ -24,6 +24,41 @@
 
 AimAssist* aimAssist = nullptr;
 
+// ── C03PacketPlayer resolution for packet-rotation (mirrors clutch) ──────────
+// Resolved lazily on the network thread inside onOutgoingPacket, so no cross-
+// thread races on these statics.
+static jclass g_aimC03 = nullptr;
+static jfieldID g_aim_fid_yaw = nullptr;
+static jfieldID g_aim_fid_pitch = nullptr;
+static jfieldID g_aim_fid_rotating = nullptr;
+static bool g_aimResolvedC03 = false;
+
+static void resolveAimC03(JNIEnv* env) {
+    if (g_aimResolvedC03)
+        return;
+    g_aimResolvedC03 = true;
+
+    jclass localClass = nullptr;
+    if (Java::AssignClass("net.minecraft.network.play.client.C03PacketPlayer", localClass)) {
+        g_aimC03 = (jclass)env->NewGlobalRef(localClass);
+
+        g_aim_fid_yaw = env->GetFieldID(g_aimC03, "yaw", "F");
+        if (!g_aim_fid_yaw)
+            g_aim_fid_yaw = env->GetFieldID(g_aimC03, "field_149476_e", "F");
+
+        g_aim_fid_pitch = env->GetFieldID(g_aimC03, "pitch", "F");
+        if (!g_aim_fid_pitch)
+            g_aim_fid_pitch = env->GetFieldID(g_aimC03, "field_149473_f", "F");
+
+        g_aim_fid_rotating = env->GetFieldID(g_aimC03, "rotating", "Z");
+        if (!g_aim_fid_rotating)
+            g_aim_fid_rotating = env->GetFieldID(g_aimC03, "field_149481_i", "Z");
+
+        if (env->ExceptionCheck())
+            env->ExceptionClear();
+    }
+}
+
 // Weapon item IDs
 namespace ItemIds {
 // Swords
@@ -354,6 +389,9 @@ float AimAssist::slerp(float start, float end, float t) {
 void AimAssist::onUpdate() {
     std::lock_guard<std::recursive_mutex> lock(targetMutex_);
     clickStartedThisFrame = false;
+    // Default off each tick; applyAimRand re-arms it only while actively aiming
+    // with packetRotation, so idle/no-target ticks never rewrite outgoing packets.
+    hasServerRotation_.store(false, std::memory_order_relaxed);
     JNIEnv* env = Java::Env();
     if (!env)
         return;
@@ -415,6 +453,9 @@ void AimAssist::onUpdate() {
     double localX = player.getPosX();
     double localY = player.getPosY();
     double localZ = player.getPosZ();
+    // Angles must originate from the eyes, not the feet, or the pitch aims ~1.62
+    // blocks too high (the "vertical aims above the player" bug).
+    double eyeY = localY + 1.62;
     targetChangedThisFrame = false;
 
     double targetX = 0.0;
@@ -433,6 +474,25 @@ void AimAssist::onUpdate() {
     lockedTargetY = targetY;
     lockedTargetZ = targetZ;
 
+    // Estimate the target's velocity (blocks/sec, smoothed). A big position jump
+    // means the target switched or teleported, so reset instead of leading wildly.
+    {
+        float dtp = predTimer.Elapsed<>() / 1000.0f;
+        predTimer.Start();
+        double jdx = targetX - predPrevX, jdy = targetY - predPrevY, jdz = targetZ - predPrevZ;
+        if (dtp <= 0.0001f || dtp > 0.5f || (jdx * jdx + jdy * jdy + jdz * jdz) > 9.0) {
+            predVelX = predVelY = predVelZ = 0.0;
+        } else {
+            const double sm = 0.35;
+            predVelX += ((jdx / dtp) - predVelX) * sm;
+            predVelY += ((jdy / dtp) - predVelY) * sm;
+            predVelZ += ((jdz / dtp) - predVelZ) * sm;
+        }
+        predPrevX = targetX;
+        predPrevY = targetY;
+        predPrevZ = targetZ;
+    }
+
     double aimTargetX = targetX;
     double aimTargetY = targetY;
     double aimTargetZ = targetZ;
@@ -443,12 +503,22 @@ void AimAssist::onUpdate() {
         aimTargetY += 1.62;
     }
 
+    // Prediction: lead the aim point by the target's velocity so tracking sits
+    // ahead of a strafing target instead of trailing it.
+    if (settings.prediction > 0.0f) {
+        float leadSec = (settings.prediction / 100.0f) * 0.16f;
+        aimTargetX += predVelX * leadSec;
+        aimTargetZ += predVelZ * leadSec;
+        if (!settings.horizontalOnly)
+            aimTargetY += predVelY * leadSec;
+    }
+
     double aimX, aimY, aimZ;
     if (!getAimPoint(aimTargetX, aimTargetY, aimTargetZ, aimX, aimY, aimZ)) {
         return;
     }
 
-    auto [yawTarget, pitchTarget] = getAngles(localX, localY, localZ, aimX, aimY, aimZ);
+    auto [yawTarget, pitchTarget] = getAngles(localX, eyeY, localZ, aimX, aimY, aimZ);
 
     float yawDiff = wrapTo180(-(localYaw - yawTarget));
     float pitchDiff = wrapTo180(-(localPitch - pitchTarget));
@@ -460,10 +530,10 @@ void AimAssist::onUpdate() {
 
         if (hitboxWidth > 0.01f && hitboxHeight > 0.01f) {
             // Calculate angles to hitbox edges
-            float yawToMinX = getAngles(localX, localY, localZ, targetHitboxMinX, aimY, targetHitboxMinZ).first;
-            float yawToMaxX = getAngles(localX, localY, localZ, targetHitboxMaxX, aimY, targetHitboxMaxZ).first;
-            float pitchToMinY = getAngles(localX, localY, localZ, aimX, targetHitboxMinY, aimZ).second;
-            float pitchToMaxY = getAngles(localX, localY, localZ, aimX, targetHitboxMaxY, aimZ).second;
+            float yawToMinX = getAngles(localX, eyeY, localZ, targetHitboxMinX, aimY, targetHitboxMinZ).first;
+            float yawToMaxX = getAngles(localX, eyeY, localZ, targetHitboxMaxX, aimY, targetHitboxMaxZ).first;
+            float pitchToMinY = getAngles(localX, eyeY, localZ, aimX, targetHitboxMinY, aimZ).second;
+            float pitchToMaxY = getAngles(localX, eyeY, localZ, aimX, targetHitboxMaxY, aimZ).second;
 
             float yawDiffToMinX = wrapTo180(-(localYaw - yawToMinX));
             float yawDiffToMaxX = wrapTo180(-(localYaw - yawToMaxX));
@@ -500,11 +570,31 @@ void AimAssist::onUpdate() {
         return;
     }
 
-    float speedSetting = std::max(settings.speed, 1.0f);
-    float speed = speedSetting * 3.0f;
     cachedMouseSensitivity = mc.getMouseSensitivity();
 
-    applyAimRand(yawDiff, pitchDiff, speed);
+    if (settings.aimMode == AimMode::BLATANT) {
+        player.setYaw(yawTarget);
+        player.setPrevYaw(yawTarget);
+        if (!settings.horizontalOnly) {
+            float clampedPitch = std::clamp(pitchTarget, -90.0f, 90.0f);
+            player.setPitch(clampedPitch);
+            player.setPrevPitch(clampedPitch);
+        }
+    } else {
+        float speedSetting = std::max(settings.speed, 1.0f);
+        float speed = speedSetting * 3.0f;
+        if (settings.aimMode == AimMode::ADAPTIVE) {
+            float err = std::sqrt(yawDiff * yawDiff + pitchDiff * pitchDiff);
+            double ddx = aimX - localX, ddy = aimY - localY, ddz = aimZ - localZ;
+            float tdist = (float)std::sqrt(ddx * ddx + ddy * ddy + ddz * ddz);
+            float horizVel = (float)std::sqrt(predVelX * predVelX + predVelZ * predVelZ);
+            float errFactor = std::clamp(err / 22.0f, 0.45f, 2.3f);
+            float distFactor = std::clamp(6.0f / std::max(tdist, 1.0f), 0.85f, 1.8f);
+            float velFactor = std::clamp(1.0f + horizVel * 0.06f, 1.0f, 1.6f);
+            speed *= errFactor * distFactor * velFactor;
+        }
+        applyAimRand(yawDiff, pitchDiff, speed);
+    }
     prevFrameHadTarget = hasLockedTarget;
     lastMouseDown = mouseDown;
 }
@@ -579,8 +669,13 @@ bool AimAssist::findTarget(double& targetX, double& targetY, double& targetZ) {
                     float yawToTarget = getAngles(localX, localY, localZ, cX, cY, cZ).first;
                     float yawDiff = std::abs(wrapTo180(-(localYaw - yawToTarget)));
                     float limit = entityLock ? std::max(90.0f, settings.fov * 0.5f) : (settings.fov * 0.5f);
+                    // Point-blank targets: don't drop them through tight strafes even
+                    // when the configured FOV is narrow. Fixes "close targets sometimes
+                    // don't work" — up close a small position change swings the yaw a lot.
+                    if (dist < 3.0f)
+                        limit = std::max(limit, 150.0f);
 
-                    if (dist > maxDist || dist < 0.2f || yawDiff > limit) {
+                    if (dist > maxDist || dist < 0.08f || yawDiff > limit) {
                         log_debug("[AimAssist] target dropped: dist=%.1f yaw=%.1f", dist, yawDiff);
                         Java::Env()->DeleteGlobalRef(cachedTarget);
                         cachedTarget = nullptr;
@@ -679,7 +774,7 @@ bool AimAssist::findTarget(double& targetX, double& targetY, double& targetZ) {
         float dist = (float)std::sqrt(dx * dx + dy * dy + dz * dz);
 
         float maxDist = (entityLock && sameAsLocked) ? (settings.distance + 1.5f) : settings.distance;
-        if (dist > maxDist || dist < 0.2f) {
+        if (dist > maxDist || dist < 0.08f) {
             releasePlayerRef(p);
             continue;
         }
@@ -780,6 +875,9 @@ bool AimAssist::findTarget(double& targetX, double& targetY, double& targetZ) {
         float yawDiff = std::abs(wrapTo180(-(localYaw - yawToTarget)));
 
         float maxYawDiff = (entityLock && sameAsLocked) ? std::max(90.0f, settings.fov * 0.5f) : (settings.fov * 0.5f);
+        // Acquire close targets even at wide angles (see fast-path note above).
+        if (dist < 3.0f)
+            maxYawDiff = std::max(maxYawDiff, 150.0f);
         if (yawDiff > maxYawDiff) {
             releasePlayerRef(p);
             continue;
@@ -1138,9 +1236,22 @@ void AimAssist::applyAimRand(float yawDiff, float pitchDiff, float speed) {
     float pitchDelta = pitchAccum * sensMultiplier * kMouseGain;  // Use float, not int
 
     updateSimulatedJitter();
-    yawDelta += simulatedJitterYaw;
-    if (!settings.horizontalOnly)
-        pitchDelta += simulatedJitterPitch;
+    if (settings.packetRotation) {
+        // Smooth camera: keep the jitter OUT of the applied (render) delta and
+        // ship it only on the outgoing movement packet. Quantize to the GCD so
+        // the sent rotation still reads like a real, quantized mouse rather than
+        // free-floating noise.
+        float gcd = g_cachedGCD > 0.0001f ? g_cachedGCD : calculateGCD(cachedMouseSensitivity);
+        float offY = std::round(simulatedJitterYaw / gcd) * gcd;
+        float offP = settings.horizontalOnly ? 0.0f : std::round(simulatedJitterPitch / gcd) * gcd;
+        serverYawOffset_.store(offY, std::memory_order_relaxed);
+        serverPitchOffset_.store(offP, std::memory_order_relaxed);
+        hasServerRotation_.store(true, std::memory_order_release);
+    } else {
+        yawDelta += simulatedJitterYaw;
+        if (!settings.horizontalOnly)
+            pitchDelta += simulatedJitterPitch;
+    }
 
     // Guard against overshoot: clamp step to fraction of remaining error
     auto clampStepToError = [](float delta, float remaining, float frac) -> float {
@@ -1274,6 +1385,35 @@ void AimAssist::applyAimRand(float yawDiff, float pitchDiff, float speed) {
     }
 }
 
+void AimAssist::onOutgoingPacket(JNIEnv* env, jobject packet) {
+    if (!enabled || !settings.packetRotation || !env)
+        return;
+    if (!hasServerRotation_.load(std::memory_order_acquire))
+        return;
+
+    resolveAimC03(env);
+    if (!g_aimC03 || !env->IsInstanceOf(packet, g_aimC03))
+        return;
+
+    const float offY = serverYawOffset_.load(std::memory_order_relaxed);
+    const float offP = serverPitchOffset_.load(std::memory_order_relaxed);
+
+    if (g_aim_fid_yaw) {
+        float y = env->GetFloatField(packet, g_aim_fid_yaw);
+        env->SetFloatField(packet, g_aim_fid_yaw, y + offY);
+    }
+    if (g_aim_fid_pitch && !settings.horizontalOnly) {
+        float p = env->GetFloatField(packet, g_aim_fid_pitch);
+        env->SetFloatField(packet, g_aim_fid_pitch, std::clamp(p + offP, -90.0f, 90.0f));
+    }
+    // Mark the packet as carrying a rotation so the server accepts the values.
+    if (g_aim_fid_rotating)
+        env->SetBooleanField(packet, g_aim_fid_rotating, JNI_TRUE);
+
+    if (env->ExceptionCheck())
+        env->ExceptionClear();
+}
+
 bool AimAssist::isHoldingWeapon() {
     int id = player.getHeldItemId();
     if (id == -1)
@@ -1311,6 +1451,15 @@ bool AimAssist::getAimPoint(double targetX, double targetY, double targetZ, doub
             aimX = std::clamp(localX, minX, maxX);
             aimY = std::clamp(localY, minY, maxY);
             aimZ = std::clamp(localZ, minZ, maxZ);
+            // Point-blank: if we're horizontally inside the hitbox the clamp
+            // collapses the aim point onto our own position and the yaw becomes
+            // undefined (atan2(0,0)), so the camera stops turning. Fall back to the
+            // hitbox centre so it keeps tracking at very close range.
+            double hdx = aimX - localX, hdz = aimZ - localZ;
+            if (hdx * hdx + hdz * hdz < 0.02) {
+                aimX = (minX + maxX) * 0.5;
+                aimZ = (minZ + maxZ) * 0.5;
+            }
             return true;
         }
 
@@ -1393,14 +1542,31 @@ void AimAssist::onRenderMenu() {
                 }
             }
             ImGui::Spacing();
-            ui::SliderFloat("Speed", &settings.speed, 1.0f, 120.0f, "%.0f", true);
-            ui::SliderInt("FOV", &settings.fov, 10, 360, "%d");
-            ui::SliderFloat("Distance", &settings.distance, 3.0f, 8.0f, "%.1f");
-            ui::SliderInt("Reaction Time", &settings.reactionTime, 0, 200, "%d ms");
-            ui::SliderFloat("Jitter", &settings.jitterPercent, 0.0f, 100.0f, "%.0f%%");
+            static const char* aimModes[] = {"Smooth", "Adaptive", "Blatant"};
+            int am = static_cast<int>(settings.aimMode);
+            if (ui::Combo("Mode", &am, aimModes, IM_ARRAYSIZE(aimModes)))
+                settings.aimMode = static_cast<AimMode>(am);
+
+            if (settings.aimMode == AimMode::BLATANT) {
+                ImGui::TextDisabled("Instant hard lock - no tuning");
+            } else {
+                if (settings.aimMode == AimMode::ADAPTIVE)
+                    ImGui::TextDisabled("Speed auto-tunes to error, distance & motion");
+                else
+                    ui::SliderFloat("Speed", &settings.speed, 1.0f, 120.0f, "%.0f", true);
+                ui::SliderInt("FOV", &settings.fov, 10, 360, "%d");
+                ui::SliderFloat("Distance", &settings.distance, 3.0f, 8.0f, "%.1f");
+                ui::SliderFloat("Prediction", &settings.prediction, 0.0f, 100.0f, "%.0f%%");
+                ui::SliderInt("Reaction Time", &settings.reactionTime, 0, 200, "%d ms");
+                ui::SliderFloat("Jitter", &settings.jitterPercent, 0.0f, 100.0f, "%.0f%%");
+                ui::Checkbox("Smooth Camera", &settings.packetRotation);
+                if (settings.packetRotation)
+                    ImGui::TextDisabled("Jitter only on sent packet (1st person smooth)");
+            }
         },
         "Options",
         [this, &currentMode, &currentSortBy]() {
+            ui::Checkbox("Horizontal Only", &settings.horizontalOnly);
             ui::Checkbox("Always Aim", &settings.alwaysAim);
             ui::Checkbox("Break Blocks", &settings.breakBlocks);
             ui::Checkbox("Weapon Only", &settings.weaponOnly);
@@ -1475,6 +1641,7 @@ void AimAssist::saveSettings(json::Value& node) const {
     node["fov"] = settings.fov;
     node["distance"] = settings.distance;
     node["reactionTime"] = settings.reactionTime;
+    node["aimMode"] = static_cast<int>(settings.aimMode);
     node["targetMode"] = static_cast<int>(settings.targetMode);
     node["switchSortBy"] = static_cast<int>(settings.switchSortBy);
     node["hurtTimeLock"] = settings.hurtTimeLock;
@@ -1486,6 +1653,8 @@ void AimAssist::saveSettings(json::Value& node) const {
     node["entityLock"] = settings.entityLock;
     node["stopOnHitbox"] = settings.stopOnHitbox;
     node["jitterPercent"] = settings.jitterPercent;
+    node["prediction"] = settings.prediction;
+    node["packetRotation"] = settings.packetRotation;
     node["antiBot"] = settings.antiBot;
     node["armorFilter"] = static_cast<int>(settings.armorFilter);
     node["armorTierMask"] = settings.armorTierMask;
@@ -1499,6 +1668,7 @@ void AimAssist::loadSettings(const json::Value& node) {
     settings.fov = node["fov"].as_int(settings.fov);
     settings.distance = node["distance"].as_float(settings.distance);
     settings.reactionTime = node["reactionTime"].as_int(settings.reactionTime);
+    settings.aimMode = static_cast<AimMode>(node["aimMode"].as_int(static_cast<int>(settings.aimMode)));
     settings.targetMode =
         static_cast<TargetMode>(node["targetMode"].as_int(static_cast<int>(settings.targetMode)));
     settings.switchSortBy =
@@ -1518,6 +1688,8 @@ void AimAssist::loadSettings(const json::Value& node) {
     settings.stopOnHitbox = node["stopOnHitbox"].as_bool(settings.stopOnHitbox);
     settings.jitterPercent =
         (std::clamp)(node["jitterPercent"].as_float(settings.jitterPercent), 0.0f, 100.0f);
+    settings.prediction = (std::clamp)(node["prediction"].as_float(settings.prediction), 0.0f, 100.0f);
+    settings.packetRotation = node["packetRotation"].as_bool(settings.packetRotation);
     settings.antiBot = node["antiBot"].as_bool(settings.antiBot);
     settings.armorFilter =
         static_cast<ArmorFilter>(node["armorFilter"].as_int(static_cast<int>(settings.armorFilter)));

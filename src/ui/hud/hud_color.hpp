@@ -69,6 +69,27 @@ inline ImU32 GetRainbowColor(int index, float saturation, long long timeMs) {
     return IM_COL32((int)rgb.r, (int)rgb.g, (int)rgb.b, 255);
 }
 
+// Rainbow hue (0..1) for element `index` at `timeMs`, with a style `type`:
+//   0 Flow (default), 1 Solid (no per-element offset), 2 Fast, 3 Wide (slow+spread).
+inline float RainbowHue(int index, long long timeMs, int type) {
+    float cycle, spread;
+    switch (type) {
+        case 1: cycle = 6000.0f; spread = 0.0f; break;
+        case 2: cycle = 3500.0f; spread = 70.0f; break;
+        case 3: cycle = 11000.0f; spread = 165.0f; break;
+        default: cycle = 8000.0f; spread = 100.0f; break;
+    }
+    float t = std::fmod(static_cast<float>(timeMs % static_cast<long long>(cycle)), cycle);
+    return std::fmod((t + index * spread) / cycle, 1.0f);
+}
+
+// Flowing rainbow color with a selectable `type`. Type 3 softens saturation a bit.
+inline ImU32 GetRainbowColorEx(int index, float saturation, long long timeMs, int type) {
+    float sat = (type == 3) ? saturation * 0.72f : saturation;
+    RGB rgb = FromHSB(RainbowHue(index, timeMs, type), sat, 0.9f);
+    return IM_COL32((int)rgb.r, (int)rgb.g, (int)rgb.b, 255);
+}
+
 // Scale the alpha channel of a packed color by f (0..1), clamped.
 inline ImU32 ColScaleAlpha(ImU32 c, float f) {
     int a = (int)(((c >> IM_COL32_A_SHIFT) & 0xFF) * f);

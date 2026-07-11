@@ -72,6 +72,9 @@ void AutoClicker::onEnable() {
     plusCpsState = std::clamp((settings.minCPS + settings.maxCPS) * 0.5f, 1.0f, 25.0f);
     plusStateClicksRemaining = 0;
     clickDownFraction = 0.5f;
+    // Seed the interval/gap so the first press waits a normal spacing, not a burst.
+    currentClickIntervalMs = 1000.0f / std::clamp((settings.minCPS + settings.maxCPS) * 0.5f, 1.0f, 20.0f);
+    pendingGapMs = currentClickIntervalMs;
 
     if (!settings.stableCPS) {
         regenerateDelayRange();
@@ -304,27 +307,37 @@ void AutoClicker::calculateNextDelay() {
     if (settings.stableCPS)
         return;
 
-    // Pick this click's full interval + hold fraction once per click cycle (at
-    // the start, when the button is up). The down/up phases split that interval.
-    if (!lastClickWasDown) {
+    // The server times the DOWN (press) event, so the full generated interval must
+    // land on the DOWN->next-DOWN gap. Generate the whole interval ONCE, on the
+    // DOWN, and split the cycle as:
+    //     DOWN --hold--> UP --(interval - hold)--> next DOWN
+    // so down-to-down == interval exactly, preserving its full variance and human
+    // right-skew. The previous code regenerated the interval on every UP and split
+    // it into two phases, which made the measured down-to-down the AVERAGE of two
+    // consecutive intervals — averaging two samples halves the variance and pulls
+    // the shape toward a Gaussian, which is exactly the too-low, too-regular
+    // deviation an anticheat flags even with randomization on.
+    if (lastClickWasDown) {
+        // Just pressed: choose THIS click's full interval and a short human hold.
         if (settings.randomization) {
-            // Randomization ON = always human-style humanization.
             updateFatigue();
             updateBurstMode();
             currentClickIntervalMs = generateHumanIntervalMs(minCps, maxCps);
-            float holdMs = 32.0f + static_cast<float>(secureUnit()) * 34.0f;
-            clickDownFraction = std::clamp(holdMs / std::max(currentClickIntervalMs, 1.0f), 0.15f, 0.6f);
         } else {
-            // Randomization OFF = plain uniform CPS in the band.
             std::uniform_real_distribution<float> d(minCps, maxCps);
             currentClickIntervalMs = 1000.0f / std::max(d(rng), 0.1f);
-            clickDownFraction = 0.5f;
         }
+        // Press duration is independent of the gap so it never bleeds variance out
+        // of the interval; capped well under it so the remaining gap stays positive.
+        float holdMs = 30.0f + static_cast<float>(secureUnit()) * 50.0f;  // 30-80ms
+        holdMs = std::min(holdMs, currentClickIntervalMs * 0.45f);
+        pendingGapMs = std::max(1.0f, currentClickIntervalMs - holdMs);
+        nextDelayMs = std::clamp(static_cast<int>(std::lround(holdMs)), 4, 500);
+    } else {
+        // Just released: wait the rest of the interval so the next press lands one
+        // full interval after the previous press.
+        nextDelayMs = std::clamp(static_cast<int>(std::lround(pendingGapMs)), 4, 500);
     }
-
-    float phase = lastClickWasDown ? clickDownFraction : (1.0f - clickDownFraction);
-    float delay = currentClickIntervalMs * phase;
-    nextDelayMs = std::clamp(static_cast<int>(std::lround(delay)), 8, 500);
 }
 
 void AutoClicker::reseedSecureRng() {

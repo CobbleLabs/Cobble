@@ -36,7 +36,6 @@
 #include "../../module/utility/fastbreak.h"
 #include "../../module/utility/noitemrelease.h"
 #include "../../module/utility/inventorymanager.h"
-#include "../../module/utility/altmanager.h"
 #include "../../module/utility/tcpoptimizer.h"
 #include "../../module/visual/blockesp.h"
 #include "../../module/visual/esp.h"
@@ -126,6 +125,8 @@ Module* getModuleForSubtab(int tabIdx, int subtabIdx) {
                 return nullptr;  // Watermark - special handling
             case 11:
                 return targetHud;
+            case 12:
+                return nullptr;  // ClickGUI - special handling (mode toggle)
         }
     }
     // Movement Tab (2): Timer, TimerRange, NoSlowDown, NoJumpDelay, Sprint
@@ -165,8 +166,6 @@ Module* getModuleForSubtab(int tabIdx, int subtabIdx) {
             case 8:
                 return inventoryManager;
             case 9:
-                return altManager;
-            case 10:
                 return fastBreak;
         }
     }
@@ -205,6 +204,11 @@ static void renderSettingsPage() {
             ImGui::Spacing();
 
             ui::color("Accent Color", g_SchemeColor);
+            ui::Checkbox("Accent Rainbow", &ui::theme::accentRainbow);
+            if (ui::theme::accentRainbow) {
+                const char* rbTypes[] = {"Flow", "Solid", "Fast", "Wide"};
+                ui::Combo("Rainbow", &ui::theme::rainbowType, rbTypes, 4);
+            }
 
             ImGui::Spacing();
             ImGui::Separator();
@@ -1008,46 +1012,188 @@ static void renderConfigsPage() {
     ImGui::EndGroup();
 }
 
-// ---- Gradient / glow helpers -------------------------------------------------
-// Shared by the Module_Cards (and reusable elsewhere) so the accent "glow"
-// around active modules reads as one consistent style.
+// ---- Contour sweep helpers ---------------------------------------------------
+// Build the animated accent light that revolves around each active Module_Card.
 
-// Lerp a color's RGB toward white by t (0..1), preserving alpha. Used to build
-// the light top-of-pill sheen from the accent color.
-static ImU32 MixWhite(ImU32 c, float t) {
-    ImVec4 v = ImGui::ColorConvertU32ToFloat4(c);
-    v.x += (1.f - v.x) * t;
-    v.y += (1.f - v.y) * t;
-    v.z += (1.f - v.z) * t;
-    return ImGui::ColorConvertFloat4ToU32(v);
+// Lift a rounded rect's outline out as an ordered, closed polyline. Reuses
+// ImDrawList's own corner tessellation via PathRect, then copies the points and
+// clears the scratch path so nothing strokes it implicitly. Corner arcs carry
+// many points while straight edges are single segments, so callers must walk it
+// by true arc length (below), not by point index, or the motion looks uneven.
+static void GetRoundedRectOutline(ImDrawList* draw, const ImVec2& a, const ImVec2& b, float rounding,
+                                  ImVector<ImVec2>& out) {
+    draw->PathClear();
+    draw->PathRect(a, b, rounding);
+    out.resize(draw->_Path.Size);
+    for (int i = 0; i < draw->_Path.Size; ++i)
+        out[i] = draw->_Path[i];
+    draw->PathClear();
 }
 
-// Fill a rounded rect with a vertical color gradient (top RGB -> bottom RGB).
-// AddRectFilled lays down the rounded geometry at `top` (which also fixes the
-// per-vertex alpha), then ShadeVertsLinearColorGradientKeepAlpha lerps the RGB
-// down to `bot` while keeping that alpha, so the rounded corners are preserved.
-static void AddRoundedGradientV(ImDrawList* draw, const ImVec2& a, const ImVec2& b, ImU32 top, ImU32 bot,
-                                float rounding) {
-    if (!draw)
-        return;
-    const int idx0 = draw->VtxBuffer.Size;
-    draw->AddRectFilled(a, b, top, rounding);
-    const int idx1 = draw->VtxBuffer.Size;
-    ImGui::ShadeVertsLinearColorGradientKeepAlpha(draw, idx0, idx1, a, ImVec2(a.x, b.y), top, bot);
+// Sample a point at absolute arc-length `dist` along a closed polyline, given
+// its cumulative-length table (cum[0..n], cum[n] == perimeter). `dist` wraps.
+static ImVec2 SampleClosedPolyline(const ImVector<ImVec2>& pts, const ImVector<float>& cum, float dist) {
+    const int n = pts.Size;
+    const float total = cum[n];
+    dist -= total * floorf(dist / total);  // wrap into [0, total)
+    int i = 0;
+    while (i < n - 1 && cum[i + 1] < dist)
+        ++i;
+    const float segLen = cum[i + 1] - cum[i];
+    const float t = segLen > 0.f ? (dist - cum[i]) / segLen : 0.f;
+    const ImVec2 p0 = pts[i];
+    const ImVec2 p1 = pts[(i + 1) % n];
+    return ImVec2(p0.x + (p1.x - p0.x) * t, p0.y + (p1.y - p0.y) * t);
 }
 
-// Soft accent halo around a rounded rect: a few expanding rounded fills with
-// falling alpha accumulate into a glow. `t` scales the whole effect (0 = none).
-static void AddAccentGlow(ImDrawList* draw, const ImVec2& a, const ImVec2& b, float rounding, float t) {
-    if (!draw || t <= 0.01f)
+// Continuous contour sweep: an accent light-gradient that revolves around the
+// card outline forever while the module is on. Instead of a single comet, the
+// WHOLE perimeter is drawn as a rotating brightness gradient — brightest at the
+// head (`headU`, 0..1 of the perimeter) and falling off around the loop back to
+// a faint always-lit base, so the border reads as a living ring of light rather
+// than a dot chasing itself. Two stroke passes (a wide soft bloom under a crisp
+// core) plus a white-hot head bloom give it depth. `intensity` (0..1) fades the
+// whole thing in on enable and out on disable.
+static void AddOutlineSweep(ImDrawList* draw, const ImVec2& a, const ImVec2& b, float rounding,
+                            float headU, float intensity) {
+    if (!draw || intensity <= 0.01f)
         return;
-    const int layers = 4;
-    for (int g = layers; g >= 1; --g) {
-        float spread = ui::s(2.0f) * g;
-        float alpha = (0.05f * t) * (1.0f - (float)(g - 1) / layers);
-        draw->AddRectFilled(ImVec2(a.x - spread, a.y - spread), ImVec2(b.x + spread, b.y + spread),
-                            GetSchemeColor(alpha), rounding + spread);
+
+    ImVector<ImVec2> pts;
+    GetRoundedRectOutline(draw, a, b, rounding, pts);
+    const int n = pts.Size;
+    if (n < 3)
+        return;
+
+    ImVector<float> cum;
+    cum.resize(n + 1);
+    cum[0] = 0.f;
+    for (int i = 0; i < n; ++i) {
+        const ImVec2 p0 = pts[i];
+        const ImVec2 p1 = pts[(i + 1) % n];
+        const float dx = p1.x - p0.x, dy = p1.y - p0.y;
+        cum[i + 1] = cum[i] + sqrtf(dx * dx + dy * dy);
     }
+    const float total = cum[n];
+    if (total <= 0.f)
+        return;
+
+    // Resample the perimeter into many equal-arc-length points so the gradient is
+    // smooth even along long straight edges (which the raw outline stores as a
+    // single segment). Brightness is a COMET profile centered on the head: ahead of
+    // the head a short GAUSSIAN eases in (soft leading edge, no hard wall); behind
+    // the head an EXPONENTIAL decay gives a long, continuously-DIMMING tail. The
+    // exponential is the key to a *directional* look — a long gaussian tail would
+    // stay near-1 for a while and read as a symmetric bright plateau (the "wave"),
+    // whereas exp() drops immediately from the peak so the head is clearly the
+    // bright point and the light visibly trails off around the contour. Width tracks
+    // brightness too, so the tail also tapers to a thin line. The far side falls to
+    // ~0, so it reads as a rim light gliding the contour, not a lit rectangle.
+    const int M = 192;                // gradient resolution around the loop (kept modest to bound vertex count)
+    const float headSigma = 0.022f;   // leading falloff (ahead of the head), in perimeter fraction — sharp bright head
+    const float tailTau = 0.090f;     // trailing exponential scale (behind the head) — long, dimming, directional tail
+
+    ImVector<ImVec2> sp;
+    ImVector<float> sb;
+    sp.resize(M + 1);
+    sb.resize(M + 1);
+    for (int i = 0; i <= M; ++i) {
+        const float u = (float)i / M;
+        sp[i] = SampleClosedPolyline(pts, cum, u * total);
+        // Signed shortest arc-distance from the head, wrapped into (-0.5, 0.5].
+        // d > 0 => this point is behind the head (tail side); d < 0 => ahead.
+        float d = headU - u;
+        d -= floorf(d + 0.5f);
+        if (d >= 0.f)
+            sb[i] = expf(-d / tailTau);  // long dimming comet tail (directional)
+        else
+            sb[i] = expf(-(d * d) / (2.f * headSigma * headSigma));  // sharp soft leading edge
+    }
+
+    // Per-vertex OUTWARD normal (neighbour tangent rotated 90°, then flipped to
+    // point away from the card centre). We give each ribbon segment a width to
+    // tile the glow as filled quads; adjacent quads share the SAME edge vertices,
+    // so there are no butt-cap gaps. Crucially the width is applied almost entirely
+    // OUTWARD: offsetting a rounded rect INWARD by more than its corner radius makes
+    // the inner edge self-intersect at the corners (the "lines colliding inside"
+    // artifact). Blooming outward, convex corners only ever diverge — never cross.
+    const ImVec2 center((a.x + b.x) * 0.5f, (a.y + b.y) * 0.5f);
+    ImVector<ImVec2> nrm;
+    nrm.resize(M);
+    for (int i = 0; i < M; ++i) {
+        const ImVec2 pa = sp[(i - 1 + M) % M];
+        const ImVec2 pb = sp[(i + 1) % M];
+        float tx = pb.x - pa.x, ty = pb.y - pa.y;
+        const float len = sqrtf(tx * tx + ty * ty);
+        if (len > 1e-6f) {
+            tx /= len;
+            ty /= len;
+        }
+        ImVec2 nn(-ty, tx);
+        // Flip so the normal points OUTWARD (away from the centre) at every point.
+        if (nn.x * (sp[i].x - center.x) + nn.y * (sp[i].y - center.y) < 0.f)
+            nn = ImVec2(-nn.x, -nn.y);
+        nrm[i] = nn;
+    }
+
+    // Filled-fringe anti-aliasing would feather every quad's edges to zero, leaving
+    // a faint seam at each shared boundary; disable it so the quads tile perfectly,
+    // then restore it. The stacked, low-alpha layers hide the hard outer edge.
+    const bool aaFill = (draw->Flags & ImDrawListFlags_AntiAliasedFill) != 0;
+    draw->Flags &= ~ImDrawListFlags_AntiAliasedFill;
+
+    // Additive glow from MANY filled ribbons straddling the border: each ribbon
+    // reaches `+outer` OUTWARD and `-inner` INWARD from the contour, so the border
+    // itself glows on both sides (not just outside). Width grows and alpha falls
+    // from a thin bright core (k=0) to a wider soft halo (k=PASSES-1). The INWARD
+    // reach is hard-clamped to just under the corner radius: offsetting a rounded
+    // rect inward past its corner radius flips the inner edge and makes it self-
+    // intersect at the corners (the old "lines colliding inside" artifact) — the
+    // clamp makes that impossible while still lighting the interior lip. Outward has
+    // no such limit (convex corners only diverge). Stacked low-alpha layers blend
+    // the steps into one smooth, thick, metallic falloff; sb sweeps the lit arc.
+    const float innerCap = rounding * 0.85f;  // never cross the corner arc centre
+    // Squash the bloom vertically so it hugs the long top/bottom edges and reads as
+    // a horizontal sweep rather than billowing up/down off the card.
+    const float vGlow = 0.60f;
+    const int PASSES = 8;
+    for (int k = 0; k < PASSES; ++k) {
+        const float t = (float)k / (float)(PASSES - 1);     // 0 = bright core, 1 = wide halo
+        // Balanced width in/out (inner is capped at the corner radius anyway), so the
+        // long top/bottom edges don't billow vertically. A bright, fairly narrow core
+        // reads as a defined LINE — thicker than the card's 1px outline — with a
+        // tighter soft halo hugging it rather than a big diffuse cloud.
+        const float outerBase = ImLerp(1.5f, 2.0f, t);
+        const float outerGain = ImLerp(2.5f, 5.5f, t);      // crisp thick line -> tight soft halo
+        const float innerBase = ImLerp(1.0f, 1.5f, t);
+        const float innerGain = ImLerp(2.5f, 5.0f, t);      // inner side, clamped below
+        const float pAlpha = ImLerp(0.20f, 0.010f, t * t);  // defined core, faint metallic halo (dimmer)
+        for (int i = 0; i < M; ++i) {
+            const int j = (i + 1) % M;
+            const float bmid = (sb[i] + sb[j]) * 0.5f;
+            const float alpha = intensity * bmid * pAlpha;
+            if (alpha <= 0.0020f)
+                continue;  // skip the dark part of the ring
+            const float outI = ui::s(outerBase + outerGain * sb[i]);
+            const float outJ = ui::s(outerBase + outerGain * sb[j]);
+            const float inI = ImMin(ui::s(innerBase + innerGain * sb[i]), innerCap);
+            const float inJ = ImMin(ui::s(innerBase + innerGain * sb[j]), innerCap);
+            const ImVec2 quad[4] = {
+                ImVec2(sp[i].x - nrm[i].x * inI, sp[i].y - nrm[i].y * inI * vGlow),    // inner @ i
+                ImVec2(sp[j].x - nrm[j].x * inJ, sp[j].y - nrm[j].y * inJ * vGlow),    // inner @ j
+                ImVec2(sp[j].x + nrm[j].x * outJ, sp[j].y + nrm[j].y * outJ * vGlow),  // outer @ j
+                ImVec2(sp[i].x + nrm[i].x * outI, sp[i].y + nrm[i].y * outI * vGlow),  // outer @ i
+            };
+            const int a8 = (int)(ImClamp(alpha, 0.f, 1.f) * 255.f);
+            const ImU32 base = GetAccentRGB();
+            const ImU32 glowCol = (base & ~IM_COL32_A_MASK) | ((ImU32)a8 << IM_COL32_A_SHIFT);
+            draw->AddConvexPolyFilled(quad, 4, glowCol);
+        }
+    }
+
+    if (aaFill)
+        draw->Flags |= ImDrawListFlags_AntiAliasedFill;
+    // No head dot — the stacked filled ribbons blend into one soft, diffuse glow.
 }
 
 // Module_List_View: render the active category's modules as a single-column
@@ -1146,10 +1292,13 @@ static void renderModuleList(int tab) {
         bool isArrayList = !m && strcmp(name, "ArrayList") == 0;
         bool isNotifications = !m && strcmp(name, "Notifications") == 0;
         bool isWatermark = !m && strcmp(name, "Watermark") == 0;
+        bool isClickGui = !m && strcmp(name, "ClickGUI") == 0;  // card toggles Old<->New
         bool isEnabled = m ? m->enabled
                            : (isArrayList ? ArrayListRenderer::enabled
                                           : (isNotifications ? NotificationManager::enabled
-                                                             : (isWatermark ? Watermark::enabled : false)));
+                                                             : (isWatermark ? Watermark::enabled
+                                                                            : (isClickGui ? (ui::gui_mode == 1)
+                                                                                          : false))));
 
         ImGui::PushID(idx);
 
@@ -1192,6 +1341,8 @@ static void renderModuleList(int tab) {
                 NotificationManager::enabled = !NotificationManager::enabled;
             } else if (isWatermark) {
                 Watermark::enabled = !Watermark::enabled;
+            } else if (isClickGui) {
+                ui::gui_mode = (ui::gui_mode == 1) ? 0 : 1;  // toggle Old <-> New
             }
             ConfigManager::get().onSettingChanged();
         };
@@ -1224,25 +1375,44 @@ static void renderModuleList(int tab) {
             float hover;
             float gearHover;
             float enabled;
+            float spin;  // accumulated sweep phase (laps); wraps when sampled
         };
-        auto& obj = ui::anim_obj(name, 2, card_state{0.f, 0.f, 0.f});
+        auto& obj = ui::anim_obj(name, 2, card_state{0.f, 0.f, 0.f, 0.f});
         obj.hover = ui::animate(obj.hover, 0.f, 1.f, nHovered || gHovered);
         obj.gearHover = ui::animate(obj.gearHover, 0.f, 1.f, gHovered);
         obj.enabled = ui::animate(obj.enabled, 0.f, 1.f, isEnabled);
 
+        // The contour sweep runs continuously while enabled, at a single steady
+        // speed — `spin` accumulates laps in real time (frame-rate independent),
+        // never accelerates or decelerates.
+        const float dt = ImGui::GetIO().DeltaTime;
+        const float baseSpeed = 0.4f;  // laps per second, constant
+        obj.spin += dt * baseSpeed;
+        if (obj.spin > 1.0e6f)  // guard against unbounded float growth over time
+            obj.spin -= 1.0e6f;
+
         ImDrawList* draw = window->DrawList;
 
-        // Accent glow + vertical-gradient "pill" behind the card for the active
-        // and hover states. The glow is a soft halo that surrounds the module;
-        // the pill fades from a light accent sheen at the top to accent at the
-        // bottom, with a thin accent edge to crisp it. Hover is a lighter wash.
-        float pillT = ImMax(obj.enabled, obj.hover * 0.55f);
-        AddAccentGlow(draw, bb.Min, bb.Max, cardRound, ImMax(obj.enabled, obj.hover * 0.5f));
-        if (pillT > 0.01f) {
-            ImU32 top = MixWhite(GetSchemeColor(0.20f * pillT), 0.35f);
-            ImU32 bot = GetSchemeColor(0.10f * pillT);
-            AddRoundedGradientV(draw, bb.Min, bb.Max, top, bot, cardRound);
-            draw->AddRect(bb.Min, bb.Max, GetSchemeColor(0.28f * pillT), cardRound, 0, ui::s(1.0f));
+        // Base panel: every card gets a dark rounded plate so the list reads as
+        // discrete rows. It lifts a touch on hover and sits a hair stronger when
+        // enabled — a neutral body, no colored/whitish tint of any kind.
+        const float plateA = 0.30f + obj.hover * 0.16f + obj.enabled * 0.10f;
+        draw->AddRectFilled(bb.Min, bb.Max, ui::GetColor(ImGuiCol_FrameBg, plateA), cardRound);
+
+        // Thin edge is hover-only feedback; the enabled state is carried entirely
+        // by the animated contour sweep + the accent title text (no fill wash).
+        if (obj.hover > 0.01f)
+            draw->AddRect(bb.Min, bb.Max, GetSchemeColor(0.30f * obj.hover), cardRound, 0, ui::s(1.0f));
+
+        // Continuous contour sweep: a revolving accent light-gradient traced along
+        // the card's own rounded-rect outline (not a pill) while the module is
+        // enabled. The triangle-strip ribbon shares vertices between segments, so
+        // the corners have no butt-cap gaps (the old "missing pixels"); a high
+        // sample count keeps the rounded corners smooth. Fades in/out via enabled.
+        const float sweepT = obj.enabled;
+        if (sweepT > 0.01f) {
+            const float headU = obj.spin - floorf(obj.spin);  // wrap laps into [0,1)
+            AddOutlineSweep(draw, bb.Min, bb.Max, cardRound, headU, sweepT);
         }
 
         // Name + subtitle stacked on the left.
@@ -1466,6 +1636,8 @@ static void renderModuleConfig(int tab) {
             []() {
                 ui::Checkbox("Sort by Length", &ArrayListRenderer::sortByLength);
                 ui::Checkbox("Show Info", &ArrayListRenderer::showInfo);
+                const char* fontItems[] = {"Inter Regular", "Inter Bold"};
+                ui::Combo("Font", &ArrayListRenderer::fontStyle, fontItems, 2);
                 ui::SliderFloat("Size", &ArrayListRenderer::scale, 0.5f, 2.0f, "%.1fx");
 
                 // The ArrayList is dragged directly on screen (same manner as
@@ -1482,6 +1654,8 @@ static void renderModuleConfig(int tab) {
                 }
 
                 if (ArrayListRenderer::rainbow) {
+                    const char* rbTypes[] = {"Flow", "Solid", "Fast", "Wide"};
+                    ui::Combo("Rainbow Type", &ArrayListRenderer::rainbowType, rbTypes, 4);
                     bool highSat = ArrayListRenderer::rainbowSaturation > 0.6f;
                     if (ui::Checkbox("High Saturation", &highSat)) {
                         ArrayListRenderer::rainbowSaturation = highSat ? 0.8f : 0.4f;
@@ -1503,6 +1677,10 @@ static void renderModuleConfig(int tab) {
             []() {
                 ui::Checkbox("Enabled", &Watermark::enabled);
                 ui::Checkbox("Rainbow", &Watermark::rainbow);
+                if (Watermark::rainbow) {
+                    const char* rbTypes[] = {"Flow", "Solid", "Fast", "Wide"};
+                    ui::Combo("Rainbow Type", &Watermark::rainbowType, rbTypes, 4);
+                }
             },
             "Options",
             []() {
@@ -1513,6 +1691,14 @@ static void renderModuleConfig(int tab) {
                 ImGui::TextWrapped("Drag the Watermark directly on screen to move it.");
                 ImGui::PopStyleColor();
             });
+    } else if (ui::cur_tab == 1 && t.cur_subtab == 12) {
+        // ClickGUI settings: switch between the Old (original) and New (redesigned)
+        // menu look. The card in the list also toggles this directly.
+        ui::SetDescriptionContext("ClickGUI");
+        ui::section("Appearance", []() {
+            const char* modes[] = {"Old", "New"};
+            ui::Combo("Mode", &ui::gui_mode, modes, 2);
+        });
     }
     // Any other unresolved (category, entry): neutral placeholder so the menu
     // never crashes or shows a blank page. The list entry stays selectable.
@@ -1591,37 +1777,17 @@ void Menu::ApplyStyle() {
     ui::apply_style();
 }
 
-void Menu::Render() {
-    // Reset binder state at start of each frame
-    ui::ResetBinderState();
-
-    // If hidden (e.g. during HUD drag), skip rendering but keep state
-    if (hidden && isOpen) {
-        COBBLE_TRACE_ONCE("Menu::Render skip: hidden");
-        return;
-    }
-
-    // Animate open/close
-    float targetAnim = isOpen ? 1.f : 0.f;
-    float dt = ImGui::GetIO().DeltaTime;
-    if (dt > (1.0f / 60.0f)) {
-        dt = 1.0f / 60.0f;
-    }
-    openAnim = ImLerp(openAnim, targetAnim, 15.f * dt);
-
-    if (openAnim < 0.01f && !isOpen) {
-        return;
-    }
-
-    // Apply style properly (set alpha etc)
-    ApplyStyle();
-
+// The ClickGUI window body, shared by both looks. `nu` selects the New
+// (redesigned) styling; false keeps the original Old look. Layout, category tabs,
+// the module cards + their glow sweep and the config pages are all shared — the
+// New look only repaints the panels as darker semi-transparent "glass" with a
+// metallic top edge. Called by Menu::Render after the open/close animation.
+static void renderClickGuiBody(float openAnim, bool nu) {
     ImGuiIO& io = ImGui::GetIO();
-    ui::updateScale();
 
-    // Dark overlay behind menu
-    ImGui::GetBackgroundDrawList()->AddRectFilled(ImVec2(0, 0), io.DisplaySize,
-                                                  IM_COL32(0, 0, 0, (int)(115 * openAnim)));
+    // Panel fills: New = glass (dark, semi-transparent); Old = the original.
+    const ImU32 panelBg = nu ? IM_COL32(12, 13, 15, 214) : ui::GetColor(ImGuiCol_WindowBg);
+    const ImU32 recessBg = nu ? IM_COL32(7, 8, 9, 222) : ImGui::GetColorU32(ImVec4(0.039f, 0.039f, 0.039f, 1.0f));
 
     // Keep layout geometry stable while opening; only opacity is animated.
     ui::size = ui::s(ui::baseSize);
@@ -1641,17 +1807,23 @@ void Menu::Render() {
         // Draw separate background rectangles for left and right panels to keep the separator transparent
         ImVec2 leftPanelMin = windowPos;
         ImVec2 leftPanelMax = windowPos + ImVec2(ui::s(176), ImGui::GetWindowHeight());
-        windowDraw->AddRectFilled(leftPanelMin, leftPanelMax, ui::GetColor(ImGuiCol_WindowBg),
-                                  GImGui->Style.WindowRounding);
+        windowDraw->AddRectFilled(leftPanelMin, leftPanelMax, panelBg, GImGui->Style.WindowRounding);
         windowDraw->AddRect(leftPanelMin, leftPanelMax, ui::GetColor(ImGuiCol_Border, 1.0f),
                             GImGui->Style.WindowRounding, 0, ui::s(1.0f));
+        if (nu)  // metallic top edge on the New glass panel
+            windowDraw->AddLine(ImVec2(leftPanelMin.x + GImGui->Style.WindowRounding, leftPanelMin.y + ui::s(1)),
+                                ImVec2(leftPanelMax.x - GImGui->Style.WindowRounding, leftPanelMin.y + ui::s(1)),
+                                IM_COL32(236, 240, 248, 42), ui::s(1.0f));
 
         ImVec2 rightPanelMin = windowPos + ImVec2(ui::s(185), 0);
         ImVec2 rightPanelMax = windowPos + ImGui::GetWindowSize();
-        windowDraw->AddRectFilled(rightPanelMin, rightPanelMax, ui::GetColor(ImGuiCol_WindowBg),
-                                  GImGui->Style.WindowRounding);
+        windowDraw->AddRectFilled(rightPanelMin, rightPanelMax, panelBg, GImGui->Style.WindowRounding);
         windowDraw->AddRect(rightPanelMin, rightPanelMax, ui::GetColor(ImGuiCol_Border, 1.0f),
                             GImGui->Style.WindowRounding, 0, ui::s(1.0f));
+        if (nu)  // metallic top edge
+            windowDraw->AddLine(ImVec2(rightPanelMin.x + GImGui->Style.WindowRounding, rightPanelMin.y + ui::s(1)),
+                                ImVec2(rightPanelMax.x - GImGui->Style.WindowRounding, rightPanelMin.y + ui::s(1)),
+                                IM_COL32(236, 240, 248, 42), ui::s(1.0f));
 
         // ===== LEFT NAV =====
         ImGui::BeginChild("nav", {ui::s(176), ImGui::GetWindowHeight()}, 0,
@@ -1691,9 +1863,8 @@ void Menu::Render() {
                 ImDrawList* navDraw = ImGui::GetWindowDrawList();
                 ImVec2 panelMin = ImGui::GetWindowPos();
                 ImVec2 panelMax = panelMin + ImGui::GetWindowSize();
-                navDraw->AddRectFilled(panelMin, panelMax,
-                                       ImGui::GetColorU32(ImVec4(0.039f, 0.039f, 0.039f, 1.0f)),
-                                       GImGui->Style.WindowRounding, ImDrawFlags_RoundCornersBottom);
+                navDraw->AddRectFilled(panelMin, panelMax, recessBg, GImGui->Style.WindowRounding,
+                                       ImDrawFlags_RoundCornersBottom);
                 // Inner top shadow: a soft gradient so the brand area above
                 // appears to cast onto the recessed categories panel.
                 float shadowH = ui::s(20);
@@ -1805,9 +1976,8 @@ void Menu::Render() {
 
             // Content background
             ImGui::GetWindowDrawList()->AddRectFilled({ImGui::GetWindowPos().x, ImGui::GetWindowPos().y + ui::s(42)},
-                                                      ImGui::GetWindowPos() + ImGui::GetWindowSize(),
-                                                      ui::GetColor(ImGuiCol_WindowBg), GImGui->Style.WindowRounding,
-                                                      ImDrawFlags_RoundCornersBottom);
+                                                      ImGui::GetWindowPos() + ImGui::GetWindowSize(), panelBg,
+                                                      GImGui->Style.WindowRounding, ImDrawFlags_RoundCornersBottom);
 
             // Content
             // Slightly wider vertical item spacing so module config rows
@@ -1835,6 +2005,167 @@ void Menu::Render() {
     }
     ImGui::End();
     ImGui::PopStyleVar();
+}
+
+static void renderClickGuiNew(float openAnim) {
+    ImGuiIO& io = ImGui::GetIO();
+    ui::size = ui::s(ui::baseSize);
+
+    const float slide = (1.0f - openAnim) * ui::s(18);
+    ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x * 0.5f, io.DisplaySize.y * 0.5f + slide), ImGuiCond_Always,
+                            ImVec2(0.5f, 0.5f));
+    ImGui::SetNextWindowSize(ui::size);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
+    ImGui::PushStyleVar(ImGuiStyleVar_Alpha, openAnim);
+    ImGui::Begin("Cobble", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoBackground);
+    {
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        ImGuiWindow* win = ImGui::GetCurrentWindow();
+        const ImVec2 wpos = ImGui::GetWindowPos();
+        const ImVec2 wsize = ImGui::GetWindowSize();
+        const ImVec2 wmax = wpos + wsize;
+        const float round = ui::s(14);
+        const float topH = ui::s(52);
+        const float pad = ui::s(20);
+        const float cy = wpos.y + topH * 0.5f;
+
+        dl->AddRectFilled(wpos, wmax, IM_COL32(0, 0, 0, 205), round);
+        dl->AddRect(wpos, wmax, IM_COL32(255, 255, 255, 16), round, 0, ui::s(1.0f));
+        dl->AddLine(ImVec2(wpos.x + round, wpos.y + ui::s(1)), ImVec2(wmax.x - round, wpos.y + ui::s(1)),
+                    IM_COL32(236, 240, 248, 48), ui::s(1.0f));
+
+        ImFont* brandFont = font(3);
+        const char* brand = "Cobble";
+        ImVec2 bsz = brandFont->CalcTextSizeA(brandFont->FontSize, FLT_MAX, 0.f, brand);
+        dl->AddText(brandFont, brandFont->FontSize, ImVec2(wpos.x + pad, cy - bsz.y * 0.5f),
+                    IM_COL32(240, 242, 247, 255), brand);
+
+        struct new_cat_state {
+            float hover;
+            float sel;
+        };
+
+        ImFont* catFont = font(2);
+        const float catFS = catFont->FontSize * 0.9f;
+        float x = wpos.x + pad + bsz.x + ui::s(30);
+        const int tabCount = (int)ui::tabs.size();
+        static float indX = 0.0f, indW = 0.0f, indInit = 0.0f;
+        float selX = indX, selW = indW;
+
+        for (int i = 0; i < tabCount; ++i) {
+            const char* nm = ui::tabs[i].m_name;
+            const char* ic = ui::tabs[i].m_icon;
+            ImVec2 nsz = catFont->CalcTextSizeA(catFS, FLT_MAX, 0.f, nm);
+            ImVec2 isz = font(0)->CalcTextSizeA(catFS, FLT_MAX, 0.f, ic);
+            const float inner = isz.x + ui::s(7) + nsz.x;
+            const float bw = inner + ui::s(18);
+
+            ImRect bb(ImVec2(x, wpos.y + ui::s(6)), ImVec2(x + bw, wpos.y + topH - ui::s(6)));
+            std::string key = std::string("ncat_") + nm;
+            ImGuiID id = win->GetID(key.c_str());
+            ImGui::ItemAdd(bb, id);
+            bool hov = false, held = false;
+            bool pressed = ImGui::ButtonBehavior(bb, id, &hov, &held);
+            bool selected = ui::next_tab == i;
+            if (pressed) {
+                if (!selected) {
+                    ui::next_tab = i;
+                    ui::anim_dst = 0.f;
+                } else if (i == ui::cur_tab && ui::tabs[i].cur_view == ui::CategoryView::Config) {
+                    ui::tabs[i].next_view = ui::CategoryView::List;
+                    ui::content_anim_dst = 0.f;
+                }
+            }
+
+            auto& st = ui::anim_obj(key.c_str(), 0, new_cat_state{0.f, 0.f});
+            st.hover = ui::animate(st.hover, 0.f, 1.f, hov);
+            st.sel = ui::animate(st.sel, 0.f, 1.f, selected);
+            if (ImMax(st.hover, st.sel) > 0.01f) {
+                dl->AddRectFilled(ImVec2(bb.Min.x, bb.Min.y), ImVec2(bb.Max.x, bb.Max.y),
+                                  GetSchemeColor(0.10f * ImMax(st.sel, st.hover * 0.6f)), ui::s(7));
+            }
+            ImU32 col = ui::col_anim(
+                ui::col_anim(ui::GetColor(ImGuiCol_TextDisabled), ui::GetColor(ImGuiCol_Text, 0.85f), st.hover),
+                IM_COL32(240, 242, 247, 255), st.sel);
+
+            const float bx = x + (bw - inner) * 0.5f;
+            dl->AddText(font(0), catFS, ImVec2(bx, cy - isz.y * 0.5f), col, ic);
+            dl->AddText(catFont, catFS, ImVec2(bx + isz.x + ui::s(7), cy - nsz.y * 0.5f), col, nm);
+
+            if (selected) {
+                selX = bx;
+                selW = inner;
+            }
+            x += bw;
+        }
+
+        if (indInit < 0.5f) {
+            indX = selX;
+            indW = selW;
+            indInit = 1.0f;
+        }
+        const float k = ImMin(1.0f, io.DeltaTime * 15.0f);
+        indX = ImLerp(indX, selX, k);
+        indW = ImLerp(indW, selW, k);
+        dl->AddRectFilled(ImVec2(indX, wpos.y + topH - ui::s(4)), ImVec2(indX + indW, wpos.y + topH - ui::s(2)),
+                          GetSchemeColor(), ui::s(1.0f));
+
+        dl->AddLine(ImVec2(wpos.x + ui::s(1), wpos.y + topH), ImVec2(wmax.x - ui::s(1), wpos.y + topH),
+                    IM_COL32(255, 255, 255, 14), ui::s(1.0f));
+
+        ImGui::SetCursorPos(ImVec2(0, topH));
+        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {ui::s(10), ui::s(13)});
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {ui::s(20), ui::s(16)});
+        float contentAlpha = openAnim * ui::anim * ui::content_anim;
+        ui::alpha_mod = contentAlpha;
+        ImGui::PushStyleVar(ImGuiStyleVar_Alpha, contentAlpha);
+        ImGui::BeginChild("newcontent", ImVec2(wsize.x, wsize.y - topH), 0,
+                          ImGuiWindowFlags_NoBackground | ImGuiWindowFlags_AlwaysUseWindowPadding);
+        {
+            renderPage();
+        }
+        ImGui::EndChild();
+        ImGui::PopStyleVar(3);
+        ui::alpha_mod = openAnim;
+    }
+    ImGui::End();
+    ImGui::PopStyleVar(2);
+}
+
+void Menu::Render() {
+    // Reset binder state at start of each frame
+    ui::ResetBinderState();
+
+    // If hidden (e.g. during HUD drag), skip rendering but keep state
+    if (hidden && isOpen) {
+        COBBLE_TRACE_ONCE("Menu::Render skip: hidden");
+        return;
+    }
+
+    // Animate open/close
+    float targetAnim = isOpen ? 1.f : 0.f;
+    float dt = ImGui::GetIO().DeltaTime;
+    if (dt > (1.0f / 60.0f)) {
+        dt = 1.0f / 60.0f;
+    }
+    openAnim = ImLerp(openAnim, targetAnim, 15.f * dt);
+
+    if (openAnim < 0.01f && !isOpen) {
+        return;
+    }
+
+    // Apply style properly (set alpha etc)
+    ApplyStyle();
+    ui::updateScale();
+
+    // Dark overlay behind the menu.
+    ImGui::GetBackgroundDrawList()->AddRectFilled(ImVec2(0, 0), ImGui::GetIO().DisplaySize,
+                                                  IM_COL32(0, 0, 0, (int)(115 * openAnim)));
+
+    if (ui::gui_mode == 1)
+        renderClickGuiNew(openAnim);
+    else
+        renderClickGuiBody(openAnim, false);
 
     ui::handle_anims();
 }

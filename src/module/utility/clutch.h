@@ -45,6 +45,11 @@ public:
 
     void onOutgoingPacket(JNIEnv* env, jobject packet);
 
+    // True while clutch is actively rewriting the outgoing movement packet's
+    // rotation, so other packet observers (e.g. AimAssist) can defer and not
+    // corrupt the placement aim.
+    bool isRewritingRotation() const { return enabled && settings.silentLook && hasSilentRotation; }
+
 private:
     struct Placement {
         int targetX = 0;

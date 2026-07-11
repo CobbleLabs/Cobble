@@ -1,9 +1,11 @@
 #include "widgets.hpp"
 #include <Windows.h>
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstring>
 #include "../../module/module.h"
+#include "../hud/hud_color.hpp"
 #include "../menu/menu.h"
 #include "icons.hpp"
 #include "theme.hpp"
@@ -59,7 +61,6 @@ static const DescriptionEntry kModuleDescriptions[] = {
     {"", "Breaker", "", "Finds nearby beds and breaks them through surrounding blocks."},
     {"", "AutoTool", "", "Selects the best hotbar tool for the block or target."},
     {"", "InvManager", "", "Organizes the inventory and hotbar using your saved preferences."},
-    {"", "AltManager", "", "Spoofs the local username when joining compatible offline servers."},
     {"", "TCP Optimizer", "", "Optimizes Windows TCP settings, packet priority and adapter tuning for Minecraft."},
     {"", "FastBreak", "", "Removes the cooldown between block mining hits so blocks break faster."},
 };
@@ -301,9 +302,19 @@ void ui::ResetBinderState() {
 // ==================== GLOBAL SCHEME COLOR ====================
 float (&g_SchemeColor)[4] = ui::theme::accentColor;
 
+ImU32 GetAccentRGB() {
+    if (ui::theme::accentRainbow) {
+        auto now = std::chrono::system_clock::now().time_since_epoch();
+        long long ms = std::chrono::duration_cast<std::chrono::milliseconds>(now).count();
+        return hud::GetRainbowColorEx(0, 0.85f, ms, ui::theme::rainbowType);
+    }
+    return IM_COL32((int)(ui::theme::accentColor[0] * 255.0f), (int)(ui::theme::accentColor[1] * 255.0f),
+                    (int)(ui::theme::accentColor[2] * 255.0f), 255);
+}
+
 inline ImU32 GetSchemeColor(float alpha) {
-    ImVec4 col = ImVec4(ui::theme::accentColor[0], ui::theme::accentColor[1], ui::theme::accentColor[2],
-                        ui::theme::accentColor[3]);
+    ImVec4 col = ImGui::ColorConvertU32ToFloat4(GetAccentRGB());
+    col.w = ui::theme::accentColor[3];
     col.w *= alpha * ImGui::GetStyle().Alpha * ui::alpha_mod;
     return ImGui::ColorConvertFloat4ToU32(col);
 }
@@ -330,12 +341,12 @@ std::vector<ui::tab_t> ui::tabs = {
     {ICON_FA_EYE,
      "Visuals",
      {"NameTags", "ESP", "ItemESP", "Tracers", "BlockESP", "Trajectories", "AntiDebuff", "ArrayList",
-      "DroppedInfo", "Notifications", "Watermark", "TargetHUD"}},
+      "DroppedInfo", "Notifications", "Watermark", "TargetHUD", "ClickGUI"}},
     {ICON_FA_RUNNING, "Movement", {"Timer", "TimerRange", "NoSlowDown", "NoJumpDelay", "Sprint"}},
     {ICON_FA_KEYBOARD,
      "Utility",
      {"ArmorSwitch", "AutoRefill", "FastPlace", "NoItemRelease", "BridgeAssist", "Clutch", "Breaker", "AutoTool",
-      "InvManager", "AltManager", "FastBreak"}},
+      "InvManager", "FastBreak"}},
     {ICON_FA_WIFI, "Network", {"Backtrack", "Blink", "FakeLag", "TCP Optimizer"}},
 #if COBBLE_SPECTATE_ENABLED
     {ICON_FA_EYE, "Spectate", {}},

@@ -1,18 +1,26 @@
 #include "outgoing_gate.hpp"
 
-#include "../altmanager/altmanager_gate.hpp"
 #include "../noitemrelease/noitemrelease_gate.hpp"
 #include "../blink/blink_gate.hpp"
 #include "../../module/combat/piercing.h"
 #include "../../module/movement/fakelag.h"
 #include "../../module/movement/timerrange.h"
 #include "../../module/utility/clutch.h"
+#include "../../module/combat/aimassist.h"
 
 namespace OutgoingPacketGate {
 
 jboolean JNICALL NativeShouldSend(JNIEnv* env, jclass cls, jobject packet) {
+    const bool clutchRotating = clutch && clutch->isRewritingRotation();
     if (clutch) {
         clutch->onOutgoingPacket(env, packet);
+    }
+
+    // AimAssist packet-rotation (smooth camera): rewrites the outgoing movement
+    // packet's yaw/pitch with the randomized server rotation. Deferred while
+    // clutch is rewriting rotation so a placement aim is never perturbed.
+    if (aimAssist && !clutchRotating) {
+        aimAssist->onOutgoingPacket(env, packet);
     }
 
     const bool releasingFakeLagPacket = fakeLag && fakeLag->isReleasing();
@@ -32,9 +40,6 @@ jboolean JNICALL NativeShouldSend(JNIEnv* env, jclass cls, jobject packet) {
 
     if (timerRange)
         timerRange->onOutgoingPacket(env, packet, TimerRange::PacketPhase::PRE);
-
-    // Mutate first (no blocking), then run gates that may drop the packet.
-    AltManagerGate::MaybeSpoofLoginPacket(env, packet);
 
     // Check Blink - if it blocks, don't send
     if (!BlinkGate::ShouldSendPacket(env, packet)) {

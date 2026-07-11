@@ -36,28 +36,27 @@ void Watermark::render() {
         return;
     }
 
-    ImFont* f = font(2);  // bold, same as the ArrayList
-    if (!f) {
+    // Bold "Cobble", regular (Inter) for the meta text — a premium weight contrast.
+    ImFont* fBold = font(2);   // Inter Bold
+    ImFont* fReg = font(5);    // Inter Regular (clean geometric sans)
+    if (!fBold) {
         cancelMove();
         return;
     }
+    if (!fReg)
+        fReg = fBold;
 
     const float s = scale;
-    const float fontSize = 20.0f * s;
-    const float padX = 10.0f * s;
-    const float padY = 6.0f * s;
+    const float fontSize = 19.0f * s;
+    const float padX = 11.0f * s;
+    const float padY = 7.0f * s;
     const float rounding = 6.0f * s;
     const float margin = 6.0f * s;
 
-    // Accent color from the active theme.
-    hud::RGB ac{g_SchemeColor[0] * 255.0f, g_SchemeColor[1] * 255.0f, g_SchemeColor[2] * 255.0f};
-    ImU32 accent = IM_COL32((int)ac.r, (int)ac.g, (int)ac.b, 255);
-    ImU32 gray = IM_COL32(150, 155, 165, 255);
-    ImU32 shadow = IM_COL32(0, 0, 0, 200);
-
-    // Text segments: "Cobble"  " v1.3.2"   "240"  " FPS"
-    const char* nameStr = "Cobble";
-    const std::string verStr = " v" COBBLE_VERSION;
+    // Accent color from the active theme (follows the global accent + rainbow).
+    ImU32 accent = GetAccentRGB();
+    ImU32 gray = IM_COL32(140, 146, 158, 255);
+    ImU32 shadow = IM_COL32(0, 0, 0, 190);
 
     // Ease the displayed FPS toward the real value (seed on first frame so it
     // doesn't animate up from zero when the watermark first appears).
@@ -68,17 +67,24 @@ void Watermark::render() {
     fpsSmooth += (fpsTarget - fpsSmooth) * (std::min)(1.0f, dt * 8.0f);
     char fpsNum[16];
     std::snprintf(fpsNum, sizeof(fpsNum), "%d", (int)(fpsSmooth + 0.5f));
-    const char* fpsSuf = " FPS";
-    const char* sep = "  ";
 
-    ImVec2 nameSz = f->CalcTextSizeA(fontSize, FLT_MAX, 0.0f, nameStr);
-    ImVec2 verSz = f->CalcTextSizeA(fontSize, FLT_MAX, 0.0f, verStr.c_str());
-    ImVec2 sepSz = f->CalcTextSizeA(fontSize, FLT_MAX, 0.0f, sep);
-    ImVec2 fpsNumSz = f->CalcTextSizeA(fontSize, FLT_MAX, 0.0f, fpsNum);
-    ImVec2 fpsSufSz = f->CalcTextSizeA(fontSize, FLT_MAX, 0.0f, fpsSuf);
+    // Segments: (dot) Cobble  v1.3.2  |  240 FPS
+    const char* nameStr = "Cobble";
+    const std::string verStr = "v" COBBLE_VERSION;
+    const char* fpsSuf = "FPS";
 
-    float textH = nameSz.y;
-    float contentW = nameSz.x + verSz.x + sepSz.x + fpsNumSz.x + fpsSufSz.x;
+    ImVec2 nameSz = fBold->CalcTextSizeA(fontSize, FLT_MAX, 0.0f, nameStr);
+    ImVec2 verSz = fReg->CalcTextSizeA(fontSize, FLT_MAX, 0.0f, verStr.c_str());
+    ImVec2 fpsNumSz = fBold->CalcTextSizeA(fontSize, FLT_MAX, 0.0f, fpsNum);
+    ImVec2 fpsSufSz = fReg->CalcTextSizeA(fontSize, FLT_MAX, 0.0f, fpsSuf);
+
+    const float textH = nameSz.y;
+    const float gNameVer = 7.0f * s;
+    const float gDiv = 9.0f * s;   // padding around divider
+    const float divW = std::max(1.0f, 1.0f * s);
+    const float gNumSuf = 4.0f * s;
+
+    float contentW = nameSz.x + gNameVer + verSz.x + gDiv + divW + gDiv + fpsNumSz.x + gNumSuf + fpsSufSz.x;
 
     float boxW = padX + contentW + padX;
     float boxH = padY + textH + padY;
@@ -103,14 +109,15 @@ void Watermark::render() {
     float x1 = posX, y1 = posY;
     float x2 = x1 + boxW, y2 = y1 + boxH;
 
-    // ---- Background: flat rounded dark base. No accent wash, no side bar, no
-    // outer glow, no gradient pill, no glass sheen.
-    draw->AddRectFilled(ImVec2(x1, y1), ImVec2(x2, y2), IM_COL32(19, 19, 19, 210), rounding);
+    // ---- Card: plain black, semi-transparent glass (no metallic/blue tint, no
+    // bright sheen) — just a dark panel the HUD text sits on. ------------------
+    draw->AddRectFilled(ImVec2(x1, y1), ImVec2(x2, y2), IM_COL32(0, 0, 0, 130), rounding);
+    // Very faint edge so it stays crisp against busy scenes.
+    draw->AddRect(ImVec2(x1, y1), ImVec2(x2, y2), IM_COL32(255, 255, 255, 14), rounding, 0, std::max(1.0f, s));
 
-    // ---- Text -----------------------------------------------------------------
-    float tx = x1 + padX;
-    float ty = y1 + padY;
     float sd = 1.0f * s;
+    float ty = y1 + padY;
+    float cx = x1 + padX;
 
     long long rainbowTimeMs = 0;
     if (rainbow) {
@@ -118,24 +125,32 @@ void Watermark::render() {
         rainbowTimeMs = std::chrono::duration_cast<std::chrono::milliseconds>(now).count();
     }
 
-    // "Cobble" + version flow together as one per-character rainbow (or flat
-    // accent when rainbow is off).
+    // "Cobble" — per-character rainbow, or a clean white when rainbow is off (the
+    // accent is carried by the dot + FPS number so the name stays crisp).
     const float rainbowSat = 0.7f;
-    const std::string head = std::string(nameStr) + verStr;
-    float cx = tx;
-    for (int i = 0; i < (int)head.size(); ++i) {
-        char ch[2] = {head[i], 0};
-        ImU32 col = rainbow ? hud::GetRainbowColor(i, rainbowSat, rainbowTimeMs) : accent;
-        draw->AddText(f, fontSize, ImVec2(cx + sd, ty + sd), shadow, ch);
-        draw->AddText(f, fontSize, ImVec2(cx, ty), col, ch);
-        cx += f->CalcTextSizeA(fontSize, FLT_MAX, 0.0f, ch).x;
+    for (int i = 0; i < (int)std::char_traits<char>::length(nameStr); ++i) {
+        char ch[2] = {nameStr[i], 0};
+        ImU32 col = rainbow ? hud::GetRainbowColorEx(i, rainbowSat, rainbowTimeMs, rainbowType) : accent;
+        draw->AddText(fBold, fontSize, ImVec2(cx + sd, ty + sd), shadow, ch);
+        draw->AddText(fBold, fontSize, ImVec2(cx, ty), col, ch);
+        cx += fBold->CalcTextSizeA(fontSize, FLT_MAX, 0.0f, ch).x;
     }
+    cx += gNameVer;
 
-    // FPS trails after the sep: accent number, gray " FPS".
-    float fpsNumX = tx + nameSz.x + verSz.x + sepSz.x;
-    float fpsSufX = fpsNumX + fpsNumSz.x;
-    draw->AddText(f, fontSize, ImVec2(fpsNumX + sd, ty + sd), shadow, fpsNum);
-    draw->AddText(f, fontSize, ImVec2(fpsSufX + sd, ty + sd), shadow, fpsSuf);
-    draw->AddText(f, fontSize, ImVec2(fpsNumX, ty), accent, fpsNum);
-    draw->AddText(f, fontSize, ImVec2(fpsSufX, ty), gray, fpsSuf);
+    // Version — muted regular.
+    draw->AddText(fReg, fontSize, ImVec2(cx + sd, ty + sd), shadow, verStr.c_str());
+    draw->AddText(fReg, fontSize, ImVec2(cx, ty), gray, verStr.c_str());
+    cx += verSz.x + gDiv;
+
+    // Metallic divider.
+    draw->AddLine(ImVec2(cx, y1 + padY + 1.0f * s), ImVec2(cx, y2 - padY - 1.0f * s), IM_COL32(255, 255, 255, 28),
+                  divW);
+    cx += divW + gDiv;
+
+    // FPS: accent number, muted " FPS".
+    draw->AddText(fBold, fontSize, ImVec2(cx + sd, ty + sd), shadow, fpsNum);
+    draw->AddText(fBold, fontSize, ImVec2(cx, ty), accent, fpsNum);
+    cx += fpsNumSz.x + gNumSuf;
+    draw->AddText(fReg, fontSize, ImVec2(cx + sd, ty + sd), shadow, fpsSuf);
+    draw->AddText(fReg, fontSize, ImVec2(cx, ty), gray, fpsSuf);
 }

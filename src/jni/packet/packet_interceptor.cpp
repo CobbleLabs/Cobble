@@ -6,6 +6,7 @@
 #include "bytecode_patcher.hpp"
 #include "outgoing_gate.hpp"
 #include "../slowdown/slowdown_gate.hpp"
+#include "../render/backtrack_ghost_gate.hpp"
 #include "../../util/logger.hpp"
 
 #include "../../util/inject_trace.hpp"
@@ -62,6 +63,14 @@ bool Init() {
             bool sdInit = SlowDownGate::Init(env);
             COBBLE_TRACE(sdInit ? "PacketInterceptor::Init: SlowDownGate::Init ok" : "PacketInterceptor::Init: SlowDownGate::Init failed");
 
+            // Stage 1 of the backtrack 3D ghost: define the BacktrackGhostHook
+            // class + register its native. No bytecode is injected yet (that is a
+            // later stage), so this cannot affect rendering — it only validates the
+            // native bridge loads cleanly.
+            bool bgInit = BacktrackGhostGate::Init(env);
+            COBBLE_TRACE(bgInit ? "PacketInterceptor::Init: BacktrackGhostGate::Init ok"
+                                : "PacketInterceptor::Init: BacktrackGhostGate::Init failed");
+
             // Native slowdown bridge. This is the ONLY reliable no-slow path: the
             // module-loop fallback (NoSlowDown::onUpdate) cannot hit the right
             // window — EntityPlayerSP.onLivingUpdate resets MovementInput via
@@ -82,6 +91,9 @@ bool Init() {
             // crashing. Gate on sdInit so we never enable the injected call when the
             // hook class itself failed to define.
             targets.slowdown = sdInit;
+            // Stage 2: only inject the render hook once the ghost native bridge is
+            // registered, so a failed DefineClass can never leave a dangling call.
+            targets.renderGhost = bgInit;
             BytecodePatcher::SetTargets(targets);
 
             bool instHook = BytecodePatcher::InstallBytecodeHook(env);

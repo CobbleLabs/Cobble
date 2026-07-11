@@ -57,6 +57,27 @@ WNDPROC originalWndProc = nullptr;
 
 ImFont* defaultFont = nullptr;
 
+#ifdef COBBLE_DEV_BUILD
+// Persistent bottom-right notice so a development binary is never mistaken for a
+// release one. Compiled out entirely of production (-Pack) builds.
+void DrawDevBuildWarning() {
+    ImDrawList* dl = ImGui::GetForegroundDrawList();
+    if (!dl)
+        return;
+    const char* text = "THIS IS A DEV BUILD - DONT USE IN PRODUCTION";
+    ImFont* f = ImGui::GetFont();
+    if (!f)
+        return;
+    const float fs = ui::s(14.0f);
+    const ImVec2 sz = f->CalcTextSizeA(fs, FLT_MAX, 0.f, text);
+    const float pad = ui::s(8.0f);
+    const ImVec2 pos((float)RenderData::screenWidth - sz.x - pad,
+                     (float)RenderData::screenHeight - sz.y - pad);
+    dl->AddText(f, fs, ImVec2(pos.x + 1.0f, pos.y + 1.0f), IM_COL32(0, 0, 0, 190), text);
+    dl->AddText(f, fs, pos, IM_COL32(255, 80, 80, 235), text);
+}
+#endif
+
 void SetupImGui() {
     Overlay::overlayContext = wglGetCurrentContext();
     if (!Overlay::overlayContext) {
@@ -113,6 +134,10 @@ void SetupImGui() {
     // 4: Notifications (Bold 18px)
     Overlay::notificationFont =
         io.Fonts->AddFontFromMemoryTTF((void*)inter_bold_ttf_data, inter_bold_ttf_size, 18.0f, &fontConfig);
+
+    // 5: ArrayList Regular (Inter Regular 22px) - the clean geometric-sans look;
+    //    the ArrayList's font picker swaps between this (Regular) and slot 2 (Bold).
+    io.Fonts->AddFontFromMemoryTTF((void*)inter_regular_ttf_data, inter_regular_ttf_size, 22.0f, &fontConfig);
 
     defaultFont = io.Fonts->Fonts[0];
 
@@ -439,8 +464,14 @@ BOOL __stdcall HookedSwapBuffers(HDC hdc) {
         // Watermark is an independent HUD element with its own on/off toggle.
         bool hasWatermark = Watermark::enabled;
         bool menuAnimating = Menu::openAnim > 0.01f;
+        // Dev builds always render so the "dev build" warning is never hidden.
+#ifdef COBBLE_DEV_BUILD
+        constexpr bool hasDevWarning = true;
+#else
+        constexpr bool hasDevWarning = false;
+#endif
         if (!Menu::isOpen && !menuAnimating && !hasRenderWork && !hasNotifications && !hasArrayList &&
-            !hasWatermark) {
+            !hasWatermark && !hasDevWarning) {
             return originalSwapBuffers(hdc);
         }
 
@@ -581,4 +612,7 @@ void Overlay::Render() {
     Watermark::render();
     NotificationManager::update();
     NotificationManager::render();
+#ifdef COBBLE_DEV_BUILD
+    DrawDevBuildWarning();
+#endif
 }

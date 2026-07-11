@@ -11,6 +11,7 @@ struct HookTargets {
     bool teams = false;
     bool lunarNametags = false;
     bool slowdown = false;  // patch EntityLivingBase.onLivingUpdate ONLY when SlowDownHook native is registered
+    bool renderGhost = false;  // patch RenderGlobal.renderEntities ONLY when BacktrackGhostHook native is registered
 };
 
 void SetTargets(const HookTargets& targets);

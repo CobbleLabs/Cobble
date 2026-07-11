@@ -57,6 +57,7 @@ private:
     int plusStateClicksRemaining = 0;
     float clickDownFraction = 0.5f;
     float currentClickIntervalMs = 66.0f;
+    float pendingGapMs = 66.0f;  // Remaining DOWN->next-DOWN time after the press hold
 
     // Dynamic delay anti-detection system
     int clicksSinceRangeChange = 0;

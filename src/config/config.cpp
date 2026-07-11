@@ -3,6 +3,7 @@
 #include "../module/module_manager.h"
 #include "../security/session_validator.hpp"
 #include "../ui/hud/arraylist.h"
+#include "../ui/widgets/widgets.hpp"
 #include "../ui/hud/watermark.h"
 #include "../ui/hud/notifications.h"
 #include "../ui/menu/menu.h"
@@ -617,23 +618,30 @@ void ConfigManager::applyConfig() {
             ui::theme::accentColor[2] = config_["settings"]["accentColor"]["b"].as_float(0.0549f);
             ui::theme::accentColor[3] = config_["settings"]["accentColor"]["a"].as_float(1.0f);
         }
+        ui::theme::accentRainbow = config_["settings"]["accentRainbow"].as_bool(false);
+        ui::theme::rainbowType = config_["settings"]["rainbowType"].as_int(0);
+        ui::theme::glowAccent = config_["settings"]["glowAccent"].as_bool(false);
     }
 
     // Apply HUD settings
     if (config_.has("hud")) {
         enabled = config_["hud"]["arrayList"].as_bool(true);
-        rainbow = config_["hud"]["arrayListRainbow"].as_bool(true);
+        rainbow = config_["hud"]["arrayListRainbow"].as_bool(false);
+        rainbowType = config_["hud"]["arrayListRainbowType"].as_int(0);
         colorBar = config_["hud"]["arrayListColorBar"].as_bool(true);
-        showBackground = config_["hud"]["arrayListBackground"].as_bool(true);
+        showBackground = config_["hud"]["arrayListBackground"].as_bool(false);
         showInfo = config_["hud"]["arrayListShowInfo"].as_bool(true);
         sortByLength = config_["hud"]["arrayListSortByLength"].as_bool(true);
+        fontStyle = config_["hud"]["arrayListFontStyle"].as_int(0);
         scale = config_["hud"]["arrayListScale"].as_float(1.0f);
         rainbowSaturation = config_["hud"]["arrayListSaturation"].as_float(0.7f);
         anchor = config_["hud"]["arrayListAnchor"].as_int(0);
+        ui::gui_mode = config_["hud"]["guiMode"].as_int(ui::gui_mode);
         posX = config_["hud"]["arrayListPosX"].as_float(-1.0f);
         posY = config_["hud"]["arrayListPosY"].as_float(-1.0f);
         Watermark::enabled = config_["hud"]["watermark"].as_bool(true);
         Watermark::rainbow = config_["hud"]["watermarkRainbow"].as_bool(true);
+        Watermark::rainbowType = config_["hud"]["watermarkRainbowType"].as_int(0);
         Watermark::scale = config_["hud"]["watermarkScale"].as_float(1.0f);
         Watermark::posX = config_["hud"]["watermarkPosX"].as_float(-1.0f);
         Watermark::posY = config_["hud"]["watermarkPosY"].as_float(-1.0f);
@@ -740,21 +748,28 @@ void ConfigManager::buildConfigFromModules() {
     config_["settings"]["accentColor"]["g"] = ui::theme::accentColor[1];
     config_["settings"]["accentColor"]["b"] = ui::theme::accentColor[2];
     config_["settings"]["accentColor"]["a"] = ui::theme::accentColor[3];
+    config_["settings"]["accentRainbow"] = ui::theme::accentRainbow;
+    config_["settings"]["rainbowType"] = ui::theme::rainbowType;
+    config_["settings"]["glowAccent"] = ui::theme::glowAccent;
 
     // HUD
     config_["hud"]["arrayList"] = enabled;
     config_["hud"]["arrayListRainbow"] = rainbow;
+    config_["hud"]["arrayListRainbowType"] = rainbowType;
     config_["hud"]["arrayListColorBar"] = colorBar;
     config_["hud"]["arrayListBackground"] = showBackground;
     config_["hud"]["arrayListShowInfo"] = showInfo;
     config_["hud"]["arrayListSortByLength"] = sortByLength;
+    config_["hud"]["arrayListFontStyle"] = fontStyle;
     config_["hud"]["arrayListScale"] = scale;
     config_["hud"]["arrayListSaturation"] = rainbowSaturation;
     config_["hud"]["arrayListAnchor"] = anchor;
+    config_["hud"]["guiMode"] = ui::gui_mode;
     config_["hud"]["arrayListPosX"] = posX;
     config_["hud"]["arrayListPosY"] = posY;
     config_["hud"]["watermark"] = Watermark::enabled;
     config_["hud"]["watermarkRainbow"] = Watermark::rainbow;
+    config_["hud"]["watermarkRainbowType"] = Watermark::rainbowType;
     config_["hud"]["watermarkScale"] = Watermark::scale;
     config_["hud"]["watermarkPosX"] = Watermark::posX;
     config_["hud"]["watermarkPosY"] = Watermark::posY;

@@ -254,6 +254,7 @@ void Reach::onRenderMenu() {
             if (ui::SliderInt("Tick Delay", &delay, 0, 10, "%d")) {
                 settings.tickDelay = delay;
             }
+            ui::TickTooltip();
         }
     );
 }

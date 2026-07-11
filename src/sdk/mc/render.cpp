@@ -2,9 +2,26 @@
 // Handles render position, partial ticks, mouse sensitivity, and targeting info
 
 #include "../../util/logger.hpp"
+#include "../../util/aes_string.hpp"
 #include "../core/minecraft.h"
 #include "../jni/jni_cache.h"
 #include "../jni/jstring_util.h"
+
+#include <gl/GL.h>
+
+#pragma comment(lib, "opengl32.lib")
+
+// Lazily-loaded glBlendColor (GL 1.4) for constant-alpha translucency of the
+// backtrack ghost. Not in the base opengl32 import surface, so resolved via wgl.
+typedef void(APIENTRY* PFN_glBlendColor_t)(GLfloat, GLfloat, GLfloat, GLfloat);
+static PFN_glBlendColor_t g_glBlendColor = nullptr;
+static bool g_glBlendColorTried = false;
+#ifndef GL_CONSTANT_ALPHA
+#define GL_CONSTANT_ALPHA 0x8003
+#endif
+#ifndef GL_ONE_MINUS_CONSTANT_ALPHA
+#define GL_ONE_MINUS_CONSTANT_ALPHA 0x8004
+#endif
 
 // =============================================================================
 // getMouseSensitivity - Get player's mouse sensitivity setting
@@ -372,4 +389,151 @@ float Minecraft::getPartialTicks() {
 
     env->DeleteLocalRef(timer);
     return result;
+}
+
+// =============================================================================
+// renderGhostEntity - Re-render a live entity at an arbitrary world position.
+// =============================================================================
+
+void Minecraft::renderGhostEntity(int entityId, double wx, double wy, double wz) {
+    if (!isValid() || entityId <= 0)
+        return;
+
+    JNIEnv* env = Java::Env();
+    if (!env)
+        return;
+    if (env->ExceptionCheck())
+        env->ExceptionClear();
+
+    if (!g_glBlendColorTried) {
+        g_glBlendColorTried = true;
+        g_glBlendColor = reinterpret_cast<PFN_glBlendColor_t>(wglGetProcAddress("glBlendColor"));
+    }
+
+    // 1.8.x instance RenderManager only (matches the render-hook environment).
+    if (!JniCache::fid_renderManager || !JniCache::fid_theWorld || !JniCache::cls_RenderManager)
+        return;
+    if (!JniCache::fid_renderPosX || !JniCache::fid_renderPosY || !JniCache::fid_renderPosZ)
+        return;
+
+    jobject renderManager = env->GetObjectField(instance, JniCache::fid_renderManager);
+    if (!renderManager)
+        return;
+    jobject world = env->GetObjectField(instance, JniCache::fid_theWorld);
+    if (!world) {
+        env->DeleteLocalRef(renderManager);
+        return;
+    }
+
+    // Lazy method/field IDs (render thread is single-threaded, so plain statics are fine).
+    static jmethodID mid_getEntityByID = nullptr;
+    static jmethodID mid_doRenderEntity = nullptr;
+    static bool doRenderReturnsBool = false;
+    static jfieldID fid_rotationYaw = nullptr;
+    static jfieldID fid_prevRotationYaw = nullptr;
+    static bool triedIds = false;
+    if (!triedIds) {
+        triedIds = true;
+        jclass wcls = env->GetObjectClass(world);
+        if (wcls) {
+            mid_getEntityByID = env->GetMethodID(wcls, OBFUSCATE_STRING("getEntityByID").c_str(),
+                                                 OBFUSCATE_STRING("(I)Lnet/minecraft/entity/Entity;").c_str());
+            env->DeleteLocalRef(wcls);
+        }
+        if (env->ExceptionCheck())
+            env->ExceptionClear();
+        // 1.8.x doRenderEntity returns boolean; try that first, then a void mapping.
+        mid_doRenderEntity =
+            env->GetMethodID(JniCache::cls_RenderManager, OBFUSCATE_STRING("doRenderEntity").c_str(),
+                             OBFUSCATE_STRING("(Lnet/minecraft/entity/Entity;DDDFFZ)Z").c_str());
+        if (env->ExceptionCheck())
+            env->ExceptionClear();
+        if (mid_doRenderEntity) {
+            doRenderReturnsBool = true;
+        } else {
+            mid_doRenderEntity =
+                env->GetMethodID(JniCache::cls_RenderManager, OBFUSCATE_STRING("doRenderEntity").c_str(),
+                                 OBFUSCATE_STRING("(Lnet/minecraft/entity/Entity;DDDFFZ)V").c_str());
+            if (env->ExceptionCheck())
+                env->ExceptionClear();
+        }
+        log_debug("[BacktrackGhost] ids: getEntityByID=%p doRenderEntity=%p (bool=%d)", (void*)mid_getEntityByID,
+                  (void*)mid_doRenderEntity, doRenderReturnsBool ? 1 : 0);
+        jclass ecls = env->FindClass(OBFUSCATE_STRING("net/minecraft/entity/Entity").c_str());
+        if (ecls) {
+            fid_rotationYaw = env->GetFieldID(ecls, OBFUSCATE_STRING("rotationYaw").c_str(), "F");
+            fid_prevRotationYaw = env->GetFieldID(ecls, OBFUSCATE_STRING("prevRotationYaw").c_str(), "F");
+            env->DeleteLocalRef(ecls);
+        }
+        if (env->ExceptionCheck())
+            env->ExceptionClear();
+    }
+
+    if (mid_getEntityByID && mid_doRenderEntity) {
+        jobject entity = env->CallObjectMethod(world, mid_getEntityByID, static_cast<jint>(entityId));
+        if (env->ExceptionCheck())
+            env->ExceptionClear();
+        if (entity) {
+            const double rpx = env->GetDoubleField(renderManager, JniCache::fid_renderPosX);
+            const double rpy = env->GetDoubleField(renderManager, JniCache::fid_renderPosY);
+            const double rpz = env->GetDoubleField(renderManager, JniCache::fid_renderPosZ);
+            const float partial = getPartialTicks();
+            float yaw = 0.0f;
+            if (fid_rotationYaw) {
+                const float ry = env->GetFloatField(entity, fid_rotationYaw);
+                const float pry = fid_prevRotationYaw ? env->GetFloatField(entity, fid_prevRotationYaw) : ry;
+                yaw = pry + (ry - pry) * partial;
+            }
+            // Translucent "ghost": constant-alpha blend makes the whole model
+            // see-through regardless of the model resetting its own colour. Save &
+            // restore the exact GL blend state so MC's GlStateManager cache (which
+            // reflects the pre-hook state) stays consistent — no render corruption.
+            const GLboolean wasBlend = glIsEnabled(GL_BLEND);
+            GLint saveSrc = GL_SRC_ALPHA, saveDst = GL_ONE_MINUS_SRC_ALPHA;
+            glGetIntegerv(GL_BLEND_SRC, &saveSrc);
+            glGetIntegerv(GL_BLEND_DST, &saveDst);
+
+            glEnable(GL_BLEND);
+            if (g_glBlendColor) {
+                glBlendFunc(GL_CONSTANT_ALPHA, GL_ONE_MINUS_CONSTANT_ALPHA);
+                g_glBlendColor(1.0f, 1.0f, 1.0f, 0.42f);
+            } else {
+                glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+            }
+
+            if (doRenderReturnsBool) {
+                env->CallBooleanMethod(renderManager, mid_doRenderEntity, entity, static_cast<jdouble>(wx - rpx),
+                                       static_cast<jdouble>(wy - rpy), static_cast<jdouble>(wz - rpz),
+                                       static_cast<jfloat>(yaw), static_cast<jfloat>(partial),
+                                       static_cast<jboolean>(JNI_FALSE));
+            } else {
+                env->CallVoidMethod(renderManager, mid_doRenderEntity, entity, static_cast<jdouble>(wx - rpx),
+                                    static_cast<jdouble>(wy - rpy), static_cast<jdouble>(wz - rpz),
+                                    static_cast<jfloat>(yaw), static_cast<jfloat>(partial),
+                                    static_cast<jboolean>(JNI_FALSE));
+            }
+            if (env->ExceptionCheck())
+                env->ExceptionClear();
+
+            // Restore exact blend state.
+            glBlendFunc(saveSrc, saveDst);
+            if (wasBlend)
+                glEnable(GL_BLEND);
+            else
+                glDisable(GL_BLEND);
+            if (g_glBlendColor)
+                g_glBlendColor(0.0f, 0.0f, 0.0f, 0.0f);
+
+            env->DeleteLocalRef(entity);
+        } else {
+            static bool warnedNull = false;
+            if (!warnedNull) {
+                warnedNull = true;
+                log_debug("[BacktrackGhost] getEntityByID(%d) returned null", entityId);
+            }
+        }
+    }
+
+    env->DeleteLocalRef(world);
+    env->DeleteLocalRef(renderManager);
 }

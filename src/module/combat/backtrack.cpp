@@ -8,7 +8,11 @@
 #include "../../util/network/json.hpp"
 
 #include <imgui.h>
+#include <algorithm>
 #include <cmath>
+#include <deque>
+#include <random>
+#include <string>
 
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
@@ -25,6 +29,169 @@ static constexpr int MIN_TICKS = 1;
 static constexpr int MAX_LATENCY_MS = 500;
 static constexpr int MIN_LATENCY_MS = 50;
 
+// ============================================================================
+// Ghost silhouette + animated status text helpers.
+// ============================================================================
+namespace {
+
+struct RenderOrigin {
+    double x, y, z;
+};
+
+// Interpolated camera/render origin (same math the box renderer used).
+RenderOrigin getRenderOrigin() {
+    RenderPos rp = mc.getRenderPos();
+    double rX = rp.x, rY = rp.y, rZ = rp.z;
+    if (rX == 0.0 && rY == 0.0 && rZ == 0.0) {
+        float pt = mc.getPartialTicks();
+        double lx = player.getLastPosX(), ly = player.getLastPosY(), lz = player.getLastPosZ();
+        rX = lx + (player.getPosX() - lx) * pt;
+        rY = ly + (player.getPosY() - ly) * pt + 1.62;
+        rZ = lz + (player.getPosZ() - lz) * pt;
+    }
+    return {rX, rY, rZ};
+}
+
+bool projectPoint(const RenderOrigin& o, double x, double y, double z, Vector2& out) {
+    Vector3 rel{static_cast<float>(x - o.x), static_cast<float>(y - o.y), static_cast<float>(z - o.z)};
+    return CWorldToScreen::WorldToScreen(rel, RenderData::modelView, RenderData::projection,
+                                         RenderData::screenWidth, RenderData::screenHeight, out);
+}
+
+// A soft humanoid silhouette (body capsule + head + glow) standing at a world
+// position. Stacked with fading alpha along the target's recent path, a series of
+// these reads as a motion-blur "replica" of the player moving, instead of a dry
+// wireframe box.
+void drawGhost(ImDrawList* draw, const RenderOrigin& o, double x, double y, double z, int r, int g, int b,
+               float alpha, bool solid) {
+    Vector2 foot, head;
+    if (!projectPoint(o, x, y, z, foot))
+        return;
+    if (!projectPoint(o, x, y + 1.8, z, head))
+        return;
+
+    float h = foot.y - head.y;  // on-screen height (foot below head)
+    if (h < 3.0f || h > 6000.0f)
+        return;
+
+    int A = static_cast<int>(std::clamp(alpha, 0.0f, 1.0f) * 255.0f);
+    if (A <= 1)
+        return;
+
+    float cx = (foot.x + head.x) * 0.5f;
+    float w = h * 0.28f;   // body width
+    float hr = w * 0.46f;  // head radius
+    float headCy = head.y + hr;
+    float bodyTop = headCy + hr * 0.55f;
+    float bodyBot = foot.y;
+
+    ImU32 col = IM_COL32(r, g, b, A);
+    ImU32 glow = IM_COL32(r, g, b, static_cast<int>(A * 0.30f));
+
+    // Soft glow underlay (wider) — this is what kills the "dry" look.
+    float gw = w * 1.7f;
+    draw->AddRectFilled(ImVec2(cx - gw * 0.5f, bodyTop - hr * 0.4f), ImVec2(cx + gw * 0.5f, bodyBot + hr * 0.3f),
+                        glow, gw * 0.5f);
+    draw->AddCircleFilled(ImVec2(cx, headCy), hr * 1.55f, glow);
+
+    // Body capsule + head.
+    draw->AddRectFilled(ImVec2(cx - w * 0.5f, bodyTop), ImVec2(cx + w * 0.5f, bodyBot), col, w * 0.5f);
+    draw->AddCircleFilled(ImVec2(cx, headCy), hr, col);
+
+    if (solid) {
+        // Crisp rim on the primary (hittable) silhouette.
+        ImU32 rim = IM_COL32(255, 255, 255, static_cast<int>(A * 0.55f));
+        draw->AddRect(ImVec2(cx - w * 0.5f, bodyTop), ImVec2(cx + w * 0.5f, bodyBot), rim, w * 0.5f, 0, 1.4f);
+        draw->AddCircle(ImVec2(cx, headCy), hr, rim, 0, 1.4f);
+    }
+}
+
+// Persistent animation state for the status text (single Backtrack instance).
+float g_statusAnim = 0.0f;
+std::string g_lastInfo;
+
+// Animated, letter-spaced, glowing "BACKTRACK" with a growing underline and the
+// live amount below. Fades/slides in and out via `anim` (0..1). No pill.
+void drawBacktrackStatus(float anim) {
+    if (anim <= 0.01f)
+        return;
+    ImDrawList* draw = ImGui::GetBackgroundDrawList();
+    const ImVec2 ss = ImGui::GetIO().DisplaySize;
+    ImFont* f = font(2);
+    if (!f)
+        return;
+
+    float ease = anim * anim * (3.0f - 2.0f * anim);  // smoothstep
+    int a = static_cast<int>(ease * 255.0f);
+
+    const char* label = "Backtrack";
+    const int N = static_cast<int>(std::char_traits<char>::length(label));
+    float fs = ui::s(19.0f);
+    float spacing = ui::s(1.0f);  // letter spacing
+
+    float widths[16] = {0};
+    float totalW = 0.0f;
+    for (int i = 0; i < N && i < 16; ++i) {
+        char ch[2] = {label[i], 0};
+        widths[i] = f->CalcTextSizeA(fs, FLT_MAX, 0.0f, ch).x;
+        totalW += widths[i] + spacing;
+    }
+    totalW -= spacing;
+    float lineH = f->CalcTextSizeA(fs, FLT_MAX, 0.0f, label).y;
+
+    float cx = ss.x * 0.5f;
+    float baseY = ss.y * 0.5f + ui::s(52.0f);  // sits lower on screen
+    float startX = cx - totalW * 0.5f;
+
+    // Staggered left->right reveal: each letter fades + rises into place, so it
+    // "types" in and unwinds the same way on exit — a different feel to the old
+    // centre-out pop.
+    float x = startX;
+    float go = ui::s(1.5f);
+    for (int i = 0; i < N && i < 16; ++i) {
+        char ch[2] = {label[i], 0};
+        float frac = (N > 1) ? static_cast<float>(i) / static_cast<float>(N - 1) : 0.0f;
+        float lt = std::clamp((anim - frac * 0.5f) / 0.5f, 0.0f, 1.0f);
+        lt = lt * lt * (3.0f - 2.0f * lt);  // smoothstep
+        int la = static_cast<int>(lt * 255.0f);
+        if (la > 3) {
+            float rise = (1.0f - lt) * ui::s(7.0f);
+            ImVec2 pos(x, baseY + rise);
+            ImU32 amber = IM_COL32(255, 178, 66, la);
+            ImU32 glow = IM_COL32(255, 150, 40, static_cast<int>(la * 0.24f));
+            ImU32 shadow = IM_COL32(0, 0, 0, static_cast<int>(la * 0.8f));
+            draw->AddText(f, fs, ImVec2(pos.x - go, pos.y), glow, ch);
+            draw->AddText(f, fs, ImVec2(pos.x + go, pos.y), glow, ch);
+            draw->AddText(f, fs, ImVec2(pos.x, pos.y - go), glow, ch);
+            draw->AddText(f, fs, ImVec2(pos.x, pos.y + go), glow, ch);
+            draw->AddText(f, fs, ImVec2(pos.x + ui::s(1.0f), pos.y + ui::s(1.0f)), shadow, ch);
+            draw->AddText(f, fs, pos, amber, ch);
+        }
+        x += widths[i] + spacing;
+    }
+
+    // Accent line under the text, wiping left->right in sync with the reveal.
+    float ulY = baseY + lineH + ui::s(5.0f);
+    float ulH = ui::s(2.0f);
+    float ulW = totalW * ease;
+    draw->AddRectFilled(ImVec2(startX, ulY), ImVec2(startX + ulW, ulY + ulH), IM_COL32(255, 178, 66, a), ulH * 0.5f);
+
+    // Live amount (ticks / ms) centred below the line.
+    if (!g_lastInfo.empty()) {
+        ImFont* fr = font(5) ? font(5) : f;  // Inter Regular
+        float ifs = ui::s(12.0f);
+        ImVec2 isz = fr->CalcTextSizeA(ifs, FLT_MAX, 0.0f, g_lastInfo.c_str());
+        float ix = cx - isz.x * 0.5f;
+        float iy = ulY + ui::s(6.0f);
+        draw->AddText(fr, ifs, ImVec2(ix + ui::s(1.0f), iy + ui::s(1.0f)),
+                      IM_COL32(0, 0, 0, static_cast<int>(ease * 175.0f)), g_lastInfo.c_str());
+        draw->AddText(fr, ifs, ImVec2(ix, iy), IM_COL32(185, 190, 200, static_cast<int>(ease * 215.0f)),
+                      g_lastInfo.c_str());
+    }
+}
+
+}  // namespace
+
 Backtrack::Backtrack() : Module("Backtrack") {
     keybind = 0;
     renders = true;
@@ -37,6 +204,7 @@ void Backtrack::onEnable() {
     currentTargetUUID = "";
     lastTargetChange = std::chrono::steady_clock::now();
     delayedPacketCount = 0;
+    rollLatency();
 }
 
 void Backtrack::onDisable() {
@@ -47,6 +215,7 @@ void Backtrack::onDisable() {
     clearHistory();
     isBacktracking = false;
     isLagging = false;
+    ghostEntityId = -1;
 }
 
 bool Backtrack::isHoldingWeapon() {
@@ -55,6 +224,20 @@ bool Backtrack::isHoldingWeapon() {
     // Axes: 271, 275, 258, 279, 286
     return (itemId == 268 || itemId == 272 || itemId == 267 || itemId == 276 || itemId == 283 ||
             itemId == 271 || itemId == 275 || itemId == 258 || itemId == 279 || itemId == 286);
+}
+
+void Backtrack::rollLatency() {
+    int lo = settings.latencyMin;
+    int hi = settings.latencyMax;
+    if (lo > hi)
+        std::swap(lo, hi);
+    if (hi <= lo) {
+        currentLatency = lo;
+        return;
+    }
+    static std::mt19937 rng(static_cast<uint32_t>(std::chrono::steady_clock::now().time_since_epoch().count()));
+    std::uniform_int_distribution<int> d(lo, hi);
+    currentLatency = d(rng);
 }
 
 void Backtrack::clearHistory() {
@@ -87,7 +270,8 @@ void Backtrack::recordPosition(const PlayerInfo& target) {
         auto now = std::chrono::steady_clock::now();
         while (!history.empty()) {
             auto age = std::chrono::duration<float, std::milli>(now - history.front().timestamp).count();
-            if (age > static_cast<float>(settings.latency)) {
+            // Keep enough history to cover the widest possible window.
+            if (age > static_cast<float>(settings.latencyMax)) {
                 history.pop_front();
             } else {
                 break;
@@ -134,9 +318,9 @@ bool Backtrack::findBacktrackedPosition(double playerX, double playerY, double p
             if (snap.tickAge > settings.ticks)
                 continue;
         } else {
-            // In Lag Based mode, check timestamp
+            // In Lag Based mode, check timestamp against this session's rolled latency
             float age = std::chrono::duration<float, std::milli>(now - snap.timestamp).count();
-            if (age > static_cast<float>(settings.latency))
+            if (age > static_cast<float>(currentLatency))
                 continue;
         }
 
@@ -163,6 +347,16 @@ bool Backtrack::findBacktrackedPosition(double playerX, double playerY, double p
 
     isBacktracking = false;
     return false;
+}
+
+bool Backtrack::getGhostRenderTarget(int& entityId, double& x, double& y, double& z) const {
+    if (!enabled || !isBacktracking || ghostEntityId <= 0)
+        return false;
+    entityId = ghostEntityId;
+    x = backtrackedX;
+    y = backtrackedY;
+    z = backtrackedZ;
+    return true;
 }
 
 bool Backtrack::shouldDelayPacket() const {
@@ -246,6 +440,7 @@ void Backtrack::onUpdate() {
     if (!closestTarget) {
         isBacktracking = false;
         isLagging = false;
+        ghostEntityId = -1;
         clearHistory();
         currentTargetUUID = "";
         return;
@@ -275,6 +470,9 @@ void Backtrack::onUpdate() {
     bool foundPosition = findBacktrackedPosition(playerX, playerY, playerZ,
                                                   closestTarget->posX, closestTarget->posY, closestTarget->posZ);
 
+    // Remember the target entity id so the render hook can draw its real 3D model.
+    ghostEntityId = isBacktracking ? closestTarget->entityId : -1;
+
     // Lag Based mode: start lagging if we can benefit
     if (settings.mode == BacktrackMode::LagBased) {
         // Always store the current real position for the indicator
@@ -284,14 +482,15 @@ void Backtrack::onUpdate() {
 
         if (foundPosition && !isLagging) {
             isLagging = true;
+            rollLatency();  // fresh effective latency for this session (dynamic)
             lagStartTime = now;
-            log_debug("[Backtrack] Started lagging packets");
+            log_debug("[Backtrack] Started lagging packets (%d ms)", currentLatency);
         }
 
         // Check if we've been lagging too long
         if (isLagging) {
             float lagDuration = std::chrono::duration<float, std::milli>(now - lagStartTime).count();
-            if (lagDuration > static_cast<float>(settings.latency)) {
+            if (lagDuration > static_cast<float>(currentLatency)) {
                 flushDelayedPackets();
                 log_debug("[Backtrack] Flushed packets (max latency reached)");
             }
@@ -380,10 +579,15 @@ void Backtrack::renderBox3D(double x, double y, double z, unsigned int color, un
         {0, 4}, {1, 5}, {2, 6}, {3, 7}
     };
 
+    // Two-pass edges: a soft dark underlay then the crisp coloured line on top, so
+    // the box reads cleanly over any background instead of a thin flat wireframe.
     for (int i = 0; i < 12; i++) {
         int a = edges[i][0], b = edges[i][1];
         if (visible[a] && visible[b]) {
-            draw->AddLine(ImVec2(screen[a].x, screen[a].y), ImVec2(screen[b].x, screen[b].y), color, 2.0f);
+            const ImVec2 pa(screen[a].x, screen[a].y);
+            const ImVec2 pb(screen[b].x, screen[b].y);
+            draw->AddLine(pa, pb, IM_COL32(0, 0, 0, 150), 3.6f);
+            draw->AddLine(pa, pb, color, 1.7f);
         }
     }
 
@@ -411,134 +615,86 @@ void Backtrack::renderBox3D(double x, double y, double z, unsigned int color, un
 }
 
 void Backtrack::renderManualModeVisuals() {
-    if (!settings.renderPreviousTicks)
-        return;
-    if (currentTargetUUID.empty())
-        return;
+    ImDrawList* draw = ImGui::GetBackgroundDrawList();
+    RenderOrigin o = getRenderOrigin();
 
-    ImU32 shadowCol = IM_COL32(
-        static_cast<int>(settings.shadowColor[0] * 255),
-        static_cast<int>(settings.shadowColor[1] * 255),
-        static_cast<int>(settings.shadowColor[2] * 255),
-        static_cast<int>(settings.shadowColor[3] * 255)
-    );
-    ImU32 shadowFillCol = IM_COL32(
-        static_cast<int>(settings.shadowColor[0] * 255),
-        static_cast<int>(settings.shadowColor[1] * 255),
-        static_cast<int>(settings.shadowColor[2] * 255),
-        40
-    );
+    const int sr = static_cast<int>(settings.shadowColor[0] * 255);
+    const int sg = static_cast<int>(settings.shadowColor[1] * 255);
+    const int sb = static_cast<int>(settings.shadowColor[2] * 255);
 
-    // Render all historical positions for current target
-    auto it = entityHistory.find(currentTargetUUID);
-    if (it != entityHistory.end() && !it->second.empty()) {
-        // Copy to avoid issues during iteration
-        std::deque<PositionSnapshot> historyCopy = it->second;
-        for (const auto& snap : historyCopy) {
-            // Skip the most recent position (that's the current)
-            if (snap.tickAge <= 1)
-                continue;
-
-            renderBox3D(snap.x, snap.y, snap.z, shadowCol, shadowFillCol, settings.filledBox);
+    // Motion-blur trail: a fading silhouette at each recorded position along the
+    // target's recent path (oldest = faintest), so it smears through time.
+    if (settings.renderPreviousTicks && !currentTargetUUID.empty()) {
+        auto it = entityHistory.find(currentTargetUUID);
+        if (it != entityHistory.end() && !it->second.empty()) {
+            const int maxT = (std::max)(1, settings.ticks);
+            std::deque<PositionSnapshot> historyCopy = it->second;
+            for (const auto& snap : historyCopy) {
+                if (snap.tickAge <= 1)
+                    continue;  // the freshest one is the live position
+                float t = 1.0f - std::clamp(static_cast<float>(snap.tickAge) / static_cast<float>(maxT), 0.0f, 1.0f);
+                drawGhost(draw, o, snap.x, snap.y, snap.z, sr, sg, sb, 0.05f + 0.28f * t, false);
+            }
         }
+    }
+
+    // The primary backtracked silhouette (the one you're actually hitting).
+    if (isBacktracking) {
+        drawGhost(draw, o, backtrackedX, backtrackedY, backtrackedZ, static_cast<int>(settings.boxColor[0] * 255),
+                  static_cast<int>(settings.boxColor[1] * 255), static_cast<int>(settings.boxColor[2] * 255), 0.85f,
+                  true);
     }
 }
 
 void Backtrack::renderLagBasedModeVisuals() {
-    if (!isBacktracking)
-        return;
     if (currentTargetUUID.empty())
         return;
 
-    // Ghost at LAGGED position (where they were) - shadow color
-    ImU32 ghostCol = IM_COL32(
-        static_cast<int>(settings.shadowColor[0] * 255),
-        static_cast<int>(settings.shadowColor[1] * 255),
-        static_cast<int>(settings.shadowColor[2] * 255),
-        static_cast<int>(settings.shadowColor[3] * 255)
-    );
-    ImU32 ghostFillCol = IM_COL32(
-        static_cast<int>(settings.shadowColor[0] * 255),
-        static_cast<int>(settings.shadowColor[1] * 255),
-        static_cast<int>(settings.shadowColor[2] * 255),
-        50
-    );
-    renderBox3D(backtrackedX, backtrackedY, backtrackedZ, ghostCol, ghostFillCol, settings.filledBox);
+    ImDrawList* draw = ImGui::GetBackgroundDrawList();
+    RenderOrigin o = getRenderOrigin();
 
-    // Hitbox at REAL position (where to aim) - box color
+    const int sr = static_cast<int>(settings.shadowColor[0] * 255);
+    const int sg = static_cast<int>(settings.shadowColor[1] * 255);
+    const int sb = static_cast<int>(settings.shadowColor[2] * 255);
+
+    // Motion-blur trail from the buffered positions (newest = brightest).
+    auto it = entityHistory.find(currentTargetUUID);
+    if (it != entityHistory.end() && !it->second.empty()) {
+        std::deque<PositionSnapshot> historyCopy = it->second;
+        const int n = static_cast<int>(historyCopy.size());
+        int idx = 0;
+        for (const auto& snap : historyCopy) {
+            float t = n > 1 ? static_cast<float>(idx) / static_cast<float>(n - 1) : 1.0f;
+            drawGhost(draw, o, snap.x, snap.y, snap.z, sr, sg, sb, 0.05f + 0.26f * t, false);
+            idx++;
+        }
+    }
+
+    if (!isBacktracking)
+        return;
+
+    // Primary lagged silhouette (where they were = what your hits land on).
+    drawGhost(draw, o, backtrackedX, backtrackedY, backtrackedZ, static_cast<int>(settings.boxColor[0] * 255),
+              static_cast<int>(settings.boxColor[1] * 255), static_cast<int>(settings.boxColor[2] * 255), 0.85f, true);
+
+    // Faint marker of where they actually are right now.
     if (settings.renderServerPos) {
-        ImU32 hitboxCol = IM_COL32(
-            static_cast<int>(settings.boxColor[0] * 255),
-            static_cast<int>(settings.boxColor[1] * 255),
-            static_cast<int>(settings.boxColor[2] * 255),
-            static_cast<int>(settings.boxColor[3] * 255)
-        );
-        ImU32 hitboxFillCol = IM_COL32(
-            static_cast<int>(settings.boxColor[0] * 255),
-            static_cast<int>(settings.boxColor[1] * 255),
-            static_cast<int>(settings.boxColor[2] * 255),
-            80
-        );
-        renderBox3D(currentRealX, currentRealY, currentRealZ, hitboxCol, hitboxFillCol, settings.filledBox);
+        drawGhost(draw, o, currentRealX, currentRealY, currentRealZ, 225, 230, 240, 0.22f, false);
     }
 }
 
 void Backtrack::onRender() {
     if (!enabled)
         return;
-    if (!settings.showBacktrackBox)
-        return;
     if (!player.isValid())
         return;
     if (!RenderData::updated)
         return;
 
-    if (settings.mode == BacktrackMode::Manual) {
-        renderManualModeVisuals();
-        
-        // In Manual mode, also render the primary backtrack position (target box)
-        if (isBacktracking) {
-            ImU32 col = IM_COL32(
-                static_cast<int>(settings.boxColor[0] * 255),
-                static_cast<int>(settings.boxColor[1] * 255),
-                static_cast<int>(settings.boxColor[2] * 255),
-                static_cast<int>(settings.boxColor[3] * 255)
-            );
-            ImU32 fillCol = IM_COL32(
-                static_cast<int>(settings.boxColor[0] * 255),
-                static_cast<int>(settings.boxColor[1] * 255),
-                static_cast<int>(settings.boxColor[2] * 255),
-                80
-            );
-            renderBox3D(backtrackedX, backtrackedY, backtrackedZ, col, fillCol, settings.filledBox);
-        }
-    } else {
-        // Lag Based mode - rendering handled in renderLagBasedModeVisuals
-        renderLagBasedModeVisuals();
-    }
-
-    // Status text
-    ImDrawList* draw = ImGui::GetBackgroundDrawList();
-    ImVec2 screenSize = ImGui::GetIO().DisplaySize;
-
-    const char* statusText = nullptr;
-    ImU32 statusColor = IM_COL32(255, 100, 100, 255);
-
-    if (settings.mode == BacktrackMode::LagBased && isBacktracking) {
-        statusText = "Backtrack";
-        statusColor = IM_COL32(255, 165, 0, 255);  // Orange
-    } else if (isBacktracking) {
-        statusText = "Backtrack Active";
-    }
-
-    if (statusText) {
-        ImVec2 textSize = ImGui::CalcTextSize(statusText);
-        draw->AddText(
-            ImVec2(screenSize.x / 2 - textSize.x / 2, screenSize.y / 2 + 60),
-            statusColor,
-            statusText
-        );
-    }
+    // The ghost is now the real 3D entity model, re-rendered by the injected
+    // RenderGlobal.renderEntities hook (BacktrackGhostGate). The old 2D silhouette
+    // trail and the on-screen "Backtrack" text are both removed — nothing to draw
+    // here anymore.
 }
 
 void Backtrack::onRenderMenu() {
@@ -567,10 +723,14 @@ void Backtrack::onRenderMenu() {
             // Mode-specific settings
             if (settings.mode == BacktrackMode::Manual) {
                 ui::SliderInt("Ticks", &settings.ticks, MIN_TICKS, MAX_TICKS, "%d");
+                ui::TickTooltip();
                 ImGui::Spacing();
                 ui::Checkbox("Render Previous Ticks", &settings.renderPreviousTicks);
             } else {
-                ui::SliderInt("Latency", &settings.latency, MIN_LATENCY_MS, MAX_LATENCY_MS, "%d ms");
+                ui::SliderInt("Min Latency", &settings.latencyMin, MIN_LATENCY_MS, MAX_LATENCY_MS, "%d ms");
+                ui::SliderInt("Max Latency", &settings.latencyMax, MIN_LATENCY_MS, MAX_LATENCY_MS, "%d ms");
+                if (settings.latencyMin > settings.latencyMax)
+                    settings.latencyMax = settings.latencyMin;
                 ImGui::Spacing();
                 ui::Checkbox("Render Server Pos", &settings.renderServerPos);
             }
@@ -613,7 +773,7 @@ std::string Backtrack::getDisplayInfo() {
     if (settings.mode == BacktrackMode::Manual) {
         return std::to_string(settings.ticks) + " ticks";
     } else {
-        return std::to_string(settings.latency) + "ms";
+        return std::to_string(settings.latencyMin) + "-" + std::to_string(settings.latencyMax) + "ms";
     }
 }
 
@@ -622,7 +782,8 @@ std::string Backtrack::getDisplayInfo() {
 void Backtrack::saveSettings(json::Value& node) const {
     node["mode"] = static_cast<int>(settings.mode);
     node["ticks"] = settings.ticks;
-    node["latency"] = settings.latency;
+    node["latencyMin"] = settings.latencyMin;
+    node["latencyMax"] = settings.latencyMax;
     node["renderPreviousTicks"] = settings.renderPreviousTicks;
     node["renderServerPos"] = settings.renderServerPos;
     node["minDistance"] = settings.minDistance;
@@ -639,7 +800,12 @@ void Backtrack::saveSettings(json::Value& node) const {
 void Backtrack::loadSettings(const json::Value& node) {
     settings.mode = static_cast<BacktrackMode>(node["mode"].as_int(static_cast<int>(settings.mode)));
     settings.ticks = node["ticks"].as_int(settings.ticks);
-    settings.latency = node["latency"].as_int(settings.latency);
+    // Migrate the old single "latency" key into the new window if present.
+    int legacyLatency = node["latency"].as_int(-1);
+    settings.latencyMin = node["latencyMin"].as_int(legacyLatency > 0 ? legacyLatency : settings.latencyMin);
+    settings.latencyMax = node["latencyMax"].as_int(legacyLatency > 0 ? legacyLatency : settings.latencyMax);
+    if (settings.latencyMin > settings.latencyMax)
+        std::swap(settings.latencyMin, settings.latencyMax);
     settings.renderPreviousTicks = node["renderPreviousTicks"].as_bool(settings.renderPreviousTicks);
     settings.renderServerPos = node["renderServerPos"].as_bool(settings.renderServerPos);
     settings.minDistance = node["minDistance"].as_float(settings.minDistance);

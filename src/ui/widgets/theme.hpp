@@ -17,6 +17,14 @@ inline float accentColor[4] = {
     1.0f      // A = 255
 };
 
+// When true the accent cycles a rainbow (rainbowType selects the style) instead
+// of the fixed accentColor; every menu accent that uses GetSchemeColor follows it.
+// glowAccent makes the module glow sweep follow the accent (colour/rainbow)
+// instead of its metallic-white default.
+inline bool accentRainbow = false;
+inline int rainbowType = 0;  // 0 Flow, 1 Solid, 2 Fast, 3 Wide
+inline bool glowAccent = false;
+
 // Get accent color as ImU32 with optional alpha multiplier
 ImU32 getAccent(float alpha = 1.0f);
 

@@ -1,6 +1,7 @@
 #include "notifications.h"
 #include "../../../infra/ext/imgui/imgui.h"
 #include "../../sdk/player/render_data.h"
+#include "../widgets/icons.hpp"
 #include "../widgets/widgets.hpp"
 
 #include <algorithm>
@@ -45,17 +46,19 @@ NotificationType classifySystemMessage(const std::string& message) {
     return NotificationType::Info;
 }
 
-const char* titleFor(NotificationType type) {
+// A single leading glyph per type (FontAwesome, merged into font slot 0).
+const char* iconFor(NotificationType type) {
     switch (type) {
         case NotificationType::Enabled:
+            return ICON_FA_BOLT;
         case NotificationType::Disabled:
-            return "Module updated";
+            return ICON_FA_POWER_OFF;
         case NotificationType::Success:
-            return "Success";
+            return ICON_FA_CHECK;
         case NotificationType::Error:
-            return "Action failed";
+            return ICON_FA_TIMES;
         default:
-            return "Cobble";
+            return ICON_FA_BOLT;
     }
 }
 
@@ -142,21 +145,27 @@ void NotificationManager::render() {
     if (!draw)
         return;
 
+    ImFont* uiFont = font(0);  // Inter Bold + FontAwesome icons merged into this slot
+    if (!uiFont)
+        return;
+
     const ImVec2 display = ImGui::GetIO().DisplaySize;
     const float screenWidth = display.x > 1.0f ? display.x : static_cast<float>(RenderData::screenWidth);
     const float screenHeight = display.y > 1.0f ? display.y : static_cast<float>(RenderData::screenHeight);
+
+    // Minimal toast: no card. A type-coloured icon + one line of text, underlined
+    // by a thin accent, sliding in from the right edge and stacking upward. A soft
+    // shadow keeps it legible over bright scenes without a boxy background.
     const float margin = ui::s(14.0f);
-    const float spacing = ui::s(6.0f);
-    const float width = ui::s(260.0f);
-    const float height = ui::s(50.0f);
-    const float rounding = ui::s(5.0f);
-    const float padding = ui::s(10.0f);
-    const float titleSize = ui::s(14.0f);
-    const float messageSize = ui::s(12.0f);
+    const float rowHeight = ui::s(23.0f);
+    const float rowGap = ui::s(7.0f);
+    const float textSize = ui::s(14.0f);
+    const float iconSize = ui::s(12.0f);
+    const float iconGap = ui::s(8.0f);
+    const float slideDist = ui::s(26.0f);
     const float enterDuration = 0.18f;
     const float exitDuration = 0.26f;
     const auto now = std::chrono::steady_clock::now();
-    ImFont* notificationFont = font(0);
 
     std::size_t visibleIndex = 0;
     for (auto iterator = notifications.rbegin(); iterator != notifications.rend(); ++iterator) {
@@ -169,57 +178,56 @@ void NotificationManager::render() {
         float visibility = easeOutCubic(elapsed / enterDuration);
         if (remaining < exitDuration)
             visibility *= 1.0f - easeInCubic(1.0f - remaining / exitDuration);
-
-        const float x = screenWidth - margin - width + (1.0f - visibility) * ui::s(28.0f);
-        const float y = screenHeight - margin - height -
-                        static_cast<float>(visibleIndex) * (height + spacing);
-        const ImVec2 rectMin{x, y};
-        const ImVec2 rectMax{x + width, y + height};
+        visibility = clamp01(visibility);
         const int alpha = static_cast<int>(255.0f * visibility);
+        if (alpha <= 0)
+            continue;
+
+        // Single-line label.
+        std::string label = notification.text;
+        if (notification.type == NotificationType::Enabled)
+            label += " enabled";
+        else if (notification.type == NotificationType::Disabled)
+            label += " disabled";
+
+        const char* icon = iconFor(notification.type);
+        const ImVec2 iconMetrics = uiFont->CalcTextSizeA(iconSize, FLT_MAX, 0.0f, icon);
+        const ImVec2 textMetrics = uiFont->CalcTextSizeA(textSize, FLT_MAX, 0.0f, label.c_str());
+        const float contentWidth = iconMetrics.x + iconGap + textMetrics.x;
+
+        const float slide = (1.0f - visibility) * slideDist;
+        const float rightX = screenWidth - margin + slide;
+        const float leftX = rightX - contentWidth;
+        const float rowTop =
+            screenHeight - margin - rowHeight - static_cast<float>(visibleIndex) * (rowHeight + rowGap);
+        const float centerY = rowTop + rowHeight * 0.5f;
+
         const ImVec4 typeColor = colorFor(notification.type);
         const ImU32 accent = IM_COL32(static_cast<int>(typeColor.x * 255.0f),
-                                     static_cast<int>(typeColor.y * 255.0f),
-                                     static_cast<int>(typeColor.z * 255.0f), alpha);
+                                      static_cast<int>(typeColor.y * 255.0f),
+                                      static_cast<int>(typeColor.z * 255.0f), alpha);
+        const ImU32 textCol = IM_COL32(238, 240, 244, alpha);
+        const ImU32 shadowCol = IM_COL32(0, 0, 0, static_cast<int>(150.0f * visibility));
 
-        draw->AddRectFilled(rectMin + ImVec2(ui::s(2.0f), ui::s(4.0f)),
-                            rectMax + ImVec2(ui::s(2.0f), ui::s(4.0f)),
-                            IM_COL32(0, 0, 0, static_cast<int>(90.0f * visibility)), rounding);
-        draw->AddRectFilled(rectMin, rectMax, IM_COL32(18, 19, 22, static_cast<int>(244.0f * visibility)),
-                            rounding);
-        draw->AddRect(rectMin, rectMax, IM_COL32(255, 255, 255, static_cast<int>(20.0f * visibility)),
-                      rounding, 0, ui::s(1.0f));
+        const float iconX = leftX;
+        const float iconY = centerY - iconMetrics.y * 0.5f;
+        const float textX = leftX + iconMetrics.x + iconGap;
+        const float textY = centerY - textMetrics.y * 0.5f;
 
-        const float textX = rectMin.x + padding;
-        const float titleY = rectMin.y + ui::s(7.0f);
-        const float messageY = rectMin.y + ui::s(24.0f);
-        const char* title = titleFor(notification.type);
-        std::string message = notification.text;
-        if (notification.type == NotificationType::Enabled)
-            message += " enabled";
-        else if (notification.type == NotificationType::Disabled)
-            message += " disabled";
+        // Soft shadow first (readability without a card).
+        draw->AddText(uiFont, iconSize, ImVec2(iconX + 1.0f, iconY + 1.0f), shadowCol, icon);
+        draw->AddText(uiFont, textSize, ImVec2(textX + 1.0f, textY + 1.0f), shadowCol, label.c_str());
 
-        if (notificationFont) {
-            draw->AddText(notificationFont, titleSize, {textX, titleY}, IM_COL32(245, 246, 248, alpha), title);
-            draw->AddText(notificationFont, messageSize, {textX, messageY}, IM_COL32(166, 170, 178, alpha),
-                          message.c_str(), nullptr, rectMax.x - padding - textX);
-        } else {
-            draw->AddText({textX, titleY}, IM_COL32(245, 246, 248, alpha), title);
-            draw->AddText({textX, messageY}, IM_COL32(166, 170, 178, alpha), message.c_str());
-        }
+        // Icon in the type colour, label in near-white.
+        draw->AddText(uiFont, iconSize, ImVec2(iconX, iconY), accent, icon);
+        draw->AddText(uiFont, textSize, ImVec2(textX, textY), textCol, label.c_str());
 
-        const float barInset = ui::s(1.0f);
-        const float barHeight = ui::s(2.0f);
-        const float barY = rectMax.y - ui::s(3.0f);
-        const float trackWidth = width - barInset * 2.0f;
-        const float barWidth = trackWidth * (1.0f - notification.progress(now));
-        draw->AddRectFilled({rectMin.x + barInset, barY},
-                            {rectMax.x - barInset, barY + barHeight},
-                            IM_COL32(255, 255, 255, static_cast<int>(20.0f * visibility)), ui::s(1.0f));
-        if (barWidth > 0.0f) {
-            draw->AddRectFilled({rectMin.x + barInset, barY},
-                                {rectMin.x + barInset + barWidth, barY + barHeight}, accent, ui::s(1.0f));
-        }
+        // Thin accent underline spanning the content.
+        const float underlineH = ui::s(1.5f);
+        const float underlineY = textY + textMetrics.y + ui::s(2.0f);
+        draw->AddRectFilled(ImVec2(leftX, underlineY), ImVec2(rightX, underlineY + underlineH), accent,
+                            underlineH * 0.5f);
+
         ++visibleIndex;
     }
 }

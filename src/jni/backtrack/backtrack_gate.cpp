@@ -141,7 +141,7 @@ std::deque<DelayedPacket> GetReadyPackets() {
         return ready;
     }
 
-    int latencyMs = ::backtrack->settings.latency;
+    int latencyMs = ::backtrack->getCurrentLatency();
     auto now = std::chrono::steady_clock::now();
 
     std::lock_guard<std::mutex> lock(g_mutex);

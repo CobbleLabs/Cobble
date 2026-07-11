@@ -7,7 +7,8 @@
 
 namespace Watermark {
 inline bool enabled = true;
-inline bool rainbow = true;  // flowing gradient on "Cobble" (vs flat accent color)
+inline bool rainbow = true;   // flowing gradient on "Cobble" (vs flat accent color)
+inline int rainbowType = 0;   // 0 Flow, 1 Solid, 2 Fast, 3 Wide
 inline float scale = 1.0f;
 
 // Smoothed FPS readout: eases toward RenderData::gameFps so the number

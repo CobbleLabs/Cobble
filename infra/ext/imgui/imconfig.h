@@ -101,7 +101,16 @@
 // Your renderer backend will need to support it (most example renderer backends support both 16/32-bit indices).
 // Another way to allow large meshes while keeping 16-bit indices is to handle ImDrawCmd::VtxOffset in your renderer.
 // Read about ImGuiBackendFlags_RendererHasVtxOffset for details.
-//#define ImDrawIdx unsigned int
+//
+// COBBLE: enabled. The OpenGL2 backend does NOT set ImGuiBackendFlags_
+// RendererHasVtxOffset, so with the default 16-bit index a single window's
+// draw list silently wraps its indices once it passes 65535 vertices —
+// producing spurious triangles that render as straight "lines" across the
+// card (the animated contour glow is vertex-heavy enough to hit this with a
+// few modules enabled). All imgui *.cpp are compiled in-project (see
+// Cobble.vcxproj), so this define is consistent everywhere on a clean build;
+// imgui_impl_opengl2.cpp:230 already picks GL_UNSIGNED_INT when sizeof==4.
+#define ImDrawIdx unsigned int
 
 //---- Override ImDrawCallback signature (will need to modify renderer backends accordingly)
 //struct ImDrawList;

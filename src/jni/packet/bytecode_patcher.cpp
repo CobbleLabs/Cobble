@@ -1426,6 +1426,215 @@ static int patchLivingBaseClass(const uint8_t* data, size_t len, std::vector<uin
     return patched_methods;
 }
 
+// Inject `aload_1; invokestatic BacktrackGhostHook.onRenderWorld(Object)` at the
+// entry of RenderGlobal.renderEntities. Slot 1 is the view Entity (an object),
+// which the hook ignores — reusing the exact proven observer injection keeps this
+// verifiable. Fail-safe: a parse error returns -1 and the original class is kept;
+// bad bytecode is rejected cleanly by the verifier on retransform.
+static int patchRenderGlobalClass(const uint8_t* data, size_t len, std::vector<uint8_t>& out) {
+    Reader r(data, len);
+    uint32_t magic = r.ReadU4();
+    if (!r.ok || magic != 0xCAFEBABE)
+        return -1;
+
+    uint16_t minor = r.ReadU2();
+    uint16_t major = r.ReadU2();
+    uint16_t cp_count = r.ReadU2();
+    if (!r.ok || cp_count == 0)
+        return -1;
+
+    std::vector<CpEntry> cp;
+    std::vector<std::string> utf8;
+    std::vector<uint8_t> cp_raw;
+    if (!readConstantPool(r, cp_count, cp, utf8, cp_raw))
+        return -1;
+
+    if (cp_count > 0xFFFB)
+        return -1;
+    uint16_t base = cp_count;
+
+    // Entries for BacktrackGhostHook.onRenderWorld(Object)
+    uint16_t idx_utf8_class = base;
+    uint16_t idx_class = static_cast<uint16_t>(base + 1);
+    uint16_t idx_utf8_name = static_cast<uint16_t>(base + 2);
+    uint16_t idx_utf8_desc = static_cast<uint16_t>(base + 3);
+    uint16_t idx_name_type = static_cast<uint16_t>(base + 4);
+    uint16_t idx_methodref = static_cast<uint16_t>(base + 5);
+
+    Writer w;
+    w.WriteU4(magic);
+    w.WriteU2(minor);
+    w.WriteU2(major);
+    w.WriteU2(static_cast<uint16_t>(cp_count + 6));
+    w.WriteBytes(cp_raw.data(), cp_raw.size());
+
+    // com/cobble/agent/BacktrackGhostHook class
+    w.WriteU1(1);
+    { std::string _s = OBFUSCATE_STRING("com/cobble/agent/BacktrackGhostHook");
+    w.WriteU2(static_cast<uint16_t>(_s.size()));
+    w.WriteBytes(reinterpret_cast<const uint8_t*>(_s.data()), _s.size()); }
+    w.WriteU1(7);
+    w.WriteU2(idx_utf8_class);
+
+    // onRenderWorld method name
+    w.WriteU1(1);
+    { std::string _s = OBFUSCATE_STRING("onRenderWorld");
+    w.WriteU2(static_cast<uint16_t>(_s.size()));
+    w.WriteBytes(reinterpret_cast<const uint8_t*>(_s.data()), _s.size()); }
+
+    // (Ljava/lang/Object;)V descriptor
+    w.WriteU1(1);
+    { std::string _s = OBFUSCATE_STRING("(Ljava/lang/Object;)V");
+    w.WriteU2(static_cast<uint16_t>(_s.size()));
+    w.WriteBytes(reinterpret_cast<const uint8_t*>(_s.data()), _s.size()); }
+
+    w.WriteU1(12);
+    w.WriteU2(idx_utf8_name);
+    w.WriteU2(idx_utf8_desc);
+
+    w.WriteU1(10);
+    w.WriteU2(idx_class);
+    w.WriteU2(idx_name_type);
+
+    uint16_t access_flags = r.ReadU2();
+    uint16_t this_class = r.ReadU2();
+    uint16_t super_class = r.ReadU2();
+    if (!r.ok)
+        return -1;
+    w.WriteU2(access_flags);
+    w.WriteU2(this_class);
+    w.WriteU2(super_class);
+
+    uint16_t interfaces_count = r.ReadU2();
+    if (!r.ok)
+        return -1;
+    w.WriteU2(interfaces_count);
+    for (uint16_t i = 0; i < interfaces_count; ++i) {
+        uint16_t idx = r.ReadU2();
+        if (!r.ok)
+            return -1;
+        w.WriteU2(idx);
+    }
+
+    uint16_t fields_count = r.ReadU2();
+    if (!r.ok)
+        return -1;
+    w.WriteU2(fields_count);
+    for (uint16_t i = 0; i < fields_count; ++i) {
+        uint16_t f_access = r.ReadU2();
+        uint16_t f_name = r.ReadU2();
+        uint16_t f_desc = r.ReadU2();
+        uint16_t f_attrs = r.ReadU2();
+        if (!r.ok)
+            return -1;
+        w.WriteU2(f_access);
+        w.WriteU2(f_name);
+        w.WriteU2(f_desc);
+        w.WriteU2(f_attrs);
+        for (uint16_t a = 0; a < f_attrs; ++a) {
+            uint16_t name_index = r.ReadU2();
+            uint32_t attr_len = r.ReadU4();
+            if (!r.ok)
+                return -1;
+            const uint8_t* bytes = r.ReadBytes(attr_len);
+            if (!r.ok)
+                return -1;
+            w.WriteU2(name_index);
+            w.WriteU4(attr_len);
+            w.WriteBytes(bytes, attr_len);
+        }
+    }
+
+    uint16_t methods_count = r.ReadU2();
+    if (!r.ok)
+        return -1;
+    w.WriteU2(methods_count);
+
+    int patched_methods = 0;
+    for (uint16_t i = 0; i < methods_count; ++i) {
+        uint16_t m_access = r.ReadU2();
+        uint16_t m_name = r.ReadU2();
+        uint16_t m_desc = r.ReadU2();
+        uint16_t m_attrs = r.ReadU2();
+        if (!r.ok)
+            return -1;
+        w.WriteU2(m_access);
+        w.WriteU2(m_name);
+        w.WriteU2(m_desc);
+        w.WriteU2(m_attrs);
+
+        bool is_target = false;
+        if (m_name < utf8.size() && m_desc < utf8.size()) {
+            const std::string& name = utf8[m_name];
+            const std::string& desc = utf8[m_desc];
+            // RenderGlobal.renderEntities(Entity, ICamera, float): slot 1 is the
+            // view Entity (Object), which is what we load for the hook arg.
+            const bool nameMatch = (name == "renderEntities" || name == "func_180446_a");
+            if (nameMatch && desc.find("ICamera") != std::string::npos &&
+                desc.rfind(")V") != std::string::npos) {
+                is_target = true;
+                log_debug("[PacketInterceptor] Found renderEntities method: %s %s", name.c_str(), desc.c_str());
+            }
+        }
+
+        for (uint16_t a = 0; a < m_attrs; ++a) {
+            uint16_t name_index = r.ReadU2();
+            uint32_t attr_len = r.ReadU4();
+            if (!r.ok)
+                return -1;
+            Reader attr_reader = r.Slice(attr_len);
+            if (!r.ok)
+                return -1;
+            const uint8_t* attr_data = attr_reader.data;
+
+            const char* attr_name = nullptr;
+            if (name_index < utf8.size())
+                attr_name = utf8[name_index].c_str();
+
+            bool patched = false;
+            std::vector<uint8_t> patched_attr;
+
+            if (is_target && attr_name && strcmp(attr_name, "Code") == 0 && (m_access & (0x0100 | 0x0400)) == 0) {
+                if (tryPatchCodeAttributeObserver(attr_data, attr_len, cp, utf8, idx_methodref, 1, patched_attr)) {
+                    w.WriteU2(name_index);
+                    w.WriteU4(static_cast<uint32_t>(patched_attr.size()));
+                    w.WriteBytes(patched_attr.data(), patched_attr.size());
+                    patched = true;
+                    ++patched_methods;
+                }
+            }
+
+            if (!patched) {
+                w.WriteU2(name_index);
+                w.WriteU4(attr_len);
+                w.WriteBytes(attr_data, attr_len);
+            }
+        }
+    }
+
+    uint16_t class_attrs = r.ReadU2();
+    if (!r.ok)
+        return -1;
+    w.WriteU2(class_attrs);
+    for (uint16_t i = 0; i < class_attrs; ++i) {
+        uint16_t name_index = r.ReadU2();
+        uint32_t attr_len = r.ReadU4();
+        if (!r.ok)
+            return -1;
+        const uint8_t* bytes = r.ReadBytes(attr_len);
+        if (!r.ok)
+            return -1;
+        w.WriteU2(name_index);
+        w.WriteU4(attr_len);
+        w.WriteBytes(bytes, attr_len);
+    }
+
+    if (patched_methods == 0)
+        return 0;
+    out = std::move(w.out);
+    return patched_methods;
+}
+
 // Replace every concrete renderName(...)V body with a single `return`. A method
 // that is one basic block needs no StackMapTable, so this always verifies — a
 // parse failure returns -1 and the caller keeps the original class (no crash).
@@ -1747,6 +1956,27 @@ static void JNICALL onClassFileLoadHook(jvmtiEnv* jvmti_env, JNIEnv* jni_env, jc
         return;
     }
 
+    // Backtrack 3D ghost: inject the render hook into RenderGlobal.renderEntities.
+    if (g_targets.renderGhost && strcmp(name, "net/minecraft/client/renderer/RenderGlobal") == 0) {
+        COBBLE_TRACE("onClassFileLoadHook: RenderGlobal matched");
+        std::vector<uint8_t> patched;
+        int patched_methods = patchRenderGlobalClass(class_data, static_cast<size_t>(class_data_len), patched);
+        if (patched_methods > 0) {
+            unsigned char* buffer = nullptr;
+            jvmtiError err = jvmti_env->Allocate(static_cast<jint>(patched.size()), &buffer);
+            if (err == JVMTI_ERROR_NONE && buffer) {
+                memcpy(buffer, patched.data(), patched.size());
+                *new_class_data_len = static_cast<jint>(patched.size());
+                *new_class_data = buffer;
+                log_ok("[PacketInterceptor] Patched RenderGlobal.renderEntities bytecode (%d method(s))",
+                       patched_methods);
+            }
+        } else {
+            COBBLE_TRACE("onClassFileLoadHook: RenderGlobal patch failed or returned 0");
+        }
+        return;
+    }
+
     // Debug: Log Lunar-related classes
     if (strstr(name, OBFUSCATE_STRING("lunar").c_str()) != nullptr ||
         strstr(name, OBFUSCATE_STRING("apollo").c_str()) != nullptr) {
@@ -1990,6 +2220,24 @@ bool InstallBytecodeHook(JNIEnv* env) {
             if (env->ExceptionCheck())
                 env->ExceptionClear();
             log_warn("[PacketInterceptor] EntityLivingBase not available for retransform");
+        }
+    }
+
+    if (g_targets.renderGhost) {
+        jclass renderGlobalCls = nullptr;
+        if (Java::AssignClass(OBFUSCATE_STRING("net.minecraft.client.renderer.RenderGlobal"), renderGlobalCls)) {
+            jclass classes[1] = {renderGlobalCls};
+            err = Java::tiEnv->RetransformClasses(1, classes);
+            if (err == JVMTI_ERROR_NONE) {
+                log_ok("[PacketInterceptor] Retransform requested for RenderGlobal");
+            } else {
+                log_warn("[PacketInterceptor] RenderGlobal retransform failed: %d", err);
+            }
+            env->DeleteLocalRef(renderGlobalCls);
+        } else {
+            if (env->ExceptionCheck())
+                env->ExceptionClear();
+            log_warn("[PacketInterceptor] RenderGlobal not available for retransform");
         }
     }
 

@@ -9,11 +9,16 @@ namespace ArrayListRenderer {
 enum class Anchor { TopRight = 0, TopLeft = 1, BottomRight = 2, BottomLeft = 3 };
 
 inline bool enabled = false;
-inline bool showBackground = true;
+// Remade default look: clean geometric sans (Inter Regular), single accent colour,
+// colour bar, no boxy background (crisp shadowed text). Rainbow/background stay
+// available but off by default for the sleek default.
+inline bool showBackground = false;
 inline bool sortByLength = true;
-inline bool rainbow = true;
+inline bool rainbow = false;
+inline int rainbowType = 0;  // 0 Flow, 1 Solid, 2 Fast, 3 Wide
 inline bool colorBar = true;
-inline bool showInfo = true;  // Show module info (CPS, speed, etc.)
+inline bool showInfo = true;   // Show module info (CPS, speed, etc.)
+inline int fontStyle = 0;      // 0 = Inter Regular (clean default), 1 = Inter Bold
 inline float rainbowSaturation = 0.7f;
 inline float scale = 1.0f;
 inline float color[3] = {-1.0f, -1.0f, -1.0f};  // Use accent color by default (-1 = accent)
