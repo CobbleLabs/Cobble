@@ -133,6 +133,7 @@
     <ClCompile Include="src\module\visual\blockesp.cpp" />
     <ClCompile Include="src\module\visual\trajectories.cpp" />
     <ClCompile Include="src\module\visual\dropped_info.cpp" />
+    <ClCompile Include="src\module\visual\pings.cpp" />
     <!-- UI structure -->
     <ClCompile Include="src\ui\core\overlay.cpp" />
     <ClCompile Include="src\ui\menu\menu.cpp" />
@@ -223,6 +224,7 @@
     <ClInclude Include="src\module\visual\blockesp.h" />
     <ClInclude Include="src\module\visual\trajectories.h" />
     <ClInclude Include="src\module\visual\dropped_info.h" />
+    <ClInclude Include="src\module\visual\pings.h" />
     <!-- UI -->
     <ClInclude Include="src\ui\core\overlay.h" />
     <ClInclude Include="src\ui\menu\menu.h" />

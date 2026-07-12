@@ -54,6 +54,11 @@ struct PlayerInfo {
         int damage = 0;
         int maxDamage = 0;
         int protection = 0;  // Protection enchant level (0 = none)
+        int unbreaking = 0;
+        int fireProtection = 0;
+        int projectileProtection = 0;
+        int blastProtection = 0;
+        int featherFalling = 0;
     };
 
     struct PotionEffectInfo {
@@ -62,12 +67,19 @@ struct PlayerInfo {
         int amplifier = 0;
     };
 
-    // Currently held weapon (sword/axe). id == 0 means none / not synced by server.
+    // Currently held weapon (sword/axe/bow). id == 0 means none / not synced by server.
     struct HeldItem {
         int id = 0;
         int damage = 0;
         int maxDamage = 0;
         int sharpness = 0;  // Sharpness enchant level (0 = none)
+        int unbreaking = 0;
+        int fireAspect = 0;
+        int knockback = 0;
+        int power = 0;
+        int punch = 0;
+        int flame = 0;
+        int infinity = 0;
     };
 
     std::vector<ArmorItem> armor;
@@ -159,11 +171,8 @@ struct Minecraft {
     RenderPos getRenderPos();
     float getPartialTicks();
 
-    // Re-render an existing entity (by id) at an arbitrary world position. MUST be
-    // called on the render thread with a live GL context (e.g. from the injected
-    // RenderGlobal.renderEntities hook). Used by Backtrack to draw the target's
-    // real 3D model at its lagged position. 1.8.x only (instance RenderManager).
-    void renderGhostEntity(int entityId, double wx, double wy, double wz);
+    // renderMode: 0 = Fill (solid flat color), 1 = Chams (stencil outline aura)
+    void renderGhostEntity(int entityId, double wx, double wy, double wz, float r = 1.0f, float g = 1.0f, float b = 1.0f, float a = 0.42f, bool disableDepth = false, int renderMode = 0);
 
     // Mouse sensitivity (for proper aim assist scaling)
     float getMouseSensitivity();
@@ -262,6 +271,7 @@ struct Minecraft {
     void sendPacket(jobject packet);
     int getLocalPlayerPing();
     bool isFirstPerson();
+    std::string getCurrentServerIP();
 
     // Helper to open inventory purely via packet (Silent Mode)
     void sendInventoryOpenPacket();

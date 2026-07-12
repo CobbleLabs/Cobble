@@ -4,6 +4,7 @@
 #include "../../sdk/player/render_data.h"
 #include "../../util/health_predictor.hpp"
 #include "../../ui/widgets/widgets.hpp"
+#include "../../ui/widgets/icons.hpp"
 #include "../../util/logger.hpp"
 #include "../../util/math/worldToScreen.h"
 #include "../../util/network/http.hpp"
@@ -351,6 +352,9 @@ void NameTags::onUpdate() {
 
         CachedPlayer cached;
         cached.name = p.name;
+        if (!p.profileName.empty()) {
+            cached.mojangName = p.profileName;
+        }
         cached.uuid = p.uuid;
         cached.entityId = p.entityId;
         cached.posX = p.posX;
@@ -615,42 +619,77 @@ void NameTags::renderPlayerTag(ImDrawList* draw, float screenX, float screenY, c
         int id;
         int damage;
         int maxDamage;
-        int ench;  // sharpness (weapon) or protection (armor)
-        bool isWeapon;
+        struct EnchDraw {
+            std::string text;
+            ImU32 color;
+        };
+        std::vector<EnchDraw> enchants;
     };
     std::vector<IconCell> cells;
 
     if (settings.showWeapon && weapon.id > 0) {
-        int wEnch = weapon.sharpness;
-        if (wEnch == 0) {
-            if (weapon.id == 276) wEnch = 2;       // Diamond Sword -> Sharpness 2
-            else if (weapon.id == 267) wEnch = 1;  // Iron Sword -> Sharpness 1
+        IconCell cell;
+        cell.id = weapon.id;
+        cell.damage = weapon.damage;
+        cell.maxDamage = weapon.maxDamage;
+
+        if (settings.showEnchants) {
+            // Priority 1 (closest to icon): Sharpness or Power
+            if (weapon.sharpness > 0) {
+                cell.enchants.push_back({ "S" + std::to_string(weapon.sharpness), IM_COL32(85, 255, 255, 255) }); // Cyan Sharpness/Sword level (Exodar style)
+            } else if (weapon.power > 0) {
+                cell.enchants.push_back({ "P" + std::to_string(weapon.power), IM_COL32(85, 255, 255, 255) }); // Cyan Power
+            }
+
+            // Priority 2: Unbreaking
+            if (weapon.unbreaking > 0) {
+                cell.enchants.push_back({ "U" + std::to_string(weapon.unbreaking), IM_COL32(85, 255, 255, 255) }); // Cyan Unbreaking (Exodar style)
+            }
         }
-        cells.push_back({weapon.id, weapon.damage, weapon.maxDamage, wEnch, true});
+        cells.push_back(cell);
     }
     if (settings.showArmor) {
         for (auto it = armor.rbegin(); it != armor.rend(); ++it) {
             if (it->id > 0) {
-                int aEnch = it->protection;
-                if (aEnch == 0) {
-                    if (it->id >= 310 && it->id <= 313) aEnch = 2;       // Diamond Armor -> Protection 2
-                    else if (it->id >= 306 && it->id <= 309) aEnch = 1;  // Iron Armor -> Protection 1
+                IconCell cell;
+                cell.id = it->id;
+                cell.damage = it->damage;
+                cell.maxDamage = it->maxDamage;
+
+                if (settings.showEnchants) {
+                    // Priority 1 (closest to icon): Protection
+                    if (it->protection > 0) {
+                        cell.enchants.push_back({ "P" + std::to_string(it->protection), IM_COL32(85, 255, 255, 255) }); // Cyan Protection
+                    }
+
+                    // Priority 2: Unbreaking
+                    if (it->unbreaking > 0) {
+                        cell.enchants.push_back({ "U" + std::to_string(it->unbreaking), IM_COL32(85, 255, 255, 255) }); // Cyan Unbreaking
+                    }
                 }
-                cells.push_back({it->id, it->damage, it->maxDamage, aEnch, false});
+                cells.push_back(cell);
             }
         }
     }
 
     float iconSize = 16.0f * displayScale;
-    float pad = 2.0f * displayScale;
+    float pad = 6.0f * displayScale;
     float rowWidth = cells.empty() ? 0.0f : (cells.size() * iconSize + (cells.size() - 1) * pad);
 
     // Calculate sizes
     ImVec2 nameSize = ImGui::CalcTextSize(nameText);
-    ImVec2 healthSize = ImGui::CalcTextSize(healthText);
+    
+    char healthDisplay[64];
+    if (settings.showHealth) {
+        snprintf(healthDisplay, sizeof(healthDisplay), " %.0f", health / 2.0f);
+    } else {
+        healthDisplay[0] = '\0';
+    }
+    ImVec2 healthSize = ImGui::CalcTextSize(healthDisplay);
+    ImVec2 heartSize = settings.showHealth ? ImGui::CalcTextSize(" " ICON_FA_HEART) : ImVec2(0, 0);
     ImVec2 distSize = ImGui::CalcTextSize(distText);
 
-    float textWidth = nameSize.x + healthSize.x + distSize.x;
+    float textWidth = nameSize.x + healthSize.x + heartSize.x + distSize.x;
     float totalWidth = textWidth;
     float sideArmorPadding = 6.0f * displayScale;
 
@@ -673,19 +712,27 @@ void NameTags::renderPlayerTag(ImDrawList* draw, float screenX, float screenY, c
 
         // If armor is on side and has active enchant texts drawn above icons, expand background upwards
         if (settings.armorOnSide && settings.showEnchants && !cells.empty()) {
+            size_t maxEnchCount = 0;
             for (const auto& c : cells) {
-                if (c.ench > 0) {
-                    ImGui::SetWindowFontScale(displayScale * 0.85f);
-                    extraTopPadding = ImGui::CalcTextSize("P4").y + 2.0f * displayScale;
-                    ImGui::SetWindowFontScale(displayScale);
-                    break;
+                if (c.enchants.size() > maxEnchCount) {
+                    maxEnchCount = c.enchants.size();
                 }
+            }
+            if (maxEnchCount > 0) {
+                ImGui::SetWindowFontScale(displayScale * 0.75f);
+                float singleEnchantLineHeight = ImGui::CalcTextSize("P4").y + 0.5f * displayScale;
+                extraTopPadding = singleEnchantLineHeight * maxEnchCount;
+                ImGui::SetWindowFontScale(displayScale);
             }
         }
 
+        // Beautiful glassmorphism styled card with clean 1px border
         draw->AddRectFilled(ImVec2(posX - paddingX, posY - paddingY - extraTopPadding),
-                            ImVec2(posX + totalWidth + paddingX, posY + totalHeight + paddingY), IM_COL32(0, 0, 0, 160),
-                            5.0f);  // Soft rounding
+                            ImVec2(posX + totalWidth + paddingX, posY + totalHeight + paddingY), IM_COL32(12, 12, 12, 180),
+                            4.0f);  // Soft rounding
+        draw->AddRect(ImVec2(posX - paddingX, posY - paddingY - extraTopPadding),
+                      ImVec2(posX + totalWidth + paddingX, posY + totalHeight + paddingY), IM_COL32(255, 255, 255, 20),
+                      4.0f, 0, 1.0f);
     }
 
     // Draw Name and Info
@@ -696,9 +743,14 @@ void NameTags::renderPlayerTag(ImDrawList* draw, float screenX, float screenY, c
 
     if (settings.showHealth) {
         ImU32 hpColor = GetHealthColor(health, maxHealth);
-        draw->AddText(ImVec2(currentX + 1, posY + 1), IM_COL32(0, 0, 0, 255), healthText);
-        draw->AddText(ImVec2(currentX, posY), hpColor, healthText);
+        draw->AddText(ImVec2(currentX + 1, posY + 1), IM_COL32(0, 0, 0, 255), healthDisplay);
+        draw->AddText(ImVec2(currentX, posY), hpColor, healthDisplay);
         currentX += healthSize.x;
+
+        std::string heartStr = " " ICON_FA_HEART;
+        draw->AddText(ImVec2(currentX + 1, posY + 1), IM_COL32(0, 0, 0, 255), heartStr.c_str());
+        draw->AddText(ImVec2(currentX, posY), hpColor, heartStr.c_str());
+        currentX += heartSize.x;
     }
     if (settings.showDistance) {
         draw->AddText(ImVec2(currentX + 1, posY + 1), IM_COL32(0, 0, 0, 255), distText);
@@ -719,14 +771,17 @@ void NameTags::renderPlayerTag(ImDrawList* draw, float screenX, float screenY, c
 
             float enchantHeight = 0.0f;
             if (settings.showEnchants) {
-                // Check if any cell has an enchantment level > 0
+                size_t maxEnchCount = 0;
                 for (const auto& c : cells) {
-                    if (c.ench > 0) {
-                        ImGui::SetWindowFontScale(displayScale * 0.85f);
-                        enchantHeight = ImGui::CalcTextSize("P4").y + 2.0f * displayScale;
-                        ImGui::SetWindowFontScale(displayScale);
-                        break;
+                    if (c.enchants.size() > maxEnchCount) {
+                        maxEnchCount = c.enchants.size();
                     }
+                }
+                if (maxEnchCount > 0) {
+                    ImGui::SetWindowFontScale(displayScale * 0.75f);
+                    float singleEnchantLineHeight = ImGui::CalcTextSize("P4").y + 0.5f * displayScale;
+                    enchantHeight = singleEnchantLineHeight * maxEnchCount;
+                    ImGui::SetWindowFontScale(displayScale);
                 }
             }
 
@@ -754,21 +809,23 @@ void NameTags::renderPlayerTag(ImDrawList* draw, float screenX, float screenY, c
                 draw->AddRectFilled(ImVec2(ix, barY), ImVec2(ix + iconSize * pct, barY + barH), barColor);
             }
 
-            // Enchant level text centered above the icon (e.g. P4 or S5)
-            if (settings.showEnchants && c.ench > 0) {
-                ImGui::SetWindowFontScale(displayScale * 0.85f);
-                char numBuf[16];
-                snprintf(numBuf, sizeof(numBuf), "%s%d", c.isWeapon ? "S" : "P", c.ench);
-                ImVec2 ns = ImGui::CalcTextSize(numBuf);
-                float nx = ix + (iconSize - ns.x) * 0.5f;
-                float ny = rowY - ns.y - 2.0f * displayScale;
+            // Enchant level texts stacked vertically above the icon (closest to icon is bottom element)
+            if (settings.showEnchants && !c.enchants.empty()) {
+                ImGui::SetWindowFontScale(displayScale * 0.75f);
+                float currentEnchY = rowY - 1.0f * displayScale;
+                for (const auto& ench : c.enchants) {
+                    ImVec2 ns = ImGui::CalcTextSize(ench.text.c_str());
+                    float nx = ix + (iconSize - ns.x) * 0.5f;
+                    float ny = currentEnchY - ns.y;
 
-                // Draw text shadow / outline
-                draw->AddText(ImVec2(nx + 1.0f, ny + 1.0f), IM_COL32(0, 0, 0, 255), numBuf);
+                    // Draw text shadow / outline
+                    draw->AddText(ImVec2(nx + 1.0f, ny + 1.0f), IM_COL32(0, 0, 0, 255), ench.text.c_str());
 
-                // Draw colored text: Sharpness is light red, Protection is light cyan
-                ImU32 enchCol = c.isWeapon ? IM_COL32(255, 85, 85, 255) : IM_COL32(85, 255, 255, 255);
-                draw->AddText(ImVec2(nx, ny), enchCol, numBuf);
+                    // Draw colored text
+                    draw->AddText(ImVec2(nx, ny), ench.color, ench.text.c_str());
+
+                    currentEnchY = ny - 0.5f * displayScale;
+                }
                 ImGui::SetWindowFontScale(displayScale);
             }
 

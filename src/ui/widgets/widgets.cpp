@@ -341,7 +341,7 @@ std::vector<ui::tab_t> ui::tabs = {
     {ICON_FA_EYE,
      "Visuals",
      {"NameTags", "ESP", "ItemESP", "Tracers", "BlockESP", "Trajectories", "AntiDebuff", "ArrayList",
-      "DroppedInfo", "Notifications", "Watermark", "TargetHUD", "ClickGUI"}},
+      "DroppedInfo", "Notifications", "Watermark", "TargetHUD", "ClickGUI", "Pings"}},
     {ICON_FA_RUNNING, "Movement", {"Timer", "TimerRange", "NoSlowDown", "NoJumpDelay", "Sprint"}},
     {ICON_FA_KEYBOARD,
      "Utility",

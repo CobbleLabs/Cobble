@@ -26,3 +26,5 @@
 #define ICON_FA_SEARCH          "\xef\x80\x82"  // f002 - Search
 #define ICON_FA_SAVE            "\xef\x83\x87"  // f0c7 - Save (Configs)
 #define ICON_FA_WIFI            "\xef\x87\xab"  // f1eb - Network
+#define ICON_FA_HEART           "\xef\x80\x84"  // f004 - Heart
+

@@ -29,6 +29,10 @@ static std::atomic<int> g_effectLogBudget{0};
 static std::atomic<int> g_equipLogBudget{0};
 static std::atomic<int> g_animLogBudget{0};
 
+// Apollo clean name cache: UUID -> clean player name from OverrideNametag packets
+static std::mutex g_cleanNamesMutex;
+static std::unordered_map<std::string, std::string> g_cleanNames;
+
 namespace {
 
 // Safety limits for protobuf parsing to prevent infinite loops on corrupted packets
@@ -1993,6 +1997,16 @@ void JNICALL ApolloPacketObserver::NativeOnReceive(JNIEnv* env, jclass, jobject 
                                             if (playerName.empty())
                                                 playerName = "?";
 
+                                            // Register clean name from Apollo nametag for non-premium player resolution
+                                            if (playerName != "?" && (uuidHigh != 0 || uuidLow != 0)) {
+                                                char regUuid[64];
+                                                snprintf(regUuid, sizeof(regUuid), "%08x-%04x-%04x-%04x-%012llx",
+                                                         (uint32_t)(uuidHigh >> 32), (uint16_t)(uuidHigh >> 16),
+                                                         (uint16_t)uuidHigh, (uint16_t)(uuidLow >> 48),
+                                                         (unsigned long long)(uuidLow & 0xFFFFFFFFFFFFULL));
+                                                RegisterCleanName(regUuid, playerName);
+                                            }
+
                                             static std::unordered_map<std::string, std::string> lastNametagColor;
                                             std::string uuidKey =
                                                 std::to_string(uuidHigh) + ":" + std::to_string(uuidLow);
@@ -2247,6 +2261,28 @@ void ApolloPacketObserver::BoostLogBudget(int count) {
 
 void ApolloPacketObserver::ForceLogNametags(int count) {
     g_forceNametagLogs.store(count);
+}
+
+std::string ApolloPacketObserver::GetCleanNameByUUID(const std::string& uuid) {
+    if (uuid.empty())
+        return "";
+    std::lock_guard<std::mutex> lock(g_cleanNamesMutex);
+    auto it = g_cleanNames.find(uuid);
+    if (it != g_cleanNames.end())
+        return it->second;
+    return "";
+}
+
+void ApolloPacketObserver::RegisterCleanName(const std::string& uuid, const std::string& name) {
+    if (uuid.empty() || name.empty())
+        return;
+    std::lock_guard<std::mutex> lock(g_cleanNamesMutex);
+    g_cleanNames[uuid] = name;
+}
+
+void ApolloPacketObserver::ClearCleanNames() {
+    std::lock_guard<std::mutex> lock(g_cleanNamesMutex);
+    g_cleanNames.clear();
 }
 
 }  // namespace ApolloPacketObserver

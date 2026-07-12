@@ -395,7 +395,7 @@ float Minecraft::getPartialTicks() {
 // renderGhostEntity - Re-render a live entity at an arbitrary world position.
 // =============================================================================
 
-void Minecraft::renderGhostEntity(int entityId, double wx, double wy, double wz) {
+void Minecraft::renderGhostEntity(int entityId, double wx, double wy, double wz, float r, float g, float b, float a, bool disableDepth, int renderMode) {
     if (!isValid() || entityId <= 0)
         return;
 
@@ -484,45 +484,217 @@ void Minecraft::renderGhostEntity(int entityId, double wx, double wy, double wz)
                 const float pry = fid_prevRotationYaw ? env->GetFloatField(entity, fid_prevRotationYaw) : ry;
                 yaw = pry + (ry - pry) * partial;
             }
-            // Translucent "ghost": constant-alpha blend makes the whole model
-            // see-through regardless of the model resetting its own colour. Save &
-            // restore the exact GL blend state so MC's GlStateManager cache (which
-            // reflects the pre-hook state) stays consistent — no render corruption.
+
+            const double dx = wx - rpx;
+            const double dy = wy - rpy;
+            const double dz = wz - rpz;
+
+            // Save GL state
             const GLboolean wasBlend = glIsEnabled(GL_BLEND);
             GLint saveSrc = GL_SRC_ALPHA, saveDst = GL_ONE_MINUS_SRC_ALPHA;
             glGetIntegerv(GL_BLEND_SRC, &saveSrc);
             glGetIntegerv(GL_BLEND_DST, &saveDst);
+            const GLboolean wasDepth = glIsEnabled(GL_DEPTH_TEST);
+            const GLboolean wasTex2D = glIsEnabled(GL_TEXTURE_2D);
+            const GLboolean wasLighting = glIsEnabled(GL_LIGHTING);
+            GLint savePolygonMode[2] = { GL_FILL, GL_FILL };
+            glGetIntegerv(GL_POLYGON_MODE, savePolygonMode);
+            GLfloat saveLineWidth = 1.0f;
+            glGetFloatv(GL_LINE_WIDTH, &saveLineWidth);
+            const GLboolean wasLineSmooth = glIsEnabled(GL_LINE_SMOOTH);
 
-            glEnable(GL_BLEND);
-            if (g_glBlendColor) {
-                glBlendFunc(GL_CONSTANT_ALPHA, GL_ONE_MINUS_CONSTANT_ALPHA);
-                g_glBlendColor(1.0f, 1.0f, 1.0f, 0.42f);
-            } else {
-                glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-            }
+            // Helper lambda: call doRenderEntity on the JNI side
+            auto callDoRender = [&]() {
+                if (doRenderReturnsBool) {
+                    env->CallBooleanMethod(renderManager, mid_doRenderEntity, entity,
+                                           static_cast<jdouble>(dx), static_cast<jdouble>(dy), static_cast<jdouble>(dz),
+                                           static_cast<jfloat>(yaw), static_cast<jfloat>(partial),
+                                           static_cast<jboolean>(JNI_FALSE));
+                } else {
+                    env->CallVoidMethod(renderManager, mid_doRenderEntity, entity,
+                                        static_cast<jdouble>(dx), static_cast<jdouble>(dy), static_cast<jdouble>(dz),
+                                        static_cast<jfloat>(yaw), static_cast<jfloat>(partial),
+                                        static_cast<jboolean>(JNI_FALSE));
+                }
+                if (env->ExceptionCheck())
+                    env->ExceptionClear();
+            };
 
-            if (doRenderReturnsBool) {
-                env->CallBooleanMethod(renderManager, mid_doRenderEntity, entity, static_cast<jdouble>(wx - rpx),
-                                       static_cast<jdouble>(wy - rpy), static_cast<jdouble>(wz - rpz),
-                                       static_cast<jfloat>(yaw), static_cast<jfloat>(partial),
-                                       static_cast<jboolean>(JNI_FALSE));
-            } else {
-                env->CallVoidMethod(renderManager, mid_doRenderEntity, entity, static_cast<jdouble>(wx - rpx),
-                                    static_cast<jdouble>(wy - rpy), static_cast<jdouble>(wz - rpz),
-                                    static_cast<jfloat>(yaw), static_cast<jfloat>(partial),
-                                    static_cast<jboolean>(JNI_FALSE));
-            }
-            if (env->ExceptionCheck())
-                env->ExceptionClear();
+            if (renderMode == 1) {
+                // =====================================================
+                // CHAMS MODE: Stencil-based silhouette outline / aura
+                // =====================================================
 
-            // Restore exact blend state.
-            glBlendFunc(saveSrc, saveDst);
-            if (wasBlend)
+                // --- Temporarily strip armor, held items & invisibility so the skin model is outlined ---
+                static jmethodID mid_getEquip = nullptr;
+                static jmethodID mid_setEquip = nullptr;
+                static jmethodID mid_isInvisible = nullptr;
+                static jmethodID mid_setInvisible = nullptr;
+                static bool triedEquipIds = false;
+                if (!triedEquipIds) {
+                    triedEquipIds = true;
+                    jclass entityCls = env->GetObjectClass(entity);
+                    if (entityCls) {
+                        mid_getEquip = env->GetMethodID(entityCls,
+                            OBFUSCATE_STRING("getEquipmentInSlot").c_str(),
+                            OBFUSCATE_STRING("(I)Lnet/minecraft/item/ItemStack;").c_str());
+                        if (env->ExceptionCheck()) { env->ExceptionClear(); mid_getEquip = nullptr; }
+                        mid_setEquip = env->GetMethodID(entityCls,
+                            OBFUSCATE_STRING("setCurrentItemOrArmor").c_str(),
+                            OBFUSCATE_STRING("(ILnet/minecraft/item/ItemStack;)V").c_str());
+                        if (env->ExceptionCheck()) { env->ExceptionClear(); mid_setEquip = nullptr; }
+                        mid_isInvisible = env->GetMethodID(entityCls,
+                            OBFUSCATE_STRING("isInvisible").c_str(),
+                            OBFUSCATE_STRING("()Z").c_str());
+                        if (env->ExceptionCheck()) { env->ExceptionClear(); mid_isInvisible = nullptr; }
+                        mid_setInvisible = env->GetMethodID(entityCls,
+                            OBFUSCATE_STRING("setInvisible").c_str(),
+                            OBFUSCATE_STRING("(Z)V").c_str());
+                        if (env->ExceptionCheck()) { env->ExceptionClear(); mid_setInvisible = nullptr; }
+                        env->DeleteLocalRef(entityCls);
+                    }
+                }
+
+                // Temporarily remove invisibility so the model renders
+                bool wasInvisible = false;
+                if (mid_isInvisible && mid_setInvisible) {
+                    wasInvisible = env->CallBooleanMethod(entity, mid_isInvisible);
+                    if (env->ExceptionCheck()) env->ExceptionClear();
+                    if (wasInvisible) {
+                        env->CallVoidMethod(entity, mid_setInvisible, (jboolean)JNI_FALSE);
+                        if (env->ExceptionCheck()) env->ExceptionClear();
+                    }
+                }
+
+                // Save and clear equipment (slots 0-4: hand, boots, legs, chest, helmet)
+                jobject savedEquip[5] = { nullptr };
+                bool stripped = (mid_getEquip && mid_setEquip);
+                if (stripped) {
+                    for (int s = 0; s < 5; s++) {
+                        savedEquip[s] = env->CallObjectMethod(entity, mid_getEquip, s);
+                        if (env->ExceptionCheck()) env->ExceptionClear();
+                        env->CallVoidMethod(entity, mid_setEquip, s, (jobject)nullptr);
+                        if (env->ExceptionCheck()) env->ExceptionClear();
+                    }
+                }
+
+                // Step 1: Render the SKIN-ONLY entity into stencil buffer (no color/depth writes)
+                glClear(GL_STENCIL_BUFFER_BIT);
+                glEnable(GL_STENCIL_TEST);
+                glStencilFunc(GL_ALWAYS, 1, 0xFF);
+                glStencilOp(GL_KEEP, GL_KEEP, GL_REPLACE);
+                glStencilMask(0xFF);
+                glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
+                glDepthMask(GL_FALSE);
+
+                callDoRender();
+
+                // Step 2: Render solid glow outline ONLY where stencil != 1 (silhouetted out)
+                glStencilFunc(GL_NOTEQUAL, 1, 0xFF);
+                glStencilMask(0x00);
+                glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+                glDepthMask(GL_TRUE);
+                glDisable(GL_DEPTH_TEST);
+                glDisable(GL_TEXTURE_2D);
+                glDisable(GL_LIGHTING);
                 glEnable(GL_BLEND);
-            else
-                glDisable(GL_BLEND);
+                glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+                // Use solid fill mode to render a true filled glowing aura
+                glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+
+                // Determine center of mass height based on sneaking state
+                static jmethodID mid_isSneaking = nullptr;
+                static bool triedSneakId = false;
+                if (!triedSneakId) {
+                    triedSneakId = true;
+                    jclass entityCls = env->GetObjectClass(entity);
+                    if (entityCls) {
+                        mid_isSneaking = env->GetMethodID(entityCls, OBFUSCATE_STRING("isSneaking").c_str(), "()Z");
+                        if (env->ExceptionCheck()) { env->ExceptionClear(); mid_isSneaking = nullptr; }
+                        env->DeleteLocalRef(entityCls);
+                    }
+                }
+                bool isSneaking = false;
+                if (mid_isSneaking) {
+                    isSneaking = env->CallBooleanMethod(entity, mid_isSneaking);
+                    if (env->ExceptionCheck()) env->ExceptionClear();
+                }
+                float centerY = isSneaking ? 0.70f : 0.90f;
+
+                // Scale around the entity's center of mass to prevent shifting offsets
+                glPushMatrix();
+                glTranslatef(0.0f, centerY, 0.0f);
+                glScalef(1.055f, 1.055f, 1.055f);
+                glTranslatef(0.0f, -centerY, 0.0f);
+
+                // Draw the solid glow outline
+                glColor4f(r, g, b, a * 0.55f);
+                callDoRender();
+
+                glPopMatrix();
+
+                // Cleanup stencil
+                glDisable(GL_STENCIL_TEST);
+                glStencilMask(0xFF);
+
+                // --- Restore equipment & invisibility ---
+                if (stripped) {
+                    for (int s = 0; s < 5; s++) {
+                        env->CallVoidMethod(entity, mid_setEquip, s, savedEquip[s]);
+                        if (env->ExceptionCheck()) env->ExceptionClear();
+                        if (savedEquip[s]) env->DeleteLocalRef(savedEquip[s]);
+                    }
+                }
+
+                if (wasInvisible && mid_setInvisible) {
+                    env->CallVoidMethod(entity, mid_setInvisible, (jboolean)JNI_TRUE);
+                    if (env->ExceptionCheck()) env->ExceptionClear();
+                }
+
+            } else if (renderMode == 2) {
+                // =====================================================
+                // FILL MODE: Solid flat color model rendered through walls
+                // =====================================================
+                glDisable(GL_TEXTURE_2D);
+                glDisable(GL_LIGHTING);
+                if (disableDepth)
+                    glDisable(GL_DEPTH_TEST);
+                glEnable(GL_BLEND);
+                glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+                glColor4f(r, g, b, a);
+
+                callDoRender();
+            } else {
+                // =====================================================
+                // DEFAULT GHOST MODE (used by Backtrack): Translucent textured
+                // =====================================================
+                if (disableDepth)
+                    glDisable(GL_DEPTH_TEST);
+                glEnable(GL_BLEND);
+                if (g_glBlendColor) {
+                    glBlendFunc(GL_CONSTANT_ALPHA, GL_ONE_MINUS_CONSTANT_ALPHA);
+                    g_glBlendColor(r, g, b, a);
+                } else {
+                    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+                }
+
+                callDoRender();
+            }
+
+            // Restore all saved GL state
+            if (wasTex2D) glEnable(GL_TEXTURE_2D); else glDisable(GL_TEXTURE_2D);
+            if (wasLighting) glEnable(GL_LIGHTING); else glDisable(GL_LIGHTING);
+            if (wasDepth) glEnable(GL_DEPTH_TEST); else glDisable(GL_DEPTH_TEST);
+            glBlendFunc(saveSrc, saveDst);
+            if (wasBlend) glEnable(GL_BLEND); else glDisable(GL_BLEND);
+            glPolygonMode(GL_FRONT, savePolygonMode[0]);
+            glPolygonMode(GL_BACK, savePolygonMode[1]);
+            glLineWidth(saveLineWidth);
+            if (wasLineSmooth) glEnable(GL_LINE_SMOOTH); else glDisable(GL_LINE_SMOOTH);
             if (g_glBlendColor)
                 g_glBlendColor(0.0f, 0.0f, 0.0f, 0.0f);
+            glColor4f(1.0f, 1.0f, 1.0f, 1.0f);   // Reset to white
 
             env->DeleteLocalRef(entity);
         } else {

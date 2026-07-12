@@ -23,6 +23,7 @@ struct VisualPlayer {
     double lastPosZ = 0.0;
     float health = 20.0f;
     float maxHealth = 20.0f;
+    bool isInvisible = false;
     std::vector<PlayerInfo::ArmorItem> armor;
     std::vector<PlayerInfo::PotionEffectInfo> potions;
     PlayerInfo::HeldItem weapon;
@@ -100,6 +101,7 @@ inline void Update() {
         cached.lastPosZ = p.lastPosZ;
         cached.health = HealthPredictor::get().query(p, myWeaponId);
         cached.maxHealth = p.maxHealth;
+        cached.isInvisible = p.isInvisible;
         cached.armor = std::move(p.armor);
         cached.potions = std::move(p.potions);
         cached.weapon = p.weapon;

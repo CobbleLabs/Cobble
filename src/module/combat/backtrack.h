@@ -100,6 +100,7 @@ private:
 
     // Current backtrack state
     bool isBacktracking = false;
+    bool wasBacktracking = false;  // For notification on activation
     bool isLagging = false;  // Lag Based mode active
     double backtrackedX = 0, backtrackedY = 0, backtrackedZ = 0;
     double currentRealX = 0, currentRealY = 0, currentRealZ = 0;  // Real position (for Lag Based indicator)

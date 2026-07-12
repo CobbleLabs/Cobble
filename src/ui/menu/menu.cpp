@@ -53,6 +53,7 @@
 #include "../hud/arraylist.h"
 #include "../hud/watermark.h"
 #include "../../module/visual/target_hud.h"
+#include "../../module/visual/pings.h"
 #include "../hud/notifications.h"
 #include "../widgets/icons.hpp"
 #include "../widgets/theme.hpp"
@@ -127,6 +128,8 @@ Module* getModuleForSubtab(int tabIdx, int subtabIdx) {
                 return targetHud;
             case 12:
                 return nullptr;  // ClickGUI - special handling (mode toggle)
+            case 13:
+                return pingsModule;
         }
     }
     // Movement Tab (2): Timer, TimerRange, NoSlowDown, NoJumpDelay, Sprint
@@ -2143,16 +2146,17 @@ void Menu::Render() {
     }
 
     // Animate open/close
-    float targetAnim = isOpen ? 1.f : 0.f;
-    float dt = ImGui::GetIO().DeltaTime;
-    if (dt > (1.0f / 60.0f)) {
-        dt = 1.0f / 60.0f;
-    }
-    openAnim = ImLerp(openAnim, targetAnim, 15.f * dt);
-
-    if (openAnim < 0.01f && !isOpen) {
+    // On OPEN: smooth lerp in so the menu feels polished.
+    // On CLOSE: instant snap to 0 — zero ghosting/lingering.
+    if (!isOpen) {
+        openAnim = 0.f;
         return;
     }
+
+    float dt = ImGui::GetIO().DeltaTime;
+    if (dt > (1.0f / 60.0f)) dt = 1.0f / 60.0f;
+    openAnim = ImLerp(openAnim, 1.f, 15.f * dt);
+    if (openAnim > 0.99f) openAnim = 1.f;
 
     // Apply style properly (set alpha etc)
     ApplyStyle();

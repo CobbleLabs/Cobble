@@ -146,23 +146,22 @@ static int readEnchantLevel(JNIEnv* env, jobject itemStack, int wantEnchantId) {
             }
         }
 
-        // Smart estimation: if the item is enchanted (has tagList) but the server obfuscates the levels,
-        // fall back to estimating Protection 2 / Sharpness 2 (standard for HCF/competitive).
-        if (!found) {
-            level = 2;
-        }
+        // If the enchant wasn't found in the tag list it simply doesn't exist on
+        // this item — leave level = 0 (no fabrication).
+        (void)found;
 
         env->DeleteLocalRef(tagList);
     }
     return level;
 }
 
-// Vanilla 1.8 sword/axe item IDs -- only these are treated as "weapons" for the
+// Vanilla 1.8 sword/axe/bow item IDs -- only these are treated as "weapons" for the
 // held-item readout (so blocks/tools in hand don't clutter the nametag).
 static bool isWeaponId(int id) {
     switch (id) {
         case 268: case 272: case 267: case 276: case 283:  // swords: wood/stone/iron/diamond/gold
         case 271: case 275: case 258: case 279: case 286:  // axes:   wood/stone/iron/diamond/gold
+        case 261:                                           // bow
             return true;
         default:
             return false;
@@ -707,6 +706,11 @@ std::vector<PlayerInfo> Minecraft::getPlayerList() {
                             }
                             if (itemInfo.id > 0) {
                                 itemInfo.protection = readEnchantLevel(env, stack, 0);  // Protection = id 0
+                                itemInfo.unbreaking = readEnchantLevel(env, stack, 34);  // Unbreaking = id 34
+                                itemInfo.fireProtection = readEnchantLevel(env, stack, 1);
+                                itemInfo.projectileProtection = readEnchantLevel(env, stack, 4);
+                                itemInfo.blastProtection = readEnchantLevel(env, stack, 3);
+                                itemInfo.featherFalling = readEnchantLevel(env, stack, 2);
                             }
                             env->DeleteLocalRef(stack);
                         }
@@ -807,6 +811,13 @@ std::vector<PlayerInfo> Minecraft::getPlayerList() {
                                     if (JniCache::mid_getItemDamage)
                                         info.weapon.damage = env->CallIntMethod(hstack, JniCache::mid_getItemDamage);
                                     info.weapon.sharpness = readEnchantLevel(env, hstack, 16);  // Sharpness = id 16
+                                    info.weapon.unbreaking = readEnchantLevel(env, hstack, 34); // Unbreaking = id 34
+                                    info.weapon.fireAspect = readEnchantLevel(env, hstack, 20); // Fire Aspect = id 20
+                                    info.weapon.knockback = readEnchantLevel(env, hstack, 19);  // Knockback = id 19
+                                    info.weapon.power = readEnchantLevel(env, hstack, 48);      // Power = id 48
+                                    info.weapon.punch = readEnchantLevel(env, hstack, 49);      // Punch = id 49
+                                    info.weapon.flame = readEnchantLevel(env, hstack, 50);      // Flame = id 50
+                                    info.weapon.infinity = readEnchantLevel(env, hstack, 51);   // Infinity = id 51
                                 }
                                 env->DeleteLocalRef(hstack);
                             }

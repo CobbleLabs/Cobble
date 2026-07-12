@@ -14,4 +14,9 @@ void ForceLogNametags(int count);
 // Debug: log and track entity effect packets (S1D/S1E)
 void SetDebugEntityEffects(bool enabled);
 
+// Clean name mapping (Apollo Nametag Override -> Mojang name fallback for cracked/non-premium players)
+std::string GetCleanNameByUUID(const std::string& uuid);
+void RegisterCleanName(const std::string& uuid, const std::string& name);
+void ClearCleanNames();
+
 }  // namespace ApolloPacketObserver

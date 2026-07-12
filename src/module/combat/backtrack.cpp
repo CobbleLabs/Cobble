@@ -6,6 +6,7 @@
 #include "../../util/logger.hpp"
 #include "../../util/math/worldToScreen.h"
 #include "../../util/network/json.hpp"
+#include "../../util/team/friends_manager.h"
 
 #include <imgui.h>
 #include <algorithm>
@@ -200,6 +201,7 @@ Backtrack::Backtrack() : Module("Backtrack") {
 void Backtrack::onEnable() {
     clearHistory();
     isBacktracking = false;
+    wasBacktracking = false;
     isLagging = false;
     currentTargetUUID = "";
     lastTargetChange = std::chrono::steady_clock::now();
@@ -214,6 +216,7 @@ void Backtrack::onDisable() {
     }
     clearHistory();
     isBacktracking = false;
+    wasBacktracking = false;
     isLagging = false;
     ghostEntityId = -1;
 }
@@ -417,6 +420,20 @@ void Backtrack::onUpdate() {
 
     std::vector<PlayerInfo> players = mc.getPlayerList();
 
+    // Cache local team color (refreshed every second)
+    static int localTeamColor = -1;
+    static unsigned long lastColorRefresh = 0;
+    unsigned long nowTick = GetTickCount();
+    if (nowTick - lastColorRefresh > 1000) {
+        localTeamColor = mc.getLocalPlayerTeamColor();
+        lastColorRefresh = nowTick;
+    }
+    static std::string localPlayerName;
+    static unsigned long lastNameRefresh = 0;
+    if (localPlayerName.empty() || nowTick - lastNameRefresh > 1000) {
+        localPlayerName = mc.getLocalPlayerName();
+        lastNameRefresh = nowTick;
+    }
 
     double closestDist = 999.0;
     PlayerInfo* closestTarget = nullptr;
@@ -424,6 +441,35 @@ void Backtrack::onUpdate() {
     for (auto& p : players) {
         if (p.isNPC || p.isInvisible)
             continue;
+
+        // Skip friends and teammates
+        if (friendsManager) {
+            // Friends list
+            bool isFriendByUUID = !p.uuid.empty() && friendsManager->isFriendByUUID(p.uuid);
+            bool isFriendByName = friendsManager->isFriend(FriendsManager::stripColorCodes(p.name));
+            if (isFriendByUUID || isFriendByName)
+                continue;
+
+            // Teammates (local scoreboard, Apollo/Lunar)
+            if (p.isOnLocalTeam)
+                continue;
+            if (!p.uuid.empty() && friendsManager->isLunarTeammate(p.uuid))
+                continue;
+            if (!p.uuid.empty() && friendsManager->isApolloTeammate(p.uuid))
+                continue;
+
+            // Color-based scoreboard team
+            ChatColor playerColor = static_cast<ChatColor>(p.teamColor);
+            ChatColor localColor  = static_cast<ChatColor>(localTeamColor);
+            if (playerColor != ChatColor::WHITE && playerColor != ChatColor::GRAY &&
+                playerColor != ChatColor::UNKNOWN) {
+                if (friendsManager->isScoreboardTeammate(localPlayerName,
+                                                         p.profileName.empty() ? p.name : p.profileName))
+                    continue;
+            }
+            if (friendsManager->isTeammate(p.uuid, playerColor, localColor))
+                continue;
+        }
 
         double dx = p.posX - playerX;
         double dy = p.posY - playerY;
@@ -472,6 +518,13 @@ void Backtrack::onUpdate() {
 
     // Remember the target entity id so the render hook can draw its real 3D model.
     ghostEntityId = isBacktracking ? closestTarget->entityId : -1;
+
+    // Notification on activation (false -> true transition)
+    if (isBacktracking && !wasBacktracking) {
+        std::string targetName = FriendsManager::stripColorCodes(closestTarget->name);
+        NotificationManager::addSystem("Backtrack active: " + targetName);
+    }
+    wasBacktracking = isBacktracking;
 
     // Lag Based mode: start lagging if we can benefit
     if (settings.mode == BacktrackMode::LagBased) {
@@ -691,10 +744,23 @@ void Backtrack::onRender() {
     if (!RenderData::updated)
         return;
 
-    // The ghost is now the real 3D entity model, re-rendered by the injected
-    // RenderGlobal.renderEntities hook (BacktrackGhostGate). The old 2D silhouette
-    // trail and the on-screen "Backtrack" text are both removed — nothing to draw
-    // here anymore.
+    // Animate the on-screen "Backtrack" status text when active.
+    float dt = ImGui::GetIO().DeltaTime;
+    float target = isBacktracking ? 1.0f : 0.0f;
+    float speed = 4.5f;
+    if (g_statusAnim < target)
+        g_statusAnim = std::min(g_statusAnim + dt * speed, target);
+    else
+        g_statusAnim = std::max(g_statusAnim - dt * speed, target);
+
+    if (isBacktracking) {
+        if (settings.mode == BacktrackMode::Manual)
+            g_lastInfo = std::to_string(settings.ticks) + " ticks";
+        else
+            g_lastInfo = std::to_string(currentLatency) + " ms";
+    }
+
+    drawBacktrackStatus(g_statusAnim);
 }
 
 void Backtrack::onRenderMenu() {

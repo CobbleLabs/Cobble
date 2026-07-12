@@ -136,11 +136,11 @@ public:
     //   - the friends list (identifies people the user knows)
     //   - AltManager's spoofed name (the user's own identity)
     //
-    // Import is non-destructive and never toggles modules: it applies each
-    // module's settings via Module::loadSettings() but leaves enabled/keybind
-    // untouched, so previewing someone else's config can't suddenly switch on
-    // combat modules. The transport (upload/browse/download) lives in
-    // cobble-server; these two methods are the client-side hooks it drives.
+    // Import applies each module's enabled state AND its settings via
+    // Module::loadSettings(). Keybinds are left untouched. Locked /
+    // inaccessible modules are still guarded by isAccessible().
+    // The transport (upload/browse/download) lives in cobble-server;
+    // these two methods are the client-side hooks it drives.
     std::string exportPublicConfig();
     bool importPublicConfig(const std::string& jsonStr, std::string* err = nullptr);
 

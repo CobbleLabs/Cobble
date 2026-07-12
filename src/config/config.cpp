@@ -277,10 +277,11 @@ std::string ConfigManager::exportPublicConfig() {
 }
 
 // Apply a public config received as a JSON string. Non-destructive: applies
-// each module's own settings via loadSettings() but NEVER touches enabled or
-// keybind, so importing someone else's config can't switch combat modules on
-// or remap the user's keys. Parsed through sehParse() because the input is
-// untrusted (it comes from another user / the server).
+// each module's own settings via loadSettings() AND the enabled state stored
+// in the config, mirroring what applyConfig() does for local configs.
+// Keybinds are intentionally left as-is (personal preference).
+// isAccessible() is checked before toggling so locked modules are still
+// protected. Parsed through sehParse() because the input is untrusted.
 bool ConfigManager::importPublicConfig(const std::string& jsonStr, std::string* err) {
     if (!moduleManager) {
         if (err)
@@ -305,11 +306,18 @@ bool ConfigManager::importPublicConfig(const std::string& jsonStr, std::string* 
     int applied = 0;
     for (const auto& kv : modules) {
         const std::string& name = kv.first;
+        const json::Value& data = kv.second;
         for (auto* mod : moduleManager->getModules()) {
             if (std::string(mod->name) != name)
                 continue;
-            // Settings only — enabled/keybind are intentionally left as-is.
-            mod->loadSettings(kv.second);
+
+            // Apply enabled state (same guard as applyConfig).
+            bool shouldEnable = data["enabled"].as_bool(false);
+            if (shouldEnable != mod->enabled && mod->isAccessible())
+                mod->setEnabled(shouldEnable);
+
+            // Apply module-specific settings (keybind intentionally skipped).
+            mod->loadSettings(data);
             applied++;
             break;
         }

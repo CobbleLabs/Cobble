@@ -6,6 +6,7 @@
 #include "../../util/inventory/inventory_hooks.h"
 #include "../../util/logger.hpp"
 #include "../jni/jni_cache.h"
+#include "../jni/jstring_util.h"
 #include "../player/effect_tracker.h"
 #include "../player/render_data.h"
 #include "../player/visual_cache.h"
@@ -652,3 +653,53 @@ bool SDK_PollWorldChange() {
 
     return changed;
 }
+
+std::string Minecraft::getCurrentServerIP() {
+    if (!isValid())
+        return "none";
+    JNIEnv* env = Java::Env();
+
+    jfieldID fid_currentServerData = env->GetFieldID(cls, OBFUSCATE_STRING("currentServerData").c_str(),
+                                                     OBFUSCATE_STRING("Lnet/minecraft/client/multiplayer/ServerData;").c_str());
+    if (!fid_currentServerData) {
+        env->ExceptionClear();
+        fid_currentServerData = env->GetFieldID(cls, OBFUSCATE_STRING("field_71422_O").c_str(),
+                                                 OBFUSCATE_STRING("Lnet/minecraft/client/multiplayer/ServerData;").c_str());
+        if (!fid_currentServerData) {
+            env->ExceptionClear();
+            return "singleplayer";
+        }
+    }
+
+    jobject serverData = env->GetObjectField(instance, fid_currentServerData);
+    if (!serverData) {
+        return "singleplayer";
+    }
+
+    jclass cls_ServerData = env->GetObjectClass(serverData);
+    jfieldID fid_serverIP = env->GetFieldID(cls_ServerData, OBFUSCATE_STRING("serverIP").c_str(),
+                                            OBFUSCATE_STRING("Ljava/lang/String;").c_str());
+    if (!fid_serverIP) {
+        env->ExceptionClear();
+        fid_serverIP = env->GetFieldID(cls_ServerData, OBFUSCATE_STRING("field_78845_b").c_str(),
+                                        OBFUSCATE_STRING("Ljava/lang/String;").c_str());
+        if (!fid_serverIP) {
+            env->ExceptionClear();
+            env->DeleteLocalRef(cls_ServerData);
+            env->DeleteLocalRef(serverData);
+            return "singleplayer";
+        }
+    }
+
+    jstring jip = (jstring)env->GetObjectField(serverData, fid_serverIP);
+    std::string ip = "singleplayer";
+    if (jip) {
+        ip = jstringToString(jip);
+        env->DeleteLocalRef(jip);
+    }
+
+    env->DeleteLocalRef(cls_ServerData);
+    env->DeleteLocalRef(serverData);
+    return ip;
+}
+
