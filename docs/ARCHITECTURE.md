@@ -285,8 +285,9 @@ CobbleLoader.exe
     │
     ├─[3] License Verification
     │     ├── HWID::Generate()
-    │     ├── License::Verify(Primary) → returns injection_secret
-    │     └── Fallback to secondary server if needed
+    │     ├── License::Verify(api.cobble.vip) → injection_secret
+    │     └── On transport error (E12031 CF reset, etc.): retry api2.cobble.vip
+    │           └── Pin working host; pass apiHost to DLL via InjectionData
     │
     ├─[4] Process Detection
     │     └── findLunarClient() → javaw.exe with "Lunar"

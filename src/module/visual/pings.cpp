@@ -302,8 +302,8 @@ void Pings::sendPing(int type, double x, double y, double z, const std::string& 
             ",\"mcName\":\"" + http::json_escape(localName) + "\"}";
 
     std::thread([body]() {
-        std::wstring host = cobble_config::GetServerHostW();
-        auto resp = http::post(host.c_str(), cobble_config::SERVER_PORT, OBFUSCATE_WSTRING(L"/api/pings/create").c_str(), body, true);
+        auto resp = http::post_cobble(OBFUSCATE_WSTRING(L"/api/pings/create").c_str(), body,
+                                      cobble_config::SERVER_PORT);
         if (!resp.success) {
             log_debug("[Pings] sendPing HTTP request failed: %s", resp.error.c_str());
         } else {
@@ -336,8 +336,8 @@ void Pings::fetchPings() {
                        "\",\"server\":\"" + http::json_escape(server) + "\"}";
 
     std::thread([this, body, sessionUser, localName]() {
-        std::wstring host = cobble_config::GetServerHostW();
-        auto resp = http::post(host.c_str(), cobble_config::SERVER_PORT, OBFUSCATE_WSTRING(L"/api/pings/active").c_str(), body, true);
+        auto resp = http::post_cobble(OBFUSCATE_WSTRING(L"/api/pings/active").c_str(), body,
+                                      cobble_config::SERVER_PORT);
         if (!resp.success) {
             log_debug("[Pings] fetchPings HTTP request failed: %s", resp.error.c_str());
             return;

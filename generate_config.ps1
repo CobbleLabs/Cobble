@@ -56,6 +56,13 @@ Assert-HexString -Value $config.payload_key -ExpectedLen 64 -Name "payload_key (
 Assert-HexString -Value $config.public_key_hex -ExpectedLen 64 -Name "public_key_hex (must be a 32-byte Ed25519 public key in hex)"
 
 $host_ = $config.server.host
+# Optional DNS-only / non-Cloudflare fallback (e.g. api2) for regions where CF
+# edges drop TLS (WinINet E12031 CONNECTION_RESET). Empty string disables it.
+$host2_ = ""
+if ($config.server.PSObject.Properties.Name -contains "host_secondary" -and
+    -not [string]::IsNullOrEmpty($config.server.host_secondary)) {
+    $host2_ = [string]$config.server.host_secondary
+}
 $port = $config.server.port
 $https = $config.server.https
 $version = $config.version
@@ -102,6 +109,17 @@ $encodedKey = ($pubKeyBytes | ForEach-Object { "0x{0:X2}" -f ($_ -bxor $keyMask)
 $hostBytes = [System.Text.Encoding]::ASCII.GetBytes($host_)
 $encodedHost = ($hostBytes | ForEach-Object { "0x{0:X2}" -f ($_ -bxor $strMask) }) -join ", "
 
+# Secondary host (optional)
+if ([string]::IsNullOrEmpty($host2_)) {
+    $host2Bytes = [byte[]]::new(0)
+    $encodedHost2 = "0x00"
+    $host2Len = 0
+} else {
+    $host2Bytes = [System.Text.Encoding]::ASCII.GetBytes($host2_)
+    $encodedHost2 = ($host2Bytes | ForEach-Object { "0x{0:X2}" -f ($_ -bxor $strMask) }) -join ", "
+    $host2Len = $host2Bytes.Length
+}
+
 # Generate XOR-encoded full URL
 $fullUrl = "https://${host_}"
 $urlBytes = [System.Text.Encoding]::ASCII.GetBytes($fullUrl)
@@ -113,6 +131,11 @@ $encodedUrl = ($urlBytes | ForEach-Object { "0x{0:X2}" -f ($_ -bxor $strMask) })
 $wstrMask = (Get-RandomUInt32) -band 0xFFFF
 if ($wstrMask -eq 0) { $wstrMask = 0x4B2E }
 $wideHost = ($hostBytes | ForEach-Object { "0x{0:X4}" -f (($_ -bxor $wstrMask) -band 0xFFFF) }) -join ", "
+if ($host2Len -eq 0) {
+    $wideHost2 = "0x0000"
+} else {
+    $wideHost2 = ($host2Bytes | ForEach-Object { "0x{0:X4}" -f (($_ -bxor $wstrMask) -band 0xFFFF) }) -join ", "
+}
 
 # Canary value (random, embedded in binary, checked at runtime to detect patching)
 $canary = Get-RandomUInt32
@@ -136,6 +159,7 @@ $serverConfigH = @"
 // ============================================================================
 #include <cstdint>
 #include <string>
+#include <vector>
 
 namespace cobble_config {
 
@@ -144,42 +168,124 @@ constexpr const char* VERSION = "$version";
 constexpr uint32_t BUILD_CANARY = 0x${canaryHex}u;
 
 // Server (XOR-encoded, decoded at runtime)
+// Primary: typically Cloudflare-proxied (api.*). Secondary: DNS-only origin
+// (api2.*) for regions where CF edges reset TLS (WinINet E12031).
 namespace _internal {
     constexpr uint8_t STR_MASK = 0x$strMaskHex;
     constexpr uint8_t HOST_ENC[] = { $encodedHost };
     constexpr size_t  HOST_LEN = $($hostBytes.Length);
+    constexpr uint8_t HOST2_ENC[] = { $encodedHost2 };
+    constexpr size_t  HOST2_LEN = $host2Len;
     constexpr uint8_t URL_ENC[] = { $encodedUrl };
     constexpr size_t  URL_LEN = $($urlBytes.Length);
     constexpr uint16_t WSTR_MASK = 0x$wstrMaskHex;
     constexpr uint16_t WHOST_ENC[] = { $wideHost };
+    constexpr uint16_t WHOST2_ENC[] = { $wideHost2 };
+
+    // Preferred host after a successful connect (process-local pin). Empty = default order.
+    inline std::string& PreferredHost() {
+        static std::string preferred;
+        return preferred;
+    }
+
+    inline std::string DecodeBytes(const uint8_t* enc, size_t len) {
+        if (!enc || len == 0) return std::string();
+        char buf[256];
+        if (len >= sizeof(buf)) len = sizeof(buf) - 1;
+        for (size_t i = 0; i < len; i++)
+            buf[i] = (char)(enc[i] ^ STR_MASK);
+        buf[len] = 0;
+        return std::string(buf, len);
+    }
+
+    inline std::wstring DecodeWide(const uint16_t* enc, size_t len) {
+        if (!enc || len == 0) return std::wstring();
+        wchar_t buf[256];
+        if (len >= (sizeof(buf) / sizeof(buf[0]))) len = (sizeof(buf) / sizeof(buf[0])) - 1;
+        for (size_t i = 0; i < len; i++)
+            buf[i] = (wchar_t)(enc[i] ^ WSTR_MASK);
+        buf[len] = 0;
+        return std::wstring(buf, len);
+    }
 }
 
 constexpr int SERVER_PORT = $port;
 constexpr bool SERVER_HTTPS = $(if($https){"true"}else{"false"});
 
-// Decode server host at runtime (stack-only, no heap allocation for short strings)
+inline std::string GetPrimaryHost() {
+    return _internal::DecodeBytes(_internal::HOST_ENC, _internal::HOST_LEN);
+}
+
+inline std::string GetSecondaryHost() {
+    return _internal::DecodeBytes(_internal::HOST2_ENC, _internal::HOST2_LEN);
+}
+
+// Pin the host that successfully answered so subsequent calls skip a dead CF edge.
+inline void PreferServerHost(const std::string& host) {
+    if (host.empty()) return;
+    // Strip scheme/path if a full URL was passed.
+    std::string h = host;
+    if (h.rfind("https://", 0) == 0) h = h.substr(8);
+    else if (h.rfind("http://", 0) == 0) h = h.substr(7);
+    size_t slash = h.find('/');
+    if (slash != std::string::npos) h = h.substr(0, slash);
+    _internal::PreferredHost() = h;
+}
+
+// Ordered host list: preferred first (if set), then primary, then secondary.
+inline std::vector<std::string> GetServerHosts() {
+    std::vector<std::string> hosts;
+    hosts.reserve(2);
+    const std::string primary = GetPrimaryHost();
+    const std::string secondary = GetSecondaryHost();
+    const std::string& pref = _internal::PreferredHost();
+
+    auto push_unique = [&](const std::string& h) {
+        if (h.empty()) return;
+        for (const auto& existing : hosts) {
+            if (existing == h) return;
+        }
+        hosts.push_back(h);
+    };
+
+    if (!pref.empty()) push_unique(pref);
+    push_unique(primary);
+    push_unique(secondary);
+    return hosts;
+}
+
+inline std::vector<std::string> GetServerUrls() {
+    std::vector<std::string> urls;
+    for (const auto& h : GetServerHosts())
+        urls.push_back(std::string("https://") + h);
+    return urls;
+}
+
+// Decode server host at runtime (stack-only for the common primary path)
 inline std::string GetServerHost() {
-    char buf[_internal::HOST_LEN + 1];
-    for (size_t i = 0; i < _internal::HOST_LEN; i++)
-        buf[i] = (char)(_internal::HOST_ENC[i] ^ _internal::STR_MASK);
-    buf[_internal::HOST_LEN] = 0;
-    return std::string(buf, _internal::HOST_LEN);
+    const auto hosts = GetServerHosts();
+    return hosts.empty() ? GetPrimaryHost() : hosts.front();
 }
 
 inline std::string GetServerUrl() {
-    char buf[_internal::URL_LEN + 1];
-    for (size_t i = 0; i < _internal::URL_LEN; i++)
-        buf[i] = (char)(_internal::URL_ENC[i] ^ _internal::STR_MASK);
-    buf[_internal::URL_LEN] = 0;
-    return std::string(buf, _internal::URL_LEN);
+    return std::string("https://") + GetServerHost();
 }
 
 inline std::wstring GetServerHostW() {
-    wchar_t buf[_internal::HOST_LEN + 1];
-    for (size_t i = 0; i < _internal::HOST_LEN; i++)
-        buf[i] = (wchar_t)(_internal::WHOST_ENC[i] ^ _internal::WSTR_MASK);
-    buf[_internal::HOST_LEN] = 0;
-    return std::wstring(buf, _internal::HOST_LEN);
+    // Prefer pinned host (may be secondary); fall back to primary wide decode.
+    const std::string host = GetServerHost();
+    if (host == GetPrimaryHost())
+        return _internal::DecodeWide(_internal::WHOST_ENC, _internal::HOST_LEN);
+    if (_internal::HOST2_LEN > 0 && host == GetSecondaryHost())
+        return _internal::DecodeWide(_internal::WHOST2_ENC, _internal::HOST2_LEN);
+    return std::wstring(host.begin(), host.end());
+}
+
+inline std::vector<std::wstring> GetServerHostsW() {
+    std::vector<std::wstring> out;
+    for (const auto& h : GetServerHosts())
+        out.emplace_back(h.begin(), h.end());
+    return out;
 }
 
 } // namespace cobble_config

@@ -51,6 +51,7 @@ struct InjectionData {
     char handshakeSig[128];  // Base64 Ed25519 signature from server
     char sessionToken[128];  // Session token for heartbeat
     char syncToken[65];      // Sync token for runtime validation
+    char apiHost[64];        // Host that answered license (api or api2) — DLL pins this
     // Note: DLL derives the shared memory name from GetCurrentProcessId()
 };
 
@@ -170,7 +171,18 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     renderFrame();
 
     COBBLE_DEV_LOG("Checking for loader updates");
-    auto updateResult = Updater::Check(COBBLE_VERSION, cobble_config::GetServerHost(), cobble_config::SERVER_PORT);
+    // Try primary (Cloudflare) then DNS-only fallback (api2) — Spain CF edges often E12031.
+    Updater::CheckResult updateResult;
+    {
+        updateResult.success = false;
+        for (const auto& host : cobble_config::GetServerHosts()) {
+            updateResult = Updater::Check(COBBLE_VERSION, host, cobble_config::SERVER_PORT);
+            if (updateResult.success) {
+                cobble_config::PreferServerHost(host);
+                break;
+            }
+        }
+    }
     COBBLE_DEV_LOG("Update check complete: success=%s, available=%s, mandatory=%s",
                    updateResult.success ? "true" : "false",
                    updateResult.updateAvailable ? "true" : "false",
@@ -188,7 +200,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         std::string tempDir = Updater::getTempDownloadDir();
         std::string newLoaderPath = tempDir + "\\CobbleLoader.exe";
 
-        // Download new loader
+        // Download new loader (use the host that answered the manifest check)
         std::string downloadUrl = "https://" + cobble_config::GetServerHost() + OBFUSCATE_STRING("/api/update/loader");
 
         bool downloadSuccess =
@@ -251,16 +263,43 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     bool licenseValid = false;
 
     COBBLE_DEV_LOG("Starting startup license verification");
-    const bool startupLicenseValid = License::Verify(cobble_config::GetServerUrl().c_str());
-    COBBLE_DEV_LOG("Startup verification complete: valid=%s, requires_login=%s, error=\"%s\"",
+    bool startupLicenseValid = false;
+    bool needsLogin = false;
+    {
+        // Primary (CF) first; on transport failure (E12031 etc.) try api2 (DNS-only).
+        for (const auto& url : cobble_config::GetServerUrls()) {
+            COBBLE_DEV_LOG("License verify attempt host=%s", url.c_str());
+            if (License::Verify(url.c_str())) {
+                cobble_config::PreferServerHost(url);
+                startupLicenseValid = true;
+                break;
+            }
+            if (License::RequiresLogin()) {
+                // Real app response (not a dead edge) — pin host and show login.
+                if (!License::IsTransportError()) {
+                    cobble_config::PreferServerHost(url);
+                }
+                needsLogin = true;
+                break;
+            }
+            if (!License::IsTransportError()) {
+                // Auth/business failure — do not thrash alternate hosts.
+                break;
+            }
+            COBBLE_DEV_LOG("Transport error on %s (%s), trying next host", url.c_str(),
+                           License::GetLastError().c_str());
+        }
+    }
+    COBBLE_DEV_LOG("Startup verification complete: valid=%s, requires_login=%s, error=\"%s\", host=%s",
                    startupLicenseValid ? "true" : "false",
-                   License::RequiresLogin() ? "true" : "false",
-                   License::GetLastError().c_str());
+                   needsLogin || License::RequiresLogin() ? "true" : "false",
+                   License::GetLastError().c_str(),
+                   cobble_config::GetServerHost().c_str());
 
     if (startupLicenseValid) {
         licenseValid = true;
         LoaderUI::SetState(LoaderUI::State::LICENSE_VALID);
-    } else if (License::RequiresLogin()) {
+    } else if (needsLogin || License::RequiresLogin()) {
         // First time login flow...
         LoaderUI::SetState(LoaderUI::State::LOGIN_REQUIRED);
 
@@ -289,10 +328,21 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
                 renderFrame();
 
                 COBBLE_DEV_LOG("Submitting login request (username_length=%zu)", username.size());
-                const bool loginValid =
-                    License::LoginWithCredentials(cobble_config::GetServerUrl().c_str(), username, password);
-                COBBLE_DEV_LOG("Login request complete: valid=%s, error=\"%s\"",
-                               loginValid ? "true" : "false", License::GetLastError().c_str());
+                bool loginValid = false;
+                for (const auto& url : cobble_config::GetServerUrls()) {
+                    loginValid = License::LoginWithCredentials(url.c_str(), username, password);
+                    if (loginValid) {
+                        cobble_config::PreferServerHost(url);
+                        break;
+                    }
+                    // Wrong password / lockout: stop. Transport: try next host.
+                    if (!License::IsTransportError()) {
+                        break;
+                    }
+                }
+                COBBLE_DEV_LOG("Login request complete: valid=%s, error=\"%s\", host=%s",
+                               loginValid ? "true" : "false", License::GetLastError().c_str(),
+                               cobble_config::GetServerHost().c_str());
 
                 if (loginValid) {
                     licenseValid = true;
@@ -360,9 +410,20 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     LoaderUI::SetMessage(OBFUSCATE_STRING("Initializing..."));
     renderFrame();
 
-    // Fetch payload key from server - REQUIRED
+    // Fetch payload key from server - REQUIRED (retry alternate host on transport fail)
     std::string payloadKey;
-    if (!License::FetchPayloadKey(cobble_config::GetServerUrl().c_str())) {
+    bool keyOk = false;
+    for (const auto& url : cobble_config::GetServerUrls()) {
+        if (License::FetchPayloadKey(url.c_str())) {
+            cobble_config::PreferServerHost(url);
+            keyOk = true;
+            break;
+        }
+        if (!License::IsTransportError()) {
+            break;
+        }
+    }
+    if (!keyOk) {
         LoaderUI::SetError(OBFUSCATE_STRING("Server connection failed"));
         while (renderFrame())
             ;
@@ -447,6 +508,10 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         // Copy sync token for runtime validation
         std::string syncToken = License::GetSyncToken();
         strncpy_s(injData.syncToken, syncToken.c_str(), 64);
+
+        // Tell the DLL which API host answered (pins api2 when CF is broken)
+        std::string apiHost = cobble_config::GetServerHost();
+        strncpy_s(injData.apiHost, apiHost.c_str(), 63);
 
         // Generate PID-based shared memory name
         wchar_t pidStr[64];

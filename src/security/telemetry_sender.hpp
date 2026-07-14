@@ -25,7 +25,7 @@ inline void send_async(const std::string& json_body, const std::wstring& path) {
         try {
             auto delay = 100 + (std::rand() % 400);
             std::this_thread::sleep_for(std::chrono::milliseconds(delay));
-            http::post(TELEMETRY_HOST, 443, path, json_body, true);
+            http::post_cobble(path, json_body, 443);
         } catch (...) {
             // Telemetry must never crash the host process.
         }

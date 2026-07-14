@@ -391,8 +391,8 @@ void ConfigManager::publishPublicConfigAsync(const std::string& name, const std:
                        ",\"config\":" + publicJson + "}";
 
     std::thread([this, body] {
-        auto response = http::post(cobble_config::GetServerHostW().c_str(), CONFIG_SERVER_PORT,
-                                   OBFUSCATE_WSTRING(L"/api/configs/public/publish").c_str(), body, true);
+        auto response = http::post_cobble(OBFUSCATE_WSTRING(L"/api/configs/public/publish").c_str(), body,
+                                          CONFIG_SERVER_PORT);
 
         json::Value payload;
         bool verified = response.success && verifySignedEnvelope(response.body, payload);
@@ -438,8 +438,8 @@ void ConfigManager::refreshPublicConfigsAsync() {
         "{\"hwid\":\"" + http::json_escape(hwid) + "\",\"token\":\"" + http::json_escape(token) + "\"}";
 
     std::thread([this, body] {
-        auto response = http::post(cobble_config::GetServerHostW().c_str(), CONFIG_SERVER_PORT,
-                                   OBFUSCATE_WSTRING(L"/api/configs/public/list").c_str(), body, true);
+        auto response = http::post_cobble(OBFUSCATE_WSTRING(L"/api/configs/public/list").c_str(), body,
+                                          CONFIG_SERVER_PORT);
 
         json::Value payload;
         bool verified = response.success && verifySignedEnvelope(response.body, payload);
@@ -504,8 +504,8 @@ void ConfigManager::downloadAndApplyPublicConfigAsync(const std::string& id) {
                        http::json_escape(token) + "\",\"id\":\"" + http::json_escape(id) + "\"}";
 
     std::thread([this, body] {
-        auto response = http::post(cobble_config::GetServerHostW().c_str(), CONFIG_SERVER_PORT,
-                                   OBFUSCATE_WSTRING(L"/api/configs/public/get").c_str(), body, true);
+        auto response = http::post_cobble(OBFUSCATE_WSTRING(L"/api/configs/public/get").c_str(), body,
+                                          CONFIG_SERVER_PORT);
 
         json::Value payload;
         bool verified = response.success && verifySignedEnvelope(response.body, payload);
@@ -555,8 +555,8 @@ void ConfigManager::deletePublicConfigAsync(const std::string& id) {
                        http::json_escape(token) + "\",\"id\":\"" + http::json_escape(id) + "\"}";
 
     std::thread([this, body] {
-        auto response = http::post(cobble_config::GetServerHostW().c_str(), CONFIG_SERVER_PORT,
-                                   OBFUSCATE_WSTRING(L"/api/configs/public/delete").c_str(), body, true);
+        auto response = http::post_cobble(OBFUSCATE_WSTRING(L"/api/configs/public/delete").c_str(), body,
+                                          CONFIG_SERVER_PORT);
 
         json::Value payload;
         bool verified = response.success && verifySignedEnvelope(response.body, payload);

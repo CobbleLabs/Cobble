@@ -112,8 +112,7 @@ void SpectateManager::heartbeatPresenceAsync(const std::string& activity) {
                        "\",\"allow_spectate\":" + (as ? "true" : "false") + ",\"allow_config_view\":" +
                        (acv ? "true" : "false") + ",\"activity\":\"" + http::json_escape(activity) + "\"}";
     std::thread([this, body] {
-        auto resp = http::post(host().c_str(), CONFIG_SERVER_PORT,
-                               OBFUSCATE_WSTRING(L"/api/spectate/presence").c_str(), body, true);
+        auto resp = http::post_cobble(OBFUSCATE_WSTRING(L"/api/spectate/presence").c_str(), body, CONFIG_SERVER_PORT);
         json::Value payload;
         if (resp.success && parseEnvelope(resp.body, payload) && payload["success"].as_bool(false))
             spectatorCount_ = payload["spectator_count"].as_int(0);
@@ -136,8 +135,7 @@ void SpectateManager::refreshListAsync() {
     std::string body =
         "{\"hwid\":\"" + http::json_escape(hwid) + "\",\"token\":\"" + http::json_escape(token) + "\"}";
     std::thread([this, body] {
-        auto resp = http::post(host().c_str(), CONFIG_SERVER_PORT,
-                               OBFUSCATE_WSTRING(L"/api/spectate/list").c_str(), body, true);
+        auto resp = http::post_cobble(OBFUSCATE_WSTRING(L"/api/spectate/list").c_str(), body, CONFIG_SERVER_PORT);
         json::Value payload;
         bool ok = resp.success && parseEnvelope(resp.body, payload) && payload["success"].as_bool(false);
 
@@ -172,8 +170,7 @@ void SpectateManager::startSpectatingAsync(const std::string& target) {
     std::string body = "{\"hwid\":\"" + http::json_escape(hwid) + "\",\"token\":\"" + http::json_escape(token) +
                        "\",\"target\":\"" + http::json_escape(target) + "\"}";
     std::thread([this, body, target] {
-        auto resp = http::post(host().c_str(), CONFIG_SERVER_PORT,
-                               OBFUSCATE_WSTRING(L"/api/spectate/start").c_str(), body, true);
+        auto resp = http::post_cobble(OBFUSCATE_WSTRING(L"/api/spectate/start").c_str(), body, CONFIG_SERVER_PORT);
         json::Value payload;
         bool ok = resp.success && parseEnvelope(resp.body, payload) && payload["success"].as_bool(false);
         if (ok) {
@@ -213,7 +210,7 @@ void SpectateManager::stopSpectating() {
     std::string body = "{\"hwid\":\"" + http::json_escape(hwid) + "\",\"token\":\"" + http::json_escape(token) +
                        "\",\"target\":\"" + http::json_escape(target) + "\"}";
     std::thread([body] {
-        http::post(host().c_str(), CONFIG_SERVER_PORT, OBFUSCATE_WSTRING(L"/api/spectate/stop").c_str(), body, true);
+        http::post_cobble(OBFUSCATE_WSTRING(L"/api/spectate/stop").c_str(), body, CONFIG_SERVER_PORT);
     }).detach();
 }
 
@@ -227,8 +224,7 @@ void SpectateManager::uploadFrameAsync(std::vector<uint8_t> blob) {
     std::string body = "{\"hwid\":\"" + http::json_escape(hwid) + "\",\"token\":\"" + http::json_escape(token) +
                        "\",\"frame\":\"" + frame + "\"}";
     std::thread([this, body] {
-        auto resp = http::post(host().c_str(), CONFIG_SERVER_PORT,
-                               OBFUSCATE_WSTRING(L"/api/spectate/frame/put").c_str(), body, true);
+        auto resp = http::post_cobble(OBFUSCATE_WSTRING(L"/api/spectate/frame/put").c_str(), body, CONFIG_SERVER_PORT);
         json::Value payload;
         if (resp.success && parseEnvelope(resp.body, payload) && payload["success"].as_bool(false))
             spectatorCount_ = payload["spectator_count"].as_int(0);
@@ -245,8 +241,7 @@ void SpectateManager::fetchFrameAsync(const std::string& target) {
     std::string body = "{\"hwid\":\"" + http::json_escape(hwid) + "\",\"token\":\"" + http::json_escape(token) +
                        "\",\"target\":\"" + http::json_escape(target) + "\"}";
     std::thread([this, body] {
-        auto resp = http::post(host().c_str(), CONFIG_SERVER_PORT,
-                               OBFUSCATE_WSTRING(L"/api/spectate/frame/get").c_str(), body, true);
+        auto resp = http::post_cobble(OBFUSCATE_WSTRING(L"/api/spectate/frame/get").c_str(), body, CONFIG_SERVER_PORT);
         json::Value payload;
         if (resp.success && parseEnvelope(resp.body, payload) && payload["success"].as_bool(false)) {
             std::string f = payload["frame"].as_string("");

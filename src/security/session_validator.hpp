@@ -42,6 +42,7 @@ struct InjectionData {
     char handshakeSig[128];  // Base64 Ed25519 signature from server
     char sessionToken[128];  // Session token for heartbeat
     char syncToken[65];      // Sync token for runtime validation
+    char apiHost[64];        // API host that answered the loader (api or api2)
     // Note: DLL derives shared memory name from GetCurrentProcessId()
 };
 
@@ -187,6 +188,10 @@ inline bool ValidateInjection() {
         !isHexString(data.syncToken, 64)) {
         return false;
     }
+    // apiHost is optional for forward-compat; when present it must be a clean hostname.
+    if (data.apiHost[0] != '\0' && !isAsciiToken(data.apiHost, 63)) {
+        return false;
+    }
 
     // Phase 3: Verify handshake signature - MANDATORY
     // Format MUST match server: "COBBLE_HANDSHAKE|username|hwid|timestamp|injection_secret"
@@ -240,6 +245,10 @@ inline bool ValidateInjection() {
         g_HandshakeSig = data.handshakeSig;
         g_SessionToken = data.sessionToken;
         g_SyncToken = data.syncToken;
+    }
+    // Prefer the API host the loader already proved works (bypasses broken CF edges).
+    if (data.apiHost[0] != '\0') {
+        cobble_config::PreferServerHost(data.apiHost);
     }
     g_SessionValid = true;
 
@@ -416,7 +425,7 @@ inline bool DoHeartbeat() {
     body += "}";
 
     log_debug("Sending heartbeat");
-    http::Response response = http::post(cobble_config::GetServerHostW().c_str(), 443, OBFUSCATE_WSTRING(L"/api/heartbeat").c_str(), body, true);
+    http::Response response = http::post_cobble(OBFUSCATE_WSTRING(L"/api/heartbeat").c_str(), body, 443);
 
     // CRITICAL: Network errors count as failures
     // If server is down, this should fail and eventually kill the DLL

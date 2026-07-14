@@ -55,6 +55,8 @@ inline BOOL SendWithCertRetry(HINTERNET hRequest, const std::string& headers, co
 namespace License {
 
 static std::string g_LastError;
+static bool g_LastWasTransportError = false;
+static DWORD g_LastWinInetError = 0;
 static bool g_NeedsUpdate = false;
 static bool g_RequiresLogin = false;
 static std::string g_Username;
@@ -227,9 +229,27 @@ std::string JsonHeaders() {
 bool RequireHttps(const URL_COMPONENTSA& urlComp) {
     if (urlComp.nScheme != INTERNET_SCHEME_HTTPS) {
         g_LastError = "HTTPS required";
+        g_LastWasTransportError = false;
         return false;
     }
     return true;
+}
+
+void ClearTransportErrorState() {
+    g_LastWasTransportError = false;
+    g_LastWinInetError = 0;
+}
+
+void MarkTransportError(const std::string& message, DWORD winInetError = 0) {
+    g_LastWasTransportError = true;
+    g_LastWinInetError = winInetError;
+    g_LastError = message;
+}
+
+void MarkLogicalError(const std::string& message) {
+    g_LastWasTransportError = false;
+    g_LastWinInetError = 0;
+    g_LastError = message;
 }
 
 void ConfigureInternet(HINTERNET hInternet, DWORD timeout) {
@@ -314,32 +334,35 @@ bool ParseResponseObject(const std::string& response, json::Object& out) {
 void SetUnparseableResponseError(int statusCode, const std::string& response) {
     if (HasLoginHint(response)) {
         g_RequiresLogin = true;
-        g_LastError = "Device not registered";
+        MarkLogicalError("Device not registered");
         return;
     }
 
+    // Cloudflare interstitial / HTML error pages: treat as transport so the
+    // loader can fall back to the DNS-only origin (api2).
     if (LooksLikeHtmlOrChallenge(response)) {
-        g_LastError = (statusCode == 0)
-                          ? "Server returned web challenge"
-                          : "Server returned web challenge (HTTP " + std::to_string(statusCode) + ")";
+        MarkTransportError(statusCode == 0
+                               ? "Server returned web challenge"
+                               : "Server returned web challenge (HTTP " + std::to_string(statusCode) + ")");
         return;
     }
 
     if (statusCode == 401 || statusCode == 403) {
-        g_LastError = "Server rejected request (HTTP " + std::to_string(statusCode) + ")";
+        MarkLogicalError("Server rejected request (HTTP " + std::to_string(statusCode) + ")");
         return;
     }
     if (statusCode == 429) {
-        g_LastError = "Server rate limited request";
+        MarkLogicalError("Server rate limited request");
         return;
     }
+    // CF 52x / origin 5xx — retry alternate host when available.
     if (statusCode >= 500) {
-        g_LastError = "Server unavailable (HTTP " + std::to_string(statusCode) + ")";
+        MarkTransportError("Server unavailable (HTTP " + std::to_string(statusCode) + ")");
         return;
     }
 
-    g_LastError = statusCode > 0 ? "Invalid server response (HTTP " + std::to_string(statusCode) + ")"
-                                 : "Invalid server response";
+    MarkLogicalError(statusCode > 0 ? "Invalid server response (HTTP " + std::to_string(statusCode) + ")"
+                                    : "Invalid server response");
 }
 
 bool IsHexString(const std::string& value, size_t expectedLen) {
@@ -413,6 +436,10 @@ std::string GetLastError() {
     return g_LastError;
 }
 
+bool IsTransportError() {
+    return g_LastWasTransportError;
+}
+
 bool NeedsUpdate() {
     return g_NeedsUpdate;
 }
@@ -451,14 +478,15 @@ std::string GetSyncToken() {
 
 // Fetch payload decryption key from server after successful login/verify
 bool FetchPayloadKey(const std::string& serverUrl) {
+    ClearTransportErrorState();
     if (g_SessionToken.empty()) {
-        g_LastError = "No session token";
+        MarkLogicalError("No session token");
         return false;
     }
 
     std::string hwid = HWID::Generate();
     if (hwid.empty()) {
-        g_LastError = "HWID generation failed";
+        MarkLogicalError("HWID generation failed");
         return false;
     }
     ScopedStringWipe hwidWipe(hwid);
@@ -473,7 +501,7 @@ bool FetchPayloadKey(const std::string& serverUrl) {
         InternetOpenA("Mozilla/5.0", INTERNET_OPEN_TYPE_PRECONFIG, NULL, NULL, 0);
 
     if (!hInternet) {
-        g_LastError = "Network error";
+        MarkTransportError("Network error");
         return false;
     }
 
@@ -493,7 +521,7 @@ bool FetchPayloadKey(const std::string& serverUrl) {
 
     if (!InternetCrackUrlA(url.c_str(), 0, 0, &urlComp)) {
         InternetCloseHandle(hInternet);
-        g_LastError = "Invalid URL";
+        MarkLogicalError("Invalid URL");
         return false;
     }
 
@@ -508,7 +536,7 @@ bool FetchPayloadKey(const std::string& serverUrl) {
 
     if (!hConnect) {
         InternetCloseHandle(hInternet);
-        g_LastError = "Connection failed";
+        MarkTransportError("Connection failed", ::GetLastError());
         return false;
     }
 
@@ -518,7 +546,7 @@ bool FetchPayloadKey(const std::string& serverUrl) {
     if (!hRequest) {
         InternetCloseHandle(hConnect);
         InternetCloseHandle(hInternet);
-        g_LastError = "Request failed";
+        MarkTransportError("Request failed", ::GetLastError());
         return false;
     }
 
@@ -532,7 +560,7 @@ bool FetchPayloadKey(const std::string& serverUrl) {
         InternetCloseHandle(hRequest);
         InternetCloseHandle(hConnect);
         InternetCloseHandle(hInternet);
-        g_LastError = "Server error (E" + std::to_string(err) + ")";
+        MarkTransportError("Server error (E" + std::to_string(err) + ")", err);
         return false;
     }
 
@@ -544,7 +572,11 @@ bool FetchPayloadKey(const std::string& serverUrl) {
         InternetCloseHandle(hRequest);
         InternetCloseHandle(hConnect);
         InternetCloseHandle(hInternet);
-        g_LastError = "Key fetch failed";
+        if (statusCode >= 500 || statusCode == 0) {
+            MarkTransportError("Key fetch failed (HTTP " + std::to_string(statusCode) + ")");
+        } else {
+            MarkLogicalError("Key fetch failed");
+        }
         return false;
     }
 
@@ -617,12 +649,13 @@ bool FetchPayloadKey(const std::string& serverUrl) {
 bool Verify(const std::string& serverUrl) {
     g_RequiresLogin = false;
     g_LastError.clear();
+    ClearTransportErrorState();
     COBBLE_DEV_LOG("[license.verify] Begin verification");
 
     // Generate HWID
     std::string hwid = HWID::Generate();
     if (hwid.empty()) {
-        g_LastError = "Failed to generate HWID";
+        MarkLogicalError("Failed to generate HWID");
         COBBLE_DEV_LOG("[license.verify] HWID generation failed");
         return false;
     }
@@ -630,7 +663,7 @@ bool Verify(const std::string& serverUrl) {
 
     std::string nonce = GenerateNonce();
     if (nonce.empty()) {
-        g_LastError = "Failed to generate nonce";
+        MarkLogicalError("Failed to generate nonce");
         COBBLE_DEV_LOG("[license.verify] Nonce generation failed");
         return false;
     }
@@ -646,7 +679,7 @@ bool Verify(const std::string& serverUrl) {
         InternetOpenA("Mozilla/5.0", INTERNET_OPEN_TYPE_PRECONFIG, NULL, NULL, 0);
 
     if (!hInternet) {
-        g_LastError = "Failed to initialize internet";
+        MarkTransportError("Failed to initialize internet");
         return false;
     }
 
@@ -666,7 +699,7 @@ bool Verify(const std::string& serverUrl) {
 
     if (!InternetCrackUrlA(url.c_str(), 0, 0, &urlComp)) {
         InternetCloseHandle(hInternet);
-        g_LastError = "Invalid server URL";
+        MarkLogicalError("Invalid server URL");
         return false;
     }
 
@@ -681,7 +714,7 @@ bool Verify(const std::string& serverUrl) {
 
     if (!hConnect) {
         InternetCloseHandle(hInternet);
-        g_LastError = "Failed to connect to server";
+        MarkTransportError("Failed to connect to server", ::GetLastError());
         return false;
     }
 
@@ -691,7 +724,7 @@ bool Verify(const std::string& serverUrl) {
     if (!hRequest) {
         InternetCloseHandle(hConnect);
         InternetCloseHandle(hInternet);
-        g_LastError = "Failed to create request";
+        MarkTransportError("Failed to create request", ::GetLastError());
         return false;
     }
 
@@ -705,7 +738,8 @@ bool Verify(const std::string& serverUrl) {
         InternetCloseHandle(hRequest);
         InternetCloseHandle(hConnect);
         InternetCloseHandle(hInternet);
-        g_LastError = "Failed to send request (E" + std::to_string(err) + ")";
+        // E12031 = ERROR_INTERNET_CONNECTION_RESET (common on broken CF routes)
+        MarkTransportError("Failed to send request (E" + std::to_string(err) + ")", err);
         return false;
     }
 
@@ -782,8 +816,11 @@ bool Verify(const std::string& serverUrl) {
             unauthenticated || emptyBootstrapResponse) {
             g_RequiresLogin = true;
             g_LastError.clear();
+            ClearTransportErrorState();
+        } else if (statusCode >= 500 || LooksLikeHtmlOrChallenge(response)) {
+            MarkTransportError(errorMsg.empty() ? (message.empty() ? "Invalid response format" : message) : errorMsg);
         } else {
-            g_LastError = errorMsg.empty() ? (message.empty() ? "Invalid response format" : message) : errorMsg;
+            MarkLogicalError(errorMsg.empty() ? (message.empty() ? "Invalid response format" : message) : errorMsg);
         }
         COBBLE_DEV_LOG("[license.verify] Unsigned response classified: status=%lu, requires_login=%s, error=\"%s\"",
                        statusCode, g_RequiresLogin ? "true" : "false", g_LastError.c_str());
@@ -797,7 +834,7 @@ bool Verify(const std::string& serverUrl) {
                    payloadBytes.size(), sigBytes.size());
 
     if (payloadBytes.empty() || sigBytes.size() != 64) {
-        g_LastError = "Invalid response format";
+        MarkLogicalError("Invalid response format");
         COBBLE_DEV_LOG("[license.verify] Rejected decoded envelope dimensions");
         return false;
     }
@@ -883,19 +920,20 @@ bool RequiresLogin() {
 bool LoginWithCredentials(const std::string& serverUrl, const std::string& username, const std::string& password) {
     g_RequiresLogin = false;
     g_LastError.clear();
+    ClearTransportErrorState();
     COBBLE_DEV_LOG("[license.login] Begin login");
 
     // Generate HWID
     std::string hwid = HWID::Generate();
     if (hwid.empty()) {
-        g_LastError = "Failed to generate HWID";
+        MarkLogicalError("Failed to generate HWID");
         return false;
     }
     ScopedStringWipe hwidWipe(hwid);
 
     std::string nonce = GenerateNonce();
     if (nonce.empty()) {
-        g_LastError = "Failed to generate nonce";
+        MarkLogicalError("Failed to generate nonce");
         return false;
     }
 
@@ -910,7 +948,7 @@ bool LoginWithCredentials(const std::string& serverUrl, const std::string& usern
         InternetOpenA("Mozilla/5.0", INTERNET_OPEN_TYPE_PRECONFIG, NULL, NULL, 0);
 
     if (!hInternet) {
-        g_LastError = "Network error";
+        MarkTransportError("Network error");
         return false;
     }
 
@@ -930,7 +968,7 @@ bool LoginWithCredentials(const std::string& serverUrl, const std::string& usern
 
     if (!InternetCrackUrlA(url.c_str(), 0, 0, &urlComp)) {
         InternetCloseHandle(hInternet);
-        g_LastError = "Invalid server URL";
+        MarkLogicalError("Invalid server URL");
         return false;
     }
 
@@ -945,7 +983,7 @@ bool LoginWithCredentials(const std::string& serverUrl, const std::string& usern
 
     if (!hConnect) {
         InternetCloseHandle(hInternet);
-        g_LastError = "Connection failed";
+        MarkTransportError("Connection failed", ::GetLastError());
         return false;
     }
 
@@ -955,7 +993,7 @@ bool LoginWithCredentials(const std::string& serverUrl, const std::string& usern
     if (!hRequest) {
         InternetCloseHandle(hConnect);
         InternetCloseHandle(hInternet);
-        g_LastError = "Request failed";
+        MarkTransportError("Request failed", ::GetLastError());
         return false;
     }
 
@@ -969,7 +1007,7 @@ bool LoginWithCredentials(const std::string& serverUrl, const std::string& usern
         InternetCloseHandle(hRequest);
         InternetCloseHandle(hConnect);
         InternetCloseHandle(hInternet);
-        g_LastError = "Request failed (E" + std::to_string(err) + ")";
+        MarkTransportError("Request failed (E" + std::to_string(err) + ")", err);
         return false;
     }
 

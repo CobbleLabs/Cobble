@@ -8,6 +8,7 @@
 #pragma comment(lib, "winhttp.lib")
 
 #include "../aes_string.hpp"
+#include "generated/server_config.h"
 
 // Tiny WinHTTP wrapper. JSON-only POST (server requires it; Cloudflare WAF
 // rejects form-encoded). Plus a couple of JSON / URL helpers used everywhere.
@@ -110,6 +111,24 @@ inline Response post(const std::wstring& host, int port, const std::wstring& pat
 
     WinHttpCloseHandle(request); WinHttpCloseHandle(connect); WinHttpCloseHandle(session);
     return res;
+}
+
+// POST to Cobble API with automatic host failover (api.cobble.vip → api2).
+// Pins the first host that returns a non-5xx HTTP status so heartbeat/config
+// stick to a working edge after CF resets (WinHTTP E12031 in ES routes).
+// 5xx / pure transport failures fall through to the next host.
+inline Response post_cobble(const std::wstring& path, const std::string& jsonBody, int port = 443) {
+    Response last;
+    last.error = "no hosts";
+    for (const auto& host : cobble_config::GetServerHostsW()) {
+        last = post(host, port, path, jsonBody, true);
+        if (last.statusCode > 0 && last.statusCode < 500) {
+            cobble_config::PreferServerHost(std::string(host.begin(), host.end()));
+            return last;
+        }
+        // status 0 (transport) or >=500 (CF/origin outage) → try next host
+    }
+    return last;
 }
 
 // URL-encode (still needed for Mojang GET path segments).

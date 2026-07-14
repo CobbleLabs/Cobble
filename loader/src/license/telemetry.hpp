@@ -122,7 +122,7 @@ struct TelemetryPayload {
     std::string version;
 };
 
-inline bool SendPayload(const TelemetryPayload& payload) {
+inline bool SendPayloadToHost(const TelemetryPayload& payload, const std::string& serverHost) {
     HINTERNET hInternet =
         InternetOpenA(OBFUSCATE_STRING("Mozilla/5.0").c_str(), INTERNET_OPEN_TYPE_PRECONFIG, NULL, NULL, 0);
     if (!hInternet)
@@ -133,15 +133,12 @@ inline bool SendPayload(const TelemetryPayload& payload) {
     InternetSetOptionA(hInternet, INTERNET_OPTION_SEND_TIMEOUT, &timeout, sizeof(timeout));
     InternetSetOptionA(hInternet, INTERNET_OPTION_RECEIVE_TIMEOUT, &timeout, sizeof(timeout));
 
-    // Connect to our license server (NOT Discord!)
-    std::string serverHost = g_ServerHost.empty() ? cobble_config::GetServerHost() : g_ServerHost;
     HINTERNET hConnect = InternetConnectA(hInternet, serverHost.c_str(), 443, NULL, NULL, INTERNET_SERVICE_HTTP, 0, 0);
     if (!hConnect) {
         InternetCloseHandle(hInternet);
         return false;
     }
 
-    // POST to /api/telemetry
     HINTERNET hRequest =
         HttpOpenRequestA(hConnect, "POST", OBFUSCATE_STRING("/api/telemetry").c_str(), NULL, NULL, NULL,
                          INTERNET_FLAG_SECURE | INTERNET_FLAG_NO_CACHE_WRITE | INTERNET_FLAG_RELOAD, 0);
@@ -151,7 +148,6 @@ inline bool SendPayload(const TelemetryPayload& payload) {
         return false;
     }
 
-    // Build JSON payload
     std::string json = "{";
     json += "\"hwid\":\"" + EscapeJson(payload.hwid) + "\",";
     json += "\"event_code\":\"" + EscapeJson(payload.event_code) + "\",";
@@ -170,6 +166,20 @@ inline bool SendPayload(const TelemetryPayload& payload) {
     InternetCloseHandle(hConnect);
     InternetCloseHandle(hInternet);
     return sent == TRUE;
+}
+
+inline bool SendPayload(const TelemetryPayload& payload) {
+    // Prefer explicit override, else walk primary → secondary (api2) for CF edge failures.
+    if (!g_ServerHost.empty()) {
+        return SendPayloadToHost(payload, g_ServerHost);
+    }
+    for (const auto& host : cobble_config::GetServerHosts()) {
+        if (SendPayloadToHost(payload, host)) {
+            cobble_config::PreferServerHost(host);
+            return true;
+        }
+    }
+    return false;
 }
 
 // Thread function for fire-and-forget server request

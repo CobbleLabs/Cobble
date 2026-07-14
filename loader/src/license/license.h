@@ -16,6 +16,9 @@ bool FetchPayloadKey(const std::string& serverUrl);
 
 // Status getters
 std::string GetLastError();
+// True when the last failure was a transport/edge problem (WinINet connect
+// reset, timeout, CF challenge HTML, etc.) — safe to retry another API host.
+bool IsTransportError();
 bool NeedsUpdate();
 std::string GetUsername();
 int GetDaysRemaining();

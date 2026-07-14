@@ -407,7 +407,7 @@ private:
                            "\",\"token\":\"" + http::json_escape(sessionToken_) + "\"}";
 
         // HTTPS only - encrypted traffic
-        auto response = http::post(cobble_config::GetServerHostW().c_str(), CONFIG_SERVER_PORT, OBFUSCATE_WSTRING(L"/api/config").c_str(), body, true);
+        auto response = http::post_cobble(OBFUSCATE_WSTRING(L"/api/config").c_str(), body, CONFIG_SERVER_PORT);
 
         if (!response.success) {
             log_debug("ConfigManager: Server fetch failed: %s", response.error.c_str());
@@ -494,7 +494,7 @@ private:
                            "\",\"config\":" + configJson + "}";
 
         // HTTPS only - encrypted traffic
-        auto response = http::post(cobble_config::GetServerHostW().c_str(), CONFIG_SERVER_PORT, OBFUSCATE_WSTRING(L"/api/config/save").c_str(), body, true);
+        auto response = http::post_cobble(OBFUSCATE_WSTRING(L"/api/config/save").c_str(), body, CONFIG_SERVER_PORT);
 
         if (!response.success) {
             log_debug("ConfigManager: Sync push failed");
