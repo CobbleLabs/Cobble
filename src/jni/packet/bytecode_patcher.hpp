@@ -12,6 +12,8 @@ struct HookTargets {
     bool lunarNametags = false;
     bool slowdown = false;  // patch EntityLivingBase.onLivingUpdate ONLY when SlowDownHook native is registered
     bool renderGhost = false;  // patch RenderGlobal.renderEntities ONLY when BacktrackGhostHook native is registered
+    bool backtrack = false;  // blocking-patch NetHandlerPlayClient.handleEntity/handleEntityTeleport (S14/S18)
+                             // ONLY when the IncomingHook native is registered
 };
 
 void SetTargets(const HookTargets& targets);

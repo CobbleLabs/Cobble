@@ -37,11 +37,13 @@ void AutoRefill::onEnable() {
 void AutoRefill::onDisable() {
     state = State::Idle;
     pendingRefills.clear();
+    pendingClickSlot_ = -1;
 }
 
 void AutoRefill::finishRefill() {
     state = State::Idle;
     pendingRefills.clear();
+    pendingClickSlot_ = -1;
 
     // Passive mode stays enabled to catch the next inventory open.
     if (!settings.onInventoryOpen) {
@@ -83,6 +85,11 @@ void AutoRefill::onUpdate() {
             if (elapsed < settings.speed)
                 return;
 
+            // Wait until the previous queued click has actually been flushed (fired
+            // pre-flying in onOutgoingPacket) before moving to the next item.
+            if (pendingClickSlot_ >= 0)
+                return;
+
             if (pendingRefills.empty()) {
                 state = State::Closing;
                 stateStartTime = now;
@@ -96,7 +103,9 @@ void AutoRefill::onUpdate() {
             RefillTask task = pendingRefills.front();
             pendingRefills.erase(pendingRefills.begin());
 
-            mc.windowClick(task.sourceSlot, 0);  // sends the real C0E click packet on window 0
+            // Queue the click; it is sent from onOutgoingPacket right before the next
+            // flying packet so it lands BEFORE movement in the tick (no Grim Post).
+            pendingClickSlot_ = task.sourceSlot;
             lastMoveTime = now;
             break;
         }
@@ -122,6 +131,38 @@ void AutoRefill::onUpdate() {
             break;
         }
     }
+}
+
+void AutoRefill::onOutgoingPacket(JNIEnv* env, jobject packet) {
+    if (pendingClickSlot_ < 0 || !env || !packet)
+        return;
+
+    if (!c03Resolved_) {
+        c03Resolved_ = true;
+        jclass local = nullptr;
+        if (Java::AssignClass("net.minecraft.network.play.client.C03PacketPlayer", local)) {
+            c03Class_ = static_cast<jclass>(env->NewGlobalRef(local));
+            env->DeleteLocalRef(local);
+        }
+        if (env->ExceptionCheck())
+            env->ExceptionClear();
+    }
+    if (!c03Class_)
+        return;
+
+    if (env->ExceptionCheck())
+        env->ExceptionClear();
+    // Only flush right before a flying (movement) packet — C03PacketPlayer covers
+    // C03/C04/C05/C06. Firing the window-click here queues its C0E synchronously,
+    // so it reaches the wire ahead of this flying packet: vanilla ordering.
+    if (!env->IsInstanceOf(packet, c03Class_))
+        return;
+
+    const int slot = pendingClickSlot_;
+    pendingClickSlot_ = -1;
+    mc.windowClick(slot, 0);  // sends the real C0E click packet on window 0
+    if (env->ExceptionCheck())
+        env->ExceptionClear();
 }
 
 void AutoRefill::scanForRefills() {

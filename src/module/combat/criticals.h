@@ -20,8 +20,6 @@ public:
     //   NoGround - hold the onGround spoof for several ticks (basic/legacy AC).
     //   Hop      - very low real hop, minimal displacement.
     //   Smooth   - hop up then cancel next tick, near-zero net movement.
-    //   Grim     - real game jump() gated to on-ground; physics-valid, so
-    //              prediction anticheats (Grim) accept it. No ground spoof.
     //   NCP      - full jump gated strictly to on-ground (legit jump-crit).
     enum class Mode : int {
         Packet = 0,
@@ -30,8 +28,7 @@ public:
         NoGround = 3,
         Hop = 4,
         Smooth = 5,
-        Grim = 6,
-        NCP = 7,
+        NCP = 6,
     };
 
     struct Settings {

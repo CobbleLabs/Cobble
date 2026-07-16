@@ -30,6 +30,7 @@
 #include <cstdint>
 #include <limits>
 
+Clutch* scaffold = nullptr;
 Clutch* clutch = nullptr;
 
 namespace {
@@ -47,7 +48,6 @@ constexpr std::array<Direction, 6> kDirections = {
 
 // One tick of vanilla 1.8 player physics: advance by velocity, then apply air
 // drag (0.91 horizontal) and gravity (vertical -0.08, then 0.98 damping).
-// Shared by the void-danger prediction so it stays in sync with the visual path.
 inline void stepPhysics(double& x, double& y, double& z, double& mx, double& my, double& mz) {
     x += mx;
     y += my;
@@ -57,6 +57,7 @@ inline void stepPhysics(double& x, double& y, double& z, double& mx, double& my,
     my = (my - 0.08) * 0.98;
 }
 
+// C03PacketPlayer (flying) resolution — shared by both instances (file scope).
 jclass g_C03PacketPlayer = nullptr;
 jfieldID g_fid_yaw = nullptr;
 jfieldID g_fid_pitch = nullptr;
@@ -71,19 +72,19 @@ void resolveC03(JNIEnv* env) {
     if (Java::AssignClass("net.minecraft.network.play.client.C03PacketPlayer", localClass)) {
         g_C03PacketPlayer = (jclass)env->NewGlobalRef(localClass);
         env->DeleteLocalRef(localClass);
-        
+
         g_fid_yaw = env->GetFieldID(g_C03PacketPlayer, "yaw", "F");
         if (!g_fid_yaw) {
             env->ExceptionClear();
             g_fid_yaw = env->GetFieldID(g_C03PacketPlayer, "field_149476_e", "F");
         }
-        
+
         g_fid_pitch = env->GetFieldID(g_C03PacketPlayer, "pitch", "F");
         if (!g_fid_pitch) {
             env->ExceptionClear();
             g_fid_pitch = env->GetFieldID(g_C03PacketPlayer, "field_149473_f", "F");
         }
-        
+
         g_fid_rotating = env->GetFieldID(g_C03PacketPlayer, "rotating", "Z");
         if (!g_fid_rotating) {
             env->ExceptionClear();
@@ -95,21 +96,18 @@ void resolveC03(JNIEnv* env) {
 
 }  // namespace
 
-Clutch::Clutch() : Module("Clutch") {
+Clutch::Clutch(PlaceMode mode)
+    : Module(mode == PlaceMode::Clutch ? "Clutch" : "Scaffold"), placeMode_(mode) {
     renders = true;
     usesPlayerCache = true;
-    locked = true;  // Bloqueado: la mecánica se ve artificial/imposible por ahora
 }
 
 Clutch::~Clutch() {
     if (Java::Initialized) {
         JNIEnv* env = Java::Env();
-        if (env) {
-            if (g_C03PacketPlayer) {
-                env->DeleteGlobalRef(g_C03PacketPlayer);
-                g_C03PacketPlayer = nullptr;
-            }
-
+        if (env && g_C03PacketPlayer) {
+            env->DeleteGlobalRef(g_C03PacketPlayer);
+            g_C03PacketPlayer = nullptr;
         }
     }
 }
@@ -120,13 +118,15 @@ std::uint64_t Clutch::nowMs() {
 
 void Clutch::onEnable() {
     originalSlot_ = -1;
-    nextPlaceMs_ = 0;
     nextSearchMs_ = 0;
     activePlacement_ = {};
-    lastSetYaw_ = 0.0f;
-    lastSetPitch_ = 0.0f;
-    hasSilentRotation = false;
-    silentRotationSent_ = false;
+    lastPlaceMs_ = 0;
+    rotationShippedTicks_ = 0;
+    jitterToggle_ = false;
+    std::lock_guard<std::mutex> lock(targetMutex_);
+    haveTarget_ = false;
+    gatePlacement_ = {};
+    gateSlot_ = -1;
 }
 
 void Clutch::restoreSlot() {
@@ -137,13 +137,12 @@ void Clutch::restoreSlot() {
 
 void Clutch::resetPlacement() {
     activePlacement_ = {};
-    nextPlaceMs_ = 0;
     nextSearchMs_ = 0;
-    lastSetYaw_ = 0.0f;
-    lastSetPitch_ = 0.0f;
-    hasSilentRotation = false;
-    silentRotationSent_ = false;
-
+    {
+        std::lock_guard<std::mutex> lock(targetMutex_);
+        haveTarget_ = false;
+        gatePlacement_ = {};
+    }
     {
         std::lock_guard<std::mutex> lock(pathMutex_);
         cachedPlacement_ = {};
@@ -153,13 +152,9 @@ void Clutch::resetPlacement() {
 void Clutch::onDisable() {
     resetPlacement();
     restoreSlot();
-    hasSilentRotation = false;
-
-    {
-        std::lock_guard<std::mutex> lock(pathMutex_);
-        cachedPath_.clear();
-        cachedPlacement_ = {};
-    }
+    std::lock_guard<std::mutex> lock(pathMutex_);
+    cachedPath_.clear();
+    cachedPlacement_ = {};
 }
 
 bool Clutch::isPlaceableBlock(int id) {
@@ -230,15 +225,11 @@ bool Clutch::isPlaceableBlock(int id) {
 }
 
 int Clutch::findBlockSlot() const {
-    COBBLE_TRACE("Clutch::findBlockSlot enter");
     for (int slot = 0; slot < 9; ++slot) {
         int blockId = player.getItemInSlot(slot);
-        if (isPlaceableBlock(blockId)) {
-            COBBLE_TRACE("Clutch::findBlockSlot found placeable block");
+        if (isPlaceableBlock(blockId))
             return slot;
-        }
     }
-    COBBLE_TRACE("Clutch::findBlockSlot returns -1");
     return -1;
 }
 
@@ -248,11 +239,6 @@ float Clutch::wrapDegrees(float angle) {
     while (angle < -180.0f)
         angle += 360.0f;
     return angle;
-}
-
-float Clutch::approachAngle(float current, float target, float maxStep) {
-    const float delta = wrapDegrees(target - current);
-    return current + std::clamp(delta, -maxStep, maxStep);
 }
 
 bool Clutch::isDangerous(double predictedX, double predictedY, double predictedZ) const {
@@ -277,7 +263,6 @@ bool Clutch::isDangerous(double predictedX, double predictedY, double predictedZ
         for (double offsetZ : offsets) {
             const int x = static_cast<int>(std::floor(predictedX + offsetX));
             const int z = static_cast<int>(std::floor(predictedZ + offsetZ));
-            // Scan all the way down to Y=0 to detect void
             for (int y = footY; y >= 0; --y) {
                 if (mc.getBlockId(x, y, z) != 0) {
                     hasSupportAtLandingXZ = true;
@@ -289,10 +274,8 @@ bool Clutch::isDangerous(double predictedX, double predictedY, double predictedZ
         if (hasSupportAtLandingXZ) break;
     }
 
-    // Dangerous (falling into void) if there is no block support underneath
     return !hasSupportAtLandingXZ;
 }
-
 
 bool Clutch::isPlacementUsable(const Placement& placement) const {
     if (!placement.valid || mc.getBlockId(placement.targetX, placement.targetY, placement.targetZ) != 0)
@@ -347,7 +330,7 @@ Clutch::Placement Clutch::findPlacement(double predictedX, double predictedY, do
 
                         const double landingDx = (x + 0.5) - predictedX;
                         const double landingDz = (z + 0.5) - predictedZ;
-                        
+
                         double cameraPenalty = 0.0;
                         if (settings.cameraWeight) {
                             const double dxLook = hitX - eyeX;
@@ -355,7 +338,8 @@ Clutch::Placement Clutch::findPlacement(double predictedX, double predictedY, do
                             const double dzLook = hitZ - eyeZ;
                             const double horizontalLook = std::sqrt(dxLook * dxLook + dzLook * dzLook);
                             const float targetYaw = static_cast<float>(std::atan2(dzLook, dxLook) * 180.0 / kPi - 90.0);
-                            const float targetPitch = std::clamp(static_cast<float>(-std::atan2(dyLook, horizontalLook) * 180.0 / kPi), -90.0f, 90.0f);
+                            const float targetPitch = std::clamp(
+                                static_cast<float>(-std::atan2(dyLook, horizontalLook) * 180.0 / kPi), -90.0f, 90.0f);
                             const float yawDiff = std::abs(wrapDegrees(targetYaw - player.getYaw()));
                             const float pitchDiff = std::abs(wrapDegrees(targetPitch - player.getPitch()));
                             cameraPenalty = (yawDiff * yawDiff + pitchDiff * pitchDiff) * 0.0005;
@@ -376,218 +360,125 @@ Clutch::Placement Clutch::findPlacement(double predictedX, double predictedY, do
     return best;
 }
 
-bool Clutch::place(const Placement& placement, int slot) {
-    if (!isPlacementUsable(placement))
+bool Clutch::fireSilentPlace(JNIEnv* env, const Placement& p, int slot, float aimYaw, float aimPitch) {
+    (void)env;
+    if (!isPlacementUsable(p))
         return false;
 
-    const double eyeX = player.getPosX();
-    const double eyeY = player.getPosY() + 1.62;
-    const double eyeZ = player.getPosZ();
-    const double dx = placement.hitX - eyeX;
-    const double dy = placement.hitY - eyeY;
-    const double dz = placement.hitZ - eyeZ;
-    const double horizontal = std::sqrt(dx * dx + dz * dz);
-    const float targetYaw = static_cast<float>(std::atan2(dz, dx) * 180.0 / kPi - 90.0);
-    const float targetPitch =
-        std::clamp(static_cast<float>(-std::atan2(dy, horizontal) * 180.0 / kPi), -90.0f, 90.0f);
+    std::lock_guard<std::recursive_mutex> playerLock(player.instanceMutex);
+    const float originalYaw = player.getYaw();
+    const float originalPitch = player.getPitch();
 
-    if (settings.silentLook) {
-        // Lock player instance mutex to avoid state/reference desync
-        std::lock_guard<std::recursive_mutex> playerLock(player.instanceMutex);
+    // Scaffold keeps the real yaw (it bridges where you look, so the block already
+    // sits along your facing) and only aims pitch — the yaw we send stays equal to
+    // the movement direction the server simulates, so nothing desyncs. Clutch aims
+    // both axes because its save block can be off to the side.
+    const float useYaw = isClutch() ? aimYaw : originalYaw;
 
-        // Save original rotation
-        const float originalYaw = player.getYaw();
-        const float originalPitch = player.getPitch();
+    player.setYaw(useYaw);
+    player.setPitch(std::clamp(aimPitch, -90.0f, 90.0f));
+    mc.updateMouseOver();
 
-        // Quantize the placement aim onto the client's mouse-movement grid.
-        // Raw atan2 angles are arbitrary floats; a real mouse can only ever
-        // produce rotation deltas that are integer multiples of the GCD
-        // (= (sensitivity*0.6+0.2)^3 * 1.2). The server's AimModulo360 check
-        // flags any packet whose yaw/pitch delta from the previous one isn't a
-        // multiple of that GCD — which is exactly why the old raw silent aim
-        // tripped it and the server rejected the placement (ghost blocks).
-        // Quantizing relative to the player's real current rotation keeps both
-        // this injected delta AND the player's later real-mouse deltas on the
-        // same grid, so the whole sequence stays valid.
-        float quantYaw = targetYaw;
-        float quantPitch = targetPitch;
-        const float sensitivity = mc.getMouseSensitivity();
-        const float gcdFactor = sensitivity * 0.6f + 0.2f;
-        const float gcd = gcdFactor * gcdFactor * gcdFactor * 1.2f;
-        if (gcd > 0.0001f) {
-            const float diffYaw = wrapDegrees(targetYaw - originalYaw);
-            const float diffPitch = wrapDegrees(targetPitch - originalPitch);
-            quantYaw = originalYaw + std::round(diffYaw / gcd) * gcd;
-            quantPitch = originalPitch + std::round(diffPitch / gcd) * gcd;
-        }
-        quantPitch = std::clamp(quantPitch, -90.0f, 90.0f);
-
-        // Stage and ARM the silent rotation. From here until the danger passes
-        // (resetPlacement disarms it), every NATURAL outgoing movement packet has
-        // its yaw/pitch rewritten to this aim in onOutgoingPacket. We do NOT emit
-        // a separate C05PacketPlayerLook: that extra flying packet is a second
-        // rotation packet in the same tick and is exactly what trips the server's
-        // BadPackets (duplicate / order) checks. Riding the natural packet keeps
-        // us at one flying packet per tick, like vanilla.
-        silentYaw = quantYaw;
-        silentPitch = quantPitch;
-        hasSilentRotation = true;
-
-        // Drive the local raycast with the SAME quantized rotation we will send,
-        // so the client-side hit test matches what the server validates.
-        player.setYaw(quantYaw);
-        player.setPitch(quantPitch);
-
-        // Update raytrace
-        mc.updateMouseOver();
-
-        bool placed = false;
-        const Minecraft::Vec3 targeted = mc.getTargetedBlockPos();
-        if (static_cast<int>(std::floor(targeted.x)) == placement.supportX &&
-            static_cast<int>(std::floor(targeted.y)) == placement.supportY &&
-            static_cast<int>(std::floor(targeted.z)) == placement.supportZ) {
-
-            // Only fire the placement once a real movement packet has actually
-            // carried the silent aim to the server. The server validates the C08
-            // block-placement packet (InteractionRaytrace) against the LAST
-            // rotation it received, so right-clicking before any flying packet
-            // has shipped the aim gets the placement rejected and the block
-            // rolled back (the ghost-block symptom). silentRotationSent_ is set
-            // in onOutgoingPacket when the rewrite first lands; until then we
-            // keep the aim armed and simply wait a tick — no extra packet.
-            if (silentRotationSent_) {
-                if (originalSlot_ < 0)
-                    originalSlot_ = player.getCurrentSlot();
-                if (player.getCurrentSlot() != slot)
-                    player.setCurrentSlot(slot);
-
-                mc.setRightClickDelay(0);
-                mc.rightClickMouse();
-                placed = true;
-            }
-        }
-
-        // Restore visual client rotation immediately
-        player.setYaw(originalYaw);
-        player.setPitch(originalPitch);
-
-        // Restore original targeted block raycast
-        mc.updateMouseOver();
-
-        return placed;
-    }
-
-    const float currentYaw = player.getYaw();
-    const float currentPitch = player.getPitch();
-    const std::uint64_t now = nowMs();
-    const float variation = static_cast<float>((now / 17u) % 7u) * 0.18f;
-
-    float nextYaw = currentYaw;
-    float nextPitch = currentPitch;
-
-    if (settings.smoothRotation) {
-        float mouseDeltaYaw = 0.0f;
-        float mouseDeltaPitch = 0.0f;
-        if (lastSetYaw_ != 0.0f || lastSetPitch_ != 0.0f) {
-            mouseDeltaYaw = wrapDegrees(currentYaw - lastSetYaw_);
-            mouseDeltaPitch = wrapDegrees(currentPitch - lastSetPitch_);
-        }
-
-        float startYaw = currentYaw;
-        float startPitch = currentPitch;
-
-        float stepYaw = settings.rotationSpeed + variation;
-        float stepPitch = (settings.rotationSpeed * 0.7f) + (variation * 0.65f);
-
-        nextYaw = approachAngle(startYaw, targetYaw, stepYaw);
-        nextPitch = approachAngle(startPitch, targetPitch, stepPitch);
-
-        float sensitivity = mc.getMouseSensitivity();
-        float f = sensitivity * 0.6f + 0.2f;
-        float gcd = f * f * f * 1.2f;
-
-        if (gcd > 0.0001f) {
-            float diffYaw = wrapDegrees(nextYaw - startYaw);
-            float diffPitch = wrapDegrees(nextPitch - startPitch);
-
-            float quantizedDiffYaw = std::round(diffYaw / gcd) * gcd;
-            float quantizedDiffPitch = std::round(diffPitch / gcd) * gcd;
-
-            nextYaw = startYaw + quantizedDiffYaw;
-            nextPitch = startPitch + quantizedDiffPitch;
-        }
-
-        lastSetYaw_ = nextYaw;
-        lastSetPitch_ = nextPitch;
-    } else {
-        nextYaw = approachAngle(currentYaw, targetYaw, 9.5f + variation);
-        nextPitch = approachAngle(currentPitch, targetPitch, 7.0f + variation * 0.65f);
-        lastSetYaw_ = nextYaw;
-        lastSetPitch_ = nextPitch;
-    }
-
-    player.setPrevYaw(currentYaw);
-    player.setPrevPitch(currentPitch);
-    player.setYaw(nextYaw);
-    player.setPitch(std::clamp(nextPitch, -90.0f, 90.0f));
-
-    const float remainingYaw = std::abs(wrapDegrees(targetYaw - nextYaw));
-    const float remainingPitch = std::abs(wrapDegrees(targetPitch - nextPitch));
-
-    float toleranceYaw = settings.smoothRotation ? 4.5f : 3.25f;
-    float tolerancePitch = settings.smoothRotation ? 3.5f : 2.75f;
-
-    if (remainingYaw > toleranceYaw || remainingPitch > tolerancePitch)
-        return false;
-
-    if (originalSlot_ < 0)
-        originalSlot_ = player.getCurrentSlot();
-    if (player.getCurrentSlot() != slot)
-        player.setCurrentSlot(slot);
-
-    COBBLE_TRACE("Clutch::place checking mouse over");
+    bool placed = false;
     const Minecraft::Vec3 targeted = mc.getTargetedBlockPos();
-    if (static_cast<int>(std::floor(targeted.x)) != placement.supportX ||
-        static_cast<int>(std::floor(targeted.y)) != placement.supportY ||
-        static_cast<int>(std::floor(targeted.z)) != placement.supportZ) {
-        COBBLE_TRACE("Clutch::place target block mismatch");
-        return false;
+    if (static_cast<int>(std::floor(targeted.x)) == p.supportX &&
+        static_cast<int>(std::floor(targeted.y)) == p.supportY &&
+        static_cast<int>(std::floor(targeted.z)) == p.supportZ) {
+        if (originalSlot_ < 0)
+            originalSlot_ = player.getCurrentSlot();
+        if (player.getCurrentSlot() != slot)
+            player.setCurrentSlot(slot);
+
+        mc.setRightClickDelay(0);
+        mc.rightClickMouse();
+        placed = true;
     }
 
-
-
-    COBBLE_TRACE("Clutch::place sending right click");
-    // Drive the game's own right-click action instead of injecting OS-level mouse
-    // messages. The synthetic WM_RBUTTONDOWN/UP was unreliable (silently dropped
-    // whenever the window lacked foreground focus) and an obvious, easily-detected
-    // input pattern. rightClickMouse() runs the same path a real click would.
-    mc.setRightClickDelay(0);
-    mc.rightClickMouse();
-    COBBLE_TRACE("Clutch::place right click sent");
-    return true;
+    // Restore the real view immediately so nothing is visible client-side.
+    player.setYaw(originalYaw);
+    player.setPitch(originalPitch);
+    mc.updateMouseOver();
+    return placed;
 }
 
 void Clutch::onOutgoingPacket(JNIEnv* env, jobject packet) {
-    if (!enabled)
+    if (!enabled || !env || !packet)
         return;
 
-    if (settings.silentLook && hasSilentRotation) {
-        resolveC03(env);
-        if (g_C03PacketPlayer && env->IsInstanceOf(packet, g_C03PacketPlayer)) {
-            if (g_fid_yaw) env->SetFloatField(packet, g_fid_yaw, silentYaw);
-            if (g_fid_pitch) env->SetFloatField(packet, g_fid_pitch, silentPitch);
-            if (g_fid_rotating) env->SetBooleanField(packet, g_fid_rotating, JNI_TRUE);
+    Placement p;
+    int slot;
+    {
+        std::lock_guard<std::mutex> lock(targetMutex_);
+        if (!haveTarget_) {
+            rotationShippedTicks_ = 0;
+            return;
+        }
+        p = gatePlacement_;
+        slot = gateSlot_;
+    }
 
-            if (env->ExceptionCheck()) env->ExceptionClear();
+    resolveC03(env);
+    if (env->ExceptionCheck()) env->ExceptionClear();
+    if (!g_C03PacketPlayer || !env->IsInstanceOf(packet, g_C03PacketPlayer))
+        return;
 
-            // A real movement packet has now carried the placement aim to the
-            // server, so place() may right-click. Do NOT disarm hasSilentRotation
-            // here: keep rewriting every flying packet for the whole clutch
-            // window (resetPlacement disarms when danger passes) so the server's
-            // last-seen rotation is always the placement aim when the C08 lands.
-            silentRotationSent_ = true;
+    // Recompute the aim from the current eye position so it stays fresh even though
+    // the placement was found a couple of ms earlier on the background thread.
+    const double eyeX = player.getPosX();
+    const double eyeY = player.getPosY() + 1.62;
+    const double eyeZ = player.getPosZ();
+    const double dx = p.hitX - eyeX;
+    const double dy = p.hitY - eyeY;
+    const double dz = p.hitZ - eyeZ;
+    const double horiz = std::sqrt(dx * dx + dz * dz);
+    const float aimYaw = static_cast<float>(std::atan2(dz, dx) * 180.0 / kPi - 90.0);
+    const float aimPitch = std::clamp(static_cast<float>(-std::atan2(dy, horiz) * 180.0 / kPi), -90.0f, 90.0f);
+
+    const float realYaw = player.getYaw();
+    const float realPitch = player.getPitch();
+
+    // Quantize the aim onto the client's mouse GCD grid relative to the real
+    // rotation, so the deltas we send are ones a real mouse could produce
+    // (AimModulo360-safe). Scaffold keeps yaw real; clutch quantizes it too.
+    const float sensitivity = mc.getMouseSensitivity();
+    const float gf = sensitivity * 0.6f + 0.2f;
+    const float gcd = gf * gf * gf * 1.2f;
+    float sendPitch = aimPitch;
+    float sendYaw = isClutch() ? aimYaw : realYaw;
+    if (gcd > 0.0001f) {
+        const float dpitch = wrapDegrees(aimPitch - realPitch);
+        sendPitch = realPitch + std::round(dpitch / gcd) * gcd;
+        if (isClutch()) {
+            const float dyaw = wrapDegrees(aimYaw - realYaw);
+            sendYaw = realYaw + std::round(dyaw / gcd) * gcd;
+        }
+        // ±1 GCD micro-jitter, alternating each packet: guarantees consecutive sent
+        // rotations are never identical (defeats Grim's AimDuplicate) while staying
+        // a valid on-grid delta.
+        jitterToggle_ = !jitterToggle_;
+        sendPitch += jitterToggle_ ? gcd : -gcd;
+    }
+    sendPitch = std::clamp(sendPitch, -90.0f, 90.0f);
+
+    // Fire the placement only after the aim has ridden at least one prior flying
+    // packet, so the server already holds this rotation when it validates the
+    // block-place packet — which we send now, BEFORE this flying packet reaches the
+    // wire (vanilla action-before-flying order → no Grim Post).
+    const std::uint64_t now = nowMs();
+    const std::uint64_t delay = static_cast<std::uint64_t>(std::clamp(settings.placeDelayMs, 30, 200));
+    if (rotationShippedTicks_ >= 1 && now - lastPlaceMs_ >= delay) {
+        if (fireSilentPlace(env, p, slot, sendYaw, sendPitch)) {
+            lastPlaceMs_ = now;
+            std::lock_guard<std::mutex> lock(targetMutex_);
+            haveTarget_ = false;  // consume; onUpdate re-arms next tick if still needed
         }
     }
+
+    if (g_fid_pitch) env->SetFloatField(packet, g_fid_pitch, sendPitch);
+    if (g_fid_yaw) env->SetFloatField(packet, g_fid_yaw, sendYaw);
+    if (g_fid_rotating) env->SetBooleanField(packet, g_fid_rotating, JNI_TRUE);
+    if (env->ExceptionCheck()) env->ExceptionClear();
+    rotationShippedTicks_++;
 }
 
 void Clutch::onUpdate() {
@@ -595,12 +486,8 @@ void Clutch::onUpdate() {
 
     if (!enabled)
         return;
-    COBBLE_TRACE("Clutch::onUpdate enabled");
-
-
 
     if (Menu::isOpen || mc.isInGui() || !player.isValid()) {
-        COBBLE_TRACE("Clutch::onUpdate inactive menu/gui/player invalid");
         resetPlacement();
         restoreSlot();
         std::lock_guard<std::mutex> lock(pathMutex_);
@@ -649,10 +536,6 @@ void Clutch::onUpdate() {
         double relZ = 0.0;
 
         PathPoint startPt;
-        startPt.relX = 0.0;
-        startPt.relY = 0.0;
-        startPt.relZ = 0.0;
-        startPt.hitBlock = false;
         path.push_back(startPt);
 
         for (int step = 0; step < 40; ++step) {
@@ -678,13 +561,11 @@ void Clutch::onUpdate() {
             int checkY = static_cast<int>(std::floor(currentY + relY));
             int checkZ = static_cast<int>(std::floor(currentZ + relZ));
 
-            if (checkY < 0) {
+            if (checkY < 0)
                 break;
-            }
             if (mc.getBlockId(checkX, checkY, checkZ) != 0) {
-                if (!path.empty()) {
+                if (!path.empty())
                     path.back().hitBlock = true;
-                }
                 break;
             }
         }
@@ -697,16 +578,13 @@ void Clutch::onUpdate() {
         cachedPath_.clear();
     }
 
-    COBBLE_TRACE("Clutch::onUpdate before findBlockSlot");
     const int slot = findBlockSlot();
     if (slot < 0) {
-        COBBLE_TRACE("Clutch::onUpdate block slot invalid");
         resetPlacement();
         restoreSlot();
         return;
     }
 
-    COBBLE_TRACE("Clutch::onUpdate getting coordinates");
     double x = player.getPosX();
     double y = player.getPosY();
     double z = player.getPosZ();
@@ -714,86 +592,67 @@ void Clutch::onUpdate() {
     double motionY = player.getMotionY();
     double motionZ = player.getMotionZ();
 
-    if (std::isnan(x) || std::isnan(y) || std::isnan(z) ||
-        std::isnan(motionX) || std::isnan(motionY) || std::isnan(motionZ) ||
-        std::isinf(x) || std::isinf(y) || std::isinf(z) ||
-        std::isinf(motionX) || std::isinf(motionY) || std::isinf(motionZ)) {
-        COBBLE_TRACE("Clutch::onUpdate nan/inf detected");
-        resetPlacement();
-        restoreSlot();
-        return;
-    }
-    COBBLE_TRACE("Clutch::onUpdate computing prediction");
-    const int ticks = std::clamp((settings.predictionMs + 49) / 50, 2, 12);
-    for (int tick = 0; tick < ticks; ++tick)
-        stepPhysics(x, y, z, motionX, motionY, motionZ);
-
-    COBBLE_TRACE("Clutch::onUpdate before isDangerous");
-    if (!isDangerous(x, y, z)) {
-        COBBLE_TRACE("Clutch::onUpdate not dangerous");
+    if (std::isnan(x) || std::isnan(y) || std::isnan(z) || std::isnan(motionX) || std::isnan(motionY) ||
+        std::isnan(motionZ) || std::isinf(x) || std::isinf(y) || std::isinf(z) || std::isinf(motionX) ||
+        std::isinf(motionY) || std::isinf(motionZ)) {
         resetPlacement();
         restoreSlot();
         return;
     }
 
-    COBBLE_TRACE("Clutch::onUpdate before findPlacement");
+    // Decide WHERE and WHETHER to place, per the module variant.
+    double targetX = x, targetY = y, targetZ = z;
+    bool needPlacement;
+    if (!isClutch()) {
+        // Scaffold: bridge in the direction we're LOOKING so the block always sits
+        // along our real yaw (lets us aim it with pitch only — see fireSilentPlace).
+        const double aheadDist = std::clamp(settings.scaffoldLead, 0.4f, 1.6f);
+        const double yawRad = static_cast<double>(player.getYaw()) * kPi / 180.0;
+        const double dirX = -std::sin(yawRad);
+        const double dirZ = std::cos(yawRad);
+        targetX = x + dirX * aheadDist;
+        targetZ = z + dirZ * aheadDist;
+        const int footY = static_cast<int>(std::floor(y)) - 1;
+        needPlacement = footY >= 0 && mc.getBlockId(static_cast<int>(std::floor(targetX)), footY,
+                                                    static_cast<int>(std::floor(targetZ))) == 0;
+    } else {
+        const int ticks = std::clamp((settings.predictionMs + 49) / 50, 2, 12);
+        for (int tick = 0; tick < ticks; ++tick)
+            stepPhysics(targetX, targetY, targetZ, motionX, motionY, motionZ);
+        needPlacement = isDangerous(targetX, targetY, targetZ);
+    }
+
+    if (!needPlacement) {
+        resetPlacement();
+        restoreSlot();
+        return;
+    }
+
     if (!isPlacementUsable(activePlacement_)) {
         const std::uint64_t now = nowMs();
         if (now >= nextSearchMs_) {
-            // Primary: a block under the predicted landing spot.
-            activePlacement_ = findPlacement(x, y, z);
-            // Emergency: if nothing reachable was found near the predicted landing
-            // — which sits far below you when falling fast or straight down — look
-            // for any reachable block around the player's CURRENT position. This is
-            // the "slap a block under your feet right now" save that catches ledge
-            // missteps the look-ahead search keeps out of reach.
+            activePlacement_ = findPlacement(targetX, targetY, targetZ);
             if (!activePlacement_.valid)
                 activePlacement_ = findPlacement(player.getPosX(), player.getPosY(), player.getPosZ());
             nextSearchMs_ = activePlacement_.valid ? 0 : now + 50u;
         }
     }
+
     {
         std::lock_guard<std::mutex> lock(pathMutex_);
         cachedPlacement_ = activePlacement_;
     }
-    if (!activePlacement_.valid) {
-        COBBLE_TRACE("Clutch::onUpdate placement invalid");
-        return;
-    }
 
-    COBBLE_TRACE("Clutch::onUpdate checking nextPlaceMs_");
-    const std::uint64_t now = nowMs();
-    // Attempt the first save the instant danger is detected. The Place Delay used
-    // to run BEFORE the first attempt, so while already falling into the void you
-    // burned 40-200ms doing nothing — often the difference between clutching and
-    // dying. nextPlaceMs_ is 0 here on a fresh danger episode (resetPlacement()
-    // clears it), so the first attempt fires immediately; the delay only throttles
-    // BETWEEN placements once nextPlaceMs_ is set after a successful place() below.
-    if (now < nextPlaceMs_) {
-        COBBLE_TRACE("Clutch::onUpdate waiting nextPlaceMs");
-        return;
-    }
-
-    COBBLE_TRACE("Clutch::onUpdate calling place");
-    if (place(activePlacement_, slot)) {
-        COBBLE_TRACE("Clutch::onUpdate place success");
-        activePlacement_ = {};
-        {
-            std::lock_guard<std::mutex> lock(pathMutex_);
-            cachedPlacement_ = {};
+    // Hand the placement to the packet gate (or clear it).
+    {
+        std::lock_guard<std::mutex> lock(targetMutex_);
+        if (activePlacement_.valid) {
+            gatePlacement_ = activePlacement_;
+            gateSlot_ = slot;
+            haveTarget_ = true;
+        } else {
+            haveTarget_ = false;
         }
-        const int baseDelay = std::clamp(settings.placeDelayMs, 40, 200);
-        const int jitter = static_cast<int>(((now >> 3u) ^ now) % 37u) - 10;
-        nextPlaceMs_ = now + static_cast<std::uint64_t>(std::max(30, baseDelay + jitter));
-    } else {
-        COBBLE_TRACE("Clutch::onUpdate place failure");
-        // Throttle failed attempts. onUpdate runs every ~2ms, so without a
-        // cooldown a placement that keeps missing (raytrace not lined up yet,
-        // rotation still converging) re-ran place() ~500x/second — hammering
-        // the raytrace and, on the old explicit-look path, flooding outgoing
-        // packets. A short delay keeps the save responsive (~30 tries/sec)
-        // while the danger window (hundreds of ms) stays comfortably covered.
-        nextPlaceMs_ = now + 30u;
     }
 }
 
@@ -845,8 +704,10 @@ void Clutch::onRender() {
         float x = (static_cast<float>(RenderData::screenWidth) - textSize.x) / 2.0f;
         float y = static_cast<float>(RenderData::screenHeight) / 2.0f + 60.0f;
 
-        draw->AddRectFilled({x - 12.0f, y - 6.0f}, {x + textSize.x + 12.0f, y + textSize.y + 6.0f}, IM_COL32(20, 20, 20, 160), 6.0f);
-        draw->AddRect({x - 12.0f, y - 6.0f}, {x + textSize.x + 12.0f, y + textSize.y + 6.0f}, IM_COL32(255, 255, 255, 30), 6.0f, ImDrawFlags_None, 1.0f);
+        draw->AddRectFilled({x - 12.0f, y - 6.0f}, {x + textSize.x + 12.0f, y + textSize.y + 6.0f},
+                            IM_COL32(20, 20, 20, 160), 6.0f);
+        draw->AddRect({x - 12.0f, y - 6.0f}, {x + textSize.x + 12.0f, y + textSize.y + 6.0f},
+                      IM_COL32(255, 255, 255, 30), 6.0f, ImDrawFlags_None, 1.0f);
 
         ImU32 textColor = IM_COL32(255, 255, 255, 240);
         if (verticalSpeed < -5.0) {
@@ -866,11 +727,8 @@ void Clutch::onRender() {
             double worldY = interpY + point.relY;
             double worldZ = interpZ + point.relZ;
 
-            Vector3 cameraRelPos{
-                static_cast<float>(worldX - renderX),
-                static_cast<float>(worldY - renderY),
-                static_cast<float>(worldZ - renderZ)
-            };
+            Vector3 cameraRelPos{static_cast<float>(worldX - renderX), static_cast<float>(worldY - renderY),
+                                 static_cast<float>(worldZ - renderZ)};
 
             Vector2 screenPos;
             bool visible = CWorldToScreen::WorldToScreen(cameraRelPos, RenderData::modelView, RenderData::projection,
@@ -881,8 +739,10 @@ void Clutch::onRender() {
         }
 
         if (screenPoints.size() >= 2) {
-            draw->AddPolyline(screenPoints.data(), static_cast<int>(screenPoints.size()), IM_COL32(0, 0, 0, 180), ImDrawFlags_None, 3.5f);
-            draw->AddPolyline(screenPoints.data(), static_cast<int>(screenPoints.size()), IM_COL32(0, 191, 255, 220), ImDrawFlags_None, 1.5f);
+            draw->AddPolyline(screenPoints.data(), static_cast<int>(screenPoints.size()), IM_COL32(0, 0, 0, 180),
+                              ImDrawFlags_None, 3.5f);
+            draw->AddPolyline(screenPoints.data(), static_cast<int>(screenPoints.size()), IM_COL32(0, 191, 255, 220),
+                              ImDrawFlags_None, 1.5f);
         }
     }
 
@@ -898,17 +758,16 @@ void Clutch::onRender() {
         float maxY = minY + 1.0f;
         float maxZ = minZ + 1.0f;
 
-        Vector3 corners[8] = {
-            {minX, minY, minZ}, {maxX, minY, minZ}, {maxX, minY, maxZ}, {minX, minY, maxZ},
-            {minX, maxY, minZ}, {maxX, maxY, minZ}, {maxX, maxY, maxZ}, {minX, maxY, maxZ}
-        };
+        Vector3 corners[8] = {{minX, minY, minZ}, {maxX, minY, minZ}, {maxX, minY, maxZ}, {minX, minY, maxZ},
+                              {minX, maxY, minZ}, {maxX, maxY, minZ}, {maxX, maxY, maxZ}, {minX, maxY, maxZ}};
 
         Vector2 screenCorners[8];
         bool visible[8];
         int visibleCount = 0;
         for (int i = 0; i < 8; ++i) {
             visible[i] = CWorldToScreen::WorldToScreen(corners[i], RenderData::modelView, RenderData::projection,
-                                                       RenderData::screenWidth, RenderData::screenHeight, screenCorners[i]);
+                                                       RenderData::screenWidth, RenderData::screenHeight,
+                                                       screenCorners[i]);
             if (visible[i]) visibleCount++;
         }
 
@@ -917,35 +776,38 @@ void Clutch::onRender() {
             ImU32 outlineColor = IM_COL32(0, 191, 255, 220);
 
             if (visible[0] && visible[1] && visible[2] && visible[3]) {
-                ImVec2 pts[4] = {{screenCorners[0].x, screenCorners[0].y}, {screenCorners[1].x, screenCorners[1].y}, {screenCorners[2].x, screenCorners[2].y}, {screenCorners[3].x, screenCorners[3].y}};
+                ImVec2 pts[4] = {{screenCorners[0].x, screenCorners[0].y}, {screenCorners[1].x, screenCorners[1].y},
+                                 {screenCorners[2].x, screenCorners[2].y}, {screenCorners[3].x, screenCorners[3].y}};
                 draw->AddConvexPolyFilled(pts, 4, faceColor);
             }
             if (visible[4] && visible[5] && visible[6] && visible[7]) {
-                ImVec2 pts[4] = {{screenCorners[4].x, screenCorners[4].y}, {screenCorners[5].x, screenCorners[5].y}, {screenCorners[6].x, screenCorners[6].y}, {screenCorners[7].x, screenCorners[7].y}};
+                ImVec2 pts[4] = {{screenCorners[4].x, screenCorners[4].y}, {screenCorners[5].x, screenCorners[5].y},
+                                 {screenCorners[6].x, screenCorners[6].y}, {screenCorners[7].x, screenCorners[7].y}};
                 draw->AddConvexPolyFilled(pts, 4, faceColor);
             }
             if (visible[2] && visible[3] && visible[7] && visible[6]) {
-                ImVec2 pts[4] = {{screenCorners[2].x, screenCorners[2].y}, {screenCorners[3].x, screenCorners[3].y}, {screenCorners[7].x, screenCorners[7].y}, {screenCorners[6].x, screenCorners[6].y}};
+                ImVec2 pts[4] = {{screenCorners[2].x, screenCorners[2].y}, {screenCorners[3].x, screenCorners[3].y},
+                                 {screenCorners[7].x, screenCorners[7].y}, {screenCorners[6].x, screenCorners[6].y}};
                 draw->AddConvexPolyFilled(pts, 4, faceColor);
             }
             if (visible[0] && visible[1] && visible[5] && visible[4]) {
-                ImVec2 pts[4] = {{screenCorners[0].x, screenCorners[0].y}, {screenCorners[1].x, screenCorners[1].y}, {screenCorners[5].x, screenCorners[5].y}, {screenCorners[4].x, screenCorners[4].y}};
+                ImVec2 pts[4] = {{screenCorners[0].x, screenCorners[0].y}, {screenCorners[1].x, screenCorners[1].y},
+                                 {screenCorners[5].x, screenCorners[5].y}, {screenCorners[4].x, screenCorners[4].y}};
                 draw->AddConvexPolyFilled(pts, 4, faceColor);
             }
             if (visible[0] && visible[3] && visible[7] && visible[4]) {
-                ImVec2 pts[4] = {{screenCorners[0].x, screenCorners[0].y}, {screenCorners[3].x, screenCorners[3].y}, {screenCorners[7].x, screenCorners[7].y}, {screenCorners[4].x, screenCorners[4].y}};
+                ImVec2 pts[4] = {{screenCorners[0].x, screenCorners[0].y}, {screenCorners[3].x, screenCorners[3].y},
+                                 {screenCorners[7].x, screenCorners[7].y}, {screenCorners[4].x, screenCorners[4].y}};
                 draw->AddConvexPolyFilled(pts, 4, faceColor);
             }
             if (visible[1] && visible[2] && visible[6] && visible[5]) {
-                ImVec2 pts[4] = {{screenCorners[1].x, screenCorners[1].y}, {screenCorners[2].x, screenCorners[2].y}, {screenCorners[6].x, screenCorners[6].y}, {screenCorners[5].x, screenCorners[5].y}};
+                ImVec2 pts[4] = {{screenCorners[1].x, screenCorners[1].y}, {screenCorners[2].x, screenCorners[2].y},
+                                 {screenCorners[6].x, screenCorners[6].y}, {screenCorners[5].x, screenCorners[5].y}};
                 draw->AddConvexPolyFilled(pts, 4, faceColor);
             }
 
-            static constexpr int edges[12][2] = {
-                {0, 1}, {1, 2}, {2, 3}, {3, 0},
-                {4, 5}, {5, 6}, {6, 7}, {7, 4},
-                {0, 4}, {1, 5}, {2, 6}, {3, 7}
-            };
+            static constexpr int edges[12][2] = {{0, 1}, {1, 2}, {2, 3}, {3, 0}, {4, 5}, {5, 6},
+                                                 {6, 7}, {7, 4}, {0, 4}, {1, 5}, {2, 6}, {3, 7}};
             for (const auto& edge : edges) {
                 if (visible[edge[0]] && visible[edge[1]]) {
                     draw->AddLine({screenCorners[edge[0]].x, screenCorners[edge[0]].y},
@@ -959,30 +821,29 @@ void Clutch::onRender() {
 void Clutch::onRenderMenu() {
     bool enabledValue = enabled;
     ui::two_column(
-        "Prediction & Camera",
+        isClutch() ? "Clutch" : "Scaffold",
         [this, &enabledValue]() {
             if (ui::CheckboxBind("Enabled", &enabledValue, &keybind)) {
                 if (enabledValue != enabled) {
                     setEnabled(enabledValue);
                 }
             }
-            ui::SliderInt("Prediction Time", &settings.predictionMs, 100, 600, "%d ms");
-            ui::SliderInt("Search Radius", &settings.searchRadius, 2, 8, "%d blocks");
-            ui::Checkbox("Camera-Weighted Search", &settings.cameraWeight);
-            ui::Checkbox("Silent Look", &settings.silentLook);
-            if (!settings.silentLook) {
-                ui::Checkbox("Smooth Rotations", &settings.smoothRotation);
-                if (settings.smoothRotation) {
-                    ui::SliderFloat("Rotation Speed", &settings.rotationSpeed, 5.0f, 45.0f, "%.1f deg");
-                }
+            ImGui::Spacing();
+
+            if (!isClutch()) {
+                ui::SliderFloat("Bridge Reach", &settings.scaffoldLead, 0.4f, 1.6f, "%.1f blocks");
+            } else {
+                ui::SliderInt("Prediction Time", &settings.predictionMs, 100, 600, "%d ms");
+                ui::SliderInt("Search Radius", &settings.searchRadius, 2, 8, "%d blocks");
+                ui::Checkbox("Allow Forward", &settings.allowForward);
             }
+            ui::Checkbox("Camera-Weighted Search", &settings.cameraWeight);
         },
         "Placement & HUD",
         [this]() {
             ui::SliderFloat("Reach", &settings.reach, 3.0f, 4.5f, "%.1f blocks");
-            ui::SliderInt("Place Delay", &settings.placeDelayMs, 40, 200, "%d ms");
+            ui::SliderInt("Place Delay", &settings.placeDelayMs, 30, 200, "%d ms");
             ui::Checkbox("Switch Back", &settings.restoreSlot);
-            ui::Checkbox("Allow Forward", &settings.allowForward);
             ui::Checkbox("Show Speed HUD", &settings.showBps);
             ui::Checkbox("Show Visual Path", &settings.showPath);
             ui::Checkbox("Show Block Preview", &settings.showPlacement);
@@ -990,33 +851,29 @@ void Clutch::onRenderMenu() {
 }
 
 void Clutch::saveSettings(json::Value& node) const {
+    node["scaffoldLead"] = settings.scaffoldLead;
     node["predictionMs"] = settings.predictionMs;
     node["searchRadius"] = settings.searchRadius;
+    node["allowForward"] = settings.allowForward;
     node["reach"] = settings.reach;
     node["placeDelayMs"] = settings.placeDelayMs;
     node["restoreSlot"] = settings.restoreSlot;
-    node["allowForward"] = settings.allowForward;
+    node["cameraWeight"] = settings.cameraWeight;
     node["showBps"] = settings.showBps;
     node["showPath"] = settings.showPath;
     node["showPlacement"] = settings.showPlacement;
-    node["cameraWeight"] = settings.cameraWeight;
-    node["smoothRotation"] = settings.smoothRotation;
-    node["rotationSpeed"] = settings.rotationSpeed;
-    node["silentLook"] = settings.silentLook;
 }
 
 void Clutch::loadSettings(const json::Value& node) {
+    settings.scaffoldLead = (std::clamp)(node["scaffoldLead"].as_float(settings.scaffoldLead), 0.4f, 1.6f);
     settings.predictionMs = (std::clamp)(node["predictionMs"].as_int(settings.predictionMs), 100, 600);
     settings.searchRadius = (std::clamp)(node["searchRadius"].as_int(settings.searchRadius), 2, 8);
-    settings.reach = (std::clamp)(node["reach"].as_float(settings.reach), 3.0f, 4.5f);
-    settings.placeDelayMs = (std::clamp)(node["placeDelayMs"].as_int(settings.placeDelayMs), 40, 200);
-    settings.restoreSlot = node["restoreSlot"].as_bool(settings.restoreSlot);
     settings.allowForward = node["allowForward"].as_bool(settings.allowForward);
+    settings.reach = (std::clamp)(node["reach"].as_float(settings.reach), 3.0f, 4.5f);
+    settings.placeDelayMs = (std::clamp)(node["placeDelayMs"].as_int(settings.placeDelayMs), 30, 200);
+    settings.restoreSlot = node["restoreSlot"].as_bool(settings.restoreSlot);
+    settings.cameraWeight = node["cameraWeight"].as_bool(settings.cameraWeight);
     settings.showBps = node["showBps"].as_bool(settings.showBps);
     settings.showPath = node["showPath"].as_bool(settings.showPath);
     settings.showPlacement = node["showPlacement"].as_bool(settings.showPlacement);
-    settings.cameraWeight = node["cameraWeight"].as_bool(settings.cameraWeight);
-    settings.smoothRotation = node["smoothRotation"].as_bool(settings.smoothRotation);
-    settings.rotationSpeed = (std::clamp)(node["rotationSpeed"].as_float(settings.rotationSpeed), 5.0f, 45.0f);
-    settings.silentLook = node["silentLook"].as_bool(settings.silentLook);
 }

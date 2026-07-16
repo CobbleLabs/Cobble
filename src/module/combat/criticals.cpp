@@ -12,6 +12,7 @@
 #define NOMINMAX
 #endif
 #include <Windows.h>
+#include <algorithm>
 #include <random>
 
 Criticals* criticals = nullptr;
@@ -20,6 +21,7 @@ static std::mt19937 rng(std::random_device{}());
 
 Criticals::Criticals() : Module("Criticals") {
     keybind = 0;
+    locked = true;  // hidden/grayed until experiments are unlocked
 }
 
 void Criticals::onEnable() {
@@ -133,16 +135,6 @@ void Criticals::startCritical() {
         player.setOnGround(false);
         smoothCancel = true;
         break;
-    case Mode::Grim:
-        // Prediction-safe critical. Grim (GroundSpoof/NoFall) flags and rewrites
-        // any onGround spoof, and its PredictionEngine only accepts the jump
-        // velocity when the player was genuinely on ground with the exact vanilla
-        // JumpPower. So use the game's real jump(): it reproduces vanilla physics
-        // (jump power + sprint boost + jump boost), which Grim's prediction is
-        // built to expect. No spoof. Gated to on-ground so it stays a valid jump.
-        if (player.isOnGround())
-            player.jump();
-        break;
     case Mode::NCP:
         // Legit jump-crit shape: only jump when strictly grounded so the
         // movement matches a real player jump.
@@ -199,8 +191,7 @@ void Criticals::onRenderMenu() {
             ImGui::Spacing();
 
             const char* modeItems[] = { "Packet", "MiniJump", "Jump",
-                                        "NoGround", "Hop", "Smooth",
-                                        "Grim", "NCP" };
+                                        "NoGround", "Hop", "Smooth", "NCP" };
             int mode = static_cast<int>(settings.mode);
             if (ui::Combo("Mode", &mode, modeItems, IM_ARRAYSIZE(modeItems)))
                 settings.mode = static_cast<Mode>(mode);
@@ -233,7 +224,15 @@ void Criticals::saveSettings(json::Value& node) const {
 }
 
 void Criticals::loadSettings(const json::Value& node) {
-    settings.mode = static_cast<Mode>(node["mode"].as_int(static_cast<int>(settings.mode)));
+    int rawMode = node["mode"].as_int(static_cast<int>(settings.mode));
+    // Migration: "Grim" (old index 6) was removed — it was just a real jump, which
+    // the other jump modes already cover. Old configs storing it fall back to Jump;
+    // the old NCP (index 7) shifts down to its new value 6.
+    if (rawMode == 6)
+        rawMode = static_cast<int>(Mode::Jump);
+    else if (rawMode == 7)
+        rawMode = static_cast<int>(Mode::NCP);
+    settings.mode = static_cast<Mode>(std::clamp(rawMode, 0, static_cast<int>(Mode::NCP)));
     settings.maxDelayMs = node["maxDelayMs"].as_int(settings.maxDelayMs);
     settings.chance = node["chance"].as_int(settings.chance);
     settings.onlyWhileAttacking = node["onlyWhileAttacking"].as_bool(settings.onlyWhileAttacking);

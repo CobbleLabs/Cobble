@@ -3,6 +3,7 @@
 #include <dxgi.h>
 #include <Windows.h>
 #include <windowsx.h>
+#include <dwmapi.h>
 #include <cmath>
 #include <string>
 #include "../../../infra/ext/imgui/imgui.h"
@@ -12,6 +13,70 @@
 #include "inter_bold.hpp"
 #include "inter_regular.hpp"
 #include "../util/aes_string.hpp"
+
+#pragma comment(lib, "dwmapi.lib")
+
+// Win11 rounded-corner attribute + value (define manually so we don't depend on
+// a Windows 11 SDK being present). No-op on Windows 10 and earlier.
+#ifndef DWMWA_WINDOW_CORNER_PREFERENCE
+#define DWMWA_WINDOW_CORNER_PREFERENCE 33
+#endif
+#ifndef DWMWCP_ROUND
+#define DWMWCP_ROUND 2
+#endif
+// Win11 border-colour attribute + the "no border" sentinel (define manually so we
+// don't depend on a Windows 11 SDK). No-op on older Windows.
+#ifndef DWMWA_BORDER_COLOR
+#define DWMWA_BORDER_COLOR 34
+#endif
+#ifndef DWMWA_COLOR_NONE
+#define DWMWA_COLOR_NONE 0xFFFFFFFE
+#endif
+
+// --- Acrylic blur-behind via the undocumented user32 SetWindowCompositionAttribute.
+// Loaded dynamically so it's a silent no-op on Windows builds without the export. ---
+namespace {
+struct ACCENT_POLICY {
+    DWORD AccentState;
+    DWORD AccentFlags;
+    DWORD GradientColor;  // 0xAABBGGRR
+    DWORD AnimationId;
+};
+struct WINDOWCOMPOSITIONATTRIBDATA {
+    DWORD Attrib;  // 19 = WCA_ACCENT_POLICY
+    PVOID pvData;
+    SIZE_T cbData;
+};
+typedef BOOL(WINAPI* SetWindowCompositionAttribute_t)(HWND, WINDOWCOMPOSITIONATTRIBDATA*);
+
+// Whitish frosted-glass acrylic tint.
+void EnableAcrylicBlur(HWND hwnd) {
+    HMODULE user32 = GetModuleHandleW(L"user32.dll");
+    if (!user32)
+        return;
+    auto setWCA = reinterpret_cast<SetWindowCompositionAttribute_t>(
+        GetProcAddress(user32, "SetWindowCompositionAttribute"));
+    if (!setWCA)
+        return;  // pre-Win10: acrylic unavailable, skip cleanly
+
+    ACCENT_POLICY accent = {};
+    // BLURBEHIND (3) is the real gaussian blur-behind: it samples and blurs what is
+    // actually behind the window. ACRYLICBLURBEHIND (4) more often falls back to a
+    // flat solid tint (the "gray, no transparency" symptom), so use 3.
+    accent.AccentState = 3;  // ACCENT_ENABLE_BLURBEHIND
+    accent.AccentFlags = 0;
+    // 0xAABBGGRR: low-alpha neutral-dark tint so the blur dominates and the white
+    // text stays readable, instead of a milky gray wash.
+    accent.GradientColor = 0x2814141A;
+
+    WINDOWCOMPOSITIONATTRIBDATA data = {};
+    data.Attrib = 19;  // WCA_ACCENT_POLICY
+    data.pvData = &accent;
+    data.cbData = sizeof(accent);
+    setWCA(hwnd, &data);
+}
+}  // namespace
+
 
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
@@ -236,6 +301,19 @@ bool Init() {
     if (!g_hwnd)
         return false;
 
+    // Rounded window corners (Windows 11). Silently ignored on older Windows.
+    {
+        DWORD cornerPref = DWMWCP_ROUND;
+        DwmSetWindowAttribute(g_hwnd, DWMWA_WINDOW_CORNER_PREFERENCE, &cornerPref, sizeof(cornerPref));
+        // Remove the light border Windows 11 draws around rounded windows.
+        COLORREF borderColor = DWMWA_COLOR_NONE;
+        DwmSetWindowAttribute(g_hwnd, DWMWA_BORDER_COLOR, &borderColor, sizeof(borderColor));
+    }
+
+    // Frosted-glass acrylic blur-behind (whitish). Requires the BitBlt swapchain +
+    // transparent clear below so the transparency actually reaches DWM.
+    EnableAcrylicBlur(g_hwnd);
+
     // Create D3D11 device and swap chain
     DXGI_SWAP_CHAIN_DESC sd = {};
     sd.BufferCount = 2;
@@ -250,7 +328,11 @@ bool Init() {
     sd.SampleDesc.Count = 1;
     sd.SampleDesc.Quality = 0;
     sd.Windowed = TRUE;
-    sd.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;  // Modern swap effect for Windows 10+
+    // BitBlt model (not FLIP): a FLIP HWND swapchain is opaque to DWM, so per-pixel
+    // alpha would be discarded and the acrylic blur-behind could never show through.
+    // BitBlt presents via the DWM redirection surface, which honours alpha. For a
+    // static loader UI the minor extra latency is irrelevant.
+    sd.SwapEffect = DXGI_SWAP_EFFECT_DISCARD;
 
     UINT createDeviceFlags = 0;
     D3D_FEATURE_LEVEL featureLevel;
@@ -279,6 +361,8 @@ bool Init() {
     fontConfig.FontDataOwnedByAtlas = false;
     g_fontMedium = io.Fonts->AddFontFromMemoryTTF((void*)inter_bold_ttf_data, inter_bold_ttf_size, 24.0f, &fontConfig);
     fontConfig.FontDataOwnedByAtlas = false;
+    // Logo/title: Inter Bold — the open SF Pro-style UI font — for a clean,
+    // Apple-like "Cobble" wordmark.
     g_fontLogo = io.Fonts->AddFontFromMemoryTTF((void*)inter_bold_ttf_data, inter_bold_ttf_size, 50.0f, &fontConfig);
 
     ImGui::GetStyle().Colors[ImGuiCol_WindowBg] = ImColor(11, 11, 13, 255);
@@ -470,45 +554,33 @@ bool Render() {
     ImGui::SetNextWindowPos(ImVec2(0, 0));
     ImGui::SetNextWindowSize(io.DisplaySize);
     ImGui::PushStyleVar(ImGuiStyleVar_Alpha, g_fadeAlpha);
-    ImGui::Begin("##main", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove);
+    // NoBackground: NoDecoration does NOT drop the window fill, so without this the
+    // opaque WindowBg (11,11,13) fades in with g_fadeAlpha and covers the DWM blur
+    // once the stage settles (the "goes dark after loading" symptom). The frosted
+    // tint comes from the DWM blur-behind + the vignette, not an ImGui fill.
+    ImGui::Begin("##main", nullptr,
+                 ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoBackground);
 
     ImDrawList* dl = ImGui::GetWindowDrawList();
     ImVec2 winSize = io.DisplaySize;
     float centerX = winSize.x * 0.5f;
     float centerY = winSize.y * 0.5f;
 
-    // Base background
-    dl->AddRectFilled(ImVec2(0, 0), winSize, IM_COL32(11, 11, 13, 255));
+    // No base fill: the frosted tint now comes from the DWM blur-behind tint, so
+    // the window is genuinely see-through (no whitish wash).
 
-    // Large soft orange glow (bottom-left, spread)
-    ImVec2 glowCenter(winSize.x * 0.20f, winSize.y * 0.80f);
-    float maxR = winSize.x * 1.2f;  // que se expanda en serio
-    float glowPulse = 1.0f;
-    if (g_animStage == STAGE_INJECTING && g_injectProgress < 0.999f) {
-        glowPulse = 1.0f + 0.35f * (0.5f + 0.5f * sinf(g_injectPulseTime * 2.2f));
-    }
+    // (Orange glow removed — it painted opaque circles over the transparent clear
+    //  and blocked the acrylic blur from showing through.)
 
-    for (int i = 0; i < 40; i++) {
-        float t = (float)i / 80.0f;
-        float r = t * maxR;
-
-        // easing fuerte para que muera suave
-        float alpha = 1.0f - t;
-        alpha = alpha * alpha * alpha;
-
-        ImU32 col = IM_COL32(255, 122, 24, (int)(alpha * 18 * glowPulse));  // alpha BAJO
-        dl->AddCircleFilled(glowCenter, r, col, 40);
-    }
-
-    // Subtle vignette to darken edges
-    dl->AddRectFilledMultiColor(ImVec2(0, 0), winSize, IM_COL32(0, 0, 0, 80),  // TL
-                                IM_COL32(0, 0, 0, 80),                         // TR
-                                IM_COL32(0, 0, 0, 120),                        // BR
-                                IM_COL32(0, 0, 0, 120)                         // BL
+    // Subtle vignette to define edges (softened so it doesn't muddy the whitish glass)
+    dl->AddRectFilledMultiColor(ImVec2(0, 0), winSize, IM_COL32(0, 0, 0, 28),  // TL
+                                IM_COL32(0, 0, 0, 28),                         // TR
+                                IM_COL32(0, 0, 0, 50),                         // BR
+                                IM_COL32(0, 0, 0, 50)                          // BL
     );
 
-    // Window border
-    dl->AddRect(ImVec2(0, 0), winSize, IM_COL32(40, 40, 45, 255), 0.0f);
+    // (Window border removed: a square outline clashed with the rounded corners and
+    //  read as a hard edge over the glass. The DWM rounded frame defines the edge now.)
 
     // Window controls (top right) - Minimize and Close
     float btnSize = 20.0f;
@@ -841,25 +913,51 @@ bool Render() {
 
         ImGui::PopStyleVar();  // End formAlpha
     } else if (g_animStage == STAGE_WAITING) {
-        // Title "Cobble" - same landing animation as login
-        ImGui::PushFont(g_fontLogo);
+        const float tt = static_cast<float>(ImGui::GetTime());
+
+        // Crisp "Cobble" wordmark (Inter, no glow).
         const char* title = "Cobble";
+        ImGui::PushFont(g_fontLogo);
         ImVec2 titleSize = ImGui::CalcTextSize(title);
         dl->AddText(ImVec2(centerX - titleSize.x * 0.5f, titleY), IM_COL32(255, 255, 255, 255), title);
         ImGui::PopFont();
 
-        // Subtitle "Ready to Inject"
+        // Cycling tagline that cross-fades through a few understated lines.
+        static const char* kTaglines[] = {"casual client", "keep it simple", "smooth & lightweight", "just play"};
+        constexpr int kTagCount = 4;
+        const float perLine = 3.0f;  // seconds each line is shown
+        const float cyc = tt / perLine;
+        const int tagIdx = static_cast<int>(cyc) % kTagCount;
+        const float f = cyc - floorf(cyc);  // 0..1 within this line
+        float tagFade = 1.0f;                // fade in first / out last ~18%
+        if (f < 0.18f)
+            tagFade = f / 0.18f;
+        else if (f > 0.82f)
+            tagFade = (1.0f - f) / 0.18f;
+        tagFade = ImClamp(tagFade, 0.0f, 1.0f);
         ImGui::PushFont(g_fontRegular);
-        std::string readyTextStr = OBFUSCATE_STRING("Ready to Inject");
-        ImVec2 readySize = ImGui::CalcTextSize(readyTextStr.c_str());
-        dl->AddText(ImVec2(centerX - readySize.x * 0.5f, titleY + 45), IM_COL32(150, 150, 150, 180),
-                    readyTextStr.c_str());
+        const char* tag = kTaglines[tagIdx];
+        ImVec2 tagSz = ImGui::CalcTextSize(tag);
+        dl->AddText(ImVec2(centerX - tagSz.x * 0.5f, titleY + 50.0f),
+                    IM_COL32(188, 190, 196, static_cast<int>(210 * tagFade)), tag);
         ImGui::PopFont();
 
-        // Spinner - smooth continuous rotation
-        float phase = spinnerPhase;
-        DrawSpinner(dl, ImVec2(centerX, formY + 40), 22.0f, 2.5f, phase);
+        // Loading animation: three dots pulsing in a wave (clean, Apple-like),
+        // sitting just above the "Open Minecraft" hint.
+        {
+            const int kDots = 3;
+            const float gap = 13.0f;
+            const float dotY = formY + 50.0f;
+            const float baseX = centerX - gap * (kDots - 1) * 0.5f;
+            for (int i = 0; i < kDots; ++i) {
+                float w = 0.5f + 0.5f * sinf(tt * 3.4f - i * 0.6f);  // staggered 0..1
+                int a = static_cast<int>((0.28f + 0.72f * w) * 235.0f);
+                float r = 1.9f + 1.0f * w;
+                dl->AddCircleFilled(ImVec2(baseX + i * gap, dotY), r, IM_COL32(255, 255, 255, a));
+            }
+        }
 
+        // Functional hint (kept, below the loader dots).
         ImGui::PushFont(g_fontRegular);
         std::string subTextStr = OBFUSCATE_STRING("Open Minecraft to continue");
         const char* subText = subTextStr.c_str();
@@ -1008,7 +1106,9 @@ bool Render() {
     vp.MaxDepth = 1.0f;
     g_pd3dDeviceContext->RSSetViewports(1, &vp);
 
-    const float clear_color[4] = {0.043f, 0.043f, 0.051f, 1.0f};
+    // Alpha 0 => transparent, so the acrylic blur-behind shows through everywhere
+    // the UI doesn't paint over it.
+    const float clear_color[4] = {0.0f, 0.0f, 0.0f, 0.0f};
     g_pd3dDeviceContext->OMSetRenderTargets(1, &g_mainRenderTargetView, nullptr);
     g_pd3dDeviceContext->ClearRenderTargetView(g_mainRenderTargetView, clear_color);
     ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());

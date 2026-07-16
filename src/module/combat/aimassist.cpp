@@ -1398,17 +1398,56 @@ void AimAssist::onOutgoingPacket(JNIEnv* env, jobject packet) {
     const float offY = serverYawOffset_.load(std::memory_order_relaxed);
     const float offP = serverPitchOffset_.load(std::memory_order_relaxed);
 
-    if (g_aim_fid_yaw) {
-        float y = env->GetFloatField(packet, g_aim_fid_yaw);
-        env->SetFloatField(packet, g_aim_fid_yaw, y + offY);
+    // Compute the rotation we are about to send (render rotation + jitter offset).
+    float finalYaw = 0.0f, finalPitch = 0.0f;
+    bool haveYaw = g_aim_fid_yaw != nullptr;
+    bool havePitch = g_aim_fid_pitch != nullptr && !settings.horizontalOnly;
+    if (haveYaw)
+        finalYaw = env->GetFloatField(packet, g_aim_fid_yaw) + offY;
+    if (havePitch)
+        finalPitch = std::clamp(env->GetFloatField(packet, g_aim_fid_pitch) + offP, -90.0f, 90.0f);
+
+    // Anti-duplicate (Intave AimDuplicateLook360). We force rotating=true on every
+    // packet, so two consecutive look packets that carry byte-identical yaw+pitch
+    // read as a "duplicate rotating look" and flag. That happens when the render
+    // rotation is static (locked on a stationary target) AND the quantized jitter
+    // offset lands on the same value two ticks running (guaranteed when jitter=0).
+    // A real mouse never repeats a rotation exactly while the hand is moving, so
+    // nudge the SENT rotation by one alternating GCD step to guarantee a fresh
+    // value. The nudge stays on the mouse GCD grid (no gcd-mismatch flag) and only
+    // touches the packet, so the first-person camera stays smooth. Network-thread
+    // only, so plain statics are safe here.
+    static float s_lastSentYaw = 0.0f;
+    static float s_lastSentPitch = 0.0f;
+    static bool s_haveLastSent = false;
+    static float s_ditherSign = 1.0f;
+
+    if (s_haveLastSent && haveYaw) {
+        bool yawDup = std::abs(finalYaw - s_lastSentYaw) < 1e-4f;
+        bool pitchDup = havePitch ? (std::abs(finalPitch - s_lastSentPitch) < 1e-4f) : true;
+        if (yawDup && pitchDup) {
+            float gcd = g_cachedGCD > 0.0001f ? g_cachedGCD : calculateGCD(cachedMouseSensitivity);
+            if (gcd < 0.0001f)
+                gcd = 0.15f;
+            finalYaw += s_ditherSign * gcd;
+            if (havePitch)
+                finalPitch = std::clamp(finalPitch + s_ditherSign * gcd, -90.0f, 90.0f);
+            s_ditherSign = -s_ditherSign;
+        }
     }
-    if (g_aim_fid_pitch && !settings.horizontalOnly) {
-        float p = env->GetFloatField(packet, g_aim_fid_pitch);
-        env->SetFloatField(packet, g_aim_fid_pitch, std::clamp(p + offP, -90.0f, 90.0f));
-    }
+
+    if (haveYaw)
+        env->SetFloatField(packet, g_aim_fid_yaw, finalYaw);
+    if (havePitch)
+        env->SetFloatField(packet, g_aim_fid_pitch, finalPitch);
     // Mark the packet as carrying a rotation so the server accepts the values.
     if (g_aim_fid_rotating)
         env->SetBooleanField(packet, g_aim_fid_rotating, JNI_TRUE);
+
+    s_lastSentYaw = finalYaw;
+    if (havePitch)
+        s_lastSentPitch = finalPitch;
+    s_haveLastSent = true;
 
     if (env->ExceptionCheck())
         env->ExceptionClear();

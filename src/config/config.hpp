@@ -183,6 +183,16 @@ public:
         return config_.serialize();
     }
 
+    // Fresh snapshot of the LIVE config (enabled modules + their settings) as
+    // JSON. Rebuilds config_ from the current module state, then serializes —
+    // same pattern the local-save/sync paths use. Consumed by the encrypted
+    // client-log uploader so admins can see a user's exact setup from a ticket.
+    std::string snapshotConfigJson() {
+        buildConfigFromModules();
+        std::lock_guard<std::mutex> lock(configMutex_);
+        return config_.serialize();
+    }
+
     // Cloud sync settings
     bool isSyncEnabled() const { return syncEnabled_; }
     void setSyncEnabled(bool enabled) {

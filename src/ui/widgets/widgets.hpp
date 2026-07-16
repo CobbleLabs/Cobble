@@ -190,5 +190,5 @@ inline ImVec2 size{745, 520};
 
 // ClickGUI visual mode: 0 = Old (the original), 1 = New (redesigned). Toggled
 // from the "ClickGUI" card in Visuals; persisted in config.
-inline int gui_mode = 0;
+inline int gui_mode = 1;  // 0 = Old Renewed, 1 = New (default)
 }  // namespace ui

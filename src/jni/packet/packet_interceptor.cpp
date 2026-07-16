@@ -7,6 +7,7 @@
 #include "outgoing_gate.hpp"
 #include "../slowdown/slowdown_gate.hpp"
 #include "../render/backtrack_ghost_gate.hpp"
+#include "../backtrack/backtrack_gate.hpp"
 #include "../../util/logger.hpp"
 
 #include "../../util/inject_trace.hpp"
@@ -94,6 +95,20 @@ bool Init() {
             // Stage 2: only inject the render hook once the ghost native bridge is
             // registered, so a failed DefineClass can never leave a dangling call.
             targets.renderGhost = bgInit;
+
+            // Backtrack: the packet-hold approach (blocking hook on S14/S18
+            // processPacket) is DISABLED. On Lunar it fails verification (those
+            // methods are tiny/branchless so they carry no StackMapTable, and our
+            // patcher only shifts existing tables, it cannot synthesize one — the
+            // RetransformClasses returns FAILS_VERIFICATION=62). Worse, retransforming
+            // S14PacketEntity (a hot class, parent of the S15/S16/S17 relative-move
+            // packets) leaves the JVM in a broken ~3s/tick state that PERSISTS even
+            // after Cobble fully unhooks and ejects — it hard-freezes the client and
+            // drops the connection. Real backtrack is being rebuilt on the safe path
+            // (client-side entity-position rollback / the already-verified
+            // NetworkManager.channelRead0 hook), so we never define the IncomingHook
+            // bridge nor arm the S14/S18 retransform here.
+            targets.backtrack = false;
             BytecodePatcher::SetTargets(targets);
 
             bool instHook = BytecodePatcher::InstallBytecodeHook(env);
@@ -127,6 +142,7 @@ void Shutdown() {
     if (env) {
         bool safeToUnregister = BytecodePatcher::Shutdown(env);
         SlowDownGate::Shutdown(env, safeToUnregister);
+        BacktrackGate::Shutdown(env, safeToUnregister);
     }
     initialized = false;
 }

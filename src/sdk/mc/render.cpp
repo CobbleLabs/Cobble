@@ -622,17 +622,27 @@ void Minecraft::renderGhostEntity(int entityId, double wx, double wy, double wz,
                 }
                 float centerY = isSneaking ? 0.70f : 0.90f;
 
-                // Scale around the entity's center of mass to prevent shifting offsets
-                glPushMatrix();
-                glTranslatef(0.0f, centerY, 0.0f);
-                glScalef(1.055f, 1.055f, 1.055f);
-                glTranslatef(0.0f, -centerY, 0.0f);
-
-                // Draw the solid glow outline
-                glColor4f(r, g, b, a * 0.55f);
-                callDoRender();
-
-                glPopMatrix();
+                // Soft, diffused glow outline: instead of one hard scaled shell,
+                // stack several progressively larger shells with ADDITIVE blending
+                // and a falloff in alpha, all masked to stencil != 1 (outside the
+                // real silhouette). The overlapping shells accumulate into a blurred
+                // halo that's brightest hugging the model and fades outward — a real
+                // glow rather than a solid rim. Scaled around the center of mass so
+                // it doesn't drift off the model.
+                glBlendFunc(GL_SRC_ALPHA, GL_ONE);  // additive accumulation
+                const int GLOW_PASSES = 6;
+                for (int gi = 0; gi < GLOW_PASSES; ++gi) {
+                    const float gt = (float)gi / (float)(GLOW_PASSES - 1);  // 0 inner .. 1 outer
+                    const float gscale = 1.02f + 0.17f * gt;               // hugs the skin, blooms out
+                    const float galpha = a * (0.14f * (1.0f - gt) + 0.015f);
+                    glPushMatrix();
+                    glTranslatef(0.0f, centerY, 0.0f);
+                    glScalef(gscale, gscale, gscale);
+                    glTranslatef(0.0f, -centerY, 0.0f);
+                    glColor4f(r, g, b, galpha);
+                    callDoRender();
+                    glPopMatrix();
+                }
 
                 // Cleanup stencil
                 glDisable(GL_STENCIL_TEST);

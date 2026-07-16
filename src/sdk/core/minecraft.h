@@ -145,6 +145,10 @@ struct Minecraft {
     void rightClickMouse();
     void updateMouseOver();
 
+    // NetHandlerPlayClient (the incoming/outgoing packet handler). Caller deletes the
+    // returned local ref. Used by Backtrack to re-inject held S14/S18 via processPacket.
+    jobject getNetHandler();
+
     // Click delays
     int getRightClickDelay();
     void setRightClickDelay(int value);

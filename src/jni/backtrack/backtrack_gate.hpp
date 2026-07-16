@@ -1,43 +1,29 @@
 #pragma once
 
 #include "../java.h"
-#include <deque>
-#include <mutex>
-#include <chrono>
 
-// BacktrackGate - Intercepts incoming entity position packets for Lag Based mode
+// BacktrackGate — the incoming-packet HOLD gate for Backtrack.
 //
-// Similar to BlinkGate but for INCOMING packets (S14, S18)
-// Delays entity position updates when advantageous for hitting
-
+// A blocking bytecode patch on NetHandlerPlayClient.handleEntity (S14) and
+// handleEntityTeleport (S18) calls IncomingHook.canProcess(packet). Returning false
+// makes that handler return early, so the target's movement packet is NOT applied and
+// the entity stays at its held position. Held packets are stored and re-injected later
+// via Packet.processPacket(netHandler), which snaps the entity forward.
 namespace BacktrackGate {
 
-struct DelayedPacket {
-    jobject packet;  // GlobalRef
-    std::chrono::steady_clock::time_point timestamp;
-    int entityId;
-};
+// Define the IncomingHook class + register its native. Idempotent.
+bool Init(JNIEnv* env);
+void Shutdown(JNIEnv* env, bool safeToUnregister);
+bool IsReady();
 
-// Initialize the gate (called during packet interceptor init)
-void Init();
+// The blocking hook entrypoint. Returns JNI_TRUE to PROCESS the packet normally, or
+// JNI_FALSE to HOLD it (store for later re-injection).
+jboolean JNICALL NativeCanProcess(JNIEnv* env, jclass cls, jobject packet);
 
-// Shutdown and cleanup
-void Shutdown();
+// Release held packets: those held longer than the hold window (`all` = false), or all
+// of them (`all` = true). MUST be called on the client thread. Returns count released.
+int Release(JNIEnv* env, bool all);
 
-// Check if an incoming entity packet should be delayed
-// Returns true if packet should be processed normally, false if delayed
-bool ShouldProcessPacket(JNIEnv* env, jobject packet);
-
-// Get packets that are ready to be released (exceeded latency threshold)
-std::deque<DelayedPacket> GetReadyPackets();
-
-// Flush all delayed packets immediately
-void FlushAll(JNIEnv* env);
-
-// Get count of currently delayed packets
-int GetDelayedCount();
-
-// Native callback for JVMTI hook
-jboolean JNICALL NativeShouldProcess(JNIEnv* env, jclass, jobject packet);
+int HeldCount();
 
 }  // namespace BacktrackGate

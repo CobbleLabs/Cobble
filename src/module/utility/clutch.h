@@ -6,33 +6,36 @@
 #include <mutex>
 #include <vector>
 
+// Placement engine shared by two modules:
+//   Scaffold - bridges blocks under the spot just ahead of where you look.
+//   Clutch   - a fork that only places when your predicted path would fall into
+//              the void (an emergency save).
+// Both run the same anticheat-safe silent placement, driven entirely from the
+// outgoing packet gate (see onOutgoingPacket) so the rotation and the block
+// placement are ordered correctly relative to the flying packet.
+enum class PlaceMode { Scaffold = 0, Clutch = 1 };
+
 class Clutch : public Module {
 public:
     struct Settings {
-        int predictionMs = 300;
-        int searchRadius = 5;
+        float scaffoldLead = 0.9f;  // Scaffold: blocks ahead (along your look) to place
+
+        int predictionMs = 300;  // Clutch: how far ahead to simulate the fall
+        int searchRadius = 5;    // Clutch: anchor search radius
+        bool allowForward = false;  // Clutch: also save while on ground moving toward a ledge
+
         float reach = 4.2f;
         int placeDelayMs = 70;
         bool restoreSlot = true;
+        bool cameraWeight = true;
 
-        // Enhanced Prediction & Clutch settings
+        // HUD
         bool showBps = true;
         bool showPath = true;
         bool showPlacement = true;
-        bool cameraWeight = true;
-        bool smoothRotation = true;
-        float rotationSpeed = 20.0f;
-        bool silentLook = true;
-        bool allowForward = false;
     } settings;
 
-    bool hasSilentRotation = false;
-    bool silentRotationSent_ = false;
-    float silentYaw = 0.0f;
-    float silentPitch = 0.0f;
-
-
-    Clutch();
+    explicit Clutch(PlaceMode mode);
     ~Clutch() override;
 
     void onEnable() override;
@@ -43,12 +46,15 @@ public:
     void saveSettings(json::Value& node) const override;
     void loadSettings(const json::Value& node) override;
 
+    // Called from the outgoing packet gate for every outgoing packet. When it sees
+    // a flying (movement) packet and we have a placement queued, it rewrites that
+    // packet's rotation to the placement aim and fires the block placement — both
+    // BEFORE the flying packet reaches the wire, matching vanilla packet order.
     void onOutgoingPacket(JNIEnv* env, jobject packet);
 
-    // True while clutch is actively rewriting the outgoing movement packet's
-    // rotation, so other packet observers (e.g. AimAssist) can defer and not
-    // corrupt the placement aim.
-    bool isRewritingRotation() const { return enabled && settings.silentLook && hasSilentRotation; }
+    // True while we own the outgoing rotation for a placement, so other observers
+    // (e.g. AimAssist) defer and don't corrupt the aim.
+    bool isRewritingRotation() const { return enabled && haveTarget_; }
 
 private:
     struct Placement {
@@ -75,24 +81,37 @@ private:
     static std::uint64_t nowMs();
     static bool isPlaceableBlock(int id);
     static float wrapDegrees(float angle);
-    static float approachAngle(float current, float target, float maxStep);
     int findBlockSlot() const;
     bool isDangerous(double predictedX, double predictedY, double predictedZ) const;
     bool isPlacementUsable(const Placement& placement) const;
     Placement findPlacement(double predictedX, double predictedY, double predictedZ) const;
-    bool place(const Placement& placement, int slot);
     void resetPlacement();
     void restoreSlot();
 
+    // Runs on the game thread from onOutgoingPacket: aim the client rotation at the
+    // placement (silently, restored immediately), verify the raytrace and fire the
+    // vanilla right-click. Returns true if the block placement was fired.
+    bool fireSilentPlace(JNIEnv* env, const Placement& p, int slot, float aimYaw, float aimPitch);
+
+    const PlaceMode placeMode_;
+    bool isClutch() const { return placeMode_ == PlaceMode::Clutch; }
+
     int originalSlot_ = -1;
-    std::uint64_t nextPlaceMs_ = 0;
     std::uint64_t nextSearchMs_ = 0;
     Placement activePlacement_;
     Placement cachedPlacement_;
 
-    // Rotation & manual camera tracking
-    float lastSetYaw_ = 0.0f;
-    float lastSetPitch_ = 0.0f;
+    // Pending placement handed from onUpdate (background) to onOutgoingPacket (game
+    // thread) under this mutex.
+    std::mutex targetMutex_;
+    Placement gatePlacement_;
+    int gateSlot_ = -1;
+    bool haveTarget_ = false;
+
+    // Gate-side rotation/placement bookkeeping.
+    int rotationShippedTicks_ = 0;   // flying packets that have carried the aim
+    bool jitterToggle_ = false;      // ±1 GCD micro-jitter so no two sent rotations duplicate
+    std::uint64_t lastPlaceMs_ = 0;  // throttle between fired placements
 
     // Visual prediction path caching
     mutable std::mutex pathMutex_;
@@ -116,5 +135,6 @@ private:
     long long lastUpdateTick_ = 0;
 };
 
+// Two instances: the Scaffold module and its Clutch fork.
+extern Clutch* scaffold;
 extern Clutch* clutch;
-

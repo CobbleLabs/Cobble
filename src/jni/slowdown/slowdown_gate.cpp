@@ -3,6 +3,8 @@
 #include <atomic>
 
 #include "../../module/movement/no_slow_down.h"
+#include "../../module/combat/killaura.h"
+#include "../../module/combat/backtrack.h"
 #include "../../sdk/player/player.h"
 #include "../../util/logger.hpp"
 #include "../java.h"
@@ -139,18 +141,34 @@ namespace SlowDownGate {
 
 void JNICALL NativeOnSlowDown(JNIEnv* env, jclass, jobject playerInstance) {
     COBBLE_TRACE_ONCE("NativeOnSlowDown: callback triggered!");
-    if (!noSlowDown || !noSlowDown->enabled || !playerInstance)
+    // This fires from EntityLivingBase.onLivingUpdate for the local player, PRE-MOTION
+    // (before the game applies movement). Two consumers ride it: NoSlowDown restores
+    // the movement input, and KillAura applies its rotation here so the movement the
+    // game simulates matches the rotation we send (Grim MoveFix). Both are optional.
+    const bool wantSlow = noSlowDown && noSlowDown->enabled;
+    const bool wantAura = killAura && killAura->enabled;
+    const bool wantBt = backtrack && backtrack->enabled;
+    if (!playerInstance || (!wantSlow && !wantAura && !wantBt))
         return;
 
     std::lock_guard<std::recursive_mutex> lock(player.instanceMutex);
     if (!player.instance)
         return;
+    if (env->IsSameObject(playerInstance, player.instance) != JNI_TRUE) {
+        COBBLE_TRACE_ONCE("NativeOnSlowDown: player DOES NOT MATCH cached instance!");
+        return;
+    }
 
-    if (env->IsSameObject(playerInstance, player.instance) == JNI_TRUE) {
+    if (wantSlow) {
         COBBLE_TRACE_ONCE("NativeOnSlowDown: player matches, applying movement!");
         noSlowDown->applyMovement(env, playerInstance);
-    } else {
-        COBBLE_TRACE_ONCE("NativeOnSlowDown: player DOES NOT MATCH cached instance!");
+    }
+    if (wantAura) {
+        killAura->onPreMotion(env, playerInstance);
+    }
+    if (wantBt) {
+        // Per-tick, client thread: pick target, decide holding, release eligible packets.
+        backtrack->onClientTick(env);
     }
 }
 

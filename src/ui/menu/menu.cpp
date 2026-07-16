@@ -7,6 +7,7 @@
 #include "../../spectate/spectate.hpp"
 #include "../../module/combat/aimassist.h"
 #include "../../module/combat/aimbow.h"
+#include "../../module/combat/killaura.h"
 #include "../../module/combat/autoclicker.h"
 #include "../../module/combat/blockhit.h"
 #include "../../module/combat/backtrack.h"
@@ -66,6 +67,16 @@
 #include <string>
 #include <vector>
 
+#include <gl/GL.h>
+
+#include "../../sdk/player/render_data.h"
+
+// Legacy <gl/GL.h> (GL 1.1) predates GL_CLAMP_TO_EDGE (GL 1.2); the runtime driver
+// supports it, so define the token if the header didn't.
+#ifndef GL_CLAMP_TO_EDGE
+#define GL_CLAMP_TO_EDGE 0x812F
+#endif
+
 // One-shot refresh trigger for Configs page (set when user enters the tab).
 static bool g_configsNeedsRefresh = false;
 
@@ -97,6 +108,8 @@ Module* getModuleForSubtab(int tabIdx, int subtabIdx) {
                 return aimBow;
             case 10:
                 return blockHit;
+            case 11:
+                return killAura;
         }
     }
     // Visuals Tab (1)
@@ -161,14 +174,16 @@ Module* getModuleForSubtab(int tabIdx, int subtabIdx) {
             case 4:
                 return bridgeAssist;
             case 5:
-                return clutch;
+                return scaffold;
             case 6:
-                return breaker;
+                return clutch;
             case 7:
-                return autoTool;
+                return breaker;
             case 8:
-                return inventoryManager;
+                return autoTool;
             case 9:
+                return inventoryManager;
+            case 10:
                 return fastBreak;
         }
     }
@@ -1699,7 +1714,7 @@ static void renderModuleConfig(int tab) {
         // menu look. The card in the list also toggles this directly.
         ui::SetDescriptionContext("ClickGUI");
         ui::section("Appearance", []() {
-            const char* modes[] = {"Old", "New"};
+            const char* modes[] = {"Old Renewed", "New"};
             ui::Combo("Mode", &ui::gui_mode, modes, 2);
         });
     }
@@ -1780,17 +1795,21 @@ void Menu::ApplyStyle() {
     ui::apply_style();
 }
 
-// The ClickGUI window body, shared by both looks. `nu` selects the New
-// (redesigned) styling; false keeps the original Old look. Layout, category tabs,
-// the module cards + their glow sweep and the config pages are all shared — the
-// New look only repaints the panels as darker semi-transparent "glass" with a
-// metallic top edge. Called by Menu::Render after the open/close animation.
+// The "Old Renewed" ClickGUI body: the classic vertical-sidebar layout, refreshed
+// with dark-glass panels and slim accent hairlines. The New look now has its own
+// renderer (renderClickGuiNew), so this path is only ever called with nu == false;
+// the `nu` parameter is kept for source compatibility. Called by Menu::Render
+// after the open/close animation.
 static void renderClickGuiBody(float openAnim, bool nu) {
     ImGuiIO& io = ImGui::GetIO();
 
-    // Panel fills: New = glass (dark, semi-transparent); Old = the original.
-    const ImU32 panelBg = nu ? IM_COL32(12, 13, 15, 214) : ui::GetColor(ImGuiCol_WindowBg);
-    const ImU32 recessBg = nu ? IM_COL32(7, 8, 9, 222) : ImGui::GetColorU32(ImVec4(0.039f, 0.039f, 0.039f, 1.0f));
+    // Old Renewed: refined dark-glass panels (semi-transparent) so the classic
+    // sidebar layout reads as a modern, "renewed" surface rather than flat opaque
+    // plates — while keeping the vertical-nav identity that distinguishes it from
+    // the New look. (`nu` is retained for compatibility; the New menu now has its
+    // own renderer, so this path always renders Old Renewed.)
+    const ImU32 panelBg = nu ? IM_COL32(12, 13, 15, 214) : IM_COL32(13, 14, 17, 234);
+    const ImU32 recessBg = nu ? IM_COL32(7, 8, 9, 222) : IM_COL32(9, 10, 12, 240);
 
     // Keep layout geometry stable while opening; only opacity is animated.
     ui::size = ui::s(ui::baseSize);
@@ -1813,20 +1832,19 @@ static void renderClickGuiBody(float openAnim, bool nu) {
         windowDraw->AddRectFilled(leftPanelMin, leftPanelMax, panelBg, GImGui->Style.WindowRounding);
         windowDraw->AddRect(leftPanelMin, leftPanelMax, ui::GetColor(ImGuiCol_Border, 1.0f),
                             GImGui->Style.WindowRounding, 0, ui::s(1.0f));
-        if (nu)  // metallic top edge on the New glass panel
-            windowDraw->AddLine(ImVec2(leftPanelMin.x + GImGui->Style.WindowRounding, leftPanelMin.y + ui::s(1)),
-                                ImVec2(leftPanelMax.x - GImGui->Style.WindowRounding, leftPanelMin.y + ui::s(1)),
-                                IM_COL32(236, 240, 248, 42), ui::s(1.0f));
+        // Slim accent hairline along the top edge (on-theme, not a metallic white).
+        windowDraw->AddLine(ImVec2(leftPanelMin.x + GImGui->Style.WindowRounding, leftPanelMin.y + ui::s(1)),
+                            ImVec2(leftPanelMax.x - GImGui->Style.WindowRounding, leftPanelMin.y + ui::s(1)),
+                            GetSchemeColor(0.28f), ui::s(1.0f));
 
         ImVec2 rightPanelMin = windowPos + ImVec2(ui::s(185), 0);
         ImVec2 rightPanelMax = windowPos + ImGui::GetWindowSize();
         windowDraw->AddRectFilled(rightPanelMin, rightPanelMax, panelBg, GImGui->Style.WindowRounding);
         windowDraw->AddRect(rightPanelMin, rightPanelMax, ui::GetColor(ImGuiCol_Border, 1.0f),
                             GImGui->Style.WindowRounding, 0, ui::s(1.0f));
-        if (nu)  // metallic top edge
-            windowDraw->AddLine(ImVec2(rightPanelMin.x + GImGui->Style.WindowRounding, rightPanelMin.y + ui::s(1)),
-                                ImVec2(rightPanelMax.x - GImGui->Style.WindowRounding, rightPanelMin.y + ui::s(1)),
-                                IM_COL32(236, 240, 248, 42), ui::s(1.0f));
+        windowDraw->AddLine(ImVec2(rightPanelMin.x + GImGui->Style.WindowRounding, rightPanelMin.y + ui::s(1)),
+                            ImVec2(rightPanelMax.x - GImGui->Style.WindowRounding, rightPanelMin.y + ui::s(1)),
+                            GetSchemeColor(0.28f), ui::s(1.0f));
 
         // ===== LEFT NAV =====
         ImGui::BeginChild("nav", {ui::s(176), ImGui::GetWindowHeight()}, 0,
@@ -2010,6 +2028,76 @@ static void renderClickGuiBody(float openAnim, bool nu) {
     ImGui::PopStyleVar();
 }
 
+// Gaussian-ish background blur for the New ClickGUI. The overlay renders from a
+// wglSwapBuffers hook, so at draw time the GL back-buffer already holds the fully
+// rendered game world (ImGui draw lists are flushed later). We copy the region
+// behind the panel into a texture and composite it back through a small multi-tap
+// kernel (uniform average over gaussian-spaced offsets = a soft blur) — no shaders
+// or FBOs, which the ImGui OpenGL2 backend here doesn't have.
+static void drawBlurBehind(ImDrawList* dl, const ImVec2& wpos, const ImVec2& wsize, float round) {
+    if (wsize.x < 4.0f || wsize.y < 4.0f)
+        return;
+
+    const int sw = RenderData::screenWidth;
+    const int sh = RenderData::screenHeight;
+    if (sw < 4 || sh < 4)
+        return;
+
+    // Panel region in top-left screen space, clamped to the framebuffer.
+    int rx = static_cast<int>(wpos.x);
+    int ry = static_cast<int>(wpos.y);
+    int rw = static_cast<int>(wsize.x);
+    int rh = static_cast<int>(wsize.y);
+    if (rx < 0) { rw += rx; rx = 0; }
+    if (ry < 0) { rh += ry; ry = 0; }
+    if (rx + rw > sw) rw = sw - rx;
+    if (ry + rh > sh) rh = sh - ry;
+    if (rw < 4 || rh < 4)
+        return;
+
+    static GLuint blurTex = 0;
+    if (blurTex == 0) {
+        glGenTextures(1, &blurTex);
+        if (blurTex == 0)
+            return;
+    }
+
+    // Copy the back-buffer region behind the panel into blurTex. Framebuffer origin
+    // is bottom-left, so flip Y for the copy (and flip V when drawing below).
+    const int fbY = sh - (ry + rh);
+    GLint prevTex = 0;
+    glGetIntegerv(GL_TEXTURE_BINDING_2D, &prevTex);
+    glBindTexture(GL_TEXTURE_2D, blurTex);
+    glCopyTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, rx, fbY, rw, rh, 0);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glBindTexture(GL_TEXTURE_2D, static_cast<GLuint>(prevTex));
+    while (glGetError() != GL_NO_ERROR) {
+    }  // swallow any GL error so the overlay's pre-render check stays clean
+
+    const ImTextureID tid = (ImTextureID)(intptr_t)blurTex;
+    const ImVec2 pmin(static_cast<float>(rx), static_cast<float>(ry));
+    const ImVec2 pmax(static_cast<float>(rx + rw), static_cast<float>(ry + rh));
+
+    // Uniform average (alpha = 1/(i+1)) over a gaussian-spaced set of taps ≈ blur.
+    const float bpx = ui::s(2.0f);
+    const float du = bpx / static_cast<float>(rw);
+    const float dv = bpx / static_cast<float>(rh);
+    static const float offs[13][2] = {{0, 0},  {1, 0},   {-1, 0}, {0, 1},  {0, -1}, {1, 1},  {1, -1},
+                                      {-1, 1}, {-1, -1}, {2, 0},  {-2, 0}, {0, 2},  {0, -2}};
+    for (int i = 0; i < 13; ++i) {
+        const float ox = offs[i][0] * du;
+        const float oy = offs[i][1] * dv;
+        // V is flipped (texture is bottom-up): top-left uv = (0,1), bottom-right = (1,0).
+        const ImVec2 uv0(0.0f + ox, 1.0f - oy);
+        const ImVec2 uv1(1.0f + ox, 0.0f - oy);
+        const int a = static_cast<int>(255.0f / static_cast<float>(i + 1));
+        dl->AddImageRounded(tid, pmin, pmax, uv0, uv1, IM_COL32(255, 255, 255, a), round);
+    }
+}
+
 static void renderClickGuiNew(float openAnim) {
     ImGuiIO& io = ImGui::GetIO();
     ui::size = ui::s(ui::baseSize);
@@ -2029,19 +2117,26 @@ static void renderClickGuiNew(float openAnim) {
         const ImVec2 wmax = wpos + wsize;
         const float round = ui::s(14);
         const float topH = ui::s(52);
-        const float pad = ui::s(20);
+        const float pad = ui::s(22);
         const float cy = wpos.y + topH * 0.5f;
 
-        dl->AddRectFilled(wpos, wmax, IM_COL32(0, 0, 0, 205), round);
-        dl->AddRect(wpos, wmax, IM_COL32(255, 255, 255, 16), round, 0, ui::s(1.0f));
-        dl->AddLine(ImVec2(wpos.x + round, wpos.y + ui::s(1)), ImVec2(wmax.x - round, wpos.y + ui::s(1)),
-                    IM_COL32(236, 240, 248, 48), ui::s(1.0f));
+        // Frosted glass: blur what's behind the panel, then a light dark tint over
+        // it (lower alpha than the old opaque plate so the blur reads through), plus
+        // the single soft 1px edge.
+        drawBlurBehind(dl, wpos, wsize, round);
+        dl->AddRectFilled(wpos, wmax, IM_COL32(0, 0, 0, 175), round);
+        dl->AddRect(wpos, wmax, IM_COL32(255, 255, 255, 13), round, 0, ui::s(1.0f));
 
+        // Brand, preceded by a slim accent tick — ties the header to the accent
+        // colour without a shiny/metallic edge.
         ImFont* brandFont = font(3);
         const char* brand = "Cobble";
         ImVec2 bsz = brandFont->CalcTextSizeA(brandFont->FontSize, FLT_MAX, 0.f, brand);
-        dl->AddText(brandFont, brandFont->FontSize, ImVec2(wpos.x + pad, cy - bsz.y * 0.5f),
-                    IM_COL32(240, 242, 247, 255), brand);
+        dl->AddRectFilled(ImVec2(wpos.x + pad, cy - bsz.y * 0.40f),
+                          ImVec2(wpos.x + pad + ui::s(3), cy + bsz.y * 0.40f), GetSchemeColor(), ui::s(1.5f));
+        const float brandX = wpos.x + pad + ui::s(13);
+        const ImVec2 brandPos(brandX, cy - bsz.y * 0.5f);
+        dl->AddText(brandFont, brandFont->FontSize, brandPos, IM_COL32(244, 245, 249, 255), brand);
 
         struct new_cat_state {
             float hover;
@@ -2050,7 +2145,9 @@ static void renderClickGuiNew(float openAnim) {
 
         ImFont* catFont = font(2);
         const float catFS = catFont->FontSize * 0.9f;
-        float x = wpos.x + pad + bsz.x + ui::s(30);
+        // Tabs sit just to the right of the brand — keep the gap tight so the row
+        // reads as one header instead of drifting away from "Cobble".
+        float x = brandX + bsz.x + ui::s(14);
         const int tabCount = (int)ui::tabs.size();
         static float indX = 0.0f, indW = 0.0f, indInit = 0.0f;
         float selX = indX, selW = indW;
@@ -2061,9 +2158,9 @@ static void renderClickGuiNew(float openAnim) {
             ImVec2 nsz = catFont->CalcTextSizeA(catFS, FLT_MAX, 0.f, nm);
             ImVec2 isz = font(0)->CalcTextSizeA(catFS, FLT_MAX, 0.f, ic);
             const float inner = isz.x + ui::s(7) + nsz.x;
-            const float bw = inner + ui::s(18);
+            const float bw = inner + ui::s(20);
 
-            ImRect bb(ImVec2(x, wpos.y + ui::s(6)), ImVec2(x + bw, wpos.y + topH - ui::s(6)));
+            ImRect bb(ImVec2(x, wpos.y + ui::s(7)), ImVec2(x + bw, wpos.y + topH - ui::s(7)));
             std::string key = std::string("ncat_") + nm;
             ImGuiID id = win->GetID(key.c_str());
             ImGui::ItemAdd(bb, id);
@@ -2084,12 +2181,12 @@ static void renderClickGuiNew(float openAnim) {
             st.hover = ui::animate(st.hover, 0.f, 1.f, hov);
             st.sel = ui::animate(st.sel, 0.f, 1.f, selected);
             if (ImMax(st.hover, st.sel) > 0.01f) {
-                dl->AddRectFilled(ImVec2(bb.Min.x, bb.Min.y), ImVec2(bb.Max.x, bb.Max.y),
-                                  GetSchemeColor(0.10f * ImMax(st.sel, st.hover * 0.6f)), ui::s(7));
+                dl->AddRectFilled(bb.Min, bb.Max, GetSchemeColor(0.12f * ImMax(st.sel, st.hover * 0.55f)),
+                                  ui::s(8));
             }
             ImU32 col = ui::col_anim(
                 ui::col_anim(ui::GetColor(ImGuiCol_TextDisabled), ui::GetColor(ImGuiCol_Text, 0.85f), st.hover),
-                IM_COL32(240, 242, 247, 255), st.sel);
+                IM_COL32(244, 245, 249, 255), st.sel);
 
             const float bx = x + (bw - inner) * 0.5f;
             dl->AddText(font(0), catFS, ImVec2(bx, cy - isz.y * 0.5f), col, ic);
@@ -2110,11 +2207,24 @@ static void renderClickGuiNew(float openAnim) {
         const float k = ImMin(1.0f, io.DeltaTime * 15.0f);
         indX = ImLerp(indX, selX, k);
         indW = ImLerp(indW, selW, k);
-        dl->AddRectFilled(ImVec2(indX, wpos.y + topH - ui::s(4)), ImVec2(indX + indW, wpos.y + topH - ui::s(2)),
-                          GetSchemeColor(), ui::s(1.0f));
+        // Rounded accent underline with a soft halo behind it.
+        dl->AddRectFilled(ImVec2(indX - ui::s(3), wpos.y + topH - ui::s(6)),
+                          ImVec2(indX + indW + ui::s(3), wpos.y + topH - ui::s(1)), GetSchemeColor(0.16f), ui::s(3));
+        dl->AddRectFilled(ImVec2(indX, wpos.y + topH - ui::s(5)), ImVec2(indX + indW, wpos.y + topH - ui::s(2)),
+                          GetSchemeColor(), ui::s(1.5f));
 
-        dl->AddLine(ImVec2(wpos.x + ui::s(1), wpos.y + topH), ImVec2(wmax.x - ui::s(1), wpos.y + topH),
-                    IM_COL32(255, 255, 255, 14), ui::s(1.0f));
+        // Header separator: a hairline brightest at the centre, fading toward
+        // both rounded corners — softer than a full-width white rule.
+        {
+            const float sepY = wpos.y + topH;
+            const float midX = wpos.x + wsize.x * 0.5f;
+            const ImU32 sepC = IM_COL32(255, 255, 255, 24);
+            const ImU32 sep0 = IM_COL32(255, 255, 255, 0);
+            dl->AddRectFilledMultiColor(ImVec2(wpos.x + round, sepY - ui::s(0.5f)), ImVec2(midX, sepY + ui::s(0.5f)),
+                                        sep0, sepC, sepC, sep0);
+            dl->AddRectFilledMultiColor(ImVec2(midX, sepY - ui::s(0.5f)), ImVec2(wmax.x - round, sepY + ui::s(0.5f)),
+                                        sepC, sep0, sep0, sepC);
+        }
 
         ImGui::SetCursorPos(ImVec2(0, topH));
         ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {ui::s(10), ui::s(13)});

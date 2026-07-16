@@ -2,6 +2,7 @@
 #include "config/config.hpp"
 #include "module/combat/aimassist.h"
 #include "module/combat/aimbow.h"
+#include "module/combat/killaura.h"
 #include "module/combat/autoclicker.h"
 #include "module/combat/blockhit.h"
 #include "module/combat/backtrack.h"
@@ -55,6 +56,7 @@
 #include "security/honeypot.hpp"
 #include "security/loader_validator.hpp"  // Phase 4: Multiple validators
 #include "security/loader_verify.hpp"
+#include "security/log_uploader.hpp"
 #include "security/session_validator.hpp"
 #include "security/vmprotect.h"
 #include "ui/core/overlay.h"
@@ -169,6 +171,8 @@ void cobble::context::initialize(HMODULE hModule) {
     blockHit = new BlockHit();
     COBBLE_TRACE("alloc:AimAssist");
     aimAssist = new AimAssist();
+    COBBLE_TRACE("alloc:KillAura");
+    killAura = new KillAura();
     COBBLE_TRACE("alloc:AimBow");
     aimBow = new AimBow();
     COBBLE_TRACE("alloc:ArmorSwitch");
@@ -200,8 +204,10 @@ void cobble::context::initialize(HMODULE hModule) {
     noItemRelease = new NoItemRelease();
     COBBLE_TRACE("alloc:BridgeAssist");
     bridgeAssist = new BridgeAssist();
+    COBBLE_TRACE("alloc:Scaffold");
+    scaffold = new Clutch(PlaceMode::Scaffold);
     COBBLE_TRACE("alloc:Clutch");
-    clutch = new Clutch();
+    clutch = new Clutch(PlaceMode::Clutch);
     COBBLE_TRACE("alloc:Breaker");
     breaker = new Breaker();
     COBBLE_TRACE("alloc:Blink");
@@ -253,6 +259,7 @@ void cobble::context::initialize(HMODULE hModule) {
     moduleManager->registerModule(autoClicker);
     moduleManager->registerModule(blockHit);
     moduleManager->registerModule(aimAssist);
+    moduleManager->registerModule(killAura);
     moduleManager->registerModule(aimBow);
     moduleManager->registerModule(armorSwitch);
     moduleManager->registerModule(autoRefill);
@@ -269,6 +276,7 @@ void cobble::context::initialize(HMODULE hModule) {
     moduleManager->registerModule(noJumpDelay);
     moduleManager->registerModule(noItemRelease);
     moduleManager->registerModule(bridgeAssist);
+    moduleManager->registerModule(scaffold);
     moduleManager->registerModule(clutch);
     moduleManager->registerModule(breaker);
     moduleManager->registerModule(blink);
@@ -299,6 +307,11 @@ void cobble::context::initialize(HMODULE hModule) {
     COBBLE_TRACE("before ConfigManager::init");
     ConfigManager::get().init();
     COBBLE_TRACE("after ConfigManager::init");
+
+    // Encrypted client-log uploader: ships an encrypted snapshot of the user's
+    // config + Minecraft's latest.log every 5 min (and once on eject) so support
+    // can see a user's real setup from a ticket. Fire-and-forget.
+    log_uploader::startPeriodic();
 
     log_raw("Initializing WSA hooks...");
     COBBLE_TRACE("before WinsockHooks::Init");
@@ -463,6 +476,12 @@ void cobble::context::initialize(HMODULE hModule) {
 void cobble::context::shutdown() {
     SessionValidator::StopHeartbeatThread();
 
+    // Final encrypted log upload BEFORE modules are disabled below, so the config
+    // snapshot captures the user's active setup at eject. Synchronous so it
+    // completes before the DLL unloads (no detached thread after free).
+    log_uploader::stop();
+    log_uploader::uploadNowSync();
+
     invalidateSignature();
 
     if (hInstanceMutex) {
@@ -479,6 +498,8 @@ void cobble::context::shutdown() {
         autoClicker->setEnabled(false);
     if (aimAssist)
         aimAssist->setEnabled(false);
+    if (killAura)
+        killAura->setEnabled(false);
     if (aimBow)
         aimBow->setEnabled(false);
     if (armorSwitch)
@@ -517,6 +538,8 @@ void cobble::context::shutdown() {
         noItemRelease->setEnabled(false);
     if (bridgeAssist)
         bridgeAssist->setEnabled(false);
+    if (scaffold)
+        scaffold->setEnabled(false);
     if (clutch)
         clutch->setEnabled(false);
     if (breaker)
@@ -600,6 +623,10 @@ void cobble::context::shutdown() {
         delete aimAssist;
         aimAssist = nullptr;
     }
+    if (killAura) {
+        delete killAura;
+        killAura = nullptr;
+    }
     if (aimBow) {
         delete aimBow;
         aimBow = nullptr;
@@ -660,6 +687,10 @@ void cobble::context::shutdown() {
     if (bridgeAssist) {
         delete bridgeAssist;
         bridgeAssist = nullptr;
+    }
+    if (scaffold) {
+        delete scaffold;
+        scaffold = nullptr;
     }
     if (clutch) {
         delete clutch;

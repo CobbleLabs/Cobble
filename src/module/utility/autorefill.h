@@ -21,6 +21,12 @@ public:
     void onDisable() override;
     void onUpdate() override;
     void onRenderMenu() override;
+
+    // Fires any queued refill window-click right before an outgoing flying packet,
+    // so the C0E click reaches the server BEFORE the tick's movement packet (the
+    // vanilla order). Sending it after the flying packet is what trips Grim's Post
+    // check, so we always flush pre-flying instead of clicking from onUpdate.
+    void onOutgoingPacket(JNIEnv* env, jobject packet);
     std::string getDisplayInfo() override;
     bool canToggle() override;
     void saveSettings(json::Value& node) const override;
@@ -57,6 +63,12 @@ private:
 
     // Track inventory state for onInventoryOpen mode
     bool wasInventoryOpen = false;
+
+    // Pre-flying flush: onUpdate queues the source slot here instead of clicking
+    // inline; onOutgoingPacket fires it the instant a flying packet is sent.
+    int pendingClickSlot_ = -1;
+    jclass c03Class_ = nullptr;  // C03PacketPlayer (flying) — lazily resolved GlobalRef
+    bool c03Resolved_ = false;
 
     void scanForRefills();
     void finishRefill();

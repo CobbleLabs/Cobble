@@ -113,29 +113,12 @@ void JNICALL NativeOnRenderWorld(JNIEnv* env, jclass, jobject viewEntity) {
     if (!env)
         return;
 
-    // 1. Render focus player pings with actual glow chams aura
+    // Render focus player pings with actual glow chams aura. (The old backtrack
+    // 3D-ghost draw was removed: Backtrack no longer renders a separate silhouette
+    // to aim at — you hit the live player and the hold is done via outgoing timing.)
     if (pingsModule && pingsModule->enabled) {
         pingsModule->onRender3D();
     }
-
-    // 2. Render backtrack ghosts
-    // Runs at the start of RenderGlobal.renderEntities on the render thread with a
-    // live GL context + camera transform. If Backtrack has an active target, draw
-    // its real 3D model at the backtracked position.
-    if (!backtrack)
-        return;
-
-    int entityId = -1;
-    double gx = 0.0, gy = 0.0, gz = 0.0;
-    if (!backtrack->getGhostRenderTarget(entityId, gx, gy, gz))
-        return;
-
-    mc.renderGhostEntity(entityId, gx, gy, gz,
-                         backtrack->settings.shadowColor[0],
-                         backtrack->settings.shadowColor[1],
-                         backtrack->settings.shadowColor[2],
-                         backtrack->settings.shadowColor[3],
-                         true, 0);
 }
 
 bool Init(JNIEnv* env) {

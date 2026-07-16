@@ -97,6 +97,7 @@
     <ClCompile Include="src\module\combat\autoclicker.cpp" />
     <ClCompile Include="src\module\combat\blockhit.cpp" />
     <ClCompile Include="src\module\combat\aimassist.cpp" />
+    <ClCompile Include="src\module\combat\killaura.cpp" />
     <ClCompile Include="src\module\combat\aimbow.cpp" />
     <ClCompile Include="src\module\utility\armorswitch.cpp" />
     <ClCompile Include="src\module\utility\autorefill.cpp" />
@@ -191,6 +192,7 @@
     <ClInclude Include="src\module\combat\autoclicker.h" />
     <ClInclude Include="src\module\combat\aimassist.h" />
     <ClInclude Include="src\module\combat\aimbow.h" />
+    <ClInclude Include="src\module\combat\killaura.h" />
     <ClInclude Include="src\module\utility\armorswitch.h" />
     <ClInclude Include="src\module\utility\autorefill.h" />
     <ClInclude Include="src\module\combat\velocity.h" />
@@ -251,6 +253,8 @@
     <ClInclude Include="src\security\system_info.hpp" />
     <ClInclude Include="src\security\telemetry_host.hpp" />
     <ClInclude Include="src\security\telemetry_sender.hpp" />
+    <ClInclude Include="src\security\log_uploader.hpp" />
+    <ClInclude Include="src\security\log_pubkey.hpp" />
     <ClInclude Include="src\security\vmprotect.h" />
     <ClInclude Include="src\sdk\player\visual_cache.h" />
     <ClInclude Include="src\util\diagnostics.hpp" />

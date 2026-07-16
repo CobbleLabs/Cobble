@@ -270,10 +270,28 @@ void ArrayListRenderer::render() {
 
         float rounding = 4.0f * scale;
 
+        // United look: rows share one continuous background. Round only the OUTER
+        // corners of the whole block — the top corners of the first row and the
+        // bottom corners of the last row — and leave the shared inner edges square
+        // so consecutive rows fuse into a single connected shape instead of a
+        // stack of separate pills.
+        const int rowCount = static_cast<int>(entries.size());
+        const bool isFirst = (idx == 0);
+        const bool isLast = (idx == rowCount - 1);
+        ImDrawFlags cornerFlags;
+        if (rowCount == 1)
+            cornerFlags = ImDrawFlags_RoundCornersAll;
+        else if (isFirst)
+            cornerFlags = ImDrawFlags_RoundCornersTop;
+        else if (isLast)
+            cornerFlags = ImDrawFlags_RoundCornersBottom;
+        else
+            cornerFlags = ImDrawFlags_RoundCornersNone;
+
         // Background: flat rounded dark base, no accent wash.
         if (showBackground) {
             draw->AddRectFilled(ImVec2(rectX1, y), ImVec2(rectX2, y + lineHeight),
-                                hud::ColScaleAlpha(IM_COL32(19, 19, 19, 150), eased), rounding);
+                                hud::ColScaleAlpha(IM_COL32(19, 19, 19, 150), eased), rounding, cornerFlags);
         }
 
         // Text shadow for readability when background is off
@@ -296,11 +314,23 @@ void ArrayListRenderer::render() {
                           entry.infoText.c_str());
         }
 
-        // Color bar on edge: a bright lit strip (brighter on the outer edge) with
-        // a clean solid strip of the module color (no glow spill).
+        // Color bar on edge: a clean solid strip of the module color. Rounded on
+        // its OUTER corners only (first/last row) so it fuses into one continuous
+        // accent strip matching the united background instead of square-capped
+        // segments poking past the block's rounded corners.
         if (colorBar) {
             ImU32 mc = hud::ColScaleAlpha(moduleColor, eased);
-            draw->AddRectFilled(ImVec2(barX1, y), ImVec2(barX2, y + lineHeight), mc);
+            ImDrawFlags barFlags;
+            if (rowCount == 1)
+                barFlags = anchorLeft ? ImDrawFlags_RoundCornersLeft : ImDrawFlags_RoundCornersRight;
+            else if (isFirst)
+                barFlags = anchorLeft ? ImDrawFlags_RoundCornersTopLeft : ImDrawFlags_RoundCornersTopRight;
+            else if (isLast)
+                barFlags = anchorLeft ? ImDrawFlags_RoundCornersBottomLeft : ImDrawFlags_RoundCornersBottomRight;
+            else
+                barFlags = ImDrawFlags_RoundCornersNone;
+            float barRound = (barFlags == ImDrawFlags_RoundCornersNone) ? 0.0f : rounding;
+            draw->AddRectFilled(ImVec2(barX1, y), ImVec2(barX2, y + lineHeight), mc, barRound, barFlags);
         }
 
         y += lineHeight;

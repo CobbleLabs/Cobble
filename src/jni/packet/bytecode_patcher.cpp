@@ -29,6 +29,19 @@ static inline std::string kLunarHandleNametagsUpdate() { return OBFUSCATE_STRING
 static inline std::string kLunarHandleOverrideNametags(){ return OBFUSCATE_STRING("handleOverrideNametags"); }
 static inline std::string kOnReceiveMethodName()       { return OBFUSCATE_STRING("onReceive"); }
 static inline std::string kOnReceiveMethodDesc()       { return OBFUSCATE_STRING("(Ljava/lang/Object;)V"); }
+// Backtrack incoming BLOCKING hook: a boolean native on a dedicated class, invoked
+// from NetHandlerPlayClient.handleEntity/handleEntityTeleport to hold S14/S18.
+static inline std::string kIncomingHookClassSlash()    { return OBFUSCATE_STRING("com/cobble/agent/IncomingHook"); }
+static inline std::string kIncomingHookMethodName()    { return OBFUSCATE_STRING("canProcess"); }
+static inline std::string kIncomingHookMethodDesc()    { return OBFUSCATE_STRING("(Ljava/lang/Object;)Z"); }
+static inline std::string kS14ClassMarker()            { return OBFUSCATE_STRING("S14PacketEntity"); }
+static inline std::string kS18ClassMarker()            { return OBFUSCATE_STRING("S18PacketEntityTeleport"); }
+// We patch processPacket on the PACKET classes themselves (not the NetHandler), so it
+// survives clients like Lunar that mixin/replace the entity handlers.
+static inline std::string kS14ClassSlash()             { return OBFUSCATE_STRING("net/minecraft/network/play/server/S14PacketEntity"); }
+static inline std::string kS18ClassSlash()             { return OBFUSCATE_STRING("net/minecraft/network/play/server/S18PacketEntityTeleport"); }
+static inline std::string kProcessPacketName()         { return OBFUSCATE_STRING("processPacket"); }
+static inline std::string kProcessPacketNameObf()      { return OBFUSCATE_STRING("func_148833_a"); }
 
 // Vanilla nametag rendering. RendererLivingEntity.renderName draws the actual
 // name for every living entity (RenderPlayer.renderName overrides it and also
@@ -44,6 +57,9 @@ static inline std::string kPassSpecialRenderMethod()   { return OBFUSCATE_STRING
 static inline std::string kPassSpecialRenderMethodObf() { return OBFUSCATE_STRING("func_177069_a"); }
 
 static HookTargets g_targets{};
+// True only while patching an S14/S18 packet class, so the shared method patcher knows
+// to look for processPacket (and grab `this`, the packet, with aload_0).
+static std::atomic<bool> g_btPacketClass{false};
 static std::atomic<bool> g_hideVanillaNames{false};
 static std::atomic<bool> bytecodeHookInstalled{false};
 static std::atomic<bool> hooksRegistered{false};
@@ -870,11 +886,19 @@ static int patchNetworkManagerClass(const uint8_t* data, size_t len, std::vector
     uint16_t idx_recv_name_type = static_cast<uint16_t>(base + 8);
     uint16_t idx_recv_methodref = static_cast<uint16_t>(base + 9);
 
+    // Entries for IncomingHook.shouldProcess (backtrack blocking hook) — its own class.
+    uint16_t idx_bt_utf8_class = static_cast<uint16_t>(base + 10);
+    uint16_t idx_bt_class = static_cast<uint16_t>(base + 11);
+    uint16_t idx_bt_utf8_name = static_cast<uint16_t>(base + 12);
+    uint16_t idx_bt_utf8_desc = static_cast<uint16_t>(base + 13);
+    uint16_t idx_bt_name_type = static_cast<uint16_t>(base + 14);
+    uint16_t idx_bt_methodref = static_cast<uint16_t>(base + 15);
+
     Writer w;
     w.WriteU4(magic);
     w.WriteU2(minor);
     w.WriteU2(major);
-    w.WriteU2(static_cast<uint16_t>(cp_count + 10));  // 6 for shouldSend + 4 for onReceive (shares class)
+    w.WriteU2(static_cast<uint16_t>(cp_count + 16));  // 6 shouldSend + 4 onReceive + 6 IncomingHook
     w.WriteBytes(cp_raw.data(), cp_raw.size());
 
     // shouldSend entries
@@ -914,6 +938,29 @@ static int patchNetworkManagerClass(const uint8_t* data, size_t len, std::vector
     w.WriteU1(10);  // CONSTANT_Methodref
     w.WriteU2(idx_class);
     w.WriteU2(idx_recv_name_type);
+
+    // IncomingHook.shouldProcess entries (own class ref). Order MUST match the index
+    // assignment above (base+10 .. base+15).
+    w.WriteU1(1);  // #base+10 CONSTANT_Utf8 "com/cobble/agent/IncomingHook"
+    { std::string _s = kIncomingHookClassSlash();
+    w.WriteU2(static_cast<uint16_t>(_s.size()));
+    w.WriteBytes(reinterpret_cast<const uint8_t*>(_s.data()), _s.size()); }
+    w.WriteU1(7);  // #base+11 CONSTANT_Class -> base+10
+    w.WriteU2(idx_bt_utf8_class);
+    w.WriteU1(1);  // #base+12 CONSTANT_Utf8 "shouldProcess"
+    { std::string _s = kIncomingHookMethodName();
+    w.WriteU2(static_cast<uint16_t>(_s.size()));
+    w.WriteBytes(reinterpret_cast<const uint8_t*>(_s.data()), _s.size()); }
+    w.WriteU1(1);  // #base+13 CONSTANT_Utf8 "(Ljava/lang/Object;)Z"
+    { std::string _s = kIncomingHookMethodDesc();
+    w.WriteU2(static_cast<uint16_t>(_s.size()));
+    w.WriteBytes(reinterpret_cast<const uint8_t*>(_s.data()), _s.size()); }
+    w.WriteU1(12);  // #base+14 CONSTANT_NameAndType -> base+12, base+13
+    w.WriteU2(idx_bt_utf8_name);
+    w.WriteU2(idx_bt_utf8_desc);
+    w.WriteU1(10);  // #base+15 CONSTANT_Methodref -> base+11, base+14
+    w.WriteU2(idx_bt_class);
+    w.WriteU2(idx_bt_name_type);
 
     COBBLE_TRACE("patchNetworkManagerClass: constant pool modifications written");
 
@@ -992,9 +1039,9 @@ static int patchNetworkManagerClass(const uint8_t* data, size_t len, std::vector
     COBBLE_TRACE(traceBuf);
 
     // Lunar Client injects ~120 extra methods into NetHandlerPlayClient via Mixins.
-    // Patching that inflated version causes a JVM VerifyError (crash) because the
-    // inserted invokestatic breaks mixin-generated StackMapTable frames.
-    // Vanilla NetHandlerPlayClient has ~40 methods; anything over 80 is Lunar-modded.
+    // Patching that inflated version causes a JVM VerifyError (mixin StackMapTable
+    // frames). Vanilla NetHandlerPlayClient has ~40 methods; over 80 is modded — skip.
+    // (Backtrack no longer needs this class: it patches S14/S18 processPacket instead.)
     if (methods_count > 80) {
         COBBLE_TRACE("patchNetworkManagerClass: methods_count too high (Lunar mixin class) — skipping patch");
         return 0;
@@ -1019,6 +1066,7 @@ static int patchNetworkManagerClass(const uint8_t* data, size_t len, std::vector
 
         bool is_target = false;
         bool is_incoming_target = false;
+        bool is_backtrack_target = false;  // handleEntity/handleEntityTeleport → BLOCKING hook
         int incoming_packet_slot = 2;  // Default: second param for channelRead0
         if (m_name < utf8.size() && m_desc < utf8.size()) {
             const std::string& name = utf8[m_name];
@@ -1108,6 +1156,17 @@ static int patchNetworkManagerClass(const uint8_t* data, size_t len, std::vector
                 }
             }
 
+            // Backtrack: patch processPacket(INetHandler)V on the S14/S18 PACKET class
+            // itself. processPacket calls the NetHandler's entity handler; cutting it here
+            // holds the packet without touching the handler — so it survives clients like
+            // Lunar that mixin/replace the handlers. `this` (the packet) is grabbed below.
+            if (g_targets.backtrack && g_btPacketClass.load(std::memory_order_relaxed) && desc.back() == 'V' &&
+                std::count(desc.begin(), desc.end(), ';') == 1 &&
+                (name == kProcessPacketName() || name == kProcessPacketNameObf())) {
+                is_backtrack_target = true;
+                log_debug("[PacketInterceptor] Found backtrack processPacket: %s %s", name.c_str(), desc.c_str());
+            }
+
             // Mark that we've logged methods
             if (!loggedMethods && i == methods_count - 1) {
                 loggedMethods = true;
@@ -1178,6 +1237,24 @@ static int patchNetworkManagerClass(const uint8_t* data, size_t len, std::vector
                 } else {
                     log_debug("[PacketInterceptor] Observer patch FAILED for: %s", method_name.c_str());
                     COBBLE_TRACE("patchNetworkManagerClass: tryPatchCodeAttributeObserver returned false");
+                }
+            }
+
+            // Patch S14/S18 processPacket (Backtrack) - BLOCKING hook. is_static=true emits
+            // aload_0, i.e. `this` = the packet, which is what IncomingHook.canProcess wants.
+            // When it returns false the method returns early, so the entity handler is never
+            // called and the entity stays at its held position.
+            if (!patched && is_backtrack_target && attr_name && strcmp(attr_name, "Code") == 0 &&
+                (m_access & (0x0100 | 0x0400)) == 0) {
+                COBBLE_TRACE("patchNetworkManagerClass: calling tryPatchCodeAttribute (backtrack)");
+                if (tryPatchCodeAttribute(attr_data, attr_len, cp, utf8, idx_bt_methodref,
+                                          /*is_static=*/true, patched_attr)) {
+                    w.WriteU2(name_index);
+                    w.WriteU4(static_cast<uint32_t>(patched_attr.size()));
+                    w.WriteBytes(patched_attr.data(), patched_attr.size());
+                    patched = true;
+                    ++patched_methods;
+                    log_ok("[PacketInterceptor] Patched backtrack entity handler (blocking)");
                 }
             }
 
@@ -1898,8 +1975,34 @@ static void JNICALL onClassFileLoadHook(jvmtiEnv* jvmti_env, JNIEnv* jni_env, jc
         return;
     }
 
+    // Backtrack: patch processPacket on the S14/S18 packet classes (small, un-mixined).
+    if (g_targets.backtrack &&
+        (strcmp(name, kS14ClassSlash().c_str()) == 0 || strcmp(name, kS18ClassSlash().c_str()) == 0)) {
+        std::vector<uint8_t> patched;
+        g_btPacketClass.store(true, std::memory_order_relaxed);
+        int patched_methods = 0;
+        try {
+            patched_methods = patchNetworkManagerClass(class_data, static_cast<size_t>(class_data_len), patched);
+        } catch (...) {
+            patched_methods = -1;
+        }
+        g_btPacketClass.store(false, std::memory_order_relaxed);
+        if (patched_methods > 0) {
+            unsigned char* buffer = nullptr;
+            jvmtiError err = jvmti_env->Allocate(static_cast<jint>(patched.size()), &buffer);
+            if (err == JVMTI_ERROR_NONE && buffer) {
+                memcpy(buffer, patched.data(), patched.size());
+                *new_class_data_len = static_cast<jint>(patched.size());
+                *new_class_data = buffer;
+                log_ok("[PacketInterceptor] Patched backtrack packet class %s (%d method(s))", name, patched_methods);
+            }
+        }
+        return;
+    }
+
     // Hook NetHandlerPlayClient.handleCustomPayload for incoming Lunar packets
-    if ((g_targets.customPayload || g_targets.teams) && strcmp(name, kIncomingTargetClassSlash().c_str()) == 0) {
+    if ((g_targets.customPayload || g_targets.teams) &&
+        strcmp(name, kIncomingTargetClassSlash().c_str()) == 0) {
         log_debug("[PacketInterceptor] NetHandlerPlayClient loaded - patching handleCustomPayload");
         std::vector<uint8_t> patched;
         int patched_methods = 0;
@@ -2238,6 +2341,27 @@ bool InstallBytecodeHook(JNIEnv* env) {
             if (env->ExceptionCheck())
                 env->ExceptionClear();
             log_warn("[PacketInterceptor] RenderGlobal not available for retransform");
+        }
+    }
+
+    if (g_targets.backtrack) {
+        const char* btDots[2] = {"net.minecraft.network.play.server.S14PacketEntity",
+                                 "net.minecraft.network.play.server.S18PacketEntityTeleport"};
+        for (const char* dot : btDots) {
+            jclass btCls = nullptr;
+            if (Java::AssignClass(dot, btCls)) {
+                jclass classes[1] = {btCls};
+                err = Java::tiEnv->RetransformClasses(1, classes);
+                if (err == JVMTI_ERROR_NONE)
+                    log_ok("[PacketInterceptor] Retransform requested for backtrack packet class %s", dot);
+                else
+                    log_warn("[PacketInterceptor] Backtrack packet class retransform failed: %d", err);
+                env->DeleteLocalRef(btCls);
+            } else {
+                if (env->ExceptionCheck())
+                    env->ExceptionClear();
+                log_debug("[PacketInterceptor] Backtrack packet class %s not loaded yet (will patch on load)", dot);
+            }
         }
     }
 

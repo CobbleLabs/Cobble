@@ -6,20 +6,41 @@
 #include "../../module/movement/fakelag.h"
 #include "../../module/movement/timerrange.h"
 #include "../../module/utility/clutch.h"
+#include "../../module/utility/autorefill.h"
 #include "../../module/combat/aimassist.h"
+#include "../../module/combat/backtrack.h"
+#include "../../module/combat/killaura.h"
 
 namespace OutgoingPacketGate {
 
 jboolean JNICALL NativeShouldSend(JNIEnv* env, jclass cls, jobject packet) {
-    const bool clutchRotating = clutch && clutch->isRewritingRotation();
+    // Fire any queued AutoRefill click just before this (flying) packet so the
+    // window-click lands ahead of movement in the tick (avoids Grim's Post).
+    if (autoRefill) {
+        autoRefill->onOutgoingPacket(env, packet);
+    }
+
+    const bool clutchRotating = (clutch && clutch->isRewritingRotation()) ||
+                                (scaffold && scaffold->isRewritingRotation());
+    if (scaffold) {
+        scaffold->onOutgoingPacket(env, packet);
+    }
     if (clutch) {
         clutch->onOutgoingPacket(env, packet);
     }
 
+    // KillAura silent rotation: rewrites the flying packet's yaw/pitch onto the
+    // combat aim. Deferred while clutch owns the rotation (placement aim).
+    const bool killAuraRotating = killAura && killAura->isRewritingRotation();
+    if (killAura && !clutchRotating) {
+        killAura->onOutgoingPacket(env, packet);
+    }
+
     // AimAssist packet-rotation (smooth camera): rewrites the outgoing movement
     // packet's yaw/pitch with the randomized server rotation. Deferred while
-    // clutch is rewriting rotation so a placement aim is never perturbed.
-    if (aimAssist && !clutchRotating) {
+    // clutch or KillAura is rewriting rotation so a combat/placement aim is never
+    // perturbed.
+    if (aimAssist && !clutchRotating && !killAuraRotating) {
         aimAssist->onOutgoingPacket(env, packet);
     }
 

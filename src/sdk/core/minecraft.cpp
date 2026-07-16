@@ -350,6 +350,16 @@ bool Minecraft::attackEntity(jobject target) {
     return attacked;
 }
 
+jobject Minecraft::getNetHandler() {
+    JNIEnv* env = Java::Env();
+    if (!isValid() || !env || !JniCache::mid_getNetHandler)
+        return nullptr;
+    jobject nh = env->CallObjectMethod(instance, JniCache::mid_getNetHandler);
+    if (env->ExceptionCheck())
+        env->ExceptionClear();
+    return nh;
+}
+
 void Minecraft::rightClickMouse() {
     JNIEnv* env = Java::Env();
     if (!isValid() || !mid_rightClickMouse || !env)
