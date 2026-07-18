@@ -320,6 +320,12 @@ void JNICALL NativeOnRenderWorld(JNIEnv* env, jclass, jobject viewEntity) {
     if (pingsModule && pingsModule->enabled) {
         pingsModule->onRender3D();
     }
+
+    // GL chams: re-render each nearby player's model (fill or real skin) through
+    // walls, inside Minecraft's own render pass.
+    if (chams && chams->enabled) {
+        chams->onRender3D();
+    }
 }
 
 bool Init(JNIEnv* env) {

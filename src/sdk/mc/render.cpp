@@ -6,6 +6,7 @@
 #include "../core/minecraft.h"
 #include "../jni/jni_cache.h"
 #include "../jni/jstring_util.h"
+#include "../jni/member_resolver.h"
 
 #include <gl/GL.h>
 
@@ -17,11 +18,24 @@
 
 typedef void(APIENTRY* glDepthFunc_t)(GLenum);
 typedef void(APIENTRY* glDepthMask_t)(GLboolean);
+typedef void(APIENTRY* glColor4f_t)(GLfloat, GLfloat, GLfloat, GLfloat);
+typedef void(APIENTRY* glColor3f_t)(GLfloat, GLfloat, GLfloat);
+typedef void(APIENTRY* glEnable_t)(GLenum);
 
 static glDepthFunc_t o_glDepthFunc = nullptr;
 static glDepthMask_t o_glDepthMask = nullptr;
+static glColor4f_t o_glColor4f = nullptr;
+static glColor3f_t o_glColor3f = nullptr;
+static glEnable_t o_glEnable = nullptr;
 
 static bool g_DisableDepthOverride = false;
+
+// Chams "Fill" mode active flag. When set, any glColor* call from Minecraft's
+// internal render (armor layers, held items, hurt overlay, etc.) is rewritten
+// to our target color, and re-enabling GL_TEXTURE_2D / GL_LIGHTING is blocked.
+// This makes every fragment of the model come out as a solid flat color.
+static bool g_ChamsFillActive = false;
+static GLfloat g_ChamsR = 1.0f, g_ChamsG = 1.0f, g_ChamsB = 1.0f, g_ChamsA = 1.0f;
 
 static void APIENTRY hk_glDepthFunc(GLenum func) {
     if (g_DisableDepthOverride) {
@@ -37,6 +51,64 @@ static void APIENTRY hk_glDepthMask(GLboolean flag) {
     } else {
         o_glDepthMask(flag);
     }
+}
+
+static void APIENTRY hk_glColor4f(GLfloat r, GLfloat g, GLfloat b, GLfloat a) {
+    if (g_ChamsFillActive) {
+        o_glColor4f(g_ChamsR, g_ChamsG, g_ChamsB, g_ChamsA);
+    } else {
+        o_glColor4f(r, g, b, a);
+    }
+}
+
+static void APIENTRY hk_glColor3f(GLfloat r, GLfloat g, GLfloat b) {
+    if (g_ChamsFillActive) {
+        // Route through glColor4f hook so alpha stays consistent.
+        o_glColor4f(g_ChamsR, g_ChamsG, g_ChamsB, g_ChamsA);
+    } else {
+        o_glColor3f(r, g, b);
+    }
+}
+
+static void APIENTRY hk_glEnable(GLenum cap) {
+    if (g_ChamsFillActive && (cap == GL_TEXTURE_2D || cap == GL_LIGHTING)) {
+        // Swallow the re-enable so the model stays untextured and unshaded.
+        return;
+    }
+    o_glEnable(cap);
+}
+
+// Lazy installer for all chams-related GL hooks. Safe to call every frame — the
+// second and later calls are a no-op once installed.
+static void EnsureChamsGlHooks() {
+    static bool tried = false;
+    if (tried)
+        return;
+    tried = true;
+    HMODULE hGl = GetModuleHandleA("opengl32.dll");
+    if (!hGl)
+        return;
+
+    struct Hook {
+        const char* name;
+        LPVOID detour;
+        LPVOID* trampoline;
+    };
+    const Hook hooks[] = {
+        {"glDepthFunc", (LPVOID)hk_glDepthFunc, (LPVOID*)&o_glDepthFunc},
+        {"glDepthMask", (LPVOID)hk_glDepthMask, (LPVOID*)&o_glDepthMask},
+        {"glColor4f",   (LPVOID)hk_glColor4f,   (LPVOID*)&o_glColor4f  },
+        {"glColor3f",   (LPVOID)hk_glColor3f,   (LPVOID*)&o_glColor3f  },
+        {"glEnable",    (LPVOID)hk_glEnable,    (LPVOID*)&o_glEnable   },
+    };
+    for (const auto& h : hooks) {
+        LPVOID target = (LPVOID)GetProcAddress(hGl, h.name);
+        if (!target)
+            continue;
+        if (MH_CreateHook(target, h.detour, h.trampoline) == MH_OK)
+            MH_EnableHook(target);
+    }
+    log_ok("[Chams] GL hooks installed (color/enable/depth)");
 }
 
 typedef void(APIENTRY* PFN_glBlendColor_t)(GLfloat, GLfloat, GLfloat, GLfloat);
@@ -884,4 +956,448 @@ void Minecraft::renderGhostEntity(int entityId, double wx, double wy, double wz,
 
     env->DeleteLocalRef(world);
     env->DeleteLocalRef(renderManager);
+}
+
+// =============================================================================
+// renderEntityChams - GL chams via RenderManager.renderEntitySimple.
+//
+// Unlike renderGhostEntity (which needs native renderPosX/Y/Z fields to offset
+// doRenderEntity), renderEntitySimple positions the entity itself on the Java
+// side, so it works even when those obfuscated fields don't resolve (Badlion
+// 1.8.9). A huge negative polygon offset pushes the model in front of terrain
+// so it shows through walls without disabling the depth test.
+// =============================================================================
+
+void Minecraft::renderEntityChams(int entityId, float r, float g, float b, float a, bool fill) {
+    if (!isValid() || entityId <= 0)
+        return;
+
+    JNIEnv* env = Java::Env();
+    if (!env)
+        return;
+    if (env->ExceptionCheck())
+        env->ExceptionClear();
+
+    const bool is_1_7_10 = (Java::Version == MinecraftVersion::MC_1_7_10);
+
+    // Resolve theWorld field on Minecraft. Same in 1.7 and 1.8+ (instance).
+    static jfieldID s_fid_theWorld = nullptr;
+    static jfieldID s_fid_renderManager = nullptr;   // 1.8+ instance field
+    static jfieldID s_sfid_rmInstance = nullptr;     // 1.7.10 static singleton
+    static bool s_triedFields = false;
+    if (!s_triedFields) {
+        s_triedFields = true;
+        s_fid_theWorld = JniCache::fid_theWorld;
+        if (!s_fid_theWorld && cls) {
+            s_fid_theWorld = jni_resolver::findUniqueFieldBySignature(
+                cls, "Lnet/minecraft/client/multiplayer/WorldClient;", false);
+        }
+
+        if (is_1_7_10) {
+            // 1.7.10: RenderManager is a singleton — RenderManager.instance
+            if (JniCache::cls_RenderManager) {
+                s_sfid_rmInstance = env->GetStaticFieldID(
+                    JniCache::cls_RenderManager, OBFUSCATE_STRING("instance").c_str(),
+                    OBFUSCATE_STRING("Lnet/minecraft/client/renderer/entity/RenderManager;").c_str());
+                if (env->ExceptionCheck()) {
+                    env->ExceptionClear();
+                    s_sfid_rmInstance = nullptr;
+                }
+                if (!s_sfid_rmInstance) {
+                    s_sfid_rmInstance = env->GetStaticFieldID(
+                        JniCache::cls_RenderManager, OBFUSCATE_STRING("field_78727_a").c_str(),
+                        OBFUSCATE_STRING("Lnet/minecraft/client/renderer/entity/RenderManager;").c_str());
+                    if (env->ExceptionCheck()) {
+                        env->ExceptionClear();
+                        s_sfid_rmInstance = nullptr;
+                    }
+                }
+                if (!s_sfid_rmInstance) {
+                    s_sfid_rmInstance = jni_resolver::findUniqueFieldBySignature(
+                        JniCache::cls_RenderManager,
+                        "Lnet/minecraft/client/renderer/entity/RenderManager;", true);
+                }
+            }
+        } else {
+            s_fid_renderManager = JniCache::fid_renderManager;
+            if (!s_fid_renderManager && cls) {
+                s_fid_renderManager = jni_resolver::findUniqueFieldBySignature(
+                    cls, "Lnet/minecraft/client/renderer/entity/RenderManager;", false);
+            }
+        }
+        log_ok("[Chams] version=%s theWorld=%p renderManagerInst=%p rmSingleton=%p",
+               is_1_7_10 ? "1.7.10" : "1.8+", (void*)s_fid_theWorld, (void*)s_fid_renderManager,
+               (void*)s_sfid_rmInstance);
+    }
+    if (!s_fid_theWorld)
+        return;
+    if (is_1_7_10 && !s_sfid_rmInstance)
+        return;
+    if (!is_1_7_10 && !s_fid_renderManager)
+        return;
+
+    jobject world = env->GetObjectField(instance, s_fid_theWorld);
+    if (!world)
+        return;
+    jobject renderManager = nullptr;
+    if (is_1_7_10) {
+        renderManager = env->GetStaticObjectField(JniCache::cls_RenderManager, s_sfid_rmInstance);
+    } else {
+        renderManager = env->GetObjectField(instance, s_fid_renderManager);
+    }
+    if (env->ExceptionCheck())
+        env->ExceptionClear();
+    if (!renderManager) {
+        env->DeleteLocalRef(world);
+        return;
+    }
+
+    static jmethodID mid_getEntityByID = nullptr;
+    static jmethodID mid_renderEntitySimple = nullptr;
+    static jmethodID mid_doRenderEntity = nullptr;   // doRenderEntity / renderEntityWithPosYaw
+    static bool doRenderReturnsBool = false;
+    static bool doRenderTakesExtraBool = false;      // 1.8+ has trailing Z arg, 1.7.10 doesn't
+    static bool triedIds = false;
+    if (!triedIds) {
+        triedIds = true;
+
+        // ---- World.getEntityByID(int) -> Entity ----
+        jclass wcls = env->GetObjectClass(world);
+        if (wcls) {
+            mid_getEntityByID = env->GetMethodID(wcls, OBFUSCATE_STRING("getEntityByID").c_str(),
+                                                 OBFUSCATE_STRING("(I)Lnet/minecraft/entity/Entity;").c_str());
+            if (env->ExceptionCheck()) {
+                env->ExceptionClear();
+                mid_getEntityByID = nullptr;
+            }
+            if (!mid_getEntityByID) {
+                mid_getEntityByID = env->GetMethodID(wcls, OBFUSCATE_STRING("func_73045_a").c_str(),
+                                                     OBFUSCATE_STRING("(I)Lnet/minecraft/entity/Entity;").c_str());
+                if (env->ExceptionCheck()) {
+                    env->ExceptionClear();
+                    mid_getEntityByID = nullptr;
+                }
+            }
+            // Descriptor search (handles Notch via NotchDescriptor).
+            if (!mid_getEntityByID) {
+                mid_getEntityByID =
+                    jni_resolver::findUniqueMethodBySignature(wcls, "(I)Lnet/minecraft/entity/Entity;", false);
+            }
+            env->DeleteLocalRef(wcls);
+        }
+
+        // ---- RenderManager.renderEntitySimple(Entity, float) -> boolean ----
+        if (JniCache::cls_RenderManager) {
+            mid_renderEntitySimple = env->GetMethodID(JniCache::cls_RenderManager,
+                                                      OBFUSCATE_STRING("renderEntitySimple").c_str(),
+                                                      OBFUSCATE_STRING("(Lnet/minecraft/entity/Entity;F)Z").c_str());
+            if (env->ExceptionCheck()) {
+                env->ExceptionClear();
+                mid_renderEntitySimple = nullptr;
+            }
+            if (!mid_renderEntitySimple) {
+                mid_renderEntitySimple = env->GetMethodID(JniCache::cls_RenderManager,
+                                                          OBFUSCATE_STRING("func_147936_a").c_str(),
+                                                          OBFUSCATE_STRING("(Lnet/minecraft/entity/Entity;F)Z").c_str());
+                if (env->ExceptionCheck()) {
+                    env->ExceptionClear();
+                    mid_renderEntitySimple = nullptr;
+                }
+            }
+            if (!mid_renderEntitySimple) {
+                mid_renderEntitySimple = jni_resolver::findUniqueMethodBySignature(
+                    JniCache::cls_RenderManager, "(Lnet/minecraft/entity/Entity;F)Z", false);
+            }
+
+            // ---- Fallback: doRenderEntity / renderEntityWithPosYaw ----
+            // 1.8+ signature: doRenderEntity(Entity, DDD, F, F, Z) -> Z or V
+            // 1.7.10 signature: renderEntityWithPosYaw(Entity, DDD, F, F) -> Z
+            if (!is_1_7_10) {
+                mid_doRenderEntity =
+                    env->GetMethodID(JniCache::cls_RenderManager, OBFUSCATE_STRING("doRenderEntity").c_str(),
+                                     OBFUSCATE_STRING("(Lnet/minecraft/entity/Entity;DDDFFZ)Z").c_str());
+                if (env->ExceptionCheck()) {
+                    env->ExceptionClear();
+                    mid_doRenderEntity = nullptr;
+                }
+                if (mid_doRenderEntity) {
+                    doRenderReturnsBool = true;
+                    doRenderTakesExtraBool = true;
+                } else {
+                    mid_doRenderEntity =
+                        env->GetMethodID(JniCache::cls_RenderManager, OBFUSCATE_STRING("doRenderEntity").c_str(),
+                                         OBFUSCATE_STRING("(Lnet/minecraft/entity/Entity;DDDFFZ)V").c_str());
+                    if (env->ExceptionCheck()) {
+                        env->ExceptionClear();
+                        mid_doRenderEntity = nullptr;
+                    }
+                    if (mid_doRenderEntity)
+                        doRenderTakesExtraBool = true;
+                }
+                if (!mid_doRenderEntity) {
+                    mid_doRenderEntity = jni_resolver::findUniqueMethodBySignature(
+                        JniCache::cls_RenderManager, "(Lnet/minecraft/entity/Entity;DDDFFZ)Z", false);
+                    if (mid_doRenderEntity) {
+                        doRenderReturnsBool = true;
+                        doRenderTakesExtraBool = true;
+                    }
+                }
+                if (!mid_doRenderEntity) {
+                    mid_doRenderEntity = jni_resolver::findUniqueMethodBySignature(
+                        JniCache::cls_RenderManager, "(Lnet/minecraft/entity/Entity;DDDFFZ)V", false);
+                    if (mid_doRenderEntity)
+                        doRenderTakesExtraBool = true;
+                }
+            } else {
+                mid_doRenderEntity = env->GetMethodID(
+                    JniCache::cls_RenderManager, OBFUSCATE_STRING("renderEntityWithPosYaw").c_str(),
+                    OBFUSCATE_STRING("(Lnet/minecraft/entity/Entity;DDDFF)Z").c_str());
+                if (env->ExceptionCheck()) {
+                    env->ExceptionClear();
+                    mid_doRenderEntity = nullptr;
+                }
+                if (mid_doRenderEntity) {
+                    doRenderReturnsBool = true;
+                } else {
+                    mid_doRenderEntity = env->GetMethodID(
+                        JniCache::cls_RenderManager, OBFUSCATE_STRING("func_147939_a").c_str(),
+                        OBFUSCATE_STRING("(Lnet/minecraft/entity/Entity;DDDFF)Z").c_str());
+                    if (env->ExceptionCheck()) {
+                        env->ExceptionClear();
+                        mid_doRenderEntity = nullptr;
+                    }
+                    if (mid_doRenderEntity)
+                        doRenderReturnsBool = true;
+                }
+                if (!mid_doRenderEntity) {
+                    mid_doRenderEntity = jni_resolver::findUniqueMethodBySignature(
+                        JniCache::cls_RenderManager, "(Lnet/minecraft/entity/Entity;DDDFF)Z", false);
+                    if (mid_doRenderEntity)
+                        doRenderReturnsBool = true;
+                }
+            }
+        }
+
+        log_ok("[Chams] resolved methods getEntityByID=%p renderEntitySimple=%p doRenderEntity=%p (bool=%d)",
+               (void*)mid_getEntityByID, (void*)mid_renderEntitySimple, (void*)mid_doRenderEntity,
+               doRenderReturnsBool ? 1 : 0);
+    }
+
+    if (mid_getEntityByID && (mid_renderEntitySimple || mid_doRenderEntity)) {
+        jobject entity = env->CallObjectMethod(world, mid_getEntityByID, static_cast<jint>(entityId));
+        if (env->ExceptionCheck())
+            env->ExceptionClear();
+        if (entity) {
+            const float partial = getPartialTicks();
+
+            // Suppress the duplicate nametag our re-render would otherwise draw.
+            static jfieldID fid_hideGUI = nullptr;
+            static bool triedHideGUI = false;
+            if (!triedHideGUI) {
+                triedHideGUI = true;
+                if (JniCache::cls_GameSettings) {
+                    fid_hideGUI = env->GetFieldID(JniCache::cls_GameSettings, "hideGUI", "Z");
+                    if (!fid_hideGUI) {
+                        if (env->ExceptionCheck())
+                            env->ExceptionClear();
+                        fid_hideGUI = env->GetFieldID(JniCache::cls_GameSettings, "field_74319_N", "Z");
+                    }
+                    if (env->ExceptionCheck())
+                        env->ExceptionClear();
+                }
+            }
+            jobject gameSettings = nullptr;
+            jboolean hideGUIBefore = JNI_FALSE;
+            if (fid_hideGUI && JniCache::fid_gameSettings) {
+                gameSettings = env->GetObjectField(instance, JniCache::fid_gameSettings);
+                if (gameSettings) {
+                    hideGUIBefore = env->GetBooleanField(gameSettings, fid_hideGUI);
+                    env->SetBooleanField(gameSettings, fid_hideGUI, JNI_TRUE);
+                }
+                if (env->ExceptionCheck())
+                    env->ExceptionClear();
+            }
+
+            // Save the GL state we touch.
+            const GLboolean wasPolyOffset = glIsEnabled(GL_POLYGON_OFFSET_FILL);
+            GLfloat saveFactor = 0.0f, saveUnits = 0.0f;
+            glGetFloatv(GL_POLYGON_OFFSET_FACTOR, &saveFactor);
+            glGetFloatv(GL_POLYGON_OFFSET_UNITS, &saveUnits);
+            const GLboolean wasTex2D = glIsEnabled(GL_TEXTURE_2D);
+            const GLboolean wasLighting = glIsEnabled(GL_LIGHTING);
+            const GLboolean wasAlphaTest = glIsEnabled(GL_ALPHA_TEST);
+            const GLboolean wasBlend = glIsEnabled(GL_BLEND);
+            GLint saveSrc = GL_SRC_ALPHA, saveDst = GL_ONE_MINUS_SRC_ALPHA;
+            glGetIntegerv(GL_BLEND_SRC, &saveSrc);
+            glGetIntegerv(GL_BLEND_DST, &saveDst);
+            GLint saveShadeModel = GL_SMOOTH;
+            glGetIntegerv(GL_SHADE_MODEL, &saveShadeModel);
+
+            // Push the model in front of terrain (through walls) via depth offset.
+            glEnable(GL_POLYGON_OFFSET_FILL);
+            glPolygonOffset(1.0f, -1000000.0f);
+
+            if (fill) {
+                // Solid flat color. Install the GL hooks the first time we get
+                // here, then set the fill-active flag so any glColor* the game
+                // makes internally is rewritten to our target color, and any
+                // re-enable of GL_TEXTURE_2D / GL_LIGHTING is dropped.
+                EnsureChamsGlHooks();
+                g_ChamsR = r;
+                g_ChamsG = g;
+                g_ChamsB = b;
+                g_ChamsA = a;
+                g_ChamsFillActive = true;
+
+                glDisable(GL_TEXTURE_2D);
+                glDisable(GL_LIGHTING);
+                glDisable(GL_ALPHA_TEST);
+                glShadeModel(GL_FLAT);
+                glEnable(GL_BLEND);
+                glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+                glColor4f(r, g, b, a);
+            }
+
+            if (mid_renderEntitySimple) {
+                // Preferred path: RenderManager positions the entity from its
+                // own fields; we don't need renderPosX/Y/Z ourselves.
+                env->CallBooleanMethod(renderManager, mid_renderEntitySimple, entity, static_cast<jfloat>(partial));
+                if (env->ExceptionCheck())
+                    env->ExceptionClear();
+            } else if (mid_doRenderEntity) {
+                // Fallback: compute the render offset from RenderManager's
+                // renderPosX/Y/Z. In 1.7.10 they're STATIC fields; in 1.8+
+                // they're INSTANCE fields. If neither resolves, assume 0.
+                double rpx = 0.0, rpy = 0.0, rpz = 0.0;
+                if (is_1_7_10) {
+                    if (JniCache::fid_renderPosX_static && JniCache::fid_renderPosY_static &&
+                        JniCache::fid_renderPosZ_static) {
+                        rpx = env->GetStaticDoubleField(JniCache::cls_RenderManager,
+                                                        JniCache::fid_renderPosX_static);
+                        rpy = env->GetStaticDoubleField(JniCache::cls_RenderManager,
+                                                        JniCache::fid_renderPosY_static);
+                        rpz = env->GetStaticDoubleField(JniCache::cls_RenderManager,
+                                                        JniCache::fid_renderPosZ_static);
+                    }
+                } else if (JniCache::fid_renderPosX && JniCache::fid_renderPosY && JniCache::fid_renderPosZ) {
+                    rpx = env->GetDoubleField(renderManager, JniCache::fid_renderPosX);
+                    rpy = env->GetDoubleField(renderManager, JniCache::fid_renderPosY);
+                    rpz = env->GetDoubleField(renderManager, JniCache::fid_renderPosZ);
+                }
+                // Read entity world position at partial tick.
+                static jfieldID fid_posX = nullptr, fid_posY = nullptr, fid_posZ = nullptr;
+                static jfieldID fid_lastX = nullptr, fid_lastY = nullptr, fid_lastZ = nullptr;
+                static jfieldID fid_rotYaw = nullptr, fid_prevYaw = nullptr;
+                static bool triedEntFids = false;
+                if (!triedEntFids) {
+                    triedEntFids = true;
+                    jclass ecls = env->FindClass(OBFUSCATE_STRING("net/minecraft/entity/Entity").c_str());
+                    if (env->ExceptionCheck())
+                        env->ExceptionClear();
+                    if (!ecls)
+                        ecls = env->GetObjectClass(entity);
+                    if (ecls) {
+                        fid_posX = env->GetFieldID(ecls, "posX", "D");
+                        if (env->ExceptionCheck()) env->ExceptionClear();
+                        fid_posY = env->GetFieldID(ecls, "posY", "D");
+                        if (env->ExceptionCheck()) env->ExceptionClear();
+                        fid_posZ = env->GetFieldID(ecls, "posZ", "D");
+                        if (env->ExceptionCheck()) env->ExceptionClear();
+                        fid_lastX = env->GetFieldID(ecls, "lastTickPosX", "D");
+                        if (env->ExceptionCheck()) env->ExceptionClear();
+                        fid_lastY = env->GetFieldID(ecls, "lastTickPosY", "D");
+                        if (env->ExceptionCheck()) env->ExceptionClear();
+                        fid_lastZ = env->GetFieldID(ecls, "lastTickPosZ", "D");
+                        if (env->ExceptionCheck()) env->ExceptionClear();
+                        fid_rotYaw = env->GetFieldID(ecls, OBFUSCATE_STRING("rotationYaw").c_str(), "F");
+                        if (env->ExceptionCheck()) env->ExceptionClear();
+                        fid_prevYaw = env->GetFieldID(ecls, OBFUSCATE_STRING("prevRotationYaw").c_str(), "F");
+                        if (env->ExceptionCheck()) env->ExceptionClear();
+                        env->DeleteLocalRef(ecls);
+                    }
+                }
+                double ex = 0.0, ey = 0.0, ez = 0.0;
+                float yaw = 0.0f;
+                if (fid_posX && fid_lastX) {
+                    const double px = env->GetDoubleField(entity, fid_posX);
+                    const double lx = env->GetDoubleField(entity, fid_lastX);
+                    ex = lx + (px - lx) * partial;
+                }
+                if (fid_posY && fid_lastY) {
+                    const double py = env->GetDoubleField(entity, fid_posY);
+                    const double ly = env->GetDoubleField(entity, fid_lastY);
+                    ey = ly + (py - ly) * partial;
+                }
+                if (fid_posZ && fid_lastZ) {
+                    const double pz = env->GetDoubleField(entity, fid_posZ);
+                    const double lz = env->GetDoubleField(entity, fid_lastZ);
+                    ez = lz + (pz - lz) * partial;
+                }
+                if (fid_rotYaw) {
+                    const float ry = env->GetFloatField(entity, fid_rotYaw);
+                    const float pry = fid_prevYaw ? env->GetFloatField(entity, fid_prevYaw) : ry;
+                    yaw = pry + (ry - pry) * partial;
+                }
+                const double dx = ex - rpx;
+                const double dy = ey - rpy;
+                const double dz = ez - rpz;
+                if (doRenderTakesExtraBool) {
+                    if (doRenderReturnsBool) {
+                        env->CallBooleanMethod(renderManager, mid_doRenderEntity, entity, (jdouble)dx, (jdouble)dy,
+                                               (jdouble)dz, (jfloat)yaw, (jfloat)partial, (jboolean)JNI_FALSE);
+                    } else {
+                        env->CallVoidMethod(renderManager, mid_doRenderEntity, entity, (jdouble)dx, (jdouble)dy,
+                                            (jdouble)dz, (jfloat)yaw, (jfloat)partial, (jboolean)JNI_FALSE);
+                    }
+                } else {
+                    // 1.7.10 renderEntityWithPosYaw(Entity, DDD, F, F) -> Z
+                    env->CallBooleanMethod(renderManager, mid_doRenderEntity, entity, (jdouble)dx, (jdouble)dy,
+                                           (jdouble)dz, (jfloat)yaw, (jfloat)partial);
+                }
+                if (env->ExceptionCheck())
+                    env->ExceptionClear();
+            }
+
+            // Restore GL state.
+            if (fill) {
+                // Drop the fill flag FIRST so restore glEnable/glColor calls
+                // aren't captured by the hooks.
+                g_ChamsFillActive = false;
+                if (wasTex2D)
+                    glEnable(GL_TEXTURE_2D);
+                else
+                    glDisable(GL_TEXTURE_2D);
+                if (wasLighting)
+                    glEnable(GL_LIGHTING);
+                else
+                    glDisable(GL_LIGHTING);
+                if (wasAlphaTest)
+                    glEnable(GL_ALPHA_TEST);
+                else
+                    glDisable(GL_ALPHA_TEST);
+                glShadeModel(saveShadeModel);
+                glBlendFunc(saveSrc, saveDst);
+                if (wasBlend)
+                    glEnable(GL_BLEND);
+                else
+                    glDisable(GL_BLEND);
+                glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
+            }
+            glPolygonOffset(saveFactor, saveUnits);
+            if (!wasPolyOffset)
+                glDisable(GL_POLYGON_OFFSET_FILL);
+
+            if (gameSettings) {
+                env->SetBooleanField(gameSettings, fid_hideGUI, hideGUIBefore);
+                if (env->ExceptionCheck())
+                    env->ExceptionClear();
+                env->DeleteLocalRef(gameSettings);
+            }
+
+            env->DeleteLocalRef(entity);
+        }
+    }
+
+    env->DeleteLocalRef(renderManager);
+    env->DeleteLocalRef(world);
 }

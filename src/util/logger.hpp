@@ -19,6 +19,7 @@
 
 #include <Windows.h>
 
+#include <cstdarg>
 #include <cstdio>
 
 #ifdef COBBLE_DEV_BUILD
@@ -40,19 +41,26 @@ inline void write(const char* level, const char* fmt, ...) {
 
     static char buf[2048];
 
-    // Write level prefix
-    int prefixLen = wsprintfA(buf, "[%s] ", level);
-    if (prefixLen < 0) prefixLen = 0;
+    // Write level prefix. We use snprintf/vsnprintf (the C runtime formatters)
+    // instead of Windows's wsprintfA/wvsprintfA because the Win32 versions only
+    // accept %d/%s/%x/%u/%c and silently drop everything else — %f, %zu, %lx,
+    // %lld all get printed as literal characters, which corrupts diagnostics.
+    int prefixLen = std::snprintf(buf, sizeof(buf), "[%s] ", level);
+    if (prefixLen < 0 || prefixLen >= (int)sizeof(buf)) prefixLen = 0;
 
     // Format user message with va_list
     va_list args;
     va_start(args, fmt);
-    int msgLen = wvsprintfA(buf + prefixLen, fmt, args);
+    const size_t remaining = sizeof(buf) - prefixLen;
+    int msgLen = std::vsnprintf(buf + prefixLen, remaining, fmt, args);
     va_end(args);
 
     if (msgLen < 0) msgLen = 0;
+    // vsnprintf always null-terminates; clamp msgLen to what actually fit.
+    if ((size_t)msgLen >= remaining)
+        msgLen = (int)remaining - 1;
 
-    // Null-terminate
+    // Null-terminate (redundant with C99 vsnprintf, but explicit for safety)
     buf[prefixLen + msgLen] = '\0';
 
     // Write to trace file (crash-safe, append, flush, close)

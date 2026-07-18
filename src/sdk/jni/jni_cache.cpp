@@ -529,24 +529,43 @@ static bool resolveIds(JNIEnv* env) {
     // =========================================================================
 
     if (cls_Entity) {
+        // Entity double fields — SRG fallbacks are essential (especially on
+        // Lunar 1.7.10, which ships with SRG names in place). Descriptor-only
+        // search is useless here because Entity has many "D" fields, so the
+        // findUnique... path returns null and info.posY silently reads as 0.
         TRY_FIELD(fid_posX, cls_Entity, "posX", "D");
+        if (!fid_posX)
+            TRY_FIELD(fid_posX, cls_Entity, "field_70165_t", "D");   // 1.7.10 SRG
         if (!fid_posX && !is_1_7_10)
             TRY_FIELD(fid_posX, cls_Entity, "s", "D");
         TRY_FIELD(fid_posY, cls_Entity, "posY", "D");
+        if (!fid_posY)
+            TRY_FIELD(fid_posY, cls_Entity, "field_70163_u", "D");   // 1.7.10 SRG
         if (!fid_posY && !is_1_7_10)
             TRY_FIELD(fid_posY, cls_Entity, "t", "D");
         TRY_FIELD(fid_posZ, cls_Entity, "posZ", "D");
+        if (!fid_posZ)
+            TRY_FIELD(fid_posZ, cls_Entity, "field_70161_v", "D");   // 1.7.10 SRG
         if (!fid_posZ && !is_1_7_10)
             TRY_FIELD(fid_posZ, cls_Entity, "u", "D");
         TRY_FIELD(fid_lastTickPosX, cls_Entity, "lastTickPosX", "D");
+        if (!fid_lastTickPosX)
+            TRY_FIELD(fid_lastTickPosX, cls_Entity, "field_70142_S", "D");
         if (!fid_lastTickPosX && !is_1_7_10)
             TRY_FIELD(fid_lastTickPosX, cls_Entity, "m", "D");
         TRY_FIELD(fid_lastTickPosY, cls_Entity, "lastTickPosY", "D");
+        if (!fid_lastTickPosY)
+            TRY_FIELD(fid_lastTickPosY, cls_Entity, "field_70137_T", "D");
         if (!fid_lastTickPosY && !is_1_7_10)
             TRY_FIELD(fid_lastTickPosY, cls_Entity, "n", "D");
         TRY_FIELD(fid_lastTickPosZ, cls_Entity, "lastTickPosZ", "D");
+        if (!fid_lastTickPosZ)
+            TRY_FIELD(fid_lastTickPosZ, cls_Entity, "field_70136_U", "D");
         if (!fid_lastTickPosZ && !is_1_7_10)
             TRY_FIELD(fid_lastTickPosZ, cls_Entity, "o", "D");
+
+        log_debug("[JniCache] Entity pos fields: posX=%p posY=%p posZ=%p lastY=%p",
+                  (void*)fid_posX, (void*)fid_posY, (void*)fid_posZ, (void*)fid_lastTickPosY);
         TRY_METHOD(mid_isInvisible, cls_Entity, "isInvisible", "()Z");
         TRY_METHOD(mid_getUniqueID, cls_Entity, "getUniqueID", "()Ljava/util/UUID;");
         TRY_METHOD(mid_getEntityId, cls_Entity, "getEntityId", "()I");

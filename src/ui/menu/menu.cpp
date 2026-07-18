@@ -1184,10 +1184,10 @@ static void AddOutlineSweep(ImDrawList* draw, const ImVec2& a, const ImVec2& b, 
         // long top/bottom edges don't billow vertically. A bright, fairly narrow core
         // reads as a defined LINE — thicker than the card's 1px outline — with a
         // tighter soft halo hugging it rather than a big diffuse cloud.
-        const float outerBase = ImLerp(1.5f, 2.0f, t);
-        const float outerGain = ImLerp(2.5f, 5.5f, t);      // crisp thick line -> tight soft halo
-        const float innerBase = ImLerp(1.0f, 1.5f, t);
-        const float innerGain = ImLerp(2.5f, 5.0f, t);      // inner side, clamped below
+        const float outerBase = ImLerp(1.0f, 1.4f, t);
+        const float outerGain = ImLerp(1.7f, 3.8f, t);      // crisp thick line -> tight soft halo
+        const float innerBase = ImLerp(0.7f, 1.0f, t);
+        const float innerGain = ImLerp(1.7f, 3.5f, t);      // inner side, clamped below
         const float pAlpha = ImLerp(0.20f, 0.010f, t * t);  // defined core, faint metallic halo (dimmer)
         for (int i = 0; i < M; ++i) {
             const int j = (i + 1) % M;

@@ -180,6 +180,14 @@ struct Minecraft {
                            float b = 1.0f, float a = 0.42f, bool disableDepth = false, int renderMode = 0,
                            bool forceVisible = false);
 
+    // GL chams: re-render a live entity's model through walls at its real
+    // position. Uses RenderManager.renderEntitySimple (positioning done on the
+    // Java side, so it needs no native renderPos fields) plus a large negative
+    // glPolygonOffset to draw in front of terrain. fill=true paints a solid
+    // flat color (texture off); fill=false keeps the real skin visible.
+    // Must be called from inside the world render pass (onRenderWorld hook).
+    void renderEntityChams(int entityId, float r, float g, float b, float a, bool fill);
+
     // Mouse sensitivity (for proper aim assist scaling)
     float getMouseSensitivity();
 
