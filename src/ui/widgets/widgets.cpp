@@ -64,7 +64,10 @@ static const DescriptionEntry kModuleDescriptions[] = {
     {"", "Breaker", "", "Finds nearby beds and breaks them through surrounding blocks."},
     {"", "AutoTool", "", "Selects the best hotbar tool for the block or target."},
     {"", "InvManager", "", "Organizes the inventory and hotbar using your saved preferences."},
+<<<<<<< Updated upstream
     {"", "AltManager", "", "Sets the offline-mode username used on the next server connection."},
+=======
+>>>>>>> Stashed changes
     {"", "FastBreak", "", "Removes the cooldown between block mining hits so blocks break faster."},
 };
 
@@ -351,7 +354,11 @@ std::vector<ui::tab_t> ui::tabs = {
     {ICON_FA_KEYBOARD,
      "Utility",
      {"ArmorSwitch", "AutoRefill", "FastPlace", "NoItemRelease", "BridgeAssist", "Scaffold", "Clutch", "Breaker",
+<<<<<<< Updated upstream
       "AutoTool", "InvManager", "FastBreak", "AltManager"}},
+=======
+      "AutoTool", "InvManager", "FastBreak"}},
+>>>>>>> Stashed changes
     {ICON_FA_WIFI, "Network", {"Backtrack", "Blink", "FakeLag"}},
 #if COBBLE_SPECTATE_ENABLED
     {ICON_FA_EYE, "Spectate", {}},

@@ -508,6 +508,7 @@ BOOL __stdcall HookedSwapBuffers(HDC hdc) {
                          ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoBringToFrontOnFocus |
                          ImGuiWindowFlags_NoBackground);
 
+        RenderData::Update();
         Overlay::Render();
 
         ImGui::End();

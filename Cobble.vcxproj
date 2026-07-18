@@ -125,7 +125,10 @@
     <ClCompile Include="src\module\movement\sprint.cpp" />
     <ClCompile Include="src\module\utility\autotool.cpp" />
     <ClCompile Include="src\module\utility\inventorymanager.cpp" />
+<<<<<<< Updated upstream
     <ClCompile Include="src\module\utility\altmanager.cpp" />
+=======
+>>>>>>> Stashed changes
     <ClCompile Include="src\module\visual\nametags.cpp" />
     <ClCompile Include="src\module\visual\anti_debuff.cpp" />
     <ClCompile Include="src\module\movement\no_slow_down.cpp" />

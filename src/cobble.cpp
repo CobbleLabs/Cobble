@@ -229,8 +229,11 @@ void cobble::context::initialize(HMODULE hModule) {
     autoTool = new AutoTool();
     COBBLE_TRACE("alloc:InventoryManager");
     inventoryManager = new InventoryManager();
+<<<<<<< Updated upstream
     COBBLE_TRACE("alloc:AltManager");
     altManager = new AltManager();
+=======
+>>>>>>> Stashed changes
     COBBLE_TRACE("alloc:NameTags");
     nameTags = new NameTags();
     COBBLE_TRACE("alloc:AntiDebuff");
@@ -291,7 +294,10 @@ void cobble::context::initialize(HMODULE hModule) {
     moduleManager->registerModule(sprint);
     moduleManager->registerModule(autoTool);
     moduleManager->registerModule(inventoryManager);
+<<<<<<< Updated upstream
     moduleManager->registerModule(altManager);
+=======
+>>>>>>> Stashed changes
     moduleManager->registerModule(nameTags);
     moduleManager->registerModule(antiDebuff);
     moduleManager->registerModule(esp);

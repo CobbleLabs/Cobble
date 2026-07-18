@@ -18,9 +18,9 @@
 //       public static native void onRenderWorld(float partialTicks);
 //   }
 //
-// Minimal hand-crafted .class so there is no plain-text class name in .rdata
-// and no external build step (same approach as SlowDownHook).
-// ---------------------------------------------------------------------------
+#include "../../sdk/player/render_data.h"
+#include <gl/GL.h>
+
 namespace {
 
 static const uint8_t kBacktrackGhostHookBytecode[] = {
@@ -113,6 +113,54 @@ void JNICALL NativeOnRenderWorld(JNIEnv* env, jclass, jobject viewEntity) {
     (void)viewEntity;
     if (!env)
         return;
+
+    GLfloat proj[16];
+    GLfloat mv[16];
+    glGetFloatv(GL_PROJECTION_MATRIX, proj);
+    glGetFloatv(GL_MODELVIEW_MATRIX, mv);
+
+    // Save matrices to RenderData
+    RenderData::projection.m00 = proj[0];
+    RenderData::projection.m01 = proj[1];
+    RenderData::projection.m02 = proj[2];
+    RenderData::projection.m03 = proj[3];
+    RenderData::projection.m10 = proj[4];
+    RenderData::projection.m11 = proj[5];
+    RenderData::projection.m12 = proj[6];
+    RenderData::projection.m13 = proj[7];
+    RenderData::projection.m20 = proj[8];
+    RenderData::projection.m21 = proj[9];
+    RenderData::projection.m22 = proj[10];
+    RenderData::projection.m23 = proj[11];
+    RenderData::projection.m30 = proj[12];
+    RenderData::projection.m31 = proj[13];
+    RenderData::projection.m32 = proj[14];
+    RenderData::projection.m33 = proj[15];
+
+    RenderData::modelView.m00 = mv[0];
+    RenderData::modelView.m01 = mv[1];
+    RenderData::modelView.m02 = mv[2];
+    RenderData::modelView.m03 = mv[3];
+    RenderData::modelView.m10 = mv[4];
+    RenderData::modelView.m11 = mv[5];
+    RenderData::modelView.m12 = mv[6];
+    RenderData::modelView.m13 = mv[7];
+    RenderData::modelView.m20 = mv[8];
+    RenderData::modelView.m21 = mv[9];
+    RenderData::modelView.m22 = mv[10];
+    RenderData::modelView.m23 = mv[11];
+    RenderData::modelView.m30 = mv[12];
+    RenderData::modelView.m31 = mv[13];
+    RenderData::modelView.m32 = mv[14];
+    RenderData::modelView.m33 = mv[15];
+
+    bool wasUpdated = RenderData::updated;
+    RenderData::updated = RenderData::IsMatrixValid(RenderData::projection) && RenderData::IsMatrixValid(RenderData::modelView);
+
+    if (RenderData::updated && !wasUpdated) {
+        log_ok("RenderData: Successfully intercepted matrices via GL callback! Proj m00=%d, MV m00=%d",
+               (int)(proj[0] * 1000.0f), (int)(mv[0] * 1000.0f));
+    }
 
     // Render focus player pings with actual glow chams aura. (The old backtrack
     // 3D-ghost draw was removed: Backtrack no longer renders a separate silhouette
