@@ -37,6 +37,7 @@ static const DescriptionEntry kModuleDescriptions[] = {
     {"", "Piercing", "", "Finds and attacks valid entities through obstructing blocks."},
     {"", "NameTags", "", "Renders readable, customizable information above players."},
     {"", "ESP", "", "Highlights players through terrain with configurable boxes and health."},
+    {"", "Chams", "", "Re-renders nearby players through terrain with a configurable material."},
     {"", "ItemESP", "", "Highlights dropped items so they remain visible through terrain."},
     {"", "Tracers", "", "Draws directional lines from your screen to nearby players."},
     {"", "BlockESP", "", "Highlights selected ores and containers inside the configured range."},
@@ -63,7 +64,7 @@ static const DescriptionEntry kModuleDescriptions[] = {
     {"", "Breaker", "", "Finds nearby beds and breaks them through surrounding blocks."},
     {"", "AutoTool", "", "Selects the best hotbar tool for the block or target."},
     {"", "InvManager", "", "Organizes the inventory and hotbar using your saved preferences."},
-    {"", "TCP Optimizer", "", "Optimizes Windows TCP settings, packet priority and adapter tuning for Minecraft."},
+    {"", "AltManager", "", "Sets the offline-mode username used on the next server connection."},
     {"", "FastBreak", "", "Removes the cooldown between block mining hits so blocks break faster."},
 };
 
@@ -74,6 +75,8 @@ static const DescriptionEntry kOptionDescriptions[] = {
     {"", "Mouse Pressed", "", "Runs only while the required mouse button is held."},
     {"", "Break Blocks", "", "Lets normal block breaking take priority over this feature."},
     {"", "Target Invisibles", "", "Allows invisible players to be considered valid targets."},
+    {"", "Draw Invisibles", "", "Includes invisible players in the rendered highlight."},
+    {"", "Custom Color", "", "Uses a flat configurable color instead of the player texture."},
     {"", "Range", "", "Sets the maximum distance at which this option can operate."},
     {"", "Distance", "", "Sets the maximum distance at which this option can operate."},
     {"", "FOV", "", "Limits activation to targets inside this horizontal field of view."},
@@ -343,13 +346,13 @@ std::vector<ui::tab_t> ui::tabs = {
     {ICON_FA_EYE,
      "Visuals",
      {"NameTags", "ESP", "ItemESP", "Tracers", "BlockESP", "Trajectories", "AntiDebuff", "ArrayList",
-      "DroppedInfo", "Notifications", "Watermark", "TargetHUD", "ClickGUI", "Pings"}},
+      "DroppedInfo", "Notifications", "Watermark", "TargetHUD", "ClickGUI", "Pings", "Chams"}},
     {ICON_FA_RUNNING, "Movement", {"Timer", "TimerRange", "NoSlowDown", "NoJumpDelay", "Sprint"}},
     {ICON_FA_KEYBOARD,
      "Utility",
      {"ArmorSwitch", "AutoRefill", "FastPlace", "NoItemRelease", "BridgeAssist", "Scaffold", "Clutch", "Breaker",
-      "AutoTool", "InvManager", "FastBreak"}},
-    {ICON_FA_WIFI, "Network", {"Backtrack", "Blink", "FakeLag", "TCP Optimizer"}},
+      "AutoTool", "InvManager", "FastBreak", "AltManager"}},
+    {ICON_FA_WIFI, "Network", {"Backtrack", "Blink", "FakeLag"}},
 #if COBBLE_SPECTATE_ENABLED
     {ICON_FA_EYE, "Spectate", {}},
 #endif

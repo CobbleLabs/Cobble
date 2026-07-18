@@ -131,6 +131,7 @@ static std::atomic<bool> bytecodeHookInstalled{false};
 static std::atomic<bool> hooksRegistered{false};
 static jclass cls_PacketHook = nullptr;
 static jclass cls_SlowdownTarget = nullptr;
+static jclass cls_RenderGlobalTarget = nullptr;
 constexpr int kPrefixLen = 8;
 
 // PacketHook class with both methods:
@@ -1743,8 +1744,24 @@ static int patchRenderGlobalClass(const uint8_t* data, size_t len, std::vector<u
             const std::string& desc = utf8[m_desc];
             // RenderGlobal.renderEntities(Entity, ICamera, float): slot 1 is the
             // view Entity (Object), which is what we load for the hook arg.
-            const bool nameMatch = (name == "renderEntities" || name == "func_180446_a");
-            if (nameMatch && desc.find("ICamera") != std::string::npos && desc.rfind(")V") != std::string::npos) {
+            const bool nameMatch = (name == "renderEntities" ||
+                                    name == "func_180446_a" ||
+                                    name == "func_147589_a" ||
+                                    name == "a");
+            bool descMatch = false;
+            if (nameMatch) {
+                if (desc.find("ICamera") != std::string::npos && desc.rfind(")V") != std::string::npos) {
+                    descMatch = true;
+                } else if (desc == "(Lpk;Lbia;F)V") {
+                    descMatch = true; // Notch 1.8.9
+                } else if (desc == "(Lsv;Lbqi;F)V") {
+                    descMatch = true; // Notch 1.7.10
+                } else if (desc == "(Lvg;Lbin;F)V") {
+                    descMatch = true; // Notch 1.12
+                }
+            }
+
+            if (descMatch) {
                 is_target = true;
                 log_debug("[PacketInterceptor] Found renderEntities method: %s %s", name.c_str(), desc.c_str());
             }
@@ -2154,7 +2171,12 @@ static void JNICALL onClassFileLoadHook(jvmtiEnv* jvmti_env, JNIEnv* jni_env, jc
     }
 
     // Backtrack 3D ghost: inject the render hook into RenderGlobal.renderEntities.
-    if (g_targets.renderGhost && strcmp(name, "net/minecraft/client/renderer/RenderGlobal") == 0) {
+    const bool isRenderGlobalTarget =
+        g_targets.renderGhost &&
+        ((cls_RenderGlobalTarget && class_being_redefined &&
+          jni_env->IsSameObject(class_being_redefined, cls_RenderGlobalTarget) == JNI_TRUE) ||
+         strcmp(name, "net/minecraft/client/renderer/RenderGlobal") == 0);
+    if (isRenderGlobalTarget) {
         COBBLE_TRACE("onClassFileLoadHook: RenderGlobal matched");
         std::vector<uint8_t> patched;
         int patched_methods = patchRenderGlobalClass(class_data, static_cast<size_t>(class_data_len), patched);
@@ -2423,6 +2445,11 @@ bool InstallBytecodeHook(JNIEnv* env) {
     if (g_targets.renderGhost) {
         jclass renderGlobalCls = nullptr;
         if (Java::AssignClass(OBFUSCATE_STRING("net.minecraft.client.renderer.RenderGlobal"), renderGlobalCls)) {
+            if (cls_RenderGlobalTarget) {
+                env->DeleteGlobalRef(cls_RenderGlobalTarget);
+            }
+            cls_RenderGlobalTarget = static_cast<jclass>(env->NewGlobalRef(renderGlobalCls));
+
             jclass classes[1] = {renderGlobalCls};
             err = Java::tiEnv->RetransformClasses(1, classes);
             if (err == JVMTI_ERROR_NONE) {
@@ -2540,6 +2567,10 @@ bool Shutdown(JNIEnv* env) {
     if (cls_SlowdownTarget) {
         env->DeleteGlobalRef(cls_SlowdownTarget);
         cls_SlowdownTarget = nullptr;
+    }
+    if (cls_RenderGlobalTarget) {
+        env->DeleteGlobalRef(cls_RenderGlobalTarget);
+        cls_RenderGlobalTarget = nullptr;
     }
 
     hooksRegistered = false;

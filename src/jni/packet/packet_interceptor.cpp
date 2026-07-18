@@ -2,6 +2,7 @@
 
 #include <atomic>
 #include <cstring>
+#include "../altmanager/altmanager_gate.hpp"
 #include "../apollo/apollo_packet_observer.hpp"
 #include "bytecode_patcher.hpp"
 #include "outgoing_gate.hpp"
@@ -141,6 +142,7 @@ void Shutdown() {
     JNIEnv* env = Java::Env();
     if (env) {
         bool safeToUnregister = BytecodePatcher::Shutdown(env);
+        AltManagerGate::Shutdown(env);
         SlowDownGate::Shutdown(env, safeToUnregister);
         BacktrackGate::Shutdown(env, safeToUnregister);
     }

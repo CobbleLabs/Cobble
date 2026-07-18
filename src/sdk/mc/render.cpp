@@ -860,6 +860,18 @@ void Minecraft::renderGhostEntity(int entityId, double wx, double wy, double wz,
                 env->DeleteLocalRef(gameSettings);
             }
 
+            if (invisibleBefore == JNI_TRUE && mid_setInvisible) {
+                env->CallVoidMethod(entity, mid_setInvisible, JNI_TRUE);
+                if (env->ExceptionCheck())
+                    env->ExceptionClear();
+            }
+            if (gameSettings) {
+                env->SetBooleanField(gameSettings, fid_hideGUI, hideGUIBefore);
+                if (env->ExceptionCheck())
+                    env->ExceptionClear();
+                env->DeleteLocalRef(gameSettings);
+            }
+
             env->DeleteLocalRef(entity);
         } else {
             static bool warnedNull = false;

@@ -29,8 +29,12 @@ struct Java {
     static inline jvmtiEnv* tiEnv = nullptr;
     static inline bool Initialized = false;
     static inline jobject ClassLoader = nullptr;
-    static inline jmethodID MidFindClass = nullptr;
+    // loadClass delegates to the parent loader.  findClass only searches the
+    // selected loader itself and misses Minecraft classes in Forge/Lunar setups.
     static inline jmethodID MidLoadClass = nullptr;
+    static inline jmethodID MidFindClass = nullptr;
+    // True when the selected client exposes 1.8.9 Notch names (e.g. ave)
+    // instead of MCP/SRG names.
     static inline bool RuntimeObfuscated = false;
     static inline MinecraftVersion Version = MinecraftVersion::UNDEFINED;
 };

@@ -41,6 +41,10 @@ void SDK_Init() {
     // getMinecraft() -> Minecraft instance
     mc.mid_getMinecraft = Java::Env()->GetStaticMethodID(mc.cls, OBFUSCATE_STRING("getMinecraft").c_str(),
                                                          OBFUSCATE_STRING("()Lnet/minecraft/client/Minecraft;").c_str());
+    if (!mc.mid_getMinecraft && Java::RuntimeObfuscated) {
+        Java::Env()->ExceptionClear();
+        mc.mid_getMinecraft = Java::Env()->GetStaticMethodID(mc.cls, "A", "()Lave;");
+    }
     if (!mc.mid_getMinecraft) {
         Java::Env()->ExceptionClear();
         mc.mid_getMinecraft = Java::Env()->GetStaticMethodID(

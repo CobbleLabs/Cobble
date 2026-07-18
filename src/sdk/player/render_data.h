@@ -97,6 +97,14 @@ struct RenderData {
             if (projectionField)
                 log_debug("RenderData: Found Badlion/Notch PROJECTION");
         }
+        // Vanilla 1.8.9 keeps the three render buffers as auz.b/c/d:
+        // MODELVIEW, PROJECTION and OBJECTCOORDS respectively.
+        if (!projectionField && Java::RuntimeObfuscated) {
+            Java::Env()->ExceptionClear();
+            projectionField = Java::Env()->GetStaticFieldID(activeRenderInfoClass, "c", "Ljava/nio/FloatBuffer;");
+            if (projectionField)
+                log_debug("RenderData: Found vanilla 1.8.9 PROJECTION");
+        }
 
         modelViewField = Java::Env()->GetStaticFieldID(activeRenderInfoClass, OBFUSCATE_STRING("MODELVIEW").c_str(),
                                                        OBFUSCATE_STRING("Ljava/nio/FloatBuffer;").c_str());
@@ -135,6 +143,12 @@ struct RenderData {
                 log_debug("RenderData: Found Badlion matrix fields by descriptor order");
             }
         }
+        if (!modelViewField && Java::RuntimeObfuscated) {
+            Java::Env()->ExceptionClear();
+            modelViewField = Java::Env()->GetStaticFieldID(activeRenderInfoClass, "b", "Ljava/nio/FloatBuffer;");
+            if (modelViewField)
+                log_debug("RenderData: Found vanilla 1.8.9 MODELVIEW");
+        }
 
         if (!projectionField || !modelViewField) {
             Java::Env()->ExceptionClear();
@@ -168,10 +182,12 @@ struct RenderData {
         return true;
     }
 
-    static Matrix ReadMatrix(jobject floatBuffer) {
+    static Matrix ReadMatrix(jobject floatBuffer, const char* name) {
         Matrix m{};
-        if (!floatBuffer)
+        if (!floatBuffer) {
+            log_warn("RenderData: %s floatBuffer is null", name);
             return m;
+        }
 
         void* directPtr = Java::Env()->GetDirectBufferAddress(floatBuffer);
         if (directPtr) {
@@ -192,11 +208,15 @@ struct RenderData {
             m.m31 = data[13];
             m.m32 = data[14];
             m.m33 = data[15];
+            log_debug("RenderData: ReadMatrix %s via direct buffer. m00=%d, m11=%d, m22=%d, m33=%d",
+                      name, (int)(m.m00 * 1000.0f), (int)(m.m11 * 1000.0f), (int)(m.m22 * 1000.0f), (int)(m.m33 * 1000.0f));
             return m;
         }
 
-        if (!floatBufferGet)
+        if (!floatBufferGet) {
+            log_warn("RenderData: %s floatBufferGet method is null", name);
             return m;
+        }
 
         m.m00 = Java::Env()->CallFloatMethod(floatBuffer, floatBufferGet, 0);
         m.m01 = Java::Env()->CallFloatMethod(floatBuffer, floatBufferGet, 1);
@@ -215,6 +235,8 @@ struct RenderData {
         m.m32 = Java::Env()->CallFloatMethod(floatBuffer, floatBufferGet, 14);
         m.m33 = Java::Env()->CallFloatMethod(floatBuffer, floatBufferGet, 15);
 
+        log_debug("RenderData: ReadMatrix %s via CallFloatMethod. m00=%d, m11=%d, m22=%d, m33=%d",
+                  name, (int)(m.m00 * 1000.0f), (int)(m.m11 * 1000.0f), (int)(m.m22 * 1000.0f), (int)(m.m33 * 1000.0f));
         return m;
     }
 
@@ -225,31 +247,45 @@ struct RenderData {
 
     // Update render data
     static void Update() {
+        if (updated && IsMatrixValid(projection) && IsMatrixValid(modelView)) {
+            return;
+        }
+
         if (!initialized && !Init())
             return;
 
         // Read projection matrix
         jobject projBuffer = Java::Env()->GetStaticObjectField(activeRenderInfoClass, projectionField);
         if (projBuffer) {
-            Matrix newProj = ReadMatrix(projBuffer);
+            Matrix newProj = ReadMatrix(projBuffer, "PROJECTION");
             if (IsMatrixValid(newProj)) {
                 projection = newProj;
             }
             Java::Env()->DeleteLocalRef(projBuffer);
+        } else {
+            log_warn("RenderData: GetStaticObjectField projectionField returned null");
         }
 
         // Read modelview matrix
         jobject mvBuffer = Java::Env()->GetStaticObjectField(activeRenderInfoClass, modelViewField);
         if (mvBuffer) {
-            Matrix newMv = ReadMatrix(mvBuffer);
+            Matrix newMv = ReadMatrix(mvBuffer, "MODELVIEW");
             if (IsMatrixValid(newMv)) {
                 modelView = newMv;
             }
             Java::Env()->DeleteLocalRef(mvBuffer);
+        } else {
+            log_warn("RenderData: GetStaticObjectField modelViewField returned null");
         }
 
         // Only mark as updated if we have valid matrices
+        bool wasUpdated = updated;
         updated = IsMatrixValid(projection) && IsMatrixValid(modelView);
+        if (updated && !wasUpdated) {
+            log_ok("RenderData: Successfully verified non-zero projection and modelview matrices!");
+        } else if (!updated && wasUpdated) {
+            log_warn("RenderData: Matrices went invalid (all zeros detected)!");
+        }
     }
 
     // Reset state (call on world change or re-enable)
