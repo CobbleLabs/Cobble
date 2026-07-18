@@ -30,20 +30,16 @@ Pings::Pings() : Module("Pings") {
 
 void Pings::saveSettings(json::Value& node) const {
     node["pingKeybind"] = settings.pingKeybind;
-    node["focusMode"] = settings.focusMode;
     node["pingScale"] = (double)settings.pingScale;
     json::writeColor(node, "locationColor", settings.locationColor);
     json::writeColor(node, "chamsColor", settings.chamsColor);
-    json::writeColor(node, "fillColor", settings.fillColor);
 }
 
 void Pings::loadSettings(const json::Value& node) {
     settings.pingKeybind = node["pingKeybind"].as_int(settings.pingKeybind);
-    settings.focusMode = node["focusMode"].as_int(settings.focusMode);
     settings.pingScale = (float)node["pingScale"].as_double((double)settings.pingScale);
     json::readColor(node, "locationColor", settings.locationColor);
     json::readColor(node, "chamsColor", settings.chamsColor);
-    json::readColor(node, "fillColor", settings.fillColor);
 }
 
 void Pings::onEnable() {
@@ -456,6 +452,65 @@ static void Draw3DBoxHelper(ImDrawList* draw, float x, float y, float z, double 
     }
 }
 
+// Projects a player-sized box to a compact screen-space outline. Unlike
+// re-rendering the entity, this cannot add a second model or nametag.
+static bool GetFocusScreenBounds(float x, float y, float z, double renderX, double renderY, double renderZ,
+                                 ImVec2& outMin, ImVec2& outMax) {
+    static constexpr float HALF_WIDTH = 0.34f;
+    static constexpr float HEIGHT = 1.86f;
+    const Vector3 corners[8] = {
+        {x - HALF_WIDTH, y, z - HALF_WIDTH}, {x + HALF_WIDTH, y, z - HALF_WIDTH},
+        {x + HALF_WIDTH, y, z + HALF_WIDTH}, {x - HALF_WIDTH, y, z + HALF_WIDTH},
+        {x - HALF_WIDTH, y + HEIGHT, z - HALF_WIDTH}, {x + HALF_WIDTH, y + HEIGHT, z - HALF_WIDTH},
+        {x + HALF_WIDTH, y + HEIGHT, z + HALF_WIDTH}, {x - HALF_WIDTH, y + HEIGHT, z + HALF_WIDTH}
+    };
+
+    float minX = 100000.0f, minY = 100000.0f;
+    float maxX = -100000.0f, maxY = -100000.0f;
+    int projectedCorners = 0;
+    for (const Vector3& corner : corners) {
+        Vector2 screen;
+        Vector3 relative = {corner.x - (float)renderX, corner.y - (float)renderY, corner.z - (float)renderZ};
+        if (!CWorldToScreen::WorldToScreen(relative, RenderData::modelView, RenderData::projection,
+                                           RenderData::screenWidth, RenderData::screenHeight, screen)) {
+            continue;
+        }
+
+        minX = (std::min)(minX, screen.x);
+        minY = (std::min)(minY, screen.y);
+        maxX = (std::max)(maxX, screen.x);
+        maxY = (std::max)(maxY, screen.y);
+        ++projectedCorners;
+    }
+
+    if (projectedCorners < 2 || maxX - minX < 4.0f || maxY - minY < 8.0f)
+        return false;
+
+    outMin = ImVec2(minX, minY);
+    outMax = ImVec2(maxX, maxY);
+    return true;
+}
+
+static void DrawFocusOutline(ImDrawList* draw, ImVec2 min, ImVec2 max, ImU32 color) {
+    const float width = max.x - min.x;
+    const float height = max.y - min.y;
+    const float padding = (std::max)(3.0f, (std::min)(width, height) * 0.06f);
+    min.x -= padding;
+    min.y -= padding;
+    max.x += padding;
+    max.y += padding;
+
+    const float rounding = (std::min)(5.0f, (std::min)(width, height) * 0.12f);
+    const ImVec4 base = ImGui::ColorConvertU32ToFloat4(color);
+    const auto alpha = [&](float multiplier) {
+        return ImGui::ColorConvertFloat4ToU32(ImVec4(base.x, base.y, base.z, base.w * multiplier));
+    };
+
+    draw->AddRect(min, max, alpha(0.10f), rounding, 0, 7.0f);
+    draw->AddRect(min, max, alpha(0.25f), rounding, 0, 3.5f);
+    draw->AddRect(min, max, alpha(0.95f), rounding, 0, 1.25f);
+}
+
 // Maps-style pin shape helper — large orange pin like Google Maps
 static void DrawMapsPin(ImDrawList* draw, ImVec2 pos, ImU32 color, float userScale = 1.0f) {
     float scale = 1.8f * userScale;
@@ -565,49 +620,20 @@ void Pings::onRender() {
             }
         }
         else if (ping.type == 1) {
-            // === 2. Player Focus Ping ===
-            // Search visual cache for matching player by UUID to draw Maps pin on head
-            bool foundPlayer = false;
+            const ImU32 focusColor = ImGui::ColorConvertFloat4ToU32(
+                ImVec4(settings.chamsColor[0], settings.chamsColor[1], settings.chamsColor[2], settings.chamsColor[3]));
             for (const auto& p : snap.players) {
-                if (p.uuid == ping.targetPlayer) {
-                    foundPlayer = true;
-                    const double targetX = p.lastPosX + (p.posX - p.lastPosX) * snap.partialTicks;
-                    const double targetY = p.lastPosY + (p.posY - p.lastPosY) * snap.partialTicks;
-                    const double targetZ = p.lastPosZ + (p.posZ - p.lastPosZ) * snap.partialTicks;
+                if (p.uuid != ping.targetPlayer)
+                    continue;
 
-                     Vector3 pinWorldPos = { (float)(targetX - renderX), (float)(targetY + 2.2 - renderY), (float)(targetZ - renderZ) };
-                     Vector2 pinScreen;
-                     if (CWorldToScreen::WorldToScreen(pinWorldPos, RenderData::modelView, RenderData::projection,
-                                                       RenderData::screenWidth, RenderData::screenHeight, pinScreen)) {
-                         ImU32 playerPinColor = ImGui::ColorConvertFloat4ToU32(
-                             ImVec4(settings.chamsColor[0], settings.chamsColor[1], settings.chamsColor[2], settings.chamsColor[3]));
-                         DrawMapsPin(draw, ImVec2(pinScreen.x, pinScreen.y), playerPinColor, settings.pingScale);
-
-                         if (p.isInvisible) {
-                             std::string nameStr = p.profileName.empty() ? p.name : p.profileName;
-                             nameStr = FriendsManager::stripColorCodes(nameStr);
-                             ImVec2 textSize = ImGui::CalcTextSize(nameStr.c_str());
-                             ImVec2 textPos(pinScreen.x - textSize.x / 2.0f, pinScreen.y - 12.0f - textSize.y);
-
-                             // Draw background for readability
-                             draw->AddRectFilled(ImVec2(textPos.x - 4, textPos.y - 2), ImVec2(textPos.x + textSize.x + 4, textPos.y + textSize.y + 2), IM_COL32(0, 0, 0, 160), 3.0f);
-                             draw->AddText(textPos, IM_COL32(255, 255, 255, 255), nameStr.c_str());
-                         }
-                     }
-                    break;
+                const float targetX = (float)(p.lastPosX + (p.posX - p.lastPosX) * snap.partialTicks);
+                const float targetY = (float)(p.lastPosY + (p.posY - p.lastPosY) * snap.partialTicks);
+                const float targetZ = (float)(p.lastPosZ + (p.posZ - p.lastPosZ) * snap.partialTicks);
+                ImVec2 boundsMin, boundsMax;
+                if (GetFocusScreenBounds(targetX, targetY, targetZ, renderX, renderY, renderZ, boundsMin, boundsMax)) {
+                    DrawFocusOutline(draw, boundsMin, boundsMax, focusColor);
                 }
-            }
-
-            // Fallback: UUID not found in visual cache — render pin at fallback position
-            if (!foundPlayer && (ping.x != 0.0 || ping.y != 0.0 || ping.z != 0.0)) {
-                Vector3 fallbackPos = { (float)(ping.x - renderX), (float)(ping.y - renderY), (float)(ping.z - renderZ) };
-                Vector2 fallbackScreen;
-                if (CWorldToScreen::WorldToScreen(fallbackPos, RenderData::modelView, RenderData::projection,
-                                                  RenderData::screenWidth, RenderData::screenHeight, fallbackScreen)) {
-                    ImU32 playerPinColor = ImGui::ColorConvertFloat4ToU32(
-                        ImVec4(settings.chamsColor[0], settings.chamsColor[1], settings.chamsColor[2], settings.chamsColor[3]));
-                    DrawMapsPin(draw, ImVec2(fallbackScreen.x, fallbackScreen.y), playerPinColor, settings.pingScale);
-                }
+                break;
             }
         }
     }
@@ -669,25 +695,21 @@ void Pings::onRenderMenu() {
 
     ImGui::Spacing();
 
-    // Focus mode: Chams (outline aura) vs Fill (solid model)
-    ImGui::Text("Focus Mode:");
-    ImGui::SameLine();
-    const char* focusModes[] = { "Chams (Outline)", "Fill (Solid)" };
-    ImGui::Combo("##focusMode", &settings.focusMode, focusModes, IM_ARRAYSIZE(focusModes));
+    ImGui::TextDisabled("Player pings use a clean violet outline without an extra nametag.");
 
     ImGui::Spacing();
 
     // Ping icon size slider
     ImGui::Text("Ping Size:");
     ImGui::SameLine();
+    ImGui::SetNextItemWidth(220.0f);
     ImGui::SliderFloat("##pingScale", &settings.pingScale, 0.3f, 3.0f, "%.1fx");
 
     ImGui::Spacing();
 
     // Simple color pickers (just the color square, no RGBA sliders)
     ImGui::ColorEdit3("Ping Color", settings.locationColor, ImGuiColorEditFlags_NoInputs);
-    ImGui::ColorEdit3("Chams Color", settings.chamsColor, ImGuiColorEditFlags_NoInputs);
-    ImGui::ColorEdit3("Fill Color", settings.fillColor, ImGuiColorEditFlags_NoInputs);
+    ImGui::ColorEdit3("Outline Color", settings.chamsColor, ImGuiColorEditFlags_NoInputs);
 }
 
 std::string Pings::getDisplayInfo() {
@@ -695,39 +717,6 @@ std::string Pings::getDisplayInfo() {
 }
 
 void Pings::onRender3D() {
-    if (activePings.empty())
-        return;
-
-    std::vector<ActivePing> pingsCopy;
-    {
-        std::lock_guard<std::mutex> lock(pingsMutex);
-        pingsCopy = activePings;
-    }
-
-    auto snap = VisualCache::GetSnapshot();
-    if (!snap.valid)
-        return;
-
-    for (const auto& ping : pingsCopy) {
-        if (ping.type == 1) {
-            // Focus Ping
-            for (const auto& p : snap.players) {
-                if (p.uuid == ping.targetPlayer) {
-                    const double targetX = p.lastPosX + (p.posX - p.lastPosX) * snap.partialTicks;
-                    const double targetY = p.lastPosY + (p.posY - p.lastPosY) * snap.partialTicks;
-                    const double targetZ = p.lastPosZ + (p.posZ - p.lastPosZ) * snap.partialTicks;
-
-                    int renderMode = (settings.focusMode == 0) ? 1 : 2; // 1 = Glow Outline Aura, 2 = Solid Fill
-                    mc.renderGhostEntity(p.entityId, targetX, targetY, targetZ,
-                                         settings.chamsColor[0],
-                                         settings.chamsColor[1],
-                                         settings.chamsColor[2],
-                                         settings.chamsColor[3],
-                                         true, renderMode);
-                    break;
-                }
-            }
-        }
-    }
+    // Focus visuals are rendered in 2D by onRender. Re-rendering a Minecraft
+    // entity here also renders its armor and nametag, causing visual duplicates.
 }
-

@@ -78,6 +78,7 @@
     <ClCompile Include="src\jni\slowdown\slowdown_gate.cpp" />
     <ClCompile Include="src\jni\blink\blink_gate.cpp" />
     <ClCompile Include="src\jni\backtrack\backtrack_gate.cpp" />
+    <ClCompile Include="src\jni\altmanager\altmanager_gate.cpp" />
     <ClCompile Include="src\jni\render\backtrack_ghost_gate.cpp" />
     <ClCompile Include="src\module\movement\blink.cpp" />
     <ClCompile Include="src\module\movement\fakelag.cpp" />
@@ -124,11 +125,12 @@
     <ClCompile Include="src\module\movement\sprint.cpp" />
     <ClCompile Include="src\module\utility\autotool.cpp" />
     <ClCompile Include="src\module\utility\inventorymanager.cpp" />
-    <ClCompile Include="src\module\utility\tcpoptimizer.cpp" />
+    <ClCompile Include="src\module\utility\altmanager.cpp" />
     <ClCompile Include="src\module\visual\nametags.cpp" />
     <ClCompile Include="src\module\visual\anti_debuff.cpp" />
     <ClCompile Include="src\module\movement\no_slow_down.cpp" />
     <ClCompile Include="src\module\visual\esp.cpp" />
+    <ClCompile Include="src\module\visual\chams.cpp" />
     <ClCompile Include="src\module\visual\item_esp.cpp" />
     <ClCompile Include="src\module\visual\tracers.cpp" />
     <ClCompile Include="src\module\visual\blockesp.cpp" />
@@ -176,6 +178,7 @@
     <ClInclude Include="src\jni\packet\packet_interceptor.hpp" />
     <ClInclude Include="src\jni\slowdown\slowdown_gate.hpp" />
     <ClInclude Include="src\jni\backtrack\backtrack_gate.hpp" />
+    <ClInclude Include="src\jni\altmanager\altmanager_gate.hpp" />
     <ClInclude Include="src\util\aes_string.hpp" />
     <ClInclude Include="src\util\logger.hpp" />
     <ClInclude Include="src\sdk\version.h" />
@@ -217,10 +220,12 @@
     <ClInclude Include="src\module\movement\sprint.h" />
     <ClInclude Include="src\module\utility\autotool.h" />
     <ClInclude Include="src\module\utility\inventorymanager.h" />
+    <ClInclude Include="src\module\utility\altmanager.h" />
     <ClInclude Include="src\module\visual\nametags.h" />
     <ClInclude Include="src\module\visual\anti_debuff.h" />
     <ClInclude Include="src\module\movement\no_slow_down.h" />
     <ClInclude Include="src\module\visual\esp.h" />
+    <ClInclude Include="src\module\visual\chams.h" />
     <ClInclude Include="src\module\visual\item_esp.h" />
     <ClInclude Include="src\module\visual\tracers.h" />
     <ClInclude Include="src\module\visual\blockesp.h" />

@@ -29,6 +29,7 @@
 #include "../../module/movement/sprint.h"
 #include "../../module/utility/armorswitch.h"
 #include "../../module/utility/autorefill.h"
+#include "../../module/utility/altmanager.h"
 #include "../../module/utility/autotool.h"
 #include "../../module/utility/breaker.h"
 #include "../../module/utility/bridgeassist.h"
@@ -37,8 +38,8 @@
 #include "../../module/utility/fastbreak.h"
 #include "../../module/utility/noitemrelease.h"
 #include "../../module/utility/inventorymanager.h"
-#include "../../module/utility/tcpoptimizer.h"
 #include "../../module/visual/blockesp.h"
+#include "../../module/visual/chams.h"
 #include "../../module/visual/esp.h"
 #include "../../module/visual/item_esp.h"
 #include "../../module/visual/nametags.h"
@@ -143,6 +144,8 @@ Module* getModuleForSubtab(int tabIdx, int subtabIdx) {
                 return nullptr;  // ClickGUI - special handling (mode toggle)
             case 13:
                 return pingsModule;
+            case 14:
+                return chams;
         }
     }
     // Movement Tab (2): Timer, TimerRange, NoSlowDown, NoJumpDelay, Sprint
@@ -185,6 +188,8 @@ Module* getModuleForSubtab(int tabIdx, int subtabIdx) {
                 return inventoryManager;
             case 10:
                 return fastBreak;
+            case 11:
+                return altManager;
         }
     }
     // Network Tab (4)
@@ -196,8 +201,6 @@ Module* getModuleForSubtab(int tabIdx, int subtabIdx) {
                 return blink;
             case 2:
                 return fakeLag;
-            case 3:
-                return tcpOptimizer;
         }
     }
     // Configs/Settings tabs - no module, handled specially

@@ -24,6 +24,7 @@
 #include "module/movement/sprint.h"
 #include "module/utility/armorswitch.h"
 #include "module/utility/autorefill.h"
+#include "module/utility/altmanager.h"
 #include "module/utility/autotool.h"
 #include "module/utility/breaker.h"
 #include "module/utility/bridgeassist.h"
@@ -32,8 +33,8 @@
 #include "module/utility/fastbreak.h"
 #include "module/utility/noitemrelease.h"
 #include "module/utility/inventorymanager.h"
-#include "module/utility/tcpoptimizer.h"
 #include "module/visual/blockesp.h"
+#include "module/visual/chams.h"
 #include "module/visual/esp.h"
 #include "module/visual/item_esp.h"
 #include "module/visual/nametags.h"
@@ -228,14 +229,16 @@ void cobble::context::initialize(HMODULE hModule) {
     autoTool = new AutoTool();
     COBBLE_TRACE("alloc:InventoryManager");
     inventoryManager = new InventoryManager();
-    COBBLE_TRACE("alloc:TcpOptimizer");
-    tcpOptimizer = new TcpOptimizer();
+    COBBLE_TRACE("alloc:AltManager");
+    altManager = new AltManager();
     COBBLE_TRACE("alloc:NameTags");
     nameTags = new NameTags();
     COBBLE_TRACE("alloc:AntiDebuff");
     antiDebuff = new AntiDebuff();
     COBBLE_TRACE("alloc:ESP");
     esp = new ESP();
+    COBBLE_TRACE("alloc:Chams");
+    chams = new Chams();
     COBBLE_TRACE("alloc:ItemESP");
     itemEsp = new ItemESP();
     COBBLE_TRACE("alloc:Tracers");
@@ -288,10 +291,11 @@ void cobble::context::initialize(HMODULE hModule) {
     moduleManager->registerModule(sprint);
     moduleManager->registerModule(autoTool);
     moduleManager->registerModule(inventoryManager);
-    moduleManager->registerModule(tcpOptimizer);
+    moduleManager->registerModule(altManager);
     moduleManager->registerModule(nameTags);
     moduleManager->registerModule(antiDebuff);
     moduleManager->registerModule(esp);
+    moduleManager->registerModule(chams);
     moduleManager->registerModule(itemEsp);
     moduleManager->registerModule(tracers);
     moduleManager->registerModule(blockESP);
@@ -562,12 +566,16 @@ void cobble::context::shutdown() {
         autoTool->setEnabled(false);
     if (inventoryManager)
         inventoryManager->setEnabled(false);
+    if (altManager)
+        altManager->setEnabled(false);
     if (nameTags)
         nameTags->setEnabled(false);
     if (antiDebuff)
         antiDebuff->setEnabled(false);
     if (esp)
         esp->setEnabled(false);
+    if (chams)
+        chams->setEnabled(false);
     if (itemEsp)
         itemEsp->setEnabled(false);
     if (tracers)
@@ -736,6 +744,10 @@ void cobble::context::shutdown() {
         delete inventoryManager;
         inventoryManager = nullptr;
     }
+    if (altManager) {
+        delete altManager;
+        altManager = nullptr;
+    }
     if (nameTags) {
         delete nameTags;
         nameTags = nullptr;
@@ -747,6 +759,10 @@ void cobble::context::shutdown() {
     if (esp) {
         delete esp;
         esp = nullptr;
+    }
+    if (chams) {
+        delete chams;
+        chams = nullptr;
     }
     if (itemEsp) {
         delete itemEsp;

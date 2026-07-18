@@ -40,6 +40,10 @@ void SDK_Init() {
     // getMinecraft() -> Minecraft instance
     mc.mid_getMinecraft = Java::Env()->GetStaticMethodID(mc.cls, OBFUSCATE_STRING("getMinecraft").c_str(),
                                                          OBFUSCATE_STRING("()Lnet/minecraft/client/Minecraft;").c_str());
+    if (!mc.mid_getMinecraft && Java::RuntimeObfuscated) {
+        Java::Env()->ExceptionClear();
+        mc.mid_getMinecraft = Java::Env()->GetStaticMethodID(mc.cls, "A", "()Lave;");
+    }
     if (!mc.mid_getMinecraft) {
         log_err("SDK_Init: failed to find getMinecraft");
         return;
@@ -62,14 +66,26 @@ void SDK_Init() {
                                 ? OBFUSCATE_STRING("Lnet/minecraft/client/entity/EntityClientPlayerMP;")
                                 : OBFUSCATE_STRING("Lnet/minecraft/client/entity/EntityPlayerSP;");
     mc.fid_thePlayer = Java::Env()->GetFieldID(mc.cls, OBFUSCATE_STRING("thePlayer").c_str(), playerSig.c_str());
+    if (!mc.fid_thePlayer && Java::RuntimeObfuscated) {
+        Java::Env()->ExceptionClear();
+        mc.fid_thePlayer = Java::Env()->GetFieldID(mc.cls, "h", "Lbew;");
+    }
 
     // theWorld field
     mc.fid_theWorld = Java::Env()->GetFieldID(mc.cls, OBFUSCATE_STRING("theWorld").c_str(),
                                               OBFUSCATE_STRING("Lnet/minecraft/client/multiplayer/WorldClient;").c_str());
+    if (!mc.fid_theWorld && Java::RuntimeObfuscated) {
+        Java::Env()->ExceptionClear();
+        mc.fid_theWorld = Java::Env()->GetFieldID(mc.cls, "f", "Lbdb;");
+    }
 
     // currentScreen field (to detect if GUI is open)
     mc.fid_currentScreen = Java::Env()->GetFieldID(mc.cls, OBFUSCATE_STRING("currentScreen").c_str(),
                                                    OBFUSCATE_STRING("Lnet/minecraft/client/gui/GuiScreen;").c_str());
+    if (!mc.fid_currentScreen && Java::RuntimeObfuscated) {
+        Java::Env()->ExceptionClear();
+        mc.fid_currentScreen = Java::Env()->GetFieldID(mc.cls, "m", "Laxu;");
+    }
 
     // clickMouse method
     mc.mid_clickMouse = Java::Env()->GetMethodID(mc.cls, OBFUSCATE_STRING("clickMouse").c_str(),
@@ -712,4 +728,3 @@ std::string Minecraft::getCurrentServerIP() {
     env->DeleteLocalRef(serverData);
     return ip;
 }
-

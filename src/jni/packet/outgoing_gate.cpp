@@ -1,5 +1,6 @@
 #include "outgoing_gate.hpp"
 
+#include "../altmanager/altmanager_gate.hpp"
 #include "../noitemrelease/noitemrelease_gate.hpp"
 #include "../blink/blink_gate.hpp"
 #include "../../module/combat/piercing.h"
@@ -14,6 +15,10 @@
 namespace OutgoingPacketGate {
 
 jboolean JNICALL NativeShouldSend(JNIEnv* env, jclass cls, jobject packet) {
+    // The offline-mode username is carried by C00PacketLoginStart. Rewrite it
+    // before any packet queue/filter can retain the original profile.
+    AltManagerGate::MaybeSpoofLoginPacket(env, packet);
+
     // Fire any queued AutoRefill click just before this (flying) packet so the
     // window-click lands ahead of movement in the tick (avoids Grim's Post).
     if (autoRefill) {

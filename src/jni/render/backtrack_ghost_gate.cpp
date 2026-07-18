@@ -105,6 +105,7 @@ static jclass g_cls_BacktrackGhostHook = nullptr;
 }  // namespace
 
 #include "../../module/visual/pings.h"
+#include "../../module/visual/chams.h"
 
 namespace BacktrackGhostGate {
 

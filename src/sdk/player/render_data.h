@@ -87,6 +87,14 @@ struct RenderData {
                 log_err("RenderData: projection field not found!");
             }
         }
+        // Vanilla 1.8.9 keeps the three render buffers as auz.b/c/d:
+        // MODELVIEW, PROJECTION and OBJECTCOORDS respectively.
+        if (!projectionField && Java::RuntimeObfuscated) {
+            Java::Env()->ExceptionClear();
+            projectionField = Java::Env()->GetStaticFieldID(activeRenderInfoClass, "c", "Ljava/nio/FloatBuffer;");
+            if (projectionField)
+                log_debug("RenderData: Found vanilla 1.8.9 PROJECTION");
+        }
 
         modelViewField = Java::Env()->GetStaticFieldID(activeRenderInfoClass, OBFUSCATE_STRING("MODELVIEW").c_str(),
                                                        OBFUSCATE_STRING("Ljava/nio/FloatBuffer;").c_str());
@@ -102,6 +110,12 @@ struct RenderData {
             } else {
                 log_err("RenderData: modelview field not found!");
             }
+        }
+        if (!modelViewField && Java::RuntimeObfuscated) {
+            Java::Env()->ExceptionClear();
+            modelViewField = Java::Env()->GetStaticFieldID(activeRenderInfoClass, "b", "Ljava/nio/FloatBuffer;");
+            if (modelViewField)
+                log_debug("RenderData: Found vanilla 1.8.9 MODELVIEW");
         }
 
         if (!projectionField || !modelViewField) {

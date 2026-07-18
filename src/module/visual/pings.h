@@ -28,11 +28,9 @@ public:
 
     struct Settings {
         int pingKeybind = 0x58; // Default: 'X' key
-        int focusMode = 0; // 0 = Chams (outline aura), 1 = Fill (solid model)
         float pingScale = 1.0f; // 0.5 to 3.0 — controls on-screen pin icon size
         float locationColor[4] = { 1.0f, 0.0f, 0.0f, 1.0f }; // Red location pin
-        float chamsColor[4] = { 1.0f, 0.0f, 1.0f, 1.0f };    // Magenta outline
-        float fillColor[4] = { 0.0f, 1.0f, 0.0f, 1.0f };     // Green fill
+        float chamsColor[4] = { 0.72f, 0.38f, 1.0f, 1.0f };  // Soft violet outline
     } settings;
 
 private:

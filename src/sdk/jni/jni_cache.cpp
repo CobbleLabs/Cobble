@@ -412,6 +412,9 @@ static bool resolveIds(JNIEnv* env) {
     // =========================================================================
 
     TRY_STATIC_METHOD(mid_getMinecraft, cls_Minecraft, "getMinecraft", "()Lnet/minecraft/client/Minecraft;");
+    if (!mid_getMinecraft && Java::RuntimeObfuscated) {
+        TRY_STATIC_METHOD(mid_getMinecraft, cls_Minecraft, "A", "()Lave;");
+    }
     TRY_METHOD(mid_clickMouse, cls_Minecraft, "clickMouse", "()V");
     TRY_METHOD(mid_getNetHandler, cls_Minecraft, "getNetHandler",
                "()Lnet/minecraft/client/network/NetHandlerPlayClient;");
@@ -427,6 +430,9 @@ static bool resolveIds(JNIEnv* env) {
         TRY_FIELD(fid_thePlayer, cls_Minecraft, "thePlayer", "Lnet/minecraft/client/entity/EntityClientPlayerMP;");
     } else {
         TRY_FIELD(fid_thePlayer, cls_Minecraft, "thePlayer", "Lnet/minecraft/client/entity/EntityPlayerSP;");
+        if (!fid_thePlayer && Java::RuntimeObfuscated) {
+            TRY_FIELD(fid_thePlayer, cls_Minecraft, "h", "Lbew;");
+        }
     }
 
     TRY_FIELD(fid_theWorld, cls_Minecraft, "theWorld", "Lnet/minecraft/client/multiplayer/WorldClient;");
