@@ -176,7 +176,7 @@ struct Minecraft {
     float getPartialTicks();
 
     // renderMode: 0 = Fill (solid flat color), 1 = Chams (stencil outline aura)
-    void renderGhostEntity(int entityId, double wx, double wy, double wz, float r = 1.0f, float g = 1.0f, float b = 1.0f, float a = 0.42f, bool disableDepth = false, int renderMode = 0);
+    void renderGhostEntity(int entityId, double wx, double wy, double wz, float r = 1.0f, float g = 1.0f, float b = 1.0f, float a = 0.42f, bool disableDepth = false, int renderMode = 0, bool forceVisible = false);
 
     // Mouse sensitivity (for proper aim assist scaling)
     float getMouseSensitivity();

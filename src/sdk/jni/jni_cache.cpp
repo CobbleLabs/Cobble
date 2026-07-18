@@ -1,4 +1,5 @@
 #include "jni_cache.h"
+#include "member_resolver.h"
 #include "../../util/logger.hpp"
 #include "../../util/aes_string.hpp"
 
@@ -288,6 +289,8 @@ jmethodID mid_setGrabbed = nullptr;
         var = env->GetMethodID(cls, _mn.c_str(), _ms.c_str()); \
         if (!var)                                           \
             env->ExceptionClear();                          \
+        if (!var)                                           \
+            var = jni_resolver::findUniqueMethodBySignature(cls, _ms.c_str(), false); \
     } while (0)
 
 #define TRY_STATIC_METHOD(var, cls, name, sig)                        \
@@ -298,6 +301,8 @@ jmethodID mid_setGrabbed = nullptr;
         var = env->GetStaticMethodID(cls, _mn.c_str(), _ms.c_str());  \
         if (!var)                                                     \
             env->ExceptionClear();                                    \
+        if (!var)                                                     \
+            var = jni_resolver::findUniqueMethodBySignature(cls, _ms.c_str(), true); \
     } while (0)
 
 #define TRY_FIELD(var, cls, name, sig)                      \
@@ -308,6 +313,8 @@ jmethodID mid_setGrabbed = nullptr;
         var = env->GetFieldID(cls, _fn.c_str(), _fs.c_str()); \
         if (!var)                                           \
             env->ExceptionClear();                          \
+        if (!var)                                           \
+            var = jni_resolver::findUniqueFieldBySignature(cls, _fs.c_str(), false); \
     } while (0)
 
 #define TRY_STATIC_FIELD(var, cls, name, sig)                        \
@@ -318,6 +325,8 @@ jmethodID mid_setGrabbed = nullptr;
         var = env->GetStaticFieldID(cls, _fn.c_str(), _fs.c_str()); \
         if (!var)                                                    \
             env->ExceptionClear();                                   \
+        if (!var)                                                    \
+            var = jni_resolver::findUniqueFieldBySignature(cls, _fs.c_str(), true); \
     } while (0)
 
 // =============================================================================
@@ -412,6 +421,13 @@ static bool resolveIds(JNIEnv* env) {
     // =========================================================================
 
     TRY_STATIC_METHOD(mid_getMinecraft, cls_Minecraft, "getMinecraft", "()Lnet/minecraft/client/Minecraft;");
+    if (!mid_getMinecraft) {
+        TRY_STATIC_METHOD(mid_getMinecraft, cls_Minecraft, "func_71410_x",
+                          "()Lnet/minecraft/client/Minecraft;");
+    }
+    if (!mid_getMinecraft && Java::RuntimeObfuscated) {
+        TRY_STATIC_METHOD(mid_getMinecraft, cls_Minecraft, "A", "()Lave;");
+    }
     TRY_METHOD(mid_clickMouse, cls_Minecraft, "clickMouse", "()V");
     TRY_METHOD(mid_getNetHandler, cls_Minecraft, "getNetHandler",
                "()Lnet/minecraft/client/network/NetHandlerPlayClient;");
@@ -421,27 +437,74 @@ static bool resolveIds(JNIEnv* env) {
         TRY_METHOD(mid_getNetHandler, cls_Minecraft, "func_147114_u",
                    "()Lnet/minecraft/client/network/NetHandlerPlayClient;");
     }
+    if (!mid_getNetHandler && !is_1_7_10) {
+        TRY_METHOD(mid_getNetHandler, cls_Minecraft, "V", "()Lbcy;");
+    }
 
     // Version-specific player field
     if (is_1_7_10) {
         TRY_FIELD(fid_thePlayer, cls_Minecraft, "thePlayer", "Lnet/minecraft/client/entity/EntityClientPlayerMP;");
+        if (!fid_thePlayer) {
+            TRY_FIELD(fid_thePlayer, cls_Minecraft, "field_71439_g",
+                      "Lnet/minecraft/client/entity/EntityClientPlayerMP;");
+        }
     } else {
         TRY_FIELD(fid_thePlayer, cls_Minecraft, "thePlayer", "Lnet/minecraft/client/entity/EntityPlayerSP;");
+        if (!fid_thePlayer) {
+            TRY_FIELD(fid_thePlayer, cls_Minecraft, "field_71439_g",
+                      "Lnet/minecraft/client/entity/EntityPlayerSP;");
+        }
+        if (!fid_thePlayer && Java::RuntimeObfuscated) {
+            TRY_FIELD(fid_thePlayer, cls_Minecraft, "h", "Lbew;");
+        }
     }
 
     TRY_FIELD(fid_theWorld, cls_Minecraft, "theWorld", "Lnet/minecraft/client/multiplayer/WorldClient;");
+    if (!fid_theWorld) {
+        TRY_FIELD(fid_theWorld, cls_Minecraft, "field_71441_e",
+                  "Lnet/minecraft/client/multiplayer/WorldClient;");
+    }
     TRY_FIELD(fid_currentScreen, cls_Minecraft, "currentScreen", "Lnet/minecraft/client/gui/GuiScreen;");
+    if (!fid_currentScreen) {
+        TRY_FIELD(fid_currentScreen, cls_Minecraft, "field_71462_r", "Lnet/minecraft/client/gui/GuiScreen;");
+    }
     TRY_FIELD(fid_rightClickDelayTimer, cls_Minecraft, "rightClickDelayTimer", "I");
+    if (!fid_rightClickDelayTimer)
+        TRY_FIELD(fid_rightClickDelayTimer, cls_Minecraft, "field_71467_ac", "I");
     TRY_FIELD(fid_leftClickCounter, cls_Minecraft, "leftClickCounter", "I");
+    if (!fid_leftClickCounter)
+        TRY_FIELD(fid_leftClickCounter, cls_Minecraft, "field_71429_W", "I");
     TRY_FIELD(fid_objectMouseOver, cls_Minecraft, "objectMouseOver", "Lnet/minecraft/util/MovingObjectPosition;");
+    if (!fid_objectMouseOver) {
+        TRY_FIELD(fid_objectMouseOver, cls_Minecraft, "field_71476_x",
+                  "Lnet/minecraft/util/MovingObjectPosition;");
+    }
     TRY_FIELD(fid_gameSettings, cls_Minecraft, "gameSettings", "Lnet/minecraft/client/settings/GameSettings;");
+    if (!fid_gameSettings) {
+        TRY_FIELD(fid_gameSettings, cls_Minecraft, "field_71474_y",
+                  "Lnet/minecraft/client/settings/GameSettings;");
+    }
     TRY_FIELD(fid_renderManager, cls_Minecraft, "renderManager",
               "Lnet/minecraft/client/renderer/entity/RenderManager;");
+    if (!fid_renderManager) {
+        TRY_FIELD(fid_renderManager, cls_Minecraft, "field_175622_Z",
+                  "Lnet/minecraft/client/renderer/entity/RenderManager;");
+    }
     TRY_FIELD(fid_mouseHelper, cls_Minecraft, "mouseHelper", "Lnet/minecraft/util/MouseHelper;");
+    if (!fid_mouseHelper)
+        TRY_FIELD(fid_mouseHelper, cls_Minecraft, "field_71417_B", "Lnet/minecraft/util/MouseHelper;");
     TRY_FIELD(fid_inGameHasFocus, cls_Minecraft, "inGameHasFocus", "Z");
+    if (!fid_inGameHasFocus)
+        TRY_FIELD(fid_inGameHasFocus, cls_Minecraft, "field_71415_G", "Z");
     TRY_FIELD(fid_timer, cls_Minecraft, "timer", "Lnet/minecraft/util/Timer;");
+    if (!fid_timer)
+        TRY_FIELD(fid_timer, cls_Minecraft, "field_71428_T", "Lnet/minecraft/util/Timer;");
     TRY_FIELD(fid_playerController, cls_Minecraft, "playerController",
               "Lnet/minecraft/client/multiplayer/PlayerControllerMP;");
+    if (!fid_playerController) {
+        TRY_FIELD(fid_playerController, cls_Minecraft, "field_71442_b",
+                  "Lnet/minecraft/client/multiplayer/PlayerControllerMP;");
+    }
     TRY_FIELD(fid_entityRenderer, cls_Minecraft, "entityRenderer",
               "Lnet/minecraft/client/renderer/EntityRenderer;");
     if (!fid_entityRenderer) {
@@ -467,17 +530,32 @@ static bool resolveIds(JNIEnv* env) {
 
     if (cls_Entity) {
         TRY_FIELD(fid_posX, cls_Entity, "posX", "D");
+        if (!fid_posX && !is_1_7_10)
+            TRY_FIELD(fid_posX, cls_Entity, "s", "D");
         TRY_FIELD(fid_posY, cls_Entity, "posY", "D");
+        if (!fid_posY && !is_1_7_10)
+            TRY_FIELD(fid_posY, cls_Entity, "t", "D");
         TRY_FIELD(fid_posZ, cls_Entity, "posZ", "D");
+        if (!fid_posZ && !is_1_7_10)
+            TRY_FIELD(fid_posZ, cls_Entity, "u", "D");
         TRY_FIELD(fid_lastTickPosX, cls_Entity, "lastTickPosX", "D");
+        if (!fid_lastTickPosX && !is_1_7_10)
+            TRY_FIELD(fid_lastTickPosX, cls_Entity, "m", "D");
         TRY_FIELD(fid_lastTickPosY, cls_Entity, "lastTickPosY", "D");
+        if (!fid_lastTickPosY && !is_1_7_10)
+            TRY_FIELD(fid_lastTickPosY, cls_Entity, "n", "D");
         TRY_FIELD(fid_lastTickPosZ, cls_Entity, "lastTickPosZ", "D");
+        if (!fid_lastTickPosZ && !is_1_7_10)
+            TRY_FIELD(fid_lastTickPosZ, cls_Entity, "o", "D");
         TRY_METHOD(mid_isInvisible, cls_Entity, "isInvisible", "()Z");
         TRY_METHOD(mid_getUniqueID, cls_Entity, "getUniqueID", "()Ljava/util/UUID;");
         TRY_METHOD(mid_getEntityId, cls_Entity, "getEntityId", "()I");
         if (!mid_getEntityId) {
             // SRG/obf fallback commonly used in 1.7/1.8 MCP environments
             TRY_METHOD(mid_getEntityId, cls_Entity, "func_145782_y", "()I");
+        }
+        if (!mid_getEntityId && !is_1_7_10) {
+            TRY_METHOD(mid_getEntityId, cls_Entity, "F", "()I");
         }
         TRY_FIELD(fid_boundingBox, cls_Entity, "boundingBox", "Lnet/minecraft/util/AxisAlignedBB;");
         if (!fid_boundingBox) {
@@ -505,6 +583,13 @@ static bool resolveIds(JNIEnv* env) {
         // getPlayerInfo(UUID) -> NetworkPlayerInfo
         TRY_METHOD(mid_getPlayerInfoByUUID, cls_NetHandlerPlayClient, "getPlayerInfo",
                    "(Ljava/util/UUID;)Lnet/minecraft/client/network/NetworkPlayerInfo;");
+        if (!mid_getPlayerInfoByUUID) {
+            TRY_METHOD(mid_getPlayerInfoByUUID, cls_NetHandlerPlayClient, "func_175102_a",
+                       "(Ljava/util/UUID;)Lnet/minecraft/client/network/NetworkPlayerInfo;");
+        }
+        if (!mid_getPlayerInfoByUUID && !is_1_7_10) {
+            TRY_METHOD(mid_getPlayerInfoByUUID, cls_NetHandlerPlayClient, "a", "(Ljava/util/UUID;)Lbdc;");
+        }
         log_debug("[JniCache] NetHandlerPlayClient.getPlayerInfo(UUID): %s", mid_getPlayerInfoByUUID ? "OK" : "FAILED");
 
         // addToSendQueue(Packet) -> void
@@ -524,10 +609,17 @@ static bool resolveIds(JNIEnv* env) {
         // getGameProfile() -> com.mojang.authlib.GameProfile
         TRY_METHOD(mid_getNetworkGameProfile, cls_NetworkPlayerInfo, "getGameProfile",
                    "()Lcom/mojang/authlib/GameProfile;");
+        if (!mid_getNetworkGameProfile) {
+            TRY_METHOD(mid_getNetworkGameProfile, cls_NetworkPlayerInfo, "func_178845_a",
+                       "()Lcom/mojang/authlib/GameProfile;");
+        }
         TRY_METHOD(mid_getResponseTime, cls_NetworkPlayerInfo, "getResponseTime", "()I");
         if (!mid_getResponseTime) {
             env->ExceptionClear();
             TRY_METHOD(mid_getResponseTime, cls_NetworkPlayerInfo, "func_178853_c", "()I");
+        }
+        if (!mid_getResponseTime && !is_1_7_10) {
+            TRY_METHOD(mid_getResponseTime, cls_NetworkPlayerInfo, "b", "()I");
         }
         log_debug("[JniCache] NetworkPlayerInfo.getGameProfile(): %s", mid_getNetworkGameProfile ? "OK" : "FAILED");
         log_debug("[JniCache] NetworkPlayerInfo.getResponseTime(): %s", mid_getResponseTime ? "OK" : "FAILED");
@@ -537,19 +629,29 @@ static bool resolveIds(JNIEnv* env) {
 
     // Log Minecraft.getNetHandler status
     log_debug("[JniCache] Minecraft.getNetHandler(): %s", mid_getNetHandler ? "OK" : "FAILED");
-    log_debug("[JniCache] GameProfile.getName(): %s", mid_getProfileName ? "OK" : "FAILED");
     log_debug("[JniCache] Entity.getEntityId(): %s", mid_getEntityId ? "OK" : "FAILED");
-    log_debug("[JniCache] EntityLivingBase.getActivePotionEffects(): %s", mid_getActivePotionEffects ? "OK" : "FAILED");
 
     // AxisAlignedBB class and fields (for hitbox)
     CACHE_CLASS(cls_AxisAlignedBB, "net.minecraft.util.AxisAlignedBB");
     if (cls_AxisAlignedBB) {
         TRY_FIELD(fid_aabb_minX, cls_AxisAlignedBB, "minX", "D");
+        if (!fid_aabb_minX && !is_1_7_10)
+            TRY_FIELD(fid_aabb_minX, cls_AxisAlignedBB, "a", "D");
         TRY_FIELD(fid_aabb_minY, cls_AxisAlignedBB, "minY", "D");
+        if (!fid_aabb_minY && !is_1_7_10)
+            TRY_FIELD(fid_aabb_minY, cls_AxisAlignedBB, "b", "D");
         TRY_FIELD(fid_aabb_minZ, cls_AxisAlignedBB, "minZ", "D");
+        if (!fid_aabb_minZ && !is_1_7_10)
+            TRY_FIELD(fid_aabb_minZ, cls_AxisAlignedBB, "c", "D");
         TRY_FIELD(fid_aabb_maxX, cls_AxisAlignedBB, "maxX", "D");
+        if (!fid_aabb_maxX && !is_1_7_10)
+            TRY_FIELD(fid_aabb_maxX, cls_AxisAlignedBB, "d", "D");
         TRY_FIELD(fid_aabb_maxY, cls_AxisAlignedBB, "maxY", "D");
+        if (!fid_aabb_maxY && !is_1_7_10)
+            TRY_FIELD(fid_aabb_maxY, cls_AxisAlignedBB, "e", "D");
         TRY_FIELD(fid_aabb_maxZ, cls_AxisAlignedBB, "maxZ", "D");
+        if (!fid_aabb_maxZ && !is_1_7_10)
+            TRY_FIELD(fid_aabb_maxZ, cls_AxisAlignedBB, "f", "D");
     }
 
     // =========================================================================
@@ -586,6 +688,8 @@ static bool resolveIds(JNIEnv* env) {
             // SRG/obf fallback (common mapping name)
             TRY_METHOD(mid_getActivePotionEffects, cls_EntityLivingBase, "func_70651_bq", "()Ljava/util/Collection;");
         }
+        log_debug("[JniCache] EntityLivingBase.getActivePotionEffects(): %s",
+                  mid_getActivePotionEffects ? "OK" : "FAILED");
     }
 
     // =========================================================================
@@ -835,14 +939,20 @@ static bool resolveIds(JNIEnv* env) {
 
     if (cls_WorldClient) {
         TRY_FIELD(fid_playerEntities, cls_WorldClient, "playerEntities", "Ljava/util/List;");
+        if (!fid_playerEntities && !is_1_7_10)
+            TRY_FIELD(fid_playerEntities, cls_WorldClient, "j", "Ljava/util/List;");
 
         // loadedEntityList contains ALL entities (mobs, animals, players)
         TRY_FIELD(fid_loadedEntityList, cls_WorldClient, "loadedEntityList", "Ljava/util/List;");
+        if (!fid_loadedEntityList && !is_1_7_10)
+            TRY_FIELD(fid_loadedEntityList, cls_WorldClient, "f", "Ljava/util/List;");
         if (!fid_loadedEntityList) {
             // Try parent class World
             jclass cls_World = nullptr;
             if (Java::AssignClass(OBFUSCATE_STRING("net.minecraft.world.World"), cls_World) && cls_World) {
                 TRY_FIELD(fid_loadedEntityList, cls_World, "loadedEntityList", "Ljava/util/List;");
+                if (!fid_loadedEntityList && !is_1_7_10)
+                    TRY_FIELD(fid_loadedEntityList, cls_World, "f", "Ljava/util/List;");
                 env->DeleteLocalRef(cls_World);
             }
         }
@@ -1029,7 +1139,13 @@ static bool resolveIds(JNIEnv* env) {
         TRY_STATIC_METHOD(mid_setGrabbed, cls_Mouse, "setGrabbed", "(Z)V");
     }
 
-    return true;
+    const bool coreReady = cls_Minecraft && cls_Entity && cls_EntityPlayer && mid_getMinecraft && fid_thePlayer;
+    if (!coreReady) {
+        log_err("[JniCache] core incomplete: Minecraft=%d Entity=%d EntityPlayer=%d getMinecraft=%d thePlayer=%d",
+                cls_Minecraft != nullptr, cls_Entity != nullptr, cls_EntityPlayer != nullptr,
+                mid_getMinecraft != nullptr, fid_thePlayer != nullptr);
+    }
+    return coreReady;
 }
 
 bool Init() {

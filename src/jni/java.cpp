@@ -1,151 +1,173 @@
 #include "java.h"
 #include "../sdk/jni/jstring_util.h"
+#include "../sdk/jni/member_resolver.h"
 #include "../util/logger.hpp"
 #include "../util/aes_string.hpp"
 #include "../util/inject_trace.hpp"
 
+#include <algorithm>
+
+namespace {
+const char* notchClassName(const std::string& mcpName) {
+    // 1.8.9 joined.srg class mappings for every Minecraft class referenced by
+    // Cobble.  Vanilla/OptiFine ship these short Notch names at runtime.
+    struct ClassMap { const char* mcp; const char* notch; };
+    static constexpr ClassMap kClassMap[] = {
+        {"net.minecraft.block.Block", "afh"},
+        {"net.minecraft.block.state.IBlockState", "alz"},
+        {"net.minecraft.client.entity.EntityOtherPlayerMP", "bex"},
+        {"net.minecraft.client.entity.EntityPlayerSP", "bew"},
+        {"net.minecraft.client.gui.GuiScreen", "axu"},
+        {"net.minecraft.client.gui.inventory.GuiContainer", "ayl"},
+        {"net.minecraft.client.gui.inventory.GuiInventory", "azc"},
+        {"net.minecraft.client.Minecraft", "ave"},
+        {"net.minecraft.client.multiplayer.PlayerControllerMP", "bda"},
+        {"net.minecraft.client.multiplayer.WorldClient", "bdb"},
+        {"net.minecraft.client.network.NetHandlerPlayClient", "bcy"},
+        {"net.minecraft.client.network.NetworkPlayerInfo", "bdc"},
+        {"net.minecraft.client.renderer.ActiveRenderInfo", "auz"},
+        {"net.minecraft.client.renderer.entity.RendererLivingEntity", "bjl"},
+        {"net.minecraft.client.renderer.entity.RenderManager", "biu"},
+        {"net.minecraft.client.renderer.entity.RenderPlayer", "bln"},
+        {"net.minecraft.client.renderer.EntityRenderer", "bfk"},
+        {"net.minecraft.client.renderer.RenderGlobal", "bfr"},
+        {"net.minecraft.client.settings.GameSettings", "avh"},
+        {"net.minecraft.client.settings.KeyBinding", "avb"},
+        {"net.minecraft.entity.Entity", "pk"},
+        {"net.minecraft.entity.EntityLivingBase", "pr"},
+        {"net.minecraft.entity.item.EntityArmorStand", "um"},
+        {"net.minecraft.entity.item.EntityItem", "uz"},
+        {"net.minecraft.entity.player.EntityPlayer", "wn"},
+        {"net.minecraft.entity.player.InventoryPlayer", "wm"},
+        {"net.minecraft.inventory.Container", "xi"},
+        {"net.minecraft.inventory.Slot", "yg"},
+        {"net.minecraft.item.Item", "zw"},
+        {"net.minecraft.item.ItemPotion", "aai"},
+        {"net.minecraft.item.ItemStack", "zx"},
+        {"net.minecraft.nbt.NBTTagCompound", "dn"},
+        {"net.minecraft.nbt.NBTTagList", "du"},
+        {"net.minecraft.network.login.client.C00PacketLoginStart", "jl"},
+        {"net.minecraft.network.NetworkManager", "ek"},
+        {"net.minecraft.network.Packet", "ff"},
+        {"net.minecraft.network.play.client.C03PacketPlayer", "ip"},
+        {"net.minecraft.network.play.client.C0DPacketCloseWindow", "il"},
+        {"net.minecraft.network.play.client.C16PacketClientStatus", "ig"},
+        {"net.minecraft.network.play.client.C16PacketClientStatus$EnumState", "ig$a"},
+        {"net.minecraft.network.play.server.S04PacketEntityEquipment", "hn"},
+        {"net.minecraft.network.play.server.S08PacketPlayerPosLook", "fi"},
+        {"net.minecraft.network.play.server.S0BPacketAnimation", "fq"},
+        {"net.minecraft.network.play.server.S14PacketEntity", "gv"},
+        {"net.minecraft.network.play.server.S18PacketEntityTeleport", "hz"},
+        {"net.minecraft.network.play.server.S1DPacketEntityEffect", "ib"},
+        {"net.minecraft.network.play.server.S1EPacketRemoveEntityEffect", "hc"},
+        {"net.minecraft.potion.PotionEffect", "pf"},
+        {"net.minecraft.util.AxisAlignedBB", "aug"},
+        {"net.minecraft.util.BlockPos", "cj"},
+        {"net.minecraft.util.EnumFacing", "cq"},
+        {"net.minecraft.util.IChatComponent", "eu"},
+        {"net.minecraft.util.MouseHelper", "avf"},
+        {"net.minecraft.util.MovingObjectPosition", "auh"},
+        {"net.minecraft.util.MovingObjectPosition$MovingObjectType", "auh$a"},
+        {"net.minecraft.util.Timer", "avl"},
+        {"net.minecraft.util.Vec3", "aui"},
+        {"net.minecraft.world.World", "adm"},
+    };
+
+    for (const auto& entry : kClassMap) {
+        if (mcpName == entry.mcp)
+            return entry.notch;
+    }
+    return nullptr;
+}
+
+jobject loadClass(JNIEnv* env, const std::string& name) {
+    jstring className = env->NewStringUTF(name.c_str());
+    if (!className)
+        return nullptr;
+
+    jobject result = Java::MidLoadClass
+                         ? env->CallObjectMethod(Java::ClassLoader, Java::MidLoadClass, className)
+                         : nullptr;
+    if (env->ExceptionCheck())
+        env->ExceptionClear();
+    if (!result && Java::MidFindClass)
+        result = env->CallObjectMethod(Java::ClassLoader, Java::MidFindClass, className);
+    env->DeleteLocalRef(className);
+    if (env->ExceptionCheck())
+        env->ExceptionClear();
+    return result;
+}
+} // namespace
+
 void setupClassLoader() {
     COBBLE_TRACE("setupClassLoader: enter");
     JNIEnv* env = Java::Env();
-    if (!env) {
-        COBBLE_TRACE("setupClassLoader: Java::Env() returned nullptr");
+    if (!env || !Java::tiEnv) {
+        COBBLE_TRACE("setupClassLoader: env or tiEnv is nullptr");
         return;
     }
 
-    COBBLE_TRACE("setupClassLoader: env ok, finding Thread");
-    jclass c_Thread = env->FindClass(OBFUSCATE_STRING("java/lang/Thread").c_str());
-    if (!c_Thread) {
-        COBBLE_TRACE("setupClassLoader: c_Thread is null");
+    COBBLE_TRACE("setupClassLoader: using JVMTI GetLoadedClasses");
+    jclass* classes = nullptr;
+    jint classCount = 0;
+    jvmtiError err = Java::tiEnv->GetLoadedClasses(&classCount, &classes);
+    if (err != JVMTI_ERROR_NONE || !classes) {
+        COBBLE_TRACE("setupClassLoader: GetLoadedClasses failed");
         return;
     }
 
-    COBBLE_TRACE("setupClassLoader: finding Map");
-    jclass c_Map = env->FindClass(OBFUSCATE_STRING("java/util/Map").c_str());
-    if (!c_Map) {
-        COBBLE_TRACE("setupClassLoader: c_Map is null");
-        env->DeleteLocalRef(c_Thread);
-        return;
-    }
+    jobject targetLoader = nullptr;
+    for (jint i = 0; i < classCount; ++i) {
+        char* sigPtr = nullptr;
+        if (Java::tiEnv->GetClassSignature(classes[i], &sigPtr, nullptr) == JVMTI_ERROR_NONE && sigPtr) {
+            std::string sig = sigPtr;
+            Java::tiEnv->Deallocate((unsigned char*)sigPtr);
 
-    COBBLE_TRACE("setupClassLoader: finding Set");
-    jclass c_Set = env->FindClass(OBFUSCATE_STRING("java/util/Set").c_str());
-    if (!c_Set) {
-        COBBLE_TRACE("setupClassLoader: c_Set is null");
-        env->DeleteLocalRef(c_Thread);
-        env->DeleteLocalRef(c_Map);
-        return;
-    }
+            // Match net/minecraft/client/Minecraft (deobf/Lunar/Forge) or Notch obfuscated names:
+            // 1.8.9 = Lave;
+            // 1.7.10 = Lbao;
+            // 1.12 = Lbib;
+            if (sig == "Lnet/minecraft/client/Minecraft;" ||
+                sig == "Lave;" ||
+                sig == "Lbao;" ||
+                sig == "Lbib;") {
 
-    COBBLE_TRACE("setupClassLoader: finding ClassLoader");
-    jclass c_ClassLoader = env->FindClass(OBFUSCATE_STRING("java/lang/ClassLoader").c_str());
-    if (!c_ClassLoader) {
-        COBBLE_TRACE("setupClassLoader: c_ClassLoader is null");
-        env->DeleteLocalRef(c_Thread);
-        env->DeleteLocalRef(c_Map);
-        env->DeleteLocalRef(c_Set);
-        return;
-    }
-
-    COBBLE_TRACE("setupClassLoader: getting method IDs");
-    jmethodID mid_getAllStackTraces = env->GetStaticMethodID(c_Thread, OBFUSCATE_STRING("getAllStackTraces").c_str(), OBFUSCATE_STRING("()Ljava/util/Map;").c_str());
-    jmethodID mid_keySet = env->GetMethodID(c_Map, OBFUSCATE_STRING("keySet").c_str(), OBFUSCATE_STRING("()Ljava/util/Set;").c_str());
-    jmethodID mid_toArray = env->GetMethodID(c_Set, OBFUSCATE_STRING("toArray").c_str(), OBFUSCATE_STRING("()[Ljava/lang/Object;").c_str());
-    jmethodID mid_getContextClassLoader = env->GetMethodID(c_Thread, OBFUSCATE_STRING("getContextClassLoader").c_str(), OBFUSCATE_STRING("()Ljava/lang/ClassLoader;").c_str());
-    Java::MidFindClass = env->GetMethodID(c_ClassLoader, OBFUSCATE_STRING("findClass").c_str(), OBFUSCATE_STRING("(Ljava/lang/String;)Ljava/lang/Class;").c_str());
-    jmethodID mid_currentThread = env->GetStaticMethodID(c_Thread, OBFUSCATE_STRING("currentThread").c_str(), OBFUSCATE_STRING("()Ljava/lang/Thread;").c_str());
-
-    if (!mid_getAllStackTraces || !mid_keySet || !mid_toArray || !mid_getContextClassLoader || !Java::MidFindClass || !mid_currentThread) {
-        COBBLE_TRACE("setupClassLoader: failed to get one or more critical method IDs");
-        env->DeleteLocalRef(c_Thread);
-        env->DeleteLocalRef(c_Map);
-        env->DeleteLocalRef(c_Set);
-        env->DeleteLocalRef(c_ClassLoader);
-        return;
-    }
-
-    COBBLE_TRACE("setupClassLoader: calling getAllStackTraces");
-    jobject obj_stackTracesMap = env->CallStaticObjectMethod(c_Thread, mid_getAllStackTraces);
-    if (!obj_stackTracesMap) {
-        COBBLE_TRACE("setupClassLoader: obj_stackTracesMap is null");
-        env->DeleteLocalRef(c_Thread);
-        env->DeleteLocalRef(c_Map);
-        env->DeleteLocalRef(c_Set);
-        env->DeleteLocalRef(c_ClassLoader);
-        return;
-    }
-
-    COBBLE_TRACE("setupClassLoader: calling keySet");
-    jobject obj_threadsSet = env->CallObjectMethod(obj_stackTracesMap, mid_keySet);
-    if (!obj_threadsSet) {
-        COBBLE_TRACE("setupClassLoader: obj_threadsSet is null");
-        env->DeleteLocalRef(obj_stackTracesMap);
-        env->DeleteLocalRef(c_Thread);
-        env->DeleteLocalRef(c_Map);
-        env->DeleteLocalRef(c_Set);
-        env->DeleteLocalRef(c_ClassLoader);
-        return;
-    }
-
-    COBBLE_TRACE("setupClassLoader: calling toArray");
-    jobjectArray threads = (jobjectArray)env->CallObjectMethod(obj_threadsSet, mid_toArray);
-    if (!threads) {
-        COBBLE_TRACE("setupClassLoader: threads array is null");
-        env->DeleteLocalRef(obj_threadsSet);
-        env->DeleteLocalRef(obj_stackTracesMap);
-        env->DeleteLocalRef(c_Thread);
-        env->DeleteLocalRef(c_Map);
-        env->DeleteLocalRef(c_Set);
-        env->DeleteLocalRef(c_ClassLoader);
-        return;
-    }
-
-    jint szThreads = env->GetArrayLength(threads);
-    char traceBuf[128];
-    wsprintfA(traceBuf, "setupClassLoader: starting loop over %d threads", szThreads);
-    COBBLE_TRACE(traceBuf);
-
-    for (int i = 0; i < szThreads; i++) {
-        jobject thread = env->GetObjectArrayElement(threads, i);
-        if (!thread) continue;
-
-        jobject classLoaderObj = env->CallObjectMethod(thread, mid_getContextClassLoader);
-        if (classLoaderObj) {
-            jstring className = env->NewStringUTF(OBFUSCATE_STRING("net.minecraft.client.Minecraft").c_str());
-            jobject minecraftClass = env->CallObjectMethod(classLoaderObj, Java::MidFindClass, className);
-
-            // CRITICAL: Clear ClassNotFoundException so JNI state remains unpoisoned for next calls
-            if (env->ExceptionCheck()) {
-                env->ExceptionClear();
+                jobject loader = nullptr;
+                if (Java::tiEnv->GetClassLoader(classes[i], &loader) == JVMTI_ERROR_NONE && loader) {
+                    targetLoader = loader;
+                    Java::RuntimeObfuscated = (sig == "Lave;" || sig == "Lbao;" || sig == "Lbib;");
+                    COBBLE_TRACE("setupClassLoader: found Minecraft ClassLoader via JVMTI!");
+                    break;
+                }
             }
-
-            if (minecraftClass) {
-                COBBLE_TRACE("setupClassLoader: net.minecraft.client.Minecraft found!");
-                Java::ClassLoader = env->NewGlobalRef(classLoaderObj);
-
-                env->DeleteLocalRef(minecraftClass);
-                env->DeleteLocalRef(className);
-                env->DeleteLocalRef(classLoaderObj);
-                env->DeleteLocalRef(thread);
-                break;
-            }
-
-            env->DeleteLocalRef(className);
-            env->DeleteLocalRef(classLoaderObj);
         }
-
-        env->DeleteLocalRef(thread);
     }
 
-    COBBLE_TRACE("setupClassLoader: performing final cleanup");
-    env->DeleteLocalRef(threads);
-    env->DeleteLocalRef(obj_threadsSet);
-    env->DeleteLocalRef(obj_stackTracesMap);
-    env->DeleteLocalRef(c_Thread);
-    env->DeleteLocalRef(c_Map);
-    env->DeleteLocalRef(c_Set);
-    env->DeleteLocalRef(c_ClassLoader);
+    // Clean up classes list
+    for (jint i = 0; i < classCount; ++i) {
+        env->DeleteLocalRef(classes[i]);
+    }
+    Java::tiEnv->Deallocate((unsigned char*)classes);
 
-    Java::Initialized = (Java::ClassLoader != nullptr);
+    if (targetLoader) {
+        Java::ClassLoader = env->NewGlobalRef(targetLoader);
+        env->DeleteLocalRef(targetLoader);
+
+        jclass c_ClassLoader = env->FindClass(OBFUSCATE_STRING("java/lang/ClassLoader").c_str());
+        if (c_ClassLoader) {
+            // ClassLoader.findClass is not a general class lookup: it bypasses
+            // parent delegation. Minecraft is commonly owned by a parent or
+            // sibling launch loader, so use the public delegating API first.
+            Java::MidLoadClass = env->GetMethodID(c_ClassLoader, OBFUSCATE_STRING("loadClass").c_str(),
+                                                  OBFUSCATE_STRING("(Ljava/lang/String;)Ljava/lang/Class;").c_str());
+            Java::MidFindClass = env->GetMethodID(c_ClassLoader, OBFUSCATE_STRING("findClass").c_str(),
+                                                  OBFUSCATE_STRING("(Ljava/lang/String;)Ljava/lang/Class;").c_str());
+            env->DeleteLocalRef(c_ClassLoader);
+        }
+    }
+
+    Java::Initialized = (Java::ClassLoader != nullptr &&
+                         (Java::MidLoadClass != nullptr || Java::MidFindClass != nullptr));
     COBBLE_TRACE(Java::Initialized ? "setupClassLoader: success" : "setupClassLoader: failed (no ClassLoader loaded)");
 }
 
@@ -248,15 +270,20 @@ void Java::Kill() {
 
 bool Java::AssignClass(std::string name, jclass& out) {
     JNIEnv* env = Env();
-    if (!env || !Java::ClassLoader || !Java::MidFindClass) return false;
+    if (!env || !Java::ClassLoader || (!Java::MidLoadClass && !Java::MidFindClass)) return false;
 
-    jstring className = env->NewStringUTF(name.c_str());
-    jobject findClass = env->CallObjectMethod(Java::ClassLoader, Java::MidFindClass, className);
-    env->DeleteLocalRef(className);
+    // loadClass is required for class-loader delegation.  The findClass retry
+    // retains compatibility with launchers that expose their game classes only
+    // through a custom findClass implementation.
+    jobject findClass = loadClass(env, name);
 
-    // CRITICAL: Clear any pending exceptions (e.g. ClassNotFoundException)
-    if (env->ExceptionCheck()) {
-        env->ExceptionClear();
+    // Vanilla 1.8.9 exposes Notch class names (ave, pr, bfr, ...). The rest
+    // of the SDK deliberately uses MCP names, so translate only after the MCP
+    // lookup failed and only when the detected Minecraft class proves this is
+    // an obfuscated runtime.
+    if (!findClass && Java::RuntimeObfuscated) {
+        if (const char* notchName = notchClassName(name))
+            findClass = loadClass(env, notchName);
     }
 
     if (findClass) {
@@ -265,6 +292,37 @@ bool Java::AssignClass(std::string name, jclass& out) {
     }
 
     return false;
+}
+
+std::string Java::NotchDescriptor(const std::string& descriptor) {
+    std::string translated;
+    translated.reserve(descriptor.size());
+
+    for (size_t i = 0; i < descriptor.size();) {
+        if (descriptor[i] != 'L') {
+            translated.push_back(descriptor[i++]);
+            continue;
+        }
+
+        const size_t end = descriptor.find(';', i);
+        if (end == std::string::npos) {
+            translated.append(descriptor, i, std::string::npos);
+            break;
+        }
+
+        std::string className = descriptor.substr(i + 1, end - i - 1);
+        std::replace(className.begin(), className.end(), '/', '.');
+        if (const char* notchName = notchClassName(className)) {
+            translated.push_back('L');
+            translated.append(notchName);
+            translated.push_back(';');
+        } else {
+            translated.append(descriptor, i, end - i + 1);
+        }
+        i = end + 1;
+    }
+
+    return translated;
 }
 
 void Java::GetMinecraftVersion() {
@@ -281,6 +339,25 @@ void Java::GetMinecraftVersion() {
         env->GetStaticMethodID(minecraftClass, OBFUSCATE_STRING("getMinecraft").c_str(),
                                OBFUSCATE_STRING("()Lnet/minecraft/client/Minecraft;").c_str());
     if (!getMinecraft) {
+        env->ExceptionClear();
+        getMinecraft = env->GetStaticMethodID(minecraftClass, OBFUSCATE_STRING("func_71410_x").c_str(),
+                                              OBFUSCATE_STRING("()Lnet/minecraft/client/Minecraft;").c_str());
+    }
+    if (!getMinecraft && Java::RuntimeObfuscated) {
+        env->ExceptionClear();
+        getMinecraft = env->GetStaticMethodID(minecraftClass, "A", "()Lave;");
+        if (!getMinecraft) {
+            env->ExceptionClear();
+            getMinecraft = env->GetStaticMethodID(minecraftClass, "A", "()Lbao;");
+        }
+    }
+    if (!getMinecraft) {
+        env->ExceptionClear();
+        getMinecraft = jni_resolver::findUniqueMethodBySignature(
+            minecraftClass, "()Lnet/minecraft/client/Minecraft;", true);
+    }
+    if (!getMinecraft) {
+        env->ExceptionClear();
         env->DeleteLocalRef(minecraftClass);
         return;
     }
@@ -294,6 +371,25 @@ void Java::GetMinecraftVersion() {
     jfieldID launchedVersionField = env->GetFieldID(minecraftClass, OBFUSCATE_STRING("launchedVersion").c_str(),
                                                     OBFUSCATE_STRING("Ljava/lang/String;").c_str());
     if (!launchedVersionField) {
+        env->ExceptionClear();
+        launchedVersionField = env->GetFieldID(minecraftClass, OBFUSCATE_STRING("field_110446_Y").c_str(),
+                                               OBFUSCATE_STRING("Ljava/lang/String;").c_str());
+    }
+    if (!launchedVersionField) {
+        env->ExceptionClear();
+        // Some Badlion builds remove the version field. BlockPos is present
+        // in 1.8.9 and absent in 1.7.10, so the class split is deterministic.
+        jclass blockPos = nullptr;
+        if (AssignClass(OBFUSCATE_STRING("net.minecraft.util.BlockPos"), blockPos)) {
+            Java::Version = MinecraftVersion::MC_1_8_9;
+            log_ok("detected minecraft 1.8.9 (class fallback)");
+            env->DeleteLocalRef(blockPos);
+        } else {
+            if (blockPos)
+                env->DeleteLocalRef(blockPos);
+            Java::Version = MinecraftVersion::MC_1_7_10;
+            log_ok("detected minecraft 1.7.10 (class fallback)");
+        }
         env->DeleteLocalRef(minecraft);
         env->DeleteLocalRef(minecraftClass);
         return;
@@ -308,10 +404,10 @@ void Java::GetMinecraftVersion() {
 
     std::string version = jstringToString(versionStr);
 
-    if (version == "1.8.9") {
+    if (version.find("1.8.9") == 0) {
         Java::Version = MinecraftVersion::MC_1_8_9;
         log_ok("detected minecraft 1.8.9");
-    } else if (version == "1.7.10") {
+    } else if (version.find("1.7.10") == 0) {
         Java::Version = MinecraftVersion::MC_1_7_10;
         log_ok("detected minecraft 1.7.10");
     } else {

@@ -4,6 +4,7 @@
 #include <string>
 #include <vector>
 #include "../../jni/java.h"
+#include "../jni/member_resolver.h"
 #include "../../util/aes_string.hpp"
 #include "../../util/logger.hpp"
 #include "../../util/math/geometry.h"
@@ -70,22 +71,31 @@ struct RenderData {
         log_debug("RenderData: ActiveRenderInfo class found");
 
         // Try uppercase first (1.8.9), then lowercase (1.7.10)
-        bool foundUpperCase = false;
         projectionField = Java::Env()->GetStaticFieldID(activeRenderInfoClass, OBFUSCATE_STRING("PROJECTION").c_str(),
-                                                        OBFUSCATE_STRING("Ljava/nio/FloatBuffer;").c_str());
+                                                         OBFUSCATE_STRING("Ljava/nio/FloatBuffer;").c_str());
         if (projectionField) {
             log_debug("RenderData: Found PROJECTION (1.8.x style)");
-            foundUpperCase = true;
         } else {
             Java::Env()->ExceptionClear();
             projectionField =
                 Java::Env()->GetStaticFieldID(activeRenderInfoClass, OBFUSCATE_STRING("projection").c_str(),
                                               OBFUSCATE_STRING("Ljava/nio/FloatBuffer;").c_str());
-            if (projectionField) {
+            if (projectionField)
                 log_debug("RenderData: Found projection (1.7.x style)");
-            } else {
-                log_err("RenderData: projection field not found!");
-            }
+        }
+        if (!projectionField) {
+            Java::Env()->ExceptionClear();
+            projectionField = Java::Env()->GetStaticFieldID(activeRenderInfoClass, "field_178813_c",
+                                                             "Ljava/nio/FloatBuffer;");
+            if (projectionField)
+                log_debug("RenderData: Found Forge SRG PROJECTION");
+        }
+        // Badlion can expose an MCP class with Notch member names.
+        if (!projectionField) {
+            Java::Env()->ExceptionClear();
+            projectionField = Java::Env()->GetStaticFieldID(activeRenderInfoClass, "c", "Ljava/nio/FloatBuffer;");
+            if (projectionField)
+                log_debug("RenderData: Found Badlion/Notch PROJECTION");
         }
 
         modelViewField = Java::Env()->GetStaticFieldID(activeRenderInfoClass, OBFUSCATE_STRING("MODELVIEW").c_str(),
@@ -97,15 +107,41 @@ struct RenderData {
             modelViewField =
                 Java::Env()->GetStaticFieldID(activeRenderInfoClass, OBFUSCATE_STRING("modelview").c_str(),
                                               OBFUSCATE_STRING("Ljava/nio/FloatBuffer;").c_str());
-            if (modelViewField) {
+            if (modelViewField)
                 log_debug("RenderData: Found modelview (1.7.x style)");
-            } else {
-                log_err("RenderData: modelview field not found!");
+        }
+        if (!modelViewField) {
+            Java::Env()->ExceptionClear();
+            modelViewField = Java::Env()->GetStaticFieldID(activeRenderInfoClass, "field_178812_b",
+                                                            "Ljava/nio/FloatBuffer;");
+            if (modelViewField)
+                log_debug("RenderData: Found Forge SRG MODELVIEW");
+        }
+        if (!modelViewField) {
+            Java::Env()->ExceptionClear();
+            modelViewField = Java::Env()->GetStaticFieldID(activeRenderInfoClass, "b", "Ljava/nio/FloatBuffer;");
+            if (modelViewField)
+                log_debug("RenderData: Found Badlion/Notch MODELVIEW");
+        }
+
+        if (!projectionField && !modelViewField) {
+            // Both supplied Forge trees declare exactly three FloatBuffers in
+            // MODELVIEW, PROJECTION, OBJECTCOORDS order.
+            const auto buffers = jni_resolver::findFieldsBySignature(
+                activeRenderInfoClass, "Ljava/nio/FloatBuffer;", true);
+            if (buffers.size() == 3) {
+                modelViewField = buffers[0];
+                projectionField = buffers[1];
+                log_debug("RenderData: Found Badlion matrix fields by descriptor order");
             }
         }
 
         if (!projectionField || !modelViewField) {
             Java::Env()->ExceptionClear();
+            if (!projectionField)
+                log_err("RenderData: projection field not found!");
+            if (!modelViewField)
+                log_err("RenderData: modelview field not found!");
             log_err("RenderData: Missing matrix fields, init failed");
             initFailed = true;
             return false;

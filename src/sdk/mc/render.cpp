@@ -13,6 +13,32 @@
 
 // Lazily-loaded glBlendColor (GL 1.4) for constant-alpha translucency of the
 // backtrack ghost. Not in the base opengl32 import surface, so resolved via wgl.
+#include "../../../infra/ext/minhook/minhook.h"
+
+typedef void(APIENTRY* glDepthFunc_t)(GLenum);
+typedef void(APIENTRY* glDepthMask_t)(GLboolean);
+
+static glDepthFunc_t o_glDepthFunc = nullptr;
+static glDepthMask_t o_glDepthMask = nullptr;
+
+static bool g_DisableDepthOverride = false;
+
+static void APIENTRY hk_glDepthFunc(GLenum func) {
+    if (g_DisableDepthOverride) {
+        o_glDepthFunc(GL_ALWAYS);
+    } else {
+        o_glDepthFunc(func);
+    }
+}
+
+static void APIENTRY hk_glDepthMask(GLboolean flag) {
+    if (g_DisableDepthOverride) {
+        o_glDepthMask(GL_FALSE);
+    } else {
+        o_glDepthMask(flag);
+    }
+}
+
 typedef void(APIENTRY* PFN_glBlendColor_t)(GLfloat, GLfloat, GLfloat, GLfloat);
 static PFN_glBlendColor_t g_glBlendColor = nullptr;
 static bool g_glBlendColorTried = false;
@@ -395,7 +421,8 @@ float Minecraft::getPartialTicks() {
 // renderGhostEntity - Re-render a live entity at an arbitrary world position.
 // =============================================================================
 
-void Minecraft::renderGhostEntity(int entityId, double wx, double wy, double wz, float r, float g, float b, float a, bool disableDepth, int renderMode) {
+void Minecraft::renderGhostEntity(int entityId, double wx, double wy, double wz, float r, float g, float b, float a,
+                                  bool disableDepth, int renderMode, bool forceVisible) {
     if (!isValid() || entityId <= 0)
         return;
 
@@ -443,9 +470,8 @@ void Minecraft::renderGhostEntity(int entityId, double wx, double wy, double wz,
         if (env->ExceptionCheck())
             env->ExceptionClear();
         // 1.8.x doRenderEntity returns boolean; try that first, then a void mapping.
-        mid_doRenderEntity =
-            env->GetMethodID(JniCache::cls_RenderManager, OBFUSCATE_STRING("doRenderEntity").c_str(),
-                             OBFUSCATE_STRING("(Lnet/minecraft/entity/Entity;DDDFFZ)Z").c_str());
+        mid_doRenderEntity = env->GetMethodID(JniCache::cls_RenderManager, OBFUSCATE_STRING("doRenderEntity").c_str(),
+                                              OBFUSCATE_STRING("(Lnet/minecraft/entity/Entity;DDDFFZ)Z").c_str());
         if (env->ExceptionCheck())
             env->ExceptionClear();
         if (mid_doRenderEntity) {
@@ -467,6 +493,24 @@ void Minecraft::renderGhostEntity(int entityId, double wx, double wy, double wz,
         }
         if (env->ExceptionCheck())
             env->ExceptionClear();
+
+        // Initialize OpenGL hooks lazily
+        static bool triedGlHooks = false;
+        if (!triedGlHooks) {
+            triedGlHooks = true;
+            HMODULE hGl = GetModuleHandleA("opengl32.dll");
+            if (hGl) {
+                LPVOID pDepthFunc = (LPVOID)GetProcAddress(hGl, "glDepthFunc");
+                LPVOID pDepthMask = (LPVOID)GetProcAddress(hGl, "glDepthMask");
+                if (pDepthFunc && pDepthMask) {
+                    MH_CreateHook(pDepthFunc, (LPVOID)hk_glDepthFunc, (LPVOID*)&o_glDepthFunc);
+                    MH_CreateHook(pDepthMask, (LPVOID)hk_glDepthMask, (LPVOID*)&o_glDepthMask);
+                    MH_EnableHook(pDepthFunc);
+                    MH_EnableHook(pDepthMask);
+                    log_ok("Chams glDepthFunc/glDepthMask hooks installed successfully!");
+                }
+            }
+        }
     }
 
     if (mid_getEntityByID && mid_doRenderEntity) {
@@ -489,15 +533,89 @@ void Minecraft::renderGhostEntity(int entityId, double wx, double wy, double wz,
             const double dy = wy - rpy;
             const double dz = wz - rpz;
 
+            // Re-rendering via RenderManager would normally draw a second nametag.
+            // Hide the GUI only for this call, then restore the user's setting.
+            static jfieldID fid_hideGUI = nullptr;
+            static bool triedHideGUI = false;
+            if (!triedHideGUI) {
+                triedHideGUI = true;
+                if (JniCache::cls_GameSettings) {
+                    fid_hideGUI = env->GetFieldID(JniCache::cls_GameSettings, "hideGUI", "Z");
+                    if (!fid_hideGUI) {
+                        if (env->ExceptionCheck())
+                            env->ExceptionClear();
+                        fid_hideGUI = env->GetFieldID(JniCache::cls_GameSettings, "field_74319_N", "Z");
+                    }
+                    if (env->ExceptionCheck())
+                        env->ExceptionClear();
+                }
+            }
+
+            jobject gameSettings = nullptr;
+            jboolean hideGUIBefore = JNI_FALSE;
+            if (fid_hideGUI && JniCache::fid_gameSettings) {
+                gameSettings = env->GetObjectField(instance, JniCache::fid_gameSettings);
+                if (gameSettings) {
+                    hideGUIBefore = env->GetBooleanField(gameSettings, fid_hideGUI);
+                    env->SetBooleanField(gameSettings, fid_hideGUI, JNI_TRUE);
+                }
+                if (env->ExceptionCheck())
+                    env->ExceptionClear();
+            }
+
+            static jmethodID mid_isInvisible = nullptr;
+            static jmethodID mid_setInvisible = nullptr;
+            static bool triedInvisibleIds = false;
+            if (!triedInvisibleIds) {
+                triedInvisibleIds = true;
+                jclass entityClass = env->GetObjectClass(entity);
+                if (entityClass) {
+                    mid_isInvisible = env->GetMethodID(entityClass, "isInvisible", "()Z");
+                    if (env->ExceptionCheck()) {
+                        env->ExceptionClear();
+                        mid_isInvisible = nullptr;
+                    }
+                    mid_setInvisible = env->GetMethodID(entityClass, "setInvisible", "(Z)V");
+                    if (env->ExceptionCheck()) {
+                        env->ExceptionClear();
+                        mid_setInvisible = nullptr;
+                    }
+                    env->DeleteLocalRef(entityClass);
+                }
+            }
+
+            const bool shouldForceVisible = forceVisible || renderMode == 1;
+            jboolean invisibleBefore = JNI_FALSE;
+            if (shouldForceVisible && mid_isInvisible && mid_setInvisible) {
+                invisibleBefore = env->CallBooleanMethod(entity, mid_isInvisible);
+                if (env->ExceptionCheck()) {
+                    env->ExceptionClear();
+                    invisibleBefore = JNI_FALSE;
+                } else if (invisibleBefore == JNI_TRUE) {
+                    env->CallVoidMethod(entity, mid_setInvisible, JNI_FALSE);
+                    if (env->ExceptionCheck())
+                        env->ExceptionClear();
+                }
+            }
+
             // Save GL state
             const GLboolean wasBlend = glIsEnabled(GL_BLEND);
             GLint saveSrc = GL_SRC_ALPHA, saveDst = GL_ONE_MINUS_SRC_ALPHA;
             glGetIntegerv(GL_BLEND_SRC, &saveSrc);
             glGetIntegerv(GL_BLEND_DST, &saveDst);
             const GLboolean wasDepth = glIsEnabled(GL_DEPTH_TEST);
+            GLint saveDepthFunc = GL_LEQUAL;
+            GLboolean saveDepthMask = GL_TRUE;
+            glGetIntegerv(GL_DEPTH_FUNC, &saveDepthFunc);
+            glGetBooleanv(GL_DEPTH_WRITEMASK, &saveDepthMask);
+            const GLboolean wasPolygonOffset = glIsEnabled(GL_POLYGON_OFFSET_FILL);
+            GLfloat savePolygonOffsetFactor = 0.0f;
+            GLfloat savePolygonOffsetUnits = 0.0f;
+            glGetFloatv(GL_POLYGON_OFFSET_FACTOR, &savePolygonOffsetFactor);
+            glGetFloatv(GL_POLYGON_OFFSET_UNITS, &savePolygonOffsetUnits);
             const GLboolean wasTex2D = glIsEnabled(GL_TEXTURE_2D);
             const GLboolean wasLighting = glIsEnabled(GL_LIGHTING);
-            GLint savePolygonMode[2] = { GL_FILL, GL_FILL };
+            GLint savePolygonMode[2] = {GL_FILL, GL_FILL};
             glGetIntegerv(GL_POLYGON_MODE, savePolygonMode);
             GLfloat saveLineWidth = 1.0f;
             glGetFloatv(GL_LINE_WIDTH, &saveLineWidth);
@@ -506,18 +624,28 @@ void Minecraft::renderGhostEntity(int entityId, double wx, double wy, double wz,
             // Helper lambda: call doRenderEntity on the JNI side
             auto callDoRender = [&]() {
                 if (doRenderReturnsBool) {
-                    env->CallBooleanMethod(renderManager, mid_doRenderEntity, entity,
-                                           static_cast<jdouble>(dx), static_cast<jdouble>(dy), static_cast<jdouble>(dz),
-                                           static_cast<jfloat>(yaw), static_cast<jfloat>(partial),
-                                           static_cast<jboolean>(JNI_FALSE));
+                    env->CallBooleanMethod(renderManager, mid_doRenderEntity, entity, static_cast<jdouble>(dx),
+                                           static_cast<jdouble>(dy), static_cast<jdouble>(dz), static_cast<jfloat>(yaw),
+                                           static_cast<jfloat>(partial), static_cast<jboolean>(JNI_FALSE));
                 } else {
-                    env->CallVoidMethod(renderManager, mid_doRenderEntity, entity,
-                                        static_cast<jdouble>(dx), static_cast<jdouble>(dy), static_cast<jdouble>(dz),
-                                        static_cast<jfloat>(yaw), static_cast<jfloat>(partial),
-                                        static_cast<jboolean>(JNI_FALSE));
+                    env->CallVoidMethod(renderManager, mid_doRenderEntity, entity, static_cast<jdouble>(dx),
+                                        static_cast<jdouble>(dy), static_cast<jdouble>(dz), static_cast<jfloat>(yaw),
+                                        static_cast<jfloat>(partial), static_cast<jboolean>(JNI_FALSE));
                 }
                 if (env->ExceptionCheck())
                     env->ExceptionClear();
+            };
+
+            // Keep the pass in front of terrain even if Minecraft's renderer
+            // touches GL_DEPTH_TEST internally. GL_ALWAYS is more reliable here
+            // than disabling depth alone because GlStateManager caches its own
+            // enable/disable state and can otherwise undo a raw OpenGL toggle.
+            auto enableThroughWalls = [&]() {
+                glEnable(GL_DEPTH_TEST);
+                glDepthFunc(GL_ALWAYS);
+                glDepthMask(GL_FALSE);
+                glEnable(GL_POLYGON_OFFSET_FILL);
+                glPolygonOffset(1.0f, -1000000.0f);
             };
 
             if (renderMode == 1) {
@@ -528,53 +656,38 @@ void Minecraft::renderGhostEntity(int entityId, double wx, double wy, double wz,
                 // --- Temporarily strip armor, held items & invisibility so the skin model is outlined ---
                 static jmethodID mid_getEquip = nullptr;
                 static jmethodID mid_setEquip = nullptr;
-                static jmethodID mid_isInvisible = nullptr;
-                static jmethodID mid_setInvisible = nullptr;
                 static bool triedEquipIds = false;
                 if (!triedEquipIds) {
                     triedEquipIds = true;
                     jclass entityCls = env->GetObjectClass(entity);
                     if (entityCls) {
-                        mid_getEquip = env->GetMethodID(entityCls,
-                            OBFUSCATE_STRING("getEquipmentInSlot").c_str(),
-                            OBFUSCATE_STRING("(I)Lnet/minecraft/item/ItemStack;").c_str());
-                        if (env->ExceptionCheck()) { env->ExceptionClear(); mid_getEquip = nullptr; }
-                        mid_setEquip = env->GetMethodID(entityCls,
-                            OBFUSCATE_STRING("setCurrentItemOrArmor").c_str(),
-                            OBFUSCATE_STRING("(ILnet/minecraft/item/ItemStack;)V").c_str());
-                        if (env->ExceptionCheck()) { env->ExceptionClear(); mid_setEquip = nullptr; }
-                        mid_isInvisible = env->GetMethodID(entityCls,
-                            OBFUSCATE_STRING("isInvisible").c_str(),
-                            OBFUSCATE_STRING("()Z").c_str());
-                        if (env->ExceptionCheck()) { env->ExceptionClear(); mid_isInvisible = nullptr; }
-                        mid_setInvisible = env->GetMethodID(entityCls,
-                            OBFUSCATE_STRING("setInvisible").c_str(),
-                            OBFUSCATE_STRING("(Z)V").c_str());
-                        if (env->ExceptionCheck()) { env->ExceptionClear(); mid_setInvisible = nullptr; }
+                        mid_getEquip = env->GetMethodID(entityCls, OBFUSCATE_STRING("getEquipmentInSlot").c_str(),
+                                                        OBFUSCATE_STRING("(I)Lnet/minecraft/item/ItemStack;").c_str());
+                        if (env->ExceptionCheck()) {
+                            env->ExceptionClear();
+                            mid_getEquip = nullptr;
+                        }
+                        mid_setEquip = env->GetMethodID(entityCls, OBFUSCATE_STRING("setCurrentItemOrArmor").c_str(),
+                                                        OBFUSCATE_STRING("(ILnet/minecraft/item/ItemStack;)V").c_str());
+                        if (env->ExceptionCheck()) {
+                            env->ExceptionClear();
+                            mid_setEquip = nullptr;
+                        }
                         env->DeleteLocalRef(entityCls);
                     }
                 }
 
-                // Temporarily remove invisibility so the model renders
-                bool wasInvisible = false;
-                if (mid_isInvisible && mid_setInvisible) {
-                    wasInvisible = env->CallBooleanMethod(entity, mid_isInvisible);
-                    if (env->ExceptionCheck()) env->ExceptionClear();
-                    if (wasInvisible) {
-                        env->CallVoidMethod(entity, mid_setInvisible, (jboolean)JNI_FALSE);
-                        if (env->ExceptionCheck()) env->ExceptionClear();
-                    }
-                }
-
                 // Save and clear equipment (slots 0-4: hand, boots, legs, chest, helmet)
-                jobject savedEquip[5] = { nullptr };
+                jobject savedEquip[5] = {nullptr};
                 bool stripped = (mid_getEquip && mid_setEquip);
                 if (stripped) {
                     for (int s = 0; s < 5; s++) {
                         savedEquip[s] = env->CallObjectMethod(entity, mid_getEquip, s);
-                        if (env->ExceptionCheck()) env->ExceptionClear();
-                        env->CallVoidMethod(entity, mid_setEquip, s, (jobject)nullptr);
-                        if (env->ExceptionCheck()) env->ExceptionClear();
+                        if (env->ExceptionCheck())
+                            env->ExceptionClear();
+                        env->CallVoidMethod(entity, mid_setEquip, s, (jobject) nullptr);
+                        if (env->ExceptionCheck())
+                            env->ExceptionClear();
                     }
                 }
 
@@ -611,14 +724,18 @@ void Minecraft::renderGhostEntity(int entityId, double wx, double wy, double wz,
                     jclass entityCls = env->GetObjectClass(entity);
                     if (entityCls) {
                         mid_isSneaking = env->GetMethodID(entityCls, OBFUSCATE_STRING("isSneaking").c_str(), "()Z");
-                        if (env->ExceptionCheck()) { env->ExceptionClear(); mid_isSneaking = nullptr; }
+                        if (env->ExceptionCheck()) {
+                            env->ExceptionClear();
+                            mid_isSneaking = nullptr;
+                        }
                         env->DeleteLocalRef(entityCls);
                     }
                 }
                 bool isSneaking = false;
                 if (mid_isSneaking) {
                     isSneaking = env->CallBooleanMethod(entity, mid_isSneaking);
-                    if (env->ExceptionCheck()) env->ExceptionClear();
+                    if (env->ExceptionCheck())
+                        env->ExceptionClear();
                 }
                 float centerY = isSneaking ? 0.70f : 0.90f;
 
@@ -633,7 +750,7 @@ void Minecraft::renderGhostEntity(int entityId, double wx, double wy, double wz,
                 const int GLOW_PASSES = 6;
                 for (int gi = 0; gi < GLOW_PASSES; ++gi) {
                     const float gt = (float)gi / (float)(GLOW_PASSES - 1);  // 0 inner .. 1 outer
-                    const float gscale = 1.02f + 0.17f * gt;               // hugs the skin, blooms out
+                    const float gscale = 1.02f + 0.17f * gt;                // hugs the skin, blooms out
                     const float galpha = a * (0.14f * (1.0f - gt) + 0.015f);
                     glPushMatrix();
                     glTranslatef(0.0f, centerY, 0.0f);
@@ -652,14 +769,11 @@ void Minecraft::renderGhostEntity(int entityId, double wx, double wy, double wz,
                 if (stripped) {
                     for (int s = 0; s < 5; s++) {
                         env->CallVoidMethod(entity, mid_setEquip, s, savedEquip[s]);
-                        if (env->ExceptionCheck()) env->ExceptionClear();
-                        if (savedEquip[s]) env->DeleteLocalRef(savedEquip[s]);
+                        if (env->ExceptionCheck())
+                            env->ExceptionClear();
+                        if (savedEquip[s])
+                            env->DeleteLocalRef(savedEquip[s]);
                     }
-                }
-
-                if (wasInvisible && mid_setInvisible) {
-                    env->CallVoidMethod(entity, mid_setInvisible, (jboolean)JNI_TRUE);
-                    if (env->ExceptionCheck()) env->ExceptionClear();
                 }
 
             } else if (renderMode == 2) {
@@ -668,19 +782,24 @@ void Minecraft::renderGhostEntity(int entityId, double wx, double wy, double wz,
                 // =====================================================
                 glDisable(GL_TEXTURE_2D);
                 glDisable(GL_LIGHTING);
-                if (disableDepth)
-                    glDisable(GL_DEPTH_TEST);
+                if (disableDepth) {
+                    g_DisableDepthOverride = true;
+                    enableThroughWalls();
+                }
                 glEnable(GL_BLEND);
                 glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
                 glColor4f(r, g, b, a);
 
                 callDoRender();
+                g_DisableDepthOverride = false;
             } else {
                 // =====================================================
                 // DEFAULT GHOST MODE (used by Backtrack): Translucent textured
                 // =====================================================
-                if (disableDepth)
-                    glDisable(GL_DEPTH_TEST);
+                if (disableDepth) {
+                    g_DisableDepthOverride = true;
+                    enableThroughWalls();
+                }
                 glEnable(GL_BLEND);
                 if (g_glBlendColor) {
                     glBlendFunc(GL_CONSTANT_ALPHA, GL_ONE_MINUS_CONSTANT_ALPHA);
@@ -690,21 +809,56 @@ void Minecraft::renderGhostEntity(int entityId, double wx, double wy, double wz,
                 }
 
                 callDoRender();
+                g_DisableDepthOverride = false;
             }
 
             // Restore all saved GL state
-            if (wasTex2D) glEnable(GL_TEXTURE_2D); else glDisable(GL_TEXTURE_2D);
-            if (wasLighting) glEnable(GL_LIGHTING); else glDisable(GL_LIGHTING);
-            if (wasDepth) glEnable(GL_DEPTH_TEST); else glDisable(GL_DEPTH_TEST);
+            if (wasTex2D)
+                glEnable(GL_TEXTURE_2D);
+            else
+                glDisable(GL_TEXTURE_2D);
+            if (wasLighting)
+                glEnable(GL_LIGHTING);
+            else
+                glDisable(GL_LIGHTING);
+            glDepthFunc(saveDepthFunc);
+            glDepthMask(saveDepthMask);
+            if (wasDepth)
+                glEnable(GL_DEPTH_TEST);
+            else
+                glDisable(GL_DEPTH_TEST);
+            glPolygonOffset(savePolygonOffsetFactor, savePolygonOffsetUnits);
+            if (wasPolygonOffset)
+                glEnable(GL_POLYGON_OFFSET_FILL);
+            else
+                glDisable(GL_POLYGON_OFFSET_FILL);
             glBlendFunc(saveSrc, saveDst);
-            if (wasBlend) glEnable(GL_BLEND); else glDisable(GL_BLEND);
+            if (wasBlend)
+                glEnable(GL_BLEND);
+            else
+                glDisable(GL_BLEND);
             glPolygonMode(GL_FRONT, savePolygonMode[0]);
             glPolygonMode(GL_BACK, savePolygonMode[1]);
             glLineWidth(saveLineWidth);
-            if (wasLineSmooth) glEnable(GL_LINE_SMOOTH); else glDisable(GL_LINE_SMOOTH);
+            if (wasLineSmooth)
+                glEnable(GL_LINE_SMOOTH);
+            else
+                glDisable(GL_LINE_SMOOTH);
             if (g_glBlendColor)
                 g_glBlendColor(0.0f, 0.0f, 0.0f, 0.0f);
-            glColor4f(1.0f, 1.0f, 1.0f, 1.0f);   // Reset to white
+            glColor4f(1.0f, 1.0f, 1.0f, 1.0f);  // Reset to white
+
+            if (invisibleBefore == JNI_TRUE && mid_setInvisible) {
+                env->CallVoidMethod(entity, mid_setInvisible, JNI_TRUE);
+                if (env->ExceptionCheck())
+                    env->ExceptionClear();
+            }
+            if (gameSettings) {
+                env->SetBooleanField(gameSettings, fid_hideGUI, hideGUIBefore);
+                if (env->ExceptionCheck())
+                    env->ExceptionClear();
+                env->DeleteLocalRef(gameSettings);
+            }
 
             env->DeleteLocalRef(entity);
         } else {

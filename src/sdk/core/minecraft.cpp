@@ -7,6 +7,7 @@
 #include "../../util/logger.hpp"
 #include "../jni/jni_cache.h"
 #include "../jni/jstring_util.h"
+#include "../jni/member_resolver.h"
 #include "../player/effect_tracker.h"
 #include "../player/render_data.h"
 #include "../player/visual_cache.h"
@@ -41,6 +42,21 @@ void SDK_Init() {
     mc.mid_getMinecraft = Java::Env()->GetStaticMethodID(mc.cls, OBFUSCATE_STRING("getMinecraft").c_str(),
                                                          OBFUSCATE_STRING("()Lnet/minecraft/client/Minecraft;").c_str());
     if (!mc.mid_getMinecraft) {
+        Java::Env()->ExceptionClear();
+        mc.mid_getMinecraft = Java::Env()->GetStaticMethodID(
+            mc.cls, OBFUSCATE_STRING("func_71410_x").c_str(),
+            OBFUSCATE_STRING("()Lnet/minecraft/client/Minecraft;").c_str());
+    }
+    if (!mc.mid_getMinecraft && Java::RuntimeObfuscated) {
+        Java::Env()->ExceptionClear();
+        mc.mid_getMinecraft = Java::Env()->GetStaticMethodID(mc.cls, "A", "()Lave;");
+    }
+    if (!mc.mid_getMinecraft) {
+        Java::Env()->ExceptionClear();
+        mc.mid_getMinecraft = jni_resolver::findUniqueMethodBySignature(
+            mc.cls, "()Lnet/minecraft/client/Minecraft;", true);
+    }
+    if (!mc.mid_getMinecraft) {
         log_err("SDK_Init: failed to find getMinecraft");
         return;
     }
@@ -62,18 +78,66 @@ void SDK_Init() {
                                 ? OBFUSCATE_STRING("Lnet/minecraft/client/entity/EntityClientPlayerMP;")
                                 : OBFUSCATE_STRING("Lnet/minecraft/client/entity/EntityPlayerSP;");
     mc.fid_thePlayer = Java::Env()->GetFieldID(mc.cls, OBFUSCATE_STRING("thePlayer").c_str(), playerSig.c_str());
+    if (!mc.fid_thePlayer) {
+        Java::Env()->ExceptionClear();
+        mc.fid_thePlayer = Java::Env()->GetFieldID(mc.cls, OBFUSCATE_STRING("field_71439_g").c_str(),
+                                                   playerSig.c_str());
+    }
+    if (!mc.fid_thePlayer && Java::RuntimeObfuscated) {
+        Java::Env()->ExceptionClear();
+        mc.fid_thePlayer = Java::Env()->GetFieldID(mc.cls, "h", "Lbew;");
+    }
+    if (!mc.fid_thePlayer) {
+        Java::Env()->ExceptionClear();
+        mc.fid_thePlayer = jni_resolver::findUniqueFieldBySignature(mc.cls, playerSig.c_str(), false);
+    }
 
     // theWorld field
     mc.fid_theWorld = Java::Env()->GetFieldID(mc.cls, OBFUSCATE_STRING("theWorld").c_str(),
                                               OBFUSCATE_STRING("Lnet/minecraft/client/multiplayer/WorldClient;").c_str());
+    if (!mc.fid_theWorld) {
+        Java::Env()->ExceptionClear();
+        mc.fid_theWorld = Java::Env()->GetFieldID(
+            mc.cls, OBFUSCATE_STRING("field_71441_e").c_str(),
+            OBFUSCATE_STRING("Lnet/minecraft/client/multiplayer/WorldClient;").c_str());
+    }
+    if (!mc.fid_theWorld && Java::RuntimeObfuscated) {
+        Java::Env()->ExceptionClear();
+        mc.fid_theWorld = Java::Env()->GetFieldID(mc.cls, "f", "Lbdb;");
+    }
+    if (!mc.fid_theWorld) {
+        Java::Env()->ExceptionClear();
+        mc.fid_theWorld = jni_resolver::findUniqueFieldBySignature(
+            mc.cls, "Lnet/minecraft/client/multiplayer/WorldClient;", false);
+    }
 
     // currentScreen field (to detect if GUI is open)
     mc.fid_currentScreen = Java::Env()->GetFieldID(mc.cls, OBFUSCATE_STRING("currentScreen").c_str(),
                                                    OBFUSCATE_STRING("Lnet/minecraft/client/gui/GuiScreen;").c_str());
+    if (!mc.fid_currentScreen) {
+        Java::Env()->ExceptionClear();
+        mc.fid_currentScreen = Java::Env()->GetFieldID(
+            mc.cls, OBFUSCATE_STRING("field_71462_r").c_str(),
+            OBFUSCATE_STRING("Lnet/minecraft/client/gui/GuiScreen;").c_str());
+    }
+    if (!mc.fid_currentScreen && Java::RuntimeObfuscated) {
+        Java::Env()->ExceptionClear();
+        mc.fid_currentScreen = Java::Env()->GetFieldID(mc.cls, "m", "Laxu;");
+    }
+    if (!mc.fid_currentScreen) {
+        Java::Env()->ExceptionClear();
+        mc.fid_currentScreen = jni_resolver::findUniqueFieldBySignature(
+            mc.cls, "Lnet/minecraft/client/gui/GuiScreen;", false);
+    }
 
     // clickMouse method
     mc.mid_clickMouse = Java::Env()->GetMethodID(mc.cls, OBFUSCATE_STRING("clickMouse").c_str(),
                                                  OBFUSCATE_STRING("()V").c_str());
+    if (!mc.mid_clickMouse) {
+        Java::Env()->ExceptionClear();
+        mc.mid_clickMouse = Java::Env()->GetMethodID(mc.cls, OBFUSCATE_STRING("func_147116_af").c_str(),
+                                                     OBFUSCATE_STRING("()V").c_str());
+    }
     mc.mid_rightClickMouse = Java::Env()->GetMethodID(mc.cls, OBFUSCATE_STRING("rightClickMouse").c_str(),
                                                       OBFUSCATE_STRING("()V").c_str());
     if (!mc.mid_rightClickMouse) {
@@ -87,8 +151,18 @@ void SDK_Init() {
     // Click delay fields
     mc.fid_rightClickDelayTimer =
         Java::Env()->GetFieldID(mc.cls, OBFUSCATE_STRING("rightClickDelayTimer").c_str(), OBFUSCATE_STRING("I").c_str());
+    if (!mc.fid_rightClickDelayTimer) {
+        Java::Env()->ExceptionClear();
+        mc.fid_rightClickDelayTimer = Java::Env()->GetFieldID(
+            mc.cls, OBFUSCATE_STRING("field_71467_ac").c_str(), OBFUSCATE_STRING("I").c_str());
+    }
     mc.fid_leftClickCounter =
         Java::Env()->GetFieldID(mc.cls, OBFUSCATE_STRING("leftClickCounter").c_str(), OBFUSCATE_STRING("I").c_str());
+    if (!mc.fid_leftClickCounter) {
+        Java::Env()->ExceptionClear();
+        mc.fid_leftClickCounter = Java::Env()->GetFieldID(
+            mc.cls, OBFUSCATE_STRING("field_71429_W").c_str(), OBFUSCATE_STRING("I").c_str());
+    }
 
     // KeyBinding cache for releaseMovementKeys (legacy, kept for compatibility)
     jclass kbCls = nullptr;
@@ -105,10 +179,25 @@ void SDK_Init() {
 
         mc.mid_setKeyBindState = Java::Env()->GetStaticMethodID(
             mc.cls_keyBinding, OBFUSCATE_STRING("setKeyBindState").c_str(), OBFUSCATE_STRING("(IZ)V").c_str());
+        if (!mc.mid_setKeyBindState) {
+            Java::Env()->ExceptionClear();
+            mc.mid_setKeyBindState = Java::Env()->GetStaticMethodID(
+                mc.cls_keyBinding, OBFUSCATE_STRING("func_74510_a").c_str(), OBFUSCATE_STRING("(IZ)V").c_str());
+        }
         mc.mid_getKeyCode = Java::Env()->GetMethodID(mc.cls_keyBinding, OBFUSCATE_STRING("getKeyCode").c_str(),
                                                      OBFUSCATE_STRING("()I").c_str());
+        if (!mc.mid_getKeyCode) {
+            Java::Env()->ExceptionClear();
+            mc.mid_getKeyCode = Java::Env()->GetMethodID(
+                mc.cls_keyBinding, OBFUSCATE_STRING("func_151463_i").c_str(), OBFUSCATE_STRING("()I").c_str());
+        }
         mc.fid_pressed = Java::Env()->GetFieldID(mc.cls_keyBinding, OBFUSCATE_STRING("pressed").c_str(),
                                                  OBFUSCATE_STRING("Z").c_str());
+        if (!mc.fid_pressed) {
+            Java::Env()->ExceptionClear();
+            mc.fid_pressed = Java::Env()->GetFieldID(
+                mc.cls_keyBinding, OBFUSCATE_STRING("field_74513_e").c_str(), OBFUSCATE_STRING("Z").c_str());
+        }
     }
 
     // Initialize JNI cache (new centralized system)
@@ -712,4 +801,3 @@ std::string Minecraft::getCurrentServerIP() {
     env->DeleteLocalRef(serverData);
     return ip;
 }
-

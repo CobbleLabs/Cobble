@@ -62,11 +62,20 @@ ProcessInfo findLunarClient() {
     // Target process - obfuscated
     auto javaProcesses = findProcessesByName(OBFUSCATE_WSTRING(L"javaw.exe"));
 
+    // First pass: match by known window titles
     for (const auto& proc : javaProcesses) {
         if (proc.windowTitle.find(OBFUSCATE_WSTRING(L"Lunar Client")) != std::wstring::npos ||
+            proc.windowTitle.find(OBFUSCATE_WSTRING(L"Badlion Minecraft")) != std::wstring::npos ||
+            proc.windowTitle.find(OBFUSCATE_WSTRING(L"Badlion Client")) != std::wstring::npos ||
             proc.windowTitle.find(OBFUSCATE_WSTRING(L"Minecraft")) != std::wstring::npos) {
             return proc;
         }
+    }
+
+    // Fallback: some clients (e.g. Badlion) have no visible window title on
+    // the javaw.exe process at injection time.  Accept the first javaw.exe.
+    if (!javaProcesses.empty()) {
+        return javaProcesses[0];
     }
 
     // Not found

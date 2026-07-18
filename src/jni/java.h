@@ -21,6 +21,7 @@ struct Java {
     static JNIEnv* Env();
 
     static bool AssignClass(std::string name, jclass& out);
+    static std::string NotchDescriptor(const std::string& descriptor);
     static void GetMinecraftVersion();
 
     // Global state (safe to access from any thread)
@@ -29,5 +30,7 @@ struct Java {
     static inline bool Initialized = false;
     static inline jobject ClassLoader = nullptr;
     static inline jmethodID MidFindClass = nullptr;
+    static inline jmethodID MidLoadClass = nullptr;
+    static inline bool RuntimeObfuscated = false;
     static inline MinecraftVersion Version = MinecraftVersion::UNDEFINED;
 };

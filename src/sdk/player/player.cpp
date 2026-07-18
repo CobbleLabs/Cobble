@@ -3,6 +3,53 @@
 #include "../../util/aes_string.hpp"
 #include "../core/minecraft.h"
 #include "../jni/jni_cache.h"
+#include "../jni/member_resolver.h"
+
+#include <initializer_list>
+
+namespace {
+
+jfieldID resolveField(jclass cls, std::initializer_list<const char*> names, const char* signature) {
+    if (!cls || !signature)
+        return nullptr;
+
+    JNIEnv* env = Java::Env();
+    const auto signatures = jni_resolver::signatureVariants(signature);
+    for (const char* name : names) {
+        if (!name)
+            continue;
+        for (const auto& candidate : signatures) {
+            jfieldID field = env->GetFieldID(cls, name, candidate.c_str());
+            if (field)
+                return field;
+            env->ExceptionClear();
+        }
+    }
+    return jni_resolver::findUniqueFieldBySignature(cls, signature, false);
+}
+
+jmethodID resolveMethod(jclass cls, std::initializer_list<const char*> names, const char* signature,
+                        bool isStatic = false) {
+    if (!cls || !signature)
+        return nullptr;
+
+    JNIEnv* env = Java::Env();
+    const auto signatures = jni_resolver::signatureVariants(signature);
+    for (const char* name : names) {
+        if (!name)
+            continue;
+        for (const auto& candidate : signatures) {
+            jmethodID method = isStatic ? env->GetStaticMethodID(cls, name, candidate.c_str())
+                                        : env->GetMethodID(cls, name, candidate.c_str());
+            if (method)
+                return method;
+            env->ExceptionClear();
+        }
+    }
+    return jni_resolver::findUniqueMethodBySignature(cls, signature, isStatic);
+}
+
+}  // namespace
 
 LocalPlayer player;
 
@@ -21,46 +68,46 @@ void LocalPlayer::initFields() {
     Java::AssignClass(OBFUSCATE_STRING("net.minecraft.entity.EntityLivingBase"), livingCls);
 
     // Position fields (in Entity)
-    fid_posX = Java::Env()->GetFieldID(entityCls, OBFUSCATE_STRING("posX").c_str(), OBFUSCATE_STRING("D").c_str());
-    fid_posY = Java::Env()->GetFieldID(entityCls, OBFUSCATE_STRING("posY").c_str(), OBFUSCATE_STRING("D").c_str());
-    fid_posZ = Java::Env()->GetFieldID(entityCls, OBFUSCATE_STRING("posZ").c_str(), OBFUSCATE_STRING("D").c_str());
+    fid_posX = resolveField(entityCls, {"posX", "field_70165_t", "s"}, "D");
+    fid_posY = resolveField(entityCls, {"posY", "field_70163_u", "t"}, "D");
+    fid_posZ = resolveField(entityCls, {"posZ", "field_70161_v", "u"}, "D");
 
     // Last tick position fields (for interpolation)
-    fid_lastPosX = Java::Env()->GetFieldID(entityCls, OBFUSCATE_STRING("lastTickPosX").c_str(), OBFUSCATE_STRING("D").c_str());
-    fid_lastPosY = Java::Env()->GetFieldID(entityCls, OBFUSCATE_STRING("lastTickPosY").c_str(), OBFUSCATE_STRING("D").c_str());
-    fid_lastPosZ = Java::Env()->GetFieldID(entityCls, OBFUSCATE_STRING("lastTickPosZ").c_str(), OBFUSCATE_STRING("D").c_str());
+    fid_lastPosX = resolveField(entityCls, {"lastTickPosX", "field_70142_S", "m"}, "D");
+    fid_lastPosY = resolveField(entityCls, {"lastTickPosY", "field_70137_T", "n"}, "D");
+    fid_lastPosZ = resolveField(entityCls, {"lastTickPosZ", "field_70136_U", "o"}, "D");
 
     // Motion fields (in Entity)
-    fid_motionX = Java::Env()->GetFieldID(entityCls, OBFUSCATE_STRING("motionX").c_str(), OBFUSCATE_STRING("D").c_str());
-    fid_motionY = Java::Env()->GetFieldID(entityCls, OBFUSCATE_STRING("motionY").c_str(), OBFUSCATE_STRING("D").c_str());
-    fid_motionZ = Java::Env()->GetFieldID(entityCls, OBFUSCATE_STRING("motionZ").c_str(), OBFUSCATE_STRING("D").c_str());
+    fid_motionX = resolveField(entityCls, {"motionX", "field_70159_w", "v"}, "D");
+    fid_motionY = resolveField(entityCls, {"motionY", "field_70181_x", "w"}, "D");
+    fid_motionZ = resolveField(entityCls, {"motionZ", "field_70179_y", "x"}, "D");
 
     // Rotation fields (in Entity)
-    fid_rotationYaw = Java::Env()->GetFieldID(entityCls, OBFUSCATE_STRING("rotationYaw").c_str(), OBFUSCATE_STRING("F").c_str());
-    fid_rotationPitch = Java::Env()->GetFieldID(entityCls, OBFUSCATE_STRING("rotationPitch").c_str(), OBFUSCATE_STRING("F").c_str());
-    fid_prevRotationYaw = Java::Env()->GetFieldID(entityCls, OBFUSCATE_STRING("prevRotationYaw").c_str(), OBFUSCATE_STRING("F").c_str());
-    fid_prevRotationPitch = Java::Env()->GetFieldID(entityCls, OBFUSCATE_STRING("prevRotationPitch").c_str(), OBFUSCATE_STRING("F").c_str());
+    fid_rotationYaw = resolveField(entityCls, {"rotationYaw", "field_70177_z", "y"}, "F");
+    fid_rotationPitch = resolveField(entityCls, {"rotationPitch", "field_70125_A", "z"}, "F");
+    fid_prevRotationYaw = resolveField(entityCls, {"prevRotationYaw", "field_70126_B", "A"}, "F");
+    fid_prevRotationPitch = resolveField(entityCls, {"prevRotationPitch", "field_70127_C", "B"}, "F");
 
     // On ground (in Entity)
-    fid_onGround = Java::Env()->GetFieldID(entityCls, OBFUSCATE_STRING("onGround").c_str(), OBFUSCATE_STRING("Z").c_str());
+    fid_onGround = resolveField(entityCls, {"onGround", "field_70122_E", "C"}, "Z");
 
     // Sprint/sneak methods (in Entity)
-    mid_isSprinting = Java::Env()->GetMethodID(entityCls, OBFUSCATE_STRING("isSprinting").c_str(), OBFUSCATE_STRING("()Z").c_str());
-    mid_setSprinting = Java::Env()->GetMethodID(entityCls, OBFUSCATE_STRING("setSprinting").c_str(), OBFUSCATE_STRING("(Z)V").c_str());
-    mid_isSneaking = Java::Env()->GetMethodID(entityCls, OBFUSCATE_STRING("isSneaking").c_str(), OBFUSCATE_STRING("()Z").c_str());
+    mid_isSprinting = resolveMethod(entityCls, {"isSprinting", "func_70051_ag", "aw"}, "()Z");
+    mid_setSprinting = resolveMethod(entityCls, {"setSprinting", "func_70031_b", "g"}, "(Z)V");
+    mid_isSneaking = resolveMethod(entityCls, {"isSneaking", "func_70093_af", "av"}, "()Z");
 
     if (livingCls) {
         // Health (in EntityLivingBase)
-        mid_getHealth = Java::Env()->GetMethodID(livingCls, OBFUSCATE_STRING("getHealth").c_str(), OBFUSCATE_STRING("()F").c_str());
+        mid_getHealth = resolveMethod(livingCls, {"getHealth", "func_110143_aJ", "bn"}, "()F");
 
         // HurtTime (in EntityLivingBase)
-        fid_hurtTime = Java::Env()->GetFieldID(livingCls, OBFUSCATE_STRING("hurtTime").c_str(), OBFUSCATE_STRING("I").c_str());
+        fid_hurtTime = resolveField(livingCls, {"hurtTime", "field_70737_aN", "ax"}, "I");
 
         // Jump (in EntityLivingBase)
-        mid_jump = Java::Env()->GetMethodID(livingCls, OBFUSCATE_STRING("jump").c_str(), OBFUSCATE_STRING("()V").c_str());
+        mid_jump = resolveMethod(livingCls, {"jump", "func_70664_aZ", "bF"}, "()V");
 
         // JumpTicks (in EntityLivingBase) - controls jump delay
-        fid_jumpTicks = Java::Env()->GetFieldID(livingCls, OBFUSCATE_STRING("jumpTicks").c_str(), OBFUSCATE_STRING("I").c_str());
+        fid_jumpTicks = resolveField(livingCls, {"jumpTicks", "field_70773_bE"}, "I");
 
     }
 
@@ -68,27 +115,36 @@ void LocalPlayer::initFields() {
     // up on the living class leaves a pending NoSuchMethodError and disables
     // every module that relies on this state.
     if (JniCache::cls_EntityPlayer) {
-        mid_isUsingItem = Java::Env()->GetMethodID(
-            JniCache::cls_EntityPlayer, OBFUSCATE_STRING("isUsingItem").c_str(),
-            OBFUSCATE_STRING("()Z").c_str());
-        if (!mid_isUsingItem) {
-            Java::Env()->ExceptionClear();
-            mid_isUsingItem = Java::Env()->GetMethodID(
-                JniCache::cls_EntityPlayer, OBFUSCATE_STRING("func_71039_bw").c_str(),
-                OBFUSCATE_STRING("()Z").c_str());
-        }
+        mid_isUsingItem = resolveMethod(
+            JniCache::cls_EntityPlayer, {"isUsingItem", "func_71039_bw", "bS"}, "()Z");
         if (!mid_isUsingItem && Java::Env()->ExceptionCheck())
             Java::Env()->ExceptionClear();
     }
 
-    // Need to get EntityPlayerSP class for these
+    // Need to get the client-player class for these. Badlion 1.8.9 uses the
+    // Forge/SRG member names even when the class itself is MCP-named.
     jclass playerSPCls = nullptr;
-    if (Java::AssignClass(OBFUSCATE_STRING("net.minecraft.client.entity.EntityPlayerSP"), playerSPCls)) {
-        fid_lastReportedPosX = Java::Env()->GetFieldID(playerSPCls, OBFUSCATE_STRING("lastReportedPosX").c_str(), OBFUSCATE_STRING("D").c_str());
-        fid_lastReportedPosY = Java::Env()->GetFieldID(playerSPCls, OBFUSCATE_STRING("lastReportedPosY").c_str(), OBFUSCATE_STRING("D").c_str());
-        fid_lastReportedPosZ = Java::Env()->GetFieldID(playerSPCls, OBFUSCATE_STRING("lastReportedPosZ").c_str(), OBFUSCATE_STRING("D").c_str());
-        fid_lastReportedYaw = Java::Env()->GetFieldID(playerSPCls, OBFUSCATE_STRING("lastReportedYaw").c_str(), OBFUSCATE_STRING("F").c_str());
-        fid_lastReportedPitch = Java::Env()->GetFieldID(playerSPCls, OBFUSCATE_STRING("lastReportedPitch").c_str(), OBFUSCATE_STRING("F").c_str());
+    const bool is_1_7_10 = Java::Version == MinecraftVersion::MC_1_7_10;
+    const bool foundPlayerClass =
+        is_1_7_10
+            ? Java::AssignClass(OBFUSCATE_STRING("net.minecraft.client.entity.EntityClientPlayerMP"), playerSPCls)
+            : Java::AssignClass(OBFUSCATE_STRING("net.minecraft.client.entity.EntityPlayerSP"), playerSPCls);
+    if (foundPlayerClass) {
+        const char* posXName = is_1_7_10 ? "oldPosX" : "lastReportedPosX";
+        const char* posYName = is_1_7_10 ? "oldPosY" : "lastReportedPosY";
+        const char* posZName = is_1_7_10 ? "oldPosZ" : "lastReportedPosZ";
+        const char* yawName = is_1_7_10 ? "oldRotationYaw" : "lastReportedYaw";
+        const char* pitchName = is_1_7_10 ? "oldRotationPitch" : "lastReportedPitch";
+        fid_lastReportedPosX = resolveField(playerSPCls, {posXName, is_1_7_10 ? nullptr : "field_175172_bI",
+                                                        is_1_7_10 ? nullptr : "d"}, "D");
+        fid_lastReportedPosY = resolveField(playerSPCls, {posYName, is_1_7_10 ? nullptr : "field_175166_bJ",
+                                                        is_1_7_10 ? nullptr : "e"}, "D");
+        fid_lastReportedPosZ = resolveField(playerSPCls, {posZName, is_1_7_10 ? nullptr : "field_175167_bK",
+                                                        is_1_7_10 ? nullptr : "f"}, "D");
+        fid_lastReportedYaw = resolveField(playerSPCls, {yawName, is_1_7_10 ? nullptr : "field_175164_bL",
+                                                       is_1_7_10 ? nullptr : "g"}, "F");
+        fid_lastReportedPitch = resolveField(playerSPCls, {pitchName, is_1_7_10 ? nullptr : "field_175165_bM",
+                                                         is_1_7_10 ? nullptr : "h"}, "F");
 
         if (fid_lastReportedPosX && fid_lastReportedPosY && fid_lastReportedPosZ) {
             log_ok("LocalPlayer: lastReportedPos fields initialized (Blink ready)");
@@ -114,11 +170,23 @@ void LocalPlayer::initFields() {
         Java::AssignClass(OBFUSCATE_STRING("net.minecraft.item.ItemStack"), itemStackCls) &&
         Java::AssignClass(OBFUSCATE_STRING("net.minecraft.item.Item"), itemCls)) {
 
-        fid_playerInventory = Java::Env()->GetFieldID(playerCls, OBFUSCATE_STRING("inventory").c_str(), OBFUSCATE_STRING("Lnet/minecraft/entity/player/InventoryPlayer;").c_str());
-        mid_getCurrentItem = Java::Env()->GetMethodID(inventoryCls, OBFUSCATE_STRING("getCurrentItem").c_str(), OBFUSCATE_STRING("()Lnet/minecraft/item/ItemStack;").c_str());
-        mid_getItem = Java::Env()->GetMethodID(itemStackCls, OBFUSCATE_STRING("getItem").c_str(), OBFUSCATE_STRING("()Lnet/minecraft/item/Item;").c_str());
-        mid_getIdFromItem = Java::Env()->GetStaticMethodID(itemCls, OBFUSCATE_STRING("getIdFromItem").c_str(), OBFUSCATE_STRING("(Lnet/minecraft/item/Item;)I").c_str());
-        mid_getMetadata = Java::Env()->GetMethodID(itemStackCls, OBFUSCATE_STRING("getMetadata").c_str(), OBFUSCATE_STRING("()I").c_str());
+        fid_playerInventory = JniCache::fid_inventory
+                                  ? JniCache::fid_inventory
+                                  : resolveField(playerCls, {"inventory", "field_71071_by", "bi"},
+                                                 "Lnet/minecraft/entity/player/InventoryPlayer;");
+        mid_getCurrentItem = resolveMethod(inventoryCls, {"getCurrentItem", "func_70448_g", "h"},
+                                           "()Lnet/minecraft/item/ItemStack;");
+        mid_getItem = JniCache::mid_getItem
+                          ? JniCache::mid_getItem
+                          : resolveMethod(itemStackCls, {"getItem", "func_77973_b", "b"},
+                                          "()Lnet/minecraft/item/Item;");
+        mid_getIdFromItem = JniCache::mid_getIdFromItem
+                                ? JniCache::mid_getIdFromItem
+                                : resolveMethod(itemCls, {"getIdFromItem", "func_150891_b", "a"},
+                                                "(Lnet/minecraft/item/Item;)I", true);
+        mid_getMetadata = JniCache::mid_getItemDamage
+                              ? JniCache::mid_getItemDamage
+                              : resolveMethod(itemStackCls, {"getMetadata", "func_77960_j", "j"}, "()I");
 
         // Keep Item class as GlobalRef for static method calls
         cls_Item = (jclass)Java::Env()->NewGlobalRef(itemCls);
