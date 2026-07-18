@@ -2,6 +2,7 @@
 
 #include <chrono>
 #include <vector>
+#include <Windows.h>
 #include "../../sdk/core/minecraft.h"
 #include "../module.h"
 
@@ -27,6 +28,7 @@ public:
     // vanilla order). Sending it after the flying packet is what trips Grim's Post
     // check, so we always flush pre-flying instead of clicking from onUpdate.
     void onOutgoingPacket(JNIEnv* env, jobject packet);
+    bool isPacketRefilling() const;
     std::string getDisplayInfo() override;
     bool canToggle() override;
     void saveSettings(json::Value& node) const override;
@@ -40,6 +42,10 @@ public:
         // Speed: delay between item moves (ms)
         int speed = 80;
 
+        // 0 = packet refill, 1 = visible mouse movement and clicks
+        int mode = 0;
+        int legitMoveTime = 120;
+
         // On Inventory Open: trigger refill when user opens inventory manually
         bool onInventoryOpen = false;
     } settings;
@@ -47,8 +53,14 @@ public:
 private:
     enum class State {
         Idle,
+        PacketOpening,
         Refilling,  // Moving items
-        Closing     // Waiting before closing
+        Closing,    // Waiting before closing
+        LegitOpening,
+        LegitMoveSource,
+        LegitAwaitClick,
+        RestoreSprintDown,
+        RestoreSprintUp
     };
 
     State state = State::Idle;
@@ -60,6 +72,13 @@ private:
         int sourceSlot;
     };
     std::vector<RefillTask> pendingRefills;
+    RefillTask activeTask_{};
+    bool hasActiveTask_ = false;
+
+    POINT mouseStart_{};
+    POINT mouseTarget_{};
+    bool movementPaused_ = false;
+    bool sprintKeyHeld_ = false;
 
     // Track inventory state for onInventoryOpen mode
     bool wasInventoryOpen = false;
@@ -72,6 +91,8 @@ private:
 
     void scanForRefills();
     void finishRefill();
+    bool startLegitMove(int slotId);
+    bool updateLegitMove(long long elapsed);
 };
 
 extern AutoRefill* autoRefill;

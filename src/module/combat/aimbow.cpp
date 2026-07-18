@@ -28,17 +28,15 @@ constexpr double kArrowSpeed = 3.0;   // fully-charged arrow speed (blocks/tick)
 constexpr double kGravity = 0.05;     // arrow gravity (blocks/tick^2)
 constexpr int kBowItemId = 261;       // Minecraft 1.8 bow
 
-// Where posY sits on a Player varies by version:
-//   1.7.10: posY is at EYE level (~1.62 above feet) because EntityPlayer sets
-//           yOffset=1.62 in its ctor. So feet = posY-1.62, neck ≈ posY-0.12.
-//   1.8+:   posY is at FEET (yOffset removed). Neck ≈ posY+1.5.
-// AimAssist confirms this: it builds the target hitbox as [posY-1.6, posY+0.2]
-// which only makes sense with posY at eye/head level.
-// aimHeightAbovePosY() returns the offset to add to the target's posY so we
-// end up aiming near the neck regardless of MC version.
-inline double aimHeightAbovePosY() {
-    return (Java::Version == MinecraftVersion::MC_1_7_10) ? -0.12 : 1.50;
-}
+// Aim vertical reference: we take our OWN eye Y and add the target's Y delta
+// relative to us (delta = target.posY - localPlayer.posY). Both values come
+// from the same `posY` field, so whatever that field represents (feet in 1.8+,
+// something else in 1.7.10) cancels out and we're left with the pure vertical
+// offset between the two players. That way:
+//   * On flat ground at equal height, delta == 0 → we aim at our own eye level
+//     (proven empirically to land on the enemy's chest/neck).
+//   * If the enemy jumps up, delta > 0 → aim rises with them.
+//   * If we jump above them, delta < 0 → aim drops so we still hit their body.
 }  // namespace
 
 AimBow::AimBow() : Module("AimBow") {
@@ -290,17 +288,6 @@ void AimBow::onUpdate() {
     }
     hasTarget = true;
 
-    // Throttled diagnostic — the logger's printf doesn't handle %f, so we
-    // scale by 100 and print ints (so tY=64.12 shows as tY_x100=6412).
-    static unsigned long s_lastAimLog = 0;
-    const unsigned long nowTickLog = GetTickCount();
-    if (nowTickLog - s_lastAimLog > 2000) {
-        s_lastAimLog = nowTickLog;
-        log_ok("[AimBow] tY_x100=%d tLY_x100=%d localY_x100=%d eyeY_x100=%d aimY_x100=%d kAimBody_x100=%d",
-               (int)(tY * 100.0), (int)(tLY * 100.0),
-               (int)(player.getPosY() * 100.0), (int)(ly * 100.0),
-               (int)((tY + aimHeightAbovePosY()) * 100.0), (int)(aimHeightAbovePosY() * 100.0));
-    }
 
     // Movement prediction (horizontal only — vertical lead jerks the camera).
     // Raw per-tick deltas are 0 on most ticks and spike when the server sends a
@@ -324,10 +311,32 @@ void AimBow::onUpdate() {
     const double vz = smoothVz_;
     const double pstr = settings.predict ? (double)settings.predictStrength : 0.0;
 
-    // Iteratively solve: predict target position at time-of-flight, then re-solve
-    // the ballistic arc, a few passes to converge.
-    const double aimBodyOffset = aimHeightAbovePosY();
-    double aimX = tX, aimY = tY + aimBodyOffset, aimZ = tZ;
+    // Vertical anchoring — LOCK-RELATIVE, doesn't compare local vs target posY.
+    //
+    // We snapshot our eye Y and the target's tY the moment we lock a fresh
+    // target. From then on, aimY = lock_eye + (tY_now - tY_at_lock). That is:
+    //   * On lock frame: aimY == our eye Y (proven to hit chest on flat ground).
+    //   * Enemy jumps up N blocks → tY grows by N → aimY rises by N.
+    //   * Enemy falls / crouches → aimY drops with them.
+    //   * WE jump: our eye rises but aimY stays at the anchor → ballistic solver
+    //     sees a lower target and correctly tilts the shot down. Same in reverse
+    //     if we drop. This is what makes "jump and tag" actually work.
+    //
+    // Only per-target deltas of tY are compared to themselves (same field, same
+    // instance), so the 1.7.10 feet-vs-head posY convention issue can't corrupt
+    // the vertical anymore.
+    static std::string s_aimAnchorUUID;
+    static double s_aimAnchorEyeY = 0.0;
+    static double s_aimAnchorTY = 0.0;
+    if (best->uuid != s_aimAnchorUUID || s_aimAnchorUUID.empty()) {
+        s_aimAnchorUUID = best->uuid;
+        s_aimAnchorEyeY = ly;
+        s_aimAnchorTY = tY;
+    }
+    const double vertOffset = tY - s_aimAnchorTY;
+    double aimX = tX;
+    double aimY = s_aimAnchorEyeY + vertOffset;
+    double aimZ = tZ;
     double theta = 0.0;  // launch elevation (radians, + = up)
     for (int iter = 0; iter < 4; ++iter) {
         double dx = aimX - lx;
@@ -351,7 +360,7 @@ void AimBow::onUpdate() {
         double horizV = v * std::cos(theta);
         double tof = horizV > 0.01 ? d / horizV : 0.0;  // ticks
         aimX = tX + vx * tof * pstr;
-        aimY = tY + aimBodyOffset;  // no vertical lead
+        aimY = s_aimAnchorEyeY + vertOffset;  // lock-relative vertical, no lead
         aimZ = tZ + vz * tof * pstr;
     }
 

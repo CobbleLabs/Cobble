@@ -33,6 +33,8 @@ Backtrack::Backtrack() : Module("Backtrack") {
 }
 
 int Backtrack::getHoldMs() const {
+    if (settings.mode == Mode::Lag)
+        return std::clamp(settings.latencyMs, 50, 500);
     return std::clamp(settings.ticks, 1, 8) * 50;
 }
 
@@ -190,17 +192,22 @@ void Backtrack::freezeTarget(JNIEnv* env, jobject entity, int entityId, int dept
         trail.size() > static_cast<size_t>(d) ? trail.size() - 1 - static_cast<size_t>(d) : 0;
     const Vec3d past = trail[idx];
 
-    // 3) Relocate the visible entity (posX/Y/Z + bounding box) to the past position,
-    //    kill the render smear (prev/lastTick), and freeze interpolation so the
-    //    entity's own onLivingUpdate won't pull it forward again this tick.
+    // 3) Relocate the visible entity (posX/Y/Z + bounding box) to the past position.
+    //    Position rewind ALWAYS happens (that's the hit trick). What's optional is
+    //    zeroing the render smear + interpolation increment: doing so makes the target
+    //    "snap" back and forth (the classic visible lag look); leaving them alone lets
+    //    MC's renderer interpolate the entity into place smoothly.
     env->CallVoidMethod(entity, s_midSetPos, past.x, past.y, past.z);
-    if (s_fidPrevX) env->SetDoubleField(entity, s_fidPrevX, past.x);
-    if (s_fidPrevY) env->SetDoubleField(entity, s_fidPrevY, past.y);
-    if (s_fidPrevZ) env->SetDoubleField(entity, s_fidPrevZ, past.z);
-    if (JniCache::fid_lastTickPosX) env->SetDoubleField(entity, JniCache::fid_lastTickPosX, past.x);
-    if (JniCache::fid_lastTickPosY) env->SetDoubleField(entity, JniCache::fid_lastTickPosY, past.y);
-    if (JniCache::fid_lastTickPosZ) env->SetDoubleField(entity, JniCache::fid_lastTickPosZ, past.z);
-    if (s_fidIncr) env->SetIntField(entity, s_fidIncr, 0);
+
+    if (settings.visualLag) {
+        if (s_fidPrevX) env->SetDoubleField(entity, s_fidPrevX, past.x);
+        if (s_fidPrevY) env->SetDoubleField(entity, s_fidPrevY, past.y);
+        if (s_fidPrevZ) env->SetDoubleField(entity, s_fidPrevZ, past.z);
+        if (JniCache::fid_lastTickPosX) env->SetDoubleField(entity, JniCache::fid_lastTickPosX, past.x);
+        if (JniCache::fid_lastTickPosY) env->SetDoubleField(entity, JniCache::fid_lastTickPosY, past.y);
+        if (JniCache::fid_lastTickPosZ) env->SetDoubleField(entity, JniCache::fid_lastTickPosZ, past.z);
+        if (s_fidIncr) env->SetIntField(entity, s_fidIncr, 0);
+    }
     if (env->ExceptionCheck())
         env->ExceptionClear();
 }
@@ -288,13 +295,14 @@ void Backtrack::onClientTick(JNIEnv* env) {
     }
 
     const bool attacking = (GetAsyncKeyState(VK_LBUTTON) & 0x8000) != 0;
-    const bool engage = haveTarget && (settings.mode == Mode::Strong || !settings.onlyOnHit || attacking);
+    // Lag mode = continuous hold like Strong. Normal respects Only On Hit.
+    const bool isContinuous = (settings.mode == Mode::Strong || settings.mode == Mode::Lag);
+    const bool engage = haveTarget && (isContinuous || !settings.onlyOnHit || attacking);
 
     // Clamp the rollback depth to what the server can actually rewind (~your ping).
     // Asking for more latency than the anticheat's lag-comp window means the rewound
-    // hitbox never reaches the frozen position → the hit silently misses. This is most
-    // visible in Strong (which holds continuously, so the target sits a full `ticks`
-    // back at all times). Refresh ping ~1/s to avoid a JNI lookup every tick.
+    // hitbox never reaches the frozen position → the hit silently misses. Refresh
+    // ping ~1/s to avoid a JNI lookup every tick.
     static int s_pingTicks = 8;
     static unsigned long s_lastPingRefresh = 0;
     if (nowTick - s_lastPingRefresh > 1000) {
@@ -302,7 +310,11 @@ void Backtrack::onClientTick(JNIEnv* env) {
         const int pingMs = mc.getLocalPlayerPing();
         s_pingTicks = pingMs > 0 ? std::clamp(pingMs / 50, 1, 8) : 8;  // unknown -> don't clamp
     }
-    const int depth = std::clamp(settings.ticks, 1, s_pingTicks);
+    // Requested depth: ticks-based for Normal/Strong, ms-based for Lag.
+    const int requestedDepth =
+        (settings.mode == Mode::Lag) ? std::clamp(settings.latencyMs, 50, 500) / 50
+                                      : settings.ticks;
+    const int depth = std::clamp(requestedDepth, 1, s_pingTicks);
 
     holdTargetId_.store(tid, std::memory_order_release);
     blocking_.store(engage, std::memory_order_release);
@@ -372,17 +384,23 @@ void Backtrack::onRenderMenu() {
             }
             ImGui::Spacing();
 
-            const char* modeItems[] = {"Normal", "Strong"};
+            const char* modeItems[] = {"Normal", "Strong", "LagBased"};
             int mode = static_cast<int>(settings.mode);
             if (ui::Combo("Mode", &mode, modeItems, IM_ARRAYSIZE(modeItems)))
                 settings.mode = static_cast<Mode>(mode);
 
-            ui::SliderInt("Ticks", &settings.ticks, 1, 8, "%d");
+            if (settings.mode == Mode::Lag) {
+                // Lag mode: latency slider in ms (like the classic Lag Based backtrack).
+                ui::SliderInt("Latency", &settings.latencyMs, 50, 500, "%d ms");
+            } else {
+                ui::SliderInt("Ticks", &settings.ticks, 1, 8, "%d");
+            }
             ui::SliderFloat("Range", &settings.maxDistance, 2.0f, 6.0f, "%.1f blocks");
             ImGui::Spacing();
             ui::Checkbox("Weapon Only", &settings.weaponOnly);
             if (settings.mode == Mode::Normal)
                 ui::Checkbox("Only On Hit", &settings.onlyOnHit);
+            ui::Checkbox("Visual Lag", &settings.visualLag);
         },
         "Status",
         [this]() {
@@ -401,23 +419,35 @@ void Backtrack::onRenderMenu() {
 }
 
 std::string Backtrack::getDisplayInfo() {
-    return (settings.mode == Mode::Strong ? "Strong " : "") + std::to_string(settings.ticks) + " ticks";
+    switch (settings.mode) {
+        case Mode::Lag:
+            return "LagBased " + std::to_string(settings.latencyMs) + "ms";
+        case Mode::Strong:
+            return "Strong " + std::to_string(settings.ticks) + " ticks";
+        case Mode::Normal:
+        default:
+            return std::to_string(settings.ticks) + " ticks";
+    }
 }
 
 void Backtrack::saveSettings(json::Value& node) const {
     node["mode"] = static_cast<int>(settings.mode);
     node["ticks"] = settings.ticks;
+    node["latencyMs"] = settings.latencyMs;
     node["maxDistance"] = settings.maxDistance;
     node["weaponOnly"] = settings.weaponOnly;
     node["onlyOnHit"] = settings.onlyOnHit;
     node["showStatus"] = settings.showStatus;
+    node["visualLag"] = settings.visualLag;
 }
 
 void Backtrack::loadSettings(const json::Value& node) {
-    settings.mode = static_cast<Mode>(std::clamp(node["mode"].as_int(static_cast<int>(settings.mode)), 0, 1));
+    settings.mode = static_cast<Mode>(std::clamp(node["mode"].as_int(static_cast<int>(settings.mode)), 0, 2));
     settings.ticks = std::clamp(node["ticks"].as_int(settings.ticks), 1, 8);
+    settings.latencyMs = std::clamp(node["latencyMs"].as_int(settings.latencyMs), 50, 500);
     settings.maxDistance = node["maxDistance"].as_float(settings.maxDistance);
     settings.weaponOnly = node["weaponOnly"].as_bool(settings.weaponOnly);
     settings.onlyOnHit = node["onlyOnHit"].as_bool(settings.onlyOnHit);
     settings.showStatus = node["showStatus"].as_bool(settings.showStatus);
+    settings.visualLag = node["visualLag"].as_bool(settings.visualLag);
 }

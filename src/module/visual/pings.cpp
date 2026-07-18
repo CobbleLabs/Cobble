@@ -21,6 +21,50 @@
 
 Pings* pingsModule = nullptr;
 
+namespace {
+bool RayIntersectsPlayerBox(double eyeX, double eyeY, double eyeZ, double dirX, double dirY, double dirZ,
+                            double playerX, double playerY, double playerZ, double maxDistance,
+                            double& hitDistance) {
+    // A small expansion keeps selection stable while the rendered player position
+    // catches up with the tick position stored in VisualCache.
+    constexpr double horizontalRadius = 0.30 + 0.08;
+    constexpr double verticalPadding = 0.08;
+
+    const double boundsMin[3] = {playerX - horizontalRadius, playerY - verticalPadding,
+                                 playerZ - horizontalRadius};
+    const double boundsMax[3] = {playerX + horizontalRadius, playerY + 1.80 + verticalPadding,
+                                 playerZ + horizontalRadius};
+    const double origin[3] = {eyeX, eyeY, eyeZ};
+    const double direction[3] = {dirX, dirY, dirZ};
+
+    double nearDistance = 0.0;
+    double farDistance = maxDistance;
+    for (int axis = 0; axis < 3; ++axis) {
+        if (std::abs(direction[axis]) < 1.0e-8) {
+            if (origin[axis] < boundsMin[axis] || origin[axis] > boundsMax[axis])
+                return false;
+            continue;
+        }
+
+        double axisNear = (boundsMin[axis] - origin[axis]) / direction[axis];
+        double axisFar = (boundsMax[axis] - origin[axis]) / direction[axis];
+        if (axisNear > axisFar)
+            std::swap(axisNear, axisFar);
+
+        nearDistance = (std::max)(nearDistance, axisNear);
+        farDistance = (std::min)(farDistance, axisFar);
+        if (nearDistance > farDistance)
+            return false;
+    }
+
+    if (farDistance < 0.0 || nearDistance > maxDistance)
+        return false;
+
+    hitDistance = nearDistance;
+    return true;
+}
+}  // namespace
+
 Pings::Pings() : Module("Pings") {
     keybind = 0; // The module itself is toggled by menu, but has a separate action keybind
     renders = true;
@@ -116,7 +160,7 @@ void Pings::onUpdate() {
                     }
                 }
 
-                // 2. Perform distance-from-look-ray search on players (up to block distance)
+                // 2. Intersect the look ray with full player hitboxes (up to block distance).
                 auto snap = VisualCache::GetSnapshot();
                 std::string localName = mc.getLocalPlayerName();
                 std::string cleanLocalName = FriendsManager::stripColorCodes(localName);
@@ -135,42 +179,17 @@ void Pings::onUpdate() {
                         if (cleanPName == cleanLocalName)
                             continue; // Skip local player
 
-                        // Center of player bounding box
-                        double px = p.posX;
-                        double py = p.posY + 0.9; // middle of 1.8 block height
-                        double pz = p.posZ;
+                        double hitDistance = 0.0;
+                        if (!RayIntersectsPlayerBox(eyeX, eyeY, eyeZ, dirX, dirY, dirZ, p.posX, p.posY,
+                                                    p.posZ, bestPlayerDist, hitDistance))
+                            continue;
 
-                        // Vector from camera to player center
-                        double vx = px - eyeX;
-                        double vy = py - eyeY;
-                        double vz = pz - eyeZ;
-
-                        // Projection of vector V onto look vector D: t = V.dot(D)
-                        double t = vx * dirX + vy * dirY + vz * dirZ;
-
-                        if (t < 0.0 || t > bestPlayerDist)
-                            continue; // Behind camera or further than current best target / hit block
-
-                        // Closest point on look ray line: C = O + t * D
-                        double cx = eyeX + t * dirX;
-                        double cy = eyeY + t * dirY;
-                        double cz = eyeZ + t * dirZ;
-
-                        // Distance from player center to line closest point
-                        double dx = px - cx;
-                        double dy = py - cy;
-                        double dz = pz - cz;
-                        double distSq = dx * dx + dy * dy + dz * dz;
-
-                        // Bounding box radius check (0.6 blocks perpendicular limit)
-                        if (distSq <= 0.36) { // 0.6 * 0.6 = 0.36
-                            hitPlayer = true;
-                            hitPlayerUUID = p.uuid;
-                            hitPlayerX = p.posX;
-                            hitPlayerY = p.posY;
-                            hitPlayerZ = p.posZ;
-                            bestPlayerDist = t; // Choose the closest entity target along the ray
-                        }
+                        hitPlayer = true;
+                        hitPlayerUUID = p.uuid;
+                        hitPlayerX = p.posX;
+                        hitPlayerY = p.posY;
+                        hitPlayerZ = p.posZ;
+                        bestPlayerDist = hitDistance;
                     }
                 }
 

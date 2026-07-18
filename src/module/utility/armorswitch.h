@@ -1,8 +1,10 @@
 #pragma once
 
 #include <chrono>
+#include <cstdint>
 #include <vector>
 #include <algorithm>
+#include <Windows.h>
 #include "../module.h"
 #include "../../sdk/core/minecraft.h"
 
@@ -77,6 +79,10 @@ public:
 
         bool silentMode = false;
 
+        // Move the visible cursor over each slot and use its hotbar number key.
+        bool visualMode = false;
+        int visualMoveTime = 120;
+
         // Auto-balance settings
         bool autoBalance = false;
         int maxDurabilityDiff = 10;  // Max difference in % to trigger swap
@@ -87,7 +93,7 @@ public:
     void checkAutoBalance();
 
 private:
-    enum class State { Idle, OpeningInventory, Switching, Verifying, Closing };
+    enum class State { Idle, OpeningInventory, Switching, VisualMove, Verifying, Closing };
 
     State state = State::Idle;
     std::chrono::steady_clock::time_point stateStartTime;
@@ -111,6 +117,10 @@ private:
     };
     std::vector<SwapTask> pendingSwaps;
     SwapTask lastSwap;  // Last swap executed, for verification
+    POINT mouseStart_{};
+    POINT mouseTarget_{};
+    int activeVisualMoveTime_ = 120;
+    uint32_t visualSeed_ = 0xA341316Cu;
 
     static constexpr int DELAY_AFTER_OPEN = 100;
     static constexpr int DELAY_BEFORE_CLOSE = 80;
@@ -135,6 +145,9 @@ private:
 
     void scanForSwaps();
     void finishSwap(bool fromOnInventoryOpen = false);
+    bool startVisualMove(int containerSlot);
+    bool updateVisualMove(long long elapsed);
+    void performSwap();
 
     // Convert mainInventory slot (0-35) to container slot for windowClickSwap
     int inventoryToContainerSlot(int invSlot);

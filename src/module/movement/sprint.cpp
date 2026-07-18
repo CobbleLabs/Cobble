@@ -1,4 +1,5 @@
 #include "sprint.h"
+#include "../utility/autorefill.h"
 #include "../../sdk/core/minecraft.h"
 #include "../../sdk/player/player.h"
 #include "../../ui/menu/menu.h"
@@ -42,6 +43,13 @@ void Sprint::onUpdate() {
 
     if (sprintKeyCode == 0) {
         sprintKeyCode = mc.getSprintKey();
+    }
+
+    // Packet AutoRefill needs a clean inventory-action sequence. Do not emit
+    // sprint entity-action packets while its click queue is active.
+    if (autoRefill && autoRefill->isPacketRefilling()) {
+        mc.setKeyBindState(sprintKeyCode, false);
+        return;
     }
 
     // Set the sprint key as pressed

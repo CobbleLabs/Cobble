@@ -1,6 +1,7 @@
 #include "armorswitch.h"
 #include "../../sdk/core/minecraft.h"
 #include "../../sdk/jni/jni_cache.h"
+#include "../../ui/core/overlay.h"
 #include "../../ui/widgets/widgets.hpp"
 #include "../../util/logger.hpp"
 #include "../../util/network/json.hpp"
@@ -34,6 +35,72 @@ static void sendLwjglKey(int lwjglKeyCode) {
     SendInput(2, inputs, sizeof(INPUT));
 }
 
+static bool containerSlotScreenPosition(int containerSlot, POINT& position) {
+    if (!mc.isPlayerInventoryOpen() || !Overlay::gameWindow || GetForegroundWindow() != Overlay::gameWindow)
+        return false;
+
+    JNIEnv* env = Java::Env();
+    if (!env || !JniCache::fid_currentScreen)
+        return false;
+    jobject screen = env->GetObjectField(mc.instance, JniCache::fid_currentScreen);
+    if (!screen)
+        return false;
+
+    jclass guiScreen = nullptr;
+    if (!Java::AssignClass("net.minecraft.client.gui.GuiScreen", guiScreen)) {
+        env->DeleteLocalRef(screen);
+        return false;
+    }
+    jfieldID width = env->GetFieldID(guiScreen, "width", "I");
+    if (!width) {
+        env->ExceptionClear();
+        width = env->GetFieldID(guiScreen, "field_146294_l", "I");
+    }
+    jfieldID height = env->GetFieldID(guiScreen, "height", "I");
+    if (!height) {
+        env->ExceptionClear();
+        height = env->GetFieldID(guiScreen, "field_146295_m", "I");
+    }
+    const int guiWidth = width ? env->GetIntField(screen, width) : 0;
+    const int guiHeight = height ? env->GetIntField(screen, height) : 0;
+    env->DeleteLocalRef(guiScreen);
+    env->DeleteLocalRef(screen);
+    if (env->ExceptionCheck())
+        env->ExceptionClear();
+    if (guiWidth <= 0 || guiHeight <= 0)
+        return false;
+
+    int slotX = 0;
+    int slotY = 0;
+    if (containerSlot >= 5 && containerSlot <= 8) {
+        slotX = 16;
+        slotY = 16 + (containerSlot - 5) * 18;
+    } else if (containerSlot >= 9 && containerSlot <= 35) {
+        const int index = containerSlot - 9;
+        slotX = 16 + (index % 9) * 18;
+        slotY = 92 + (index / 9) * 18;
+    } else if (containerSlot >= 36 && containerSlot <= 44) {
+        slotX = 16 + (containerSlot - 36) * 18;
+        slotY = 150;
+    } else {
+        return false;
+    }
+
+    RECT client{};
+    if (!GetClientRect(Overlay::gameWindow, &client))
+        return false;
+    const int clientWidth = client.right - client.left;
+    const int clientHeight = client.bottom - client.top;
+    if (clientWidth <= 0 || clientHeight <= 0)
+        return false;
+
+    const int guiLeft = (guiWidth - 176) / 2;
+    const int guiTop = (guiHeight - 166) / 2;
+    position.x = (guiLeft + slotX) * clientWidth / guiWidth;
+    position.y = (guiTop + slotY) * clientHeight / guiHeight;
+    return ClientToScreen(Overlay::gameWindow, &position) != FALSE;
+}
+
 ArmorSwitch::ArmorSwitch() : Module("ArmorSwitch") {
     keybind = 0;
 }
@@ -41,6 +108,30 @@ ArmorSwitch::ArmorSwitch() : Module("ArmorSwitch") {
 bool ArmorSwitch::canToggle() {
     // Block toggle when in passive mode (onInventoryOpen)
     return !settings.onInventoryOpen && state == State::Idle;
+}
+
+bool ArmorSwitch::startVisualMove(int containerSlot) {
+    if (!containerSlotScreenPosition(containerSlot, mouseTarget_))
+        return false;
+    return GetCursorPos(&mouseStart_) != FALSE;
+}
+
+bool ArmorSwitch::updateVisualMove(long long elapsed) {
+    const int duration = (std::max)(1, activeVisualMoveTime_);
+    const float progress = (std::min)(1.0f, static_cast<float>(elapsed) / duration);
+    // Smooth acceleration/deceleration prevents robotic constant-speed jumps.
+    const float eased = progress * progress * (3.0f - 2.0f * progress);
+    const int x = mouseStart_.x + static_cast<int>((mouseTarget_.x - mouseStart_.x) * eased);
+    const int y = mouseStart_.y + static_cast<int>((mouseTarget_.y - mouseStart_.y) * eased);
+    SetCursorPos(x, y);
+    return progress >= 1.0f;
+}
+
+void ArmorSwitch::performSwap() {
+    // The visible cursor move belongs to Legit Mode. Use the inventory
+    // controller for the actual number-key swap: injected number keys are
+    // occasionally dropped by LWJGL, leaving a partial armor set.
+    mc.windowClickSwap(lastSwap.containerSlot, lastSwap.hotbarIndex);
 }
 
 int ArmorSwitch::inventoryToContainerSlot(int invSlot) {
@@ -308,18 +399,51 @@ void ArmorSwitch::onUpdate() {
             lastSwap = pendingSwaps.front();
             pendingSwaps.erase(pendingSwaps.begin());
 
-            // Swap container slot with hotbar slot
+            if (settings.visualMode && !settings.silentMode && startVisualMove(lastSwap.containerSlot)) {
+                auto nextVariation = [this](int min, int max) {
+                    visualSeed_ = visualSeed_ * 1664525u + 1013904223u;
+                    return min + static_cast<int>(visualSeed_ % static_cast<uint32_t>(max - min + 1));
+                };
+                mouseTarget_.x += nextVariation(-3, 3);
+                mouseTarget_.y += nextVariation(-3, 3);
+                activeVisualMoveTime_ = (std::max)(80, settings.visualMoveTime + nextVariation(-25, 35));
+                state = State::VisualMove;
+                stateStartTime = now;
+                return;
+            }
+
+            // Swap container slot with hotbar slot.
             if (settings.silentMode) {
                 log_debug("[ArmorSwitch] Silent Swap: Container %d <-> Hotbar %d", lastSwap.containerSlot,
                           lastSwap.hotbarIndex);
             }
-            mc.windowClickSwap(lastSwap.containerSlot, lastSwap.hotbarIndex);
+            performSwap();
 
             lastClickTime = now;
 
             // If retryOnFail enabled, verify all swaps
+            if (settings.retryOnFail || settings.visualMode) {
+                state = State::Verifying;
+                stateStartTime = now;
+            }
+            break;
+        }
+
+        case State::VisualMove: {
+            if (!mc.isPlayerInventoryOpen()) {
+                finishSwap(settings.onInventoryOpen);
+                return;
+            }
+            if (!updateVisualMove(elapsed))
+                return;
+
+            performSwap();
+            lastClickTime = now;
             if (settings.retryOnFail) {
                 state = State::Verifying;
+                stateStartTime = now;
+            } else {
+                state = State::Switching;
                 stateStartTime = now;
             }
             break;
@@ -331,7 +455,9 @@ void ArmorSwitch::onUpdate() {
                 return;
             }
 
-            int verifyDelay = settings.retryOnFail ? (std::max)(VERIFY_DELAY_MS, effectiveDelay()) : VERIFY_DELAY_MS;
+            int verifyDelay = (settings.retryOnFail || settings.visualMode)
+                                  ? (std::max)(VERIFY_DELAY_MS, effectiveDelay())
+                                  : VERIFY_DELAY_MS;
             // Wait fixed delay before checking
             if (elapsed < verifyDelay)
                 return;
@@ -489,6 +615,7 @@ int ArmorSwitch::findArmorInInventory(const std::vector<SlotInfo>& slots, int sl
 
 void ArmorSwitch::scanForSwaps() {
     pendingSwaps.clear();
+    const bool verifySwaps = settings.retryOnFail || settings.visualMode;
 
     ArmorMaterial targetMat =
         static_cast<ArmorMaterial>(targetSet == 0 ? settings.set1Material : settings.set2Material);
@@ -595,7 +722,7 @@ void ArmorSwitch::scanForSwaps() {
             }
         }
 
-        if (settings.retryOnFail) {
+        if (verifySwaps) {
             batchSwaps.push_back({slotType, targetId, sourceSlot, hotbarIndex, sourceSlot >= 9, currentId});
             continue;
         }
@@ -639,7 +766,7 @@ void ArmorSwitch::scanForSwaps() {
         }
     }
 
-    if (settings.retryOnFail) {
+    if (verifySwaps) {
         // Stage 1: move every target armor piece into its reserved hotbar slot
         for (const auto& swap : batchSwaps) {
             if (!swap.movedFromInventory)
@@ -720,6 +847,12 @@ void ArmorSwitch::onRenderMenu() {
             if (ImGui::IsItemHovered()) {
                 ImGui::SetTooltip("Swaps armor silently without opening the inventory");
             }
+            ui::Checkbox("Legit Mode", &settings.visualMode);
+            if (settings.visualMode) {
+                int moveTime = settings.visualMoveTime;
+                if (ui::SliderInt("Mouse Move (ms)", &moveTime, 80, 350, "%d"))
+                    settings.visualMoveTime = moveTime;
+            }
         });
 }
 
@@ -753,6 +886,8 @@ void ArmorSwitch::saveSettings(json::Value& node) const {
     node["onInventoryOpen"] = settings.onInventoryOpen;
     node["retryOnFail"] = settings.retryOnFail;
     node["silentMode"] = settings.silentMode;
+    node["visualMode"] = settings.visualMode;
+    node["visualMoveTime"] = settings.visualMoveTime;
     node["autoBalance"] = settings.autoBalance;
     node["maxDurabilityDiff"] = settings.maxDurabilityDiff;
     node["checkInterval"] = settings.checkInterval;
@@ -767,6 +902,8 @@ void ArmorSwitch::loadSettings(const json::Value& node) {
     settings.onInventoryOpen = node["onInventoryOpen"].as_bool(settings.onInventoryOpen);
     settings.retryOnFail = node["retryOnFail"].as_bool(settings.retryOnFail);
     settings.silentMode = node["silentMode"].as_bool(settings.silentMode);
+    settings.visualMode = node["visualMode"].as_bool(settings.visualMode);
+    settings.visualMoveTime = (std::max)(80, node["visualMoveTime"].as_int(settings.visualMoveTime));
     settings.autoBalance = node["autoBalance"].as_bool(settings.autoBalance);
     settings.maxDurabilityDiff = node["maxDurabilityDiff"].as_int(settings.maxDurabilityDiff);
     settings.checkInterval = node["checkInterval"].as_int(settings.checkInterval);

@@ -55,18 +55,27 @@ public:
     // Consumed by Piercing's backtrack check.
     const std::deque<PositionSnapshot>* getPositionHistory(const std::string& uuid) const;
 
-    // Normal: hold only when engaging (respects Only On Hit). Strong: hold constantly
-    // while a target is in range (uniform added latency — harder for strong ACs that
-    // compare combat-vs-idle latency to flag).
-    enum class Mode : int { Normal = 0, Strong = 1 };
+    // Normal: hold only when engaging (respects Only On Hit).
+    // Strong: hold constantly while a target is in range (uniform added latency —
+    //         harder for strong ACs that compare combat-vs-idle latency to flag).
+    // Lag:    like Strong but the hold depth is expressed in milliseconds instead
+    //         of ticks, mirroring the classic "Lag Based" backtrack feel.
+    enum class Mode : int { Normal = 0, Strong = 1, Lag = 2 };
 
     struct Settings {
         Mode mode = Mode::Normal;
-        int ticks = 3;             // hold depth (each ≈ 50 ms)
+        int ticks = 3;             // hold depth (each ≈ 50 ms) — used by Normal/Strong
+        int latencyMs = 200;       // hold depth in ms — used by Lag mode (50-500)
         float maxDistance = 4.0f;  // engage range
         bool weaponOnly = false;
         bool onlyOnHit = true;     // Normal mode: hold only while attacking (LMB)
         bool showStatus = true;
+        // Visual style of the rollback:
+        //   true  = hard freeze (target visually snaps back to the past position each
+        //           tick — you SEE the enemy lag). Best feedback while cheating.
+        //   false = smooth interpolation (position still rewinds for hits, but the
+        //           entity renders sliding into place instead of teleporting).
+        bool visualLag = true;
     } settings;
 
 private:
