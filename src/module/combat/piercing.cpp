@@ -154,23 +154,69 @@ jobject Piercing::selectTarget(bool hiddenOnly, bool& targetVisible) {
     const double originZ = player.getPosZ();
 
     auto players = mc.getPlayerList();
+
+    // Resolve any pending friend name → UUID mappings before we filter — the
+    // by-UUID checks below depend on it, so friends added by name still match.
+    if (friendsManager)
+        friendsManager->resolvePending(players);
+
     jobject selectedTarget = nullptr;
     double closestHit = std::numeric_limits<double>::max();
 
     const double expandVal = static_cast<double>(settings.expand);
+
+    // Cache local team color + name for 1s so scoreboard-team checks don't hit
+    // JNI for every candidate on every packet-attack tick.
+    static int cachedLocalTeamColor = -1;
+    static std::string cachedLocalName;
+    static auto lastLocalRefresh = std::chrono::steady_clock::time_point{};
+    const auto nowTp = std::chrono::steady_clock::now();
+    const bool refreshLocal =
+        std::chrono::duration_cast<std::chrono::milliseconds>(nowTp - lastLocalRefresh).count() > 1000;
+    if (refreshLocal) {
+        cachedLocalTeamColor = mc.getLocalPlayerTeamColor();
+        cachedLocalName = mc.getLocalPlayerName();
+        lastLocalRefresh = nowTp;
+    }
+    const ChatColor localTeamColor = static_cast<ChatColor>(cachedLocalTeamColor);
 
     for (auto& candidate : players) {
         if (!candidate.instance || candidate.isNPC)
             continue;
         if (candidate.isInvisible && !settings.targetInvisibles)
             continue;
+        // Scoreboard team assigned by the server (Bedwars/Skywars colored names,
+        // vanilla /team, etc.). AimAssist filters on this too.
         if (settings.ignoreTeams && candidate.isOnLocalTeam)
             continue;
-        if (settings.ignoreFriends && friendsManager &&
-            (friendsManager->isFriendByUUID(candidate.uuid) ||
-             friendsManager->isApolloTeammate(candidate.uuid) ||
-             friendsManager->isLunarTeammate(candidate.uuid)))
-            continue;
+        if (friendsManager) {
+            const std::string cleanName = FriendsManager::stripColorCodes(candidate.name);
+
+            if (settings.ignoreFriends) {
+                if (!candidate.uuid.empty() &&
+                    (friendsManager->isFriendByUUID(candidate.uuid) ||
+                     friendsManager->isApolloTeammate(candidate.uuid) ||
+                     friendsManager->isLunarTeammate(candidate.uuid)))
+                    continue;
+                // Legacy name-based match — kicks in for friends added by name
+                // whose UUID hasn't been resolved yet (first seconds after login).
+                if (friendsManager->isFriend(cleanName))
+                    continue;
+            }
+
+            if (settings.ignoreTeams) {
+                // Scoreboard prefix/suffix teammates (color-independent, e.g. the
+                // "TEAM_RED" style Bedwars puts every teammate under).
+                const std::string& scoreboardName =
+                    candidate.profileName.empty() ? candidate.name : candidate.profileName;
+                if (friendsManager->isScoreboardTeammate(cachedLocalName, scoreboardName))
+                    continue;
+                // Same chat-color tag as us → treat as teammate.
+                ChatColor playerColor = static_cast<ChatColor>(candidate.teamColor);
+                if (friendsManager->isTeammate(candidate.uuid, playerColor, localTeamColor))
+                    continue;
+            }
+        }
 
         const bool isVisible = mc.canEntityBeSeen(candidate.instance);
         if (hiddenOnly && isVisible)
