@@ -38,6 +38,7 @@
 #include "../../module/utility/fastbreak.h"
 #include "../../module/utility/noitemrelease.h"
 #include "../../module/utility/inventorymanager.h"
+#include "../../module/utility/throwpots.h"
 #include "../../module/visual/blockesp.h"
 #include "../../module/visual/chams.h"
 #include "../../module/visual/esp.h"
@@ -171,24 +172,26 @@ Module* getModuleForSubtab(int tabIdx, int subtabIdx) {
             case 1:
                 return autoRefill;
             case 2:
-                return fastPlace;
+                return throwPots;
             case 3:
-                return noItemRelease;
+                return fastPlace;
             case 4:
-                return bridgeAssist;
+                return noItemRelease;
             case 5:
-                return scaffold;
+                return bridgeAssist;
             case 6:
-                return clutch;
+                return scaffold;
             case 7:
-                return breaker;
+                return clutch;
             case 8:
-                return autoTool;
+                return breaker;
             case 9:
-                return inventoryManager;
+                return autoTool;
             case 10:
-                return fastBreak;
+                return inventoryManager;
             case 11:
+                return fastBreak;
+            case 12:
                 return altManager;
         }
     }

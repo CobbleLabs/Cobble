@@ -1,0 +1,107 @@
+#pragma once
+
+#include <atomic>
+#include <chrono>
+#include <vector>
+
+#include "../module.h"
+
+// Matches the raid0source ordering/settings semantics.
+enum class ThrowPotsMode {
+    Dynamic = 0,
+    Single = 1,
+    Double = 2
+};
+
+enum class ThrowPotsAim {
+    Current = 0,
+    Down = 1,
+    SilentDown = 2
+};
+
+// One-shot hotbar action based on raid0source's ThrowPot. Selection and item
+// use go through InventoryPlayer.currentItem and PlayerControllerMP.sendUseItem.
+class ThrowPots : public Module {
+public:
+    ThrowPots();
+
+    void onEnable() override;
+    void onDisable() override;
+    void onWorldChange() override;
+    void onUpdate() override;
+    void onRenderMenu() override;
+    std::string getDisplayInfo() override;
+    void saveSettings(json::Value& node) const override;
+    void loadSettings(const json::Value& node) override;
+
+    // Called from the outgoing gate so sendUseItem is emitted immediately
+    // before a flying packet instead of at an arbitrary point after it.
+    void onOutgoingPacket(JNIEnv* env, jobject packet);
+    bool needsOutgoingPacket() const;
+    bool isRewritingRotation() const;
+
+    struct Settings {
+        bool randomSlots = false;
+        ThrowPotsMode mode = ThrowPotsMode::Double;
+        ThrowPotsAim aim = ThrowPotsAim::Current;
+        int targetHealthPercent = 100;
+        int maxThrows = 9;
+        int throwDelay = 50;
+        int switchDelay = 50;
+        bool allowHealthI = true;
+        bool switchBack = true;
+        bool retryOnFail = true;
+    } settings;
+
+private:
+    enum class State {
+        Idle,
+        SwitchDelay,
+        AwaitRotation,
+        AwaitUseFlush,
+        Verify,
+        RestoreDelay
+    };
+
+    struct PlannedPotion {
+        int slot = -1;
+        int damage = -1;
+        int stackSize = 0;
+        int healAmount = 0;
+    };
+
+    static constexpr int kPotionItemId = 373;
+    static constexpr int kMaxRetries = 2;
+    static constexpr int kPacketTimeoutMs = 1000;
+
+    State state_ = State::Idle;
+    std::chrono::steady_clock::time_point stateStart_{};
+    std::vector<PlannedPotion> plan_;
+    size_t planIndex_ = 0;
+    PlannedPotion target_{};
+    float healTarget_ = 20.0f;
+    int originalSlot_ = -1;
+    float originalPitch_ = 0.0f;
+    bool pitchModified_ = false;
+    int successfulThrows_ = 0;
+    int retryCount_ = 0;
+
+    std::atomic<bool> rotationRequested_{false};
+    std::atomic<bool> rotationSent_{false};
+    std::atomic<float> aimYaw_{0.0f};
+    std::atomic<bool> pendingUse_{false};
+    std::atomic<bool> useDispatched_{false};
+    std::atomic<bool> useSucceeded_{false};
+
+    bool buildPlan();
+    bool selectNextPotion();
+    bool targetPotionPresent(bool requireOriginalStackSize) const;
+    void requestDownRotation();
+    void queueUse();
+    void retryOrRestore();
+    void beginRestore();
+    void finish(bool restorePlayerState);
+    void resetTransientState();
+};
+
+extern ThrowPots* throwPots;

@@ -462,6 +462,74 @@ void Minecraft::rightClickMouse() {
         env->ExceptionClear();
 }
 
+bool Minecraft::sendUseHeldItem() {
+    JNIEnv* env = Java::Env();
+    if (!isValid() || !env || !JniCache::fid_playerController || !JniCache::fid_inventory ||
+        !JniCache::fid_mainInventory || !JniCache::fid_currentItem) {
+        return false;
+    }
+    if (env->PushLocalFrame(24) < 0)
+        return false;
+
+    jobject localPlayer = getPlayer();
+    jobject world = getWorld();
+    jobject controller = env->GetObjectField(instance, JniCache::fid_playerController);
+    if (!localPlayer || !world || !controller || env->ExceptionCheck()) {
+        env->ExceptionClear();
+        env->PopLocalFrame(nullptr);
+        return false;
+    }
+
+    jobject inventory = env->GetObjectField(localPlayer, JniCache::fid_inventory);
+    if (!inventory || env->ExceptionCheck()) {
+        env->ExceptionClear();
+        env->PopLocalFrame(nullptr);
+        return false;
+    }
+
+    const int currentSlot = env->GetIntField(inventory, JniCache::fid_currentItem);
+    jobjectArray mainInventory =
+        static_cast<jobjectArray>(env->GetObjectField(inventory, JniCache::fid_mainInventory));
+    if (!mainInventory || env->ExceptionCheck() || currentSlot < 0 || currentSlot >= env->GetArrayLength(mainInventory)) {
+        env->ExceptionClear();
+        env->PopLocalFrame(nullptr);
+        return false;
+    }
+
+    jobject heldStack = env->GetObjectArrayElement(mainInventory, currentSlot);
+    if (!heldStack || env->ExceptionCheck()) {
+        env->ExceptionClear();
+        env->PopLocalFrame(nullptr);
+        return false;
+    }
+
+    jclass controllerClass = env->GetObjectClass(controller);
+    const std::string signature = OBFUSCATE_STRING(
+        "(Lnet/minecraft/entity/player/EntityPlayer;Lnet/minecraft/world/World;Lnet/minecraft/item/ItemStack;)Z");
+    jmethodID sendUseItem =
+        env->GetMethodID(controllerClass, OBFUSCATE_STRING("sendUseItem").c_str(), signature.c_str());
+    if (!sendUseItem) {
+        env->ExceptionClear();
+        sendUseItem =
+            env->GetMethodID(controllerClass, OBFUSCATE_STRING("func_78769_a").c_str(), signature.c_str());
+    }
+    if (!sendUseItem) {
+        env->ExceptionClear();
+        env->PopLocalFrame(nullptr);
+        return false;
+    }
+
+    const bool used = env->CallBooleanMethod(controller, sendUseItem, localPlayer, world, heldStack) == JNI_TRUE;
+    if (env->ExceptionCheck()) {
+        env->ExceptionClear();
+        env->PopLocalFrame(nullptr);
+        return false;
+    }
+
+    env->PopLocalFrame(nullptr);
+    return used;
+}
+
 void Minecraft::updateMouseOver() {
     JNIEnv* env = Java::Env();
     if (!isValid() || !env || !JniCache::fid_entityRenderer || !JniCache::mid_getMouseOver)

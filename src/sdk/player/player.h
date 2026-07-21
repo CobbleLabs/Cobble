@@ -51,6 +51,7 @@ struct LocalPlayer {
 
     // Combat
     float getHealth();
+    float getMaxHealth();
     int getHurtTime();
     int getHurtResistantTime();
     int getMaxHurtResistantTime();

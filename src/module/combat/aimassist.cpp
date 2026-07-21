@@ -497,19 +497,25 @@ void AimAssist::onUpdate() {
     double aimTargetY = targetY;
     double aimTargetZ = targetZ;
 
+    // Adaptive + Entity Lock = hard-lock chest mode. Any of the two alone keeps
+    // the classic aim-assist behavior. Gate all the "sticky chest" changes on it.
+    const bool adaptiveLock = (settings.aimMode == AimMode::ADAPTIVE) && entityLock;
+
     // When hitbox is unavailable (common with invisible players), aim at eye height
-    // Eye height is ~1.62 blocks above foot position (1.54 when sneaking)
+    // (~1.62 above feet, 1.54 sneaking). In the hard-lock combo we aim at the
+    // chest (~1.35) instead so the pitch stays glued to the torso.
     if (!targetHasHitbox) {
-        aimTargetY += 1.62;
+        aimTargetY += adaptiveLock ? 1.35 : 1.62;
     }
 
     // Prediction: lead the aim point by the target's velocity so tracking sits
-    // ahead of a strafing target instead of trailing it.
+    // ahead of a strafing target instead of trailing it. Hard-lock skips the
+    // vertical lead so a jumping/falling target does not pull the aim off chest.
     if (settings.prediction > 0.0f) {
         float leadSec = (settings.prediction / 100.0f) * 0.16f;
         aimTargetX += predVelX * leadSec;
         aimTargetZ += predVelZ * leadSec;
-        if (!settings.horizontalOnly)
+        if (!settings.horizontalOnly && !adaptiveLock)
             aimTargetY += predVelY * leadSec;
     }
 
@@ -523,8 +529,10 @@ void AimAssist::onUpdate() {
     float yawDiff = wrapTo180(-(localYaw - yawTarget));
     float pitchDiff = wrapTo180(-(localPitch - pitchTarget));
 
-    // Stop On Hitbox: If crosshair is already inside the hitbox, let user aim freely
-    if (settings.stopOnHitbox && targetHasHitbox) {
+    // Stop On Hitbox: If crosshair is already inside the hitbox, let user aim freely.
+    // Adaptive+EntityLock is a hard-lock mode by design — never release, even
+    // mid-hitbox, so the aim stays pinned on the chest when the enemy is close.
+    if (settings.stopOnHitbox && targetHasHitbox && !adaptiveLock) {
         float hitboxWidth = targetHitboxMaxX - targetHitboxMinX;
         float hitboxHeight = targetHitboxMaxY - targetHitboxMinY;
 
@@ -662,13 +670,21 @@ bool AimAssist::findTarget(double& targetX, double& targetY, double& targetZ) {
                     double dy = cY - localY;
                     double dz = cZ - localZ;
                     double dist = std::sqrt(dx * dx + dy * dy + dz * dz);
+                    // Adaptive + Entity Lock is a hard-lock — a locked target stays
+                    // locked even past the configured FOV/distance until it's really
+                    // out of reach. Adaptive alone follows the normal drop rules.
+                    const bool adaptiveHardLock = (settings.aimMode == AimMode::ADAPTIVE) && entityLock;
                     double maxDist = entityLock ? (settings.distance + 1.5f) : settings.distance;
+                    if (adaptiveHardLock)
+                        maxDist = std::max<double>(maxDist, settings.distance + 3.0);
 
                     // If angle error is large, force slow scan to re-acquire smoothly
                     float localYaw = player.getYaw();
                     float yawToTarget = getAngles(localX, localY, localZ, cX, cY, cZ).first;
                     float yawDiff = std::abs(wrapTo180(-(localYaw - yawToTarget)));
                     float limit = entityLock ? std::max(90.0f, settings.fov * 0.5f) : (settings.fov * 0.5f);
+                    if (adaptiveHardLock)
+                        limit = std::max(limit, 180.0f);
                     // Point-blank targets: don't drop them through tight strafes even
                     // when the configured FOV is narrow. Fixes "close targets sometimes
                     // don't work" — up close a small position change swings the yaw a lot.
@@ -1070,6 +1086,12 @@ void AimAssist::applyAimRand(float yawDiff, float pitchDiff, float speed) {
         jitterRange *= std::clamp(speedJitterScale, 0.15f, 1.0f);
     }
     if (highSpeedNoJitter) {
+        jitterRange = 0.0f;
+    }
+    // Adaptive + Entity Lock is hard-lock — kill jitter so the crosshair sticks
+    // to the chest instead of shimmering. Adaptive alone keeps jitter for feel.
+    if (settings.aimMode == AimMode::ADAPTIVE &&
+        entityLockEnabled_.load(std::memory_order_acquire)) {
         jitterRange = 0.0f;
     }
     yawDiff += randFloat(-jitterRange, jitterRange);
@@ -1505,7 +1527,24 @@ bool AimAssist::getAimPoint(double targetX, double targetY, double targetZ, doub
         aimX = (minX + maxX) * 0.5;
         aimZ = (minZ + maxZ) * 0.5;
         double height = maxY - minY;
-        aimY = height > 0.01 ? minY + height * 0.5 : targetY;
+        // Adaptive + Entity Lock glues onto the chest (upper torso, ~75% up the
+        // hitbox); everything else keeps the classic center-of-hitbox point so
+        // adaptive alone stays soft enough to switch targets naturally.
+        bool adaptiveLock = (settings.aimMode == AimMode::ADAPTIVE) &&
+                            entityLockEnabled_.load(std::memory_order_acquire);
+        double vertRatio = adaptiveLock ? 0.75 : 0.5;
+        aimY = height > 0.01 ? minY + height * vertRatio : targetY;
+        if (adaptiveLock) {
+            // Small nudge toward the viewer's right — pure center feels a touch
+            // left in-game; half of the previous 0.12 lateral offset.
+            constexpr float PI = 3.14159265358979323846f;
+            float yawRad = localYaw * PI / 180.0f;
+            double rightX = -std::cos(yawRad);
+            double rightZ = -std::sin(yawRad);
+            constexpr double RIGHT_SHIFT = 0.06;  // meters
+            aimX += rightX * RIGHT_SHIFT;
+            aimZ += rightZ * RIGHT_SHIFT;
+        }
         return true;
     }
 

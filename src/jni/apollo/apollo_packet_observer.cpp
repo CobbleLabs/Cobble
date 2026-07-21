@@ -1234,6 +1234,15 @@ void JNICALL ApolloPacketObserver::NativeOnReceive(JNIEnv* env, jclass, jobject 
     if (!packet)
         return;
 
+    // Runs on the Netty read thread for every incoming packet — the same
+    // thread that answers server keepalives, so anything slow here becomes
+    // added ping. The Blink server-position rewind (line ~1272) is the only
+    // downstream check that fires on non-Apollo packet types; if Blink is off,
+    // most non-CustomPayload packets do zero useful work after the mutex.
+    // We keep taking the mutex because friendsManager still needs the world-
+    // change edge detection, but every branch below is now gated so a disabled
+    // module never pays for its IsInstanceOf calls.
+
     std::lock_guard<std::mutex> receiveLock(g_onReceiveMutex);
 
     // Removed g_seenApolloSinceWorldChange - serial validation handles stale data

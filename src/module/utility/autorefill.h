@@ -9,6 +9,7 @@
 // Item IDs for refillable items
 namespace RefillItems {
 constexpr int MUSHROOM_SOUP = 282;
+constexpr int BOWL = 281;  // Leftover after eating soup — hotbar slot is not "empty"
 constexpr int POTION = 373;
 }  // namespace RefillItems
 
@@ -83,9 +84,12 @@ private:
     // Track inventory state for onInventoryOpen mode
     bool wasInventoryOpen = false;
 
-    // Pre-flying flush: onUpdate queues the source slot here instead of clicking
+    // Pre-flying flush: onUpdate queues source+target here instead of clicking
     // inline; onOutgoingPacket fires it the instant a flying packet is sent.
+    // We swap (mode 2) rather than shift-click so a hotbar slot holding a bowl
+    // gets the soup directly — shift-click has no empty slot to land in.
     int pendingClickSlot_ = -1;
+    int pendingClickHotbar_ = -1;
     jclass c03Class_ = nullptr;  // C03PacketPlayer (flying) — lazily resolved GlobalRef
     bool c03Resolved_ = false;
 

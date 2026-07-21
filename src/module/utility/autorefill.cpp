@@ -164,6 +164,7 @@ void AutoRefill::onDisable() {
     pendingRefills.clear();
     hasActiveTask_ = false;
     pendingClickSlot_ = -1;
+    pendingClickHotbar_ = -1;
 }
 
 void AutoRefill::finishRefill() {
@@ -175,6 +176,7 @@ void AutoRefill::finishRefill() {
     pendingRefills.clear();
     hasActiveTask_ = false;
     pendingClickSlot_ = -1;
+    pendingClickHotbar_ = -1;
 
     // Passive mode stays enabled to catch the next inventory open.
     if (!settings.onInventoryOpen) {
@@ -253,6 +255,7 @@ void AutoRefill::onUpdate() {
             // Queue the click; it is sent from onOutgoingPacket right before the next
             // flying packet so it lands BEFORE movement in the tick (no Grim Post).
             pendingClickSlot_ = task.sourceSlot;
+            pendingClickHotbar_ = task.hotbarSlot;
             lastMoveTime = now;
             break;
         }
@@ -301,6 +304,7 @@ void AutoRefill::onUpdate() {
             // immediately before the next movement packet, preserving vanilla
             // packet order while the cursor animation remains visible.
             pendingClickSlot_ = activeTask_.sourceSlot;
+            pendingClickHotbar_ = activeTask_.hotbarSlot;
             state = State::LegitAwaitClick;
             stateStartTime = now;
             break;
@@ -351,14 +355,13 @@ void AutoRefill::onUpdate() {
             if (elapsed < settings.speed)
                 return;
 
-            // Validation: re-scan and retry if items are still missing.
-            scanForRefills();
-            if (!pendingRefills.empty()) {
-                state = settings.mode == 1 ? State::LegitMoveSource : State::Refilling;
-                stateStartTime = now;
-                lastMoveTime = now - std::chrono::milliseconds(settings.speed);
-                return;
-            }
+            // No retry pass. Rescanning here caused an infinite bounce loop:
+            // clicks fire from the Netty thread, and if the server rejects a
+            // swap (Grim/NCP under load, inventory transaction mismatch) it
+            // rewinds the container via S30/S2F. Our rescan then sees the
+            // original bowls back in the hotbar and re-queues the same tasks,
+            // so items visibly ping-pong up and down. If a swap fails the user
+            // just triggers again — one shot per activation.
 
             // In passive mode the player owns the inventory. Packet mode is
             // silent; Legit closes with the same real key used to open it.
@@ -405,8 +408,17 @@ void AutoRefill::onOutgoingPacket(JNIEnv* env, jobject packet) {
         return;
 
     const int slot = pendingClickSlot_;
+    const int hotbar = pendingClickHotbar_;
     pendingClickSlot_ = -1;
-    mc.windowClick(slot, 0);  // sends the real C0E click packet on window 0
+    pendingClickHotbar_ = -1;
+    // Mode 2 (hotbar swap) — same as pressing a number key while hovering the
+    // source slot. Works whether the target hotbar slot is empty OR holds a
+    // bowl; shift-click (mode 1) would fail on the bowl case because the item
+    // has no empty slot to land in.
+    if (hotbar >= 0 && hotbar <= 8)
+        mc.windowClickSwap(slot, hotbar);
+    else
+        mc.windowClick(slot, 0);
     if (env->ExceptionCheck())
         env->ExceptionClear();
 }
@@ -418,48 +430,51 @@ void AutoRefill::scanForRefills() {
     if (slots.empty())
         return;
 
-    // Collect all refillable items from main inventory (slots 9-35)
-    std::vector<int> availableSources;
+    // Separate sources by kind so a bowl-holding slot only gets a soup, not a
+    // potion — soups don't stack and a potion into a bowl slot is nonsense.
+    std::vector<int> soupSources;
+    std::vector<int> potionSources;
     for (const auto& slot : slots) {
         if (slot.slotId < 9 || slot.slotId > 35)
             continue;
-        if (slot.itemId == 0)
-            continue;
-
-        bool isRefillable = false;
         if (settings.refillSoup && slot.itemId == RefillItems::MUSHROOM_SOUP) {
-            isRefillable = true;
-        }
-        // Only refill Instant Health 2 splash potions (damage value 16421)
-        if (settings.refillPotions && slot.itemId == RefillItems::POTION && slot.damage == 16421) {
-            isRefillable = true;
-        }
-
-        if (isRefillable) {
-            availableSources.push_back(slot.slotId);
+            soupSources.push_back(slot.slotId);
+        } else if (settings.refillPotions && slot.itemId == RefillItems::POTION && slot.damage == 16421) {
+            // Only refill Instant Health 2 splash potions (damage value 16421)
+            potionSources.push_back(slot.slotId);
         }
     }
 
-    if (availableSources.empty())
+    if (soupSources.empty() && potionSources.empty())
         return;
 
-    // Find empty hotbar slots and assign sources
-    size_t sourceIdx = 0;
-    for (int hotbarSlot = 0; hotbarSlot <= 8 && sourceIdx < availableSources.size(); hotbarSlot++) {
-        bool isEmpty = true;
-        for (const auto& slot : slots) {
-            if (slot.slotId == hotbarSlot && slot.itemId != 0) {
-                isEmpty = false;
-                break;
-            }
+    // Snapshot hotbar item IDs (default 0 for missing entries).
+    int hotbar[9] = {};
+    for (const auto& slot : slots) {
+        if (slot.slotId >= 0 && slot.slotId <= 8)
+            hotbar[slot.slotId] = slot.itemId;
+    }
+
+    size_t soupIdx = 0;
+    size_t potionIdx = 0;
+    for (int hotbarSlot = 0; hotbarSlot <= 8; hotbarSlot++) {
+        const int existing = hotbar[hotbarSlot];
+        int source = -1;
+
+        // A bowl (post-eat leftover) is refillable-with-soup only. An empty
+        // slot accepts either a soup (preferred) or a potion.
+        if (settings.refillSoup && (existing == 0 || existing == RefillItems::BOWL) &&
+            soupIdx < soupSources.size()) {
+            source = soupSources[soupIdx++];
+        } else if (settings.refillPotions && existing == 0 && potionIdx < potionSources.size()) {
+            source = potionSources[potionIdx++];
         }
 
-        if (isEmpty) {
+        if (source != -1) {
             RefillTask task;
             task.hotbarSlot = hotbarSlot;
-            task.sourceSlot = availableSources[sourceIdx];
+            task.sourceSlot = source;
             pendingRefills.push_back(task);
-            sourceIdx++;
         }
     }
 }

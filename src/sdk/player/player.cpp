@@ -436,6 +436,20 @@ float LocalPlayer::getHealth() {
     return Java::Env()->CallFloatMethod(instance, mid_getHealth);
 }
 
+float LocalPlayer::getMaxHealth() {
+    if (!isValid() || !JniCache::mid_getMaxHealth)
+        return 20.0f;
+    JNIEnv* env = Java::Env();
+    if (!env)
+        return 20.0f;
+    const float result = env->CallFloatMethod(instance, JniCache::mid_getMaxHealth);
+    if (env->ExceptionCheck()) {
+        env->ExceptionClear();
+        return 20.0f;
+    }
+    return result > 0.0f ? result : 20.0f;
+}
+
 int LocalPlayer::getHurtTime() {
     if (!isValid() || !fid_hurtTime)
         return 0;

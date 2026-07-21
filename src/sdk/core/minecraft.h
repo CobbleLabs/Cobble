@@ -143,6 +143,9 @@ struct Minecraft {
     void clickMouse();
     bool attackEntity(jobject target);
     void rightClickMouse();
+    // PlayerControllerMP.sendUseItem(player, world, heldStack). Returns true
+    // when vanilla accepted and applied the held-item use locally.
+    bool sendUseHeldItem();
     void updateMouseOver();
 
     // NetHandlerPlayClient (the incoming/outgoing packet handler). Caller deletes the
