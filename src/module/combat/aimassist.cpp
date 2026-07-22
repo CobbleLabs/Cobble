@@ -1524,27 +1524,18 @@ bool AimAssist::getAimPoint(double targetX, double targetY, double targetZ, doub
             return true;
         }
 
-        aimX = (minX + maxX) * 0.5;
-        aimZ = (minZ + maxZ) * 0.5;
+        // Bones map (xR,yR,zR) in [0,1] to a point inside the AABB.
+        int boneIdx = settings.aimBone;
+        if (boneIdx < 0 || boneIdx >= kBoneCount)
+            boneIdx = 0;
+        const Bone& bone = kBones[boneIdx];
+        double width = maxX - minX;
         double height = maxY - minY;
-        // Adaptive + Entity Lock glues onto the chest (upper torso, ~75% up the
-        // hitbox); everything else keeps the classic center-of-hitbox point so
-        // adaptive alone stays soft enough to switch targets naturally.
-        bool adaptiveLock = (settings.aimMode == AimMode::ADAPTIVE) &&
-                            entityLockEnabled_.load(std::memory_order_acquire);
-        double vertRatio = adaptiveLock ? 0.75 : 0.5;
-        aimY = height > 0.01 ? minY + height * vertRatio : targetY;
-        if (adaptiveLock) {
-            // Small nudge toward the viewer's right — pure center feels a touch
-            // left in-game; half of the previous 0.12 lateral offset.
-            constexpr float PI = 3.14159265358979323846f;
-            float yawRad = localYaw * PI / 180.0f;
-            double rightX = -std::cos(yawRad);
-            double rightZ = -std::sin(yawRad);
-            constexpr double RIGHT_SHIFT = 0.06;  // meters
-            aimX += rightX * RIGHT_SHIFT;
-            aimZ += rightZ * RIGHT_SHIFT;
-        }
+        double depth = maxZ - minZ;
+        aimX = minX + width * bone.xRatio;
+        aimZ = minZ + depth * bone.zRatio;
+        aimY = height > 0.01 ? minY + height * bone.yRatio : targetY;
+        (void)localYaw;  // no adaptive lateral nudge — aim stays exactly on the bone
         return true;
     }
 
@@ -1649,6 +1640,14 @@ void AimAssist::onRenderMenu() {
             ui::Checkbox("Break Blocks", &settings.breakBlocks);
             ui::Checkbox("Weapon Only", &settings.weaponOnly);
             ui::Checkbox("Aim Closest Point", &settings.aimAtClosestPoint);
+            if (!settings.aimAtClosestPoint) {
+                const char* boneNames[kBoneCount];
+                for (int i = 0; i < kBoneCount; ++i)
+                    boneNames[i] = kBones[i].name;
+                int boneIdx = std::clamp(settings.aimBone, 0, kBoneCount - 1);
+                if (ui::Combo("Bone", &boneIdx, boneNames, kBoneCount))
+                    settings.aimBone = boneIdx;
+            }
             ui::Checkbox("Target Invisibles", &settings.invisibles);
             ui::Checkbox("Stop On Hitbox", &settings.stopOnHitbox);
             ui::Checkbox("Anti Bot", &settings.antiBot);
@@ -1726,6 +1725,7 @@ void AimAssist::saveSettings(json::Value& node) const {
     node["breakBlocks"] = settings.breakBlocks;
     node["weaponOnly"] = settings.weaponOnly;
     node["aimAtClosestPoint"] = settings.aimAtClosestPoint;
+    node["aimBone"] = settings.aimBone;
     node["alwaysAim"] = settings.alwaysAim;
     node["invisibles"] = settings.invisibles;
     node["entityLock"] = settings.entityLock;
@@ -1755,6 +1755,7 @@ void AimAssist::loadSettings(const json::Value& node) {
     settings.breakBlocks = node["breakBlocks"].as_bool(settings.breakBlocks);
     settings.weaponOnly = node["weaponOnly"].as_bool(settings.weaponOnly);
     settings.aimAtClosestPoint = node["aimAtClosestPoint"].as_bool(settings.aimAtClosestPoint);
+    settings.aimBone = std::clamp(node["aimBone"].as_int(settings.aimBone), 0, kBoneCount - 1);
     settings.alwaysAim = node["alwaysAim"].as_bool(settings.alwaysAim);
     settings.invisibles = node["invisibles"].as_bool(settings.invisibles);
     // Legacy "lockAim" was renamed to "entityLock"; honor either key so old

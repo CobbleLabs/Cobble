@@ -44,6 +44,7 @@ private:
 
     std::atomic<bool> manualAttackActive_{false};
     std::atomic<std::uint64_t> suppressDuplicatePacketsUntilMs_{0};
+    std::atomic<std::uint64_t> lastAttackMs_{0};
 };
 
 extern Piercing* piercing;

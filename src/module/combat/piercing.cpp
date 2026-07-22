@@ -7,6 +7,7 @@
 #include "../../ui/menu/menu.h"
 #include "../../ui/widgets/widgets.hpp"
 #include "../../util/aes_string.hpp"
+#include "../../util/logger.hpp"
 #include "../../util/network/json.hpp"
 #include "../../util/team/friends_manager.h"
 
@@ -26,7 +27,13 @@ Piercing* piercing = nullptr;
 namespace {
 constexpr double PI = 3.14159265358979323846;
 constexpr double EPSILON = 1.0e-8;
-constexpr std::uint64_t DUPLICATE_PACKET_GUARD_MS = 60;
+constexpr std::uint64_t DUPLICATE_PACKET_GUARD_MS = 250;
+// Cap through-hitbox attacks to a human cadence (~5-6/sec) so the C0A swing
+// packet stream isn't a regular high-rate pulse Watchdog's "Post animation"
+// check flags. Also add ±40 ms jitter (see handleAttackInput) so the interval
+// isn't a perfect 180 ms spike.
+constexpr std::uint64_t ATTACK_MIN_GAP_MS = 180;
+constexpr std::uint64_t ATTACK_JITTER_MS = 40;
 
 bool isWeapon(int itemId) {
     return itemId == 268 || itemId == 272 || itemId == 267 || itemId == 276 || itemId == 283 ||
@@ -161,55 +168,48 @@ jobject Piercing::selectTarget(bool hiddenOnly, bool& targetVisible) {
         friendsManager->resolvePending(players);
 
     jobject selectedTarget = nullptr;
+    PlayerInfo* selectedCandidate = nullptr;
     double closestHit = std::numeric_limits<double>::max();
 
     const double expandVal = static_cast<double>(settings.expand);
 
-    // Cache local team color + name for 1s so scoreboard-team checks don't hit
-    // JNI for every candidate on every packet-attack tick.
-    static int cachedLocalTeamColor = -1;
-    static std::string cachedLocalName;
-    static auto lastLocalRefresh = std::chrono::steady_clock::time_point{};
-    const auto nowTp = std::chrono::steady_clock::now();
-    const bool refreshLocal =
-        std::chrono::duration_cast<std::chrono::milliseconds>(nowTp - lastLocalRefresh).count() > 1000;
-    if (refreshLocal) {
-        cachedLocalTeamColor = mc.getLocalPlayerTeamColor();
-        cachedLocalName = mc.getLocalPlayerName();
-        lastLocalRefresh = nowTp;
-    }
-    const ChatColor localTeamColor = static_cast<ChatColor>(cachedLocalTeamColor);
+    // Read local player name + team color once per call. Piercing::selectTarget
+    // runs on two threads (module tick + WM_LBUTTONDOWN via handleAttackInput),
+    // so any per-call cached-across-calls state races and corrupts. Both JNI
+    // reads are ~5 calls each and only hit once per invocation → negligible.
+    const std::string localName = mc.getLocalPlayerName();
+    const ChatColor localTeamColor = static_cast<ChatColor>(mc.getLocalPlayerTeamColor());
 
     for (auto& candidate : players) {
         if (!candidate.instance || candidate.isNPC)
             continue;
         if (candidate.isInvisible && !settings.targetInvisibles)
             continue;
-        // Scoreboard team assigned by the server (Bedwars/Skywars colored names,
-        // vanilla /team, etc.). AimAssist filters on this too.
-        if (settings.ignoreTeams && candidate.isOnLocalTeam)
-            continue;
         if (friendsManager) {
-            const std::string cleanName = FriendsManager::stripColorCodes(candidate.name);
-
             if (settings.ignoreFriends) {
-                if (!candidate.uuid.empty() &&
-                    (friendsManager->isFriendByUUID(candidate.uuid) ||
-                     friendsManager->isApolloTeammate(candidate.uuid) ||
-                     friendsManager->isLunarTeammate(candidate.uuid)))
+                if (!candidate.uuid.empty() && friendsManager->isFriendByUUID(candidate.uuid))
                     continue;
                 // Legacy name-based match — kicks in for friends added by name
                 // whose UUID hasn't been resolved yet (first seconds after login).
+                const std::string cleanName = FriendsManager::stripColorCodes(candidate.name);
                 if (friendsManager->isFriend(cleanName))
                     continue;
             }
 
             if (settings.ignoreTeams) {
+                // Vanilla /team API (isOnSameTeam JNI check).
+                if (candidate.isOnLocalTeam)
+                    continue;
+                // Apollo + Lunar API teammates (auto-detected, not manual friends).
+                if (!candidate.uuid.empty() &&
+                    (friendsManager->isApolloTeammate(candidate.uuid) ||
+                     friendsManager->isLunarTeammate(candidate.uuid)))
+                    continue;
                 // Scoreboard prefix/suffix teammates (color-independent, e.g. the
                 // "TEAM_RED" style Bedwars puts every teammate under).
                 const std::string& scoreboardName =
                     candidate.profileName.empty() ? candidate.name : candidate.profileName;
-                if (friendsManager->isScoreboardTeammate(cachedLocalName, scoreboardName))
+                if (friendsManager->isScoreboardTeammate(localName, scoreboardName))
                     continue;
                 // Same chat-color tag as us → treat as teammate.
                 ChatColor playerColor = static_cast<ChatColor>(candidate.teamColor);
@@ -291,9 +291,28 @@ jobject Piercing::selectTarget(bool hiddenOnly, bool& targetVisible) {
                 if (selectedTarget)
                     env->DeleteLocalRef(selectedTarget);
                 selectedTarget = newTarget;
+                selectedCandidate = &candidate;
                 targetVisible = isVisible;
                 closestHit = candidateHit;
             }
+        }
+    }
+
+    // Rate-limited pick trace — helps diagnose "why did Piercing hit my friend"
+    // by showing what info the filter saw for the selected candidate.
+    if (selectedTarget && selectedCandidate) {
+        static std::atomic<std::uint64_t> s_lastLogMs{0};
+        std::uint64_t nowLocal = nowMs();
+        std::uint64_t last = s_lastLogMs.load(std::memory_order_relaxed);
+        if (nowLocal - last > 1500) {
+            s_lastLogMs.store(nowLocal, std::memory_order_relaxed);
+            log_debug("[Piercing] pick name=%s prof=%s uuid=%s isOnLocalTeam=%d teamColor=%d "
+                      "hidden=%d ignoreF=%d ignoreT=%d",
+                      selectedCandidate->name.c_str(), selectedCandidate->profileName.c_str(),
+                      selectedCandidate->uuid.empty() ? "?" : selectedCandidate->uuid.substr(0, 8).c_str(),
+                      selectedCandidate->isOnLocalTeam ? 1 : 0, selectedCandidate->teamColor,
+                      targetVisible ? 0 : 1, settings.ignoreFriends ? 1 : 0,
+                      settings.ignoreTeams ? 1 : 0);
         }
     }
 
@@ -315,20 +334,36 @@ jobject Piercing::selectTarget(bool hiddenOnly, bool& targetVisible) {
 }
 
 bool Piercing::handleAttackInput() {
+    // Rate-limit — an external autoclicker sending WM_LBUTTONDOWN at 17 CPS
+    // would otherwise spray Piercing attacks at that rate and trip Watchdog's
+    // MultiInteractA / BadPacketsE (inhuman use-entity packet cadence).
+    const std::uint64_t nowLocal = nowMs();
+    const std::uint64_t last = lastAttackMs_.load(std::memory_order_acquire);
+    if (last != 0 && nowLocal - last < ATTACK_MIN_GAP_MS)
+        return false;
+
+    // Pick ANY target in the ray — visible or hidden. selectTarget already
+    // filters friends/teammates, so the "friend directly in the crosshair with
+    // an enemy behind" case picks the enemy (friend ray-hit happens first at a
+    // closer distance but the friend is skipped, so the enemy — further along
+    // the same ray — becomes the winning candidate).
     bool targetVisible = false;
-    jobject target = selectTarget(true, targetVisible);
+    jobject target = selectTarget(false, targetVisible);
     if (!target)
         return false;
 
     // LWJGL polls mouse state independently from the Windows message. Mark the
-    // synchronous attack so its own swing/C02 packets pass, then guard against
-    // Minecraft processing the same physical click again on the next tick.
+    // synchronous attack so its own swing/C02 packets pass, then keep the
+    // duplicate-guard window large enough (250 ms) to catch vanilla's next
+    // click-loop attack on the same target — otherwise the same input can
+    // register a second attack via raw input and MultiInteractA fires.
     manualAttackActive_.store(true, std::memory_order_release);
     const bool attacked = mc.attackEntity(target);
     if (attacked) {
-        suppressDuplicatePacketsUntilMs_.store(nowMs() + DUPLICATE_PACKET_GUARD_MS,
+        suppressDuplicatePacketsUntilMs_.store(nowLocal + DUPLICATE_PACKET_GUARD_MS,
                                                std::memory_order_release);
         mc.setLeftClickCounter(2);
+        lastAttackMs_.store(nowLocal, std::memory_order_release);
     }
     manualAttackActive_.store(false, std::memory_order_release);
 

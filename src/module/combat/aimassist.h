@@ -89,6 +89,20 @@ public:
         DIAMOND   = 6,
     };
 
+    // Aim bone: named point inside the hitbox expressed as (x,y,z) ratios of
+    // the AABB (0 = min side, 1 = max side). Aim always resolves to a bone;
+    // adding a new one is a single entry in kBones[].
+    struct Bone {
+        const char* name;
+        float xRatio;
+        float yRatio;
+        float zRatio;
+    };
+    static constexpr Bone kBones[] = {
+        {"Center", 0.5f, 0.5f, 0.5f},
+    };
+    static constexpr int kBoneCount = static_cast<int>(sizeof(kBones) / sizeof(kBones[0]));
+
     // Multi-select armor filter: a bitmask of tiers to target. A player matches
     // if ANY of their armor pieces is one of the checked tiers (ARMOR_NO_ARMOR
     // matches players wearing nothing). 0 = no restriction (target everyone).
@@ -123,6 +137,8 @@ public:
         float prediction = 0.0f;      // 0-100%: lead the aim by the target's velocity
         bool packetRotation = false;  // Smooth camera, jitter only on the sent packet
         int reactionTime = 50;  // ms
+
+        int aimBone = 0;  // Index into kBones[]; 0 = Center
 
         ArmorFilter armorFilter = ArmorFilter::ANY;  // Legacy single-select (kept for config migration)
         int armorTierMask = 0;                       // Multi-select bitmask of ArmorTierBit (0 = no restriction)
