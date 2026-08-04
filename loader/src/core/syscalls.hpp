@@ -83,6 +83,19 @@ using NtCreateThreadEx_t = int32_t(__stdcall*)(void** ThreadHandle, uint32_t Des
 
 using NtWaitForSingleObject_t = int32_t(__stdcall*)(void* Handle, uint8_t Alertable, LARGE_INTEGER* Timeout);
 
+// Thread hijacking syscall types
+using NtSuspendThread_t          = int32_t(__stdcall*)(void* ThreadHandle, uint32_t* PreviousSuspendCount);
+using NtResumeThread_t           = int32_t(__stdcall*)(void* ThreadHandle, uint32_t* PreviousSuspendCount);
+using NtGetContextThread_t       = int32_t(__stdcall*)(void* ThreadHandle, CONTEXT* ThreadContext);
+using NtSetContextThread_t       = int32_t(__stdcall*)(void* ThreadHandle, CONTEXT* ThreadContext);
+using NtOpenThread_t             = int32_t(__stdcall*)(void** ThreadHandle, uint32_t DesiredAccess,
+                                                       OBJECT_ATTRIBUTES* ObjectAttributes, CLIENT_ID* ClientId);
+using NtQueryInformationThread_t = int32_t(__stdcall*)(void* ThreadHandle, uint32_t ThreadInformationClass,
+                                                       void* ThreadInformation, uint32_t ThreadInformationLength,
+                                                       uint32_t* ReturnLength);
+// Thread access rights for hijacking
+constexpr uint32_t THREAD_HIJACK_ACCESS = THREAD_SUSPEND_RESUME | THREAD_GET_CONTEXT | THREAD_SET_CONTEXT | THREAD_QUERY_INFORMATION;
+
 using RtlInitUnicodeString_t = void(__stdcall*)(UNICODE_STRING* DestinationString, const wchar_t* SourceString);
 
 // Syscall wrapper class
@@ -99,6 +112,13 @@ public:
     NtCreateThreadEx_t NtCreateThreadEx = nullptr;
     NtWaitForSingleObject_t NtWaitForSingleObject = nullptr;
     RtlInitUnicodeString_t RtlInitUnicodeString = nullptr;
+    // Thread hijacking
+    NtSuspendThread_t          NtSuspendThread = nullptr;
+    NtResumeThread_t           NtResumeThread = nullptr;
+    NtGetContextThread_t       NtGetContextThread = nullptr;
+    NtSetContextThread_t       NtSetContextThread = nullptr;
+    NtOpenThread_t             NtOpenThread = nullptr;
+    NtQueryInformationThread_t NtQueryInformationThread = nullptr;
 
     bool Initialize() {
         if (m_initialized)
@@ -115,6 +135,13 @@ public:
         NtCreateThreadEx = (NtCreateThreadEx_t)GetProcAddress(m_ntdll, "NtCreateThreadEx");
         NtWaitForSingleObject = (NtWaitForSingleObject_t)GetProcAddress(m_ntdll, "NtWaitForSingleObject");
         RtlInitUnicodeString = (RtlInitUnicodeString_t)GetProcAddress(m_ntdll, "RtlInitUnicodeString");
+        // Thread hijacking syscalls
+        NtSuspendThread          = (NtSuspendThread_t)GetProcAddress(m_ntdll, "NtSuspendThread");
+        NtResumeThread           = (NtResumeThread_t)GetProcAddress(m_ntdll, "NtResumeThread");
+        NtGetContextThread       = (NtGetContextThread_t)GetProcAddress(m_ntdll, "NtGetContextThread");
+        NtSetContextThread       = (NtSetContextThread_t)GetProcAddress(m_ntdll, "NtSetContextThread");
+        NtOpenThread             = (NtOpenThread_t)GetProcAddress(m_ntdll, "NtOpenThread");
+        NtQueryInformationThread = (NtQueryInformationThread_t)GetProcAddress(m_ntdll, "NtQueryInformationThread");
 
         m_initialized = NtCreateSection && NtMapViewOfSection && NtUnmapViewOfSection && NtClose && NtCreateThreadEx &&
                         NtWaitForSingleObject;
