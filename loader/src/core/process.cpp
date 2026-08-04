@@ -61,10 +61,13 @@ std::vector<ProcessInfo> findProcessesByName(const std::wstring& name) {
 ProcessInfo findLunarClient() {
     // Target process - obfuscated
     auto javaProcesses = findProcessesByName(OBFUSCATE_WSTRING(L"javaw.exe"));
+    auto javaExeProc = findProcessesByName(OBFUSCATE_WSTRING(L"java.exe"));
+    javaProcesses.insert(javaProcesses.end(), javaExeProc.begin(), javaExeProc.end());
 
     // First pass: match by known window titles
     for (const auto& proc : javaProcesses) {
-        if (proc.windowTitle.find(OBFUSCATE_WSTRING(L"Lunar Client")) != std::wstring::npos ||
+        if (proc.windowTitle.find(OBFUSCATE_WSTRING(L"MuzCraft")) != std::wstring::npos ||
+            proc.windowTitle.find(OBFUSCATE_WSTRING(L"Lunar Client")) != std::wstring::npos ||
             proc.windowTitle.find(OBFUSCATE_WSTRING(L"Badlion Minecraft")) != std::wstring::npos ||
             proc.windowTitle.find(OBFUSCATE_WSTRING(L"Badlion Client")) != std::wstring::npos ||
             proc.windowTitle.find(OBFUSCATE_WSTRING(L"Minecraft")) != std::wstring::npos) {

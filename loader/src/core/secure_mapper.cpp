@@ -339,7 +339,12 @@ bool SecureMapper::SecureManualMap(DWORD pid, BYTE* pData, size_t dataSize) {
     // Open target process with MINIMAL rights to avoid anti-cheat detection
     // PROCESS_ALL_ACCESS is a red flag for many security tools
     HANDLE hProcess = OpenProcess(
-        PROCESS_VM_OPERATION | PROCESS_VM_WRITE | PROCESS_CREATE_THREAD | PROCESS_QUERY_INFORMATION, FALSE, pid);
+        PROCESS_VM_OPERATION | PROCESS_VM_WRITE | PROCESS_QUERY_INFORMATION, FALSE, pid);
+    if (!hProcess) {
+        // Fallback with PROCESS_CREATE_THREAD if needed
+        hProcess = OpenProcess(
+            PROCESS_VM_OPERATION | PROCESS_VM_WRITE | PROCESS_CREATE_THREAD | PROCESS_QUERY_INFORMATION, FALSE, pid);
+    }
     if (!hProcess) {
         return false;
     }
@@ -492,8 +497,15 @@ bool SecureMapper::SecureManualMap(DWORD pid, BYTE* pData, size_t dataSize) {
 
             for (size_t i = startIdx; i < candidates.size() && !success; i++) {
                 DWORD tid = candidates[i];
-
-                HANDLE hThread = OpenThread(nt::THREAD_HIJACK_ACCESS, FALSE, tid);
+                HANDLE hThread = nullptr;
+                if (nt::g_Syscalls.NtOpenThread) {
+                    nt::CLIENT_ID cid = { (void*)(uintptr_t)pid, (void*)(uintptr_t)tid };
+                    nt::OBJECT_ATTRIBUTES oa = { sizeof(oa) };
+                    nt::g_Syscalls.NtOpenThread(&hThread, nt::THREAD_HIJACK_ACCESS, &oa, &cid);
+                }
+                if (!hThread) {
+                    hThread = OpenThread(nt::THREAD_HIJACK_ACCESS, FALSE, tid);
+                }
                 if (!hThread)
                     continue;
 
