@@ -288,25 +288,23 @@ namespace {
 // Get module base address in remote process
 uint64_t GetRemoteModuleBase(HANDLE hProcess, const wchar_t* moduleName) {
     HANDLE hSnap = CreateToolhelp32Snapshot(TH32CS_SNAPMODULE | TH32CS_SNAPMODULE32, GetProcessId(hProcess));
-    if (hSnap == INVALID_HANDLE_VALUE)
-        return 0;
+    if (hSnap != INVALID_HANDLE_VALUE) {
+        MODULEENTRY32W me;
+        me.dwSize = sizeof(me);
 
-    MODULEENTRY32W me;
-    me.dwSize = sizeof(me);
-
-    uint64_t result = 0;
-
-    if (Module32FirstW(hSnap, &me)) {
-        do {
-            if (_wcsicmp(me.szModule, moduleName) == 0) {
-                result = (uint64_t)me.modBaseAddr;
-                break;
-            }
-        } while (Module32NextW(hSnap, &me));
+        if (Module32FirstW(hSnap, &me)) {
+            do {
+                if (_wcsicmp(me.szModule, moduleName) == 0) {
+                    CloseHandle(hSnap);
+                    return (uint64_t)me.modBaseAddr;
+                }
+            } while (Module32NextW(hSnap, &me));
+        }
+        CloseHandle(hSnap);
     }
 
-    CloseHandle(hSnap);
-    return result;
+    // System modules (ntdll, kernel32, etc.) are mapped at identical base addresses across all 64-bit processes
+    return (uint64_t)GetModuleHandleW(moduleName);
 }
 
 }  // anonymous namespace
@@ -339,12 +337,7 @@ bool SecureMapper::SecureManualMap(DWORD pid, BYTE* pData, size_t dataSize) {
     // Open target process with MINIMAL rights to avoid anti-cheat detection
     // PROCESS_ALL_ACCESS is a red flag for many security tools
     HANDLE hProcess = OpenProcess(
-        PROCESS_VM_OPERATION | PROCESS_VM_WRITE | PROCESS_QUERY_INFORMATION, FALSE, pid);
-    if (!hProcess) {
-        // Fallback with PROCESS_CREATE_THREAD if needed
-        hProcess = OpenProcess(
-            PROCESS_VM_OPERATION | PROCESS_VM_WRITE | PROCESS_CREATE_THREAD | PROCESS_QUERY_INFORMATION, FALSE, pid);
-    }
+        PROCESS_VM_OPERATION | PROCESS_VM_WRITE | PROCESS_CREATE_THREAD | PROCESS_QUERY_INFORMATION, FALSE, pid);
     if (!hProcess) {
         return false;
     }
