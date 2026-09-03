@@ -14,6 +14,11 @@ public:
         int targetEntityId = -1;
         std::uint64_t engagementEpoch = 0;
         bool active = false;
+        // Whether the retained stream may stay open at all. Separate from `active`
+        // because whole-stream retention holds everyone's movement for as long as the
+        // module is on, while `active` says which entity the rewind is aimed at and
+        // goes false the moment you look away.
+        bool streamHold = false;
     };
 
     struct HeldTargetSnapshot {
@@ -57,12 +62,19 @@ public:
         int maxPackets = 32;
 
         // ---- Engagement ----
+        // Hold every entity's movement instead of only the target's. A real connection
+        // delays whatever happens to be in flight, so retention that switches on and off
+        // with the crosshair reads as one player selectively rubber-banding rather than
+        // as lag. Off restores the old behaviour: only the engaged target is withheld and
+        // everybody else renders live.
+        bool wholeStream = true;
         // Distance gate, measured exactly like vanilla getDistanceToEntity(). The
         // defaults span the whole reachable range, so gating is opt-in.
         float minRange = 0.0f;
         float maxRange = 6.0f;
         // Hold only while an attack source is actually running (mouse held,
-        // AutoClicker on, or KillAura holding a target).
+        // AutoClicker on, or KillAura holding a target). With whole-stream on this
+        // gates the rewind, not the stream: the delay stays put either way.
         bool onlyWhileAttacking = false;
 
         // ---- Ghost box ----
@@ -97,6 +109,12 @@ private:
     bool targetWithinRange(JNIEnv* env, jobject target) const;
     void publishIntent(const HoldIntent& intent);
     void closeAdmission();
+    // Drops the whole-stream hold as well, so the queue is allowed to run dry. Used on
+    // the paths where retention must genuinely stop rather than merely lose its target.
+    void closeStream();
+    // Client-tick body for whole-stream retention: the hold is kept up unconditionally
+    // and only the rewind target is engaged or released.
+    void tickWholeStream(JNIEnv* env);
     bool flushPending(JNIEnv* env);
 
     mutable std::recursive_mutex controlMutex_;
@@ -104,6 +122,7 @@ private:
     std::atomic<int> intentTarget_{-1};
     std::atomic<std::uint64_t> intentEpoch_{0};
     std::atomic<bool> intentActive_{false};
+    std::atomic<bool> intentStreamHold_{false};
     std::atomic<bool> drainRequested_{false};
     std::atomic<bool> discardRequested_{false};
     std::atomic<std::uint64_t> visualEpoch_{1};

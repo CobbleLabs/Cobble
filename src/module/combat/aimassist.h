@@ -170,8 +170,6 @@ private:
     // Target finding - returns true if target found, fills position
     bool findTarget(double& targetX, double& targetY, double& targetZ);
 
-    // Apply randomized aim
-    void applyAimRand(float yawDiff, float pitchDiff, float speed);
     // Single time-based controller used by every aim mode. Unlike the legacy
     // stack of reaction ramps/accumulators, this consumes one error vector once
     // per update and is independent of the 2 ms module-loop cadence.

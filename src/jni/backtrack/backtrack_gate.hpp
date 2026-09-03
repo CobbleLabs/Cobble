@@ -36,9 +36,14 @@ bool IsOperational();
 // Retention tunables, pushed from the module's settings page every client tick.
 // holdMs        how long a retained movement packet may be withheld before it is
 //               replayed. Clamped to a sane ceiling internally.
-// maxHeldPackets soft cap: reaching it requests a full drain on the next service
-//               pass. Clamped to the internal hard ownership limit.
-void Configure(unsigned holdMs, unsigned maxHeldPackets);
+// maxHeldPackets soft cap on the packets retained for the engaged target: reaching
+//               it requests a full drain on the next service pass. Clamped to the
+//               internal hard ownership limit.
+// wholeStream   hold every entity's movement instead of only the engaged target's.
+//               A real connection's delay is not a function of where the crosshair
+//               is, so this is what makes retention read as latency rather than as
+//               one player selectively rubber-banding.
+void Configure(unsigned holdMs, unsigned maxHeldPackets, bool wholeStream);
 
 jboolean JNICALL NativeCanProcess(JNIEnv* env, jclass cls, jobject networkManager,
                                   jobject packet);

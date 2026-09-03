@@ -148,43 +148,62 @@ static float applyGCDStrict(float delta, float gcd) {
     return std::round(delta / gcd) * gcd;
 }
 
-// Calculate floor divisor (what AC uses to detect asymmetry)
-static float getFloorDivisor(float delta, float gcd) {
-    if (gcd < 0.0001f || std::abs(delta) < 0.0001f)
-        return 0.0f;
-    float divided = delta / gcd;
-    return std::abs(std::round(divided) - divided);
+// Keep an absolute pitch inside the vertical limit without leaving the mouse grid.
+// Clamping to exactly +-90 truncates the delta between consecutive rotations into
+// something no mouse could report, and parks the pitch on a value no human holds --
+// both of them vertical-aim tells. Stepping back toward zero by whole GCD steps stays
+// on the grid by construction, whatever the incoming value was.
+static float limitPitchOnGrid(float pitch, float gcd) {
+    constexpr float kPitchLimit = 89.9f;
+    if (std::abs(pitch) <= kPitchLimit)
+        return pitch;
+    if (gcd < 0.0001f)
+        return pitch > 0.0f ? kPitchLimit : -kPitchLimit;
+    const float steps = std::ceil((std::abs(pitch) - kPitchLimit) / gcd);
+    return pitch > 0.0f ? pitch - steps * gcd : pitch + steps * gcd;
 }
 
-// Balance floor divisors between axes to prevent AimAssistH/I detection
-// AC flags when one axis is perfectly aligned (< 1e-4) while other isn't (> 0.03)
-static void balanceFloorDivisors(float& yawDelta, float& pitchDelta, float gcd, std::mt19937& rng) {
-    float yawDivisor = getFloorDivisor(yawDelta, gcd);
-    float pitchDivisor = getFloorDivisor(pitchDelta, gcd);
+// Vary the integer step counts of the two axes.
+//
+// A real mouse reports whole counts, so a real rotation delta is always an exact
+// multiple of the GCD and its floor divisor is ~0. Being "perfectly aligned" is
+// therefore normal, not suspicious, and nudging a delta by a FRACTION of a step to
+// disguise it is precisely what a gcd check detects — on both axes at once, and
+// hardest on pitch, whose tracking deltas are small enough that a fraction of a
+// step is a large relative error.
+//
+// What can still read as mechanical is the two axes' step counts moving in
+// lockstep. So vary the counts themselves and stay on the grid: borrow or lend a
+// whole step, occasionally, on one axis. The caller settles the rotation residual
+// after this runs, so a step taken here is paid back on the next frame rather than
+// accumulating into aim error.
+static void varyStepCounts(float& yawDelta, float& pitchDelta, float gcd, std::mt19937& rng) {
+    if (gcd < 0.0001f)
+        return;
 
-    constexpr float PERFECT_THRESHOLD = 1e-4f;
-    constexpr float OFFSET_THRESHOLD = 0.03f;
+    const long yawSteps = std::lround(yawDelta / gcd);
+    const long pitchSteps = std::lround(pitchDelta / gcd);
+    if (yawSteps == 0 && pitchSteps == 0)
+        return;
 
-    std::uniform_real_distribution<float> microOffset(0.008f, 0.025f);
+    std::uniform_int_distribution<int> roll(0, 99);
+    std::uniform_int_distribution<int> pick(0, 1);
 
-    // If yaw is too perfect while pitch isn't, add micro-offset to yaw
-    if (yawDivisor < PERFECT_THRESHOLD && pitchDivisor > OFFSET_THRESHOLD) {
-        float offset = microOffset(rng) * gcd;
-        yawDelta += (yawDelta >= 0 ? offset : -offset);
-    }
-    // If pitch is too perfect while yaw isn't, add micro-offset to pitch
-    else if (pitchDivisor < PERFECT_THRESHOLD && yawDivisor > OFFSET_THRESHOLD) {
-        float offset = microOffset(rng) * gcd;
-        pitchDelta += (pitchDelta >= 0 ? offset : -offset);
-    }
-    // If both are too perfect, add small offset to both (prevents AimAssistJ detection)
-    else if (yawDivisor < PERFECT_THRESHOLD && pitchDivisor < PERFECT_THRESHOLD) {
-        if (std::abs(yawDelta) > 0.5f || std::abs(pitchDelta) > 0.5f) {
-            float offset = microOffset(rng) * gcd * 0.5f;
-            yawDelta += offset;
-            pitchDelta += offset;
-        }
-    }
+    // A locked step ratio across frames is the tell worth breaking. Only touch the
+    // axis that is actually carrying several steps, so a 1-step correction is never
+    // doubled or cancelled outright.
+    const bool yawRoomy = std::labs(yawSteps) >= 2;
+    const bool pitchRoomy = std::labs(pitchSteps) >= 2;
+    if (!yawRoomy && !pitchRoomy)
+        return;
+    if (roll(rng) >= 14)
+        return;
+
+    const bool touchYaw = yawRoomy && (!pitchRoomy || pick(rng) == 0);
+    float& target = touchYaw ? yawDelta : pitchDelta;
+    const long steps = touchYaw ? yawSteps : pitchSteps;
+    const long adjusted = steps + (pick(rng) == 0 ? 1 : -1);
+    target = static_cast<float>(adjusted) * gcd;
 }
 
 static float g_cachedGCD = 0.0f;
@@ -386,8 +405,8 @@ float AimAssist::slerp(float start, float end, float t) {
 void AimAssist::onUpdate() {
     std::lock_guard<std::recursive_mutex> lock(targetMutex_);
     clickStartedThisFrame = false;
-    // Default off each tick; applyAimRand re-arms it only while actively aiming
-    // with packetRotation, so idle/no-target ticks never rewrite outgoing packets.
+    // Default off each tick; applyAimController re-arms it only while actively
+    // aiming with packetRotation, so idle/no-target ticks never rewrite packets.
     hasServerRotation_.store(false, std::memory_order_relaxed);
     JNIEnv* env = Java::Env();
     if (!env)
@@ -624,13 +643,25 @@ void AimAssist::onUpdate() {
     // Hurt Time Lock: Instant aim when switching targets
     if (settings.targetMode == TargetMode::SWITCH && settings.switchSortBy == SortBy::HURT_TIME &&
         settings.hurtTimeLock && targetChangedThisFrame) {
-        // Apply instant aim - skip all smoothing
-        player.setYaw(yawTarget);
-        player.setPrevYaw(yawTarget);
+        // Snapping is the point here, but the snap still has to land somewhere a mouse
+        // could put it: a whole number of GCD steps away from the current rotation.
+        // Writing the exact target instead leaves a delta that is not a multiple of the
+        // step, which is the one thing about a flick that a gcd check can see. What is
+        // given up is at most half a step, well below the resolution of a hitbox.
+        const float gcdSnap = g_cachedGCD > 0.0001f ? g_cachedGCD
+                                                    : calculateGCD(mc.getMouseSensitivity());
+        g_cachedGCD = gcdSnap;
+        const float yawNow = player.getYaw();
+        const float snappedYaw =
+            yawNow + applyGCDStrict(wrapTo180(yawTarget - yawNow), gcdSnap);
+        player.setYaw(snappedYaw);
+        player.setPrevYaw(snappedYaw);
         if (!settings.horizontalOnly) {
-            float clampedPitch = std::clamp(pitchTarget, -90.0f, 90.0f);
-            player.setPitch(clampedPitch);
-            player.setPrevPitch(clampedPitch);
+            const float pitchNow = player.getPitch();
+            const float stepped = pitchNow + applyGCDStrict(pitchTarget - pitchNow, gcdSnap);
+            const float snappedPitch = limitPitchOnGrid(stepped, gcdSnap);
+            player.setPitch(snappedPitch);
+            player.setPrevPitch(snappedPitch);
         }
         prevFrameHadTarget = hasLockedTarget;
         lastMouseDown = mouseDown;
@@ -1181,381 +1212,43 @@ void AimAssist::applyAimController(float yawDiff, float pitchDiff) {
     appliedJitterYaw_ = desiredJitterYaw;
     appliedJitterPitch_ = desiredJitterPitch;
 
-    const float currentYaw = player.getYaw();
-    const float nextYaw = currentYaw + yawStep;
-    player.setYaw(nextYaw);
-    player.setPrevYaw(std::lerp(currentYaw, nextYaw, 0.82f));
-    if (!settings.horizontalOnly) {
+    // Quantize what actually reaches the rotation onto the mouse GCD grid.
+    //
+    // A real mouse reports whole counts, so every rotation a legitimate client can
+    // produce is an exact multiple of (sens * 0.6 + 0.2)^3 * 1.2. This controller
+    // runs every ~2 ms and its raw step is a small fraction of one such unit, so
+    // writing it straight through gave the server a pitch delta no mouse could ever
+    // send — a standing gcd violation, and worst on pitch, where tracking steps are
+    // small enough that the off-grid remainder dominates them.
+    //
+    // The residual carries the leftover fraction, so sub-step motion accumulates
+    // until it is worth a whole step rather than being rounded away. Frames that owe
+    // nothing write nothing, which is also what a real mouse does.
+    const float gcdNow = g_cachedGCD > 0.0001f ? g_cachedGCD : calculateGCD(cachedMouseSensitivity);
+    g_cachedGCD = gcdNow;
+    yawRotationResidual += yawStep;
+    pitchRotationResidual += pitchStep;
+    float yawApply = applyGCDStrict(static_cast<float>(yawRotationResidual), gcdNow);
+    float pitchApply = applyGCDStrict(static_cast<float>(pitchRotationResidual), gcdNow);
+    varyStepCounts(yawApply, pitchApply, gcdNow, rng);
+    yawRotationResidual -= yawApply;
+    pitchRotationResidual -= pitchApply;
+
+    if (std::abs(yawApply) > 0.0001f) {
+        const float currentYaw = player.getYaw();
+        const float nextYaw = currentYaw + yawApply;
+        player.setYaw(nextYaw);
+        player.setPrevYaw(std::lerp(currentYaw, nextYaw, 0.82f));
+    }
+    if (!settings.horizontalOnly && std::abs(pitchApply) > 0.0001f) {
         const float currentPitch = player.getPitch();
-        const float nextPitch = std::clamp(currentPitch + pitchStep, -90.0f, 90.0f);
-        player.setPitch(nextPitch);
-        player.setPrevPitch(std::lerp(currentPitch, nextPitch, 0.82f));
-    }
-}
-
-void AimAssist::applyAimRand(float yawDiff, float pitchDiff, float speed) {
-    float absYawDiff = std::abs(yawDiff);
-    float absPitchDiff = std::abs(pitchDiff);
-
-    if (absYawDiff < 0.05f && absPitchDiff < 0.05f) {
-        return;
-    }
-
-    float maxDiff = std::max(absYawDiff, absPitchDiff);
-    // Keep config/imported values inside the same range exposed by the UI.
-    // Unbounded values make the adaptive multipliers produce overshoot/flicks.
-    float rawSpeedSetting = std::clamp(settings.speed, 1.0f, 120.0f);
-    float speedNorm = std::clamp(rawSpeedSetting / 120.0f, 0.0f, 3.0f);
-    bool highSpeedNoJitter = speedNorm >= 1.6f;
-    float baseSpeed = std::max(speed, rawSpeedSetting * 3.0f);
-    float jitterRange = (maxDiff < 10.f) ? 0.02f : (maxDiff < 30.f ? 0.05f : 0.08f);
-    if (maxDiff < 3.f)
-        jitterRange = 0.0f;  // no jitter when already aligned
-    if (speedNorm >= 2.0f) {
-        jitterRange =
-            (maxDiff > 45.f) ? jitterRange * 0.2f : 0.0f;  // keep far sweeps a bit rough, lock-in stays steady
-    } else if (speedNorm >= 1.5f) {
-        jitterRange *= 0.25f;
-    } else {
-        float speedJitterScale = 1.0f / (1.0f + std::max(0.0f, speedNorm - 0.5f) * 3.0f);
-        jitterRange *= std::clamp(speedJitterScale, 0.15f, 1.0f);
-    }
-    if (highSpeedNoJitter) {
-        jitterRange = 0.0f;
-    }
-    // Adaptive + Entity Lock is hard-lock — kill jitter so the crosshair sticks
-    // to the chest instead of shimmering. Adaptive alone keeps jitter for feel.
-    if (settings.aimMode == AimMode::ADAPTIVE &&
-        entityLockEnabled_.load(std::memory_order_acquire)) {
-        jitterRange = 0.0f;
-    }
-    yawDiff += randFloat(-jitterRange, jitterRange);
-    pitchDiff += randFloat(-jitterRange, jitterRange);
-
-    float alignment = std::clamp(std::max(absYawDiff, absPitchDiff) / 90.0f, 0.0f, 1.0f);
-    float dynamicSpeed = std::lerp(baseSpeed * 0.35f, baseSpeed, alignment);
-    dynamicSpeed *= targetSpeedVariance;
-
-    // Ramp respects both time since acquisition and current angular error (larger error = slower ramp)
-    float timeRamp = std::clamp(targetRampTimer.Elapsed<>() / targetRampDurationMs, 0.25f, 1.0f);
-    float errorRamp = std::clamp(1.0f - (maxDiff / 90.0f), 0.25f, 1.0f);
-    float clickRamp =
-        settings.alwaysAim ? 1.0f : std::clamp(clickRampTimer.Elapsed<>() / clickRampDurationMs, 0.3f, 1.0f);
-    float ramp = std::min({timeRamp, errorRamp, clickRamp});
-    dynamicSpeed *= ramp;
-
-    // Randomize deceleration zone per target (humans are inconsistent)
-    static float currentDecelZone = 6.0f;
-    if (targetChangedThisFrame) {
-        currentDecelZone = randFloat(4.0f, 8.0f);  // Variable zone
-    }
-    if (maxDiff < currentDecelZone) {
-        // Variable exponent for non-uniform deceleration curve
-        float decelExponent = randFloat(1.2f, 1.8f);
-        float decelFactor = std::pow(maxDiff / currentDecelZone, decelExponent);
-        // Apply overshoot tendency from neuromotor state
-        decelFactor *= g_neuroState.overshootFactor;
-        dynamicSpeed *= std::max(0.2f, decelFactor);
-    }
-
-    // Update neuromotor state every frame (scaled by speed setting)
-    g_neuroState.update(rng, rawSpeedSetting);
-
-    if (rawSpeedSetting >= 120.0f) {
-        float extraAggro = std::clamp((rawSpeedSetting - 120.0f) / 200.0f, 0.0f, 1.0f);
-        dynamicSpeed *= std::lerp(0.8f, 0.4f, extraAggro);  // dampen extremes to avoid flicks
-    } else if (maxDiff < 20.f) {
-        dynamicSpeed *= 0.85f;  // slow down near micro-adjust to prevent rebound
-    }
-    if (speedNorm > 1.6f) {
-        float hs = std::clamp((speedNorm - 1.6f) / 1.4f, 0.0f, 1.0f);
-        dynamicSpeed *= std::lerp(0.85f, 0.6f, hs);
-    }
-
-    if (maxDiff < 5.f && rawSpeedSetting > 150.0f) {
-        dynamicSpeed *= 0.5f;
-    }
-
-    if (!reactionPrimed || reactionTimeTimer.Elapsed<>() > settings.reactionTime) {
-        float pitchBoosts = pitchBoost.Delay() * pitchBoost2.Delay();
-        float yawBoosts = yawBoost.Delay() * yawBoost2.Delay();
-
-        if (!settings.horizontalOnly) {
-            float desiredPitchSpeed = pitchDiff / (1000.f / (dynamicSpeed * pitchBoosts));
-            if (std::abs(desiredPitchSpeed) < 0.03f)
-                desiredPitchSpeed = desiredPitchSpeed < 0 ? -0.03f : 0.03f;
-            targetPitchSpeed = desiredPitchSpeed;
-        } else {
-            targetPitchSpeed = 0.f;
+        // Stop just shy of straight up/down, and only ever on a whole step.
+        const float nextPitch = limitPitchOnGrid(currentPitch + pitchApply, gcdNow);
+        pitchApply = nextPitch - currentPitch;
+        if (std::abs(pitchApply) > 0.0001f) {
+            player.setPitch(nextPitch);
+            player.setPrevPitch(std::lerp(currentPitch, nextPitch, 0.82f));
         }
-
-        float desiredYawSpeed = yawDiff / (1000.f / (dynamicSpeed * yawBoosts));
-        if (std::abs(desiredYawSpeed) < 0.03f)
-            desiredYawSpeed = desiredYawSpeed < 0 ? -0.03f : 0.03f;
-        targetYawSpeed = desiredYawSpeed;
-
-        reactionPrimed = true;
-        reactionTimeTimer.Start();
-    }
-
-    float smoothingHuman = std::clamp(aimHumanizer, 0.92f, 1.08f);
-    float smoothingStrength =
-        std::clamp((0.08f + alignment * 0.18f + (std::min(rawSpeedSetting, 360.0f) / 400.0f) * 0.12f) * smoothingHuman,
-                   0.08f, 0.35f);
-    yawdiffSpeed = std::lerp(yawdiffSpeed, targetYawSpeed, smoothingStrength);
-    pitchdiffSpeed = std::lerp(pitchdiffSpeed, targetPitchSpeed, smoothingStrength);
-
-    static Timer pitchRandTimer;
-    static int pitchrand = randInt(-1, 1);
-
-    const int pitchUpdateMsMinLow = 100;
-    const int pitchUpdateMsMaxLow = 300;
-    const int pitchUpdateMsMinHigh = 400;
-    const int pitchUpdateMsMaxHigh = 600;
-    static int pitchUpdateMsMin = 100;
-    static int pitchUpdateMsMax = 600;
-
-    static int pitchupdatems = randInt(pitchUpdateMsMin, pitchUpdateMsMax);
-    static float pitchrandsmooth = 0;
-    static int pitchrandbegin = 0;
-
-    if (highSpeedNoJitter) {
-        pitchrandsmooth = 0.0f;
-    }
-
-    if (absYawDiff > absPitchDiff && absYawDiff > 5.f) {
-        if ((int)pitchRandTimer.Elapsed<>() > pitchupdatems) {
-            pitchrandbegin = pitchrand;
-
-            float t = (std::clamp(absYawDiff, 10.f, 50.f) - 9.99f) / 40.f;
-            pitchUpdateMsMin = (int)std::lerp((float)pitchUpdateMsMinLow, (float)pitchUpdateMsMinHigh, t);
-            pitchUpdateMsMax = (int)std::lerp((float)pitchUpdateMsMaxLow, (float)pitchUpdateMsMaxHigh, t);
-            int travelDistance = 1;
-            pitchupdatems = randInt(pitchUpdateMsMin, pitchUpdateMsMax);
-
-            if (pitchDiff > 0)
-                pitchrand = randInt(1, travelDistance);
-            else
-                pitchrand = randInt(-travelDistance, -1);
-
-            pitchRandTimer.Start();
-        }
-
-        pitchrandsmooth = slerp((float)pitchrandbegin, (float)pitchrand, pitchRandTimer.Elapsed<>() / pitchupdatems);
-    } else {
-        constexpr float partialTick = 1.0f;
-        pitchrandsmooth = std::lerp(pitchrandsmooth, 0.f, std::clamp(partialTick * 0.1f, 0.f, 1.f));
-    }
-
-    float jitterFade = std::clamp(std::max(absYawDiff, absPitchDiff) / 45.0f, 0.0f, 1.0f);
-    float pitchRandScale = 1.0f / (1.0f + std::max(0.0f, speedNorm - 0.8f) * 2.0f);
-    if (speedNorm >= 1.5f) {
-        pitchrandsmooth = 0.0f;
-    } else {
-        pitchrandsmooth *= jitterFade * std::clamp(pitchRandScale, 0.25f, 1.0f);
-    }
-
-    cursorAccumY += pitchdiffSpeed + pitchrandsmooth;
-
-    // Apply pitch continuously like yaw (not integer-based)
-    // This prevents gcdP: 0.0 detection when pitch changes are small
-    float pitchAccum = (float)cursorAccumY;
-
-    // Keep fractional part for smoother accumulation
-    if (std::abs(cursorAccumY) >= 0.1) {
-        cursorAccumY *= 0.7;  // Decay instead of hard reset
-    }
-
-    if (settings.horizontalOnly) {
-        pitchAccum = 0.0f;
-        cursorAccumY = 0.0;
-    } else {
-        // Humans NEVER have exactly 0.0 pitch movement - add micro-noise
-        float baselinePitch = g_neuroState.driftPitch * 0.3f;
-        if (std::abs(pitchAccum) < 0.001f) {
-            pitchAccum = baselinePitch;  // Ensure never exactly 0
-        }
-    }
-
-    // Ensure low in-game sensitivity doesn't overly throttle aim speed.
-    float minSens = std::lerp(0.15f, 0.45f, std::clamp(speedNorm, 0.0f, 1.5f));
-    float effectiveSens = std::max(cachedMouseSensitivity, minSens);
-    float sensBase = effectiveSens * 0.6f + 0.2f;
-    float sensMultiplier = sensBase * sensBase * sensBase * 8.0f;
-
-    constexpr float kMouseGain = 0.10f;
-    float yawDelta = yawdiffSpeed * sensMultiplier * kMouseGain;
-    float pitchDelta = pitchAccum * sensMultiplier * kMouseGain;  // Use float, not int
-
-    // Vertical tracking is intentionally deterministic. The old pitch
-    // accumulator, decay and random pitch wander could overpower the actual
-    // target error, so Smooth/Adaptive slowly crawled toward the floor while
-    // Blatant (which used the raw error) stayed accurate. Use the same bounded
-    // proportional correction as the fast profile, then let the normal error
-    // and per-frame clamps keep it smooth.
-    if (!settings.horizontalOnly) {
-        const float pitchGain = std::clamp(0.16f + rawSpeedSetting * 0.0015f, 0.16f, 0.34f);
-        pitchDelta = pitchDiff * pitchGain;
-        cursorAccumY = 0.0;
-        pitchrandsmooth = 0.0f;
-    }
-
-    updateSimulatedJitter();
-    if (settings.packetRotation) {
-        // Smooth camera: keep the jitter OUT of the applied (render) delta and
-        // ship it only on the outgoing movement packet. Quantize to the GCD so
-        // the sent rotation still reads like a real, quantized mouse rather than
-        // free-floating noise.
-        float gcd = g_cachedGCD > 0.0001f ? g_cachedGCD : calculateGCD(cachedMouseSensitivity);
-        float offY = std::round(simulatedJitterYaw / gcd) * gcd;
-        float offP = settings.horizontalOnly ? 0.0f : std::round(simulatedJitterPitch / gcd) * gcd;
-        serverYawOffset_.store(offY, std::memory_order_relaxed);
-        serverPitchOffset_.store(offP, std::memory_order_relaxed);
-        hasServerRotation_.store(true, std::memory_order_release);
-    } else {
-        yawDelta += simulatedJitterYaw;
-        if (!settings.horizontalOnly)
-            pitchDelta += simulatedJitterPitch;
-    }
-
-    // Guard against overshoot: clamp step to fraction of remaining error
-    auto clampStepToError = [](float delta, float remaining, float frac) -> float {
-        float sign = delta >= 0.f ? 1.f : -1.f;
-        float mag = std::abs(delta);
-        float maxStep = std::max(0.2f, std::abs(remaining) * frac);
-        mag = std::min(mag, maxStep);
-        mag = std::min(mag, std::abs(remaining));
-        return sign * mag;
-    };
-
-    float clampJitter = std::clamp(aimHumanizer, 0.9f, 1.1f);
-    float firstFracYaw = 0.55f * clampJitter;
-    float firstFracPitch = 0.6f * clampJitter;
-    if (targetChangedThisFrame || maxDiff > 20.f) {
-        firstFracYaw = 0.4f;
-        firstFracPitch = 0.55f;
-    }
-    if (speedNorm > 1.5f) {
-        firstFracYaw *= 0.5f;
-        firstFracPitch *= 0.5f;
-        if (speedNorm > 1.8f) {
-            firstFracYaw *= 0.8f;
-            firstFracPitch *= 0.8f;
-        }
-    }
-    float yawDeltaErr = clampStepToError(yawDelta, yawDiff, firstFracYaw);
-    float pitchDeltaErr = clampStepToError(pitchDelta, pitchDiff, firstFracPitch);
-    bool yawErrClamped = std::abs(yawDeltaErr - yawDelta) > 1e-6f;
-    bool pitchErrClamped = std::abs(pitchDeltaErr - pitchDelta) > 1e-6f;
-    yawDelta = yawDeltaErr;
-    pitchDelta = pitchDeltaErr;
-
-    // Clamp per-frame rotation to keep motion buttery even on spikes
-    float stepNorm = std::clamp(speedNorm, 0.0f, 2.2f);
-    float yawStepBase = std::lerp(2.5f, 6.5f, std::min(stepNorm, 1.0f)) + std::max(0.0f, stepNorm - 1.0f) * 2.0f;
-    float pitchStepBase = std::lerp(1.8f, 5.5f, std::min(stepNorm, 1.0f)) + std::max(0.0f, stepNorm - 1.0f) * 1.5f;
-    if (stepNorm > 0.8f) {
-        yawStepBase *= 0.85f;
-        pitchStepBase *= 0.85f;
-    }
-    if (stepNorm > 1.2f) {
-        yawStepBase *= 0.7f;
-        pitchStepBase *= 0.7f;
-        if (stepNorm > 1.6f) {
-            yawStepBase *= 0.6f;
-            pitchStepBase *= 0.6f;
-        }
-    }
-    const float maxYawStep = std::clamp(yawStepBase, 2.5f, 11.5f);
-    const float maxPitchStep = std::clamp(pitchStepBase, 1.8f, 9.5f);
-    float yawDeltaStep = std::clamp(yawDelta, -maxYawStep, maxYawStep);
-    float pitchDeltaStep = std::clamp(pitchDelta, -maxPitchStep, maxPitchStep);
-    bool yawStepClamped = std::abs(yawDeltaStep - yawDelta) > 1e-6f;
-    bool pitchStepClamped = std::abs(pitchDeltaStep - pitchDelta) > 1e-6f;
-    yawDelta = yawDeltaStep;
-    pitchDelta = pitchDeltaStep;
-
-    static Timer debugLogTimer;
-    if (debugLogTimer.Elapsed<>() > 300) {
-        const char* yErrF = yawErrClamped ? "E" : "";
-        const char* yStpF = yawStepClamped ? "S" : "";
-        const char* pErrF = pitchErrClamped ? "E" : "";
-        const char* pStpF = pitchStepClamped ? "S" : "";
-        // Debug logging disabled - uncomment to debug aim calculations
-        // log_debug("[AimAssist] spd=%.1f norm=%.2f dyn=%.2f ramp=%.2f (t=%.2f e=%.2f c=%.2f) jitter=%.4f diff(y=%.2f
-        // p=%.2f max=%.2f) step(y=%.2f p=%.2f) delta(y=%.3f%s%s p=%.3f%s%s)", 	rawSpeedSetting, speedNorm,
-        // dynamicSpeed, ramp, timeRamp, errorRamp, clickRamp, jitterRange, 	yawDiff, pitchDiff, maxDiff, maxYawStep,
-        // maxPitchStep, 	yawDelta, yErrF, yStpF, pitchDelta, pErrF, pStpF);
-        (void)yErrF;
-        (void)yStpF;
-        (void)pErrF;
-        (void)pStpF;  // Suppress unused warnings
-        debugLogTimer.Start();
-    }
-
-    // Refresh GCD periodically
-    if (g_gcdRefreshTimer.Elapsed<>() > 500.0f) {
-        g_cachedGCD = calculateGCD(cachedMouseSensitivity);
-        g_gcdRefreshTimer.Start();
-    }
-    if (g_cachedGCD < 0.0001f) {
-        g_cachedGCD = calculateGCD(cachedMouseSensitivity);
-    }
-
-    // Adding drift after GCD breaks the quantization pattern that AC expects
-    yawDelta += g_neuroState.driftYaw;
-    pitchDelta += settings.horizontalOnly ? 0.f : g_neuroState.driftPitch;
-
-    // Quantize on the mouse GCD while carrying the fractional remainder. A
-    // direct round-to-GCD turns small high-speed corrections into zero and
-    // makes the assist feel stuck while the mouse is moving.
-    if (yawDiff * static_cast<float>(yawRotationResidual) < 0.0f)
-        yawRotationResidual = 0.0;
-    if (pitchDiff * static_cast<float>(pitchRotationResidual) < 0.0f)
-        pitchRotationResidual = 0.0;
-    yawRotationResidual += yawDelta;
-    pitchRotationResidual += pitchDelta;
-    yawDelta = applyGCDStrict(static_cast<float>(yawRotationResidual), g_cachedGCD);
-    pitchDelta = applyGCDStrict(static_cast<float>(pitchRotationResidual), g_cachedGCD);
-    yawRotationResidual -= yawDelta;
-    pitchRotationResidual -= pitchDelta;
-
-    // AimAssistH: flags when pitch is offset but yaw is perfect
-    // AimAssistI: flags when yaw is offset but pitch is perfect
-    balanceFloorDivisors(yawDelta, pitchDelta, g_cachedGCD, rng);
-
-    bool applyYaw = std::abs(yawDelta) > 0.0001f;
-    bool applyPitch = std::abs(pitchDelta) > 0.0001f;
-    if (!applyYaw && !applyPitch) {
-        // No rotation this frame - set prev slightly behind current (natural interpolation)
-        float curYaw = player.getYaw();
-        float curPitch = player.getPitch();
-        // Use drift as offset instead of random (maintains physical coherence)
-        player.setPrevYaw(curYaw - g_neuroState.driftYaw * 0.5f);
-        player.setPrevPitch(curPitch - g_neuroState.driftPitch * 0.5f);
-        return;
-    }
-
-    if (applyYaw) {
-        float currentYaw = player.getYaw();
-        float newYaw = currentYaw + yawDelta;
-        player.setYaw(newYaw);
-        // prevYaw = lerp towards newYaw (natural interpolation, not random)
-        float prevLerp = randFloat(0.85f, 0.95f);
-        player.setPrevYaw(std::lerp(currentYaw, newYaw, prevLerp));
-    }
-
-    if (applyPitch) {
-        float currentPitch = player.getPitch();
-        float finalPitch = std::clamp(currentPitch + pitchDelta, -90.0f, 90.0f);
-        player.setPitch(finalPitch);
-        // prevPitch = lerp towards finalPitch
-        float prevLerp = randFloat(0.85f, 0.95f);
-        player.setPrevPitch(std::lerp(currentPitch, finalPitch, prevLerp));
-    } else {
-        // Sync prevPitch with small drift-based offset
-        float curPitch = player.getPitch();
-        player.setPrevPitch(curPitch - g_neuroState.driftPitch * 0.3f);
     }
 }
 
@@ -1578,8 +1271,11 @@ void AimAssist::onOutgoingPacket(JNIEnv* env, jobject packet) {
     bool havePitch = g_aim_fid_pitch != nullptr && !settings.horizontalOnly;
     if (haveYaw)
         finalYaw = env->GetFloatField(packet, g_aim_fid_yaw) + offY;
-    if (havePitch)
-        finalPitch = std::clamp(env->GetFloatField(packet, g_aim_fid_pitch) + offP, -90.0f, 90.0f);
+    if (havePitch) {
+        const float raw = env->GetFloatField(packet, g_aim_fid_pitch) + offP;
+        finalPitch = limitPitchOnGrid(
+            raw, g_cachedGCD > 0.0001f ? g_cachedGCD : calculateGCD(cachedMouseSensitivity));
+    }
 
     // Anti-duplicate (Intave AimDuplicateLook360). We force rotating=true on every
     // packet, so two consecutive look packets that carry byte-identical yaw+pitch
@@ -1603,9 +1299,11 @@ void AimAssist::onOutgoingPacket(JNIEnv* env, jobject packet) {
             float gcd = g_cachedGCD > 0.0001f ? g_cachedGCD : calculateGCD(cachedMouseSensitivity);
             if (gcd < 0.0001f)
                 gcd = 0.15f;
+            // Yaw alone is enough to make the pair fresh, and yaw alone is what a hand
+            // resting on a mouse actually produces. Stepping both axes by the same signed
+            // amount every time would make them perfectly correlated, which is a pattern
+            // in its own right.
             finalYaw += s_ditherSign * gcd;
-            if (havePitch)
-                finalPitch = std::clamp(finalPitch + s_ditherSign * gcd, -90.0f, 90.0f);
             s_ditherSign = -s_ditherSign;
         }
     }

@@ -200,6 +200,7 @@ Backtrack::HoldIntent Backtrack::holdIntent() const {
         result.targetEntityId = intentTarget_.load(std::memory_order_relaxed);
         result.engagementEpoch = intentEpoch_.load(std::memory_order_relaxed);
         result.active = intentActive_.load(std::memory_order_relaxed);
+        result.streamHold = intentStreamHold_.load(std::memory_order_relaxed);
 
         const std::uint64_t after = intentSequence_.load(std::memory_order_acquire);
         if (before == after)
@@ -213,6 +214,7 @@ void Backtrack::publishIntent(const HoldIntent& intent) {
     intentTarget_.store(intent.targetEntityId, std::memory_order_relaxed);
     intentEpoch_.store(intent.engagementEpoch, std::memory_order_relaxed);
     intentActive_.store(intent.active, std::memory_order_relaxed);
+    intentStreamHold_.store(intent.streamHold, std::memory_order_relaxed);
     intentSequence_.fetch_add(1, std::memory_order_release);
 }
 
@@ -220,6 +222,14 @@ void Backtrack::closeAdmission() {
     HoldIntent intent = holdIntent();
     intent.active = false;
     intent.targetEntityId = -1;
+    publishIntent(intent);
+}
+
+void Backtrack::closeStream() {
+    HoldIntent intent = holdIntent();
+    intent.active = false;
+    intent.targetEntityId = -1;
+    intent.streamHold = false;
     publishIntent(intent);
 }
 
@@ -235,7 +245,7 @@ bool Backtrack::flushPending(JNIEnv* env) {
 void Backtrack::onEnable() {
     std::lock_guard<std::recursive_mutex> lock(controlMutex_);
     visualEpoch_.fetch_add(1, std::memory_order_acq_rel);
-    closeAdmission();
+    closeStream();
     if (BacktrackGate::HasPending())
         drainRequested_.store(true, std::memory_order_release);
     if (!BacktrackGate::IsOperational())
@@ -245,14 +255,14 @@ void Backtrack::onEnable() {
 void Backtrack::onDisable() {
     std::lock_guard<std::recursive_mutex> lock(controlMutex_);
     visualEpoch_.fetch_add(1, std::memory_order_acq_rel);
-    closeAdmission();
+    closeStream();
     drainRequested_.store(BacktrackGate::HasPending(), std::memory_order_release);
 }
 
 void Backtrack::onWorldChange() {
     std::lock_guard<std::recursive_mutex> lock(controlMutex_);
     visualEpoch_.fetch_add(1, std::memory_order_acq_rel);
-    closeAdmission();
+    closeStream();
     drainRequested_.store(false, std::memory_order_release);
 
     JNIEnv* env = Java::Env();
@@ -353,6 +363,80 @@ bool Backtrack::targetWithinRange(JNIEnv* env, jobject target) const {
     return distance >= static_cast<double>(low) && distance <= static_cast<double>(high);
 }
 
+// Whole-stream retention. The delay belongs to the connection, so it stays up for as
+// long as the module is on: no target, an open inventory, an idle mouse — none of those
+// are reasons for a real connection to stop being late, and a hold that starts and stops
+// with the crosshair is the pattern that gives the whole thing away. What comes and goes
+// is only the rewind, which needs a primed target to fold retained movement onto.
+void Backtrack::tickWholeStream(JNIEnv* env) {
+    if (!player.isValid()) {
+        closeStream();
+        if (BacktrackGate::HasPending()) {
+            drainRequested_.store(true, std::memory_order_release);
+            flushPending(env);
+        }
+        return;
+    }
+
+    HoldIntent intent = holdIntent();
+    if (!intent.streamHold || intent.engagementEpoch == 0) {
+        // A fresh stream needs an epoch of its own so its packets can never be folded
+        // onto a previous session's base. Keep the current one while packets are still
+        // in flight, since those were admitted under it.
+        std::uint64_t epoch = intent.engagementEpoch;
+        if (!BacktrackGate::HasPending() || epoch == 0) {
+            ++epoch;
+            if (epoch == 0)
+                epoch = 1;
+        }
+        intent.engagementEpoch = epoch;
+        intent.streamHold = true;
+        publishIntent(intent);
+    }
+
+    const bool mayEngage = !Menu::isOpen && !mc.isInGui() &&
+                           !(settings.onlyWhileAttacking && !attackSourceActive());
+    bool engaged = false;
+    if (mayEngage && JniCache::mid_getEntityId) {
+        jobject target = targetedPlayer(env);
+        if (target) {
+            const int entityId = env->CallIntMethod(target, JniCache::mid_getEntityId);
+            const bool readId = !env->ExceptionCheck() && entityId >= 0;
+            clearException(env);
+            if (readId && targetWithinRange(env, target)) {
+                intent = holdIntent();
+                // Switching targets inside a live stream re-primes the base against the
+                // new entity and leaves the queue alone. The packets already retained
+                // stay retained, which is the entire point: the latency does not blink
+                // because the crosshair moved.
+                if (BacktrackGate::PrimeTarget(env, target, entityId,
+                                               intent.engagementEpoch)) {
+                    engaged = true;
+                    if (!intent.active || intent.targetEntityId != entityId) {
+                        intent.active = true;
+                        intent.targetEntityId = entityId;
+                        publishIntent(intent);
+                    }
+                }
+            }
+            env->DeleteLocalRef(target);
+            clearException(env);
+        }
+    }
+
+    // Losing the target releases the rewind, not the hold.
+    if (!engaged && holdIntent().active)
+        closeAdmission();
+
+    (void)BacktrackGate::ServiceClientThread(env, false);
+
+    if (BacktrackGate::NeedsEmergencyDrain()) {
+        closeStream();
+        drainRequested_.store(true, std::memory_order_release);
+        flushPending(env);
+    }
+}
+
 void Backtrack::onClientTick(JNIEnv* env) {
     if (!env)
         return;
@@ -361,24 +445,26 @@ void Backtrack::onClientTick(JNIEnv* env) {
 
     // Push the retention tunables before anything can be replayed this tick, so a
     // slider that was just dragged takes effect on the very next decision.
+    const bool wholeStream = settings.wholeStream;
     BacktrackGate::Configure(static_cast<unsigned>((std::max)(settings.holdMs, 0)),
-                             static_cast<unsigned>((std::max)(settings.maxPackets, 1)));
+                             static_cast<unsigned>((std::max)(settings.maxPackets, 1)),
+                             wholeStream);
 
     if (discardRequested_.exchange(false, std::memory_order_acq_rel)) {
-        closeAdmission();
+        closeStream();
         BacktrackGate::Discard(env);
         drainRequested_.store(false, std::memory_order_release);
     }
 
     if (!BacktrackGate::IsOperational()) {
-        closeAdmission();
+        closeStream();
         if (BacktrackGate::HasPending())
             flushPending(env);
         return;
     }
 
     if (BacktrackGate::NeedsEmergencyDrain()) {
-        closeAdmission();
+        closeStream();
         drainRequested_.store(true, std::memory_order_release);
     }
 
@@ -386,8 +472,14 @@ void Backtrack::onClientTick(JNIEnv* env) {
         return;
 
     if (!enabled) {
+        closeStream();
         if (BacktrackGate::HasPending())
             flushPending(env);
+        return;
+    }
+
+    if (wholeStream) {
+        tickWholeStream(env);
         return;
     }
 
@@ -588,6 +680,7 @@ void Backtrack::onRenderMenu() {
             ImGui::Spacing();
             ui::SliderInt("Hold Time (ms)", &settings.holdMs, 20, 400, "%d");
             ui::SliderInt("Packet Limit", &settings.maxPackets, 2, 64, "%d");
+            ui::Checkbox("Whole Stream", &settings.wholeStream);
             if (ui::SliderFloat("Min Range", &settings.minRange, 0.0f, 6.0f, "%.1f") &&
                 settings.maxRange < settings.minRange) {
                 settings.maxRange = settings.minRange;
@@ -639,6 +732,7 @@ void Backtrack::saveSettings(json::Value& node) const {
     node["keybind"] = keybindValue;
     node["holdMs"] = settings.holdMs;
     node["maxPackets"] = settings.maxPackets;
+    node["wholeStream"] = settings.wholeStream;
     node["minRange"] = settings.minRange;
     node["maxRange"] = settings.maxRange;
     node["onlyWhileAttacking"] = settings.onlyWhileAttacking;
@@ -648,6 +742,7 @@ void Backtrack::saveSettings(json::Value& node) const {
 void Backtrack::loadSettings(const json::Value& node) {
     settings.holdMs = std::clamp(node["holdMs"].as_int(settings.holdMs), 20, 400);
     settings.maxPackets = std::clamp(node["maxPackets"].as_int(settings.maxPackets), 2, 64);
+    settings.wholeStream = node["wholeStream"].as_bool(settings.wholeStream);
     settings.minRange = std::clamp(node["minRange"].as_float(settings.minRange), 0.0f, 6.0f);
     settings.maxRange = std::clamp(node["maxRange"].as_float(settings.maxRange),
                                    settings.minRange, 6.0f);

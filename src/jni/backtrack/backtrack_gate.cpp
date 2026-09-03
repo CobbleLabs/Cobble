@@ -66,11 +66,17 @@ constexpr std::size_t kHardQueueLimit = 2048;
 constexpr int kMaxReplayPerTick = 128;
 constexpr std::uint64_t kMaxRetentionMs = 1000;
 
+// Whole-stream retention holds every entity's movement, so the queue is bounded by
+// time (hold window x arrival rate) rather than by a per-entity packet count. This
+// is the memory backstop for that mode; the per-target count keeps its own cap.
+constexpr std::size_t kStreamQueueCeiling = 1024;
+
 // Live tunables. The constants above are the defaults; Configure() moves these
 // while the module page is being dragged, so both are read once per decision
 // rather than baked into the code path.
 std::atomic<std::uint64_t> g_retentionMs{kRetentionMs};
 std::atomic<std::size_t> g_softQueueLimit{kSoftQueueLimit};
+std::atomic<bool> g_wholeStream{true};
 
 std::atomic<bool> g_initialized{false};
 std::atomic<bool> g_operational{false};
@@ -114,6 +120,7 @@ struct HeldPacket {
     std::uint64_t engagementEpoch = 0;
     std::uint64_t connectionEpoch = 0;
     std::uint64_t heldAtMs = 0;
+    std::uint64_t releaseAtMs = 0;
     Movement movement;
 };
 
@@ -131,6 +138,118 @@ struct DetachedState {
 };
 
 std::deque<HeldPacket> g_queue;
+
+// Latency model for the retained stream.
+//
+// A real connection never holds every packet for exactly the same number of
+// milliseconds. Its delay wanders: a bottleneck queue fills and drains, the
+// scheduler jitters, wifi retransmits. What a server sees is a mean with a few
+// percent of drift around it. A flat hold is a metronome, and since only the mean
+// buys the hitbox rewind, the drift costs nothing to add.
+//
+// Two properties are load-bearing:
+//   - TCP cannot reorder, so a packet may never be released before one admitted
+//     ahead of it. Each deadline is clamped against its predecessor.
+//   - Latency shifts a stream, it does not compress it. Packets that arrived 50 ms
+//     apart must still leave 50 ms apart, which is why the normal path releases one
+//     per tick instead of draining everything already past its deadline.
+constexpr double kJitterFraction = 0.12;  // +-12% around the configured hold
+constexpr double kWalkTimeConstMs = 250.0;
+constexpr double kReaimIntervalMs = 400.0;
+
+struct LatencyModel {
+    double currentMs = 0.0;
+    double targetMs = 0.0;
+    std::uint64_t lastAdmitMs = 0;
+    std::uint64_t lastDeadlineMs = 0;
+    std::uint32_t rngState = 0x9E3779B9u;
+    // Arrivals since the last service pass, and a smoothed estimate of how many
+    // arrive per pass. Releases have to track arrivals, because a delayed stream
+    // leaves the socket at the rate it entered: one entity at 20 Hz means one
+    // release per client tick, twelve entities means twelve.
+    std::uint32_t admitsSinceService = 0;
+    double arrivalsPerService = 1.0;
+};
+
+LatencyModel g_latency;
+
+std::uint32_t nextRandom(std::uint32_t& state) {
+    state ^= state << 13;
+    state ^= state >> 17;
+    state ^= state << 5;
+    return state;
+}
+
+// Uniform in [0, 1). xorshift rather than <random>: this runs on the Netty read
+// thread under g_stateMutex, so it must be allocation-free and cheap.
+double randUnit(std::uint32_t& state) {
+    return static_cast<double>(nextRandom(state) >> 8) * (1.0 / 16777216.0);
+}
+
+// Deadline for a packet admitted at `admitMs`. Caller holds g_stateMutex.
+std::uint64_t nextReleaseDeadlineLocked(std::uint64_t admitMs) {
+    const double base = static_cast<double>(g_retentionMs.load(std::memory_order_acquire));
+    if (base <= 0.0) {
+        g_latency.lastAdmitMs = admitMs;
+        g_latency.lastDeadlineMs = admitMs;
+        return admitMs;
+    }
+
+    const double band = base * kJitterFraction;
+    if (g_latency.lastAdmitMs == 0) {
+        g_latency.currentMs = base;
+        g_latency.targetMs = base;
+    } else {
+        const double dt = static_cast<double>(admitMs - g_latency.lastAdmitMs);
+        // Re-aim on the order of a few hundred ms: a real queue's depth changes on
+        // that timescale, not once per packet.
+        if (randUnit(g_latency.rngState) < dt / kReaimIntervalMs)
+            g_latency.targetMs = base + (randUnit(g_latency.rngState) * 2.0 - 1.0) * band;
+        // Approach it smoothly so the walk is a drift, not a step.
+        const double alpha = 1.0 - std::exp(-dt / kWalkTimeConstMs);
+        g_latency.currentMs += (g_latency.targetMs - g_latency.currentMs) * alpha;
+    }
+
+    // Small high-frequency component on top of the slow drift, which is what real
+    // jitter looks like.
+    const double noise = (randUnit(g_latency.rngState) * 2.0 - 1.0) * band * 0.15;
+    double delay = g_latency.currentMs + noise;
+    delay = std::clamp(delay, base * (1.0 - kJitterFraction), base * (1.0 + kJitterFraction));
+
+    std::uint64_t deadline = admitMs + static_cast<std::uint64_t>(delay + 0.5);
+    if (g_latency.lastAdmitMs != 0 && deadline < g_latency.lastDeadlineMs)
+        deadline = g_latency.lastDeadlineMs;  // in-order delivery
+    g_latency.lastAdmitMs = admitMs;
+    g_latency.lastDeadlineMs = deadline;
+    return deadline;
+}
+
+void resetLatencyModelLocked() {
+    g_latency.currentMs = 0.0;
+    g_latency.targetMs = 0.0;
+    g_latency.lastAdmitMs = 0;
+    g_latency.lastDeadlineMs = 0;
+    g_latency.admitsSinceService = 0;
+    g_latency.arrivalsPerService = 1.0;
+}
+
+// How many packets this service pass may release. The deadline gate decides *which*
+// are eligible; this only bounds how fast a backlog is worked off, so that a pass
+// that was skipped catches up over several ticks like a real queue draining instead
+// of dumping in one frame. Caller holds g_stateMutex.
+int releaseBudgetLocked() {
+    const double arrivals = static_cast<double>(g_latency.admitsSinceService);
+    // One service pass per client tick, so this is already change-gated at 20 Hz.
+    g_latency.arrivalsPerService += (arrivals - g_latency.arrivalsPerService) * 0.25;
+    g_latency.admitsSinceService = 0;
+    const double allowance = std::ceil(g_latency.arrivalsPerService * 2.0);
+    if (allowance <= 2.0)
+        return 2;
+    if (allowance >= static_cast<double>(kMaxReplayPerTick))
+        return kMaxReplayPerTick;
+    return static_cast<int>(allowance);
+}
+
 ReplayMarker g_replay;
 jobject g_connectionHandler = nullptr;
 std::uint64_t g_connectionEpoch = 0;
@@ -282,26 +401,34 @@ void rebuildSnapshotLocked() {
     if (!g_queue.empty())
         g_snapshot.connectionEpoch = g_queue.back().connectionEpoch;
 
-    if (g_replay.active &&
-        (g_replay.entityId != g_processedBase.entityId ||
-         g_replay.engagementEpoch != g_processedBase.engagementEpoch)) {
-        g_snapshot.valid = false;
-    } else if (g_replay.active && !applyMovement(
-                   g_replay.movement, g_snapshot.serverX, g_snapshot.serverY,
-                   g_snapshot.serverZ)) {
+    // Whole-stream retention queues every entity's movement, so the queue is a
+    // mixture. Only the engaged target's packets move the rewind; another player's
+    // movement is skipped rather than treated as a break in the chain.
+    const bool wholeStream = g_wholeStream.load(std::memory_order_acquire);
+    const bool replayIsBase = g_replay.active &&
+                              g_replay.entityId == g_processedBase.entityId &&
+                              g_replay.engagementEpoch == g_processedBase.engagementEpoch;
+    if (replayIsBase) {
+        if (!applyMovement(g_replay.movement, g_snapshot.serverX, g_snapshot.serverY,
+                           g_snapshot.serverZ)) {
+            g_snapshot.valid = false;
+        }
+    } else if (g_replay.active &&
+               (!wholeStream ||
+                g_replay.engagementEpoch != g_processedBase.engagementEpoch)) {
         g_snapshot.valid = false;
     }
     if (g_replay.active)
         g_snapshot.connectionEpoch = g_replay.connectionEpoch;
     for (const HeldPacket& held : g_queue) {
-        if (held.entityId != g_processedBase.entityId ||
-            held.engagementEpoch != g_processedBase.engagementEpoch ||
-            !g_snapshot.valid) {
-            if (held.entityId != g_processedBase.entityId ||
-                held.engagementEpoch != g_processedBase.engagementEpoch)
-                g_snapshot.valid = false;
+        const bool sameEntity = held.entityId == g_processedBase.entityId;
+        const bool sameEpoch = held.engagementEpoch == g_processedBase.engagementEpoch;
+        if (!sameEpoch || (!sameEntity && !wholeStream)) {
+            g_snapshot.valid = false;
             continue;
         }
+        if (!sameEntity || !g_snapshot.valid)
+            continue;
         foldSnapshotLocked(held.movement);
     }
     refreshSnapshotPendingLocked();
@@ -309,6 +436,14 @@ void rebuildSnapshotLocked() {
 }
 
 void publishMovementLocked(const HeldPacket& held) {
+    // Whole-stream retention: somebody else's movement changes the queue depth, not
+    // the target's rewind, so rebuild against the primed target and let the rebuild
+    // filter out the packets that are not theirs.
+    if (g_wholeStream.load(std::memory_order_acquire) && g_processedBase.valid &&
+        g_processedBase.engagementEpoch == held.engagementEpoch) {
+        rebuildSnapshotLocked();
+        return;
+    }
     if (!g_processedBase.valid ||
         g_processedBase.entityId != held.entityId ||
         g_processedBase.engagementEpoch != held.engagementEpoch) {
@@ -327,17 +462,44 @@ bool prefixForEntityLocked(JNIEnv* env, jobject sourceHandler, int entityId,
                            std::uint64_t& engagementEpoch) {
     if (!sameObject(env, sourceHandler, g_connectionHandler))
         return false;
-    if (g_replay.active && g_replay.entityId == entityId) {
+    // Whole-stream retention: once the stream is held, every entity's movement joins
+    // it. A connection that only delays the player you happen to be looking at is not
+    // a connection, and an entity id has no bearing on whether a packet is late.
+    const bool wholeStream = g_wholeStream.load(std::memory_order_acquire);
+    if (g_replay.active && (wholeStream || g_replay.entityId == entityId)) {
         engagementEpoch = g_replay.engagementEpoch;
         return true;
     }
     for (const HeldPacket& held : g_queue) {
-        if (held.entityId == entityId) {
+        if (wholeStream || held.entityId == entityId) {
             engagementEpoch = held.engagementEpoch;
             return true;
         }
     }
     return false;
+}
+
+// Whether this movement packet should be retained, and under which stream epoch.
+// Evaluated twice per packet — once to decide, once again under the commit lock after
+// the GlobalRef exists — so it lives here rather than being written out twice.
+// Caller holds g_stateMutex.
+bool shouldRetainLocked(JNIEnv* env, jobject source, int entityId, bool& prefix,
+                        std::uint64_t& streamEpoch) {
+    const Backtrack::HoldIntent intent =
+        ::backtrack ? ::backtrack->holdIntent() : Backtrack::HoldIntent{};
+    prefix = prefixForEntityLocked(env, source, entityId, streamEpoch);
+    // Whole-stream retention opens on the hold signal, which the module asserts for as
+    // long as it is enabled rather than only while a target is engaged. Latency does
+    // not switch itself off because you looked away or opened a chest, and a stream
+    // that starts and stops with the crosshair is the tell this mode exists to remove.
+    const bool opens = g_wholeStream.load(std::memory_order_acquire)
+                           ? intent.streamHold
+                           : (intent.active && intent.targetEntityId == entityId);
+    const bool newAdmission = g_operational.load(std::memory_order_acquire) && opens &&
+                              pendingCountLocked() == 0;
+    if (!prefix)
+        streamEpoch = intent.engagementEpoch;
+    return prefix || newAdmission;
 }
 
 jfieldID resolveField(JNIEnv* env, jclass cls,
@@ -636,6 +798,9 @@ DetachedState detachLocked() {
     detached.handler = std::exchange(g_connectionHandler, nullptr);
     g_replay = {};
     clearSnapshotLocked();
+    // The walk restarts with the next stream: a fresh connection has no reason to
+    // inherit the previous one's queue depth.
+    resetLatencyModelLocked();
     g_emergencyDrain.store(false, std::memory_order_release);
     return detached;
 }
@@ -785,16 +950,7 @@ jboolean JNICALL NativeCanProcess(JNIEnv* env, jclass, jobject networkManager,
     std::uint64_t streamEpoch = 0;
     {
         std::lock_guard<std::mutex> lock(g_stateMutex);
-        const Backtrack::HoldIntent intent =
-            ::backtrack ? ::backtrack->holdIntent() : Backtrack::HoldIntent{};
-        prefix = prefixForEntityLocked(env, source, entityId, streamEpoch);
-        const bool newAdmission = g_operational.load(std::memory_order_acquire) &&
-                                  intent.active &&
-                                  intent.targetEntityId == entityId &&
-                                  pendingCountLocked() == 0;
-        shouldHold = prefix || newAdmission;
-        if (!prefix)
-            streamEpoch = intent.engagementEpoch;
+        shouldHold = shouldRetainLocked(env, source, entityId, prefix, streamEpoch);
         capacityAbort = shouldHold && pendingCountLocked() >= kHardQueueLimit;
     }
     if (capacityAbort) {
@@ -825,18 +981,9 @@ jboolean JNICALL NativeCanProcess(JNIEnv* env, jclass, jobject networkManager,
     bool commitAbort = false;
     {
         std::lock_guard<std::mutex> lock(g_stateMutex);
-        const Backtrack::HoldIntent intent =
-            ::backtrack ? ::backtrack->holdIntent() : Backtrack::HoldIntent{};
-        prefix = prefixForEntityLocked(env, source, entityId, streamEpoch);
-        const bool newAdmission = g_operational.load(std::memory_order_acquire) &&
-                                  intent.active &&
-                                  intent.targetEntityId == entityId &&
-                                  pendingCountLocked() == 0;
-        if (!prefix)
-            streamEpoch = intent.engagementEpoch;
+        const bool retain = shouldRetainLocked(env, source, entityId, prefix, streamEpoch);
 
-        if (!g_discarding.load(std::memory_order_acquire) &&
-            (prefix || newAdmission)) {
+        if (!g_discarding.load(std::memory_order_acquire) && retain) {
             if (pendingCountLocked() >= kHardQueueLimit) {
                 commitAbort = true;
             } else {
@@ -853,13 +1000,27 @@ jboolean JNICALL NativeCanProcess(JNIEnv* env, jclass, jobject networkManager,
                 }
 
                 if (!commitAbort && sameObject(env, source, g_connectionHandler)) {
+                    const std::uint64_t admitMs = nowMs();
                     g_queue.push_back({packetGlobal, entityId, streamEpoch,
-                                       g_connectionEpoch, nowMs(), movement});
+                                       g_connectionEpoch, admitMs,
+                                       nextReleaseDeadlineLocked(admitMs), movement});
                     packetGlobal = nullptr;
+                    ++g_latency.admitsSinceService;
                     publishMovementLocked(g_queue.back());
                     queued = true;
-                    if (pendingCountLocked() >=
-                        g_softQueueLimit.load(std::memory_order_acquire))
+                    // The packet cap still means what the page says it means: how many
+                    // of the target's own updates may be withheld. Whole-stream depth
+                    // is bounded by the hold window times the arrival rate instead, so
+                    // there it only needs a memory backstop.
+                    const std::size_t cap =
+                        g_softQueueLimit.load(std::memory_order_acquire);
+                    const std::size_t pending = pendingCountLocked();
+                    const bool overflow =
+                        g_wholeStream.load(std::memory_order_acquire)
+                            ? (pending >= kStreamQueueCeiling ||
+                               static_cast<std::size_t>(g_snapshot.pendingPackets) >= cap)
+                            : (pending >= cap);
+                    if (overflow)
                         g_emergencyDrain.store(true, std::memory_order_release);
                 } else if (!commitAbort && prefix) {
                     commitAbort = true;
@@ -902,14 +1063,21 @@ bool PrimeTarget(JNIEnv* env, jobject entity, int entityId,
     std::lock_guard<std::mutex> replayLock(g_replayMutex);
     std::lock_guard<std::mutex> stateLock(g_stateMutex);
 
+    // Whole-stream retention queues everyone, so a queued packet belonging to another
+    // entity is expected rather than a broken prefix. Only a foreign stream epoch is
+    // disqualifying: that would mean folding one hold session's packets onto another's
+    // base. Switching targets inside a live stream is therefore free — the new base is
+    // read from the entity, whose position still reflects only processed packets, and
+    // its own retained movement is folded back on top.
+    const bool wholeStream = g_wholeStream.load(std::memory_order_acquire);
     bool hasDifferentPrefix = false;
     if (g_replay.active) {
-        hasDifferentPrefix = g_replay.entityId != entityId ||
-                             g_replay.engagementEpoch != engagementEpoch;
+        hasDifferentPrefix = g_replay.engagementEpoch != engagementEpoch ||
+                             (!wholeStream && g_replay.entityId != entityId);
     }
     for (const HeldPacket& held : g_queue) {
-        if (held.entityId != entityId ||
-            held.engagementEpoch != engagementEpoch) {
+        if (held.engagementEpoch != engagementEpoch ||
+            (!wholeStream && held.entityId != entityId)) {
             hasDifferentPrefix = true;
             break;
         }
@@ -942,7 +1110,21 @@ int ServiceClientThread(JNIEnv* env, bool flushAll) {
     std::lock_guard<std::mutex> replayLock(g_replayMutex);
     int sent = 0;
 
-    for (; sent < kMaxReplayPerTick; ++sent) {
+    // Latency shifts a stream, it does not compress it: packets that arrived 50 ms
+    // apart have to leave 50 ms apart. The per-packet deadlines do most of that work —
+    // in the steady state exactly as many packets fall due per tick as arrived — so the
+    // budget here only bounds how fast a *backlog* is worked off. A service pass that
+    // got skipped then catches up over a few ticks, the way a real queue drains, rather
+    // than dumping everything eligible into one frame. It tracks the measured arrival
+    // rate because whole-stream retention carries a packet per visible entity per tick,
+    // not one in total.
+    int budget = kMaxReplayPerTick;
+    if (!flushAll && !g_emergencyDrain.load(std::memory_order_acquire)) {
+        std::lock_guard<std::mutex> lock(g_stateMutex);
+        budget = releaseBudgetLocked();
+    }
+
+    for (; sent < budget; ++sent) {
         HeldPacket held;
         jobject expectedHandler = nullptr;
         jobject idleHandler = nullptr;
@@ -956,8 +1138,12 @@ int ServiceClientThread(JNIEnv* env, bool flushAll) {
                         clearSnapshotLocked();
                 }
             } else {
-                const std::uint64_t age = nowMs() - g_queue.front().heldAtMs;
-                if (flushAll || age >= g_retentionMs.load(std::memory_order_acquire)) {
+                // Each packet carries its own deadline from the latency model, so the
+                // hold time varies packet to packet instead of every one waiting out
+                // the same constant.
+                const bool draining =
+                    flushAll || g_emergencyDrain.load(std::memory_order_acquire);
+                if (draining || nowMs() >= g_queue.front().releaseAtMs) {
                     held = std::move(g_queue.front());
                     g_queue.pop_front();
                     g_replay = {true, held.entityId, held.engagementEpoch,
@@ -984,11 +1170,21 @@ int ServiceClientThread(JNIEnv* env, bool flushAll) {
             jobject handlerToDelete = nullptr;
             {
                 std::lock_guard<std::mutex> lock(g_stateMutex);
-                if (!g_processedBase.valid ||
-                    g_processedBase.entityId != held.entityId ||
-                    g_processedBase.engagementEpoch != held.engagementEpoch ||
-                    !applyMovement(held.movement, g_processedBase.x,
-                                   g_processedBase.y, g_processedBase.z)) {
+                const bool ownsBase = g_processedBase.valid &&
+                                      g_processedBase.entityId == held.entityId &&
+                                      g_processedBase.engagementEpoch == held.engagementEpoch;
+                // Whole-stream retention releases everyone else's movement as well. Such
+                // a packet says nothing about where the engaged target is: it must
+                // neither advance their base nor be mistaken for a break in the chain.
+                // The same goes for the stream running with nobody primed, which is the
+                // normal state while you are not aiming at anything.
+                const bool inert = !ownsBase &&
+                                   g_wholeStream.load(std::memory_order_acquire) &&
+                                   (!g_processedBase.valid ||
+                                    g_processedBase.engagementEpoch == held.engagementEpoch);
+                if (!inert &&
+                    (!ownsBase || !applyMovement(held.movement, g_processedBase.x,
+                                                 g_processedBase.y, g_processedBase.z))) {
                     g_processedBase.valid = false;
                     g_snapshot.valid = false;
                     g_emergencyDrain.store(true, std::memory_order_release);
@@ -1222,7 +1418,7 @@ bool IsOperational() {
     return g_operational.load(std::memory_order_acquire);
 }
 
-void Configure(unsigned holdMs, unsigned maxHeldPackets) {
+void Configure(unsigned holdMs, unsigned maxHeldPackets, bool wholeStream) {
     std::uint64_t hold = static_cast<std::uint64_t>(holdMs);
     if (hold > kMaxRetentionMs)
         hold = kMaxRetentionMs;
@@ -1232,6 +1428,8 @@ void Configure(unsigned holdMs, unsigned maxHeldPackets) {
     if (cap > kHardQueueLimit)
         cap = kHardQueueLimit;
     g_softQueueLimit.store(cap, std::memory_order_release);
+
+    g_wholeStream.store(wholeStream, std::memory_order_release);
 }
 
 }  // namespace BacktrackGate
