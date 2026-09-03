@@ -1,10 +1,25 @@
 #include "slowdown_gate.hpp"
 
 #include <atomic>
+#include <chrono>
+#include <cstdint>
+#include <thread>
+
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <Windows.h>
 
 #include "../../module/movement/no_slow_down.h"
 #include "../../module/combat/killaura.h"
 #include "../../module/combat/backtrack.h"
+#include "../../module/combat/autorod.h"
+#include "../../module/combat/blockhit.h"
+#include "../../sdk/core/minecraft.h"
+#include "../../sdk/jni/jni_cache.h"
 #include "../../sdk/player/player.h"
 #include "../../util/logger.hpp"
 #include "../java.h"
@@ -133,43 +148,79 @@ static const uint8_t kSlowDownHookBytecode[] = {
 };
 
 static std::atomic<bool> g_initialized{false};
+static std::atomic<bool> g_shuttingDown{false};
+static std::atomic<std::uint32_t> g_callbacksInFlight{0};
 static jclass g_cls_SlowDownHook = nullptr;
+
+struct CallbackScope {
+    CallbackScope() { g_callbacksInFlight.fetch_add(1, std::memory_order_acq_rel); }
+    ~CallbackScope() { g_callbacksInFlight.fetch_sub(1, std::memory_order_acq_rel); }
+};
 
 }  // namespace
 
 namespace SlowDownGate {
 
 void JNICALL NativeOnSlowDown(JNIEnv* env, jclass, jobject playerInstance) {
-    COBBLE_TRACE_ONCE("NativeOnSlowDown: callback triggered!");
-    // This fires from EntityLivingBase.onLivingUpdate for the local player, PRE-MOTION
-    // (before the game applies movement). Two consumers ride it: NoSlowDown restores
-    // the movement input, and KillAura applies its rotation here so the movement the
-    // game simulates matches the rotation we send (Grim MoveFix). Both are optional.
+    CallbackScope callback;
+    if (g_shuttingDown.load(std::memory_order_acquire) || !env || !playerInstance)
+        return;
+
     const bool wantSlow = noSlowDown && noSlowDown->enabled;
     const bool wantAura = killAura && killAura->enabled;
-    const bool wantBt = backtrack && backtrack->enabled;
-    if (!playerInstance || (!wantSlow && !wantAura && !wantBt))
+    const bool wantBt = backtrack && backtrack->needsClientTick();
+    const bool wantRod = autoRod && autoRod->needsClientTick();
+    const bool wantBlock = blockHit && blockHit->needsClientTick();
+    if (!wantSlow && !wantAura && !wantBt && !wantRod && !wantBlock)
+        return;
+
+    // Use Minecraft.thePlayer as the authority. Backtrack's client-thread pump
+    // must not disappear merely because the separate Player cache is refreshing.
+    jobject localPlayer = nullptr;
+    if (mc.instance && JniCache::fid_thePlayer) {
+        localPlayer = env->GetObjectField(mc.instance, JniCache::fid_thePlayer);
+        if (env->ExceptionCheck()) {
+            env->ExceptionClear();
+            localPlayer = nullptr;
+        }
+    }
+    const bool isLocalPlayer = localPlayer &&
+                               env->IsSameObject(playerInstance, localPlayer) == JNI_TRUE;
+    if (localPlayer)
+        env->DeleteLocalRef(localPlayer);
+    if (env->ExceptionCheck())
+        env->ExceptionClear();
+    if (!isLocalPlayer)
+        return;
+
+    if (wantBt)
+        backtrack->onClientTick(env);
+
+    if (!wantSlow && !wantAura && !wantRod && !wantBlock)
         return;
 
     std::lock_guard<std::recursive_mutex> lock(player.instanceMutex);
-    if (!player.instance)
-        return;
-    if (env->IsSameObject(playerInstance, player.instance) != JNI_TRUE) {
-        COBBLE_TRACE_ONCE("NativeOnSlowDown: player DOES NOT MATCH cached instance!");
+    if (!player.instance ||
+        env->IsSameObject(playerInstance, player.instance) != JNI_TRUE) {
+        if (env->ExceptionCheck())
+            env->ExceptionClear();
         return;
     }
-
-    if (wantSlow) {
-        COBBLE_TRACE_ONCE("NativeOnSlowDown: player matches, applying movement!");
+    if (wantSlow)
         noSlowDown->applyMovement(env, playerInstance);
-    }
-    if (wantAura) {
+    if (wantAura)
         killAura->onPreMotion(env, playerInstance);
-    }
-    if (wantBt) {
-        // Per-tick, client thread: pick target, decide holding, release eligible packets.
-        backtrack->onClientTick(env);
-    }
+    // AutoRod's hotbar swaps and use-item have to be tick-aligned to stay in
+    // vanilla packet order, so the whole sequence is driven from here rather than
+    // from the async module loop.
+    if (wantRod)
+        autoRod->onClientTick(env);
+    // BlockHit is dispatched LAST on purpose: KillAura's attack for this tick is
+    // already recorded by the time we get here, so the release window can be timed
+    // against it without a one-tick lag, and AutoRod has already claimed the
+    // use-item keybind for any tick where it needs it.
+    if (wantBlock)
+        blockHit->onClientTick(env);
 }
 
 bool Init(JNIEnv* env) {
@@ -177,6 +228,8 @@ bool Init(JNIEnv* env) {
         return true;
     if (!env)
         return false;
+
+    g_shuttingDown.store(false, std::memory_order_release);
 
     // Try to find existing class first
     jclass hook = nullptr;
@@ -242,26 +295,68 @@ bool Init(JNIEnv* env) {
         return false;
     }
 
-    g_cls_SlowDownHook = (jclass)env->NewGlobalRef(hook);
+    g_cls_SlowDownHook = static_cast<jclass>(env->NewGlobalRef(hook));
+    if (env->ExceptionCheck())
+        env->ExceptionClear();
+    if (!g_cls_SlowDownHook) {
+        env->UnregisterNatives(hook);
+        if (env->ExceptionCheck())
+            env->ExceptionClear();
+        env->DeleteLocalRef(hook);
+        return false;
+    }
     env->DeleteLocalRef(hook);
-    g_initialized = true;
+    g_initialized.store(true, std::memory_order_release);
     COBBLE_TRACE("SlowDownGate::Init: Success!");
     log_ok("[SlowDownGate] SlowDownHook native bridge ready");
     return true;
 }
 
-void Shutdown(JNIEnv* env, bool safeToUnregister) {
-    if (g_cls_SlowDownHook) {
-        if (safeToUnregister) {
-            env->UnregisterNatives(g_cls_SlowDownHook);
-            log_ok("[SlowDownGate] Unregistered SlowDownHook natives");
-        } else {
-            log_warn("[SlowDownGate] Skipped unregistering SlowDownHook natives to prevent crash");
+bool Shutdown(JNIEnv* env, bool safeToUnregister) {
+    g_shuttingDown.store(true, std::memory_order_release);
+
+    // BytecodePatcher has already restored EntityLivingBase, so this only waits
+    // for callbacks that entered before the callsite disappeared. No player mutex
+    // is held while waiting.
+    const auto deadline =
+        std::chrono::steady_clock::now() + std::chrono::milliseconds(2000);
+    while (g_callbacksInFlight.load(std::memory_order_acquire) != 0) {
+        if (std::chrono::steady_clock::now() >= deadline) {
+            log_err("[SlowDownGate] Timed out waiting for native callbacks");
+            return false;
         }
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+
+    if (!env) {
+        log_err("[SlowDownGate] Cannot shut down without JNIEnv");
+        return false;
+    }
+
+    if (g_cls_SlowDownHook) {
+        if (!safeToUnregister) {
+            log_warn("[SlowDownGate] Native unregister was not declared safe");
+            return false;
+        }
+
+        const jint unregisterResult = env->UnregisterNatives(g_cls_SlowDownHook);
+        const bool unregisterException = env->ExceptionCheck() == JNI_TRUE;
+        if (unregisterException)
+            env->ExceptionClear();
+        if (unregisterResult != JNI_OK || unregisterException) {
+            log_err("[SlowDownGate] Failed to unregister SlowDownHook natives (result=%d, exception=%d)",
+                    unregisterResult, unregisterException ? 1 : 0);
+            return false;
+        }
+        log_ok("[SlowDownGate] Unregistered SlowDownHook natives");
+
         env->DeleteGlobalRef(g_cls_SlowDownHook);
         g_cls_SlowDownHook = nullptr;
     }
-    g_initialized = false;
+
+    g_initialized.store(false, std::memory_order_release);
+    g_shuttingDown.store(false, std::memory_order_release);
+    return true;
 }
 
 }  // namespace SlowDownGate

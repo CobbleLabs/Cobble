@@ -1,6 +1,9 @@
 #include "backtrack_ghost_gate.hpp"
 
 #include <atomic>
+#include <chrono>
+#include <cstdint>
+#include <thread>
 
 #include "../../module/combat/backtrack.h"
 #include "../../sdk/core/minecraft.h"
@@ -252,7 +255,14 @@ static const uint8_t kBacktrackGhostHookBytecode[] = {
 };
 
 static std::atomic<bool> g_initialized{false};
+static std::atomic<bool> g_shuttingDown{false};
+static std::atomic<std::uint32_t> g_callbacksInFlight{0};
 static jclass g_cls_BacktrackGhostHook = nullptr;
+
+struct CallbackScope {
+    CallbackScope() { g_callbacksInFlight.fetch_add(1, std::memory_order_acq_rel); }
+    ~CallbackScope() { g_callbacksInFlight.fetch_sub(1, std::memory_order_acq_rel); }
+};
 
 }  // namespace
 
@@ -262,8 +272,9 @@ static jclass g_cls_BacktrackGhostHook = nullptr;
 namespace BacktrackGhostGate {
 
 void JNICALL NativeOnRenderWorld(JNIEnv* env, jclass, jobject viewEntity) {
+    CallbackScope callback;
     (void)viewEntity;
-    if (!env)
+    if (g_shuttingDown.load(std::memory_order_acquire) || !env)
         return;
 
     GLfloat proj[16];
@@ -334,6 +345,8 @@ bool Init(JNIEnv* env) {
     if (!env)
         return false;
 
+    g_shuttingDown.store(false, std::memory_order_release);
+
     jclass hook = nullptr;
     if (!Java::AssignClass("com.cobble.agent.BacktrackGhostHook", hook)) {
         if (env->ExceptionCheck())
@@ -381,15 +394,48 @@ bool Init(JNIEnv* env) {
     return true;
 }
 
-void Shutdown(JNIEnv* env, bool safeToUnregister) {
+bool Shutdown(JNIEnv* env, bool safeToUnregister) {
+    g_shuttingDown.store(true, std::memory_order_release);
+
+    const auto deadline =
+        std::chrono::steady_clock::now() + std::chrono::milliseconds(2000);
+    while (g_callbacksInFlight.load(std::memory_order_acquire) != 0) {
+        if (std::chrono::steady_clock::now() >= deadline) {
+            log_err("[BacktrackGhostGate] Timed out waiting for native callbacks");
+            return false;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+
+    if (!env) {
+        log_err("[BacktrackGhostGate] Cannot shut down without JNIEnv");
+        return false;
+    }
+
     if (g_cls_BacktrackGhostHook) {
-        if (safeToUnregister && env)
-            env->UnregisterNatives(g_cls_BacktrackGhostHook);
-        if (env)
-            env->DeleteGlobalRef(g_cls_BacktrackGhostHook);
+        if (!safeToUnregister) {
+            log_warn("[BacktrackGhostGate] Native unregister was not declared safe");
+            return false;
+        }
+
+        const jint unregisterResult = env->UnregisterNatives(g_cls_BacktrackGhostHook);
+        const bool unregisterException = env->ExceptionCheck() == JNI_TRUE;
+        if (unregisterException)
+            env->ExceptionClear();
+        if (unregisterResult != JNI_OK || unregisterException) {
+            log_err("[BacktrackGhostGate] Failed to unregister BacktrackGhostHook natives (result=%d, exception=%d)",
+                    unregisterResult, unregisterException ? 1 : 0);
+            return false;
+        }
+        log_ok("[BacktrackGhostGate] Unregistered BacktrackGhostHook natives");
+
+        env->DeleteGlobalRef(g_cls_BacktrackGhostHook);
         g_cls_BacktrackGhostHook = nullptr;
     }
-    g_initialized = false;
+
+    g_initialized.store(false, std::memory_order_release);
+    g_shuttingDown.store(false, std::memory_order_release);
+    return true;
 }
 
 bool IsReady() {

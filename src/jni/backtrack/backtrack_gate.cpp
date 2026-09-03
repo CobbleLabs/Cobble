@@ -1,9 +1,18 @@
 #include "backtrack_gate.hpp"
 
+#include <algorithm>
 #include <atomic>
+#include <chrono>
+#include <cmath>
 #include <cstdint>
+#include <cstring>
 #include <deque>
+#include <initializer_list>
+#include <limits>
 #include <mutex>
+#include <thread>
+#include <utility>
+#include <vector>
 
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
@@ -15,305 +24,1214 @@
 
 #include "../../module/combat/backtrack.h"
 #include "../../sdk/core/minecraft.h"
+#include "../../sdk/jni/jni_cache.h"
+#include "../../sdk/jni/member_resolver.h"
 #include "../../util/logger.hpp"
 #include "../java.h"
 
-// ---------------------------------------------------------------------------
-// IncomingHook Java class bytecode
-//
-//   package com.cobble.agent;
-//   public class IncomingHook {
-//       public static native boolean canProcess(Object packet);
-//   }
-//
-// Same hand-crafted layout as SlowDownHook (same string lengths), only the class
-// name, method name and the return type of the descriptor differ.
-// ---------------------------------------------------------------------------
 namespace {
 
-static const uint8_t kIncomingHookBytecode[] = {
-    0xCA, 0xFE, 0xBA, 0xBE, 0x00, 0x00, 0x00, 0x34,
-    0x00, 0x0C,  // constant pool count = 12
-    // #1 Utf8 "com/cobble/agent/IncomingHook" (29 chars)
+static const std::uint8_t kIncomingHookBytecode[] = {
+    0xCA, 0xFE, 0xBA, 0xBE, 0x00, 0x00, 0x00, 0x34, 0x00, 0x0C,
     0x01, 0x00, 0x1D,
     'c','o','m','/','c','o','b','b','l','e','/','a','g','e','n','t','/',
     'I','n','c','o','m','i','n','g','H','o','o','k',
-    // #2 Class -> #1
     0x07, 0x00, 0x01,
-    // #3 Utf8 "java/lang/Object" (16)
     0x01, 0x00, 0x10,
     'j','a','v','a','/','l','a','n','g','/','O','b','j','e','c','t',
-    // #4 Class -> #3
     0x07, 0x00, 0x03,
-    // #5 Utf8 "<init>" (6)
-    0x01, 0x00, 0x06,
-    '<','i','n','i','t','>',
-    // #6 Utf8 "()V" (3)
-    0x01, 0x00, 0x03,
-    '(',')','V',
-    // #7 Utf8 "Code" (4)
-    0x01, 0x00, 0x04,
-    'C','o','d','e',
-    // #8 Utf8 "canProcess" (10)
-    0x01, 0x00, 0x0A,
-    'c','a','n','P','r','o','c','e','s','s',
-    // #9 Utf8 "(Ljava/lang/Object;)Z" (21)
-    0x01, 0x00, 0x15,
-    '(','L','j','a','v','a','/','l','a','n','g','/','O','b','j','e','c','t',';',')','Z',
-    // #10 NameAndType -> #5, #6
+    0x01, 0x00, 0x06, '<','i','n','i','t','>',
+    0x01, 0x00, 0x03, '(',')','V',
+    0x01, 0x00, 0x04, 'C','o','d','e',
+    0x01, 0x00, 0x0A, 'c','a','n','P','r','o','c','e','s','s',
+    0x01, 0x00, 0x27,
+    '(','L','j','a','v','a','/','l','a','n','g','/','O','b','j','e','c','t',';',
+        'L','j','a','v','a','/','l','a','n','g','/','O','b','j','e','c','t',';',')','Z',
     0x0C, 0x00, 0x05, 0x00, 0x06,
-    // #11 Methodref -> #4, #10
     0x0A, 0x00, 0x04, 0x00, 0x0A,
-
-    0x00, 0x01,  // access = ACC_PUBLIC
-    0x00, 0x02,  // this_class = #2
-    0x00, 0x04,  // super_class = #4
-    0x00, 0x00,  // interfaces_count
-    0x00, 0x00,  // fields_count
-    0x00, 0x02,  // methods_count = 2
-
-    // Method 0: <init> ()V
+    0x00, 0x01, 0x00, 0x02, 0x00, 0x04, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x02,
     0x00, 0x01, 0x00, 0x05, 0x00, 0x06, 0x00, 0x01,
     0x00, 0x07, 0x00, 0x00, 0x00, 0x11,
     0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0x05,
     0x2A, 0xB7, 0x00, 0x0B, 0xB1,
     0x00, 0x00, 0x00, 0x00,
-
-    // Method 1: canProcess (Ljava/lang/Object;)Z  ACC_PUBLIC|STATIC|NATIVE = 0x0109
     0x01, 0x09, 0x00, 0x08, 0x00, 0x09, 0x00, 0x00,
-
-    0x00, 0x00,  // class attributes_count
+    0x00, 0x00,
 };
+
+constexpr std::uint64_t kRetentionMs = 180;
+constexpr std::size_t kSoftQueueLimit = 256;
+constexpr std::size_t kHardQueueLimit = 2048;
+constexpr int kMaxReplayPerTick = 128;
+constexpr std::uint64_t kMaxRetentionMs = 1000;
+
+// Live tunables. The constants above are the defaults; Configure() moves these
+// while the module page is being dragged, so both are read once per decision
+// rather than baked into the code path.
+std::atomic<std::uint64_t> g_retentionMs{kRetentionMs};
+std::atomic<std::size_t> g_softQueueLimit{kSoftQueueLimit};
 
 std::atomic<bool> g_initialized{false};
-jclass g_cls_IncomingHook = nullptr;
+std::atomic<bool> g_operational{false};
+std::atomic<bool> g_shuttingDown{false};
+std::atomic<bool> g_discarding{false};
+std::atomic<bool> g_emergencyDrain{false};
+std::atomic<bool> g_callbackObserved{false};
+std::atomic<bool> g_firstPacketReported{false};
+std::atomic<bool> g_missingSourceReported{false};
+std::atomic<std::uint32_t> g_callbacksInFlight{0};
 
-// Held packet queue.
-struct Held {
-    jobject packet;  // GlobalRef
-    std::uint64_t heldAtMs;
+jclass g_incomingHook = nullptr;
+jclass g_networkManager = nullptr;
+jfieldID g_packetListener = nullptr;
+
+jclass g_s14 = nullptr;
+jclass g_s18 = nullptr;
+jfieldID g_s14EntityId = nullptr;
+jfieldID g_s14X = nullptr;
+jfieldID g_s14Y = nullptr;
+jfieldID g_s14Z = nullptr;
+jfieldID g_s18EntityId = nullptr;
+jfieldID g_s18X = nullptr;
+jfieldID g_s18Y = nullptr;
+jfieldID g_s18Z = nullptr;
+jmethodID g_s14Process = nullptr;
+jmethodID g_s18Process = nullptr;
+
+enum class MovementKind : std::uint8_t { Relative, Teleport };
+
+struct Movement {
+    MovementKind kind = MovementKind::Relative;
+    std::int32_t x = 0;
+    std::int32_t y = 0;
+    std::int32_t z = 0;
 };
-std::deque<Held> g_held;
-std::mutex g_mutex;
 
-// Set only while re-injecting our own held packets, so the re-entrant handleEntity
-// call passes straight through instead of being re-held.
-thread_local bool tl_releasing = false;
+struct HeldPacket {
+    jobject packet = nullptr;
+    int entityId = -1;
+    std::uint64_t engagementEpoch = 0;
+    std::uint64_t connectionEpoch = 0;
+    std::uint64_t heldAtMs = 0;
+    Movement movement;
+};
 
-// Lazily-resolved packet/entity-id/processPacket handles.
-jclass g_s14 = nullptr, g_s18 = nullptr;
-jfieldID g_s14Id = nullptr, g_s18Id = nullptr;
-bool g_idsResolved = false;
+struct ReplayMarker {
+    bool active = false;
+    int entityId = -1;
+    std::uint64_t engagementEpoch = 0;
+    std::uint64_t connectionEpoch = 0;
+    Movement movement;
+};
+
+struct DetachedState {
+    std::deque<HeldPacket> packets;
+    jobject handler = nullptr;
+};
+
+std::deque<HeldPacket> g_queue;
+ReplayMarker g_replay;
+jobject g_connectionHandler = nullptr;
+std::uint64_t g_connectionEpoch = 0;
+BacktrackGate::TargetSnapshot g_snapshot;
+std::uint64_t g_snapshotSequence = 0;
+
+struct ProcessedBase {
+    bool valid = false;
+    int entityId = -1;
+    std::uint64_t engagementEpoch = 0;
+    std::uint64_t connectionEpoch = 0;
+    std::int32_t x = 0;
+    std::int32_t y = 0;
+    std::int32_t z = 0;
+};
+
+ProcessedBase g_processedBase;
+std::mutex g_stateMutex;
+std::mutex g_replayMutex;
+
+struct CallbackScope {
+    CallbackScope() {
+        g_callbacksInFlight.fetch_add(1, std::memory_order_acq_rel);
+    }
+    ~CallbackScope() {
+        g_callbacksInFlight.fetch_sub(1, std::memory_order_acq_rel);
+    }
+};
+
+void clearException(JNIEnv* env) {
+    if (env && env->ExceptionCheck())
+        env->ExceptionClear();
+}
 
 std::uint64_t nowMs() {
     return static_cast<std::uint64_t>(GetTickCount64());
 }
 
-void resolveIds(JNIEnv* env) {
-    if (g_idsResolved)
+std::uint64_t nextSnapshotSequenceLocked() {
+    ++g_snapshotSequence;
+    if (g_snapshotSequence == 0)
+        ++g_snapshotSequence;
+    return g_snapshotSequence;
+}
+
+std::size_t pendingCountLocked() {
+    return g_queue.size() + (g_replay.active ? 1u : 0u);
+}
+
+bool sameObject(JNIEnv* env, jobject first, jobject second) {
+    if (!env || !first || !second)
+        return false;
+    const bool same = env->IsSameObject(first, second) == JNI_TRUE;
+    clearException(env);
+    return same;
+}
+
+void clearSnapshotLocked() {
+    const std::uint64_t sequence = nextSnapshotSequenceLocked();
+    g_snapshot = {};
+    g_snapshot.entityId = -1;
+    g_snapshot.sequence = sequence;
+    g_processedBase = {};
+}
+
+bool snapshotMatchesLocked(int entityId, std::uint64_t engagementEpoch) {
+    return g_snapshot.entityId == entityId &&
+           g_snapshot.engagementEpoch == engagementEpoch;
+}
+
+void refreshSnapshotPendingLocked() {
+    std::size_t pending = 0;
+    if (g_replay.active &&
+        snapshotMatchesLocked(g_replay.entityId, g_replay.engagementEpoch)) {
+        ++pending;
+    }
+    for (const HeldPacket& held : g_queue) {
+        if (snapshotMatchesLocked(held.entityId, held.engagementEpoch))
+            ++pending;
+    }
+    const std::size_t maximum =
+        static_cast<std::size_t>((std::numeric_limits<std::uint32_t>::max)());
+    g_snapshot.pendingPackets = static_cast<std::uint32_t>((std::min)(pending, maximum));
+}
+
+bool checkedAdd(std::int32_t base, std::int32_t delta, std::int32_t& result) {
+    const std::int64_t sum = static_cast<std::int64_t>(base) +
+                             static_cast<std::int64_t>(delta);
+    if (sum < static_cast<std::int64_t>((std::numeric_limits<std::int32_t>::min)()) ||
+        sum > static_cast<std::int64_t>((std::numeric_limits<std::int32_t>::max)())) {
+        return false;
+    }
+    result = static_cast<std::int32_t>(sum);
+    return true;
+}
+
+bool applyMovement(const Movement& movement, std::int32_t& x,
+                   std::int32_t& y, std::int32_t& z) {
+    if (movement.kind == MovementKind::Teleport) {
+        x = movement.x;
+        y = movement.y;
+        z = movement.z;
+        return true;
+    }
+
+    std::int32_t nextX = 0;
+    std::int32_t nextY = 0;
+    std::int32_t nextZ = 0;
+    if (!checkedAdd(x, movement.x, nextX) ||
+        !checkedAdd(y, movement.y, nextY) ||
+        !checkedAdd(z, movement.z, nextZ)) {
+        return false;
+    }
+    x = nextX;
+    y = nextY;
+    z = nextZ;
+    return true;
+}
+
+void foldSnapshotLocked(const Movement& movement) {
+    if (!g_snapshot.valid && movement.kind != MovementKind::Teleport)
         return;
-    g_idsResolved = true;
+    if (!applyMovement(movement, g_snapshot.serverX, g_snapshot.serverY,
+                       g_snapshot.serverZ)) {
+        g_snapshot.valid = false;
+        g_emergencyDrain.store(true, std::memory_order_release);
+        return;
+    }
+    g_snapshot.valid = true;
+}
+
+void rebuildSnapshotLocked() {
+    if (!g_processedBase.valid) {
+        g_snapshot.valid = false;
+        g_snapshot.pendingPackets = 0;
+        g_snapshot.sequence = nextSnapshotSequenceLocked();
+        return;
+    }
+
+    g_snapshot = {};
+    g_snapshot.valid = true;
+    g_snapshot.entityId = g_processedBase.entityId;
+    g_snapshot.serverX = g_processedBase.x;
+    g_snapshot.serverY = g_processedBase.y;
+    g_snapshot.serverZ = g_processedBase.z;
+    g_snapshot.engagementEpoch = g_processedBase.engagementEpoch;
+    g_snapshot.connectionEpoch = g_processedBase.connectionEpoch;
+
+    if (!g_queue.empty())
+        g_snapshot.connectionEpoch = g_queue.back().connectionEpoch;
+
+    if (g_replay.active &&
+        (g_replay.entityId != g_processedBase.entityId ||
+         g_replay.engagementEpoch != g_processedBase.engagementEpoch)) {
+        g_snapshot.valid = false;
+    } else if (g_replay.active && !applyMovement(
+                   g_replay.movement, g_snapshot.serverX, g_snapshot.serverY,
+                   g_snapshot.serverZ)) {
+        g_snapshot.valid = false;
+    }
+    if (g_replay.active)
+        g_snapshot.connectionEpoch = g_replay.connectionEpoch;
+    for (const HeldPacket& held : g_queue) {
+        if (held.entityId != g_processedBase.entityId ||
+            held.engagementEpoch != g_processedBase.engagementEpoch ||
+            !g_snapshot.valid) {
+            if (held.entityId != g_processedBase.entityId ||
+                held.engagementEpoch != g_processedBase.engagementEpoch)
+                g_snapshot.valid = false;
+            continue;
+        }
+        foldSnapshotLocked(held.movement);
+    }
+    refreshSnapshotPendingLocked();
+    g_snapshot.sequence = nextSnapshotSequenceLocked();
+}
+
+void publishMovementLocked(const HeldPacket& held) {
+    if (!g_processedBase.valid ||
+        g_processedBase.entityId != held.entityId ||
+        g_processedBase.engagementEpoch != held.engagementEpoch) {
+        g_snapshot.valid = false;
+        g_snapshot.entityId = held.entityId;
+        g_snapshot.engagementEpoch = held.engagementEpoch;
+        g_snapshot.connectionEpoch = held.connectionEpoch;
+        g_snapshot.pendingPackets = 0;
+        g_snapshot.sequence = nextSnapshotSequenceLocked();
+        return;
+    }
+    rebuildSnapshotLocked();
+}
+
+bool prefixForEntityLocked(JNIEnv* env, jobject sourceHandler, int entityId,
+                           std::uint64_t& engagementEpoch) {
+    if (!sameObject(env, sourceHandler, g_connectionHandler))
+        return false;
+    if (g_replay.active && g_replay.entityId == entityId) {
+        engagementEpoch = g_replay.engagementEpoch;
+        return true;
+    }
+    for (const HeldPacket& held : g_queue) {
+        if (held.entityId == entityId) {
+            engagementEpoch = held.engagementEpoch;
+            return true;
+        }
+    }
+    return false;
+}
+
+jfieldID resolveField(JNIEnv* env, jclass cls,
+                      std::initializer_list<const char*> names,
+                      const char* signature) {
+    if (!env || !cls)
+        return nullptr;
+    for (const char* name : names) {
+        jfieldID field = env->GetFieldID(cls, name, signature);
+        if (field)
+            return field;
+        clearException(env);
+    }
+    return nullptr;
+}
+
+// Name lookups are the fragile half of this resolver: these two packet classes
+// ship under MCP, SRG or Notch names depending on the launcher, and a single
+// missing member used to fail the whole gate with one message that named none of
+// them. Every member therefore falls back to "the Nth field with this descriptor
+// in declaration order", which is class-file layout rather than a name and so
+// survives every mapping. JVMTI GetClassFields returns declared fields in class
+// file order, and these classes declare their positions first:
+//   S14PacketEntity           int entityId; byte posX, posY, posZ, yaw, pitch; ...
+//   S18PacketEntityTeleport   int entityId, posX, posY, posZ; byte yaw, pitch; ...
+jfieldID resolveFieldOrdered(JNIEnv* env, jclass cls, const char* label,
+                             std::initializer_list<const char*> names,
+                             const char* signature, std::size_t index) {
+    jfieldID field = resolveField(env, cls, names, signature);
+    if (!field) {
+        const std::vector<jfieldID> ordered =
+            jni_resolver::findFieldsBySignature(cls, signature, false);
+        if (index < ordered.size()) {
+            field = ordered[index];
+            log_warn("[BacktrackGate] %s resolved by descriptor order (%s #%u)", label,
+                     signature, static_cast<unsigned>(index));
+        }
+    }
+    clearException(env);
+    if (!field)
+        log_err("[BacktrackGate] Unresolved member: %s (%s)", label, signature);
+    return field;
+}
+
+jmethodID resolveProcessMethod(JNIEnv* env, jclass cls) {
+    if (!env || !cls)
+        return nullptr;
+
+    for (const char* descriptor : {
+             "(Lnet/minecraft/network/INetHandler;)V",
+             "(Lnet/minecraft/network/play/INetHandlerPlayClient;)V"}) {
+        const auto variants = jni_resolver::signatureVariants(descriptor);
+        for (const char* name : {"processPacket", "func_148833_a", "a"}) {
+            for (const std::string& variant : variants) {
+                jmethodID method = env->GetMethodID(cls, name, variant.c_str());
+                if (method)
+                    return method;
+                clearException(env);
+            }
+        }
+        jmethodID method =
+            jni_resolver::findUniqueMethodBySignature(cls, descriptor, false);
+        clearException(env);
+        if (method)
+            return method;
+    }
+
+    // Last resort: walk the declared methods and take the one whose only
+    // parameter is a net handler. Packet<T> declares exactly three methods —
+    // read/writePacketData(PacketBuffer) and processPacket(T) — so requiring the
+    // parameter descriptor to name a handler is unambiguous even when the method
+    // itself has been renamed. Both processPacket and the generic bridge the
+    // compiler emits for it match; either is safe to call, since the bridge only
+    // casts and delegates.
+    if (Java::tiEnv) {
+        jint count = 0;
+        jmethodID* methods = nullptr;
+        if (Java::tiEnv->GetClassMethods(cls, &count, &methods) == JVMTI_ERROR_NONE && methods) {
+            jmethodID match = nullptr;
+            jmethodID bridgeMatch = nullptr;
+            for (jint i = 0; i < count && !match; ++i) {
+                char* name = nullptr;
+                char* sig = nullptr;
+                jint modifiers = 0;
+                if (Java::tiEnv->GetMethodName(methods[i], &name, &sig, nullptr) == JVMTI_ERROR_NONE) {
+                    Java::tiEnv->GetMethodModifiers(methods[i], &modifiers);
+                    const std::size_t len = sig ? std::strlen(sig) : 0;
+                    const bool oneObjectArgVoid =
+                        len > 4 && sig[0] == '(' && sig[1] == 'L' && sig[len - 3] == ';' &&
+                        sig[len - 2] == ')' && sig[len - 1] == 'V' &&
+                        std::strchr(sig, ';') == sig + (len - 3);
+                    if ((modifiers & 0x0008) == 0 && oneObjectArgVoid &&
+                        std::strstr(sig, "NetHandler") != nullptr) {
+                        // ACC_BRIDGE (0x0040): the synthetic method the compiler emits
+                        // for processPacket(T). Calling it works, but prefer the real
+                        // one so a single scan cannot pick the wrapper by accident.
+                        if (modifiers & 0x0040) {
+                            if (!bridgeMatch)
+                                bridgeMatch = methods[i];
+                        } else {
+                            match = methods[i];
+                            log_warn("[BacktrackGate] processPacket resolved structurally: %s%s",
+                                     name ? name : "?", sig);
+                        }
+                    }
+                }
+                if (name)
+                    Java::tiEnv->Deallocate(reinterpret_cast<unsigned char*>(name));
+                if (sig)
+                    Java::tiEnv->Deallocate(reinterpret_cast<unsigned char*>(sig));
+            }
+            Java::tiEnv->Deallocate(reinterpret_cast<unsigned char*>(methods));
+            if (!match && bridgeMatch) {
+                match = bridgeMatch;
+                log_warn("[BacktrackGate] processPacket resolved structurally via bridge method");
+            }
+            if (match)
+                return match;
+        }
+    }
+    return nullptr;
+}
+
+void resetResolvedIds(JNIEnv* env) {
+    if (env) {
+        if (g_s14)
+            env->DeleteGlobalRef(g_s14);
+        if (g_s18)
+            env->DeleteGlobalRef(g_s18);
+        if (g_networkManager)
+            env->DeleteGlobalRef(g_networkManager);
+        clearException(env);
+    }
+    g_s14 = nullptr;
+    g_s18 = nullptr;
+    g_networkManager = nullptr;
+    g_packetListener = nullptr;
+    g_s14EntityId = nullptr;
+    g_s14X = nullptr;
+    g_s14Y = nullptr;
+    g_s14Z = nullptr;
+    g_s18EntityId = nullptr;
+    g_s18X = nullptr;
+    g_s18Y = nullptr;
+    g_s18Z = nullptr;
+    g_s14Process = nullptr;
+    g_s18Process = nullptr;
+}
+
+bool resolveMovementIds(JNIEnv* env) {
+    jclass localS14 = nullptr;
+    jclass localS18 = nullptr;
+    const bool haveS14 =
+        Java::AssignClass("net.minecraft.network.play.server.S14PacketEntity", localS14) && localS14;
+    clearException(env);
+    const bool haveS18 =
+        Java::AssignClass("net.minecraft.network.play.server.S18PacketEntityTeleport", localS18) &&
+        localS18;
+    clearException(env);
+    if (!haveS14 || !haveS18) {
+        if (!haveS14)
+            log_err("[BacktrackGate] S14PacketEntity is not loadable through the game class loader");
+        if (!haveS18)
+            log_err("[BacktrackGate] S18PacketEntityTeleport is not loadable through the game class loader");
+        if (localS14)
+            env->DeleteLocalRef(localS14);
+        if (localS18)
+            env->DeleteLocalRef(localS18);
+        clearException(env);
+        return false;
+    }
+
+    g_s14 = static_cast<jclass>(env->NewGlobalRef(localS14));
+    g_s18 = static_cast<jclass>(env->NewGlobalRef(localS18));
+    env->DeleteLocalRef(localS14);
+    env->DeleteLocalRef(localS18);
+    clearException(env);
+    if (!g_s14 || !g_s18)
+        return false;
+
+    g_s14EntityId = resolveFieldOrdered(env, g_s14, "S14.entityId",
+                                        {"entityId", "field_149074_a", "a"}, "I", 0);
+    g_s14X = resolveFieldOrdered(env, g_s14, "S14.posX", {"posX", "field_149072_b", "b"}, "B", 0);
+    g_s14Y = resolveFieldOrdered(env, g_s14, "S14.posY", {"posY", "field_149073_c", "c"}, "B", 1);
+    g_s14Z = resolveFieldOrdered(env, g_s14, "S14.posZ", {"posZ", "field_149070_d", "d"}, "B", 2);
+    g_s18EntityId = resolveFieldOrdered(env, g_s18, "S18.entityId",
+                                        {"entityId", "field_149458_a", "a"}, "I", 0);
+    g_s18X = resolveFieldOrdered(env, g_s18, "S18.posX", {"posX", "x", "field_149456_b", "b"}, "I", 1);
+    g_s18Y = resolveFieldOrdered(env, g_s18, "S18.posY", {"posY", "y", "field_149457_c", "c"}, "I", 2);
+    g_s18Z = resolveFieldOrdered(env, g_s18, "S18.posZ", {"posZ", "z", "field_149454_d", "d"}, "I", 3);
+    g_s14Process = resolveProcessMethod(env, g_s14);
+    g_s18Process = resolveProcessMethod(env, g_s18);
+    if (!g_s14Process)
+        log_err("[BacktrackGate] Unresolved member: S14.processPacket");
+    if (!g_s18Process)
+        log_err("[BacktrackGate] Unresolved member: S18.processPacket");
+
+    return g_s14EntityId && g_s14X && g_s14Y && g_s14Z &&
+           g_s18EntityId && g_s18X && g_s18Y && g_s18Z &&
+           g_s14Process && g_s18Process;
+}
+
+bool resolvePacketListener(JNIEnv* env) {
     jclass local = nullptr;
-    if (Java::AssignClass("net.minecraft.network.play.server.S14PacketEntity", local)) {
-        g_s14 = static_cast<jclass>(env->NewGlobalRef(local));
-        env->DeleteLocalRef(local);
-        g_s14Id = env->GetFieldID(g_s14, "entityId", "I");
-        if (!g_s14Id) {
-            env->ExceptionClear();
-            g_s14Id = env->GetFieldID(g_s14, "field_149074_b", "I");
+    if (!Java::AssignClass("net.minecraft.network.NetworkManager", local) || !local) {
+        clearException(env);
+        return false;
+    }
+    g_networkManager = static_cast<jclass>(env->NewGlobalRef(local));
+    env->DeleteLocalRef(local);
+    clearException(env);
+    if (!g_networkManager)
+        return false;
+
+    const auto signatures =
+        jni_resolver::signatureVariants("Lnet/minecraft/network/INetHandler;");
+    for (const char* name : {"packetListener", "field_150744_m", "m"}) {
+        for (const std::string& signature : signatures) {
+            g_packetListener =
+                env->GetFieldID(g_networkManager, name, signature.c_str());
+            if (g_packetListener)
+                return true;
+            clearException(env);
         }
     }
-    local = nullptr;
-    if (Java::AssignClass("net.minecraft.network.play.server.S18PacketEntityTeleport", local)) {
-        g_s18 = static_cast<jclass>(env->NewGlobalRef(local));
-        env->DeleteLocalRef(local);
-        g_s18Id = env->GetFieldID(g_s18, "entityId", "I");
-        if (!g_s18Id) {
+    g_packetListener = jni_resolver::findUniqueFieldBySignature(
+        g_networkManager, "Lnet/minecraft/network/INetHandler;", false);
+    clearException(env);
+    return g_packetListener != nullptr;
+}
+
+bool decodeMovement(JNIEnv* env, jobject packet, int& entityId,
+                    Movement& movement) {
+    if (env->IsInstanceOf(packet, g_s14) == JNI_TRUE) {
+        entityId = env->GetIntField(packet, g_s14EntityId);
+        movement.kind = MovementKind::Relative;
+        movement.x = static_cast<std::int32_t>(env->GetByteField(packet, g_s14X));
+        movement.y = static_cast<std::int32_t>(env->GetByteField(packet, g_s14Y));
+        movement.z = static_cast<std::int32_t>(env->GetByteField(packet, g_s14Z));
+        if (env->ExceptionCheck()) {
             env->ExceptionClear();
-            g_s18Id = env->GetFieldID(g_s18, "field_149458_a", "I");
+            return false;
         }
+        return true;
     }
-    if (env->ExceptionCheck())
-        env->ExceptionClear();
-}
+    clearException(env);
 
-int entityIdOf(JNIEnv* env, jobject packet) {
-    resolveIds(env);
-    if (g_s14 && g_s14Id && env->IsInstanceOf(packet, g_s14) == JNI_TRUE)
-        return env->GetIntField(packet, g_s14Id);
-    if (g_s18 && g_s18Id && env->IsInstanceOf(packet, g_s18) == JNI_TRUE)
-        return env->GetIntField(packet, g_s18Id);
-    if (env->ExceptionCheck())
-        env->ExceptionClear();
-    return -1;
-}
-
-// Re-inject one held packet: packet.processPacket(netHandler). Runs on the client
-// thread; tl_releasing keeps the re-entrant handler call from re-holding it.
-void reinject(JNIEnv* env, jobject packet) {
-    jobject netHandler = mc.getNetHandler();
-    if (!netHandler) {
-        if (env->ExceptionCheck())
+    if (env->IsInstanceOf(packet, g_s18) == JNI_TRUE) {
+        entityId = env->GetIntField(packet, g_s18EntityId);
+        movement.kind = MovementKind::Teleport;
+        movement.x = static_cast<std::int32_t>(env->GetIntField(packet, g_s18X));
+        movement.y = static_cast<std::int32_t>(env->GetIntField(packet, g_s18Y));
+        movement.z = static_cast<std::int32_t>(env->GetIntField(packet, g_s18Z));
+        if (env->ExceptionCheck()) {
             env->ExceptionClear();
+            return false;
+        }
+        return true;
+    }
+    clearException(env);
+    return false;
+}
+
+jobject sourceHandler(JNIEnv* env, jobject networkManager) {
+    if (!env || !networkManager || !g_networkManager || !g_packetListener ||
+        env->IsInstanceOf(networkManager, g_networkManager) != JNI_TRUE) {
+        clearException(env);
+        return nullptr;
+    }
+    jobject handler = env->GetObjectField(networkManager, g_packetListener);
+    if (env->ExceptionCheck()) {
+        env->ExceptionClear();
+        if (handler)
+            env->DeleteLocalRef(handler);
+        return nullptr;
+    }
+    return handler;
+}
+
+jobject currentHandler(JNIEnv* env) {
+    if (!env)
+        return nullptr;
+    jobject handler = mc.getNetHandler();
+    if (env->ExceptionCheck()) {
+        env->ExceptionClear();
+        if (handler)
+            env->DeleteLocalRef(handler);
+        return nullptr;
+    }
+    return handler;
+}
+
+DetachedState detachLocked() {
+    DetachedState detached;
+    detached.packets.swap(g_queue);
+    detached.handler = std::exchange(g_connectionHandler, nullptr);
+    g_replay = {};
+    clearSnapshotLocked();
+    g_emergencyDrain.store(false, std::memory_order_release);
+    return detached;
+}
+
+void deleteDetached(JNIEnv* env, DetachedState& detached) {
+    if (!env)
         return;
+    for (HeldPacket& held : detached.packets) {
+        if (held.packet)
+            env->DeleteGlobalRef(held.packet);
+        held.packet = nullptr;
+        clearException(env);
     }
-    jclass pcls = env->GetObjectClass(packet);
-    jmethodID mid = pcls ? env->GetMethodID(pcls, "processPacket", "(Lnet/minecraft/network/INetHandler;)V") : nullptr;
-    if (!mid && pcls) {
+    detached.packets.clear();
+    if (detached.handler) {
+        env->DeleteGlobalRef(detached.handler);
+        detached.handler = nullptr;
+        clearException(env);
+    }
+}
+
+enum class ReplayResult { Sent, HandlerThrew, ConnectionChanged, Discarded };
+
+ReplayResult replayPacket(JNIEnv* env, const HeldPacket& held,
+                          jobject expectedHandler) {
+    if (g_discarding.load(std::memory_order_acquire))
+        return ReplayResult::Discarded;
+
+    jobject liveHandler = currentHandler(env);
+    if (!liveHandler)
+        return ReplayResult::ConnectionChanged;
+    if (!sameObject(env, liveHandler, expectedHandler)) {
+        env->DeleteLocalRef(liveHandler);
+        return ReplayResult::ConnectionChanged;
+    }
+
+    const jmethodID method = held.movement.kind == MovementKind::Teleport
+                                 ? g_s18Process
+                                 : g_s14Process;
+    env->CallVoidMethod(held.packet, method, liveHandler);
+    const bool threw = env->ExceptionCheck() == JNI_TRUE;
+    clearException(env);
+    env->DeleteLocalRef(liveHandler);
+    clearException(env);
+    return threw ? ReplayResult::HandlerThrew : ReplayResult::Sent;
+}
+
+bool worldPositionToProtocol(double value, std::int32_t& result) {
+    if (!std::isfinite(value))
+        return false;
+    const double scaled = std::round(value * 32.0);
+    if (scaled < static_cast<double>((std::numeric_limits<std::int32_t>::min)()) ||
+        scaled > static_cast<double>((std::numeric_limits<std::int32_t>::max)())) {
+        return false;
+    }
+    result = static_cast<std::int32_t>(scaled);
+    return true;
+}
+
+bool readEntityBase(JNIEnv* env, jobject entity, std::int32_t& x,
+                    std::int32_t& y, std::int32_t& z, bool& protocolExact) {
+    protocolExact = false;
+    if (!env || !entity || !JniCache::cls_Entity ||
+        env->IsInstanceOf(entity, JniCache::cls_Entity) != JNI_TRUE) {
+        clearException(env);
+        return false;
+    }
+    clearException(env);
+
+    if (JniCache::fid_serverPosX && JniCache::fid_serverPosY &&
+        JniCache::fid_serverPosZ) {
+        x = static_cast<std::int32_t>(env->GetIntField(entity, JniCache::fid_serverPosX));
+        y = static_cast<std::int32_t>(env->GetIntField(entity, JniCache::fid_serverPosY));
+        z = static_cast<std::int32_t>(env->GetIntField(entity, JniCache::fid_serverPosZ));
+        if (!env->ExceptionCheck()) {
+            protocolExact = true;
+            return true;
+        }
         env->ExceptionClear();
-        mid = env->GetMethodID(pcls, "func_148833_a", "(Lnet/minecraft/network/INetHandler;)V");
     }
-    if (mid) {
-        tl_releasing = true;
-        env->CallVoidMethod(packet, mid, netHandler);
-        tl_releasing = false;
-    }
-    if (env->ExceptionCheck())
+
+    if (!JniCache::fid_posX || !JniCache::fid_posY || !JniCache::fid_posZ)
+        return false;
+    const double worldX = env->GetDoubleField(entity, JniCache::fid_posX);
+    const double worldY = env->GetDoubleField(entity, JniCache::fid_posY);
+    const double worldZ = env->GetDoubleField(entity, JniCache::fid_posZ);
+    if (env->ExceptionCheck()) {
         env->ExceptionClear();
-    if (pcls)
-        env->DeleteLocalRef(pcls);
-    env->DeleteLocalRef(netHandler);
+        return false;
+    }
+    return worldPositionToProtocol(worldX, x) &&
+           worldPositionToProtocol(worldY, y) &&
+           worldPositionToProtocol(worldZ, z);
 }
 
 }  // namespace
 
 namespace BacktrackGate {
 
-jboolean JNICALL NativeCanProcess(JNIEnv* env, jclass, jobject packet) {
-    if (tl_releasing || !env || !packet)
+jboolean JNICALL NativeCanProcess(JNIEnv* env, jclass, jobject networkManager,
+                                  jobject packet) {
+    CallbackScope callback;
+    if (!env || !packet || !g_initialized.load(std::memory_order_acquire) ||
+        g_shuttingDown.load(std::memory_order_acquire) ||
+        g_discarding.load(std::memory_order_acquire)) {
         return JNI_TRUE;
-    if (!::backtrack || !::backtrack->enabled)
-        return JNI_TRUE;
-
-    const int id = entityIdOf(env, packet);
-    const bool hold = ::backtrack->wantsHold(id);
-    // Diagnostic: confirms the hook fires (every ~120th call), and logs the first holds.
-    static int s_dbg = 0;
-    if ((++s_dbg % 120) == 1)
-        log_debug("[BacktrackGate] canProcess fires: id=%d hold=%d held=%d", id, hold ? 1 : 0, HeldCount());
-    if (id < 0 || !hold)
-        return JNI_TRUE;
-
-    static int s_holdDbg = 0;
-    if (s_holdDbg < 8) {
-        ++s_holdDbg;
-        log_debug("[BacktrackGate] HOLD id=%d", id);
     }
 
-    jobject global = env->NewGlobalRef(packet);
-    if (!global) {
-        if (env->ExceptionCheck())
-            env->ExceptionClear();
-        return JNI_TRUE;  // can't hold → process normally
-    }
-    {
-        std::lock_guard<std::mutex> lock(g_mutex);
-        // Safety cap so a stuck hold never grows unbounded.
-        if (g_held.size() >= 200) {
-            jobject old = g_held.front().packet;
-            g_held.pop_front();
-            if (old)
-                env->DeleteGlobalRef(old);
+    if (!g_callbackObserved.exchange(true, std::memory_order_acq_rel))
+        log_debug("[BacktrackGate] Incoming hook callback observed");
+
+    int entityId = -1;
+    Movement movement;
+    if (!decodeMovement(env, packet, entityId, movement) || entityId < 0)
+        return JNI_TRUE;
+
+    jobject source = sourceHandler(env, networkManager);
+    if (!source) {
+        bool ownedStream = false;
+        {
+            std::lock_guard<std::mutex> lock(g_stateMutex);
+            ownedStream = pendingCountLocked() != 0;
         }
-        g_held.push_back({global, nowMs()});
+        if (!g_missingSourceReported.exchange(true, std::memory_order_acq_rel))
+            log_err("[BacktrackGate] Incoming callback has no packetListener; retention cannot continue");
+        if (ownedStream) {
+            g_operational.store(false, std::memory_order_release);
+            Discard(env);
+            log_err("[BacktrackGate] Aborted retained stream because source ownership was lost");
+        }
+        return JNI_TRUE;
     }
-    return JNI_FALSE;  // HOLD
+
+    jobject live = currentHandler(env);
+    if (!live || !sameObject(env, source, live)) {
+        if (live)
+            env->DeleteLocalRef(live);
+        env->DeleteLocalRef(source);
+        clearException(env);
+        return JNI_TRUE;
+    }
+    env->DeleteLocalRef(live);
+
+    bool shouldHold = false;
+    bool prefix = false;
+    bool capacityAbort = false;
+    std::uint64_t streamEpoch = 0;
+    {
+        std::lock_guard<std::mutex> lock(g_stateMutex);
+        const Backtrack::HoldIntent intent =
+            ::backtrack ? ::backtrack->holdIntent() : Backtrack::HoldIntent{};
+        prefix = prefixForEntityLocked(env, source, entityId, streamEpoch);
+        const bool newAdmission = g_operational.load(std::memory_order_acquire) &&
+                                  intent.active &&
+                                  intent.targetEntityId == entityId &&
+                                  pendingCountLocked() == 0;
+        shouldHold = prefix || newAdmission;
+        if (!prefix)
+            streamEpoch = intent.engagementEpoch;
+        capacityAbort = shouldHold && pendingCountLocked() >= kHardQueueLimit;
+    }
+    if (capacityAbort) {
+        env->DeleteLocalRef(source);
+        clearException(env);
+        g_operational.store(false, std::memory_order_release);
+        Discard(env);
+        log_err("[BacktrackGate] Aborted retained stream at the hard queue limit");
+        return JNI_TRUE;
+    }
+    if (!shouldHold) {
+        env->DeleteLocalRef(source);
+        clearException(env);
+        return JNI_TRUE;
+    }
+
+    jobject packetGlobal = env->NewGlobalRef(packet);
+    if (!packetGlobal) {
+        clearException(env);
+        env->DeleteLocalRef(source);
+        g_operational.store(false, std::memory_order_release);
+        Discard(env);
+        log_err("[BacktrackGate] Aborted retained stream after packet ownership allocation failed");
+        return JNI_TRUE;
+    }
+
+    bool queued = false;
+    bool commitAbort = false;
+    {
+        std::lock_guard<std::mutex> lock(g_stateMutex);
+        const Backtrack::HoldIntent intent =
+            ::backtrack ? ::backtrack->holdIntent() : Backtrack::HoldIntent{};
+        prefix = prefixForEntityLocked(env, source, entityId, streamEpoch);
+        const bool newAdmission = g_operational.load(std::memory_order_acquire) &&
+                                  intent.active &&
+                                  intent.targetEntityId == entityId &&
+                                  pendingCountLocked() == 0;
+        if (!prefix)
+            streamEpoch = intent.engagementEpoch;
+
+        if (!g_discarding.load(std::memory_order_acquire) &&
+            (prefix || newAdmission)) {
+            if (pendingCountLocked() >= kHardQueueLimit) {
+                commitAbort = true;
+            } else {
+                if (!g_connectionHandler) {
+                    g_connectionHandler = env->NewGlobalRef(source);
+                    clearException(env);
+                    if (g_connectionHandler) {
+                        ++g_connectionEpoch;
+                        if (g_connectionEpoch == 0)
+                            ++g_connectionEpoch;
+                    } else {
+                        commitAbort = true;
+                    }
+                }
+
+                if (!commitAbort && sameObject(env, source, g_connectionHandler)) {
+                    g_queue.push_back({packetGlobal, entityId, streamEpoch,
+                                       g_connectionEpoch, nowMs(), movement});
+                    packetGlobal = nullptr;
+                    publishMovementLocked(g_queue.back());
+                    queued = true;
+                    if (pendingCountLocked() >=
+                        g_softQueueLimit.load(std::memory_order_acquire))
+                        g_emergencyDrain.store(true, std::memory_order_release);
+                } else if (!commitAbort && prefix) {
+                    commitAbort = true;
+                }
+            }
+        }
+    }
+
+    if (packetGlobal)
+        env->DeleteGlobalRef(packetGlobal);
+    env->DeleteLocalRef(source);
+    clearException(env);
+
+    if (commitAbort) {
+        g_operational.store(false, std::memory_order_release);
+        Discard(env);
+        log_err("[BacktrackGate] Aborted retained stream before ownership commit");
+        return JNI_TRUE;
+    }
+    if (queued && !g_firstPacketReported.exchange(true, std::memory_order_acq_rel))
+        log_ok("[BacktrackGate] First movement packet retained");
+
+    // Returning false is the ownership transfer acknowledgement. Every such
+    // return corresponds to exactly one GlobalRef now present in g_queue.
+    return queued ? JNI_FALSE : JNI_TRUE;
 }
 
-int Release(JNIEnv* env, bool all) {
+bool PrimeTarget(JNIEnv* env, jobject entity, int entityId,
+                 std::uint64_t engagementEpoch) {
+    if (!env || !entity || entityId < 0 || engagementEpoch == 0)
+        return false;
+
+    std::int32_t baseX = 0;
+    std::int32_t baseY = 0;
+    std::int32_t baseZ = 0;
+    bool protocolExact = false;
+    const bool readBase = readEntityBase(env, entity, baseX, baseY, baseZ,
+                                         protocolExact);
+
+    std::lock_guard<std::mutex> replayLock(g_replayMutex);
+    std::lock_guard<std::mutex> stateLock(g_stateMutex);
+
+    bool hasDifferentPrefix = false;
+    if (g_replay.active) {
+        hasDifferentPrefix = g_replay.entityId != entityId ||
+                             g_replay.engagementEpoch != engagementEpoch;
+    }
+    for (const HeldPacket& held : g_queue) {
+        if (held.entityId != entityId ||
+            held.engagementEpoch != engagementEpoch) {
+            hasDifferentPrefix = true;
+            break;
+        }
+    }
+    if (hasDifferentPrefix)
+        return false;
+
+    if (!g_processedBase.valid ||
+        g_processedBase.entityId != entityId ||
+        g_processedBase.engagementEpoch != engagementEpoch) {
+        if (!readBase)
+            return false;
+        g_processedBase.valid = true;
+        g_processedBase.entityId = entityId;
+        g_processedBase.engagementEpoch = engagementEpoch;
+        g_processedBase.connectionEpoch = g_connectionEpoch;
+        g_processedBase.x = baseX;
+        g_processedBase.y = baseY;
+        g_processedBase.z = baseZ;
+    }
+    (void)protocolExact;
+    rebuildSnapshotLocked();
+    return g_snapshot.valid;
+}
+
+int ServiceClientThread(JNIEnv* env, bool flushAll) {
     if (!env)
         return 0;
-    const std::uint64_t now = nowMs();
-    const std::uint64_t window = ::backtrack ? static_cast<std::uint64_t>(::backtrack->getHoldMs()) : 0;
 
-    std::deque<jobject> toSend;
-    {
-        std::lock_guard<std::mutex> lock(g_mutex);
-        while (!g_held.empty()) {
-            const Held& h = g_held.front();
-            if (!all && (now - h.heldAtMs) < window)
-                break;
-            toSend.push_back(h.packet);
-            g_held.pop_front();
+    std::lock_guard<std::mutex> replayLock(g_replayMutex);
+    int sent = 0;
+
+    for (; sent < kMaxReplayPerTick; ++sent) {
+        HeldPacket held;
+        jobject expectedHandler = nullptr;
+        jobject idleHandler = nullptr;
+        {
+            std::lock_guard<std::mutex> lock(g_stateMutex);
+            if (g_queue.empty()) {
+                if (!g_replay.active && g_connectionHandler) {
+                    idleHandler = std::exchange(g_connectionHandler, nullptr);
+                    g_emergencyDrain.store(false, std::memory_order_release);
+                    if (flushAll)
+                        clearSnapshotLocked();
+                }
+            } else {
+                const std::uint64_t age = nowMs() - g_queue.front().heldAtMs;
+                if (flushAll || age >= g_retentionMs.load(std::memory_order_acquire)) {
+                    held = std::move(g_queue.front());
+                    g_queue.pop_front();
+                    g_replay = {true, held.entityId, held.engagementEpoch,
+                                held.connectionEpoch, held.movement};
+                    expectedHandler = g_connectionHandler;
+                    rebuildSnapshotLocked();
+                }
+            }
         }
-    }
-    for (jobject p : toSend) {
-        if (p) {
-            reinject(env, p);
-            env->DeleteGlobalRef(p);
+
+        if (idleHandler) {
+            env->DeleteGlobalRef(idleHandler);
+            clearException(env);
         }
+        if (!held.packet)
+            break;
+
+        const ReplayResult result = replayPacket(env, held, expectedHandler);
+        if (result == ReplayResult::Sent) {
+            env->DeleteGlobalRef(held.packet);
+            held.packet = nullptr;
+            clearException(env);
+
+            jobject handlerToDelete = nullptr;
+            {
+                std::lock_guard<std::mutex> lock(g_stateMutex);
+                if (!g_processedBase.valid ||
+                    g_processedBase.entityId != held.entityId ||
+                    g_processedBase.engagementEpoch != held.engagementEpoch ||
+                    !applyMovement(held.movement, g_processedBase.x,
+                                   g_processedBase.y, g_processedBase.z)) {
+                    g_processedBase.valid = false;
+                    g_snapshot.valid = false;
+                    g_emergencyDrain.store(true, std::memory_order_release);
+                }
+                g_processedBase.connectionEpoch = held.connectionEpoch;
+                g_replay = {};
+                rebuildSnapshotLocked();
+                if (pendingCountLocked() == 0) {
+                    g_emergencyDrain.store(false, std::memory_order_release);
+                    handlerToDelete = std::exchange(g_connectionHandler, nullptr);
+                    if (flushAll)
+                        clearSnapshotLocked();
+                }
+            }
+            if (handlerToDelete) {
+                env->DeleteGlobalRef(handlerToDelete);
+                clearException(env);
+            }
+            continue;
+        }
+
+        DetachedState detached;
+        {
+            std::lock_guard<std::mutex> lock(g_stateMutex);
+            g_replay = {};
+            detached = detachLocked();
+        }
+        if (held.packet) {
+            env->DeleteGlobalRef(held.packet);
+            held.packet = nullptr;
+            clearException(env);
+        }
+        deleteDetached(env, detached);
+
+        if (result == ReplayResult::HandlerThrew) {
+            g_operational.store(false, std::memory_order_release);
+            log_err("[BacktrackGate] Packet handler threw; ownership root discarded and retention disabled");
+        } else if (result == ReplayResult::ConnectionChanged) {
+            log_warn("[BacktrackGate] Connection changed; discarded retained movement");
+        }
+        break;
     }
-    return static_cast<int>(toSend.size());
+    return sent;
 }
 
-int HeldCount() {
-    std::lock_guard<std::mutex> lock(g_mutex);
-    return static_cast<int>(g_held.size());
+TargetSnapshot GetTargetSnapshot() {
+    std::lock_guard<std::mutex> lock(g_stateMutex);
+    return g_snapshot;
+}
+
+Status GetStatus() {
+    Status status;
+    status.ready = g_initialized.load(std::memory_order_acquire);
+    status.operational = g_operational.load(std::memory_order_acquire);
+    status.callbackObserved = g_callbackObserved.load(std::memory_order_acquire);
+    std::lock_guard<std::mutex> lock(g_stateMutex);
+    status.snapshotValid = g_snapshot.valid;
+    const std::size_t count = pendingCountLocked();
+    const std::size_t maximum =
+        static_cast<std::size_t>((std::numeric_limits<std::uint32_t>::max)());
+    status.pendingPackets = static_cast<std::uint32_t>((std::min)(count, maximum));
+    return status;
+}
+
+void Discard(JNIEnv* env) {
+    if (!env)
+        return;
+    g_discarding.store(true, std::memory_order_release);
+    DetachedState detached;
+    {
+        std::lock_guard<std::mutex> replayLock(g_replayMutex);
+        std::lock_guard<std::mutex> stateLock(g_stateMutex);
+        detached = detachLocked();
+    }
+    deleteDetached(env, detached);
+    g_discarding.store(false, std::memory_order_release);
+}
+
+bool HasPending() {
+    std::lock_guard<std::mutex> lock(g_stateMutex);
+    return pendingCountLocked() != 0;
+}
+
+bool HasPendingForCurrentConnection(JNIEnv* env) {
+    if (!env)
+        return false;
+
+    jobject live = currentHandler(env);
+    bool current = false;
+    {
+        std::lock_guard<std::mutex> lock(g_stateMutex);
+        current = pendingCountLocked() != 0 &&
+                  sameObject(env, live, g_connectionHandler);
+    }
+    if (live)
+        env->DeleteLocalRef(live);
+    clearException(env);
+    return current;
+}
+
+bool NeedsEmergencyDrain() {
+    return g_emergencyDrain.load(std::memory_order_acquire);
 }
 
 bool Init(JNIEnv* env) {
-    if (g_initialized.load())
+    if (g_initialized.load(std::memory_order_acquire))
         return true;
     if (!env)
         return false;
 
-    jclass hook = nullptr;
-    if (!Java::AssignClass("com.cobble.agent.IncomingHook", hook)) {
-        if (env->ExceptionCheck())
-            env->ExceptionClear();
+    g_shuttingDown.store(false, std::memory_order_release);
+    g_operational.store(false, std::memory_order_release);
+    resetResolvedIds(env);
+
+    if (!resolveMovementIds(env)) {
+        log_err("[BacktrackGate] Init failed: movement fields or processPacket methods unresolved");
+        resetResolvedIds(env);
+        return false;
     }
+    if (!resolvePacketListener(env)) {
+        log_err("[BacktrackGate] Init failed: NetworkManager.packetListener unresolved");
+        resetResolvedIds(env);
+        return false;
+    }
+
+    jclass hook = nullptr;
+    if (!Java::AssignClass("com.cobble.agent.IncomingHook", hook))
+        clearException(env);
     if (!hook && Java::ClassLoader) {
         hook = env->DefineClass("com/cobble/agent/IncomingHook", Java::ClassLoader,
                                 reinterpret_cast<const jbyte*>(kIncomingHookBytecode),
                                 static_cast<jint>(sizeof(kIncomingHookBytecode)));
-        if (env->ExceptionCheck())
-            env->ExceptionClear();
+        clearException(env);
     }
     if (!hook) {
-        log_warn("[BacktrackGate] Failed to define IncomingHook class");
+        log_err("[BacktrackGate] Init failed: IncomingHook could not be defined");
+        resetResolvedIds(env);
         return false;
     }
 
-    JNINativeMethod m;
-    const char* mName = "canProcess";
-    const char* mDesc = "(Ljava/lang/Object;)Z";
-    m.name = const_cast<char*>(mName);
-    m.signature = const_cast<char*>(mDesc);
-    m.fnPtr = reinterpret_cast<void*>(&NativeCanProcess);
-    if (env->RegisterNatives(hook, &m, 1) != 0) {
-        if (env->ExceptionCheck())
-            env->ExceptionClear();
-        log_err("[BacktrackGate] RegisterNatives failed for IncomingHook");
+    JNINativeMethod method;
+    method.name = const_cast<char*>("canProcess");
+    method.signature = const_cast<char*>("(Ljava/lang/Object;Ljava/lang/Object;)Z");
+    method.fnPtr = reinterpret_cast<void*>(&NativeCanProcess);
+    if (env->RegisterNatives(hook, &method, 1) != JNI_OK) {
+        clearException(env);
         env->DeleteLocalRef(hook);
+        log_err("[BacktrackGate] Init failed: IncomingHook native registration failed");
+        resetResolvedIds(env);
         return false;
     }
 
-    g_cls_IncomingHook = static_cast<jclass>(env->NewGlobalRef(hook));
+    g_incomingHook = static_cast<jclass>(env->NewGlobalRef(hook));
+    clearException(env);
+    if (!g_incomingHook) {
+        env->UnregisterNatives(hook);
+        clearException(env);
+        env->DeleteLocalRef(hook);
+        resetResolvedIds(env);
+        return false;
+    }
     env->DeleteLocalRef(hook);
-    g_initialized = true;
-    log_ok("[BacktrackGate] IncomingHook native bridge ready");
+    clearException(env);
+
+    {
+        std::lock_guard<std::mutex> lock(g_stateMutex);
+        clearSnapshotLocked();
+    }
+    g_callbackObserved.store(false, std::memory_order_release);
+    g_firstPacketReported.store(false, std::memory_order_release);
+    g_missingSourceReported.store(false, std::memory_order_release);
+    g_emergencyDrain.store(false, std::memory_order_release);
+    g_initialized.store(true, std::memory_order_release);
+    log_ok("[BacktrackGate] Incoming bridge, movement decoder and connection source ready");
     return true;
 }
 
-void Shutdown(JNIEnv* env, bool safeToUnregister) {
-    if (g_cls_IncomingHook && env) {
-        if (safeToUnregister)
-            env->UnregisterNatives(g_cls_IncomingHook);
-        env->DeleteGlobalRef(g_cls_IncomingHook);
-        g_cls_IncomingHook = nullptr;
+bool Shutdown(JNIEnv* env, bool safeToUnregister) {
+    g_operational.store(false, std::memory_order_release);
+    g_shuttingDown.store(true, std::memory_order_release);
+
+    const auto deadline =
+        std::chrono::steady_clock::now() + std::chrono::milliseconds(2000);
+    while (g_callbacksInFlight.load(std::memory_order_acquire) != 0) {
+        if (std::chrono::steady_clock::now() >= deadline) {
+            log_err("[BacktrackGate] Timed out waiting for incoming callbacks");
+            return false;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
-    if (env) {
-        std::lock_guard<std::mutex> lock(g_mutex);
-        for (Held& h : g_held)
-            if (h.packet)
-                env->DeleteGlobalRef(h.packet);
-        g_held.clear();
+
+    if (!env || !safeToUnregister) {
+        log_err("[BacktrackGate] Unsafe native shutdown refused");
+        return false;
     }
-    g_initialized = false;
+
+    Discard(env);
+    if (g_incomingHook) {
+        const jint result = env->UnregisterNatives(g_incomingHook);
+        const bool threw = env->ExceptionCheck() == JNI_TRUE;
+        clearException(env);
+        if (result != JNI_OK || threw) {
+            log_err("[BacktrackGate] IncomingHook native unregister failed");
+            return false;
+        }
+        env->DeleteGlobalRef(g_incomingHook);
+        g_incomingHook = nullptr;
+        clearException(env);
+    }
+
+    resetResolvedIds(env);
+    g_initialized.store(false, std::memory_order_release);
+    g_shuttingDown.store(false, std::memory_order_release);
+    return true;
 }
 
 bool IsReady() {
-    return g_initialized.load();
+    return g_initialized.load(std::memory_order_acquire);
+}
+
+void SetOperational(bool operational) {
+    const bool next = operational && IsReady();
+    const bool previous = g_operational.exchange(next, std::memory_order_acq_rel);
+    if (next && !previous)
+        log_ok("[BacktrackGate] Retention path operational");
+    else if (!next && previous)
+        log_warn("[BacktrackGate] Retention path disabled");
+}
+
+bool IsOperational() {
+    return g_operational.load(std::memory_order_acquire);
+}
+
+void Configure(unsigned holdMs, unsigned maxHeldPackets) {
+    std::uint64_t hold = static_cast<std::uint64_t>(holdMs);
+    if (hold > kMaxRetentionMs)
+        hold = kMaxRetentionMs;
+    g_retentionMs.store(hold, std::memory_order_release);
+
+    std::size_t cap = maxHeldPackets == 0u ? 1u : static_cast<std::size_t>(maxHeldPackets);
+    if (cap > kHardQueueLimit)
+        cap = kHardQueueLimit;
+    g_softQueueLimit.store(cap, std::memory_order_release);
 }
 
 }  // namespace BacktrackGate

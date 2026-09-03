@@ -14,7 +14,9 @@
 namespace cobble {
 struct context {
     static void initialize(HMODULE hModule);
-    static void shutdown();
+    // Returns false when native hooks could not be safely detached; the caller must
+    // leave the DLL loaded in that case.
+    static bool shutdown();
 
     // is_running is written from the UI render thread (EJECT button) and
     // read from the main loop thread, so it MUST be atomic. A plain `bool`

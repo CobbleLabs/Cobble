@@ -6,6 +6,9 @@
 #include "../../ui/widgets/widgets.hpp"
 #include "../../util/network/json.hpp"
 
+#include <algorithm>
+#include <cmath>
+
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
 #endif
@@ -14,6 +17,10 @@
 AutoRefill* autoRefill = nullptr;
 
 namespace {
+
+constexpr float kPi = 3.14159265f;
+
+
 
 void sendLwjglKeyState(int keyCode, bool down) {
     INPUT input{};
@@ -90,6 +97,138 @@ bool playerInventorySlotScreenPosition(int inventorySlot, POINT& position) {
 
 AutoRefill::AutoRefill() : Module("AutoRefill") {
     keybind = 0;  // No default keybind
+    rng_.seed(static_cast<uint64_t>(std::chrono::steady_clock::now().time_since_epoch().count()) ^
+              (reinterpret_cast<uint64_t>(this) * 0x9E3779B97F4A7C15ull));
+}
+
+void AutoRefill::applyPreset(AutoRefillPreset preset) {
+    settings.preset = static_cast<int>(preset);
+    switch (preset) {
+        case AutoRefillPreset::Instant:
+            // Everything the protocol allows, with none of the disguise.
+            settings.speed = 0;
+            settings.reactionMs = 0;
+            settings.jitterPercent = 0;
+            settings.hesitateChance = 0;
+            settings.fatigue = false;
+            settings.humanPath = false;
+            settings.legitMoveTime = 60;
+            break;
+        case AutoRefillPreset::Fast:
+            settings.speed = 45;
+            settings.reactionMs = 70;
+            settings.jitterPercent = 20;
+            settings.hesitateChance = 0;
+            settings.fatigue = false;
+            settings.humanPath = true;
+            settings.legitMoveTime = 90;
+            break;
+        case AutoRefillPreset::Human:
+            settings.speed = 80;
+            settings.reactionMs = 190;
+            settings.jitterPercent = 35;
+            settings.hesitateChance = 12;
+            settings.fatigue = true;
+            settings.humanPath = true;
+            settings.legitMoveTime = 130;
+            break;
+        case AutoRefillPreset::Careful:
+            settings.speed = 150;
+            settings.reactionMs = 300;
+            settings.jitterPercent = 55;
+            settings.hesitateChance = 25;
+            settings.fatigue = true;
+            settings.humanPath = true;
+            settings.legitMoveTime = 210;
+            break;
+        case AutoRefillPreset::Custom:
+        default:
+            break;
+    }
+}
+
+int64_t AutoRefill::jitter(int baseMs) const {
+    return jitter(baseMs, settings.jitterPercent);
+}
+
+int64_t AutoRefill::jitter(int baseMs, int spreadPercent) const {
+    if (baseMs <= 0)
+        return 0;
+    const int spread = (std::clamp)(spreadPercent, 0, 100);
+    if (spread == 0)
+        return baseMs;
+    // Two uniform draws averaged give a soft bell instead of a flat band, so most
+    // delays land near the base and the extremes stay rare.
+    std::uniform_real_distribution<float> dist(-1.0f, 1.0f);
+    const float noise = (dist(rng_) + dist(rng_)) * 0.5f;
+    const float scaled =
+        static_cast<float>(baseMs) * (1.0f + noise * (static_cast<float>(spread) / 100.0f));
+    return static_cast<int64_t>(std::lround((std::max)(0.0f, scaled)));
+}
+
+bool AutoRefill::roll(int percent) const {
+    if (percent <= 0)
+        return false;
+    if (percent >= 100)
+        return true;
+    std::uniform_int_distribution<int> dist(1, 100);
+    return dist(rng_) <= percent;
+}
+
+float AutoRefill::fatigueScale() const {
+    if (!settings.fatigue || movesDone_ <= 0)
+        return 1.0f;
+    // A hand that has already swept the grid six times is not as quick on the
+    // seventh. Capped so a full nine-slot refill never crawls.
+    return 1.0f + 0.06f * static_cast<float>((std::min)(movesDone_, 6));
+}
+
+int64_t AutoRefill::nextGap() const {
+    int64_t gap =
+        static_cast<int64_t>(std::lround(static_cast<float>(jitter(settings.speed)) * fatigueScale()));
+    // The occasional "which one was it again" pause. This is the single biggest
+    // reason a refill reads as a person: real click trains have outliers, and a
+    // fixed interval generator never produces one.
+    if (roll(settings.hesitateChance))
+        gap += jitter(settings.speed + 110, 45);
+    return gap;
+}
+
+void AutoRefill::enterState(State next, int64_t delayMs) {
+    state = next;
+    stateStartTime = std::chrono::steady_clock::now();
+    stateDelay_ = delayMs > 0 ? delayMs : 0;
+}
+
+bool AutoRefill::takeNextTask(RefillTask& out) {
+    if (pendingRefills.empty())
+        return false;
+
+    size_t pick = 0;
+    if (settings.nearestFirst && lastSourceSlot_ >= 9) {
+        // A real hand grabs whichever stack is closest to where the cursor already
+        // sits, not whichever happens to be leftmost. At most nine candidates.
+        const int lastRow = (lastSourceSlot_ - 9) / 9;
+        const int lastCol = lastSourceSlot_ % 9;
+        int best = 1 << 30;
+        for (size_t i = 0; i < pendingRefills.size(); ++i) {
+            const int slot = pendingRefills[i].sourceSlot;
+            if (slot < 9)
+                continue;
+            const int dr = ((slot - 9) / 9) - lastRow;
+            const int dc = (slot % 9) - lastCol;
+            const int cost = dr * dr + dc * dc;
+            if (cost < best) {
+                best = cost;
+                pick = i;
+            }
+        }
+    }
+
+    out = pendingRefills[pick];
+    pendingRefills.erase(pendingRefills.begin() + static_cast<std::ptrdiff_t>(pick));
+    lastSourceSlot_ = out.sourceSlot;
+    return true;
 }
 
 bool AutoRefill::canToggle() {
@@ -98,8 +237,8 @@ bool AutoRefill::canToggle() {
 }
 
 bool AutoRefill::isPacketRefilling() const {
-    return settings.mode == 0 && state != State::Idle && state != State::RestoreSprintDown &&
-           state != State::RestoreSprintUp;
+    return settings.mode == 0 && state != State::Idle && state != State::Reacting &&
+           state != State::RestoreSprintDown && state != State::RestoreSprintUp;
 }
 
 bool AutoRefill::startLegitMove(int slotId) {
@@ -107,16 +246,89 @@ bool AutoRefill::startLegitMove(int slotId) {
         return false;
     if (!GetCursorPos(&mouseStart_))
         return false;
+
+    const int base = (std::max)(20, settings.legitMoveTime);
+    if (!settings.humanPath) {
+        pathDuration_ = base;
+        pathSettle_ = 0;
+        bowFrac_ = 0.0f;
+        overshootFrac_ = 0.0f;
+        tremorAmp_ = 0.0f;
+        return true;
+    }
+
+    std::uniform_real_distribution<float> unit(0.0f, 1.0f);
+    // Nobody lands on the exact pixel centre of an 18x18 slot.
+    std::uniform_int_distribution<int> scatter(-4, 4);
+    mouseTarget_.x += scatter(rng_);
+    mouseTarget_.y += scatter(rng_);
+
+    const float dx = static_cast<float>(mouseTarget_.x - mouseStart_.x);
+    const float dy = static_cast<float>(mouseTarget_.y - mouseStart_.y);
+    const float dist = std::sqrt(dx * dx + dy * dy);
+
+    // Fitts' law: the time to reach a target grows with the log of the distance,
+    // not linearly and certainly not as a constant. A fixed duration is a good
+    // part of why the old path looked mechanical — it crossed the whole window
+    // and hopped between two neighbouring slots in exactly the same 120 ms.
+    const float scale = 0.5f + 0.5f * std::log2(1.0f + dist / 220.0f);
+    pathDuration_ = jitter(static_cast<int>(std::lround(static_cast<float>(base) * scale)), 18);
+    if (pathDuration_ < 24)
+        pathDuration_ = 24;
+    // The hand arrives and rests for a moment before the finger comes down.
+    pathSettle_ = jitter(28, 60);
+
+    // Arms pivot, so the cursor bows to one side instead of tracking the exact
+    // straight line a linear interpolation draws.
+    bowFrac_ = (0.035f + unit(rng_) * 0.075f) * (unit(rng_) < 0.5f ? -1.0f : 1.0f);
+    // About a third of real reaches overshoot and need a correction sub-movement.
+    overshootFrac_ = roll(34) ? (0.02f + unit(rng_) * 0.045f) : 0.0f;
+    tremorAmp_ = 0.6f + unit(rng_) * 0.9f;
+    tremorPhase_ = unit(rng_) * (2.0f * kPi);
+    tremorFreq_ = 5.0f + unit(rng_) * 9.0f;
     return true;
 }
 
 bool AutoRefill::updateLegitMove(long long elapsed) {
-    const int duration = (std::max)(1, settings.legitMoveTime);
-    const float progress = (std::min)(1.0f, static_cast<float>(elapsed) / duration);
-    const int x = mouseStart_.x + static_cast<int>((mouseTarget_.x - mouseStart_.x) * progress);
-    const int y = mouseStart_.y + static_cast<int>((mouseTarget_.y - mouseStart_.y) * progress);
+    const float duration = pathDuration_ > 0 ? static_cast<float>(pathDuration_) : 1.0f;
+    float t = static_cast<float>(elapsed) / duration;
+    if (t < 0.0f)
+        t = 0.0f;
+    if (t > 1.0f)
+        t = 1.0f;
+
+    const float dx = static_cast<float>(mouseTarget_.x - mouseStart_.x);
+    const float dy = static_cast<float>(mouseTarget_.y - mouseStart_.y);
+    const float dist = std::sqrt(dx * dx + dy * dy);
+
+    float along = t;
+    float lateral = 0.0f;
+    if (settings.humanPath) {
+        // Minimum-jerk profile: accelerate hard, coast, decelerate into the slot.
+        along = t * t * t * (10.0f - 15.0f * t + 6.0f * t * t);
+        if (overshootFrac_ > 0.0f) {
+            // Sails past the slot around three quarters of the way in and is
+            // pulled back — the correction sub-movement of a real reach. Returns
+            // to exactly 1.0 at the end, so the click still lands on the slot.
+            const float o = (t - 0.55f) / 0.45f;
+            if (o > 0.0f)
+                along += overshootFrac_ * std::sin(kPi * (o > 1.0f ? 1.0f : o));
+        }
+        lateral = bowFrac_ * dist * std::sin(kPi * t) +
+                  tremorAmp_ * std::sin(tremorPhase_ + tremorFreq_ * t);
+    }
+
+    float perpX = 0.0f;
+    float perpY = 0.0f;
+    if (dist > 0.001f) {
+        perpX = -dy / dist;
+        perpY = dx / dist;
+    }
+
+    const int x = mouseStart_.x + static_cast<int>(std::lround(dx * along + perpX * lateral));
+    const int y = mouseStart_.y + static_cast<int>(std::lround(dy * along + perpY * lateral));
     SetCursorPos(x, y);
-    return progress >= 1.0f;
+    return elapsed >= pathDuration_ + pathSettle_;
 }
 
 void AutoRefill::onEnable() {
@@ -133,22 +345,18 @@ void AutoRefill::onEnable() {
         return;
     }
 
-    if (settings.mode == 0) {
-        // Fast packet mode stays silent when manually triggered. The passive
-        // setting is handled only after the player has opened their inventory.
-        if (sprint && !sprint->enabled)
-            sprint->setEnabled(true);
-        mc.releaseMovementKeys();
-        movementPaused_ = true;
-        mc.setKeyBindState(mc.getSprintKey(), false);
-        mc.sendInventoryOpenPacket();
-        state = State::PacketOpening;
-    } else {
-        sendLwjglKey(mc.getInventoryKey());
-        state = State::LegitOpening;
-    }
-    stateStartTime = std::chrono::steady_clock::now();
-    lastMoveTime = stateStartTime - std::chrono::milliseconds(settings.speed);
+    movesDone_ = 0;
+    lastSourceSlot_ = -1;
+    decoyStage_ = 0;
+    hasActiveTask_ = false;
+    manualTrigger_ = true;
+    nextGapMs_ = 0;
+    // Nothing at all happens on the frame the key goes down. The gap between
+    // deciding to refill and the inventory actually opening is the first thing a
+    // person has that the old version did not: it opened, clicked and closed in
+    // one uninterrupted machine-timed burst.
+    enterState(State::Reacting, jitter(settings.reactionMs));
+    lastMoveTime = stateStartTime;
 }
 
 void AutoRefill::onDisable() {
@@ -163,8 +371,12 @@ void AutoRefill::onDisable() {
     state = State::Idle;
     pendingRefills.clear();
     hasActiveTask_ = false;
-    pendingClickSlot_ = -1;
-    pendingClickHotbar_ = -1;
+    decoyStage_ = 0;
+    movesDone_ = 0;
+    lastSourceSlot_ = -1;
+    nextGapMs_ = 0;
+    pendingClickSlot_.store(-1, std::memory_order_relaxed);
+    pendingClickHotbar_.store(-1, std::memory_order_relaxed);
 }
 
 void AutoRefill::finishRefill() {
@@ -175,14 +387,17 @@ void AutoRefill::finishRefill() {
     state = State::Idle;
     pendingRefills.clear();
     hasActiveTask_ = false;
-    pendingClickSlot_ = -1;
-    pendingClickHotbar_ = -1;
+    decoyStage_ = 0;
+    movesDone_ = 0;
+    lastSourceSlot_ = -1;
+    nextGapMs_ = 0;
+    pendingClickSlot_.store(-1, std::memory_order_relaxed);
+    pendingClickHotbar_.store(-1, std::memory_order_relaxed);
 
     // Passive mode stays enabled to catch the next inventory open.
     if (!settings.onInventoryOpen) {
         enabled = false;
     }
-
 }
 
 void AutoRefill::onUpdate() {
@@ -196,9 +411,17 @@ void AutoRefill::onUpdate() {
         if (inventoryOpen && !wasInventoryOpen) {
             scanForRefills();
             if (!pendingRefills.empty()) {
-                state = settings.mode == 1 ? State::LegitMoveSource : State::Refilling;
-                stateStartTime = std::chrono::steady_clock::now();
-                lastMoveTime = stateStartTime - std::chrono::milliseconds(settings.speed);
+                movesDone_ = 0;
+                lastSourceSlot_ = -1;
+                decoyStage_ = 0;
+                hasActiveTask_ = false;
+                manualTrigger_ = false;
+                nextGapMs_ = 0;
+                // Even here there is a pause. The screen has to be read before the
+                // first stack is grabbed, and a click on the same frame the window
+                // appears is not something a person can produce.
+                enterState(State::Reacting, jitter(settings.reactionMs));
+                lastMoveTime = stateStartTime;
             }
         }
 
@@ -215,59 +438,96 @@ void AutoRefill::onUpdate() {
         case State::Idle:
             break;
 
+        case State::Reacting: {
+            if (elapsed < stateDelay_)
+                return;
+
+            if (!manualTrigger_) {
+                // The player opened the inventory themselves, so the pause above was
+                // the "spot the empty slots" delay. Go straight to the first move.
+                enterState(settings.mode == 1 ? State::LegitMoveSource : State::Refilling, 0);
+                lastMoveTime = stateStartTime;
+                nextGapMs_ = 0;
+                return;
+            }
+
+            // A screen may have opened while we were waiting; the packet path must
+            // never fire an inventory-open against an already open container.
+            if (mc.isInGui()) {
+                finishRefill();
+                return;
+            }
+
+            if (settings.mode == 0) {
+                // Fast packet mode stays silent when manually triggered. The passive
+                // setting is handled only after the player has opened their inventory.
+                if (sprint && !sprint->enabled)
+                    sprint->setEnabled(true);
+                mc.releaseMovementKeys();
+                movementPaused_ = true;
+                mc.setKeyBindState(mc.getSprintKey(), false);
+                mc.sendInventoryOpenPacket();
+                enterState(State::PacketOpening, jitter(80, 30));
+            } else {
+                sendLwjglKey(mc.getInventoryKey());
+                enterState(State::LegitOpening, 0);
+            }
+            return;
+        }
+
         case State::PacketOpening: {
             // Briefly settle movement before the first inventory action, then
             // restore the user's held keys and refill at the configured speed.
-            if (elapsed < 75)
+            if (elapsed < stateDelay_)
                 return;
             if (movementPaused_) {
                 mc.restoreMovementKeys();
                 movementPaused_ = false;
             }
-            state = State::Refilling;
-            stateStartTime = now;
-            lastMoveTime = now - std::chrono::milliseconds(settings.speed);
+            enterState(State::Refilling, 0);
+            lastMoveTime = stateStartTime;
+            nextGapMs_ = 0;
             break;
         }
 
         case State::Refilling: {
-            if (elapsed < settings.speed)
-                return;
-
             // Wait until the previous queued click has actually been flushed (fired
             // pre-flying in onOutgoingPacket) before moving to the next item.
-            if (pendingClickSlot_ >= 0)
+            if (pendingClickSlot_.load(std::memory_order_acquire) >= 0)
                 return;
 
-            if (pendingRefills.empty()) {
-                state = State::Closing;
-                stateStartTime = now;
+            const auto sinceMove =
+                std::chrono::duration_cast<std::chrono::milliseconds>(now - lastMoveTime).count();
+            if (sinceMove < nextGapMs_)
+                return;
+
+            RefillTask task{};
+            if (!takeNextTask(task)) {
+                enterState(State::Closing, jitter(settings.speed + 60, 40));
                 return;
             }
 
-            auto moveElapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - lastMoveTime).count();
-            if (moveElapsed < settings.speed)
-                return;
-
-            RefillTask task = pendingRefills.front();
-            pendingRefills.erase(pendingRefills.begin());
-
             // Queue the click; it is sent from onOutgoingPacket right before the next
             // flying packet so it lands BEFORE movement in the tick (no Grim Post).
-            pendingClickSlot_ = task.sourceSlot;
-            pendingClickHotbar_ = task.hotbarSlot;
+            pendingClickHotbar_.store(task.hotbarSlot, std::memory_order_relaxed);
+            pendingClickSlot_.store(task.sourceSlot, std::memory_order_release);
             lastMoveTime = now;
+            ++movesDone_;
+            nextGapMs_ = nextGap();
             break;
         }
 
         case State::LegitOpening: {
             if (mc.isPlayerInventoryOpen()) {
-                state = settings.mode == 1 ? State::LegitMoveSource : State::Refilling;
-                stateStartTime = now;
-                lastMoveTime = now - std::chrono::milliseconds(settings.speed);
-            } else if (elapsed > 1000) {
-                finishRefill();
+                enterState(settings.mode == 1 ? State::LegitMoveSource : State::Refilling, 0);
+                lastMoveTime = stateStartTime;
+                // The window has just appeared; the eyes find the first stack before
+                // the hand starts moving toward it.
+                nextGapMs_ = jitter(settings.speed, 40);
+                break;
             }
+            if (elapsed > 1000)
+                finishRefill();
             break;
         }
 
@@ -278,19 +538,31 @@ void AutoRefill::onUpdate() {
             }
 
             if (!hasActiveTask_) {
-                const auto wait = std::chrono::duration_cast<std::chrono::milliseconds>(now - lastMoveTime).count();
-                if (wait < settings.speed)
+                const auto wait =
+                    std::chrono::duration_cast<std::chrono::milliseconds>(now - lastMoveTime).count();
+                if (wait < nextGapMs_)
                     return;
-                if (pendingRefills.empty()) {
-                    state = State::Closing;
-                    stateStartTime = now;
+                if (!takeNextTask(activeTask_)) {
+                    enterState(State::Closing, jitter(settings.speed + 60, 40));
                     return;
                 }
-
-                activeTask_ = pendingRefills.front();
-                pendingRefills.erase(pendingRefills.begin());
                 hasActiveTask_ = true;
-                if (!startLegitMove(activeTask_.sourceSlot)) {
+
+                // Now and then the cursor drifts onto the wrong stack first, stops,
+                // and corrects. It never clicks there, so the only cost is time — and
+                // a path that never once hesitates is its own kind of signature.
+                decoyStage_ = 0;
+                int firstTarget = activeTask_.sourceSlot;
+                if (settings.humanPath && roll(settings.hesitateChance)) {
+                    const int step = roll(50) ? 1 : 9;  // neighbouring column or row
+                    const int drift = activeTask_.sourceSlot + (roll(50) ? step : -step);
+                    if (drift >= 9 && drift <= 35) {
+                        decoyStage_ = 1;
+                        firstTarget = drift;
+                    }
+                }
+
+                if (!startLegitMove(firstTarget)) {
                     finishRefill();
                     return;
                 }
@@ -300,13 +572,25 @@ void AutoRefill::onUpdate() {
 
             if (!updateLegitMove(elapsed))
                 return;
+
+            if (decoyStage_ == 1) {
+                // Arrived at the decoy. Notice, then move on to the real one.
+                decoyStage_ = 0;
+                if (!startLegitMove(activeTask_.sourceSlot)) {
+                    finishRefill();
+                    return;
+                }
+                stateStartTime = now;
+                return;
+            }
+
             // Queue the click for the outgoing packet gate. It will be sent
             // immediately before the next movement packet, preserving vanilla
             // packet order while the cursor animation remains visible.
-            pendingClickSlot_ = activeTask_.sourceSlot;
-            pendingClickHotbar_ = activeTask_.hotbarSlot;
-            state = State::LegitAwaitClick;
-            stateStartTime = now;
+            pendingClickHotbar_.store(activeTask_.hotbarSlot, std::memory_order_relaxed);
+            pendingClickSlot_.store(activeTask_.sourceSlot, std::memory_order_release);
+            ++movesDone_;
+            enterState(State::LegitAwaitClick, 0);
             break;
         }
 
@@ -316,32 +600,33 @@ void AutoRefill::onUpdate() {
                 return;
             }
             // onOutgoingPacket clears this after sending it before C03.
-            if (pendingClickSlot_ >= 0)
+            if (pendingClickSlot_.load(std::memory_order_acquire) >= 0)
                 return;
 
             hasActiveTask_ = false;
             lastMoveTime = now;
-            state = State::LegitMoveSource;
-            stateStartTime = now;
+            nextGapMs_ = nextGap();
+            enterState(State::LegitMoveSource, 0);
             break;
         }
 
         case State::RestoreSprintDown: {
             // Let the close packet leave first, then keep the key down long
             // enough for LWJGL and Toggle Sprint to observe a real key press.
-            if (elapsed < 50)
+            if (elapsed < stateDelay_)
                 return;
             const int sprintKey = mc.getSprintKey();
             mc.setKeyBindState(sprintKey, true);
             sendLwjglKeyState(sprintKey, true);
             sprintKeyHeld_ = true;
-            state = State::RestoreSprintUp;
-            stateStartTime = now;
+            // Floored at 90 ms: below that the press can be missed entirely, so the
+            // jitter is added on top rather than around it.
+            enterState(State::RestoreSprintUp, 90 + jitter(30, 60));
             break;
         }
 
         case State::RestoreSprintUp: {
-            if (elapsed < 100)
+            if (elapsed < stateDelay_)
                 return;
             const int sprintKey = mc.getSprintKey();
             mc.setKeyBindState(sprintKey, false);
@@ -352,7 +637,7 @@ void AutoRefill::onUpdate() {
         }
 
         case State::Closing: {
-            if (elapsed < settings.speed)
+            if (elapsed < stateDelay_)
                 return;
 
             // No retry pass. Rescanning here caused an infinite bounce loop:
@@ -372,8 +657,7 @@ void AutoRefill::onUpdate() {
                     sendLwjglKey(mc.getInventoryKey());
             }
             if (settings.mode == 0 && !settings.onInventoryOpen) {
-                state = State::RestoreSprintDown;
-                stateStartTime = now;
+                enterState(State::RestoreSprintDown, jitter(55, 35));
                 break;
             }
             finishRefill();
@@ -383,7 +667,7 @@ void AutoRefill::onUpdate() {
 }
 
 void AutoRefill::onOutgoingPacket(JNIEnv* env, jobject packet) {
-    if (pendingClickSlot_ < 0 || !env || !packet)
+    if (pendingClickSlot_.load(std::memory_order_acquire) < 0 || !env || !packet)
         return;
 
     if (!c03Resolved_) {
@@ -407,10 +691,10 @@ void AutoRefill::onOutgoingPacket(JNIEnv* env, jobject packet) {
     if (!env->IsInstanceOf(packet, c03Class_))
         return;
 
-    const int slot = pendingClickSlot_;
-    const int hotbar = pendingClickHotbar_;
-    pendingClickSlot_ = -1;
-    pendingClickHotbar_ = -1;
+    const int slot = pendingClickSlot_.load(std::memory_order_acquire);
+    const int hotbar = pendingClickHotbar_.load(std::memory_order_relaxed);
+    pendingClickHotbar_.store(-1, std::memory_order_relaxed);
+    pendingClickSlot_.store(-1, std::memory_order_release);
     // Mode 2 (hotbar swap) — same as pressing a number key while hovering the
     // source slot. Works whether the target hotbar slot is empty OR holds a
     // bowl; shift-click (mode 1) would fail on the bowl case because the item
@@ -487,15 +771,6 @@ void AutoRefill::onRenderMenu() {
             ImGui::Spacing();
             static const char* modes[] = {"Packet", "Legit"};
             ui::Combo("Mode", &settings.mode, modes, IM_ARRAYSIZE(modes));
-            if (settings.mode == 1) {
-                int moveTime = settings.legitMoveTime;
-                if (ui::SliderInt("Mouse Move (ms)", &moveTime, 40, 500, "%d"))
-                    settings.legitMoveTime = moveTime;
-            }
-            ImGui::Spacing();
-            int speed = settings.speed;
-            if (ui::SliderInt("Speed (ms)", &speed, 0, 200, "%d"))
-                settings.speed = speed;
             ImGui::Spacing();
             ui::Checkbox("On Inventory Open", &settings.onInventoryOpen);
         },
@@ -504,6 +779,59 @@ void AutoRefill::onRenderMenu() {
             ui::Checkbox("Refill Soup", &settings.refillSoup);
             ui::Checkbox("Refill Potions", &settings.refillPotions);
         });
+
+    ui::two_column(
+        "Timing",
+        [this]() {
+            static const char* presets[] = {"Instant", "Fast", "Human", "Careful", "Custom"};
+            int preset = (std::clamp)(settings.preset, 0, 4);
+            if (ui::Combo("Preset", &preset, presets, IM_ARRAYSIZE(presets)))
+                applyPreset(static_cast<AutoRefillPreset>(preset));
+
+            // Touching any of these means the label no longer describes the timing,
+            // so the combo drops to Custom rather than lying about it.
+            bool touched = false;
+            touched |= ui::SliderInt("Gap (ms)", &settings.speed, 0, 300);
+            touched |= ui::SliderInt("Reaction (ms)", &settings.reactionMs, 0, 600);
+            touched |= ui::SliderInt("Jitter (%)", &settings.jitterPercent, 0, 100);
+            touched |= ui::Checkbox("Fatigue", &settings.fatigue);
+            if (touched)
+                settings.preset = static_cast<int>(AutoRefillPreset::Custom);
+        },
+        "Behaviour",
+        [this]() {
+            bool touched = false;
+            touched |= ui::SliderInt("Hesitate (%)", &settings.hesitateChance, 0, 60);
+            ui::Checkbox("Nearest Source First", &settings.nearestFirst);
+            ImGui::Spacing();
+            touched |= ui::Checkbox("Human Mouse Path", &settings.humanPath);
+            if (settings.mode == 1)
+                touched |= ui::SliderInt("Mouse Move (ms)", &settings.legitMoveTime, 40, 500);
+            if (touched)
+                settings.preset = static_cast<int>(AutoRefillPreset::Custom);
+        });
+
+    ImGui::Spacing();
+
+    // Plain int / enum reads only — the module thread owns everything else here.
+    const int moved = movesDone_;
+    switch (state) {
+        case State::Idle:
+            if (settings.onInventoryOpen)
+                ImGui::TextDisabled("Passive - refills when you open your inventory");
+            else
+                ImGui::TextDisabled("Idle - press the keybind to refill once");
+            break;
+        case State::Reacting:
+            ImGui::TextColored(ImVec4(0.40f, 0.85f, 0.45f, 1.0f), "Reacting...");
+            break;
+        default:
+            ImGui::TextColored(ImVec4(0.40f, 0.85f, 0.45f, 1.0f), "Refilling - %d item%s moved", moved,
+                               moved == 1 ? "" : "s");
+            break;
+    }
+    if (settings.mode == 1 && !settings.humanPath)
+        ImGui::TextDisabled("Straight-line cursor: fast, and obvious to anyone watching");
 }
 
 std::string AutoRefill::getDisplayInfo() {
@@ -512,8 +840,6 @@ std::string AutoRefill::getDisplayInfo() {
     return settings.onInventoryOpen ? "Inv Open" : "Manual";
 }
 
-
-
 void AutoRefill::saveSettings(json::Value& node) const {
     node["refillSoup"] = settings.refillSoup;
     node["refillPotions"] = settings.refillPotions;
@@ -521,13 +847,31 @@ void AutoRefill::saveSettings(json::Value& node) const {
     node["mode"] = settings.mode;
     node["legitMoveTime"] = settings.legitMoveTime;
     node["onInventoryOpen"] = settings.onInventoryOpen;
+    node["preset"] = settings.preset;
+    node["reactionMs"] = settings.reactionMs;
+    node["jitterPercent"] = settings.jitterPercent;
+    node["fatigue"] = settings.fatigue;
+    node["hesitateChance"] = settings.hesitateChance;
+    node["humanPath"] = settings.humanPath;
+    node["nearestFirst"] = settings.nearestFirst;
 }
 
 void AutoRefill::loadSettings(const json::Value& node) {
     settings.refillSoup = node["refillSoup"].as_bool(settings.refillSoup);
     settings.refillPotions = node["refillPotions"].as_bool(settings.refillPotions);
-    settings.speed = node["speed"].as_int(settings.speed);
-    settings.mode = (std::max)(0, (std::min)(1, node["mode"].as_int(settings.mode)));
+    settings.speed = (std::clamp)(node["speed"].as_int(settings.speed), 0, 300);
+    settings.mode = (std::clamp)(node["mode"].as_int(settings.mode), 0, 1);
     settings.legitMoveTime = (std::max)(40, node["legitMoveTime"].as_int(settings.legitMoveTime));
     settings.onInventoryOpen = node["onInventoryOpen"].as_bool(settings.onInventoryOpen);
+    // Configs written before the humanization pass have none of the fields below.
+    // Their timing was the flat one Instant reproduces, but silently pinning them
+    // to Instant would keep the old blatant behaviour forever; the defaults above
+    // (Human) are the better thing to inherit, so only an explicit preset counts.
+    settings.preset = (std::clamp)(node["preset"].as_int(settings.preset), 0, 4);
+    settings.reactionMs = (std::clamp)(node["reactionMs"].as_int(settings.reactionMs), 0, 600);
+    settings.jitterPercent = (std::clamp)(node["jitterPercent"].as_int(settings.jitterPercent), 0, 100);
+    settings.fatigue = node["fatigue"].as_bool(settings.fatigue);
+    settings.hesitateChance = (std::clamp)(node["hesitateChance"].as_int(settings.hesitateChance), 0, 60);
+    settings.humanPath = node["humanPath"].as_bool(settings.humanPath);
+    settings.nearestFirst = node["nearestFirst"].as_bool(settings.nearestFirst);
 }

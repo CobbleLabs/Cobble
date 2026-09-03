@@ -109,6 +109,9 @@ public:
     // Teams System - Auto-detection via nametag color
     // ============================================================
 
+    // Live team-detection policy. The Teams module is the editor for this struct;
+    // every detector below consults it, so a switch flipped in the menu takes effect
+    // for combat and visuals at once without any per-module plumbing.
     struct TeamSettings {
         bool enabled = true;
         bool matchOwnNametag = true;  // If true, players with same color as local are teammates
@@ -119,7 +122,61 @@ public:
 
         // Lunar API support
         bool lunarApiEnabled = true;  // Read teammates from Lunar Client API packets
+
+        // Apollo OverrideNametagMessage: a green nametag is a strong teammate hint,
+        // but cosmetic colour cycling can fake one, hence the confirmation counter.
+        bool apolloNametags = true;
+
+        // Vanilla scoreboard membership: S3EPacketTeams plus Entity.isOnSameTeam().
+        bool scoreboard = true;
+
+        // How many green nametag signals inside the confirm window are needed before
+        // a player is trusted as a teammate. 1 reacts instantly and false-positives
+        // on cosmetics; higher is slower but certain.
+        int confirmHits = 3;
+
+        // How long a confirmed teammate keeps the status after losing the colour.
+        // Covers temporary recolours such as the HCTRanked archer tag.
+        int graceMs = 10000;
+
+        // Window inside which repeated green signals count toward the same confirmation.
+        // A gap longer than this restarts the count at zero, so a player who happens to
+        // flash green once every few seconds never accumulates his way to teammate.
+        int confirmWindowMs = 1500;
+
+        // A live Lunar roster suppresses the Apollo-nametag fallback outright: a server
+        // that states its teams is more trustworthy than a colour. Turn this off where the
+        // Lunar roster is only your party and green tags mark the rest of the team.
+        bool lunarExclusive = true;
+
+        // Count a green nametag only when it arrived with a team-tag payload. Tightens
+        // servers that hand plain green tags out in lobbies and to party members.
+        bool requireTeamTag = false;
+
+        // Honour the vanilla team flag (Entity.isOnSameTeam), which the game computes
+        // itself. Separate from `scoreboard`, which is Cobble's own S3EPacketTeams
+        // tracking — combat modules obey this flag even when Cobble has no roster.
+        bool vanillaTeamFlag = true;
     } teams;
+
+    // Should combat modules obey PlayerInfo::isOnLocalTeam? The vanilla flag comes from the
+    // game rather than from us, so it needs its own switch — and "Teams off" has to mean no
+    // team awareness at all, this flag included.
+    bool honorsVanillaTeams() const { return teams.enabled && teams.vanillaTeamFlag; }
+
+    // Snapshot of what is actually detected right now, for the module's status line.
+    // Only records registered in the current world are counted.
+    struct TeamStats {
+        size_t friends = 0;
+        size_t lunar = 0;
+        size_t apolloNametags = 0;
+        size_t scoreboardTeams = 0;
+    };
+    TeamStats getTeamStats() const;
+
+    // Drop every auto-detected record so the next packets rebuild it from scratch.
+    // Manual friends are untouched.
+    void clearDetected();
 
     // Check if a player is a teammate based on color matching or Lunar API
     bool isTeammate(const std::string& playerUUID, ChatColor playerColor, ChatColor localColor) const;
@@ -139,7 +196,8 @@ public:
     bool hasLunarTeammates() const;  // Returns true if any Lunar API teammates are active
 
     // Apollo Nametags: Store player nametag colors from OverrideNametagMessage
-    // hasExtra: true if JSON had "extra" array (team-tag in HCTRanked), false for simple (lobby/party)
+    // hasExtra: the colour came from the nested team tag (HCTRanked) rather than the outer
+    // name, which a plain lobby/party tag uses. Only consulted when teams.requireTeamTag.
     void setApolloNametagColor(const std::string& uuid, const std::string& color, bool hasExtra = true);
     bool isApolloTeammate(const std::string& uuid) const;  // confirmed via Apollo nametag or Lunar team payload
     std::string getApolloNametagColor(const std::string& uuid) const;
@@ -248,11 +306,6 @@ private:
     void* lastWorldRef_ = nullptr;
     std::atomic<uint64_t> worldChangeSerial_{0};
     std::atomic<int64_t> lastWorldChangePacketMs_{0};
-
-    static constexpr int kApolloGreenConfirmCount =
-        3;  // Requires 3 green signals to confirm (prevents cosmetic effect false positives)
-    static constexpr int64_t kApolloGreenConfirmWindowMs = 1500;
-    static constexpr int64_t kApolloTeammateGraceMs = 10000;  // 10 seconds grace period for archer tag
 
     // Helper to lowercase a string
     static std::string toLower(const std::string& s);

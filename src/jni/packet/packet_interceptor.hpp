@@ -12,8 +12,9 @@ namespace PacketInterceptor {
 // Initialize the packet interceptor
 bool Init();
 
-// Cleanup
-void Shutdown();
+// Cleanup. Returns false when any bytecode or native bridge teardown stage is
+// incomplete; callers must keep the DLL loaded so retained entrypoints remain valid.
+bool Shutdown();
 
 // Check if initialized successfully
 bool IsReady();

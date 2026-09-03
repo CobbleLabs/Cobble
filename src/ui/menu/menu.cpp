@@ -7,8 +7,10 @@
 #include "../../spectate/spectate.hpp"
 #include "../../module/combat/aimassist.h"
 #include "../../module/combat/aimbow.h"
+#include "../../module/combat/antibot.h"
 #include "../../module/combat/killaura.h"
 #include "../../module/combat/autoclicker.h"
+#include "../../module/combat/autorod.h"
 #include "../../module/combat/blockhit.h"
 #include "../../module/combat/backtrack.h"
 #include "../../module/combat/hitselect.h"
@@ -20,6 +22,7 @@
 #include "../../module/combat/reach.h"
 #include "../../module/combat/velocity.h"
 #include "../../module/module_manager.h"
+#include "../../module/movement/inventorymove.h"
 #include "../../module/movement/nojumpdelay.h"
 #include "../../module/movement/no_slow_down.h"
 #include "../../module/movement/blink.h"
@@ -38,7 +41,9 @@
 #include "../../module/utility/fastbreak.h"
 #include "../../module/utility/noitemrelease.h"
 #include "../../module/utility/inventorymanager.h"
+#include "../../module/utility/teams.h"
 #include "../../module/utility/throwpots.h"
+#include "../../module/utility/autopot.h"
 #include "../../module/visual/blockesp.h"
 #include "../../module/visual/chams.h"
 #include "../../module/visual/esp.h"
@@ -112,6 +117,10 @@ Module* getModuleForSubtab(int tabIdx, int subtabIdx) {
                 return blockHit;
             case 11:
                 return killAura;
+            case 12:
+                return autoRod;
+            case 13:
+                return antiBot;
         }
     }
     // Visuals Tab (1)
@@ -149,7 +158,7 @@ Module* getModuleForSubtab(int tabIdx, int subtabIdx) {
                 return chams;
         }
     }
-    // Movement Tab (2): Timer, TimerRange, NoSlowDown, NoJumpDelay, Sprint
+    // Movement Tab (2): Timer, TimerRange, NoSlowDown, NoJumpDelay, Sprint, InventoryMove
     else if (tabIdx == 2) {
         switch (subtabIdx) {
             case 0:
@@ -162,6 +171,8 @@ Module* getModuleForSubtab(int tabIdx, int subtabIdx) {
                 return noJumpDelay;
             case 4:
                 return sprint;
+            case 5:
+                return inventoryMove;
         }
     }
     // Utility Tab (3)
@@ -174,25 +185,29 @@ Module* getModuleForSubtab(int tabIdx, int subtabIdx) {
             case 2:
                 return throwPots;
             case 3:
-                return fastPlace;
+                return autoPot;
             case 4:
-                return noItemRelease;
+                return fastPlace;
             case 5:
-                return bridgeAssist;
+                return noItemRelease;
             case 6:
-                return scaffold;
+                return bridgeAssist;
             case 7:
-                return clutch;
+                return scaffold;
             case 8:
-                return breaker;
+                return clutch;
             case 9:
-                return autoTool;
+                return breaker;
             case 10:
-                return inventoryManager;
+                return autoTool;
             case 11:
-                return fastBreak;
+                return inventoryManager;
             case 12:
+                return fastBreak;
+            case 13:
                 return altManager;
+            case 14:
+                return teamsModule;
         }
     }
     // Network Tab (4)
@@ -333,9 +348,14 @@ static void renderSettingsPage() {
                 ImGui::Separator();
                 ImGui::Spacing();
 
-                ui::Checkbox("Teams", &friendsManager->teams.enabled);
+                // Team detection used to be this single checkbox. It is a module now
+                // (Utility > Teams) with a switch per source, so pointing there beats
+                // keeping a second control that writes the same flag.
                 ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetColorU32(ImGuiCol_TextDisabled));
+                ImGui::TextWrapped("Teams moved to Utility > Teams");
                 ImGui::PopStyleColor();
+
+                ImGui::Spacing();
 
                 // Quick-add friend feature
                 ui::CheckboxBind("Quick Add", &friendsManager->quickAddEnabled, &friendsManager->quickAddKey);
@@ -1577,7 +1597,7 @@ static void renderModuleConfig(int tab) {
     // ----- Module body -----
     Module* mod = getModuleForSubtab(ui::cur_tab, t.cur_subtab);
     if (mod) {
-        ui::SetDescriptionContext(mod->name);
+        ui::SetDescriptionContext(mod->name, /*allowTips=*/true);
         // Locked Module UI
         if (!mod->isAccessible()) {
             ImGui::Spacing();
@@ -1647,7 +1667,7 @@ static void renderModuleConfig(int tab) {
     // Special pages (ArrayList, Notifications) - no Module, render inline
     else if (ui::cur_tab == 1 && t.cur_subtab == 7) {
         // ArrayList settings
-        ui::SetDescriptionContext("ArrayList");
+        ui::SetDescriptionContext("ArrayList", /*allowTips=*/true);
         ui::two_column(
             "Settings",
             []() {
@@ -1691,11 +1711,11 @@ static void renderModuleConfig(int tab) {
             });
     } else if (ui::cur_tab == 1 && t.cur_subtab == 9) {
         // Notifications settings
-        ui::SetDescriptionContext("Notifications");
+        ui::SetDescriptionContext("Notifications", /*allowTips=*/true);
         ui::section("Settings", []() { ui::Checkbox("Enabled", &NotificationManager::enabled); });
     } else if (ui::cur_tab == 1 && t.cur_subtab == 10) {
         // Watermark settings (its own page now, independent of the ArrayList)
-        ui::SetDescriptionContext("Watermark");
+        ui::SetDescriptionContext("Watermark", /*allowTips=*/true);
         ui::two_column(
             "Settings",
             []() {
@@ -1718,7 +1738,7 @@ static void renderModuleConfig(int tab) {
     } else if (ui::cur_tab == 1 && t.cur_subtab == 12) {
         // ClickGUI settings: switch between the Old (original) and New (redesigned)
         // menu look. The card in the list also toggles this directly.
-        ui::SetDescriptionContext("ClickGUI");
+        ui::SetDescriptionContext("ClickGUI", /*allowTips=*/true);
         ui::section("Appearance", []() {
             const char* modes[] = {"Old Renewed", "New"};
             ui::Combo("Mode", &ui::gui_mode, modes, 2);
@@ -1801,12 +1821,52 @@ void Menu::ApplyStyle() {
     ui::apply_style();
 }
 
+// ==================== OPEN / CLOSE MOTION ====================
+// The menu used to open with `openAnim = ImLerp(openAnim, 1, 15 * dt)`. That is an
+// exponential approach: it never actually arrives, so the panel spends its whole
+// life "still settling" and every derived value inherits the same mush. Driving one
+// real 0..1 timer through three different curves instead gives an alpha that lands
+// early, a geometry curve that overshoots once and settles, and content that trails
+// the frame — three distinct motions from one clock, which is what makes an opening
+// panel read as assembled rather than cross-faded.
+static constexpr float kOpenDuration = 0.27f;
+static float g_openT = 0.0f;
+
+static float easeOutExpo(float t) {
+    t = ImClamp(t, 0.0f, 1.0f);
+    return t >= 1.0f ? 1.0f : 1.0f - powf(2.0f, -9.5f * t);
+}
+
+// Deliberately allowed to exceed 1: callers use the overshoot.
+static float easeOutBack(float t) {
+    const float c = 1.52f;
+    const float u = ImClamp(t, 0.0f, 1.0f) - 1.0f;
+    return 1.0f + (c + 1.0f) * u * u * u + c * u * u;
+}
+
+// Remap so the curve does not even start until `delay` of the open has elapsed.
+static float staggered(float t, float delay) {
+    return easeOutExpo(ImClamp((t - delay) / ImMax(0.0001f, 1.0f - delay), 0.0f, 1.0f));
+}
+
+// A critically-ish damped spring. Used for both the New menu's tab indicator and
+// the Old Renewed sidebar rail: a lerp cannot lean into a move, and the leaning is
+// the whole reason the motion reads as one object travelling rather than two
+// positions being cross-faded. Slightly under-damped, so it overshoots once.
+static void springTo(float& value, float& velocity, float target, float dt, float stiffness = 300.0f,
+                     float damping = 27.0f) {
+    const float step = ImMin(dt, 1.0f / 60.0f);
+    velocity += ((target - value) * stiffness - velocity * damping) * step;
+    value += velocity * step;
+}
+
 // The "Old Renewed" ClickGUI body: the classic vertical-sidebar layout, refreshed
 // with dark-glass panels and slim accent hairlines. The New look now has its own
 // renderer (renderClickGuiNew), so this path is only ever called with nu == false;
 // the `nu` parameter is kept for source compatibility. Called by Menu::Render
-// after the open/close animation.
-static void renderClickGuiBody(float openAnim, bool nu) {
+// after the open/close animation. `pop` overshoots 1 briefly and `contentT` trails
+// behind it — see the open/close motion block above.
+static void renderClickGuiBody(float openAnim, bool nu, float pop, float contentT) {
     ImGuiIO& io = ImGui::GetIO();
 
     // Old Renewed: refined dark-glass panels (semi-transparent) so the classic
@@ -1820,8 +1880,14 @@ static void renderClickGuiBody(float openAnim, bool nu) {
     // Keep layout geometry stable while opening; only opacity is animated.
     ui::size = ui::s(ui::baseSize);
 
+    // Rise from below and settle. The whole window is offset rather than the drawn
+    // plates, so children, hit-boxes and backgrounds all travel together — scaling
+    // the plates alone would let the inner recessed panels overhang the outer plate
+    // for the first few frames, because child backgrounds are drawn in child space.
+    const float slide = (1.0f - pop) * ui::s(26);
+
     // Center window
-    ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x * 0.5f, io.DisplaySize.y * 0.5f), ImGuiCond_Always,
+    ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x * 0.5f, io.DisplaySize.y * 0.5f + slide), ImGuiCond_Always,
                             ImVec2(0.5f, 0.5f));
     ImGui::SetNextWindowSize(ui::size);
 
@@ -1832,25 +1898,41 @@ static void renderClickGuiBody(float openAnim, bool nu) {
         ImDrawList* windowDraw = ImGui::GetWindowDrawList();
         const ImVec2 windowPos = ImGui::GetWindowPos();
         const ImVec2 windowMax = windowPos + ImGui::GetWindowSize();
-        // Draw separate background rectangles for left and right panels to keep the separator transparent
-        ImVec2 leftPanelMin = windowPos;
-        ImVec2 leftPanelMax = windowPos + ImVec2(ui::s(176), ImGui::GetWindowHeight());
-        windowDraw->AddRectFilled(leftPanelMin, leftPanelMax, panelBg, GImGui->Style.WindowRounding);
-        windowDraw->AddRect(leftPanelMin, leftPanelMax, ui::GetColor(ImGuiCol_Border, 1.0f),
-                            GImGui->Style.WindowRounding, 0, ui::s(1.0f));
-        // Slim accent hairline along the top edge (on-theme, not a metallic white).
-        windowDraw->AddLine(ImVec2(leftPanelMin.x + GImGui->Style.WindowRounding, leftPanelMin.y + ui::s(1)),
-                            ImVec2(leftPanelMax.x - GImGui->Style.WindowRounding, leftPanelMin.y + ui::s(1)),
-                            GetSchemeColor(0.28f), ui::s(1.0f));
+        const float rounding = GImGui->Style.WindowRounding;
 
-        ImVec2 rightPanelMin = windowPos + ImVec2(ui::s(185), 0);
-        ImVec2 rightPanelMax = windowPos + ImGui::GetWindowSize();
-        windowDraw->AddRectFilled(rightPanelMin, rightPanelMax, panelBg, GImGui->Style.WindowRounding);
-        windowDraw->AddRect(rightPanelMin, rightPanelMax, ui::GetColor(ImGuiCol_Border, 1.0f),
-                            GImGui->Style.WindowRounding, 0, ui::s(1.0f));
-        windowDraw->AddLine(ImVec2(rightPanelMin.x + GImGui->Style.WindowRounding, rightPanelMin.y + ui::s(1)),
-                            ImVec2(rightPanelMax.x - GImGui->Style.WindowRounding, rightPanelMin.y + ui::s(1)),
-                            GetSchemeColor(0.28f), ui::s(1.0f));
+        // Draw separate background rectangles for left and right panels to keep the separator transparent
+        ImVec2 leftPanelMin{windowPos.x, windowPos.y};
+        ImVec2 leftPanelMax{windowPos.x + ui::s(176), windowMax.y};
+        windowDraw->AddRectFilled(leftPanelMin, leftPanelMax, panelBg, rounding);
+        windowDraw->AddRect(leftPanelMin, leftPanelMax, ui::GetColor(ImGuiCol_Border, 1.0f), rounding, 0, ui::s(1.0f));
+        // Slim accent hairline along the top edge (on-theme, not a metallic white),
+        // traced out from the centre as the panel arrives rather than switched on.
+        auto traceLine = [&](float x0, float x1, float y, float alpha) {
+            const float mid = (x0 + x1) * 0.5f;
+            const float half = (x1 - x0) * 0.5f * ImClamp(pop, 0.0f, 1.0f);
+            if (half <= 0.5f)
+                return;
+            windowDraw->AddLine(ImVec2(mid - half, y), ImVec2(mid + half, y), GetSchemeColor(alpha), ui::s(1.0f));
+        };
+        traceLine(leftPanelMin.x + rounding, leftPanelMax.x - rounding, leftPanelMin.y + ui::s(1), 0.28f);
+
+        ImVec2 rightPanelMin{windowPos.x + ui::s(185), windowPos.y};
+        ImVec2 rightPanelMax{windowMax.x, windowMax.y};
+        windowDraw->AddRectFilled(rightPanelMin, rightPanelMax, panelBg, rounding);
+        windowDraw->AddRect(rightPanelMin, rightPanelMax, ui::GetColor(ImGuiCol_Border, 1.0f), rounding, 0,
+                            ui::s(1.0f));
+        traceLine(rightPanelMin.x + rounding, rightPanelMax.x - rounding, rightPanelMin.y + ui::s(1), 0.28f);
+
+        // Inner top highlight, one pixel in from the border on both plates. This is
+        // the cheapest thing that makes a dark surface read as glass rather than as
+        // paint: a real pane catches a sliver of light along its top lip.
+        const ImU32 lip = IM_COL32(255, 255, 255, (int)(16.0f * openAnim));
+        windowDraw->AddLine(ImVec2(leftPanelMin.x + rounding, leftPanelMin.y + ui::s(2.5f)),
+                            ImVec2(leftPanelMax.x - rounding, leftPanelMin.y + ui::s(2.5f)), lip, ui::s(1.0f));
+        windowDraw->AddLine(ImVec2(rightPanelMin.x + rounding, rightPanelMin.y + ui::s(2.5f)),
+                            ImVec2(rightPanelMax.x - rounding, rightPanelMin.y + ui::s(2.5f)), lip, ui::s(1.0f));
+
+        ui::nav_sel_valid = false;
 
         // ===== LEFT NAV =====
         ImGui::BeginChild("nav", {ui::s(176), ImGui::GetWindowHeight()}, 0,
@@ -1864,11 +1946,15 @@ static void renderClickGuiBody(float openAnim, bool nu) {
                                                            ImGui::GetWindowPos().y + ImGui::GetWindowHeight() - 2},
                                                           ui::GetColor(ImGuiCol_ChildBg), GImGui->Style.WindowRounding,
                                                           ImDrawFlags_RoundCornersTop);
-                ImGui::GetWindowDrawList()->AddRectFilled(
-                    {ImGui::GetWindowPos().x, ImGui::GetWindowPos().y + ImGui::GetWindowHeight() - 2},
-                    {ImGui::GetWindowPos().x + ImGui::GetWindowWidth(),
-                     ImGui::GetWindowPos().y + ImGui::GetWindowHeight()},
-                    GetSchemeColor());
+                // Accent underline, drawn out from the centre as the panel arrives so
+                // the brand looks underscored rather than pre-stamped.
+                {
+                    const float ulY = ImGui::GetWindowPos().y + ImGui::GetWindowHeight();
+                    const float ulMid = ImGui::GetWindowPos().x + ImGui::GetWindowWidth() * 0.5f;
+                    const float ulHalf = ImGui::GetWindowWidth() * 0.5f * ImClamp(pop, 0.0f, 1.0f);
+                    ImGui::GetWindowDrawList()->AddRectFilled({ulMid - ulHalf, ulY - 2}, {ulMid + ulHalf, ulY},
+                                                              GetSchemeColor());
+                }
 
                 const char* brand = "Cobble";
                 ImVec2 brandSize = font(3)->CalcTextSizeA(font(3)->FontSize, FLT_MAX, 0.f, brand);
@@ -1932,6 +2018,54 @@ static void renderClickGuiBody(float openAnim, bool nu) {
         }
         ImGui::EndChild();
 
+        // ===== NAV SELECTION RAIL =====
+        // One accent rail that travels between rows, rather than every row owning a
+        // highlight that pops on and off wherever the selection lands. Drawn on the
+        // parent window's draw list *after* EndChild, which in ImGui means it renders
+        // BEHIND the child's icon and label (child draw lists are appended after the
+        // parent's), so the rail's glow sits under the text instead of over it.
+        if (ui::nav_sel_valid) {
+            static float railY = 0.0f, railH = 0.0f, railYVel = 0.0f, railHVel = 0.0f;
+            static bool railInit = false;
+
+            const float inset = ui::s(9);
+            const float targetY = ui::nav_sel_min.y + inset;
+            const float targetH = ImMax(ui::s(6), (ui::nav_sel_max.y - ui::nav_sel_min.y) - inset * 2.0f);
+
+            if (!railInit || openAnim < 0.999f) {
+                // Snapped for the whole reveal: the window itself is still sliding up,
+                // so a spring here would trail the rows it is supposed to be marking.
+                // easeOutExpo returns exactly 1 once the open clock is done, so this
+                // hands over to the spring on the first settled frame and stays there.
+                railY = targetY;
+                railH = targetH;
+                railYVel = railHVel = 0.0f;
+                railInit = true;
+            } else {
+                springTo(railY, railYVel, targetY, io.DeltaTime);
+                springTo(railH, railHVel, targetH, io.DeltaTime, 340.0f, 30.0f);
+            }
+
+            // Squash and stretch: the rail leans into the move and settles. This is
+            // the difference between "an object travelled" and "two rectangles were
+            // cross-faded" — the eye reads the smear as momentum.
+            const float smear = ImClamp(fabsf(railYVel) * 0.030f, 0.0f, ui::s(14));
+            float y0 = railY - (railYVel < 0.0f ? smear : 0.0f);
+            float y1 = railY + railH + (railYVel > 0.0f ? smear : 0.0f);
+
+            const float railX = leftPanelMin.x + ui::s(4);
+            const float railW = ui::s(3);
+            windowDraw->AddRectFilled({railX, y0}, {railX + railW, y1}, GetSchemeColor(0.95f), railW * 0.5f);
+
+            // Accent bleed to the right of the rail, so the selected row is lit by it
+            // instead of merely being adjacent to a marker.
+            const float glowW = ui::s(46);
+            const ImU32 glowIn = GetSchemeColor(0.17f);
+            const ImU32 glowOut = GetSchemeColor(0.0f);
+            windowDraw->AddRectFilledMultiColor({railX + railW, y0}, {railX + railW + glowW, y1}, glowIn, glowOut,
+                                                glowOut, glowIn);
+        }
+
         // Vertical seam shadow between the recessed sidebar and the main content
         // so the categories panel reads as sitting behind the modules area.
         {
@@ -1956,11 +2090,14 @@ static void renderClickGuiBody(float openAnim, bool nu) {
                                                            ImGui::GetWindowPos().y + ImGui::GetWindowHeight() - 2},
                                                           ui::GetColor(ImGuiCol_ChildBg), GImGui->Style.WindowRounding,
                                                           ImDrawFlags_RoundCornersTop);
-                ImGui::GetWindowDrawList()->AddRectFilled(
-                    {ImGui::GetWindowPos().x, ImGui::GetWindowPos().y + ImGui::GetWindowHeight() - 2},
-                    {ImGui::GetWindowPos().x + ImGui::GetWindowWidth(),
-                     ImGui::GetWindowPos().y + ImGui::GetWindowHeight()},
-                    GetSchemeColor());
+                // Accent underline, traced out from the left edge with the reveal so it
+                // reads as being drawn under the title rather than already printed.
+                {
+                    const float ulY = ImGui::GetWindowPos().y + ImGui::GetWindowHeight();
+                    const float ulX = ImGui::GetWindowPos().x;
+                    const float ulW = ImGui::GetWindowWidth() * ImClamp(pop, 0.0f, 1.0f);
+                    ImGui::GetWindowDrawList()->AddRectFilled({ulX, ulY - 2}, {ulX + ulW, ulY}, GetSchemeColor());
+                }
 
                 // Header Title (Tab Name)
                 const char* name = ui::tabs[ui::cur_tab].m_name;
@@ -2013,8 +2150,10 @@ static void renderClickGuiBody(float openAnim, bool nu) {
             ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {ui::s(15), ui::s(15)});
 
             // Sync alpha_mod for custom widgets BEFORE pushing style
-            // This ensures both ImGui native widgets AND custom ui:: widgets fade together
-            float contentAlpha = openAnim * ui::anim * ui::content_anim;
+            // This ensures both ImGui native widgets AND custom ui:: widgets fade together.
+            // contentT trails the frame's own fade, so the panel lands first and the
+            // widgets arrive into it — a stagger, not one flat cross-fade.
+            float contentAlpha = contentT * ui::anim * ui::content_anim;
             ui::alpha_mod = contentAlpha;
             ImGui::PushStyleVar(ImGuiStyleVar_Alpha, contentAlpha);
 
@@ -2104,11 +2243,13 @@ static void drawBlurBehind(ImDrawList* dl, const ImVec2& wpos, const ImVec2& wsi
     }
 }
 
-static void renderClickGuiNew(float openAnim) {
+static void renderClickGuiNew(float openAnim, float pop, float contentT) {
     ImGuiIO& io = ImGui::GetIO();
     ui::size = ui::s(ui::baseSize);
 
-    const float slide = (1.0f - openAnim) * ui::s(18);
+    // Rise from below and settle: `pop` overshoots 1 once, so the panel comes to
+    // rest by passing its mark and easing back rather than creeping up to it.
+    const float slide = (1.0f - pop) * ui::s(22);
     ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x * 0.5f, io.DisplaySize.y * 0.5f + slide), ImGuiCond_Always,
                             ImVec2(0.5f, 0.5f));
     ImGui::SetNextWindowSize(ui::size);
@@ -2190,6 +2331,28 @@ static void renderClickGuiNew(float openAnim) {
                 dl->AddRectFilled(bb.Min, bb.Max, GetSchemeColor(0.12f * ImMax(st.sel, st.hover * 0.55f)),
                                   ui::s(8));
             }
+
+            // Cursor spotlight: the pill brightens where the cursor actually is. The
+            // gradient's own ends are clamped into the pill's flat middle band and its
+            // end alphas recomputed to match, so it reaches zero by itself rather than
+            // being cut off by a clip rect — no hard edge, no spill past the rounding.
+            if (st.hover > 0.01f) {
+                const float r = ui::s(8);
+                const float lx = bb.Min.x + r, rx = bb.Max.x - r;
+                if (rx > lx) {
+                    const float reach = ui::s(34);
+                    const float mx = ImClamp(io.MousePos.x, lx, rx);
+                    const float x0 = ImMax(lx, mx - reach);
+                    const float x1 = ImMin(rx, mx + reach);
+                    const float peak = 0.11f * st.hover;
+                    const ImU32 cm = GetSchemeColor(peak);
+                    const ImU32 c0 = GetSchemeColor(peak * (1.0f - (mx - x0) / reach));
+                    const ImU32 c1 = GetSchemeColor(peak * (1.0f - (x1 - mx) / reach));
+                    dl->AddRectFilledMultiColor({x0, bb.Min.y}, {mx, bb.Max.y}, c0, cm, cm, c0);
+                    dl->AddRectFilledMultiColor({mx, bb.Min.y}, {x1, bb.Max.y}, cm, c1, c1, cm);
+                }
+            }
+
             ImU32 col = ui::col_anim(
                 ui::col_anim(ui::GetColor(ImGuiCol_TextDisabled), ui::GetColor(ImGuiCol_Text, 0.85f), st.hover),
                 IM_COL32(244, 245, 249, 255), st.sel);
@@ -2205,19 +2368,43 @@ static void renderClickGuiNew(float openAnim) {
             x += bw;
         }
 
+        static float indXVel = 0.0f, indWVel = 0.0f;
         if (indInit < 0.5f) {
             indX = selX;
             indW = selW;
+            indXVel = indWVel = 0.0f;
             indInit = 1.0f;
+        } else {
+            springTo(indX, indXVel, selX, io.DeltaTime);
+            springTo(indW, indWVel, selW, io.DeltaTime, 340.0f, 30.0f);
         }
-        const float k = ImMin(1.0f, io.DeltaTime * 15.0f);
-        indX = ImLerp(indX, selX, k);
-        indW = ImLerp(indW, selW, k);
+
+        // Stretch the leading end in proportion to travel speed. A lerp cannot lean
+        // into a move, and the lean is the whole reason this reads as one bar
+        // travelling between tabs rather than two bars trading places.
+        const float lead = ImClamp(fabsf(indXVel) * 0.045f, 0.0f, ui::s(26));
+        const float ux0 = indX - (indXVel < 0.0f ? lead : 0.0f);
+        const float ux1 = indX + indW + (indXVel > 0.0f ? lead : 0.0f);
+        const float uy = wpos.y + topH;
+
         // Rounded accent underline with a soft halo behind it.
-        dl->AddRectFilled(ImVec2(indX - ui::s(3), wpos.y + topH - ui::s(6)),
-                          ImVec2(indX + indW + ui::s(3), wpos.y + topH - ui::s(1)), GetSchemeColor(0.16f), ui::s(3));
-        dl->AddRectFilled(ImVec2(indX, wpos.y + topH - ui::s(5)), ImVec2(indX + indW, wpos.y + topH - ui::s(2)),
-                          GetSchemeColor(), ui::s(1.5f));
+        dl->AddRectFilled(ImVec2(ux0 - ui::s(3), uy - ui::s(6)), ImVec2(ux1 + ui::s(3), uy - ui::s(1)),
+                          GetSchemeColor(0.16f), ui::s(3));
+        dl->AddRectFilled(ImVec2(ux0, uy - ui::s(5)), ImVec2(ux1, uy - ui::s(2)), GetSchemeColor(), ui::s(1.5f));
+
+        // Accent wash bleeding down from the indicator into the content area, so the
+        // light travels with the selected tab instead of the tab merely being marked.
+        // Three bands (fade in / solid / fade out) because AddRectFilledMultiColor
+        // only interpolates between corners.
+        {
+            const float washH = ui::s(60);
+            const float fade = ui::s(32);
+            const ImU32 lit = GetSchemeColor(0.085f);
+            const ImU32 nil = GetSchemeColor(0.0f);
+            dl->AddRectFilledMultiColor(ImVec2(ux0 - fade, uy), ImVec2(ux0, uy + washH), nil, lit, nil, nil);
+            dl->AddRectFilledMultiColor(ImVec2(ux0, uy), ImVec2(ux1, uy + washH), lit, lit, nil, nil);
+            dl->AddRectFilledMultiColor(ImVec2(ux1, uy), ImVec2(ux1 + fade, uy + washH), lit, nil, nil, nil);
+        }
 
         // Header separator: a hairline brightest at the centre, fading toward
         // both rounded corners — softer than a full-width white rule.
@@ -2235,7 +2422,9 @@ static void renderClickGuiNew(float openAnim) {
         ImGui::SetCursorPos(ImVec2(0, topH));
         ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {ui::s(10), ui::s(13)});
         ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {ui::s(20), ui::s(16)});
-        float contentAlpha = openAnim * ui::anim * ui::content_anim;
+        // contentT trails the frame's fade, so the panel lands first and the widgets
+        // arrive into it — a stagger rather than one flat cross-fade.
+        float contentAlpha = contentT * ui::anim * ui::content_anim;
         ui::alpha_mod = contentAlpha;
         ImGui::PushStyleVar(ImGuiStyleVar_Alpha, contentAlpha);
         ImGui::BeginChild("newcontent", ImVec2(wsize.x, wsize.y - topH), 0,
@@ -2262,30 +2451,52 @@ void Menu::Render() {
     }
 
     // Animate open/close
-    // On OPEN: smooth lerp in so the menu feels polished.
+    // On OPEN: one 0..1 clock read through three curves (see the open/close motion
+    // block above), so alpha, geometry and content each arrive on their own timing.
     // On CLOSE: instant snap to 0 — zero ghosting/lingering.
     if (!isOpen) {
         openAnim = 0.f;
+        g_openT = 0.f;
         return;
     }
 
     float dt = ImGui::GetIO().DeltaTime;
     if (dt > (1.0f / 60.0f)) dt = 1.0f / 60.0f;
-    openAnim = ImLerp(openAnim, 1.f, 15.f * dt);
-    if (openAnim > 0.99f) openAnim = 1.f;
+    g_openT = ImMin(1.0f, g_openT + dt / kOpenDuration);
+    openAnim = easeOutExpo(g_openT);   // opacity: lands early, then holds
+    const float pop = easeOutBack(g_openT);      // geometry: overshoots once, settles
+    const float contentT = staggered(g_openT, 0.30f);  // widgets: trail the frame
 
     // Apply style properly (set alpha etc)
     ApplyStyle();
     ui::updateScale();
 
-    // Dark overlay behind the menu.
-    ImGui::GetBackgroundDrawList()->AddRectFilled(ImVec2(0, 0), ImGui::GetIO().DisplaySize,
-                                                  IM_COL32(0, 0, 0, (int)(115 * openAnim)));
+    // Dark overlay behind the menu: a flat dim plus a vignette pulling the edges
+    // down, so attention falls to the centre where the panel is instead of the whole
+    // frame going uniformly grey. Four gradient strips, one per edge — they overlap
+    // in the corners, which is exactly what makes the corners the darkest part.
+    {
+        ImDrawList* bg = ImGui::GetBackgroundDrawList();
+        const ImVec2 ds = ImGui::GetIO().DisplaySize;
+        bg->AddRectFilled(ImVec2(0, 0), ds, IM_COL32(0, 0, 0, (int)(104 * openAnim)));
+
+        const int edgeA = (int)(58.0f * openAnim);
+        if (edgeA > 0) {
+            const ImU32 e = IM_COL32(0, 0, 0, edgeA);
+            const ImU32 z = IM_COL32(0, 0, 0, 0);
+            const float vx = ds.x * 0.34f;
+            const float vy = ds.y * 0.34f;
+            bg->AddRectFilledMultiColor(ImVec2(0, 0), ImVec2(vx, ds.y), e, z, z, e);
+            bg->AddRectFilledMultiColor(ImVec2(ds.x - vx, 0), ImVec2(ds.x, ds.y), z, e, e, z);
+            bg->AddRectFilledMultiColor(ImVec2(0, 0), ImVec2(ds.x, vy), e, e, z, z);
+            bg->AddRectFilledMultiColor(ImVec2(0, ds.y - vy), ImVec2(ds.x, ds.y), z, z, e, e);
+        }
+    }
 
     if (ui::gui_mode == 1)
-        renderClickGuiNew(openAnim);
+        renderClickGuiNew(openAnim, pop, contentT);
     else
-        renderClickGuiBody(openAnim, false);
+        renderClickGuiBody(openAnim, false, pop, contentT);
 
     ui::handle_anims();
 }

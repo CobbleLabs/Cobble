@@ -88,7 +88,11 @@ ImColor col_anim(ImU32 from, ImU32 to, float t);
 
 // Hover-description context. The menu sets this to the currently rendered
 // module so repeated labels such as "Mode" and "Range" remain specific.
-void SetDescriptionContext(const char* context);
+//
+// allowTips also decides whether hover tips draw at all: only pages that are a
+// module's own settings pass true. Pages that are chrome (the module grid, Settings,
+// Configs) still set a context — labels resolve — but stay silent on hover.
+void SetDescriptionContext(const char* context, bool allowTips = false);
 const char* GetModuleDescription(const char* module);
 void HoverDescription(const char* key, bool hovered, const char* explicitText = nullptr, bool rainbow = false);
 void DescribeLastItem(const char* key, const char* explicitText = nullptr, bool rainbow = false);
@@ -180,6 +184,13 @@ inline float content_anim_dst = 1.f;
 void handle_anims();
 void tab(int num);
 void subtab(int num, int tab_num);
+
+// Old Renewed nav: ui::tab() publishes the screen rect of the selected row so the
+// sidebar can draw ONE indicator that glides between rows, instead of every row
+// owning a highlight that pops on and off wherever the selection lands.
+inline ImVec2 nav_sel_min{0, 0};
+inline ImVec2 nav_sel_max{0, 0};
+inline bool nav_sel_valid = false;
 
 // ==================== STYLE ====================
 void apply_style();

@@ -12,6 +12,7 @@
 #include "../../module/utility/altmanager.h"
 #include "../../module/utility/noitemrelease.h"
 #include "../../module/utility/throwpots.h"
+#include "../../module/utility/autopot.h"
 #include "../../module/combat/aimassist.h"
 #include "../../module/combat/backtrack.h"
 #include "../../module/combat/killaura.h"
@@ -44,13 +45,20 @@ jboolean JNICALL NativeShouldSend(JNIEnv* env, jclass cls, jobject packet) {
         throwPots && throwPots->enabled && throwPots->needsOutgoingPacket();
     const bool throwPotsRotating =
         throwPotsPacketWork && throwPots->isRewritingRotation();
+    // AutoPot is the automatic counterpart and stands down whenever ThrowPots is
+    // running, so the two can never claim the packet at the same time. Its silent
+    // pitch outranks the aim modules for the same reason ThrowPots' does: a potion
+    // aimed anywhere but the ground is a wasted potion.
+    const bool autoPotPacketWork = autoPot && autoPot->enabled && autoPot->needsOutgoingPacket();
+    const bool autoPotRotating = autoPotPacketWork && autoPot->isRewritingRotation();
+    const bool potRotating = throwPotsRotating || autoPotRotating;
     const bool clutchRotating =
         (clutch && clutch->enabled && clutch->isRewritingRotation()) ||
         (scaffold && scaffold->enabled && scaffold->isRewritingRotation());
-    if (scaffold && scaffold->enabled && !throwPotsRotating) {
+    if (scaffold && scaffold->enabled && !potRotating) {
         scaffold->onOutgoingPacket(env, packet);
     }
-    if (clutch && clutch->enabled && !throwPotsRotating) {
+    if (clutch && clutch->enabled && !potRotating) {
         clutch->onOutgoingPacket(env, packet);
     }
 
@@ -58,7 +66,7 @@ jboolean JNICALL NativeShouldSend(JNIEnv* env, jclass cls, jobject packet) {
     // combat aim. Deferred while clutch owns the rotation (placement aim).
     const bool killAuraRotating =
         killAura && killAura->enabled && killAura->isRewritingRotation();
-    if (killAura && killAura->enabled && !clutchRotating && !throwPotsRotating) {
+    if (killAura && killAura->enabled && !clutchRotating && !potRotating) {
         killAura->onOutgoingPacket(env, packet);
     }
 
@@ -66,7 +74,7 @@ jboolean JNICALL NativeShouldSend(JNIEnv* env, jclass cls, jobject packet) {
     // packet's yaw/pitch with the randomized server rotation. Deferred while
     // clutch or KillAura is rewriting rotation so a combat/placement aim is never
     // perturbed.
-    if (aimAssist && aimAssist->enabled && !clutchRotating && !killAuraRotating && !throwPotsRotating) {
+    if (aimAssist && aimAssist->enabled && !clutchRotating && !killAuraRotating && !potRotating) {
         aimAssist->onOutgoingPacket(env, packet);
     }
 
@@ -101,6 +109,11 @@ jboolean JNICALL NativeShouldSend(JNIEnv* env, jclass cls, jobject packet) {
     // When aiming down, its pitch also has final ownership of that packet.
     if (throwPotsPacketWork) {
         throwPots->onOutgoingPacket(env, packet);
+    }
+
+    // Same placement, same reasoning, for the automatic one.
+    if (autoPotPacketWork) {
+        autoPot->onOutgoingPacket(env, packet);
     }
 
     // Finally check NoItemRelease. Only queries the gate if the module is on.

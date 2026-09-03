@@ -41,6 +41,11 @@ public:
     void onOutgoingPacket(JNIEnv* env, jobject packet);
     bool isRewritingRotation() const { return enabled && hasAim_.load(std::memory_order_acquire); }
 
+    // Steady-clock milliseconds of the last attack this module queued. Written in
+    // onPreMotion, so any other client-tick consumer dispatched after KillAura sees
+    // the attack from the SAME tick. BlockHit uses it to time its release window.
+    std::uint64_t lastAttackMs() const { return lastAttackMs_; }
+
     enum class TargetMode : int { Distance = 0, Health = 1, Angle = 2 };
     enum class SwitchMode : int { Single = 0, Switch = 1, Multi = 2 };
 
@@ -54,7 +59,8 @@ public:
         bool throughWalls = true;
         bool invisibles = false;
         bool weaponOnly = false;
-        bool antiBot = true;
+        // antiBot lived here but was never read — NPCs were skipped unconditionally. Bot
+        // filtering is now the AntiBot module (src/module/combat/antibot.h).
         int maxHurtTime = 10;  // attack only when target.hurtTime <= this (0..10; 10 = always)
 
         // Rotations
@@ -83,6 +89,15 @@ private:
     // Rotate the movement input by diffDeg so the world movement stays in the real
     // look direction even though rotationYaw was set to the aura yaw (MoveFix).
     void applyMoveFix(JNIEnv* env, jobject playerInstance, float diffDeg);
+    // Recover the user's real (mouse) rotation from the client, by delta against what we
+    // last wrote. Immune to a tick where nothing restored the camera.
+    void syncRealRotation();
+    // Give the camera back to the user if we still hold it (missed restore, disengage,
+    // module toggled off). Safe to call when we don't own it.
+    void releaseCamera();
+    // Drop the target, stop aiming and return the camera. Used by every "not fighting
+    // right now" path (GUI open, no weapon, module disabled).
+    void standDown();
 
     // ---- Target hand-off: written by onUpdate (module thread), read by
     //      onOutgoingPacket (network thread), under targetMutex_. ----
@@ -112,8 +127,31 @@ private:
     // camera to it (silent) and rotate movement to it (movefix).
     float realYaw_ = 0.0f, realPitch_ = 0.0f;
 
-    // MovementInput field access for MoveFix (resolved lazily, like NoSlowDown).
-    jfieldID miField_ = nullptr, miStrafe_ = nullptr, miForward_ = nullptr;
+    // Rotation bookkeeping. realYaw_ used to be re-read straight out of the client every
+    // tick, which silently assumed the restore in onOutgoingPacket always runs. It does
+    // not: Clutch/Scaffold/ThrowPots take over rotation, and FakeLag/Blink/Piercing can
+    // drop the C03 entirely. On those ticks the camera was left on the aura yaw, the next
+    // tick read that back as "real", and the error accumulated a chunk of aura sweep per
+    // miss until the view had wrapped a full turn — the instant-360 spin.
+    //
+    // Instead, remember exactly what we wrote and recover the real rotation by delta:
+    // whatever the client reports minus our own last write is, by construction, mouse
+    // input and nothing else. cameraOwned_ says the aura rotation is still on the camera
+    // and has to be handed back.
+    bool haveWritten_ = false;
+    bool cameraOwned_ = false;
+    float lastWrittenYaw_ = 0.0f, lastWrittenPitch_ = 0.0f;
+
+    // MoveFix field access (resolved lazily, like NoSlowDown).
+    //
+    // These are EntityLivingBase.moveStrafing/moveForward, NOT MovementInput's.
+    // The pre-motion hook is injected at the ENTRY of EntityLivingBase.onLivingUpdate,
+    // and EntityPlayerSP has already copied MovementInput into these fields by then;
+    // moveEntityWithHeading() — still ahead of us in that same method — reads THESE.
+    // Writing MovementInput at this point changed nothing for the current tick (the
+    // old MoveFix was a silent no-op) and only leaked a rotated input into the next
+    // tick's sprint check.
+    jfieldID entStrafe_ = nullptr, entForward_ = nullptr;
     bool moveFieldsResolved_ = false, moveFieldsOk_ = false;
 };
 

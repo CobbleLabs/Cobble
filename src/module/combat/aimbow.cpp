@@ -1,4 +1,5 @@
 #include "aimbow.h"
+#include "antibot.h"
 #include "../../jni/java.h"
 #include "../../sdk/core/minecraft.h"
 #include "../../sdk/player/player.h"
@@ -18,25 +19,126 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 
 AimBow* aimBow = nullptr;
 
 namespace {
 constexpr double kPi = 3.14159265358979323846;
 constexpr double kDeg = 180.0 / kPi;
-constexpr double kArrowSpeed = 3.0;   // fully-charged arrow speed (blocks/tick)
-constexpr double kGravity = 0.05;     // arrow gravity (blocks/tick^2)
-constexpr int kBowItemId = 261;       // Minecraft 1.8 bow
+constexpr int kBowItemId = 261;  // Minecraft 1.8 bow
 
-// Aim vertical reference: we take our OWN eye Y and add the target's Y delta
-// relative to us (delta = target.posY - localPlayer.posY). Both values come
-// from the same `posY` field, so whatever that field represents (feet in 1.8+,
-// something else in 1.7.10) cancels out and we're left with the pure vertical
-// offset between the two players. That way:
-//   * On flat ground at equal height, delta == 0 → we aim at our own eye level
-//     (proven empirically to land on the enemy's chest/neck).
-//   * If the enemy jumps up, delta > 0 → aim rises with them.
-//   * If we jump above them, delta < 0 → aim drops so we still hit their body.
+// --- vanilla arrow constants -------------------------------------------------
+// ItemBow.onPlayerStoppedUsing passes `charge * 2.0` to EntityArrow, whose ctor
+// hands it to setThrowableHeading as `velocity * 1.5` — so a full draw launches
+// at 3.0 blocks/tick.
+constexpr double kArrowSpeedFull = 3.0;
+constexpr double kArrowDrag = 0.99;     // EntityArrow.onUpdate: motion *= 0.99 (in air)
+constexpr double kArrowGravity = 0.05;  // ...then motionY -= 0.05, in that order
+constexpr double kBowFullDrawTicks = 20.0;
+constexpr double kArrowSpawnDrop = 0.10000000149011612;  // ctor lowers the spawn below eye level
+
+// Sum of the drag series, 1/(1-0.99) = 100. Also the arrow's horizontal reach in
+// blocks per block/tick of launch speed, which is why a flat shot dies near 300.
+constexpr double kDragSum = 1.0 / (1.0 - kArrowDrag);
+// Terminal fall speed, 0.05/0.01 = 5 blocks/tick.
+constexpr double kTermFall = kArrowGravity / (1.0 - kArrowDrag);
+
+// ItemBow's charge curve. `t` is ticks drawn; vanilla refuses to fire below 0.1
+// and clamps at 1.0 after a full second.
+double bowCharge(int drawTicks) {
+    if (drawTicks <= 0)
+        return 0.0;
+    double f = (double)drawTicks / kBowFullDrawTicks;
+    f = (f * f + 2.0 * f) / 3.0;
+    return f > 1.0 ? 1.0 : f;
+}
+
+// Height the arrow reaches after travelling `d` blocks horizontally, launched at
+// `theta` with speed `v`.
+//
+// Closed form of the tick recursion. With u = 1 - 0.99^n:
+//     horizontal(n) = 100 * v*cos(theta) * u
+//     vertical(n)   = 100 * (v*sin(theta) + 5) * u - 5n
+// Inverting the first for n makes both exact and continuous, so there is no Euler
+// loop and no step-size error. Returns false when d is past the arrow's
+// horizontal reach at this angle, where u would leave [0, 1).
+bool arcHeightAt(double v, double theta, double d, double& outY, double& outTicks) {
+    static const double invLogDrag = 1.0 / std::log(kArrowDrag);
+    const double ch = std::cos(theta);
+    if (ch <= 1e-6)
+        return false;
+    const double hMax = kDragSum * v * ch;
+    if (d >= hMax)
+        return false;
+    const double u = d / hMax;
+    outTicks = std::log(1.0 - u) * invLogDrag;
+    outY = kDragSum * (v * std::sin(theta) + kTermFall) * u - kTermFall * outTicks;
+    return true;
+}
+
+// Flattest launch angle whose trajectory passes through (d, dy), plus the flight
+// time in ticks.
+//
+// Height-at-d is NOT monotonic in theta: it climbs, peaks, then plunges as theta
+// nears the angle where the arrow can only just still drift d blocks sideways —
+// there it creeps along so slowly that gravity has hundreds of ticks to work.
+// So find the peak by ternary search first (the function is unimodal), then
+// bisect on the rising side, which is the flat, fast, hittable arc.
+//
+// On failure outTheta is the peak angle: the highest the arrow can possibly be at
+// that distance. That is the best available attempt at an out-of-reach target,
+// and far more useful than snapping the view somewhere arbitrary.
+bool solveArc(double v, double d, double dy, double& outTheta, double& outTicks) {
+    outTicks = 0.0;
+    outTheta = 0.0;
+    if (v <= 1e-4)
+        return false;
+    if (d < 1e-3) {
+        outTheta = std::atan2(dy, 1e-3);
+        return true;
+    }
+    const double reach = kDragSum * v;  // absolute ceiling, at theta = 0
+    if (d >= reach)
+        return false;
+    // Past acos(d / reach) the arrow cannot cover d blocks sideways at all.
+    const double thetaCeil = std::acos(d / reach) - 1e-4;
+    double lo = std::atan2(dy, d);  // straight line — always falls short of dy
+    if (lo >= thetaCeil)
+        lo = -thetaCeil;
+
+    double y = 0.0, n = 0.0;
+    double a = lo, b = thetaCeil;
+    for (int i = 0; i < 26; ++i) {
+        const double third = (b - a) / 3.0;
+        const double m1 = a + third;
+        const double m2 = b - third;
+        const double y1 = arcHeightAt(v, m1, d, y, n) ? y : -1e30;
+        const double y2 = arcHeightAt(v, m2, d, y, n) ? y : -1e30;
+        if (y1 < y2)
+            a = m1;
+        else
+            b = m2;
+    }
+    const double apex = 0.5 * (a + b);
+    outTheta = apex;
+    if (!arcHeightAt(v, apex, d, y, n) || y < dy)
+        return false;  // even the highest possible arc passes below the target
+
+    double hi = apex;
+    for (int i = 0; i < 20; ++i) {
+        const double mid = 0.5 * (lo + hi);
+        if (arcHeightAt(v, mid, d, y, n) && y >= dy)
+            hi = mid;
+        else
+            lo = mid;
+    }
+    if (!arcHeightAt(v, hi, d, y, n))
+        return false;
+    outTheta = hi;
+    outTicks = n;
+    return true;
+}
 }  // namespace
 
 AimBow::AimBow() : Module("AimBow") {
@@ -48,12 +150,25 @@ void AimBow::onEnable() {
     wasDrawing = false;
     hasTarget = false;
     hasOverride = false;
+    resetVelocity();
 }
 
 void AimBow::onDisable() {
     wasDrawing = false;
     hasTarget = false;
     hasOverride = false;
+    resetVelocity();
+}
+
+void AimBow::resetVelocity() {
+    smoothVx_ = 0.0;
+    smoothVy_ = 0.0;
+    smoothVz_ = 0.0;
+    hasSample_ = false;
+    velUuid_.clear();
+    lastCharge_ = 0.0f;
+    lastDist_ = 0.0f;
+    lastInReach_ = false;
 }
 
 float AimBow::wrapDeg(float a) {
@@ -64,7 +179,13 @@ float AimBow::wrapDeg(float a) {
 }
 
 std::string AimBow::getDisplayInfo() {
-    return hasTarget ? "locked" : "";
+    if (!hasTarget)
+        return "";
+    if (!lastInReach_)
+        return "out of range";
+    char buf[32];
+    std::snprintf(buf, sizeof(buf), "%.0f%% %.0fm", lastCharge_ * 100.0f, lastDist_);
+    return buf;
 }
 
 void AimBow::onUpdate() {
@@ -115,16 +236,28 @@ void AimBow::onUpdate() {
         return;
     }
 
-    // Always solve the arc for a FULL-charge shot. Solving for the instantaneous
-    // charge makes the crosshair lob up and then settle as the bow charges (the
-    // "goes up then comes down" behaviour). Assuming full charge keeps the aim
-    // stable and points where a properly-charged shot actually lands.
-    (void)chargeStartMs;
-    const double v = kArrowSpeed;
+    // Draw progress, straight from the counter the server will read on release.
+    // The wall-clock path is a fallback for when the field could not be resolved;
+    // it tracks the same 20 TPS, just without surviving a lagged draw.
+    int drawTicks = 0;
+    if (drawing) {
+        drawTicks = player.getItemInUseTicks();
+        if (drawTicks <= 0 && chargeStartMs != 0)
+            drawTicks = (int)((now - chargeStartMs) / 50UL);
+    }
+    const double charge = settings.liveCharge ? bowCharge(drawTicks) : 1.0;
+    lastCharge_ = (float)charge;
 
-    // Local eye position.
+    // Solving for a nearly-empty bow demands an absurd loft, so the crosshair
+    // would fly skyward the instant you right-click and crawl back down as the
+    // draw fills. Flooring the charge keeps the aim where a real shot lands:
+    // above the floor the solution is exact, below it we show the floor's arc.
+    const double solveCharge = (std::max)(charge, (double)settings.minSolveCharge);
+    const double v = kArrowSpeedFull * solveCharge;
+
+    // Launch origin. EntityArrow spawns at eye level minus 0.1, not at the eye.
     const double lx = player.getPosX();
-    const double ly = player.getPosY() + (player.isSneaking() ? 1.54 : 1.62);
+    const double ly = player.getPosY() + (player.isSneaking() ? 1.54 : 1.62) - kArrowSpawnDrop;
     const double lz = player.getPosZ();
     const float curYaw = player.getYaw();
     const float curPitch = player.getPitch();
@@ -142,22 +275,28 @@ void AimBow::onUpdate() {
         hasOverride = false;
     }
 
-    // Pick the valid player closest to our current aim (smallest yaw delta) in range/FOV.
+    // Pick a target inside range and the FOV cone. The two modes score differently:
+    // Automatic takes the nearest player, ClosestToCrosshair the one your crosshair
+    // is already nearest to. The cone is measured in yaw AND pitch — a yaw-only
+    // test lets a player directly above or below you into the cone.
     std::vector<PlayerInfo> players = mc.getPlayerList();
     if (friendsManager) {
         friendsManager->resolvePending(players);
     }
     const PlayerInfo* best = nullptr;
-    float bestAngle = (float)settings.fov * 0.5f;
-    double bestDistSq = (double)settings.range * settings.range;
+    double bestScore = 1e30;
+    const double maxDistSq = (double)settings.range * settings.range;
+    const float maxAngle = (float)settings.fov * 0.5f;
 
     float referenceYaw = curYaw;
+    float referencePitch = curPitch;
     if (settings.mode == AimMode::ClosestToCrosshair) {
         referenceYaw = manualYaw;
+        referencePitch = manualPitch;
     }
 
     for (const auto& p : players) {
-        if (p.isNPC)
+        if (AntiBot::Filtered(p))
             continue;
         if (!settings.targetInvisible && p.isInvisible)
             continue;
@@ -171,7 +310,7 @@ void AimBow::onUpdate() {
 
             // Teammate verification: skip if targeting teammates is disabled
             if (!settings.targetTeammates) {
-                if (p.isOnLocalTeam)
+                if (p.isOnLocalTeam && friendsManager->honorsVanillaTeams())
                     continue;
 
                 bool isApolloTeam = !p.uuid.empty() && friendsManager->isLunarTeammate(p.uuid);
@@ -244,18 +383,36 @@ void AimBow::onUpdate() {
                 continue;
         }
 
-        double dx = p.posX - lx;
-        double dz = p.posZ - lz;
-        double distSq = dx * dx + dz * dz;
-        if (distSq > bestDistSq)
+        const double dx = p.posX - lx;
+        const double dz = p.posZ - lz;
+        const double distSq = dx * dx + dz * dz;
+        if (distSq > maxDistSq)
             continue;
 
-        float yawTo = (float)(std::atan2(-dx, dz) * kDeg);
-        float yawDelta = std::fabs(wrapDeg(yawTo - referenceYaw));
-        if (yawDelta > bestAngle)
+        // Aim at a point on the body rather than the feet, so the cone test and the
+        // solve agree on where we are actually pointing.
+        double bodyH = 1.8;
+        const double hitboxH = (double)p.hitboxMaxY - (double)p.hitboxMinY;
+        if (hitboxH > 0.1 && hitboxH < 4.0)
+            bodyH = hitboxH;
+        const double dy = (p.posY + bodyH * (double)std::clamp(settings.aimHeight, 0.0f, 1.0f)) - ly;
+        const double flat = std::sqrt(distSq);
+
+        const float yawTo = (float)(std::atan2(-dx, dz) * kDeg);
+        const float pitchTo = (float)(-std::atan2(dy, (std::max)(flat, 1e-4)) * kDeg);
+        const float yawDelta = std::fabs(wrapDeg(yawTo - referenceYaw));
+        const float pitchDelta = std::fabs(pitchTo - referencePitch);
+        const float angle = std::sqrt(yawDelta * yawDelta + pitchDelta * pitchDelta);
+        if (angle > maxAngle)
             continue;
 
-        bestAngle = yawDelta;
+        const double score = (settings.mode == AimMode::ClosestToCrosshair)
+                                 ? (double)angle
+                                 : std::sqrt(distSq + dy * dy);
+        if (score >= bestScore)
+            continue;
+
+        bestScore = score;
         best = &p;
     }
 
@@ -264,6 +421,8 @@ void AimBow::onUpdate() {
     // leaking them every tick overflows the JVM global-ref table and crashes.
     bool found = best != nullptr;
     double tX = 0, tY = 0, tZ = 0, tLX = 0, tLY = 0, tLZ = 0;
+    double tBodyH = 1.8;
+    std::string tUuid;
     if (found) {
         tX = best->posX;
         tY = best->posY;
@@ -271,6 +430,10 @@ void AimBow::onUpdate() {
         tLX = best->lastPosX;
         tLY = best->lastPosY;
         tLZ = best->lastPosZ;
+        tUuid = best->uuid;
+        const double hitboxH = (double)best->hitboxMaxY - (double)best->hitboxMinY;
+        if (hitboxH > 0.1 && hitboxH < 4.0)
+            tBodyH = hitboxH;
     }
     if (JNIEnv* env = Java::Env()) {
         for (auto& pp : players) {
@@ -289,83 +452,93 @@ void AimBow::onUpdate() {
     hasTarget = true;
 
 
-    // Movement prediction (horizontal only — vertical lead jerks the camera).
-    // Raw per-tick deltas are 0 on most ticks and spike when the server sends a
-    // position update, which makes naive prediction useless. Reject teleport/
-    // target-switch spikes and EMA the rest so the lead is smooth and accurate:
-    // motion frames pull the estimate faster, idle frames decay it slowly (so it
-    // persists between the server's sparse updates).
-    {
+    // Target velocity, in blocks per tick.
+    //
+    // pos - lastPos is exactly one tick of movement by construction, but we read it
+    // ~25 times per tick, so folding it in on every call would weight one tick of
+    // data 25 times and let a single zero-motion read drag the estimate to nothing.
+    // Fold only when the position we read has actually advanced; between updates the
+    // last estimate stands, which is what makes the lead survive to the next packet.
+    if (tUuid != velUuid_) {
+        velUuid_ = tUuid;
+        smoothVx_ = smoothVy_ = smoothVz_ = 0.0;
+        hasSample_ = false;
+    }
+    if (!hasSample_ || tX != sampleX_ || tY != sampleY_ || tZ != sampleZ_) {
+        sampleX_ = tX;
+        sampleY_ = tY;
+        sampleZ_ = tZ;
+        const bool first = !hasSample_;
+        hasSample_ = true;
         const double rawVx = tX - tLX;
+        const double rawVy = tY - tLY;
         const double rawVz = tZ - tLZ;
-        if (std::fabs(rawVx) > 1.5 || std::fabs(rawVz) > 1.5) {
-            smoothVx_ = 0.0;  // teleport / switch / server correction — don't lead on it
-            smoothVz_ = 0.0;
+        // A sprinting player does ~0.28 b/t; anything past 1.5 is a teleport, a
+        // server correction or the tail of a target switch, and leading on it throws
+        // the crosshair across the map.
+        if (first || std::fabs(rawVx) > 1.5 || std::fabs(rawVz) > 1.5 || std::fabs(rawVy) > 3.0) {
+            smoothVx_ = smoothVy_ = smoothVz_ = 0.0;
         } else {
-            const double a = (std::fabs(rawVx) + std::fabs(rawVz) > 0.002) ? 0.35 : 0.06;
+            constexpr double a = 0.4;  // ~2 tick response, still smooth over jitter
             smoothVx_ += (rawVx - smoothVx_) * a;
+            smoothVy_ += (rawVy - smoothVy_) * a;
             smoothVz_ += (rawVz - smoothVz_) * a;
         }
     }
     const double vx = smoothVx_;
+    const double vy = smoothVy_;
     const double vz = smoothVz_;
-    const double pstr = settings.predict ? (double)settings.predictStrength : 0.0;
+    const double hLead = settings.predict ? (double)settings.predictStrength : 0.0;
+    const double vLead = settings.predict ? (double)settings.verticalLead : 0.0;
 
-    // Vertical anchoring — LOCK-RELATIVE, doesn't compare local vs target posY.
-    //
-    // We snapshot our eye Y and the target's tY the moment we lock a fresh
-    // target. From then on, aimY = lock_eye + (tY_now - tY_at_lock). That is:
-    //   * On lock frame: aimY == our eye Y (proven to hit chest on flat ground).
-    //   * Enemy jumps up N blocks → tY grows by N → aimY rises by N.
-    //   * Enemy falls / crouches → aimY drops with them.
-    //   * WE jump: our eye rises but aimY stays at the anchor → ballistic solver
-    //     sees a lower target and correctly tilts the shot down. Same in reverse
-    //     if we drop. This is what makes "jump and tag" actually work.
-    //
-    // Only per-target deltas of tY are compared to themselves (same field, same
-    // instance), so the 1.7.10 feet-vs-head posY convention issue can't corrupt
-    // the vertical anymore.
-    static std::string s_aimAnchorUUID;
-    static double s_aimAnchorEyeY = 0.0;
-    static double s_aimAnchorTY = 0.0;
-    if (best->uuid != s_aimAnchorUUID || s_aimAnchorUUID.empty()) {
-        s_aimAnchorUUID = best->uuid;
-        s_aimAnchorEyeY = ly;
-        s_aimAnchorTY = tY;
-    }
-    const double vertOffset = tY - s_aimAnchorTY;
-    double aimX = tX;
-    double aimY = s_aimAnchorEyeY + vertOffset;
-    double aimZ = tZ;
+    // Aim point: a fraction of the way up the target's body, measured from its feet.
+    // posY is the feet for a 1.8 player and the bounding box gives the real height,
+    // so this is an absolute world position — no eye-level anchoring, which is what
+    // used to pin the shot to our own eye height and miss anything on a different
+    // level entirely.
+    const double aimBase = tY + tBodyH * (double)std::clamp(settings.aimHeight, 0.0f, 1.0f);
+
+    // Solve and lead together: the lead needs the flight time, and the flight time
+    // depends on where we end up aiming. Four passes converge to well under a tick.
     double theta = 0.0;  // launch elevation (radians, + = up)
-    for (int iter = 0; iter < 4; ++iter) {
-        double dx = aimX - lx;
-        double dz = aimZ - lz;
-        double dy = aimY - ly;
-        double d = std::sqrt(dx * dx + dz * dz);
+    double tof = 0.0;    // flight time in ticks
+    double solvedX = tX, solvedZ = tZ;
+    bool inReach = false;
+    for (int iter = 0; iter < 5; ++iter) {
+        const double ax = tX + vx * tof * hLead;
+        const double az = tZ + vz * tof * hLead;
+        // Vertical lead is clamped: a player's vertical velocity reverses within a
+        // jump, so extrapolating it over a long flight is a guess that gets worse
+        // with distance. Better to sit on their body than to chase a fictional apex.
+        const double ay = aimBase + std::clamp(vy * tof * vLead, -3.0, 3.0);
+        solvedX = ax;
+        solvedZ = az;
 
-        double v2 = v * v;
-        double root = v2 * v2 - kGravity * (kGravity * d * d + 2.0 * dy * v2);
-        if (root < 0.0 || d < 0.5) {
-            // Out of ballistic reach (or too close): aim straight at the point.
-            theta = std::atan2(dy, d);
-        } else {
-            double tanTheta = (v2 - std::sqrt(root)) / (kGravity * d);
-            theta = std::atan(tanTheta);
-        }
-
-        if (pstr <= 0.0)
+        const double dx = ax - lx;
+        const double dz = az - lz;
+        const double d = std::sqrt(dx * dx + dz * dz);
+        double th = 0.0, n = 0.0;
+        if (!solveArc(v, d, ay - ly, th, n)) {
+            // No arc passes through the target. Hold the loft that puts the arrow as
+            // high as it can be at that distance — the closest possible attempt —
+            // rather than snapping the view somewhere meaningless.
+            theta = th;
+            inReach = false;
+            lastDist_ = (float)d;
             break;
-
-        double horizV = v * std::cos(theta);
-        double tof = horizV > 0.01 ? d / horizV : 0.0;  // ticks
-        aimX = tX + vx * tof * pstr;
-        aimY = s_aimAnchorEyeY + vertOffset;  // lock-relative vertical, no lead
-        aimZ = tZ + vz * tof * pstr;
+        }
+        theta = th;
+        inReach = true;
+        lastDist_ = (float)d;
+        const bool converged = std::fabs(n - tof) < 0.05;
+        tof = n;
+        if (converged || (hLead <= 0.0 && vLead <= 0.0))
+            break;
     }
+    lastInReach_ = inReach;
 
-    double fdx = aimX - lx;
-    double fdz = aimZ - lz;
+    const double fdx = solvedX - lx;
+    const double fdz = solvedZ - lz;
     float targetYaw = (float)(std::atan2(-fdx, fdz) * kDeg);
     float targetPitch = (float)(-theta * kDeg);
     targetPitch = std::clamp(targetPitch, -90.0f, 90.0f);
@@ -410,12 +583,19 @@ void AimBow::onRenderMenu() {
             ui::SliderFloat("Range", &settings.range, 5.0f, 120.0f, "%.0f blocks");
             ui::SliderInt("FOV", &settings.fov, 10, 180, "%d");
             ui::SliderFloat("Speed", &settings.speed, 1.0f, 100.0f, "%.0f%%");
+            ui::SliderFloat("Aim Height", &settings.aimHeight, 0.0f, 1.0f, "%.2f");
+            ImGui::Spacing();
+            ui::Checkbox("Live Charge", &settings.liveCharge);
+            if (settings.liveCharge)
+                ui::SliderFloat("Min Charge", &settings.minSolveCharge, 0.0f, 1.0f, "%.2f");
         },
         "Targeting",
         [this, &currentBowMode, &bowModes]() {
             ui::Checkbox("Predict Movement", &settings.predict);
-            if (settings.predict)
+            if (settings.predict) {
                 ui::SliderFloat("Strength", &settings.predictStrength, 0.0f, 2.0f, "%.2fx");
+                ui::SliderFloat("Vertical Lead", &settings.verticalLead, 0.0f, 2.0f, "%.2fx");
+            }
             ui::Checkbox("Only While Drawing", &settings.onlyWhileDrawing);
             ui::Checkbox("Only Visible", &settings.onlyVisible);
             ui::Checkbox("Target Invisibles", &settings.targetInvisible);
@@ -456,6 +636,10 @@ void AimBow::saveSettings(json::Value& node) const {
     node["speed"] = settings.speed;
     node["predict"] = settings.predict;
     node["predictStrength"] = settings.predictStrength;
+    node["verticalLead"] = settings.verticalLead;
+    node["aimHeight"] = settings.aimHeight;
+    node["liveCharge"] = settings.liveCharge;
+    node["minSolveCharge"] = settings.minSolveCharge;
     node["targetInvisible"] = settings.targetInvisible;
     node["targetTeammates"] = settings.targetTeammates;
     node["onlyWhileDrawing"] = settings.onlyWhileDrawing;
@@ -474,6 +658,10 @@ void AimBow::loadSettings(const json::Value& node) {
     settings.speed = std::clamp(node["speed"].as_float(settings.speed), 1.0f, 100.0f);
     settings.predict = node["predict"].as_bool(settings.predict);
     settings.predictStrength = std::clamp(node["predictStrength"].as_float(settings.predictStrength), 0.0f, 2.0f);
+    settings.verticalLead = std::clamp(node["verticalLead"].as_float(settings.verticalLead), 0.0f, 2.0f);
+    settings.aimHeight = std::clamp(node["aimHeight"].as_float(settings.aimHeight), 0.0f, 1.0f);
+    settings.liveCharge = node["liveCharge"].as_bool(settings.liveCharge);
+    settings.minSolveCharge = std::clamp(node["minSolveCharge"].as_float(settings.minSolveCharge), 0.0f, 1.0f);
     settings.targetInvisible = node["targetInvisible"].as_bool(settings.targetInvisible);
     settings.targetTeammates = node["targetTeammates"].as_bool(settings.targetTeammates);
     settings.onlyWhileDrawing = node["onlyWhileDrawing"].as_bool(settings.onlyWhileDrawing);

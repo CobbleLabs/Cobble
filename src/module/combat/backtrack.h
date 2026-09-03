@@ -1,105 +1,113 @@
 #pragma once
 
 #include <atomic>
-#include <chrono>
 #include <cstdint>
-#include <deque>
+#include <mutex>
 #include <string>
-#include <unordered_map>
-#include <vector>
+
 #include "../../sdk/core/minecraft.h"
 #include "../module.h"
 
-// Backtrack — real (Augustus-style) incoming packet-hold.
-//
-// While engaged on a target, the target's incoming S14/S18 movement packets are HELD
-// by a blocking bytecode hook (BacktrackGate / IncomingHook), so the entity stays at
-// its previous position on the client. You hit it there; on a lag-compensating
-// anticheat (Grim/Intave) the extra latency makes the server rewind the target too, so
-// the hit registers. Held packets are re-injected after the hold window, snapping the
-// entity forward. Unlike a self-lag, only the TARGET lags — not you.
-
-struct PositionSnapshot {
-    double x, y, z;
-    float yaw, pitch;
-    int hurtTime;
-    int tickAge;
-    std::chrono::steady_clock::time_point timestamp;
-};
-
 class Backtrack : public Module {
 public:
+    struct HoldIntent {
+        int targetEntityId = -1;
+        std::uint64_t engagementEpoch = 0;
+        bool active = false;
+    };
+
+    struct HeldTargetSnapshot {
+        bool valid = false;
+        bool active = false;
+        int entityId = -1;
+        double x = 0.0;
+        double y = 0.0;
+        double z = 0.0;
+        std::uint64_t engagementEpoch = 0;
+        std::uint64_t connectionEpoch = 0;
+        std::uint64_t sequence = 0;
+        std::uint32_t pendingPackets = 0;
+    };
+
     Backtrack();
 
     void onEnable() override;
     void onDisable() override;
-    void onUpdate() override;
+    void onWorldChange() override;
     void onRender() override;
     void onRenderMenu() override;
-    std::string getDisplayInfo() override;
     void saveSettings(json::Value& node) const override;
     void loadSettings(const json::Value& node) override;
+    std::string getDisplayInfo() override;
 
-    // Per-tick on the CLIENT thread (from the pre-motion hook): pick target, decide
-    // whether to hold, and drive packet release.
     void onClientTick(JNIEnv* env);
+    bool needsClientTick() const;
 
-    // Read by BacktrackGate (the blocking incoming hook) to decide whether to hold a
-    // given entity's movement packet. Lock-free.
-    bool wantsHold(int entityId) const {
-        return blocking_.load(std::memory_order_acquire) &&
-               entityId == holdTargetId_.load(std::memory_order_acquire);
-    }
-    int getHoldMs() const;
-
-    // Consumed by Piercing's backtrack check.
-    const std::deque<PositionSnapshot>* getPositionHistory(const std::string& uuid) const;
-
-    // Normal: hold only when engaging (respects Only On Hit).
-    // Strong: hold constantly while a target is in range (uniform added latency —
-    //         harder for strong ACs that compare combat-vs-idle latency to flag).
-    // Lag:    like Strong but the hold depth is expressed in milliseconds instead
-    //         of ticks, mirroring the classic "Lag Based" backtrack feel.
-    enum class Mode : int { Normal = 0, Strong = 1, Lag = 2 };
+    HoldIntent holdIntent() const;
+    HeldTargetSnapshot heldTargetSnapshot() const;
 
     struct Settings {
-        Mode mode = Mode::Normal;
-        int ticks = 3;             // hold depth (each ≈ 50 ms) — used by Normal/Strong
-        int latencyMs = 200;       // hold depth in ms — used by Lag mode (50-500)
-        float maxDistance = 4.0f;  // engage range
-        bool weaponOnly = false;
-        bool onlyOnHit = true;     // Normal mode: hold only while attacking (LMB)
-        bool showStatus = true;
-        // Visual style of the rollback:
-        //   true  = hard freeze (target visually snaps back to the past position each
-        //           tick — you SEE the enemy lag). Best feedback while cheating.
-        //   false = smooth interpolation (position still rewinds for hits, but the
-        //           entity renders sliding into place instead of teleporting).
-        bool visualLag = true;
+        // ---- Retention ----
+        // How long a movement packet may sit in the queue before it is replayed.
+        // This IS the backtrack window: the ghost box shows where the server still
+        // thinks the target is, and everything you do against it lands there.
+        int holdMs = 180;
+        // Soft ceiling on retained packets. Movement arrives ~20x/second per entity,
+        // so 180 ms is about four packets; anything past ~10 behaves as "no cap".
+        int maxPackets = 32;
+
+        // ---- Engagement ----
+        // Distance gate, measured exactly like vanilla getDistanceToEntity(). The
+        // defaults span the whole reachable range, so gating is opt-in.
+        float minRange = 0.0f;
+        float maxRange = 6.0f;
+        // Hold only while an attack source is actually running (mouse held,
+        // AutoClicker on, or KillAura holding a target).
+        bool onlyWhileAttacking = false;
+
+        // ---- Ghost box ----
+        // Deliberately just the colour. Every other knob the ghost used to expose
+        // (fill, glow, corners, follow speed, line width) only ever had one correct
+        // answer — the box has to read instantly at combat distance and it has to
+        // trail the server position closely enough to aim at — so those are fixed in
+        // backtrack.cpp and the page stays a single swatch.
+        float color[4] = {0.42f, 0.92f, 1.0f, 1.0f};
     } settings;
 
 private:
-    bool isHoldingWeapon();
-    void recordPosition(const PlayerInfo& target);
-    void clearHistory();
+    struct BoxAnimation {
+        double x = 0.0;
+        double y = 0.0;
+        double z = 0.0;
+        float alpha = 0.0f;
+        int entityId = -1;
+        std::uint64_t engagementEpoch = 0;
+        std::uint64_t connectionEpoch = 0;
+        std::uint64_t visualEpoch = 0;
+        bool initialized = false;
+    };
 
-    // Resolve the JNI handles used by the position-rollback (lazy, once).
-    void resolveHandles(JNIEnv* env);
-    // Freeze the target entity at a state `ticks` behind: move its posX/Y/Z AND its
-    // bounding box to a delayed position and stop its interpolation, so it renders
-    // and raytraces there. Real (server) positions are sourced from the entity's
-    // interpolation target (otherPlayerMP*) which we never overwrite.
-    void freezeTarget(JNIEnv* env, jobject entity, int entityId, int depth);
+    jobject targetedPlayer(JNIEnv* env) const;
+    // True when something is actually swinging: the physical attack button, the
+    // AutoClicker, or KillAura while it holds a target. Used by onlyWhileAttacking.
+    bool attackSourceActive() const;
+    // Vanilla feet-to-feet distance against the local player, tested against the
+    // configured window. Returns true when the range fields cannot be read, so a
+    // missing mapping degrades to "no gate" instead of disabling the module.
+    bool targetWithinRange(JNIEnv* env, jobject target) const;
+    void publishIntent(const HoldIntent& intent);
+    void closeAdmission();
+    bool flushPending(JNIEnv* env);
 
-    std::atomic<int> holdTargetId_{-1};
-    std::atomic<bool> blocking_{false};
-    std::atomic<int> heldShown_{0};  // rollback depth (ticks), for the HUD
-
-    std::unordered_map<std::string, std::deque<PositionSnapshot>> entityHistory;
-    std::string currentTargetUUID;
-
-    struct Vec3d { double x = 0.0, y = 0.0, z = 0.0; };
-    std::unordered_map<int, std::deque<Vec3d>> realTrail_;  // entityId -> real-position history
+    mutable std::recursive_mutex controlMutex_;
+    std::atomic<std::uint64_t> intentSequence_{0};
+    std::atomic<int> intentTarget_{-1};
+    std::atomic<std::uint64_t> intentEpoch_{0};
+    std::atomic<bool> intentActive_{false};
+    std::atomic<bool> drainRequested_{false};
+    std::atomic<bool> discardRequested_{false};
+    std::atomic<std::uint64_t> visualEpoch_{1};
+    BoxAnimation boxAnimation_;
 };
 
 extern Backtrack* backtrack;

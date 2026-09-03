@@ -49,6 +49,10 @@ struct LocalPlayer {
     bool isSneaking();
     bool isUsingItem();  // True when eating/drinking (prevents sprint)
 
+    // Ticks the held item has been in use — for a bow, the draw progress the
+    // server will read when the release packet arrives. 0 when nothing is in use.
+    int getItemInUseTicks();
+
     // Combat
     float getHealth();
     float getMaxHealth();
@@ -108,6 +112,7 @@ private:
     jfieldID fid_hurtResistantTime = nullptr;
     jfieldID fid_maxHurtResistantTime = nullptr;
     jfieldID fid_jumpTicks = nullptr;
+    jfieldID fid_itemInUseCount = nullptr;
 
     // Methods
     jmethodID mid_isSprinting = nullptr;

@@ -25,7 +25,9 @@ void JNICALL NativeOnRenderWorld(JNIEnv* env, jclass, jobject viewEntity);
 // Define com.cobble.agent.BacktrackGhostHook and bind the native method.
 bool Init(JNIEnv* env);
 
-void Shutdown(JNIEnv* env, bool safeToUnregister = true);
+// Returns false if callbacks or native teardown are not quiescent; callers must
+// keep the DLL loaded so retained native entrypoints and refs remain valid.
+bool Shutdown(JNIEnv* env, bool safeToUnregister = true);
 
 bool IsReady();
 

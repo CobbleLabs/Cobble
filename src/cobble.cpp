@@ -2,8 +2,10 @@
 #include "config/config.hpp"
 #include "module/combat/aimassist.h"
 #include "module/combat/aimbow.h"
+#include "module/combat/antibot.h"
 #include "module/combat/killaura.h"
 #include "module/combat/autoclicker.h"
+#include "module/combat/autorod.h"
 #include "module/combat/blockhit.h"
 #include "module/combat/backtrack.h"
 #include "module/combat/hitselect.h"
@@ -15,6 +17,7 @@
 #include "module/combat/reach.h"
 #include "module/combat/velocity.h"
 #include "module/module_manager.h"
+#include "module/movement/inventorymove.h"
 #include "module/movement/nojumpdelay.h"
 #include "module/movement/no_slow_down.h"
 #include "module/movement/blink.h"
@@ -33,7 +36,9 @@
 #include "module/utility/fastbreak.h"
 #include "module/utility/noitemrelease.h"
 #include "module/utility/inventorymanager.h"
+#include "module/utility/teams.h"
 #include "module/utility/throwpots.h"
+#include "module/utility/autopot.h"
 #include "module/visual/blockesp.h"
 #include "module/visual/chams.h"
 #include "module/visual/esp.h"
@@ -47,6 +52,7 @@
 #include "module/visual/pings.h"
 
 #include "hooks/winsock_hooks.h"
+#include "jni/backtrack/backtrack_gate.hpp"
 #include "jni/packet/bytecode_patcher.hpp"
 #include "jni/packet/packet_interceptor.hpp"
 #include "sdk/network/lunar_packet_listener.hpp"
@@ -170,6 +176,7 @@ void cobble::context::initialize(HMODULE hModule) {
     moduleManager = new ModuleManager();
     COBBLE_TRACE("alloc:AutoClicker");
     autoClicker = new AutoClicker();
+    autoRod = new AutoRod();
     blockHit = new BlockHit();
     COBBLE_TRACE("alloc:AimAssist");
     aimAssist = new AimAssist();
@@ -177,12 +184,17 @@ void cobble::context::initialize(HMODULE hModule) {
     killAura = new KillAura();
     COBBLE_TRACE("alloc:AimBow");
     aimBow = new AimBow();
+    // Allocated before anything can target: every combat module's target filter calls into it.
+    COBBLE_TRACE("alloc:AntiBot");
+    antiBot = new AntiBot();
     COBBLE_TRACE("alloc:ArmorSwitch");
     armorSwitch = new ArmorSwitch();
     COBBLE_TRACE("alloc:AutoRefill");
     autoRefill = new AutoRefill();
     COBBLE_TRACE("alloc:ThrowPots");
     throwPots = new ThrowPots();
+    COBBLE_TRACE("alloc:AutoPot");
+    autoPot = new AutoPot();
     COBBLE_TRACE("alloc:Velocity");
     velocity = new Velocity();
     COBBLE_TRACE("alloc:Reach");
@@ -228,6 +240,8 @@ void cobble::context::initialize(HMODULE hModule) {
     timerRange = new TimerRange();
     COBBLE_TRACE("alloc:Sprint");
     sprint = new Sprint();
+    COBBLE_TRACE("alloc:InventoryMove");
+    inventoryMove = new InventoryMove();
     COBBLE_TRACE("alloc:AutoTool");
     autoTool = new AutoTool();
     COBBLE_TRACE("alloc:InventoryManager");
@@ -258,18 +272,25 @@ void cobble::context::initialize(HMODULE hModule) {
     pingsModule = new Pings();
     COBBLE_TRACE("alloc:FriendsManager");
     friendsManager = new FriendsManager();
+    // Allocated after FriendsManager: the module is the editor for its team policy,
+    // and its constructor/registration path already assumes the manager exists.
+    COBBLE_TRACE("alloc:Teams");
+    teamsModule = new Teams();
     log_ok("Modules allocated");
     COBBLE_TRACE("modules allocated");
 
     log_raw("Registering modules...");
     moduleManager->registerModule(autoClicker);
+    moduleManager->registerModule(autoRod);
     moduleManager->registerModule(blockHit);
     moduleManager->registerModule(aimAssist);
     moduleManager->registerModule(killAura);
     moduleManager->registerModule(aimBow);
+    moduleManager->registerModule(antiBot);
     moduleManager->registerModule(armorSwitch);
     moduleManager->registerModule(autoRefill);
     moduleManager->registerModule(throwPots);
+    moduleManager->registerModule(autoPot);
     moduleManager->registerModule(velocity);
     moduleManager->registerModule(reach);
     moduleManager->registerModule(piercing);
@@ -293,8 +314,10 @@ void cobble::context::initialize(HMODULE hModule) {
     moduleManager->registerModule(timerModule);
     moduleManager->registerModule(timerRange);
     moduleManager->registerModule(sprint);
+    moduleManager->registerModule(inventoryMove);
     moduleManager->registerModule(autoTool);
     moduleManager->registerModule(inventoryManager);
+    moduleManager->registerModule(teamsModule);
     moduleManager->registerModule(altManager);
     moduleManager->registerModule(nameTags);
     moduleManager->registerModule(antiDebuff);
@@ -477,11 +500,14 @@ void cobble::context::initialize(HMODULE hModule) {
         }
     }
 
-    shutdown();
+    if (!shutdown()) {
+        log_err("Shutdown could not safely detach native hooks; DLL will remain loaded");
+        return;
+    }
     FreeLibraryAndExitThread(moduleHandle, 0);
 }
 
-void cobble::context::shutdown() {
+bool cobble::context::shutdown() {
     SessionValidator::StopHeartbeatThread();
 
     // Final encrypted log upload BEFORE modules are disabled below, so the config
@@ -492,104 +518,33 @@ void cobble::context::shutdown() {
 
     invalidateSignature();
 
-    if (hInstanceMutex) {
-        ReleaseMutex(hInstanceMutex);
-        CloseHandle(hInstanceMutex);
-        hInstanceMutex = nullptr;
-        log_raw("Released instance mutex");
-    }
+    // Keep the instance mutex until native bytecode has been restored. If teardown
+    // fails we intentionally leave the DLL loaded and must continue blocking a
+    // second injection into the same process.
 
     // Save config before shutdown
     ConfigManager::get().shutdown();
 
-    if (autoClicker)
-        autoClicker->setEnabled(false);
-    if (aimAssist)
-        aimAssist->setEnabled(false);
-    if (killAura)
-        killAura->setEnabled(false);
-    if (aimBow)
-        aimBow->setEnabled(false);
-    if (armorSwitch)
-        armorSwitch->setEnabled(false);
-    if (autoRefill)
-        autoRefill->setEnabled(false);
-    if (velocity)
-        velocity->setEnabled(false);
-    if (reach)
-        reach->setEnabled(false);
-    if (piercing)
-        piercing->setEnabled(false);
+    // Quiesce every registered module before any early shutdown return. This bypasses
+    // user-facing toggle locks while still running each enabled module's cleanup once.
+    if (moduleManager) {
+        for (Module* module : moduleManager->getModules()) {
+            if (!module || !module->enabled)
+                continue;
+            module->enabled = false;
+            module->onDisable();
+            log_debug("[MOD] %s: DISABLED (shutdown)", module->name);
+        }
+    }
 
-    if (backtrack)
-        backtrack->setEnabled(false);
-    if (hitSelect)
-        hitSelect->setEnabled(false);
-    if (noHitDelay)
-        noHitDelay->setEnabled(false);
-    if (criticals)
-        criticals->setEnabled(false);
-    if (wTap)
-        wTap->setEnabled(false);
+    // Release JNI GlobalRefs held by NoSlowDown while env is still valid.
     if (noSlowDown) {
-        noSlowDown->setEnabled(false);
-        // Release JNI GlobalRefs held by NoSlowDown while env is still valid
-        JNIEnv* _nsEnv = Java::Env();
-        if (_nsEnv && noSlowDown->cachedPlayerClass) {
-            _nsEnv->DeleteGlobalRef(noSlowDown->cachedPlayerClass);
+        JNIEnv* noSlowEnv = Java::Env();
+        if (noSlowEnv && noSlowDown->cachedPlayerClass) {
+            noSlowEnv->DeleteGlobalRef(noSlowDown->cachedPlayerClass);
             noSlowDown->cachedPlayerClass = nullptr;
         }
     }
-    if (noJumpDelay)
-        noJumpDelay->setEnabled(false);
-    if (noItemRelease)
-        noItemRelease->setEnabled(false);
-    if (bridgeAssist)
-        bridgeAssist->setEnabled(false);
-    if (scaffold)
-        scaffold->setEnabled(false);
-    if (clutch)
-        clutch->setEnabled(false);
-    if (breaker)
-        breaker->setEnabled(false);
-    if (blink)
-        blink->setEnabled(false);
-    if (fakeLag)
-        fakeLag->setEnabled(false);
-    if (fastPlace)
-        fastPlace->setEnabled(false);
-    if (fastBreak)
-        fastBreak->setEnabled(false);
-    if (timerModule)
-        timerModule->setEnabled(false);
-    if (timerRange)
-        timerRange->setEnabled(false);
-    if (sprint)
-        sprint->setEnabled(false);
-    if (autoTool)
-        autoTool->setEnabled(false);
-    if (inventoryManager)
-        inventoryManager->setEnabled(false);
-    if (altManager)
-        altManager->setEnabled(false);
-    if (nameTags)
-        nameTags->setEnabled(false);
-    if (antiDebuff)
-        antiDebuff->setEnabled(false);
-    if (esp)
-        esp->setEnabled(false);
-    if (chams)
-        chams->setEnabled(false);
-    if (itemEsp)
-        itemEsp->setEnabled(false);
-    if (tracers)
-        tracers->setEnabled(false);
-    if (blockESP)
-        blockESP->setEnabled(false);
-    if (trajectories)
-        trajectories->setEnabled(false);
-    if (droppedInfo)
-        droppedInfo->setEnabled(false);
 
     // Disabling NameTags above flipped the "hide vanilla names" flag back to
     // restore, but the retransform that actually applies it only runs on the
@@ -599,8 +554,44 @@ void cobble::context::shutdown() {
     // no-op'd renderName (names never come back until a game restart).
     BytecodePatcher::ApplyHideVanillaNames(Java::Env());
 
+    if (backtrack) {
+        // SlowDownHook remains installed, so only the client thread performs replay.
+        const ULONGLONG drainDeadline = GetTickCount64() + 750;
+        while (BacktrackGate::HasPending() && GetTickCount64() < drainDeadline)
+            Sleep(5);
+
+        if (BacktrackGate::HasPending()) {
+            JNIEnv* drainEnv = Java::Env();
+            if (!drainEnv || BacktrackGate::HasPendingForCurrentConnection(drainEnv)) {
+                log_err("[Backtrack] Live-session packets remain after client-thread drain; keeping hooks and DLL loaded");
+                return false;
+            }
+
+            // A missing/different handler proves that this ownership root is stale.
+            // Discard it before bytecode teardown; never replay it on a new session.
+            BacktrackGate::Discard(drainEnv);
+            if (BacktrackGate::HasPending()) {
+                log_err("[Backtrack] Stale packet discard did not quiesce the gate; keeping DLL loaded");
+                return false;
+            }
+            log_warn("[Backtrack] Discarded packets belonging to a closed connection during shutdown");
+        }
+    }
+
+    if (!PacketInterceptor::Shutdown()) {
+        log_err("Packet interceptor teardown was incomplete; aborting DLL unload");
+        return false;
+    }
+
     LunarPacketListener::Shutdown();
-    PacketInterceptor::Shutdown();
+
+    if (hInstanceMutex) {
+        ReleaseMutex(hInstanceMutex);
+        CloseHandle(hInstanceMutex);
+        hInstanceMutex = nullptr;
+        log_raw("Released instance mutex");
+    }
+
     WinsockHooks::Shutdown();
 
     Overlay::Shutdown();
@@ -631,6 +622,14 @@ void cobble::context::shutdown() {
         delete autoClicker;
         autoClicker = nullptr;
     }
+    if (autoRod) {
+        delete autoRod;
+        autoRod = nullptr;
+    }
+    if (blockHit) {
+        delete blockHit;
+        blockHit = nullptr;
+    }
     if (aimAssist) {
         delete aimAssist;
         aimAssist = nullptr;
@@ -643,6 +642,10 @@ void cobble::context::shutdown() {
         delete aimBow;
         aimBow = nullptr;
     }
+    if (antiBot) {
+        delete antiBot;
+        antiBot = nullptr;
+    }
     if (armorSwitch) {
         delete armorSwitch;
         armorSwitch = nullptr;
@@ -654,6 +657,10 @@ void cobble::context::shutdown() {
     if (throwPots) {
         delete throwPots;
         throwPots = nullptr;
+    }
+    if (autoPot) {
+        delete autoPot;
+        autoPot = nullptr;
     }
     if (velocity) {
         delete velocity;
@@ -744,6 +751,10 @@ void cobble::context::shutdown() {
         delete sprint;
         sprint = nullptr;
     }
+    if (inventoryMove) {
+        delete inventoryMove;
+        inventoryMove = nullptr;
+    }
     if (autoTool) {
         delete autoTool;
         autoTool = nullptr;
@@ -751,6 +762,10 @@ void cobble::context::shutdown() {
     if (inventoryManager) {
         delete inventoryManager;
         inventoryManager = nullptr;
+    }
+    if (teamsModule) {
+        delete teamsModule;
+        teamsModule = nullptr;
     }
     if (altManager) {
         delete altManager;
@@ -792,6 +807,14 @@ void cobble::context::shutdown() {
         delete droppedInfo;
         droppedInfo = nullptr;
     }
+    if (targetHud) {
+        delete targetHud;
+        targetHud = nullptr;
+    }
+    if (pingsModule) {
+        delete pingsModule;
+        pingsModule = nullptr;
+    }
     if (friendsManager) {
         delete friendsManager;
         friendsManager = nullptr;
@@ -805,4 +828,5 @@ void cobble::context::shutdown() {
     Java::Kill();
 
     c_logger::shutdown();
+    return true;
 }

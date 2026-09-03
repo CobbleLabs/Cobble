@@ -2,9 +2,11 @@
 
 #include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <cstdint>
 #include <cstring>
 #include <string>
+#include <thread>
 #include <vector>
 #include "../../util/logger.hpp"
 #include "../../util/aes_string.hpp"
@@ -60,7 +62,7 @@ static inline std::string kOnReceiveMethodDesc() {
     return OBFUSCATE_STRING("(Ljava/lang/Object;)V");
 }
 // Backtrack incoming BLOCKING hook: a boolean native on a dedicated class, invoked
-// from NetHandlerPlayClient.handleEntity/handleEntityTeleport to hold S14/S18.
+// from NetworkManager.channelRead0 with the manager and incoming packet.
 static inline std::string kIncomingHookClassSlash() {
     return OBFUSCATE_STRING("com/cobble/agent/IncomingHook");
 }
@@ -68,7 +70,7 @@ static inline std::string kIncomingHookMethodName() {
     return OBFUSCATE_STRING("canProcess");
 }
 static inline std::string kIncomingHookMethodDesc() {
-    return OBFUSCATE_STRING("(Ljava/lang/Object;)Z");
+    return OBFUSCATE_STRING("(Ljava/lang/Object;Ljava/lang/Object;)Z");
 }
 static inline std::string kS14ClassMarker() {
     return OBFUSCATE_STRING("S14PacketEntity");
@@ -129,10 +131,29 @@ static std::atomic<bool> g_btPacketClass{false};
 static std::atomic<bool> g_hideVanillaNames{false};
 static std::atomic<bool> bytecodeHookInstalled{false};
 static std::atomic<bool> hooksRegistered{false};
+static std::atomic<bool> incomingBacktrackPrefixApplied{false};
+static std::atomic<bool> slowDownHookApplied{false};
+static std::atomic<bool> g_networkManagerPatched{false};
+static std::atomic<bool> g_lunarNetHandlerPatched{false};
+static std::atomic<bool> g_netHandlerPlayClientPatched{false};
+static std::atomic<bool> g_s14Patched{false};
+static std::atomic<bool> g_s18Patched{false};
+static std::atomic<bool> g_renderGlobalPatched{false};
+static std::atomic<std::uint32_t> g_classFileLoadCallbacksInFlight{0};
 static jclass cls_PacketHook = nullptr;
+static jclass cls_NetworkManagerTarget = nullptr;
 static jclass cls_SlowdownTarget = nullptr;
 static jclass cls_RenderGlobalTarget = nullptr;
 constexpr int kPrefixLen = 8;
+
+struct ClassFileLoadCallbackScope {
+    ClassFileLoadCallbackScope() {
+        g_classFileLoadCallbacksInFlight.fetch_add(1, std::memory_order_acq_rel);
+    }
+    ~ClassFileLoadCallbackScope() {
+        g_classFileLoadCallbacksInFlight.fetch_sub(1, std::memory_order_acq_rel);
+    }
+};
 
 // PacketHook class with both methods:
 // - public static native boolean shouldSend(Object packet);  // for outgoing (can block)
@@ -780,6 +801,161 @@ static bool tryPatchCodeAttributeObserver(const uint8_t* data, size_t len, const
     return true;
 }
 
+// Combined incoming Backtrack prefix, used only for NetworkManager.channelRead0:
+//   aload_2; PacketHook.onReceive(packet);
+//   aload_0; aload_2; if (!IncomingHook.canProcess(this, packet)) return;
+// The manager+packet gate requires two stack slots, and the prefix is 13 bytes.
+constexpr int kIncomingBacktrackPrefixLen = 13;
+
+static bool tryPatchCodeAttributeIncomingBacktrack(const uint8_t* data, size_t len,
+                                                   const std::vector<std::string>& utf8,
+                                                   uint16_t observer_methodref, uint16_t gate_methodref,
+                                                   uint16_t stack_map_table_name_index,
+                                                   std::vector<uint8_t>& out) {
+    Reader r(data, len);
+    uint16_t max_stack = r.ReadU2();
+    uint16_t max_locals = r.ReadU2();
+    uint32_t code_len = r.ReadU4();
+    const uint8_t* code = r.ReadBytes(code_len);
+    if (!r.ok)
+        return false;
+
+    if (code_len >= kIncomingBacktrackPrefixLen &&
+        code[0] == 0x2c && code[1] == 0xb8 &&
+        code[4] == 0x2a && code[5] == 0x2c && code[6] == 0xb8 &&
+        code[9] == 0x9a && code[10] == 0x00 && code[11] == 0x04 &&
+        code[12] == 0xb1) {
+        const uint16_t existingObserver = static_cast<uint16_t>((code[2] << 8) | code[3]);
+        const uint16_t existingGate = static_cast<uint16_t>((code[7] << 8) | code[8]);
+        if (existingObserver == observer_methodref && existingGate == gate_methodref)
+            return false;
+    }
+
+    uint16_t ex_count = r.ReadU2();
+    if (!r.ok)
+        return false;
+
+    struct ExEntry {
+        uint16_t start_pc, end_pc, handler_pc, catch_type;
+    };
+    std::vector<ExEntry> exceptions;
+    exceptions.reserve(ex_count);
+    for (uint16_t i = 0; i < ex_count; ++i) {
+        ExEntry entry;
+        entry.start_pc = r.ReadU2();
+        entry.end_pc = r.ReadU2();
+        entry.handler_pc = r.ReadU2();
+        entry.catch_type = r.ReadU2();
+        if (!r.ok)
+            return false;
+        exceptions.push_back(entry);
+    }
+
+    uint16_t attrs_count = r.ReadU2();
+    if (!r.ok)
+        return false;
+
+    // The new ifne branches to BCI 13. Java 8 verification requires a frame at
+    // that target even when the original Code attribute had no StackMapTable.
+    Reader attr_scan = r;
+    bool has_stack_map_table = false;
+    for (uint16_t i = 0; i < attrs_count; ++i) {
+        const uint16_t name_index = attr_scan.ReadU2();
+        const uint32_t attr_len = attr_scan.ReadU4();
+        attr_scan.ReadBytes(attr_len);
+        if (!attr_scan.ok)
+            return false;
+        if (name_index < utf8.size() && utf8[name_index] == "StackMapTable")
+            has_stack_map_table = true;
+    }
+    if (!has_stack_map_table && attrs_count == 0xFFFF)
+        return false;
+
+    std::vector<uint8_t> new_code;
+    new_code.reserve(code_len + kIncomingBacktrackPrefixLen);
+    new_code.push_back(0x2c);  // aload_2: packet
+    new_code.push_back(0xb8);  // PacketHook.onReceive(Object)
+    new_code.push_back(static_cast<uint8_t>((observer_methodref >> 8) & 0xFF));
+    new_code.push_back(static_cast<uint8_t>(observer_methodref & 0xFF));
+    new_code.push_back(0x2a);  // aload_0: NetworkManager
+    new_code.push_back(0x2c);  // aload_2: packet
+    new_code.push_back(0xb8);  // IncomingHook.canProcess(Object, Object)
+    new_code.push_back(static_cast<uint8_t>((gate_methodref >> 8) & 0xFF));
+    new_code.push_back(static_cast<uint8_t>(gate_methodref & 0xFF));
+    new_code.push_back(0x9a);  // ifne -> original method body
+    new_code.push_back(0x00);
+    new_code.push_back(0x04);
+    new_code.push_back(0xb1);  // return when the gate held the packet
+    new_code.insert(new_code.end(), code, code + code_len);
+
+    Writer w;
+    w.WriteU2(std::max<uint16_t>(max_stack, static_cast<uint16_t>(2)));
+    w.WriteU2(max_locals);
+    w.WriteU4(code_len + kIncomingBacktrackPrefixLen);
+    w.WriteBytes(new_code.data(), new_code.size());
+
+    w.WriteU2(ex_count);
+    for (const auto& entry : exceptions) {
+        w.WriteU2(static_cast<uint16_t>(entry.start_pc + kIncomingBacktrackPrefixLen));
+        w.WriteU2(static_cast<uint16_t>(entry.end_pc + kIncomingBacktrackPrefixLen));
+        w.WriteU2(static_cast<uint16_t>(entry.handler_pc + kIncomingBacktrackPrefixLen));
+        w.WriteU2(entry.catch_type);
+    }
+
+    w.WriteU2(static_cast<uint16_t>(attrs_count + (has_stack_map_table ? 0 : 1)));
+    for (uint16_t i = 0; i < attrs_count; ++i) {
+        uint16_t name_index = r.ReadU2();
+        uint32_t attr_len = r.ReadU4();
+        if (!r.ok)
+            return false;
+        Reader sub = r.Slice(attr_len);
+        if (!r.ok)
+            return false;
+        const uint8_t* attr_data = sub.data;
+        const char* attr_name = name_index < utf8.size() ? utf8[name_index].c_str() : nullptr;
+
+        std::vector<uint8_t> patched;
+        bool replaced = false;
+        if (attr_name && strcmp(attr_name, "StackMapTable") == 0) {
+            if (!patchStackMapTable(attr_data, attr_len, kIncomingBacktrackPrefixLen, patched))
+                return false;
+            replaced = true;
+        } else if (attr_name && strcmp(attr_name, "LineNumberTable") == 0) {
+            if (!patchLineNumberTable(attr_data, attr_len, kIncomingBacktrackPrefixLen, patched))
+                return false;
+            replaced = true;
+        } else if (attr_name &&
+                   (strcmp(attr_name, "LocalVariableTable") == 0 ||
+                    strcmp(attr_name, "LocalVariableTypeTable") == 0)) {
+            if (!patchLocalVariableTable(attr_data, attr_len, kIncomingBacktrackPrefixLen, patched))
+                return false;
+            replaced = true;
+        }
+
+        w.WriteU2(name_index);
+        if (replaced) {
+            w.WriteU4(static_cast<uint32_t>(patched.size()));
+            w.WriteBytes(patched.data(), patched.size());
+        } else {
+            w.WriteU4(attr_len);
+            w.WriteBytes(attr_data, attr_len);
+        }
+    }
+
+    if (!has_stack_map_table) {
+        // number_of_entries=1, same_frame(offset_delta=13).
+        w.WriteU2(stack_map_table_name_index);
+        w.WriteU4(3);
+        w.WriteU2(1);
+        w.WriteU1(static_cast<uint8_t>(kIncomingBacktrackPrefixLen));
+    }
+
+    if (!r.ok)
+        return false;
+    out = std::move(w.out);
+    return true;
+}
+
 static bool tryPatchCodeAttribute(const uint8_t* data, size_t len, const std::vector<CpEntry>& cp,
                                   const std::vector<std::string>& utf8, uint16_t hook_methodref, bool is_static,
                                   std::vector<uint8_t>& out) {
@@ -903,7 +1079,10 @@ static bool tryPatchCodeAttribute(const uint8_t* data, size_t len, const std::ve
     return true;
 }
 
-static int patchNetworkManagerClass(const uint8_t* data, size_t len, std::vector<uint8_t>& out) {
+static int patchNetworkManagerClass(const uint8_t* data, size_t len, std::vector<uint8_t>& out,
+                                    bool* incomingBacktrackPatched = nullptr) {
+    if (incomingBacktrackPatched)
+        *incomingBacktrackPatched = false;
     COBBLE_TRACE("patchNetworkManagerClass: enter");
     Reader r(data, len);
     uint32_t magic = r.ReadU4();
@@ -933,9 +1112,9 @@ static int patchNetworkManagerClass(const uint8_t* data, size_t len, std::vector
     }
     COBBLE_TRACE("patchNetworkManagerClass: constant pool read successfully");
 
-    if (cp_count > 0xFFF3) {
+    if (cp_count > 0xFFEE) {
         COBBLE_TRACE("patchNetworkManagerClass: cp_count too large");
-        return -1;  // Need room for 12 new entries (6 for each method)
+        return -1;  // Need room for 17 new entries.
     }
     uint16_t base = cp_count;
 
@@ -953,7 +1132,7 @@ static int patchNetworkManagerClass(const uint8_t* data, size_t len, std::vector
     uint16_t idx_recv_name_type = static_cast<uint16_t>(base + 8);
     uint16_t idx_recv_methodref = static_cast<uint16_t>(base + 9);
 
-    // Entries for IncomingHook.shouldProcess (backtrack blocking hook) — its own class.
+    // Entries for IncomingHook.canProcess (backtrack blocking hook) — its own class.
     uint16_t idx_bt_utf8_class = static_cast<uint16_t>(base + 10);
     uint16_t idx_bt_class = static_cast<uint16_t>(base + 11);
     uint16_t idx_bt_utf8_name = static_cast<uint16_t>(base + 12);
@@ -961,11 +1140,15 @@ static int patchNetworkManagerClass(const uint8_t* data, size_t len, std::vector
     uint16_t idx_bt_name_type = static_cast<uint16_t>(base + 14);
     uint16_t idx_bt_methodref = static_cast<uint16_t>(base + 15);
 
+    // Always present so a Code attribute without a nested StackMapTable can gain
+    // one when the incoming Backtrack branch is injected.
+    uint16_t idx_stack_map_table_utf8 = static_cast<uint16_t>(base + 16);
+
     Writer w;
     w.WriteU4(magic);
     w.WriteU2(minor);
     w.WriteU2(major);
-    w.WriteU2(static_cast<uint16_t>(cp_count + 16));  // 6 shouldSend + 4 onReceive + 6 IncomingHook
+    w.WriteU2(static_cast<uint16_t>(cp_count + 17));  // Existing 16 hook entries + StackMapTable UTF8
     w.WriteBytes(cp_raw.data(), cp_raw.size());
 
     // shouldSend entries
@@ -1016,7 +1199,7 @@ static int patchNetworkManagerClass(const uint8_t* data, size_t len, std::vector
     w.WriteU2(idx_class);
     w.WriteU2(idx_recv_name_type);
 
-    // IncomingHook.shouldProcess entries (own class ref). Order MUST match the index
+    // IncomingHook.canProcess entries (own class ref). Order MUST match the index
     // assignment above (base+10 .. base+15).
     w.WriteU1(1);  // #base+10 CONSTANT_Utf8 "com/cobble/agent/IncomingHook"
     {
@@ -1026,13 +1209,13 @@ static int patchNetworkManagerClass(const uint8_t* data, size_t len, std::vector
     }
     w.WriteU1(7);  // #base+11 CONSTANT_Class -> base+10
     w.WriteU2(idx_bt_utf8_class);
-    w.WriteU1(1);  // #base+12 CONSTANT_Utf8 "shouldProcess"
+    w.WriteU1(1);  // #base+12 CONSTANT_Utf8 "canProcess"
     {
         std::string _s = kIncomingHookMethodName();
         w.WriteU2(static_cast<uint16_t>(_s.size()));
         w.WriteBytes(reinterpret_cast<const uint8_t*>(_s.data()), _s.size());
     }
-    w.WriteU1(1);  // #base+13 CONSTANT_Utf8 "(Ljava/lang/Object;)Z"
+    w.WriteU1(1);  // #base+13 CONSTANT_Utf8 "(Ljava/lang/Object;Ljava/lang/Object;)Z"
     {
         std::string _s = kIncomingHookMethodDesc();
         w.WriteU2(static_cast<uint16_t>(_s.size()));
@@ -1044,6 +1227,13 @@ static int patchNetworkManagerClass(const uint8_t* data, size_t len, std::vector
     w.WriteU1(10);  // #base+15 CONSTANT_Methodref -> base+11, base+14
     w.WriteU2(idx_bt_class);
     w.WriteU2(idx_bt_name_type);
+
+    w.WriteU1(1);  // #base+16 CONSTANT_Utf8 "StackMapTable"
+    {
+        constexpr char kStackMapTable[] = "StackMapTable";
+        w.WriteU2(static_cast<uint16_t>(sizeof(kStackMapTable) - 1));
+        w.WriteBytes(reinterpret_cast<const uint8_t*>(kStackMapTable), sizeof(kStackMapTable) - 1);
+    }
 
     COBBLE_TRACE("patchNetworkManagerClass: constant pool modifications written");
 
@@ -1149,7 +1339,8 @@ static int patchNetworkManagerClass(const uint8_t* data, size_t len, std::vector
 
         bool is_target = false;
         bool is_incoming_target = false;
-        bool is_backtrack_target = false;  // handleEntity/handleEntityTeleport → BLOCKING hook
+        bool is_channel_read_target = false;
+        bool is_backtrack_target = false;  // legacy S14/S18 processPacket hook
         int incoming_packet_slot = 2;      // Default: second param for channelRead0
         if (m_name < utf8.size() && m_desc < utf8.size()) {
             const std::string& name = utf8[m_name];
@@ -1186,14 +1377,12 @@ static int patchNetworkManagerClass(const uint8_t* data, size_t len, std::vector
             // Detect channelRead0 for incoming packets (observer hook, non-destructive)
             // channelRead0 signature: (ChannelHandlerContext, Object) -> void
             // Packet is the SECOND parameter (slot 2 for instance method)
-            if (g_targets.incoming && name == "channelRead0") {
-                // Must have exactly 2 ref params and return void: (Lxxx;Lyyy;)V
-                size_t semiCount = std::count(desc.begin(), desc.end(), ';');
-                if (semiCount == 2 && desc.back() == 'V') {
-                    is_incoming_target = true;
-                    incoming_packet_slot = 2;  // Second param (after ChannelHandlerContext)
-                    log_debug("[PacketInterceptor] Found channelRead0 for incoming: %s", desc.c_str());
-                }
+            if (g_targets.incoming && name == "channelRead0" &&
+                desc == "(Lio/netty/channel/ChannelHandlerContext;Ljava/lang/Object;)V") {
+                is_incoming_target = true;
+                is_channel_read_target = true;
+                incoming_packet_slot = 2;
+                log_debug("[PacketInterceptor] Found channelRead0 for incoming: %s", desc.c_str());
             }
 
             // Detect Lunar Client nametag handler methods
@@ -1303,26 +1492,36 @@ static int patchNetworkManagerClass(const uint8_t* data, size_t len, std::vector
                 }
             }
 
-            // Patch incoming packets (channelRead0) - observer hook (non-blocking)
+            // channelRead0 observes first, then gives IncomingHook a chance to hold
+            // the packet. All other incoming handlers remain observer-only.
             if (!patched && is_incoming_target && attr_name && strcmp(attr_name, "Code") == 0 &&
                 (m_access & (0x0100 | 0x0400)) == 0) {
-                COBBLE_TRACE("patchNetworkManagerClass: calling tryPatchCodeAttributeObserver");
                 const std::string& method_name = (m_name < utf8.size()) ? utf8[m_name] : "";
-                log_debug("[PacketInterceptor] Attempting observer patch for: %s (slot=%d, methodref=%d)",
-                          method_name.c_str(), incoming_packet_slot, idx_recv_methodref);
+                const bool useIncomingBacktrack =
+                    is_channel_read_target && g_targets.incoming && g_targets.incomingBacktrack;
+                bool patchOk = false;
+                if (useIncomingBacktrack) {
+                    patchOk = tryPatchCodeAttributeIncomingBacktrack(
+                        attr_data, attr_len, utf8, idx_recv_methodref, idx_bt_methodref,
+                        idx_stack_map_table_utf8, patched_attr);
+                } else {
+                    patchOk = tryPatchCodeAttributeObserver(attr_data, attr_len, cp, utf8,
+                                                            idx_recv_methodref, incoming_packet_slot,
+                                                            patched_attr);
+                }
 
-                if (tryPatchCodeAttributeObserver(attr_data, attr_len, cp, utf8, idx_recv_methodref,
-                                                  incoming_packet_slot, patched_attr)) {
+                if (patchOk) {
                     w.WriteU2(name_index);
                     w.WriteU4(static_cast<uint32_t>(patched_attr.size()));
                     w.WriteBytes(patched_attr.data(), patched_attr.size());
                     patched = true;
                     ++patched_methods;
-                    log_ok("[PacketInterceptor] Patched incoming method: %s", method_name.c_str());
-                    COBBLE_TRACE("patchNetworkManagerClass: tryPatchCodeAttributeObserver SUCCESS");
+                    if (useIncomingBacktrack && incomingBacktrackPatched)
+                        *incomingBacktrackPatched = true;
+                    log_ok("[PacketInterceptor] Patched incoming method: %s%s", method_name.c_str(),
+                           useIncomingBacktrack ? " (observer + backtrack gate)" : "");
                 } else {
-                    log_debug("[PacketInterceptor] Observer patch FAILED for: %s", method_name.c_str());
-                    COBBLE_TRACE("patchNetworkManagerClass: tryPatchCodeAttributeObserver returned false");
+                    log_debug("[PacketInterceptor] Incoming patch FAILED for: %s", method_name.c_str());
                 }
             }
 
@@ -2000,16 +2199,20 @@ static void JNICALL onClassFileLoadHook(jvmtiEnv* jvmti_env, JNIEnv* jni_env, jc
                                         jobject loader, const char* name, jobject protection_domain,
                                         jint class_data_len, const unsigned char* class_data, jint* new_class_data_len,
                                         unsigned char** new_class_data) {
+    ClassFileLoadCallbackScope callbackScope;
     (void)loader;
     (void)protection_domain;
 
-    if (!name)
+    const bool isNetworkManagerByIdentity =
+        cls_NetworkManagerTarget && class_being_redefined &&
+        jni_env->IsSameObject(class_being_redefined, cls_NetworkManagerTarget) == JNI_TRUE;
+    if (!name && !isNetworkManagerByIdentity)
         return;
 
     // Hide vanilla nametags: no-op renderName in RenderPlayer + RendererLivingEntity.
     // When the flag is off (incl. a retransform to restore), this branch is skipped
     // and the original bytes are kept.
-    if (g_hideVanillaNames.load() &&
+    if (name && g_hideVanillaNames.load() &&
         (strcmp(name, kRenderPlayerSlash().c_str()) == 0 || strcmp(name, kRendererLivingSlash().c_str()) == 0 ||
          strcmp(name, kRenderArmorStandSlash().c_str()) == 0)) {
         std::vector<uint8_t> patched;
@@ -2027,16 +2230,24 @@ static void JNICALL onClassFileLoadHook(jvmtiEnv* jvmti_env, JNIEnv* jni_env, jc
         return;
     }
 
-    // Handle NetworkManager hooks (outgoing/incoming)
-    if (strcmp(name, kTargetClassSlash().c_str()) == 0 && (g_targets.outgoing || g_targets.incoming)) {
+    // Handle NetworkManager hooks (outgoing/incoming). Identity matching covers
+    // transformed OptiFine/vanilla classes whose runtime name is the Notch `ek`.
+    const bool isNetworkManagerTarget =
+        isNetworkManagerByIdentity ||
+        (name && (strcmp(name, kTargetClassSlash().c_str()) == 0 || strcmp(name, "ek") == 0));
+    if (isNetworkManagerTarget &&
+        (g_targets.outgoing || g_targets.incoming || g_targets.incomingBacktrack)) {
         COBBLE_TRACE("onClassFileLoadHook: NetworkManager matched");
         log_debug("[PacketInterceptor] onClassFileLoadHook triggered for NetworkManager");
         std::vector<uint8_t> patched;
-        int patched_methods = patchNetworkManagerClass(class_data, static_cast<size_t>(class_data_len), patched);
+        bool wroteIncomingBacktrack = false;
+        int patched_methods = patchNetworkManagerClass(class_data, static_cast<size_t>(class_data_len), patched,
+                                                        &wroteIncomingBacktrack);
         if (patched_methods <= 0) {
             if (patched_methods < 0) {
                 COBBLE_TRACE("onClassFileLoadHook: NetworkManager patching failed");
-                log_warn("[PacketInterceptor] Bytecode patch failed for %s", name);
+                log_warn("[PacketInterceptor] Bytecode patch failed for %s",
+                         name ? name : "<NetworkManager>");
             }
             return;
         }
@@ -2052,6 +2263,9 @@ static void JNICALL onClassFileLoadHook(jvmtiEnv* jvmti_env, JNIEnv* jni_env, jc
         memcpy(buffer, patched.data(), patched.size());
         *new_class_data_len = static_cast<jint>(patched.size());
         *new_class_data = buffer;
+        g_networkManagerPatched.store(true, std::memory_order_release);
+        if (wroteIncomingBacktrack)
+            incomingBacktrackPrefixApplied.store(true, std::memory_order_release);
 
         static std::atomic<bool> logged{false};
         if (!logged.exchange(true)) {
@@ -2078,6 +2292,7 @@ static void JNICALL onClassFileLoadHook(jvmtiEnv* jvmti_env, JNIEnv* jni_env, jc
                 memcpy(buffer, patched.data(), patched.size());
                 *new_class_data_len = static_cast<jint>(patched.size());
                 *new_class_data = buffer;
+                g_lunarNetHandlerPatched.store(true, std::memory_order_release);
                 log_ok("[PacketInterceptor] Patched LCNetHandlerClient nametag handlers (%d method(s))",
                        patched_methods);
             }
@@ -2107,6 +2322,10 @@ static void JNICALL onClassFileLoadHook(jvmtiEnv* jvmti_env, JNIEnv* jni_env, jc
                 memcpy(buffer, patched.data(), patched.size());
                 *new_class_data_len = static_cast<jint>(patched.size());
                 *new_class_data = buffer;
+                if (strcmp(name, kS14ClassSlash().c_str()) == 0)
+                    g_s14Patched.store(true, std::memory_order_release);
+                else
+                    g_s18Patched.store(true, std::memory_order_release);
                 log_ok("[PacketInterceptor] Patched backtrack packet class %s (%d method(s))", name, patched_methods);
             }
         }
@@ -2132,6 +2351,7 @@ static void JNICALL onClassFileLoadHook(jvmtiEnv* jvmti_env, JNIEnv* jni_env, jc
                 memcpy(buffer, patched.data(), patched.size());
                 *new_class_data_len = static_cast<jint>(patched.size());
                 *new_class_data = buffer;
+                g_netHandlerPlayClientPatched.store(true, std::memory_order_release);
                 log_ok("[PacketInterceptor] Patched NetHandlerPlayClient.handleCustomPayload (%d method(s))",
                        patched_methods);
             }
@@ -2159,6 +2379,7 @@ static void JNICALL onClassFileLoadHook(jvmtiEnv* jvmti_env, JNIEnv* jni_env, jc
                 memcpy(buffer, patched.data(), patched.size());
                 *new_class_data_len = static_cast<jint>(patched.size());
                 *new_class_data = buffer;
+                slowDownHookApplied.store(true, std::memory_order_release);
                 COBBLE_TRACE("onClassFileLoadHook: EntityLivingBase successfully patched");
                 log_ok("[PacketInterceptor] Patched living update bytecode (%d method(s))", patched_methods);
             } else {
@@ -2187,6 +2408,7 @@ static void JNICALL onClassFileLoadHook(jvmtiEnv* jvmti_env, JNIEnv* jni_env, jc
                 memcpy(buffer, patched.data(), patched.size());
                 *new_class_data_len = static_cast<jint>(patched.size());
                 *new_class_data = buffer;
+                g_renderGlobalPatched.store(true, std::memory_order_release);
                 log_ok("[PacketInterceptor] Patched RenderGlobal.renderEntities bytecode (%d method(s))",
                        patched_methods);
             }
@@ -2323,7 +2545,17 @@ static bool ensureHookClass(JNIEnv* env, jboolean(JNICALL* shouldSend)(JNIEnv*, 
         return false;
     }
 
-    cls_PacketHook = (jclass)env->NewGlobalRef(hook);
+    cls_PacketHook = static_cast<jclass>(env->NewGlobalRef(hook));
+    if (!cls_PacketHook) {
+        if (env->ExceptionCheck())
+            env->ExceptionClear();
+        env->UnregisterNatives(hook);
+        if (env->ExceptionCheck())
+            env->ExceptionClear();
+        env->DeleteLocalRef(hook);
+        log_err("[PacketInterceptor] Failed to retain PacketHook class");
+        return false;
+    }
     env->DeleteLocalRef(hook);
     hooksRegistered = true;
     log_ok("[PacketInterceptor] PacketHook native bridge ready (shouldSend + onReceive)");
@@ -2361,14 +2593,30 @@ bool InstallBytecodeHook(JNIEnv* env) {
 
     bytecodeHookInstalled = true;
 
-    if (g_targets.outgoing || g_targets.incoming) {
+    const bool incomingBacktrackRequested = g_targets.incomingBacktrack;
+
+    if (g_targets.outgoing || g_targets.incoming || g_targets.incomingBacktrack) {
+        if (incomingBacktrackRequested)
+            incomingBacktrackPrefixApplied.store(false, std::memory_order_release);
+
         jclass nm = nullptr;
         if (Java::AssignClass(kTargetClassDot(), nm)) {
+            if (cls_NetworkManagerTarget)
+                env->DeleteGlobalRef(cls_NetworkManagerTarget);
+            cls_NetworkManagerTarget = static_cast<jclass>(env->NewGlobalRef(nm));
+            if (!cls_NetworkManagerTarget) {
+                if (env->ExceptionCheck())
+                    env->ExceptionClear();
+                log_warn("[PacketInterceptor] Failed to retain NetworkManager target class");
+            }
+
             jclass classes[1] = {nm};
             err = Java::tiEnv->RetransformClasses(1, classes);
             if (err == JVMTI_ERROR_NONE) {
                 log_ok("[PacketInterceptor] Retransform requested for NetworkManager");
             } else {
+                if (incomingBacktrackRequested)
+                    incomingBacktrackPrefixApplied.store(false, std::memory_order_release);
                 log_warn("[PacketInterceptor] RetransformClasses failed: %d", err);
             }
             env->DeleteLocalRef(nm);
@@ -2420,6 +2668,7 @@ bool InstallBytecodeHook(JNIEnv* env) {
     }
 
     if (g_targets.slowdown) {
+        slowDownHookApplied.store(false, std::memory_order_release);
         jclass livingBaseCls = nullptr;
         if (Java::AssignClass(OBFUSCATE_STRING("net.minecraft.entity.EntityLivingBase"), livingBaseCls)) {
             if (cls_SlowdownTarget) {
@@ -2432,6 +2681,7 @@ bool InstallBytecodeHook(JNIEnv* env) {
             if (err == JVMTI_ERROR_NONE) {
                 log_ok("[PacketInterceptor] Retransform requested for EntityLivingBase");
             } else {
+                slowDownHookApplied.store(false, std::memory_order_release);
                 log_warn("[PacketInterceptor] EntityLivingBase retransform failed: %d", err);
             }
             env->DeleteLocalRef(livingBaseCls);
@@ -2486,83 +2736,196 @@ bool InstallBytecodeHook(JNIEnv* env) {
         }
     }
 
+    if (incomingBacktrackRequested &&
+        !(incomingBacktrackPrefixApplied.load(std::memory_order_acquire) &&
+          slowDownHookApplied.load(std::memory_order_acquire))) {
+        g_targets.incomingBacktrack = false;
+        incomingBacktrackPrefixApplied.store(false, std::memory_order_release);
+        log_warn("[PacketInterceptor] Incoming Backtrack hooks incomplete; disabling gate and restoring observer-only NetworkManager");
+
+        if (cls_NetworkManagerTarget) {
+            jclass classes[1] = {cls_NetworkManagerTarget};
+            err = Java::tiEnv->RetransformClasses(1, classes);
+            if (err != JVMTI_ERROR_NONE)
+                log_warn("[PacketInterceptor] Observer-only NetworkManager retransform failed: %d", err);
+        } else {
+            log_warn("[PacketInterceptor] Cannot restore observer-only NetworkManager: target class unavailable");
+        }
+    }
+
     return true;
+}
+
+bool IsIncomingBacktrackReady() {
+    return incomingBacktrackPrefixApplied.load(std::memory_order_acquire) &&
+           slowDownHookApplied.load(std::memory_order_acquire);
 }
 
 bool Shutdown(JNIEnv* env) {
     if (!env)
         return false;
 
-    bool retransformSuccess = false;
-
-    if (Java::tiEnv && bytecodeHookInstalled.load()) {
-        Java::tiEnv->SetEventNotificationMode(JVMTI_DISABLE, JVMTI_EVENT_CLASS_FILE_LOAD_HOOK, nullptr);
-
-        jvmtiEventCallbacks callbacks;
-        memset(&callbacks, 0, sizeof(callbacks));
-        Java::tiEnv->SetEventCallbacks(&callbacks, sizeof(callbacks));
-
-        jclass classesToRetransform[4];
-        jint count = 0;
-
-        jclass nm = nullptr;
-        if (Java::AssignClass(kTargetClassDot(), nm)) {
-            classesToRetransform[count++] = nm;
-        } else if (env->ExceptionCheck()) {
-            env->ExceptionClear();
+    if (bytecodeHookInstalled.load(std::memory_order_acquire)) {
+        if (!Java::tiEnv) {
+            log_err("[BytecodePatcher] Cannot disable ClassFileLoadHook without JVMTI");
+            return false;
         }
 
-        jclass lunarHandler = nullptr;
-        if (Java::AssignClass(OBFUSCATE_STRING("com.lunarclient.bukkitapi.nethandler.client.LCNetHandlerClient"),
-                              lunarHandler)) {
-            classesToRetransform[count++] = lunarHandler;
-        } else if (env->ExceptionCheck()) {
-            env->ExceptionClear();
+        const jvmtiError disableErr = Java::tiEnv->SetEventNotificationMode(
+            JVMTI_DISABLE, JVMTI_EVENT_CLASS_FILE_LOAD_HOOK, nullptr);
+        if (disableErr != JVMTI_ERROR_NONE) {
+            log_err("[BytecodePatcher] Failed to disable ClassFileLoadHook (err=%d)", disableErr);
+            return false;
         }
 
-        jclass netHandler = nullptr;
-        if (Java::AssignClass(kIncomingTargetClassDot(), netHandler)) {
-            classesToRetransform[count++] = netHandler;
-        } else if (env->ExceptionCheck()) {
-            env->ExceptionClear();
+        jvmtiEventCallbacks callbacks{};
+        const jvmtiError callbacksErr =
+            Java::tiEnv->SetEventCallbacks(&callbacks, sizeof(callbacks));
+        if (callbacksErr != JVMTI_ERROR_NONE) {
+            log_err("[BytecodePatcher] Failed to clear JVMTI callbacks (err=%d)", callbacksErr);
+            return false;
         }
 
-        jclass livingBaseCls = nullptr;
-        if (Java::AssignClass(OBFUSCATE_STRING("net.minecraft.entity.EntityLivingBase"), livingBaseCls)) {
-            classesToRetransform[count++] = livingBaseCls;
-        } else if (env->ExceptionCheck()) {
-            env->ExceptionClear();
-        }
-
-        if (count > 0) {
-            jvmtiError err = Java::tiEnv->RetransformClasses(count, classesToRetransform);
-            if (err == JVMTI_ERROR_NONE) {
-                retransformSuccess = true;
-                log_ok("[BytecodePatcher] Successfully retransformed %d classes", count);
-            } else {
-                char errBuf[256];
-                wsprintfA(errBuf, "[BytecodePatcher] Failed to retransform classes (err=%d)", err);
-                log_err("%s", errBuf);
+        const auto deadline =
+            std::chrono::steady_clock::now() + std::chrono::milliseconds(2000);
+        while (g_classFileLoadCallbacksInFlight.load(std::memory_order_acquire) != 0) {
+            if (std::chrono::steady_clock::now() >= deadline) {
+                log_err("[BytecodePatcher] Timed out waiting for ClassFileLoadHook callbacks");
+                return false;
             }
-            for (jint i = 0; i < count; i++) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+    }
+
+    const bool networkManagerPatched =
+        g_networkManagerPatched.load(std::memory_order_acquire);
+    const bool lunarNetHandlerPatched =
+        g_lunarNetHandlerPatched.load(std::memory_order_acquire);
+    const bool netHandlerPlayClientPatched =
+        g_netHandlerPlayClientPatched.load(std::memory_order_acquire);
+    const bool s14Patched = g_s14Patched.load(std::memory_order_acquire);
+    const bool s18Patched = g_s18Patched.load(std::memory_order_acquire);
+    const bool slowDownPatched = slowDownHookApplied.load(std::memory_order_acquire);
+    const bool renderGlobalPatched =
+        g_renderGlobalPatched.load(std::memory_order_acquire);
+    const bool anyClassPatched =
+        networkManagerPatched || lunarNetHandlerPatched ||
+        netHandlerPlayClientPatched || s14Patched || s18Patched ||
+        slowDownPatched || renderGlobalPatched;
+
+    jclass classesToRetransform[7]{};
+    bool temporaryLocalRef[7]{};
+    jint count = 0;
+
+    auto cleanupTemporaryRefs = [&]() {
+        for (jint i = 0; i < count; ++i) {
+            if (temporaryLocalRef[i] && classesToRetransform[i])
                 env->DeleteLocalRef(classesToRetransform[i]);
-            }
-        } else {
-            retransformSuccess = true;
         }
-    } else {
-        retransformSuccess = true;
+    };
+
+    auto addPatchedClass = [&](bool patched, jclass retainedGlobal,
+                               const std::string& dotName,
+                               const char* displayName) -> bool {
+        if (!patched)
+            return true;
+
+        if (retainedGlobal) {
+            classesToRetransform[count] = retainedGlobal;
+            temporaryLocalRef[count] = false;
+            ++count;
+            return true;
+        }
+
+        jclass resolved = nullptr;
+        if (!Java::AssignClass(dotName, resolved) || !resolved) {
+            if (env->ExceptionCheck())
+                env->ExceptionClear();
+            log_err("[BytecodePatcher] Patched class unavailable during restore: %s",
+                    displayName);
+            return false;
+        }
+
+        classesToRetransform[count] = resolved;
+        temporaryLocalRef[count] = true;
+        ++count;
+        return true;
+    };
+
+    if (!addPatchedClass(networkManagerPatched, cls_NetworkManagerTarget,
+                         kTargetClassDot(), "NetworkManager") ||
+        !addPatchedClass(
+            lunarNetHandlerPatched, nullptr,
+            OBFUSCATE_STRING("com.lunarclient.bukkitapi.nethandler.client.LCNetHandlerClient"),
+            "LCNetHandlerClient") ||
+        !addPatchedClass(netHandlerPlayClientPatched, nullptr,
+                         kIncomingTargetClassDot(), "NetHandlerPlayClient") ||
+        !addPatchedClass(s14Patched, nullptr,
+                         OBFUSCATE_STRING("net.minecraft.network.play.server.S14PacketEntity"),
+                         "S14PacketEntity") ||
+        !addPatchedClass(
+            s18Patched, nullptr,
+            OBFUSCATE_STRING("net.minecraft.network.play.server.S18PacketEntityTeleport"),
+            "S18PacketEntityTeleport") ||
+        !addPatchedClass(
+            slowDownPatched, cls_SlowdownTarget,
+            OBFUSCATE_STRING("net.minecraft.entity.EntityLivingBase"),
+            "EntityLivingBase") ||
+        !addPatchedClass(
+            renderGlobalPatched, cls_RenderGlobalTarget,
+            OBFUSCATE_STRING("net.minecraft.client.renderer.RenderGlobal"),
+            "RenderGlobal")) {
+        cleanupTemporaryRefs();
+        return false;
+    }
+
+    if (count == 0 && anyClassPatched) {
+        log_err("[BytecodePatcher] No patched classes were resolved for restore");
+        cleanupTemporaryRefs();
+        return false;
+    }
+
+    if (count > 0) {
+        if (!Java::tiEnv) {
+            log_err("[BytecodePatcher] Cannot restore patched classes without JVMTI");
+            cleanupTemporaryRefs();
+            return false;
+        }
+
+        const jvmtiError retransformErr =
+            Java::tiEnv->RetransformClasses(count, classesToRetransform);
+        cleanupTemporaryRefs();
+        if (retransformErr != JVMTI_ERROR_NONE) {
+            log_err("[BytecodePatcher] Failed to restore patched classes (err=%d)",
+                    retransformErr);
+            return false;
+        }
+        log_ok("[BytecodePatcher] Successfully restored %d patched classes", count);
     }
 
     if (cls_PacketHook) {
-        if (retransformSuccess) {
-            env->UnregisterNatives(cls_PacketHook);
-            log_ok("[BytecodePatcher] Unregistered PacketHook natives");
-        } else {
-            log_warn("[BytecodePatcher] Skipped unregistering PacketHook natives to prevent crash");
+        const jint unregisterResult = env->UnregisterNatives(cls_PacketHook);
+        const bool unregisterException = env->ExceptionCheck() == JNI_TRUE;
+        if (unregisterException)
+            env->ExceptionClear();
+        if (unregisterResult != JNI_OK || unregisterException) {
+            log_err("[BytecodePatcher] Failed to unregister PacketHook natives (result=%d, exception=%d)",
+                    unregisterResult, unregisterException ? 1 : 0);
+            return false;
         }
+        log_ok("[BytecodePatcher] Unregistered PacketHook natives");
+    } else if (hooksRegistered.load(std::memory_order_acquire)) {
+        log_err("[BytecodePatcher] PacketHook registration state has no retained class");
+        return false;
+    }
+
+    if (cls_PacketHook) {
         env->DeleteGlobalRef(cls_PacketHook);
         cls_PacketHook = nullptr;
+    }
+    if (cls_NetworkManagerTarget) {
+        env->DeleteGlobalRef(cls_NetworkManagerTarget);
+        cls_NetworkManagerTarget = nullptr;
     }
     if (cls_SlowdownTarget) {
         env->DeleteGlobalRef(cls_SlowdownTarget);
@@ -2573,10 +2936,17 @@ bool Shutdown(JNIEnv* env) {
         cls_RenderGlobalTarget = nullptr;
     }
 
-    hooksRegistered = false;
-    bytecodeHookInstalled = false;
-
-    return retransformSuccess;
+    g_networkManagerPatched.store(false, std::memory_order_release);
+    g_lunarNetHandlerPatched.store(false, std::memory_order_release);
+    g_netHandlerPlayClientPatched.store(false, std::memory_order_release);
+    g_s14Patched.store(false, std::memory_order_release);
+    g_s18Patched.store(false, std::memory_order_release);
+    g_renderGlobalPatched.store(false, std::memory_order_release);
+    incomingBacktrackPrefixApplied.store(false, std::memory_order_release);
+    slowDownHookApplied.store(false, std::memory_order_release);
+    hooksRegistered.store(false, std::memory_order_release);
+    bytecodeHookInstalled.store(false, std::memory_order_release);
+    return true;
 }
 
 }  // namespace BytecodePatcher

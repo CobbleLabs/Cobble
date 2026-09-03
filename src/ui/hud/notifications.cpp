@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cmath>
+#include <unordered_map>
 #include <utility>
 
 namespace {
@@ -23,6 +24,24 @@ float easeInCubic(float value) {
     value = clamp01(value);
     return value * value * value;
 }
+
+// Overshoots slightly and settles back, so the toast arrives with a little weight
+// instead of coasting to a mathematical stop.
+float easeOutBack(float value) {
+    const float overshoot = 1.42f;
+    const float inverse = clamp01(value) - 1.0f;
+    return 1.0f + (overshoot + 1.0f) * inverse * inverse * inverse + overshoot * inverse * inverse;
+}
+
+// Animated stack position per notification id. When one in the middle expires the
+// rows below it used to jump a whole row height in a single frame; now they glide.
+// Only ever touched from render(), which is GL-thread only.
+struct RowAnim {
+    float slot = 0.0f;
+    int lastFrame = 0;
+};
+std::unordered_map<std::uint64_t, RowAnim> g_rowAnim;
+int g_rowFrame = 0;
 
 bool startsWithInsensitive(const std::string& value, const char* prefix) {
     const std::size_t length = std::char_traits<char>::length(prefix);
@@ -154,18 +173,24 @@ void NotificationManager::render() {
     const float screenHeight = display.y > 1.0f ? display.y : static_cast<float>(RenderData::screenHeight);
 
     // Minimal toast: no card. A type-coloured icon + one line of text, underlined
-    // by a thin accent, sliding in from the right edge and stacking upward. A soft
-    // shadow keeps it legible over bright scenes without a boxy background.
+    // by a thin accent that drains as the toast ages, sliding in from the right edge
+    // and stacking upward. A soft shadow keeps it legible over bright scenes
+    // without a boxy background.
     const float margin = ui::s(14.0f);
     const float rowHeight = ui::s(23.0f);
     const float rowGap = ui::s(7.0f);
     const float textSize = ui::s(14.0f);
     const float iconSize = ui::s(12.0f);
     const float iconGap = ui::s(8.0f);
-    const float slideDist = ui::s(26.0f);
-    const float enterDuration = 0.18f;
+    const float slideDist = ui::s(30.0f);
+    const float enterDuration = 0.20f;
     const float exitDuration = 0.26f;
     const auto now = std::chrono::steady_clock::now();
+
+    // Frame-rate independent glide toward the target stack slot.
+    const float dt = (std::clamp)(ImGui::GetIO().DeltaTime, 0.0f, 0.1f);
+    const float glide = 1.0f - std::exp(-dt * 15.0f);
+    ++g_rowFrame;
 
     std::size_t visibleIndex = 0;
     for (auto iterator = notifications.rbegin(); iterator != notifications.rend(); ++iterator) {
@@ -195,40 +220,79 @@ void NotificationManager::render() {
         const ImVec2 textMetrics = uiFont->CalcTextSizeA(textSize, FLT_MAX, 0.0f, label.c_str());
         const float contentWidth = iconMetrics.x + iconGap + textMetrics.x;
 
-        const float slide = (1.0f - visibility) * slideDist;
+        // A toast that appears while the stack is shifting starts at its final slot;
+        // one that is already on screen glides to the new one.
+        RowAnim& anim = g_rowAnim[notification.id];
+        const float targetSlot = static_cast<float>(visibleIndex);
+        if (anim.lastFrame == 0)
+            anim.slot = targetSlot;
+        else
+            anim.slot += (targetSlot - anim.slot) * glide;
+        anim.lastFrame = g_rowFrame;
+
+        const float slide = (1.0f - easeOutBack(elapsed / enterDuration)) * slideDist +
+                            (1.0f - visibility) * ui::s(4.0f);
         const float rightX = screenWidth - margin + slide;
         const float leftX = rightX - contentWidth;
-        const float rowTop =
-            screenHeight - margin - rowHeight - static_cast<float>(visibleIndex) * (rowHeight + rowGap);
+        const float rowTop = screenHeight - margin - rowHeight - anim.slot * (rowHeight + rowGap);
         const float centerY = rowTop + rowHeight * 0.5f;
 
         const ImVec4 typeColor = colorFor(notification.type);
-        const ImU32 accent = IM_COL32(static_cast<int>(typeColor.x * 255.0f),
-                                      static_cast<int>(typeColor.y * 255.0f),
-                                      static_cast<int>(typeColor.z * 255.0f), alpha);
+        const int accentR = static_cast<int>(typeColor.x * 255.0f);
+        const int accentG = static_cast<int>(typeColor.y * 255.0f);
+        const int accentB = static_cast<int>(typeColor.z * 255.0f);
+        const ImU32 accent = IM_COL32(accentR, accentG, accentB, alpha);
+        const ImU32 track = IM_COL32(accentR, accentG, accentB, static_cast<int>(46.0f * visibility));
         const ImU32 textCol = IM_COL32(238, 240, 244, alpha);
-        const ImU32 shadowCol = IM_COL32(0, 0, 0, static_cast<int>(150.0f * visibility));
+        const ImU32 shadowNear = IM_COL32(0, 0, 0, static_cast<int>(120.0f * visibility));
+        const ImU32 shadowFar = IM_COL32(0, 0, 0, static_cast<int>(60.0f * visibility));
 
         const float iconX = leftX;
         const float iconY = centerY - iconMetrics.y * 0.5f;
         const float textX = leftX + iconMetrics.x + iconGap;
         const float textY = centerY - textMetrics.y * 0.5f;
 
-        // Soft shadow first (readability without a card).
-        draw->AddText(uiFont, iconSize, ImVec2(iconX + 1.0f, iconY + 1.0f), shadowCol, icon);
-        draw->AddText(uiFont, textSize, ImVec2(textX + 1.0f, textY + 1.0f), shadowCol, label.c_str());
+        // Faint halo behind the icon so the type colour reads at a glance without a
+        // background plate. Three rings stand in for a blur the draw list cannot do.
+        const ImVec2 iconCenter(iconX + iconMetrics.x * 0.5f, centerY);
+        for (int ring = 3; ring >= 1; --ring) {
+            const float radius = iconSize * (0.48f + 0.24f * static_cast<float>(ring));
+            const int ringAlpha = static_cast<int>(30.0f * visibility / static_cast<float>(ring));
+            if (ringAlpha > 0)
+                draw->AddCircleFilled(iconCenter, radius, IM_COL32(accentR, accentG, accentB, ringAlpha), 16);
+        }
+
+        // Two-step shadow first: readability without a card, softer than one offset.
+        draw->AddText(uiFont, iconSize, ImVec2(iconX + 2.0f, iconY + 2.0f), shadowFar, icon);
+        draw->AddText(uiFont, textSize, ImVec2(textX + 2.0f, textY + 2.0f), shadowFar, label.c_str());
+        draw->AddText(uiFont, iconSize, ImVec2(iconX + 1.0f, iconY + 1.0f), shadowNear, icon);
+        draw->AddText(uiFont, textSize, ImVec2(textX + 1.0f, textY + 1.0f), shadowNear, label.c_str());
 
         // Icon in the type colour, label in near-white.
         draw->AddText(uiFont, iconSize, ImVec2(iconX, iconY), accent, icon);
         draw->AddText(uiFont, textSize, ImVec2(textX, textY), textCol, label.c_str());
 
-        // Thin accent underline spanning the content.
+        // The underline doubles as the lifetime: a dim full-width track with the
+        // accent draining out of it, so a toast tells you how long it has left.
         const float underlineH = ui::s(1.5f);
         const float underlineY = textY + textMetrics.y + ui::s(2.0f);
-        draw->AddRectFilled(ImVec2(leftX, underlineY), ImVec2(rightX, underlineY + underlineH), accent,
+        const float life = notification.duration > 0.0f ? clamp01(remaining / notification.duration) : 1.0f;
+        draw->AddRectFilled(ImVec2(leftX, underlineY), ImVec2(rightX, underlineY + underlineH), track,
                             underlineH * 0.5f);
+        const float fillWidth = contentWidth * life;
+        if (fillWidth > underlineH)
+            draw->AddRectFilled(ImVec2(leftX, underlineY), ImVec2(leftX + fillWidth, underlineY + underlineH),
+                                accent, underlineH * 0.5f);
 
         ++visibleIndex;
+    }
+
+    // Drop animation state for toasts that are gone, so ids never accumulate.
+    for (auto it = g_rowAnim.begin(); it != g_rowAnim.end();) {
+        if (it->second.lastFrame == g_rowFrame)
+            ++it;
+        else
+            it = g_rowAnim.erase(it);
     }
 }
 

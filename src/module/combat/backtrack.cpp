@@ -1,19 +1,23 @@
 #include "backtrack.h"
-#include "../../jni/java.h"
-#include "../../sdk/core/minecraft.h"
+
+#include "../../jni/backtrack/backtrack_gate.hpp"
 #include "../../sdk/jni/jni_cache.h"
+#include "../../sdk/player/player.h"
+#include "../../sdk/player/render_data.h"
+#include "../../sdk/player/visual_cache.h"
+#include "../../ui/core/overlay.h"
 #include "../../ui/menu/menu.h"
 #include "../../ui/widgets/widgets.hpp"
 #include "../../util/logger.hpp"
+#include "../../util/math/worldToScreen.h"
 #include "../../util/network/json.hpp"
-#include "../../util/team/friends_manager.h"
+#include "autoclicker.h"
+#include "killaura.h"
 
 #include <imgui.h>
+
 #include <algorithm>
-#include <cfloat>
 #include <cmath>
-#include <string>
-#include <vector>
 
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
@@ -25,429 +29,632 @@
 
 Backtrack* backtrack = nullptr;
 
-static constexpr int HISTORY_LIMIT = 20;
+namespace {
+
+// Everything the ghost box needs. Only `color` comes from the settings page; the rest
+// is the one styling that actually works at combat distance, so it is stated here once
+// instead of being five switches a user has to get right.
+struct GhostStyle {
+    ImVec4 color{0.42f, 0.92f, 1.0f, 1.0f};
+    bool filled = true;
+    bool glow = true;
+    bool corners = true;
+    float lineWidth = 1.35f;
+};
+
+// Exponential catch-up rate for the box position, per second. Tuned to sit just behind
+// the true server position: high enough to aim at, low enough that packet jitter does
+// not make the box chatter.
+constexpr double kGhostFollowSpeed = 18.0;
+
+ImVec4 shade(const ImVec4& color, float factor, float alpha) {
+    return ImVec4(color.x * factor, color.y * factor, color.z * factor, alpha);
+}
+
+ImVec4 lighten(const ImVec4& color, float amount, float alpha) {
+    return ImVec4(color.x + (1.0f - color.x) * amount,
+                  color.y + (1.0f - color.y) * amount,
+                  color.z + (1.0f - color.z) * amount, alpha);
+}
+
+bool drawPlayerBox3D(ImDrawList* draw, double x, double y, double z,
+                     double renderX, double renderY, double renderZ,
+                     float alpha, const GhostStyle& style) {
+    if (!draw)
+        return false;
+
+    constexpr float halfWidth = 0.3f;
+    constexpr float playerHeight = 1.8f;
+    const Vector3 corners[8] = {
+        {static_cast<float>(x) - halfWidth, static_cast<float>(y), static_cast<float>(z) - halfWidth},
+        {static_cast<float>(x) + halfWidth, static_cast<float>(y), static_cast<float>(z) - halfWidth},
+        {static_cast<float>(x) + halfWidth, static_cast<float>(y), static_cast<float>(z) + halfWidth},
+        {static_cast<float>(x) - halfWidth, static_cast<float>(y), static_cast<float>(z) + halfWidth},
+        {static_cast<float>(x) - halfWidth, static_cast<float>(y) + playerHeight, static_cast<float>(z) - halfWidth},
+        {static_cast<float>(x) + halfWidth, static_cast<float>(y) + playerHeight, static_cast<float>(z) - halfWidth},
+        {static_cast<float>(x) + halfWidth, static_cast<float>(y) + playerHeight, static_cast<float>(z) + halfWidth},
+        {static_cast<float>(x) - halfWidth, static_cast<float>(y) + playerHeight, static_cast<float>(z) + halfWidth},
+    };
+    constexpr int edges[12][2] = {
+        {0, 1}, {1, 2}, {2, 3}, {3, 0}, {4, 5}, {5, 6},
+        {6, 7}, {7, 4}, {0, 4}, {1, 5}, {2, 6}, {3, 7},
+    };
+
+    Vector2 projected[8]{};
+    bool visible[8]{};
+    for (int i = 0; i < 8; ++i) {
+        const Vector3 relative = {
+            corners[i].x - static_cast<float>(renderX),
+            corners[i].y - static_cast<float>(renderY),
+            corners[i].z - static_cast<float>(renderZ),
+        };
+        visible[i] = CWorldToScreen::WorldToScreen(
+            relative, RenderData::modelView, RenderData::projection,
+            RenderData::screenWidth, RenderData::screenHeight, projected[i]);
+    }
+
+    bool drew = false;
+    // Per-face brightness and translucency, kept from the original hand-tuned box
+    // so the cube still reads as a solid volume rather than a flat silhouette.
+    constexpr float faceShade[6] = {0.72f, 0.86f, 0.52f, 0.62f, 0.44f, 0.94f};
+    constexpr float faceAlpha[6] = {0.075f, 0.055f, 0.060f, 0.045f, 0.050f, 0.065f};
+    constexpr int faces[6][4] = {
+        {0, 1, 2, 3}, {4, 7, 6, 5}, {0, 4, 5, 1},
+        {1, 5, 6, 2}, {2, 6, 7, 3}, {3, 7, 4, 0},
+    };
+    if (style.filled) {
+        for (int i = 0; i < 6; ++i) {
+            const int a = faces[i][0];
+            const int b = faces[i][1];
+            const int c = faces[i][2];
+            const int d = faces[i][3];
+            if (!visible[a] || !visible[b] || !visible[c] || !visible[d])
+                continue;
+            const ImVec2 polygon[4] = {
+                ImVec2(projected[a].x, projected[a].y),
+                ImVec2(projected[b].x, projected[b].y),
+                ImVec2(projected[c].x, projected[c].y),
+                ImVec2(projected[d].x, projected[d].y),
+            };
+            draw->AddConvexPolyFilled(
+                polygon, 4,
+                ImGui::ColorConvertFloat4ToU32(
+                    shade(style.color, faceShade[i], alpha * faceAlpha[i])));
+            drew = true;
+        }
+    }
+
+    const ImU32 glow = ImGui::ColorConvertFloat4ToU32(
+        lighten(style.color, 0.18f, alpha * 0.22f));
+    const ImU32 outline = ImGui::ColorConvertFloat4ToU32(
+        ImVec4(0.0f, 0.0f, 0.0f, alpha * 0.82f));
+    const ImU32 line = ImGui::ColorConvertFloat4ToU32(
+        ImVec4(style.color.x, style.color.y, style.color.z, alpha));
+
+    const auto drawEdges = [&](ImU32 color, float thickness) {
+        for (const auto& edge : edges) {
+            if (!visible[edge[0]] || !visible[edge[1]])
+                continue;
+            draw->AddLine(ImVec2(projected[edge[0]].x, projected[edge[0]].y),
+                          ImVec2(projected[edge[1]].x, projected[edge[1]].y),
+                          color, thickness);
+            drew = true;
+        }
+    };
+    // Widths are relative to the user's line width so the halo and the black
+    // separator keep their proportions at any thickness.
+    if (style.glow)
+        drawEdges(glow, style.lineWidth * 3.70f);
+    drawEdges(outline, style.lineWidth * 2.22f);
+    drawEdges(line, style.lineWidth);
+
+    if (!style.corners)
+        return drew;
+
+    const ImU32 corner = ImGui::ColorConvertFloat4ToU32(
+        lighten(style.color, 0.52f, alpha));
+    constexpr int cornerEdges[8][3] = {
+        {0, 1, 3}, {1, 0, 2}, {2, 1, 3}, {3, 0, 2},
+        {4, 5, 7}, {5, 4, 6}, {6, 5, 7}, {7, 4, 6},
+    };
+    for (const auto& cornerEdge : cornerEdges) {
+        const int vertex = cornerEdge[0];
+        const int first = cornerEdge[1];
+        const int second = cornerEdge[2];
+        if (!visible[vertex] || !visible[first] || !visible[second])
+            continue;
+        const ImVec2 p(projected[vertex].x, projected[vertex].y);
+        const ImVec2 pFirst(projected[first].x, projected[first].y);
+        const ImVec2 pSecond(projected[second].x, projected[second].y);
+        constexpr float cornerLength = 0.16f;
+        const ImVec2 firstTip(p.x + (pFirst.x - p.x) * cornerLength,
+                              p.y + (pFirst.y - p.y) * cornerLength);
+        const ImVec2 secondTip(p.x + (pSecond.x - p.x) * cornerLength,
+                               p.y + (pSecond.y - p.y) * cornerLength);
+        draw->AddLine(p, firstTip, corner, style.lineWidth * 1.55f);
+        draw->AddLine(p, secondTip, corner, style.lineWidth * 1.55f);
+    }
+    return drew;
+}
+
+void clearException(JNIEnv* env) {
+    if (env && env->ExceptionCheck())
+        env->ExceptionClear();
+}
+
+}  // namespace
 
 Backtrack::Backtrack() : Module("Backtrack") {
     keybind = 0;
     renders = true;
+    usesPlayerCache = true;
 }
 
-int Backtrack::getHoldMs() const {
-    if (settings.mode == Mode::Lag)
-        return std::clamp(settings.latencyMs, 50, 500);
-    return std::clamp(settings.ticks, 1, 8) * 50;
+Backtrack::HoldIntent Backtrack::holdIntent() const {
+    HoldIntent result;
+    for (;;) {
+        const std::uint64_t before = intentSequence_.load(std::memory_order_acquire);
+        if ((before & 1u) != 0)
+            continue;
+
+        result.targetEntityId = intentTarget_.load(std::memory_order_relaxed);
+        result.engagementEpoch = intentEpoch_.load(std::memory_order_relaxed);
+        result.active = intentActive_.load(std::memory_order_relaxed);
+
+        const std::uint64_t after = intentSequence_.load(std::memory_order_acquire);
+        if (before == after)
+            return result;
+    }
+}
+
+void Backtrack::publishIntent(const HoldIntent& intent) {
+    std::lock_guard<std::recursive_mutex> lock(controlMutex_);
+    intentSequence_.fetch_add(1, std::memory_order_acq_rel);
+    intentTarget_.store(intent.targetEntityId, std::memory_order_relaxed);
+    intentEpoch_.store(intent.engagementEpoch, std::memory_order_relaxed);
+    intentActive_.store(intent.active, std::memory_order_relaxed);
+    intentSequence_.fetch_add(1, std::memory_order_release);
+}
+
+void Backtrack::closeAdmission() {
+    HoldIntent intent = holdIntent();
+    intent.active = false;
+    intent.targetEntityId = -1;
+    publishIntent(intent);
+}
+
+bool Backtrack::flushPending(JNIEnv* env) {
+    if (!env)
+        return false;
+    (void)BacktrackGate::ServiceClientThread(env, true);
+    const bool pending = BacktrackGate::HasPending();
+    drainRequested_.store(pending, std::memory_order_release);
+    return !pending;
 }
 
 void Backtrack::onEnable() {
-    clearHistory();
-    realTrail_.clear();
-    currentTargetUUID = "";
-    holdTargetId_.store(-1, std::memory_order_release);
-    blocking_.store(false, std::memory_order_release);
-    heldShown_.store(0, std::memory_order_release);
+    std::lock_guard<std::recursive_mutex> lock(controlMutex_);
+    visualEpoch_.fetch_add(1, std::memory_order_acq_rel);
+    closeAdmission();
+    if (BacktrackGate::HasPending())
+        drainRequested_.store(true, std::memory_order_release);
+    if (!BacktrackGate::IsOperational())
+        log_err("[Backtrack] Enabled, but the incoming hook/client pump is unavailable");
 }
 
 void Backtrack::onDisable() {
-    holdTargetId_.store(-1, std::memory_order_release);
-    blocking_.store(false, std::memory_order_release);
-    heldShown_.store(0, std::memory_order_release);
-    // Nothing to flush: we never held packets. Any target that was frozen resyncs
-    // to its real position on the next incoming movement packet.
-    realTrail_.clear();
-    clearHistory();
+    std::lock_guard<std::recursive_mutex> lock(controlMutex_);
+    visualEpoch_.fetch_add(1, std::memory_order_acq_rel);
+    closeAdmission();
+    drainRequested_.store(BacktrackGate::HasPending(), std::memory_order_release);
 }
 
-bool Backtrack::isHoldingWeapon() {
-    int id = player.getHeldItemId();
-    return (id == 268 || id == 272 || id == 267 || id == 276 || id == 283 ||  // swords
-            id == 271 || id == 275 || id == 258 || id == 279 || id == 286);    // axes
+void Backtrack::onWorldChange() {
+    std::lock_guard<std::recursive_mutex> lock(controlMutex_);
+    visualEpoch_.fetch_add(1, std::memory_order_acq_rel);
+    closeAdmission();
+    drainRequested_.store(false, std::memory_order_release);
+
+    JNIEnv* env = Java::Env();
+    if (env) {
+        BacktrackGate::Discard(env);
+        discardRequested_.store(false, std::memory_order_release);
+    } else {
+        discardRequested_.store(true, std::memory_order_release);
+    }
 }
 
-void Backtrack::clearHistory() {
-    entityHistory.clear();
+bool Backtrack::needsClientTick() const {
+    return enabled || drainRequested_.load(std::memory_order_acquire) ||
+           discardRequested_.load(std::memory_order_acquire) ||
+           BacktrackGate::HasPending() || BacktrackGate::NeedsEmergencyDrain();
 }
 
-void Backtrack::recordPosition(const PlayerInfo& target) {
-    PositionSnapshot snap;
-    snap.x = target.posX;
-    snap.y = target.posY;
-    snap.z = target.posZ;
-    snap.yaw = 0.0f;
-    snap.pitch = 0.0f;
-    snap.hurtTime = target.hurtTime;
-    snap.tickAge = 0;
-    snap.timestamp = std::chrono::steady_clock::now();
-    auto& h = entityHistory[target.uuid];
-    h.push_back(snap);
-    while (h.size() > static_cast<size_t>(HISTORY_LIMIT))
-        h.pop_front();
-    for (auto& s : h)
-        s.tickAge++;
-}
-
-const std::deque<PositionSnapshot>* Backtrack::getPositionHistory(const std::string& uuid) const {
-    auto it = entityHistory.find(uuid);
-    return it != entityHistory.end() ? &it->second : nullptr;
-}
-
-// ---------------------------------------------------------------------------
-// Position-rollback JNI plumbing.
-//
-// We move the target entity backwards in time entirely on the client: relocate its
-// posX/Y/Z + bounding box to a delayed position and stop its interpolation. Real
-// (server) positions come from otherPlayerMP* — the interpolation destination the
-// incoming movement packets write and that we never touch — so the recorded trail
-// stays real even while we hold the visible entity behind it. No packets are held
-// or dropped, so this cannot desync or drop the connection.
-// ---------------------------------------------------------------------------
-namespace {
-bool s_btResolved = false;
-jclass s_clsOtherPlayer = nullptr;  // EntityOtherPlayerMP (global ref)
-jfieldID s_fidPrevX = nullptr, s_fidPrevY = nullptr, s_fidPrevZ = nullptr;
-jfieldID s_fidOtherX = nullptr, s_fidOtherY = nullptr, s_fidOtherZ = nullptr;
-jfieldID s_fidIncr = nullptr;
-jmethodID s_midSetPos = nullptr;
-}  // namespace
-
-void Backtrack::resolveHandles(JNIEnv* env) {
-    if (s_btResolved || !env)
-        return;
-    s_btResolved = true;
-
-    if (JniCache::cls_Entity) {
-        s_fidPrevX = env->GetFieldID(JniCache::cls_Entity, "prevPosX", "D");
-        if (!s_fidPrevX) env->ExceptionClear();
-        s_fidPrevY = env->GetFieldID(JniCache::cls_Entity, "prevPosY", "D");
-        if (!s_fidPrevY) env->ExceptionClear();
-        s_fidPrevZ = env->GetFieldID(JniCache::cls_Entity, "prevPosZ", "D");
-        if (!s_fidPrevZ) env->ExceptionClear();
-
-        s_midSetPos = env->GetMethodID(JniCache::cls_Entity, "setPosition", "(DDD)V");
-        if (!s_midSetPos) {
-            env->ExceptionClear();
-            s_midSetPos = env->GetMethodID(JniCache::cls_Entity, "func_70107_b", "(DDD)V");  // obf
-            if (!s_midSetPos) env->ExceptionClear();
-        }
+jobject Backtrack::targetedPlayer(JNIEnv* env) const {
+    if (!env || !mc.instance || !JniCache::fid_objectMouseOver ||
+        !JniCache::fid_typeOfHit || !JniCache::fid_entityHit ||
+        !JniCache::cls_MovingObjectType || !JniCache::fid_ENTITY ||
+        !JniCache::cls_EntityPlayer) {
+        return nullptr;
     }
 
-    jclass local = nullptr;
-    if (Java::AssignClass("net.minecraft.client.entity.EntityOtherPlayerMP", local)) {
-        s_clsOtherPlayer = static_cast<jclass>(env->NewGlobalRef(local));
-        env->DeleteLocalRef(local);
-        s_fidOtherX = env->GetFieldID(s_clsOtherPlayer, "otherPlayerMPX", "D");
-        if (!s_fidOtherX) env->ExceptionClear();
-        s_fidOtherY = env->GetFieldID(s_clsOtherPlayer, "otherPlayerMPY", "D");
-        if (!s_fidOtherY) env->ExceptionClear();
-        s_fidOtherZ = env->GetFieldID(s_clsOtherPlayer, "otherPlayerMPZ", "D");
-        if (!s_fidOtherZ) env->ExceptionClear();
-        s_fidIncr = env->GetFieldID(s_clsOtherPlayer, "otherPlayerMPPosRotationIncrements", "I");
-        if (!s_fidIncr) env->ExceptionClear();
-    } else if (env->ExceptionCheck()) {
-        env->ExceptionClear();
+    jobject mouseOver = env->GetObjectField(mc.instance, JniCache::fid_objectMouseOver);
+    if (!mouseOver || env->ExceptionCheck()) {
+        clearException(env);
+        if (mouseOver)
+            env->DeleteLocalRef(mouseOver);
+        return nullptr;
     }
 
-    log_debug("[Backtrack] handles: setPos=%d otherX=%d incr=%d prevX=%d", s_midSetPos ? 1 : 0,
-              s_fidOtherX ? 1 : 0, s_fidIncr ? 1 : 0, s_fidPrevX ? 1 : 0);
+    jobject hitType = env->GetObjectField(mouseOver, JniCache::fid_typeOfHit);
+    jobject entityType = env->GetStaticObjectField(JniCache::cls_MovingObjectType,
+                                                    JniCache::fid_ENTITY);
+    const bool entityHitType = hitType && entityType &&
+                               env->IsSameObject(hitType, entityType) == JNI_TRUE;
+    jobject entity = entityHitType
+                         ? env->GetObjectField(mouseOver, JniCache::fid_entityHit)
+                         : nullptr;
+
+    if (hitType)
+        env->DeleteLocalRef(hitType);
+    if (entityType)
+        env->DeleteLocalRef(entityType);
+    env->DeleteLocalRef(mouseOver);
+
+    if (env->ExceptionCheck() || !entity ||
+        env->IsInstanceOf(entity, JniCache::cls_EntityPlayer) != JNI_TRUE) {
+        clearException(env);
+        if (entity)
+            env->DeleteLocalRef(entity);
+        return nullptr;
+    }
+    clearException(env);
+    return entity;
 }
 
-void Backtrack::freezeTarget(JNIEnv* env, jobject entity, int entityId, int depth) {
-    if (!env || !entity)
-        return;
-    resolveHandles(env);
-    if (!s_midSetPos || !s_clsOtherPlayer || !s_fidOtherX || !s_fidOtherY || !s_fidOtherZ)
-        return;  // graceful no-op if the entity model isn't what we expect
-    if (env->IsInstanceOf(entity, s_clsOtherPlayer) != JNI_TRUE) {
-        if (env->ExceptionCheck())
-            env->ExceptionClear();
-        return;  // not a real remote player (NPC/mob) — leave it alone
+bool Backtrack::attackSourceActive() const {
+    const HWND foreground = GetForegroundWindow();
+    const bool focused = foreground != nullptr &&
+                         (Overlay::gameWindow == nullptr || foreground == Overlay::gameWindow);
+    if (focused && (GetAsyncKeyState(VK_LBUTTON) & 0x8000) != 0)
+        return true;
+    if (autoClicker && autoClicker->enabled)
+        return true;
+    // KillAura only rewrites rotation while it actually holds a target, which makes
+    // it a precise "a fight is happening" signal rather than just "the module is on".
+    if (killAura && killAura->isRewritingRotation())
+        return true;
+    return false;
+}
+
+bool Backtrack::targetWithinRange(JNIEnv* env, jobject target) const {
+    if (!env || !target || !player.isValid() || !JniCache::fid_posX ||
+        !JniCache::fid_posY || !JniCache::fid_posZ) {
+        return true;
     }
 
-    // 1) Record the real (server) position: the interpolation destination the
-    //    incoming movement packets keep fresh and that we never overwrite.
-    const double rx = env->GetDoubleField(entity, s_fidOtherX);
-    const double ry = env->GetDoubleField(entity, s_fidOtherY);
-    const double rz = env->GetDoubleField(entity, s_fidOtherZ);
+    const double tx = env->GetDoubleField(target, JniCache::fid_posX);
+    const double ty = env->GetDoubleField(target, JniCache::fid_posY);
+    const double tz = env->GetDoubleField(target, JniCache::fid_posZ);
     if (env->ExceptionCheck()) {
-        env->ExceptionClear();
-        return;
+        clearException(env);
+        return true;
     }
 
-    auto& trail = realTrail_[entityId];
-    trail.push_back({rx, ry, rz});
-    while (trail.size() > 20)
-        trail.pop_front();
+    const double dx = tx - player.getPosX();
+    const double dy = ty - player.getPosY();
+    const double dz = tz - player.getPosZ();
+    const double distance = std::sqrt(dx * dx + dy * dy + dz * dz);
+    if (!std::isfinite(distance))
+        return true;
 
-    // Drop trails for any other entity so the map cannot grow across targets.
-    for (auto it = realTrail_.begin(); it != realTrail_.end();) {
-        if (it->first != entityId)
-            it = realTrail_.erase(it);
-        else
-            ++it;
-    }
-
-    // 2) Choose the delayed position (depth already clamped to the server's rewind
-    //    window by the caller).
-    const int d = std::clamp(depth, 1, 8);
-    const size_t idx =
-        trail.size() > static_cast<size_t>(d) ? trail.size() - 1 - static_cast<size_t>(d) : 0;
-    const Vec3d past = trail[idx];
-
-    // 3) Relocate the visible entity (posX/Y/Z + bounding box) to the past position.
-    //    Position rewind ALWAYS happens (that's the hit trick). What's optional is
-    //    zeroing the render smear + interpolation increment: doing so makes the target
-    //    "snap" back and forth (the classic visible lag look); leaving them alone lets
-    //    MC's renderer interpolate the entity into place smoothly.
-    env->CallVoidMethod(entity, s_midSetPos, past.x, past.y, past.z);
-
-    if (settings.visualLag) {
-        if (s_fidPrevX) env->SetDoubleField(entity, s_fidPrevX, past.x);
-        if (s_fidPrevY) env->SetDoubleField(entity, s_fidPrevY, past.y);
-        if (s_fidPrevZ) env->SetDoubleField(entity, s_fidPrevZ, past.z);
-        if (JniCache::fid_lastTickPosX) env->SetDoubleField(entity, JniCache::fid_lastTickPosX, past.x);
-        if (JniCache::fid_lastTickPosY) env->SetDoubleField(entity, JniCache::fid_lastTickPosY, past.y);
-        if (JniCache::fid_lastTickPosZ) env->SetDoubleField(entity, JniCache::fid_lastTickPosZ, past.z);
-        if (s_fidIncr) env->SetIntField(entity, s_fidIncr, 0);
-    }
-    if (env->ExceptionCheck())
-        env->ExceptionClear();
+    const float low = (std::min)(settings.minRange, settings.maxRange);
+    const float high = (std::max)(settings.minRange, settings.maxRange);
+    return distance >= static_cast<double>(low) && distance <= static_cast<double>(high);
 }
 
 void Backtrack::onClientTick(JNIEnv* env) {
-    if (!enabled || !env)
+    if (!env)
         return;
 
-    auto disengage = [&]() {
-        blocking_.store(false, std::memory_order_release);
-        holdTargetId_.store(-1, std::memory_order_release);
-        heldShown_.store(0, std::memory_order_release);
-        realTrail_.clear();  // frozen targets resync on their next movement packet
-    };
+    std::lock_guard<std::recursive_mutex> lock(controlMutex_);
 
-    if (Menu::isOpen || mc.isInGui() || !player.isValid()) {
-        disengage();
+    // Push the retention tunables before anything can be replayed this tick, so a
+    // slider that was just dragged takes effect on the very next decision.
+    BacktrackGate::Configure(static_cast<unsigned>((std::max)(settings.holdMs, 0)),
+                             static_cast<unsigned>((std::max)(settings.maxPackets, 1)));
+
+    if (discardRequested_.exchange(false, std::memory_order_acq_rel)) {
+        closeAdmission();
+        BacktrackGate::Discard(env);
+        drainRequested_.store(false, std::memory_order_release);
+    }
+
+    if (!BacktrackGate::IsOperational()) {
+        closeAdmission();
+        if (BacktrackGate::HasPending())
+            flushPending(env);
         return;
     }
-    if (settings.weaponOnly && !isHoldingWeapon()) {
-        disengage();
+
+    if (BacktrackGate::NeedsEmergencyDrain()) {
+        closeAdmission();
+        drainRequested_.store(true, std::memory_order_release);
+    }
+
+    if (drainRequested_.load(std::memory_order_acquire) && !flushPending(env))
+        return;
+
+    if (!enabled) {
+        if (BacktrackGate::HasPending())
+            flushPending(env);
         return;
     }
-    if (env->ExceptionCheck())
-        env->ExceptionClear();
 
-    const double px = player.getPosX();
-    const double py = player.getPosY();
-    const double pz = player.getPosZ();
-
-    std::vector<PlayerInfo> players = mc.getPlayerList();
-
-    static int localTeamColor = -1;
-    static unsigned long lastColorRefresh = 0;
-    unsigned long nowTick = GetTickCount();
-    if (nowTick - lastColorRefresh > 1000) {
-        localTeamColor = mc.getLocalPlayerTeamColor();
-        lastColorRefresh = nowTick;
-    }
-    static std::string localName;
-    static unsigned long lastNameRefresh = 0;
-    if (localName.empty() || nowTick - lastNameRefresh > 1000) {
-        localName = mc.getLocalPlayerName();
-        lastNameRefresh = nowTick;
-    }
-
-    double closest = 1e9;
-    PlayerInfo* tgt = nullptr;
-    for (auto& p : players) {
-        if (p.isNPC || p.isInvisible)
-            continue;
-        if (friendsManager) {
-            bool fUuid = !p.uuid.empty() && friendsManager->isFriendByUUID(p.uuid);
-            bool fName = friendsManager->isFriend(FriendsManager::stripColorCodes(p.name));
-            if (fUuid || fName)
-                continue;
-            if (p.isOnLocalTeam)
-                continue;
-            if (!p.uuid.empty() && friendsManager->isLunarTeammate(p.uuid))
-                continue;
-            if (!p.uuid.empty() && friendsManager->isApolloTeammate(p.uuid))
-                continue;
-            ChatColor pc = static_cast<ChatColor>(p.teamColor);
-            ChatColor lc = static_cast<ChatColor>(localTeamColor);
-            if (pc != ChatColor::WHITE && pc != ChatColor::GRAY && pc != ChatColor::UNKNOWN) {
-                if (friendsManager->isScoreboardTeammate(localName, p.profileName.empty() ? p.name : p.profileName))
-                    continue;
-            }
-            if (friendsManager->isTeammate(p.uuid, pc, lc))
-                continue;
+    if (Menu::isOpen || mc.isInGui() || !player.isValid() ||
+        (settings.onlyWhileAttacking && !attackSourceActive())) {
+        closeAdmission();
+        if (BacktrackGate::HasPending()) {
+            drainRequested_.store(true, std::memory_order_release);
+            flushPending(env);
         }
-        double dx = p.posX - px, dy = p.posY - py, dz = p.posZ - pz;
-        double dist = std::sqrt(dx * dx + dy * dy + dz * dz);
-        if (dist < closest && dist < settings.maxDistance) {
-            closest = dist;
-            tgt = &p;
+        return;
+    }
+
+    jobject target = targetedPlayer(env);
+    if (!target || !JniCache::mid_getEntityId) {
+        if (target)
+            env->DeleteLocalRef(target);
+        closeAdmission();
+        if (BacktrackGate::HasPending()) {
+            drainRequested_.store(true, std::memory_order_release);
+            flushPending(env);
         }
+        return;
     }
 
-    const bool haveTarget = tgt != nullptr;
-    const int tid = haveTarget ? tgt->entityId : -1;
-    if (haveTarget) {
-        recordPosition(*tgt);
-        currentTargetUUID = tgt->uuid;
-    }
-
-    const bool attacking = (GetAsyncKeyState(VK_LBUTTON) & 0x8000) != 0;
-    // Lag mode = continuous hold like Strong. Normal respects Only On Hit.
-    const bool isContinuous = (settings.mode == Mode::Strong || settings.mode == Mode::Lag);
-    const bool engage = haveTarget && (isContinuous || !settings.onlyOnHit || attacking);
-
-    // Clamp the rollback depth to what the server can actually rewind (~your ping).
-    // Asking for more latency than the anticheat's lag-comp window means the rewound
-    // hitbox never reaches the frozen position → the hit silently misses. Refresh
-    // ping ~1/s to avoid a JNI lookup every tick.
-    static int s_pingTicks = 8;
-    static unsigned long s_lastPingRefresh = 0;
-    if (nowTick - s_lastPingRefresh > 1000) {
-        s_lastPingRefresh = nowTick;
-        const int pingMs = mc.getLocalPlayerPing();
-        s_pingTicks = pingMs > 0 ? std::clamp(pingMs / 50, 1, 8) : 8;  // unknown -> don't clamp
-    }
-    // Requested depth: ticks-based for Normal/Strong, ms-based for Lag.
-    const int requestedDepth =
-        (settings.mode == Mode::Lag) ? std::clamp(settings.latencyMs, 50, 500) / 50
-                                      : settings.ticks;
-    const int depth = std::clamp(requestedDepth, 1, s_pingTicks);
-
-    holdTargetId_.store(tid, std::memory_order_release);
-    blocking_.store(engage, std::memory_order_release);
-
-    // Roll the target's client-side state back `depth` ticks. Must run BEFORE we drop
-    // the entity GlobalRefs below (freezeTarget uses tgt->instance).
-    if (engage && tgt && tgt->instance) {
-        freezeTarget(env, tgt->instance, tid, depth);
-        heldShown_.store(depth, std::memory_order_release);
-    } else {
-        heldShown_.store(0, std::memory_order_release);
-        realTrail_.clear();
-    }
-
-    // Log whenever engagement flips (e.g. when you get near a target). Avoid %f — the
-    // trace formatter doesn't handle it; report distance in centimetres as an int.
-    static int s_lastEngage = -1;
-    if (static_cast<int>(engage) != s_lastEngage) {
-        s_lastEngage = static_cast<int>(engage);
-        log_debug("[Backtrack] engage=%d targetId=%d distCm=%d depth=%d", engage ? 1 : 0, tid,
-                  haveTarget ? static_cast<int>(closest * 100.0) : -1, depth);
-    }
-
-    for (auto& p : players) {
-        if (p.instance) {
-            env->DeleteGlobalRef(p.instance);
-            p.instance = nullptr;
+    const int entityId = env->CallIntMethod(target, JniCache::mid_getEntityId);
+    if (env->ExceptionCheck() || entityId < 0) {
+        clearException(env);
+        env->DeleteLocalRef(target);
+        closeAdmission();
+        if (BacktrackGate::HasPending()) {
+            drainRequested_.store(true, std::memory_order_release);
+            flushPending(env);
         }
+        return;
     }
-    if (env->ExceptionCheck())
-        env->ExceptionClear();
+
+    // Range window. Outside it the engagement closes and whatever is retained goes
+    // out immediately, so walking through the gap never strands packets.
+    if (!targetWithinRange(env, target)) {
+        env->DeleteLocalRef(target);
+        closeAdmission();
+        if (BacktrackGate::HasPending()) {
+            drainRequested_.store(true, std::memory_order_release);
+            flushPending(env);
+        }
+        return;
+    }
+
+    HoldIntent intent = holdIntent();
+    if (!intent.active || intent.targetEntityId != entityId) {
+        closeAdmission();
+        if (BacktrackGate::HasPending() && !flushPending(env)) {
+            env->DeleteLocalRef(target);
+            return;
+        }
+
+        std::uint64_t nextEpoch = intent.engagementEpoch + 1;
+        if (nextEpoch == 0)
+            nextEpoch = 1;
+        if (!BacktrackGate::PrimeTarget(env, target, entityId, nextEpoch)) {
+            log_warn("[Backtrack] Cannot read the targeted player's position; engagement skipped");
+            env->DeleteLocalRef(target);
+            return;
+        }
+        publishIntent({entityId, nextEpoch, true});
+    } else if (!BacktrackGate::PrimeTarget(env, target, entityId,
+                                           intent.engagementEpoch)) {
+        closeAdmission();
+        drainRequested_.store(BacktrackGate::HasPending(), std::memory_order_release);
+    }
+
+    env->DeleteLocalRef(target);
+    clearException(env);
+    (void)BacktrackGate::ServiceClientThread(env, false);
+
+    if (BacktrackGate::NeedsEmergencyDrain()) {
+        closeAdmission();
+        drainRequested_.store(true, std::memory_order_release);
+        flushPending(env);
+    }
 }
 
-void Backtrack::onUpdate() {
-    // All work happens on the client thread in onClientTick (driven by the pre-motion
-    // hook), so this async loop is intentionally idle.
+Backtrack::HeldTargetSnapshot Backtrack::heldTargetSnapshot() const {
+    const HoldIntent intent = holdIntent();
+    const BacktrackGate::TargetSnapshot source = BacktrackGate::GetTargetSnapshot();
+
+    HeldTargetSnapshot result;
+    result.valid = source.valid;
+    result.active = intent.active && source.valid &&
+                    intent.targetEntityId == source.entityId &&
+                    intent.engagementEpoch == source.engagementEpoch;
+    result.entityId = source.entityId;
+    result.x = static_cast<double>(source.serverX) / 32.0;
+    result.y = static_cast<double>(source.serverY) / 32.0;
+    result.z = static_cast<double>(source.serverZ) / 32.0;
+    result.engagementEpoch = source.engagementEpoch;
+    result.connectionEpoch = source.connectionEpoch;
+    result.sequence = source.sequence;
+    result.pendingPackets = source.pendingPackets;
+    return result;
 }
 
 void Backtrack::onRender() {
-    if (!enabled || !settings.showStatus || !player.isValid())
+    if (!enabled)
         return;
-    if (!blocking_.load(std::memory_order_acquire))
+    ImGuiIO& io = ImGui::GetIO();
+    float frameSeconds = io.DeltaTime;
+    if (!std::isfinite(frameSeconds) || frameSeconds <= 0.0f ||
+        frameSeconds > 0.25f) {
+        frameSeconds = 1.0f / 60.0f;
+    }
+    frameSeconds = (std::min)(frameSeconds, 0.05f);
+
+    const std::uint64_t visualEpoch = visualEpoch_.load(std::memory_order_acquire);
+    if (boxAnimation_.visualEpoch != visualEpoch) {
+        boxAnimation_ = {};
+        boxAnimation_.visualEpoch = visualEpoch;
+    }
+
+    const HeldTargetSnapshot snapshot = heldTargetSnapshot();
+    const bool boxActive = snapshot.active && snapshot.valid &&
+                           snapshot.pendingPackets != 0 && RenderData::updated;
+
+    if (boxActive) {
+        const bool streamChanged = !boxAnimation_.initialized ||
+                                   boxAnimation_.entityId != snapshot.entityId ||
+                                   boxAnimation_.engagementEpoch != snapshot.engagementEpoch ||
+                                   boxAnimation_.connectionEpoch != snapshot.connectionEpoch;
+        const double dx = snapshot.x - boxAnimation_.x;
+        const double dy = snapshot.y - boxAnimation_.y;
+        const double dz = snapshot.z - boxAnimation_.z;
+        const bool teleported = dx * dx + dy * dy + dz * dz > 36.0;
+
+        if (streamChanged || teleported) {
+            boxAnimation_.x = snapshot.x;
+            boxAnimation_.y = snapshot.y;
+            boxAnimation_.z = snapshot.z;
+            boxAnimation_.entityId = snapshot.entityId;
+            boxAnimation_.engagementEpoch = snapshot.engagementEpoch;
+            boxAnimation_.connectionEpoch = snapshot.connectionEpoch;
+            boxAnimation_.initialized = true;
+            if (streamChanged)
+                boxAnimation_.alpha = 0.0f;
+        } else {
+            const double blend = 1.0 - std::exp(-kGhostFollowSpeed * frameSeconds);
+            boxAnimation_.x += dx * blend;
+            boxAnimation_.y += dy * blend;
+            boxAnimation_.z += dz * blend;
+        }
+    }
+
+    const float alphaBlend = 1.0f - std::exp(-(boxActive ? 14.0f : 10.0f) * frameSeconds);
+    boxAnimation_.alpha += ((boxActive ? 1.0f : 0.0f) - boxAnimation_.alpha) * alphaBlend;
+    boxAnimation_.alpha = std::clamp(boxAnimation_.alpha, 0.0f, 1.0f);
+    if (!boxAnimation_.initialized || boxAnimation_.alpha <= 0.01f ||
+        !RenderData::updated)
         return;
-    ImDrawList* draw = ImGui::GetBackgroundDrawList();
-    const ImVec2 ss = ImGui::GetIO().DisplaySize;
-    ImFont* f = font(5) ? font(5) : font(2);
-    if (!f)
+
+    const VisualSnapshot visual = VisualCache::GetSnapshot();
+    if (!visual.valid)
         return;
-    char buf[48];
-    wsprintfA(buf, "backtrack  %d", heldShown_.load(std::memory_order_acquire));
-    float fs = ui::s(12.0f);
-    ImVec2 tsz = f->CalcTextSizeA(fs, FLT_MAX, 0.0f, buf);
-    float x = ss.x * 0.5f - tsz.x * 0.5f;
-    float y = ss.y * 0.5f + ui::s(28.0f);
-    draw->AddText(f, fs, ImVec2(x + 1.0f, y + 1.0f), IM_COL32(0, 0, 0, 150), buf);
-    draw->AddText(f, fs, ImVec2(x, y), IM_COL32(120, 230, 140, 220), buf);
+
+    double renderX = visual.renderPos.x;
+    double renderY = visual.renderPos.y;
+    double renderZ = visual.renderPos.z;
+    if (renderX == 0.0 && renderY == 0.0 && renderZ == 0.0) {
+        const double partial = std::clamp(static_cast<double>(visual.partialTicks), 0.0, 1.0);
+        renderX = visual.localLastX + (visual.localX - visual.localLastX) * partial;
+        renderY = visual.localLastY + (visual.localY - visual.localLastY) * partial + 1.62;
+        renderZ = visual.localLastZ + (visual.localZ - visual.localLastZ) * partial;
+    }
+
+    GhostStyle style;
+    style.color = ImVec4(settings.color[0], settings.color[1], settings.color[2],
+                         settings.color[3]);
+
+    // The picker's own alpha is the ghost's opacity, so it scales every layer at
+    // once instead of needing a second slider next to it.
+    const float alpha = boxAnimation_.alpha * std::clamp(settings.color[3], 0.0f, 1.0f);
+    if (alpha <= 0.01f)
+        return;
+
+    (void)drawPlayerBox3D(ImGui::GetBackgroundDrawList(), boxAnimation_.x,
+                          boxAnimation_.y, boxAnimation_.z, renderX, renderY,
+                          renderZ, alpha, style);
 }
 
 void Backtrack::onRenderMenu() {
     bool enabledValue = enabled;
     ui::two_column(
-        "Settings",
+        "Engagement",
         [this, &enabledValue]() {
-            if (ui::CheckboxBind("Enabled", &enabledValue, &keybind)) {
-                if (enabledValue != enabled)
-                    setEnabled(enabledValue);
+            if (ui::CheckboxBind("Enabled", &enabledValue, &keybind) &&
+                enabledValue != enabled) {
+                setEnabled(enabledValue);
             }
             ImGui::Spacing();
-
-            const char* modeItems[] = {"Normal", "Strong", "LagBased"};
-            int mode = static_cast<int>(settings.mode);
-            if (ui::Combo("Mode", &mode, modeItems, IM_ARRAYSIZE(modeItems)))
-                settings.mode = static_cast<Mode>(mode);
-
-            if (settings.mode == Mode::Lag) {
-                // Lag mode: latency slider in ms (like the classic Lag Based backtrack).
-                ui::SliderInt("Latency", &settings.latencyMs, 50, 500, "%d ms");
-            } else {
-                ui::SliderInt("Ticks", &settings.ticks, 1, 8, "%d");
+            ui::SliderInt("Hold Time (ms)", &settings.holdMs, 20, 400, "%d");
+            ui::SliderInt("Packet Limit", &settings.maxPackets, 2, 64, "%d");
+            if (ui::SliderFloat("Min Range", &settings.minRange, 0.0f, 6.0f, "%.1f") &&
+                settings.maxRange < settings.minRange) {
+                settings.maxRange = settings.minRange;
             }
-            ui::SliderFloat("Range", &settings.maxDistance, 2.0f, 6.0f, "%.1f blocks");
-            ImGui::Spacing();
-            ui::Checkbox("Weapon Only", &settings.weaponOnly);
-            if (settings.mode == Mode::Normal)
-                ui::Checkbox("Only On Hit", &settings.onlyOnHit);
-            ui::Checkbox("Visual Lag", &settings.visualLag);
+            if (ui::SliderFloat("Max Range", &settings.maxRange, 0.0f, 6.0f, "%.1f") &&
+                settings.minRange > settings.maxRange) {
+                settings.minRange = settings.maxRange;
+            }
+            ui::Checkbox("Only While Attacking", &settings.onlyWhileAttacking);
         },
-        "Status",
+        "Ghost",
         [this]() {
-            ui::Checkbox("Show Status", &settings.showStatus);
-
-            ImGui::Spacing();
-            ImGui::Separator();
-            ImGui::Spacing();
-
-            if (blocking_.load(std::memory_order_acquire))
-                ImGui::TextColored(ImVec4(0.2f, 1.0f, 0.2f, 1.0f), "Rolling back (%d ticks)",
-                                   heldShown_.load(std::memory_order_acquire));
-            else
-                ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "Idle");
+            ui::color("Color", settings.color);
+            ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetColorU32(ImGuiCol_TextDisabled));
+            ImGui::TextWrapped("The picker's alpha is the ghost's opacity.");
+            ImGui::PopStyleColor();
         });
-}
 
-std::string Backtrack::getDisplayInfo() {
-    switch (settings.mode) {
-        case Mode::Lag:
-            return "LagBased " + std::to_string(settings.latencyMs) + "ms";
-        case Mode::Strong:
-            return "Strong " + std::to_string(settings.ticks) + " ticks";
-        case Mode::Normal:
-        default:
-            return std::to_string(settings.ticks) + " ticks";
+    ImGui::Spacing();
+    const BacktrackGate::Status status = BacktrackGate::GetStatus();
+    if (!status.ready) {
+        ImGui::TextColored(ImVec4(1.0f, 0.35f, 0.30f, 1.0f),
+                           "Unavailable: native bridge failed");
+    } else if (!status.operational) {
+        ImGui::TextColored(ImVec4(1.0f, 0.68f, 0.25f, 1.0f),
+                           "Unavailable: bytecode hooks incomplete");
+    } else if (status.pendingPackets != 0) {
+        ImGui::TextColored(ImVec4(settings.color[0], settings.color[1], settings.color[2], 1.0f),
+                           "Tracking %u packet(s)", status.pendingPackets);
+    } else {
+        ImGui::TextDisabled("Aim at a player to engage");
     }
 }
 
+std::string Backtrack::getDisplayInfo() {
+    const BacktrackGate::Status status = BacktrackGate::GetStatus();
+    if (!status.ready || !status.operational)
+        return "Offline";
+    if (status.pendingPackets != 0)
+        return std::to_string(status.pendingPackets);
+    return std::to_string(settings.holdMs) + "ms";
+}
+
 void Backtrack::saveSettings(json::Value& node) const {
-    node["mode"] = static_cast<int>(settings.mode);
-    node["ticks"] = settings.ticks;
-    node["latencyMs"] = settings.latencyMs;
-    node["maxDistance"] = settings.maxDistance;
-    node["weaponOnly"] = settings.weaponOnly;
-    node["onlyOnHit"] = settings.onlyOnHit;
-    node["showStatus"] = settings.showStatus;
-    node["visualLag"] = settings.visualLag;
+    const bool enabledValue = node["enabled"].as_bool(enabled);
+    const int keybindValue = node["keybind"].as_int(keybind);
+    node = json::Value();
+    node["enabled"] = enabledValue;
+    node["keybind"] = keybindValue;
+    node["holdMs"] = settings.holdMs;
+    node["maxPackets"] = settings.maxPackets;
+    node["minRange"] = settings.minRange;
+    node["maxRange"] = settings.maxRange;
+    node["onlyWhileAttacking"] = settings.onlyWhileAttacking;
+    json::writeColor(node, "color", settings.color);
 }
 
 void Backtrack::loadSettings(const json::Value& node) {
-    settings.mode = static_cast<Mode>(std::clamp(node["mode"].as_int(static_cast<int>(settings.mode)), 0, 2));
-    settings.ticks = std::clamp(node["ticks"].as_int(settings.ticks), 1, 8);
-    settings.latencyMs = std::clamp(node["latencyMs"].as_int(settings.latencyMs), 50, 500);
-    settings.maxDistance = node["maxDistance"].as_float(settings.maxDistance);
-    settings.weaponOnly = node["weaponOnly"].as_bool(settings.weaponOnly);
-    settings.onlyOnHit = node["onlyOnHit"].as_bool(settings.onlyOnHit);
-    settings.showStatus = node["showStatus"].as_bool(settings.showStatus);
-    settings.visualLag = node["visualLag"].as_bool(settings.visualLag);
+    settings.holdMs = std::clamp(node["holdMs"].as_int(settings.holdMs), 20, 400);
+    settings.maxPackets = std::clamp(node["maxPackets"].as_int(settings.maxPackets), 2, 64);
+    settings.minRange = std::clamp(node["minRange"].as_float(settings.minRange), 0.0f, 6.0f);
+    settings.maxRange = std::clamp(node["maxRange"].as_float(settings.maxRange),
+                                   settings.minRange, 6.0f);
+    settings.onlyWhileAttacking =
+        node["onlyWhileAttacking"].as_bool(settings.onlyWhileAttacking);
+    // showGhost/filled/glow/corners/followSpeed/lineWidth were dropped: older configs
+    // still carry them and are simply ignored, which is what we want — the ghost is no
+    // longer something a saved config can switch off or restyle.
+    json::readColor(node, "color", settings.color);
 }

@@ -606,7 +606,7 @@ void FriendsManager::clearScoreboardTeams() {
 }
 
 bool FriendsManager::isScoreboardTeammate(const std::string& localName, const std::string& playerName) const {
-    if (!teams.enabled || localName.empty() || playerName.empty())
+    if (!teams.enabled || !teams.scoreboard || localName.empty() || playerName.empty())
         return false;
 
     std::string local = toLower(stripColorCodes(localName));
@@ -649,7 +649,7 @@ void FriendsManager::clearLunarTeammates() {
 }
 
 bool FriendsManager::isLunarTeammate(const std::string& uuid) const {
-    if (!teams.lunarApiEnabled)
+    if (!teams.enabled || !teams.lunarApiEnabled)
         return false;
     std::lock_guard<std::mutex> lock(mutex_);
     auto it = lunarTeammates_.find(uuid);
@@ -661,7 +661,7 @@ bool FriendsManager::isLunarTeammate(const std::string& uuid) const {
 }
 
 bool FriendsManager::hasLunarTeammates() const {
-    if (!teams.lunarApiEnabled)
+    if (!teams.enabled || !teams.lunarApiEnabled)
         return false;
     uint64_t currentSerial = worldChangeSerial_.load(std::memory_order_relaxed);
     std::lock_guard<std::mutex> lock(mutex_);
@@ -730,24 +730,30 @@ void FriendsManager::setApolloNametagColor(const std::string& uuid, const std::s
     uint64_t currentSerial = worldChangeSerial_.load(std::memory_order_relaxed);
     std::lock_guard<std::mutex> lock(mutex_);
     apolloNametagLastSeenMs_[uuid] = nowMs;
-    (void)hasExtra;  // Parameter preserved for potential debug logging
 
     bool isGreen = (color == "GREEN" || color == "DARK_GREEN");
     // Only treat as teammate signal if the color is actually GREEN
     // hasExtra alone (cosmetic effects) should NOT trigger teammate detection
-    bool isTeammateSignal = isGreen;
+    // requireTeamTag additionally demands that the green came from the nested team tag, which
+    // plain lobby and party tags do not use — the knob for servers handing green out freely.
+    bool isTeammateSignal = isGreen && (!teams.requireTeamTag || hasExtra);
+    // All three thresholds are live: the Teams module owns them, so a server that hands
+    // out green nametags too freely can be tightened without a rebuild.
+    const int confirmHits = teams.confirmHits < 1 ? 1 : teams.confirmHits;
+    const int64_t graceMs = teams.graceMs < 0 ? 0 : static_cast<int64_t>(teams.graceMs);
+    const int64_t confirmWindowMs = teams.confirmWindowMs < 50 ? 50 : static_cast<int64_t>(teams.confirmWindowMs);
     int& greenHits = apolloNametagGreenHits_[uuid];
     int64_t& lastGreenMs = apolloNametagLastGreenMs_[uuid];
 
     if (isTeammateSignal) {
-        if (lastGreenMs > 0 && nowMs - lastGreenMs > kApolloGreenConfirmWindowMs) {
+        if (lastGreenMs > 0 && nowMs - lastGreenMs > confirmWindowMs) {
             greenHits = 0;
         }
         // Always increment by 1, never auto-confirm (even with hasExtra)
         // This prevents cosmetic color cycling from false-positive triggering
         greenHits++;
         lastGreenMs = nowMs;
-        if (greenHits >= kApolloGreenConfirmCount) {
+        if (greenHits >= confirmHits) {
             auto it = apolloNametagTeammates_.find(uuid);
             if (it == apolloNametagTeammates_.end()) {
                 TeammateRecord record;
@@ -772,7 +778,7 @@ void FriendsManager::setApolloNametagColor(const std::string& uuid, const std::s
         } else {
             // Already a teammate - check grace period before removing
             // Keep greenHits intact so they don't need to re-confirm after archer tag
-            if (lastGreenMs == 0 || nowMs - lastGreenMs > kApolloTeammateGraceMs) {
+            if (lastGreenMs == 0 || nowMs - lastGreenMs > graceMs) {
                 apolloNametagTeammates_.erase(itTeam);
                 greenHits = 0;  // Reset hits only when actually removed
                 log_debug("[Apollo] Nametag TEAMMATE removed: %s -> %s (grace expired)", uuid.substr(0, 8).c_str(), color.c_str());
@@ -785,41 +791,76 @@ void FriendsManager::setApolloNametagColor(const std::string& uuid, const std::s
 }
 
 bool FriendsManager::isApolloTeammate(const std::string& uuid) const {
-    if (uuid.empty())
+    if (uuid.empty() || !teams.enabled)
         return false;
     uint64_t currentSerial = worldChangeSerial_.load(std::memory_order_relaxed);
     std::lock_guard<std::mutex> lock(mutex_);
 
-    // Check Lunar teammates first (with serial validation) - PRIORITY
-    auto itLunar = lunarTeammates_.find(uuid);
-    if (itLunar != lunarTeammates_.end()) {
-        if (itLunar->second.registeredAtSerial == currentSerial) {
+    // If ANY Lunar teammate exists for this world the API is clearly live, so only it
+    // is trusted: servers that hand green nametags to non-teammates would otherwise
+    // leak through the fallback below. Skipped entirely when the API source is off,
+    // because then its records must not suppress anything either — and skipped when
+    // lunarExclusive is off, which is the switch for servers where the roster is only
+    // your party and the rest of the team is identified by tag colour.
+    bool hasAnyLunarTeammate = false;
+    if (teams.lunarApiEnabled) {
+        auto itLunar = lunarTeammates_.find(uuid);
+        if (itLunar != lunarTeammates_.end() && itLunar->second.registeredAtSerial == currentSerial) {
             return true;
         }
-    }
-
-    // Check if ANY Lunar teammates exist for current world
-    // If yes, ONLY use Lunar API (ignore nametag colors to avoid false positives)
-    bool hasAnyLunarTeammate = false;
-    for (const auto& entry : lunarTeammates_) {
-        if (entry.second.registeredAtSerial == currentSerial) {
-            hasAnyLunarTeammate = true;
-            break;
-        }
-    }
-
-    // Only use Apollo nametag teammates as FALLBACK when no Lunar API data exists
-    // This prevents false positives from servers that give green nametags to non-teammates
-    if (!hasAnyLunarTeammate) {
-        auto itApollo = apolloNametagTeammates_.find(uuid);
-        if (itApollo != apolloNametagTeammates_.end()) {
-            if (itApollo->second.registeredAtSerial == currentSerial) {
-                return true;
+        if (teams.lunarExclusive) {
+            for (const auto& entry : lunarTeammates_) {
+                if (entry.second.registeredAtSerial == currentSerial) {
+                    hasAnyLunarTeammate = true;
+                    break;
+                }
             }
         }
     }
 
+    if (teams.apolloNametags && !hasAnyLunarTeammate) {
+        auto itApollo = apolloNametagTeammates_.find(uuid);
+        if (itApollo != apolloNametagTeammates_.end() && itApollo->second.registeredAtSerial == currentSerial) {
+            return true;
+        }
+    }
+
     return false;
+}
+
+FriendsManager::TeamStats FriendsManager::getTeamStats() const {
+    const uint64_t currentSerial = worldChangeSerial_.load(std::memory_order_relaxed);
+    TeamStats stats;
+    std::lock_guard<std::mutex> lock(mutex_);
+
+    // Name-only friends that never resolved still count, so the number in the menu
+    // matches the list the user is looking at.
+    std::set<std::string> unique;
+    for (const auto& entry : friendsByUUID_)
+        unique.insert(toLower(stripColorCodes(entry.second.displayName)));
+    for (const auto& name : friendsByName_)
+        unique.insert(name);
+    stats.friends = unique.size();
+
+    for (const auto& entry : lunarTeammates_) {
+        if (entry.second.registeredAtSerial == currentSerial)
+            stats.lunar++;
+    }
+    for (const auto& entry : apolloNametagTeammates_) {
+        if (entry.second.registeredAtSerial == currentSerial)
+            stats.apolloNametags++;
+    }
+    stats.scoreboardTeams = scoreboardTeams_.size();
+    return stats;
+}
+
+void FriendsManager::clearDetected() {
+    clearLunarTeammates();
+    clearApolloNametags();
+    clearScoreboardTeams();
+    clearVisualFriends();
+    // Bump the serial so anything that slipped in mid-clear is treated as stale.
+    worldChangeSerial_.fetch_add(1, std::memory_order_relaxed);
 }
 
 std::string FriendsManager::getApolloNametagColor(const std::string& uuid) const {

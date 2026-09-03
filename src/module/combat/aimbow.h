@@ -1,10 +1,24 @@
 #pragma once
 
+#include <string>
 #include "../module.h"
 
 // AimBow - projectile aim assist for the bow. While you draw the bow it locks
-// onto the player nearest your crosshair and solves the ballistic arc (gravity
-// + charge-based arrow speed) with optional movement prediction.
+// onto the player nearest your crosshair and solves the arrow's real trajectory
+// for the launch angle that passes through its body.
+//
+// The solver is the vanilla arrow integration, not a vacuum parabola. One tick of
+// EntityArrow.onUpdate is
+//     pos += motion;  motion *= 0.99;  motion.y -= 0.05
+// and that recursion telescopes into a closed form (see aimbow.cpp), so the tick
+// count and height at a given horizontal distance are exact rather than
+// approximated. Dropping the 0.99 drag term is what makes a naive solver shoot
+// low and short past ~30 blocks: it compounds to a ~20% speed loss over a long
+// shot, and no amount of tuning a gravity constant compensates for it.
+//
+// Launch speed is 3.0 * charge, where charge follows ItemBow's own curve
+// ((t/20)^2 + 2*(t/20)) / 3 over the draw, read from the player's item-use
+// counter so it matches what the server computes on release.
 class AimBow : public Module {
 public:
     AimBow();
@@ -39,7 +53,12 @@ public:
         int fov = 120;                 // acquisition cone (degrees)
         float speed = 25.0f;           // aim smoothing 1..100 (100 = snap)
         bool predict = true;           // lead a moving target
-        float predictStrength = 1.0f;  // 0..2 prediction multiplier
+        float predictStrength = 1.0f;  // 0..2 horizontal lead multiplier
+        float verticalLead = 0.5f;     // 0..2 vertical lead multiplier, deliberately weaker:
+                                       // a player's vertical velocity reverses mid-flight
+        float aimHeight = 0.62f;       // point on the body, 0 = feet, 1 = top of head
+        bool liveCharge = true;        // solve for the charge actually on the bow
+        float minSolveCharge = 0.5f;   // never solve below this charge (kills the early lob)
         bool targetInvisible = false;
         bool targetTeammates = false;
         bool onlyWhileDrawing = true;  // only aim while actually drawing the bow
@@ -56,10 +75,26 @@ private:
     bool armorFilterKeyPrev_ = false;  // edge detection for the armor filter keybind
 
     // Smoothed target velocity (blocks/tick) for stable movement prediction.
-    // Per-tick position deltas are 0 most ticks and spike on server updates, so
-    // we EMA them and reject teleport/switch spikes.
+    //
+    // onUpdate() runs at ~500 Hz but the game only advances a remote player's
+    // position 20 times a second, so a naive per-call EMA folds the same sample in
+    // 25 times and collapses to zero the moment a frame reads no movement. We
+    // therefore fold a sample only when the position we read actually changed —
+    // then one EMA step really is one tick, and the estimate survives the ~24
+    // duplicate reads between server updates.
     double smoothVx_ = 0.0;
+    double smoothVy_ = 0.0;
     double smoothVz_ = 0.0;
+    std::string velUuid_;   // target the estimate belongs to; a switch resets it
+    double sampleX_ = 0.0;  // last position folded in, to spot a genuine advance
+    double sampleY_ = 0.0;
+    double sampleZ_ = 0.0;
+    bool hasSample_ = false;
+
+    // Last solution, for the ArrayList status line.
+    float lastCharge_ = 0.0f;   // 0..1 bow charge used by the solver
+    float lastDist_ = 0.0f;     // blocks to the target
+    bool lastInReach_ = false;  // false when the arc has no solution at this range
 
     float manualYaw = 0.0f;
     float manualPitch = 0.0f;
@@ -68,6 +103,7 @@ private:
     bool hasOverride = false;
 
     static float wrapDeg(float a);
+    void resetVelocity();
 };
 
 extern AimBow* aimBow;

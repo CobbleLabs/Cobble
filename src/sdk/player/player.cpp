@@ -119,6 +119,18 @@ void LocalPlayer::initFields() {
             JniCache::cls_EntityPlayer, {"isUsingItem", "func_71039_bw", "bS"}, "()Z");
         if (!mid_isUsingItem && Java::Env()->ExceptionCheck())
             Java::Env()->ExceptionClear();
+
+        // Bow draw progress. Resolved by exact name only, never by signature:
+        // EntityPlayer carries a dozen int fields, so resolveField()'s
+        // find-the-unique-one fallback would hand back an unrelated counter.
+        JNIEnv* env = Java::Env();
+        fid_itemInUseCount = env->GetFieldID(JniCache::cls_EntityPlayer, "itemInUseCount", "I");
+        if (!fid_itemInUseCount) {
+            env->ExceptionClear();
+            fid_itemInUseCount = env->GetFieldID(JniCache::cls_EntityPlayer, "field_71072_f", "I");
+        }
+        if (!fid_itemInUseCount)
+            env->ExceptionClear();
     }
 
     // Need to get the client-player class for these. Badlion 1.8.9 uses the
@@ -427,6 +439,20 @@ bool LocalPlayer::isUsingItem() {
     if (!isValid() || !mid_isUsingItem)
         return false;
     return Java::Env()->CallBooleanMethod(instance, mid_isUsingItem);
+}
+
+int LocalPlayer::getItemInUseTicks() {
+    if (!isValid() || !fid_itemInUseCount)
+        return 0;
+    // setItemInUse() seeds the counter with the stack's max use duration and
+    // updateItemUse() decrements it once per tick, so the elapsed draw is the
+    // difference. 72000 is the bow's duration (ItemBow.getMaxItemUseDuration);
+    // callers holding something else must not read this as a tick count.
+    const int count = Java::Env()->GetIntField(instance, fid_itemInUseCount);
+    if (count <= 0)
+        return 0;
+    const int drawn = 72000 - count;
+    return drawn < 0 ? 0 : drawn;
 }
 
 // Combat

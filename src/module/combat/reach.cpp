@@ -1,4 +1,5 @@
 #include "reach.h"
+#include "antibot.h"
 #include "../../jni/java.h"
 #include "../../sdk/core/minecraft.h"
 #include "../../sdk/jni/jni_cache.h"
@@ -115,7 +116,7 @@ void Reach::onUpdate() {
     for (auto& p : playerList) {
         if (!p.instance) continue;
         if (p.isInvisible) continue;
-        if (p.isNPC) continue;
+        if (AntiBot::Filtered(p)) continue;
         if (friendsManager && friendsManager->isFriendByUUID(p.uuid)) continue;
         if (friendsManager && friendsManager->isApolloTeammate(p.uuid)) continue;
         if (friendsManager && friendsManager->isLunarTeammate(p.uuid)) continue;

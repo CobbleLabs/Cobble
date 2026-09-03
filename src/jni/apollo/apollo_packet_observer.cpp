@@ -1776,6 +1776,10 @@ void JNICALL ApolloPacketObserver::NativeOnReceive(JNIEnv* env, jclass, jobject 
                                         // format codes)
                                         std::string detectedColor = "unknown";
                                         bool foundGreen = false;  // GREEN takes priority
+                                        // True only when the green came from the nested team tag rather than the
+                                        // outer name. That is the difference between an HCTRanked team colour and a
+                                        // plain green lobby/party tag, and it is what Teams > Require Team Tag asks for.
+                                        bool greenFromExtra = false;
 
                                         // Check if JSON has "extra" array - used as teammate tag in HCTRanked
                                         bool hasExtra = false;
@@ -1897,6 +1901,7 @@ void JNICALL ApolloPacketObserver::NativeOnReceive(JNIEnv* env, jclass, jobject 
                                             if (level1Color == "GREEN" || level1Color == "DARK_GREEN") {
                                                 detectedColor = level1Color;
                                                 foundGreen = true;
+                                                greenFromExtra = true;
                                             } else if (level0Color == "GREEN" || level0Color == "DARK_GREEN") {
                                                 detectedColor = level0Color;
                                                 foundGreen = true;
@@ -2088,7 +2093,7 @@ void JNICALL ApolloPacketObserver::NativeOnReceive(JNIEnv* env, jclass, jobject 
                                                          (uint32_t)(uuidHigh >> 32), (uint16_t)(uuidHigh >> 16),
                                                          (uint16_t)uuidHigh, (uint16_t)(uuidLow >> 48),
                                                          (unsigned long long)(uuidLow & 0xFFFFFFFFFFFFULL));
-                                                bool hasTeammateExtra = foundGreen;
+                                                bool hasTeammateExtra = greenFromExtra;
                                                 friendsManager->setApolloNametagColor(uuidStr, detectedColor,
                                                                                       hasTeammateExtra);
 

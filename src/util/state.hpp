@@ -130,6 +130,9 @@ inline void attemptRecovery() {
     JniCache::fid_posX = nullptr;
     JniCache::fid_posY = nullptr;
     JniCache::fid_posZ = nullptr;
+    JniCache::fid_serverPosX = nullptr;
+    JniCache::fid_serverPosY = nullptr;
+    JniCache::fid_serverPosZ = nullptr;
     JniCache::mid_getHealth = nullptr;
 
     // Corrupt more aggressively but silently

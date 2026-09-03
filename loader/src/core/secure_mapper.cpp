@@ -450,133 +450,45 @@ bool SecureMapper::SecureManualMap(DWORD pid, BYTE* pData, size_t dataSize) {
     memcpy(pShellcodeLocal, (void*)ShellcodeEntry, shellcodeSize);
 
     // =========================================================================
-    // EXECUTE SHELLCODE — Thread Hijacking (primary, Guard-evasion)
-    // Falls back to NtCreateThreadEx if no suitable thread found.
+    // EXECUTE SHELLCODE — dedicated remote thread
     //
-    // Thread hijacking works by:
-    //   1. Enumerate existing threads in the target process (javaw.exe)
-    //   2. Pick a worker thread (skip index 0 = main/render thread)
-    //   3. Suspend → save CONTEXT → overwrite RIP + RCX → resume
-    //   4. Wait for ctx->completionFlag == 0xC0BB1E
-    //   5. Suspend → restore original CONTEXT → resume
-    //
-    // This produces zero NtCreateThreadEx calls — the syscall Guard hooks.
+    // Do not hijack JVM-owned threads here. A suspended GC/Netty/compiler thread
+    // can hold VM-internal locks, and redirecting its RIP/RSP gives the shellcode
+    // no valid return path. On timeout/error the old path also left that thread
+    // redirected, which could terminate the target before Cobble reached DllMain.
+    // A dedicated thread has a normal RtlUserThreadStart return path and leaves
+    // all JVM thread contexts untouched.
     // =========================================================================
     bool success = false;
 
-    // --- Attempt 1: Thread Hijack (primary, no new thread created) ---
-    if (nt::g_Syscalls.NtSuspendThread && nt::g_Syscalls.NtResumeThread &&
-        nt::g_Syscalls.NtGetContextThread && nt::g_Syscalls.NtSetContextThread) {
+    FlushInstructionCache(hProcess, pRemoteBase, totalSize);
 
-        // Collect thread IDs belonging to the target process
-        HANDLE hSnap = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0);
-        if (hSnap != INVALID_HANDLE_VALUE) {
-            THREADENTRY32 te;
-            te.dwSize = sizeof(te);
+    void* hThread = nullptr;
+    status = nt::g_Syscalls.NtCreateThreadEx(&hThread, nt::NT_THREAD_ALL_ACCESS, nullptr, hProcess,
+                                             pShellcodeRemote, pContextRemote,
+                                             0,  // No flags
+                                             0, 0, 0, nullptr);
 
-            std::vector<DWORD> candidates;
-            if (Thread32First(hSnap, &te)) {
-                do {
-                    if (te.th32OwnerProcessID == pid)
-                        candidates.push_back(te.th32ThreadID);
-                } while (Thread32Next(hSnap, &te));
-            }
-            CloseHandle(hSnap);
+    if (status == nt::STATUS_SUCCESS && hThread) {
+        constexpr DWORD kMapperTimeoutMs = 10000;
+        DWORD waited = 0;
 
-            // Skip index 0 (most likely the Minecraft main/render thread).
-            // Hijacking the main thread causes a freeze/crash. Worker threads
-            // (Java GC, netIO, sound, etc.) are safe to momentarily redirect.
-            size_t startIdx = (candidates.size() > 1) ? 1 : 0;
+        while (ctx->completionFlag == 0 && waited < kMapperTimeoutMs) {
+            DWORD targetExitCode = 0;
+            if (!GetExitCodeProcess(hProcess, &targetExitCode) || targetExitCode != STILL_ACTIVE)
+                break;
 
-            for (size_t i = startIdx; i < candidates.size() && !success; i++) {
-                DWORD tid = candidates[i];
-                HANDLE hThread = nullptr;
-                if (nt::g_Syscalls.NtOpenThread) {
-                    nt::CLIENT_ID cid = { (void*)(uintptr_t)pid, (void*)(uintptr_t)tid };
-                    nt::OBJECT_ATTRIBUTES oa = { sizeof(oa) };
-                    nt::g_Syscalls.NtOpenThread(&hThread, nt::THREAD_HIJACK_ACCESS, &oa, &cid);
-                }
-                if (!hThread) {
-                    hThread = OpenThread(nt::THREAD_HIJACK_ACCESS, FALSE, tid);
-                }
-                if (!hThread)
-                    continue;
+            // If the mapper thread exited without publishing a result, waiting
+            // longer cannot make progress.
+            if (WaitForSingleObject(hThread, 0) == WAIT_OBJECT_0)
+                break;
 
-                // Suspend the chosen thread
-                uint32_t prevSuspend = 0;
-                if (nt::g_Syscalls.NtSuspendThread(hThread, &prevSuspend) != nt::STATUS_SUCCESS) {
-                    CloseHandle(hThread);
-                    continue;
-                }
-
-                // Save the original execution context (full register state)
-                CONTEXT origCtx = {};
-                origCtx.ContextFlags = CONTEXT_FULL;
-                if (nt::g_Syscalls.NtGetContextThread(hThread, &origCtx) != nt::STATUS_SUCCESS) {
-                    nt::g_Syscalls.NtResumeThread(hThread, &prevSuspend);
-                    CloseHandle(hThread);
-                    continue;
-                }
-
-                // Build hijack context:
-                //   RIP → shellcode entry point in the remote shared section
-                //   RCX → MAPPER_CONTEXT pointer (first argument per x64 ABI)
-                //   RSP → nudged down & aligned to 16 bytes (maintains call ABI)
-                CONTEXT hijackCtx = origCtx;
-                hijackCtx.Rip = (DWORD64)pShellcodeRemote;
-                hijackCtx.Rcx = (DWORD64)pContextRemote;
-                // (RSP - 8) & ~0xF gives 16-byte alignment; subtract 8 more for
-                // the implicit "return address" slot that __stdcall expects.
-                hijackCtx.Rsp = (origCtx.Rsp - 8) & ~(DWORD64)0xF;
-
-                if (nt::g_Syscalls.NtSetContextThread(hThread, &hijackCtx) != nt::STATUS_SUCCESS) {
-                    nt::g_Syscalls.NtResumeThread(hThread, &prevSuspend);
-                    CloseHandle(hThread);
-                    continue;
-                }
-
-                // Let the thread run — it now executes our shellcode
-                nt::g_Syscalls.NtResumeThread(hThread, &prevSuspend);
-
-                // Poll completion flag written by ShellcodeEntry (max 10 s)
-                DWORD waited = 0;
-                while (ctx->completionFlag == 0 && waited < 10000) {
-                    Sleep(10);
-                    waited += 10;
-                }
-
-                success = (ctx->completionFlag == 0xC0BB1E);
-
-                // Restore the original thread context so the game continues
-                // normally (Java GC / netIO threads keep running as before).
-                if (success) {
-                    nt::g_Syscalls.NtSuspendThread(hThread, &prevSuspend);
-                    nt::g_Syscalls.NtSetContextThread(hThread, &origCtx);
-                    nt::g_Syscalls.NtResumeThread(hThread, &prevSuspend);
-                }
-
-                CloseHandle(hThread);
-            }
+            Sleep(10);
+            waited += 10;
         }
-    }
 
-    // --- Attempt 2: NtCreateThreadEx fallback (Guard may detect this) ---
-    if (!success) {
-        void* hThread = nullptr;
-        status = nt::g_Syscalls.NtCreateThreadEx(&hThread, nt::NT_THREAD_ALL_ACCESS, nullptr, hProcess,
-                                                 pShellcodeRemote, pContextRemote,
-                                                 0,  // No flags
-                                                 0, 0, 0, nullptr);
-
-        if (status == nt::STATUS_SUCCESS && hThread) {
-            DWORD timeout = 0;
-            while (ctx->completionFlag == 0 && timeout < 10000) {
-                Sleep(10);
-                timeout += 10;
-            }
-            success = (ctx->completionFlag == 0xC0BB1E);
-            nt::g_Syscalls.NtClose(hThread);
-        }
+        success = (ctx->completionFlag == 0xC0BB1E);
+        nt::g_Syscalls.NtClose(hThread);
     }
 
     // Cleanup — unmap local view (remote section stays mapped: DLL keeps running)

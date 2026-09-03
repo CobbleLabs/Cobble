@@ -24,6 +24,7 @@ static std::string g_descriptionContext;
 
 static const DescriptionEntry kModuleDescriptions[] = {
     {"", "AutoClicker", "", "Clicks automatically while you hold the attack button."},
+    {"", "AutoRod", "", "Sequences a rod cast and follow-up hit from a controlled attack cadence."},
     {"", "AimAssist", "", "Smoothly guides your aim toward a valid player target."},
     {"", "KillAura", "", "Auto-targets and attacks nearby players with silent rotations, randomized clicking and reach."},
     {"", "AimBow", "", "Aims the bow at the nearest player, solving the arrow arc and lead."},
@@ -33,8 +34,10 @@ static const DescriptionEntry kModuleDescriptions[] = {
     {"", "NoHitDelay", "", "Removes the client-side delay between valid attacks."},
     {"", "Criticals", "", "Automates critical-hit movement when its conditions are met."},
     {"", "WTap", "", "Briefly resets forward movement or sprint after attacks to control spacing."},
+    {"", "BlockHit", "", "Blocks with the sword around your own hits, restoring the vanilla 1.8 hit-and-block rhythm."},
     {"", "Backtrack", "", "Targets recent server positions to compensate for movement and latency."},
     {"", "Piercing", "", "Finds and attacks valid entities through obstructing blocks."},
+    {"", "AntiBot", "", "Decides what counts as a fake player. Every combat module asks it before choosing a target."},
     {"", "NameTags", "", "Renders readable, customizable information above players."},
     {"", "ESP", "", "Highlights players through terrain with configurable boxes and health."},
     {"", "Chams", "", "Re-renders nearby players through terrain with a configurable material."},
@@ -54,9 +57,14 @@ static const DescriptionEntry kModuleDescriptions[] = {
     {"", "FakeLag", "", "Adds calculated movement latency from your measured RTT and configured target ping."},
     {"", "Blink", "", "Queues movement packets temporarily, then releases them together."},
     {"", "Sprint", "", "Keeps sprint active automatically while you move."},
+    {"", "InventoryMove", "", "Lets you keep walking, jumping and sprinting while a screen is open."},
     {"", "ArmorSwitch", "", "Switches between configured armor sets with one action."},
-    {"", "AutoRefill", "", "Moves replacement soup or potions into empty hotbar slots."},
-    {"", "ThrowPots", "", "Uses splash healing potions through PlayerController with dynamic health-based counting."},
+    {"", "AutoRefill", "",
+     "Moves replacement soup or potions into empty hotbar slots, on human timing: a reaction pause, jittered gaps, and "
+     "a real cursor reach when Legit mode draws one."},
+    {"", "ThrowPots", "",
+     "One-shot splash-heal burst on a keybind: counts how many pots the missing health needs, flicks down on human "
+     "timing, and gives your slot and angle back."},
     {"", "FastPlace", "", "Reduces the delay between right-click item placements."},
     {"", "NoItemRelease", "", "Keeps supported item-use actions active according to the selected mode."},
     {"", "BridgeAssist", "", "Helps you sneak safely at block edges while bridging."},
@@ -67,6 +75,10 @@ static const DescriptionEntry kModuleDescriptions[] = {
     {"", "InvManager", "", "Organizes the inventory and hotbar using your saved preferences."},
     {"", "AltManager", "", "Sets the offline-mode username used on the next server connection."},
     {"", "FastBreak", "", "Removes the cooldown between block mining hits so blocks break faster."},
+    {"", "Teams", "", "Decides who counts as a teammate, from server team data, nametag colors and the scoreboard."},
+    {"", "AutoPot", "",
+     "Throws splash healing potions at your feet when your health drops, counting the heal already in the air so a "
+     "burst spends exactly as many potions as the missing health calls for."},
 };
 
 static const DescriptionEntry kOptionDescriptions[] = {
@@ -149,11 +161,6 @@ static const DescriptionEntry kOptionDescriptions[] = {
     {"", "Combo Detection", "", "Sets how long recent hits remain part of the same combo."},
     {"", "Wait For First Hit", "", "Lets the first hit pass before beginning the selection delay."},
     {"", "Wait Duration", "", "Sets how long HitSelect waits before allowing the next selected hit."},
-    {"", "Ticks", "", "Sets how many previous movement ticks are available for backtracking."},
-    {"", "Latency", "", "Sets the simulated history window in milliseconds."},
-    {"", "Render Previous Ticks", "", "Draws stored historical positions for visual feedback."},
-    {"", "Render Server Pos", "", "Draws the position currently associated with the server-side target."},
-    {"", "Show Box", "", "Renders a box around the selected historical position."},
     {"", "Show Health", "", "Adds the player's current health to the nametag."},
     {"", "Show Distance", "", "Adds the distance from you to the nametag."},
     {"", "Show Armor", "", "Displays the player's equipped armor beside the nametag."},
@@ -241,8 +248,6 @@ static const DescriptionEntry kOptionDescriptions[] = {
     {"Velocity", "Vertical", "Never", "Never suppresses the vertical component while Ignore mode activates."},
     {"Velocity", "Vertical", "Only Air", "Suppresses vertical knockback only while you are already airborne."},
     {"Velocity", "Vertical", "Always", "Suppresses vertical knockback whenever Ignore mode activates."},
-    {"Backtrack", "Mode", "Ticks", "Stores a fixed number of previous target positions."},
-    {"Backtrack", "Mode", "Latency", "Stores positions using a time window measured in milliseconds."},
     {"TimerRange", "Mode", "Before Hit", "Starts the timer window as the attack input begins."},
     {"TimerRange", "Mode", "After Hit", "Starts the timer window after the configured delay from a hit."},
     {"TimerRange", "Mode", "Per Hit", "Starts a new timer window for every confirmed outgoing hit."},
@@ -255,6 +260,201 @@ static const DescriptionEntry kOptionDescriptions[] = {
     {"NoItemRelease", "Mode", "All", "Prevents release packets for every supported item except bows and fishing rods."},
     {"Tracers", "Line From", "Bottom", "Starts tracer lines at the bottom-center of the screen."},
     {"Tracers", "Line From", "Center", "Starts tracer lines at the center of the screen."},
+    {"BlockHit", "Switch Mode Key", "", "Cycles BlockHit between Hold, Perfect and Legit in game, without opening the menu."},
+    {"BlockHit", "Only While Attacking", "", "Blocks only around your own swings instead of holding a block between fights."},
+    {"BlockHit", "Release Ticks", "", "How many ticks the block is held before it is dropped so the next hit lands unblocked."},
+    {"BlockHit", "Min Block Ticks", "", "Never releases before this many ticks, so the server always registers the block."},
+    {"BlockHit", "Predictive", "", "Starts the block from the predicted hit instead of waiting for the swing to be confirmed."},
+    {"BlockHit", "Skip On Block Target", "", "Leaves the block alone when your crosshair is on terrain, so mining is not interrupted."},
+    {"BlockHit", "Mode", "Hold", "Keeps the block up between hits — the simplest rhythm and the safest anywhere."},
+    {"BlockHit", "Mode", "Perfect", "Blocks and releases on exact tick boundaries around every hit for maximum uptime."},
+    {"BlockHit", "Mode", "Legit", "Adds human timing variance so the block and release pattern never repeats identically."},
+    {"InventoryMove", "Movement", "", "Passes WASD through to the game while a screen is open."},
+    {"InventoryMove", "Jump", "", "Passes the jump key through while a screen is open."},
+    {"InventoryMove", "Sneak", "", "Passes the sneak key through while a screen is open."},
+    {"InventoryMove", "Sprint", "", "Passes the sprint key through while a screen is open."},
+    {"InventoryMove", "Containers", "", "Keeps you moving inside chests, furnaces and your own inventory."},
+    {"InventoryMove", "Text Screens", "", "Also moves while chat, signs, books and the anvil are open — careful, WASD are letters there."},
+    {"InventoryMove", "Other Screens", "", "Also moves in the pause menu, options and any other non-container screen."},
+    {"Backtrack", "Hold Time (ms)", "", "How far into the past the ghost sits. Movement packets are withheld for this long, so the server keeps the target where the box is drawn."},
+    {"Backtrack", "Packet Limit", "", "Hard stop on how many movement packets may be withheld at once. Reaching it releases the whole queue immediately."},
+    {"Backtrack", "Min Range", "", "Ignores targets closer than this, since backtracking point-blank pushes the hitbox behind you."},
+    {"Backtrack", "Max Range", "", "Ignores targets past this distance, so the hold only opens inside your real reach."},
+    {"Backtrack", "Only While Attacking", "", "Holds packets only while you are actually swinging — the mouse held down, AutoClicker running, or KillAura on a target."},
+    {"Backtrack", "Color", "", "Color of the ghost box drawn where the server still believes the target is. Its alpha is the overall opacity."},
+
+    {"AimBow", "Aim Height", "", "Where on the body to aim, measured from the feet: 0 is the feet, 1 the top of the head. 0.62 is the chest, the widest part of the hitbox."},
+    {"AimBow", "Live Charge", "", "Solves for the charge actually on the bow instead of assuming a full draw. Off means every solution assumes a full-power shot."},
+    {"AimBow", "Min Charge", "", "Floor for the charge the solver assumes. An almost-empty bow needs an absurd loft, so without a floor the crosshair flies up the moment you right-click."},
+    {"AimBow", "Strength", "", "How far ahead of a moving target to aim horizontally. 1.00x is the arrow's real flight time; lower under-leads, higher over-leads."},
+    {"AimBow", "Vertical Lead", "", "How much to lead a target that is rising or falling. Kept low by default: vertical speed reverses inside a jump, so a long shot leads to where they no longer are."},
+    {"AimBow", "Aim Mode", "Automatic", "Targets the nearest player in range."},
+    {"AimBow", "Aim Mode", "Closest to Crosshair", "Targets whoever your own crosshair is already nearest to, so you choose who gets shot."},
+
+    {"AntiBot", "Name Tag", "", "Flags a player whose name gives it away: an explicit [NPC] tag, an empty or one-letter name, or a name made only of color codes. Safe to leave on."},    {"AntiBot", "NPC UUID", "", "Flags version-2 UUIDs, which the Citizens NPC plugin hands out, and the all-zero UUID. Real accounts never have either, so this costs you nothing."},
+    {"AntiBot", "Fake Profile", "", "Flags a game profile that is not a name Mojang could issue — wrong length or illegal characters. Skipped when the profile name cannot be read."},
+    {"AntiBot", "No Health", "", "Flags an entity the server never gave health attributes to. Real players always have a max health."},
+    {"AntiBot", "Invisible", "", "Flags every invisible player as a bot. Aggressive: on any server with invisibility potions this will hide real enemies."},
+    {"AntiBot", "Reset Counters", "", "Zeroes the per-check detection counts. They also reset on their own when you change world or server."},
+    {"Teams", "Enabled", "",
+     "Master switch for team awareness. Off means every player is an enemy, including the ones the vanilla scoreboard "
+     "puts on your team."},
+    {"Teams", "Lunar API", "",
+     "Trusts the roster the server sends over the Lunar Client channel. This is the only source that states outright "
+     "who your teammates are, so while it reports anyone the weaker ones are ignored."},
+    {"Teams", "Apollo Nametags", "",
+     "Treats a green Apollo nametag as a teammate, once it has been seen enough times to rule out cosmetic color "
+     "cycling."},
+    {"Teams", "Scoreboard", "",
+     "Uses Cobble's own scoreboard tracking: the S3EPacketTeams roster, matched by name. Turning this off makes combat "
+     "modules hit players the server put on your team."},
+    {"Teams", "Own Nametag Color", "", "Counts players whose nametag color matches yours as teammates."},
+    {"Teams", "Manual Color", "", "Picks one color yourself instead of reading it from your own nametag."},
+    {"Teams", "Team Color", "", "The nametag color that counts as friendly while Manual Color is on."},
+    {"Teams", "Confirm Hits", "",
+     "How many green nametag signals are needed before a player is trusted. 1 reacts instantly but falls for "
+     "cosmetics; higher is slower and certain."},
+    {"Teams", "Confirm Window (ms)", "",
+     "How close together those signals have to arrive. A longer gap than this restarts the count, so a tag that only "
+     "flashes green now and then never adds up to a teammate."},
+    {"Teams", "Grace Time (ms)", "",
+     "How long a confirmed teammate keeps the status after losing the color, so a temporary recolor does not turn a "
+     "teammate back into a target."},
+    {"Teams", "Require Team Tag", "",
+     "Counts a green nametag only when it arrives with the team-tag payload. Lobby and party tags do not carry one, so "
+     "this is the fix for servers that hand green out too freely."},
+    {"Teams", "Lunar Overrides Tags", "",
+     "While the Lunar roster names anyone in this world, green nametags are ignored entirely. Turn it off where the "
+     "roster is only your party and the rest of the team is marked by color."},
+    {"Teams", "Vanilla Teams", "",
+     "Obeys the game's own same-team check. This is the flag the server sets with /team, independent of anything Cobble "
+     "detects; off means a scoreboard team alone will not protect anyone."},
+    {"Teams", "Quick Add", "",
+     "Adds whoever you are looking at to your friends with one key. The friend list itself lives in Settings."},
+    {"Teams", "Clear Detected", "",
+     "Forgets every auto-detected teammate so the next packets rebuild the list. Your manual friends stay."},
+    {"AutoPot", "Pot Below (%)", "",
+     "Health at which a burst starts, as a share of your maximum. 55% is roughly where a good player reaches for a "
+     "potion: low enough not to waste them, high enough to survive the next combo."},
+    {"AutoPot", "Heal Until (%)", "",
+     "The burst stops once predicted health reaches this. Predicted, not current, so potions still in the air already "
+     "count and you never overheal by two throws."},
+    {"AutoPot", "Max Pots", "", "Hard ceiling on one burst, whatever the health maths asks for."},
+    {"AutoPot", "Prefer Heal II", "",
+     "Spends the strong potions first, ending the burst in fewer throws. Turn it off to save Heal II and pay with Heal "
+     "I."},
+    {"AutoPot", "Allow Heal I", "", "Lets plain Instant Health count. Off means only Instant Health II is ever used."},
+    {"AutoPot", "Only On Ground", "",
+     "Skips throws while airborne, where the potion lands somewhere other than under you."},
+    {"AutoPot", "Only In Combat", "",
+     "Waits for recent damage before potting, so you do not spend potions topping off between fights."},
+    {"AutoPot", "Combat Window (ms)", "", "How long after taking a hit you still count as in combat."},
+    {"AutoPot", "Preset", "",
+     "Named timing bundles. Instant is as fast as the protocol allows, Human is what a good player actually does, "
+     "Legit is visibly unhurried. Moving any timing slider switches this to Custom instead of mislabelling itself."},
+    {"AutoPot", "Reaction (ms)", "",
+     "Delay between health dropping and your hand moving. Zero is machine-fast; humans sit near 140. If health has "
+     "already been low for a moment this is shortened, because a player watching the bar reacts sooner."},
+    {"AutoPot", "Jitter (%)", "",
+     "Spread applied to every delay, drawn so most throws land near the base and the extremes stay rare. Zero makes "
+     "every burst identically timed, which is the easiest thing in the world to spot."},
+    {"AutoPot", "Switch (ms)", "", "Gap between selecting the hotbar slot and the right click."},
+    {"AutoPot", "Throw Gap (ms)", "", "Pause between potions of one burst."},
+    {"AutoPot", "Restore (ms)", "", "Pause after the last throw before the sword comes back."},
+    {"AutoPot", "Fatigue", "",
+     "A long fight slows the delays slightly, the way real hands do, and resets once you stop potting."},
+    {"AutoPot", "Aim", "",
+     "Silent points the outgoing packet down and leaves your camera alone. Snap moves the real pitch and jumps back. "
+     "Smooth pulls it down over a few frames like a mouse. None throws wherever you already look."},
+    {"AutoPot", "Pitch", "", "Degrees down for the throw. 90 is straight at your feet."},
+    {"AutoPot", "Pitch Jitter", "",
+     "Degrees of variation per throw. Invisible inside the splash radius, very visible in a rotation log if absent."},
+    {"AutoPot", "Flick Time (ms)", "", "How long the Smooth pull down takes."},
+    {"AutoPot", "Switch Back", "", "Returns to the slot you were holding once the burst ends."},
+    {"AutoPot", "Retry On Fail", "",
+     "If a throw does not register, tries again with the same potion instead of abandoning the burst."},
+    {"AutoPot", "Heal Credit (ms)", "",
+     "How long a thrown potion's heal is assumed to be on its way. The server reports it a tick or two late, and "
+     "without this window the same missing health gets potted twice."},
+    {"AutoPot", "Misclick Chance (%)", "",
+     "Chance of grabbing a neighbouring hotbar slot first, noticing, and correcting. Costs one switch delay. Zero by "
+     "default because it is a liability in a real fight."},
+    {"AutoRefill", "Mode", "Packet",
+     "No screen and no cursor: the inventory is opened, swapped and closed over packets alone. Nothing is drawn, so "
+     "this is the one to use in a fight."},
+    {"AutoRefill", "Mode", "Legit",
+     "Presses your real inventory key and moves the real cursor to each stack, so anything watching the client sees an "
+     "ordinary refill."},
+    {"AutoRefill", "On Inventory Open", "",
+     "Stops refilling on a keybind and instead waits for you to open the inventory yourself, then fills the gaps while "
+     "you are already in there. The screen stays yours — it is never closed for you."},
+    {"AutoRefill", "Preset", "",
+     "Named timing bundles. Instant is the old flat machine timing, Human is what a good player actually produces, "
+     "Careful is visibly unhurried. Moving any slider switches this to Custom instead of mislabelling itself."},
+    {"AutoRefill", "Gap (ms)", "",
+     "Base pause between item moves. Never used as-is: every gap is jittered, scaled by fatigue, and now and then "
+     "extended by a hesitation, so no two refills share a rhythm."},
+    {"AutoRefill", "Reaction (ms)", "",
+     "Delay between the trigger and anything at all happening. Zero opens and clicks on the same frame, which no hand "
+     "can do; a person sits near 190."},
+    {"AutoRefill", "Jitter (%)", "",
+     "Spread applied to every delay, drawn so most land near the base and the extremes stay rare. Zero gives a "
+     "perfectly periodic click train, which is the easiest pattern in the world to pick out of a log."},
+    {"AutoRefill", "Fatigue", "",
+     "A long refill slows slightly as it goes, the way real hands do across nine slots, and resets for the next one."},
+    {"AutoRefill", "Hesitate (%)", "",
+     "Chance per item of an extra pause — and in Legit mode a short cursor drift onto the wrong stack before "
+     "correcting. Costs time and nothing else, since the decoy is never clicked."},
+    {"AutoRefill", "Nearest Source First", "",
+     "Takes whichever stack sits closest to the last one instead of sweeping strictly left to right, which is both "
+     "shorter for the cursor and what a person actually does."},
+    {"AutoRefill", "Human Mouse Path", "",
+     "Replaces the straight constant-speed slide with a real reach: eased acceleration, a sideways arc, an occasional "
+     "overshoot and correction, hand tremor, and a duration that grows with distance. Legit mode only."},
+    {"AutoRefill", "Mouse Move (ms)", "",
+     "Reference time for one cursor move. Short hops finish quicker and long crossings take longer, so this sets the "
+     "scale rather than the exact duration."},
+
+    {"ThrowPots", "Mode", "Dynamic",
+     "Throws as many pots as it takes to reach the target health, up to Max Throws."},
+    {"ThrowPots", "Mode", "Single", "Throws exactly one pot, whatever your health is."},
+    {"ThrowPots", "Mode", "Double", "Throws up to two pots - the usual manual panic-pot."},
+    {"ThrowPots", "Aim", "Current", "Throws wherever you are already looking. No rotation, nothing to hide."},
+    {"ThrowPots", "Aim", "Down", "Aims your view at the ground and back up again, so what you see is what is sent."},
+    {"ThrowPots", "Aim", "Silent Down",
+     "Aims down only inside the outgoing packet. Your view never moves, but the server sees a downward flick."},
+    {"ThrowPots", "Target Health (%)", "",
+     "Health the burst is trying to reach. Dynamic keeps throwing until you are at or above it."},
+    {"ThrowPots", "Max Throws", "", "Hard ceiling on one Dynamic burst, so a bad heal roll cannot empty the hotbar."},
+    {"ThrowPots", "Random Slots", "",
+     "Picks pot slots in a random order instead of strongest first, so the same hotbar does not always drain the same "
+     "way."},
+    {"ThrowPots", "Allow Heal I", "", "Lets weak Healing I splashes into the plan when no Healing II is left."},
+    {"ThrowPots", "Aim Pitch", "",
+     "How far down the throw aims. 90 is straight at your feet; a couple of degrees short of that is what a real flick "
+     "lands on."},
+    {"ThrowPots", "Pitch Jitter", "",
+     "Random spread on that pitch, in degrees. Without it every throw reports the exact same angle, which no hand ever "
+     "does."},
+    {"ThrowPots", "Aim Smoothing (ms)", "",
+     "Sweeps the pitch down over this long instead of teleporting to it. The throw only fires once the sweep has "
+     "landed. 0 snaps."},
+    {"ThrowPots", "Switch Back", "", "Returns to the slot, and the angle, you were on before the burst."},
+    {"ThrowPots", "Retry on Fail", "",
+     "Re-throws a pot that never left your hand, up to twice, instead of silently skipping it."},
+    {"ThrowPots", "Preset", "",
+     "Timing bundle. Instant is the old flat behaviour, Human is a fast player under pressure, Careful trades speed "
+     "for the safest pattern."},
+    {"ThrowPots", "Reaction (ms)", "",
+     "Pause between the keybind and the first slot switch. Reacting instantly is the clearest sign a program pressed "
+     "the key."},
+    {"ThrowPots", "Switch Delay (ms)", "",
+     "Base wait after selecting a pot slot before throwing, and again before switching back."},
+    {"ThrowPots", "Throw Delay (ms)", "", "Base wait between one pot landing and the next being selected."},
+    {"ThrowPots", "Jitter (%)", "",
+     "Spread applied to every delay above. Real gaps scatter around an average; identical gaps are a fingerprint."},
+    {"ThrowPots", "Fatigue", "",
+     "Widens the gaps slightly as the burst runs. The fourth pot never comes out as fast as the first."},
 };
 
 static const char* findDescription(const DescriptionEntry* entries, size_t count, const char* context, const char* key,
@@ -284,20 +484,6 @@ static const char* resolveOptionDescription(const char* key, const char* value =
     return fallback.c_str();
 }
 
-static void drawRainbowText(ImDrawList* draw, ImVec2 pos, const char* text, float alpha) {
-    const float time = static_cast<float>(ImGui::GetTime());
-    const char* cursor = text;
-    while (cursor && *cursor) {
-        char glyph[2] = {*cursor, '\0'};
-        const float hue = fmodf(time * 1.8f + pos.x * 0.006f, 1.0f);
-        ImVec4 color;
-        ImGui::ColorConvertHSVtoRGB(hue, 0.85f, 1.0f, color.x, color.y, color.z);
-        color.w = alpha;
-        draw->AddText(pos, ImGui::ColorConvertFloat4ToU32(color), glyph);
-        pos.x += ImGui::CalcTextSize(glyph).x;
-        ++cursor;
-    }
-}
 }  // namespace
 
 // ==================== BINDER STATE ====================
@@ -349,16 +535,18 @@ std::vector<ui::tab_t> ui::tabs = {
     {ICON_FA_CROSSHAIRS,
      "Combat",
      {"AutoClicker", "AimAssist", "Velocity", "Reach", "HitSelect", "NoHitDelay", "Criticals", "WTap",
-      "Piercing", "AimBow", "BlockHit", "KillAura"}},
+      "Piercing", "AimBow", "BlockHit", "KillAura", "AutoRod", "AntiBot"}},
     {ICON_FA_EYE,
      "Visuals",
      {"NameTags", "ESP", "ItemESP", "Tracers", "BlockESP", "Trajectories", "AntiDebuff", "ArrayList",
       "DroppedInfo", "Notifications", "Watermark", "TargetHUD", "ClickGUI", "Pings", "Chams"}},
-    {ICON_FA_RUNNING, "Movement", {"Timer", "TimerRange", "NoSlowDown", "NoJumpDelay", "Sprint"}},
+    {ICON_FA_RUNNING,
+     "Movement",
+     {"Timer", "TimerRange", "NoSlowDown", "NoJumpDelay", "Sprint", "InventoryMove"}},
     {ICON_FA_KEYBOARD,
      "Utility",
-     {"ArmorSwitch", "AutoRefill", "ThrowPots", "FastPlace", "NoItemRelease", "BridgeAssist", "Scaffold", "Clutch",
-      "Breaker", "AutoTool", "InvManager", "FastBreak", "AltManager"}},
+     {"ArmorSwitch", "AutoRefill", "ThrowPots", "AutoPot", "FastPlace", "NoItemRelease", "BridgeAssist", "Scaffold",
+      "Clutch", "Breaker", "AutoTool", "InvManager", "FastBreak", "AltManager", "Teams"}},
     {ICON_FA_WIFI, "Network", {"Backtrack", "Blink", "FakeLag"}},
 #if COBBLE_SPECTATE_ENABLED
     {ICON_FA_EYE, "Spectate", {}},
@@ -389,8 +577,205 @@ ImU32 ui::GetColor(ImGuiCol idx, float alpha_mult) {
     return ImGui::ColorConvertFloat4ToU32(col);
 }
 
-void ui::SetDescriptionContext(const char* context) {
+// ==================== HOVER DESCRIPTIONS ====================
+// One tip at a time, typed out letter by letter. HoverDescription() only *records* the
+// request — widgets call it from all over the frame — and the text is drawn once, from
+// handle_anims(), after everything else has been laid out. That ordering is what lets it
+// go into the foreground draw list (nothing can cover it) and what makes "whichever
+// widget is hovered wins" fall out for free.
+//
+// Bare text, no card: a panel next to the cursor covers the very rows you are comparing,
+// and its border/fill fights the widget it is describing for attention. Legibility comes
+// from a two-step drop shadow instead, the same trick the notification stack uses.
+namespace {
+
+// How many glyph-slots wide the arrival fade is. Narrow on purpose: the trail should read
+// as motion, not as a queue you have to wait behind.
+constexpr float kTipFadeBand = 3.5f;
+// Glyphs per second. The reveal is a flourish, not a gate on reading — a full sentence is
+// on screen inside a few frames, so the eye never has to track the cursor to keep up.
+constexpr float kTipGlyphsPerSecond = 195.0f;
+// Text height. Smaller than the notification row (ui::s(14)) so it stays subordinate to
+// the setting it is describing.
+constexpr float kTipTextSize = 12.5f;
+
+struct DescriptionTip {
+    std::string text;      // the sentence currently being revealed
+    bool rainbow = false;  // locked-module tips cycle hue instead of using the text color
+    ImVec2 anchor{0, 0};   // cursor position recorded with the request
+    ImVec2 pos{0, 0};      // eased text origin, so moving between settings glides
+    float reveal = 0.0f;   // glyphs revealed so far, fractional
+    float alpha = 0.0f;    // overall fade
+    bool placed = false;   // pos is meaningful (don't slide in from the screen corner)
+    int requestFrame = -1;
+};
+
+// Set once per menu frame by SetDescriptionContext. Tips are a module-page affordance:
+// the module list, the Settings page and the general chrome all get none, so hovering
+// your way around the menu doesn't trail a sentence behind the cursor everywhere.
+bool g_descriptionAllowed = false;
+
+DescriptionTip g_tip;
+
+struct TipLine {
+    const char* begin;
+    const char* end;
+    float width;
+};
+
+// Cubic ease-out: quick off the mark, settles gently.
+float easeOut(float t) {
+    const float inv = 1.0f - t;
+    return 1.0f - inv * inv * inv;
+}
+
+// Byte length of the UTF-8 sequence at p, never running past end.
+int glyphBytes(const char* p, const char* end) {
+    int len = 1;
+    while (p + len < end && (static_cast<unsigned char>(p[len]) & 0xC0) == 0x80)
+        ++len;
+    return len;
+}
+
+// ImGui's own tooltips (the tick-timing hint) claim the space just under the cursor.
+bool imguiTooltipVisible() {
+    ImGuiContext* ctx = ImGui::GetCurrentContext();
+    if (!ctx)
+        return false;
+    for (ImGuiWindow* window : ctx->Windows)
+        if ((window->Flags & ImGuiWindowFlags_Tooltip) && window->WasActive)
+            return true;
+    return false;
+}
+
+void drawDescriptionTip() {
+    ImGuiIO& io = ImGui::GetIO();
+    // A hitch (chunk build, world load) shouldn't dump the whole sentence in one frame.
+    const float dt = ImMin(io.DeltaTime, 1.0f / 30.0f);
+
+    const bool live = !g_tip.text.empty() && g_tip.requestFrame == ImGui::GetFrameCount();
+    g_tip.alpha = ImClamp(g_tip.alpha + (live ? dt * 17.0f : -dt * 23.0f), 0.0f, 1.0f);
+    if (g_tip.alpha <= 0.0f) {
+        g_tip.placed = false;
+        return;
+    }
+
+    ImFont* tipFont = (io.Fonts && io.Fonts->Fonts.Size > 0) ? font(0) : ImGui::GetFont();
+    if (!tipFont || !tipFont->IsLoaded())
+        return;
+
+    const float fontSize = ui::s(kTipTextSize);
+    // The atlas glyphs were baked at FontSize; every width query has to be told what
+    // fraction of that we are actually drawing at, or the wrap runs long.
+    const float fontScale = tipFont->FontSize > 0.0f ? fontSize / tipFont->FontSize : 1.0f;
+    const float lineHeight = fontSize * 1.26f;
+    const float wrapWidth = ImMax(ui::s(140.0f), ImMin(ui::s(260.0f), io.DisplaySize.x * 0.30f));
+
+    // Wrap once per frame. Paragraphs are split by hand because CalcWordWrapPositionA
+    // treats '\n' as "reset the running width" and keeps going.
+    static std::vector<TipLine> lines;
+    lines.clear();
+    float widest = 0.0f;
+    const char* text = g_tip.text.c_str();
+    const char* textEnd = text + g_tip.text.size();
+    for (const char* paragraph = text; paragraph <= textEnd;) {
+        const char* hardEnd = paragraph;
+        while (hardEnd < textEnd && *hardEnd != '\n')
+            ++hardEnd;
+        for (const char* runner = paragraph;;) {
+            const char* lineEnd = tipFont->CalcWordWrapPositionA(fontScale, runner, hardEnd, wrapWidth);
+            if (lineEnd <= runner)
+                lineEnd = ImMin(runner + 1, hardEnd);  // a single glyph wider than the panel
+            const float width = tipFont->CalcTextSizeA(fontSize, FLT_MAX, 0.0f, runner, lineEnd).x;
+            lines.push_back({runner, lineEnd, width});
+            widest = ImMax(widest, width);
+            runner = lineEnd;
+            while (runner < hardEnd && *runner == ' ')  // the wrap point sits on the space
+                ++runner;
+            if (runner >= hardEnd)
+                break;
+        }
+        if (hardEnd >= textEnd)
+            break;
+        paragraph = hardEnd + 1;
+    }
+    if (lines.empty())
+        return;
+
+    int glyphTotal = 0;
+    for (const char* p = text; p < textEnd; ++p)
+        if ((static_cast<unsigned char>(*p) & 0xC0) != 0x80)
+            ++glyphTotal;
+    g_tip.reveal = ImMin(g_tip.reveal + dt * kTipGlyphsPerSecond, static_cast<float>(glyphTotal) + kTipFadeBand);
+
+    // Only used to keep the block on screen — there is no panel to size any more.
+    const ImVec2 textSize(widest, lineHeight * static_cast<float>(lines.size()));
+
+    const float margin = ui::s(8.0f);
+    ImVec2 target(g_tip.anchor.x + ui::s(15.0f), g_tip.anchor.y + ui::s(19.0f));
+    if (imguiTooltipVisible())
+        target.y = g_tip.anchor.y - textSize.y - ui::s(10.0f);
+    target.x = ImMax(margin, ImMin(target.x, io.DisplaySize.x - textSize.x - margin));
+    target.y = ImMax(margin, ImMin(target.y, io.DisplaySize.y - textSize.y - margin));
+    if (!g_tip.placed) {
+        g_tip.pos = target;
+        g_tip.placed = true;
+    } else {
+        // Trails the cursor, and glides when you move from one setting to the next. Quicker
+        // than the old panel: with no card to carry there is no weight to sell.
+        g_tip.pos = ImLerp(g_tip.pos, target, ImMin(1.0f, dt * 32.0f));
+    }
+
+    const float ease = easeOut(g_tip.alpha);
+    const ImVec2 origin = g_tip.pos + ImVec2(0.0f, (1.0f - ease) * ui::s(4.0f));  // rises as it appears
+    ImDrawList* draw = ImGui::GetForegroundDrawList();
+    const ImVec4 accent = ImGui::ColorConvertU32ToFloat4(GetAccentRGB());
+
+    // The reveal itself. Every glyph lands on its own clock: it fades up, drifts the last
+    // couple of pixels into place, and cools from the accent color to the text color. The
+    // glyph advances come from the full string, so nothing ever shifts sideways as it types.
+    // Each glyph carries its own two-step shadow — with the card gone, that is the only
+    // thing separating the sentence from whatever is behind the menu.
+    const float time = static_cast<float>(ImGui::GetTime());
+    const ImVec4 landed = ImGui::ColorConvertU32ToFloat4(ui::GetColor(ImGuiCol_Text));
+    const float lift = ImMax(1.0f, ui::s(1.0f));
+    int index = 0;
+    float y = origin.y;
+    for (const TipLine& line : lines) {
+        float x = origin.x;
+        for (const char* p = line.begin; p < line.end;) {
+            const int bytes = glyphBytes(p, line.end);
+            const float raw = ImClamp((g_tip.reveal - static_cast<float>(index)) / kTipFadeBand, 0.0f, 1.0f);
+            // Spaces cost three draw calls and show nothing.
+            if (raw > 0.0f && *p != ' ') {
+                const float t = easeOut(raw);
+                ImVec4 color;
+                if (g_tip.rainbow)
+                    ImGui::ColorConvertHSVtoRGB(fmodf(time * 0.55f + static_cast<float>(index) * 0.03f, 1.0f),
+                                                0.72f, 1.0f, color.x, color.y, color.z);
+                else
+                    color = ImLerp(accent, landed, t);
+                color.w = t * ease;
+                const ImVec2 at(x, y + (1.0f - t) * ui::s(2.5f));
+                draw->AddText(tipFont, fontSize, ImVec2(at.x + lift * 2.0f, at.y + lift * 2.0f),
+                              IM_COL32(0, 0, 0, static_cast<int>(color.w * 58.0f)), p, p + bytes);
+                draw->AddText(tipFont, fontSize, ImVec2(at.x + lift, at.y + lift),
+                              IM_COL32(0, 0, 0, static_cast<int>(color.w * 155.0f)), p, p + bytes);
+                draw->AddText(tipFont, fontSize, at, ImGui::ColorConvertFloat4ToU32(color), p, p + bytes);
+            }
+            x += tipFont->CalcTextSizeA(fontSize, FLT_MAX, 0.0f, p, p + bytes).x;
+            p += bytes;
+            ++index;
+        }
+        y += lineHeight;
+    }
+}
+
+}  // namespace
+
+void ui::SetDescriptionContext(const char* context, bool allowTips) {
     g_descriptionContext = context ? context : "";
+    g_descriptionAllowed = allowTips;
 }
 
 const char* ui::GetModuleDescription(const char* module) {
@@ -401,10 +786,24 @@ const char* ui::GetModuleDescription(const char* module) {
 }
 
 void ui::HoverDescription(const char* key, bool hovered, const char* explicitText, bool rainbow) {
-    (void)key;
-    (void)hovered;
-    (void)explicitText;
-    (void)rainbow;
+    if (!hovered)
+        return;
+    // Tips belong to module pages. Everywhere else — the module grid, Settings, Configs,
+    // the tab strip — a sentence chasing the cursor is noise, so the page has to opt in.
+    if (!g_descriptionAllowed)
+        return;
+    const char* text = (explicitText && *explicitText) ? explicitText : resolveOptionDescription(key);
+    if (!text || !*text)
+        return;
+    // Last request in the frame wins. Only one widget can really be hovered, and when two
+    // overlap (a control inside a row) the inner one is drawn later and is the specific one.
+    if (g_tip.text != text) {
+        g_tip.text = text;
+        g_tip.reveal = 0.0f;  // a new sentence types from its first letter
+    }
+    g_tip.rainbow = rainbow;
+    g_tip.anchor = ImGui::GetMousePos();
+    g_tip.requestFrame = ImGui::GetFrameCount();
 }
 
 void ui::DescribeLastItem(const char* key, const char* explicitText, bool rainbow) {
@@ -440,6 +839,14 @@ void ui::handle_anims() {
             tabs[cur_tab].cur_view = tabs[cur_tab].next_view;
         }
     }
+
+    // Last thing in the menu frame: every widget has already registered whether it is
+    // hovered, so the tip knows what to say and lands on top of everything.
+    drawDescriptionTip();
+
+    // Opt-in per frame. A page that renders without announcing a context gets no tips
+    // rather than inheriting the last module page's permission.
+    g_descriptionAllowed = false;
 }
 
 // ==================== LAYOUT HELPERS ====================
@@ -1603,9 +2010,19 @@ void ui::tab(int num) {
     obj.col = col_anim(col_anim(GetColor(ImGuiCol_TextDisabled), GetColor(ImGuiCol_Text, 0.75f), obj.hover),
                        GetColor(ImGuiCol_Text), obj.cur);
 
-    // Rounded selection/hover highlight pill behind the row (drawn first so the
-    // icon + label sit on top). Cleaner than per-row separator lines.
-    float pillT = ImMax(obj.cur, obj.hover * 0.55f);
+    // Hand the selected row's rect to the sidebar so it can spring one shared rail
+    // to it. Published from the row itself because the pinned-Settings layout means
+    // the caller cannot derive row positions from the index alone.
+    if (selected) {
+        nav_sel_min = bb.Min;
+        nav_sel_max = bb.Max;
+        nav_sel_valid = true;
+    }
+
+    // Hover-only pill. Selection is drawn by the sidebar rail on the parent window's
+    // draw list (so it sits behind this row's icon and label); duplicating it here
+    // would give the selected row two overlapping highlights.
+    float pillT = obj.hover * 0.55f;
     if (pillT > 0.01f) {
         ImVec2 pillMin{bb.Min.x + s(8), bb.Min.y + s(3)};
         ImVec2 pillMax{bb.Max.x - s(8), bb.Max.y - s(3)};

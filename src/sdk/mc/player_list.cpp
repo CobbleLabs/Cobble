@@ -531,7 +531,13 @@ std::vector<PlayerInfo> Minecraft::getPlayerList() {
         // Promote entity to GlobalRef so it survives the PopLocalFrame at end of this iteration.
         // Callers are responsible for calling env->DeleteGlobalRef(p.instance) when done.
         info.instance = env->NewGlobalRef(entity);
-        if (localPlayer && mid_isOnSameTeam_cached) {
+        // Vanilla scoreboard membership (Entity.isOnSameTeam). Reported only while the
+        // Teams module wants the client to act on scoreboard data: every combat module
+        // treats this flag as "do not touch", so leaving it set with Teams off would
+        // keep protecting teammates the user just asked to stop protecting.
+        const bool scoreboardTeamsWanted =
+            friendsManager && friendsManager->teams.enabled && friendsManager->teams.scoreboard;
+        if (localPlayer && mid_isOnSameTeam_cached && scoreboardTeamsWanted) {
             info.isOnLocalTeam = env->CallBooleanMethod(localPlayer, mid_isOnSameTeam_cached, entity);
             if (env->ExceptionCheck()) {
                 env->ExceptionClear();

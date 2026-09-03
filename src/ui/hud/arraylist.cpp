@@ -9,7 +9,6 @@
 #include "../../sdk/core/minecraft.h"
 #include "../../sdk/player/player.h"
 #include "../../sdk/player/render_data.h"
-#include "../../util/team/friends_manager.h"
 #include "../core/overlay.h"
 #include "../menu/menu.h"
 #include "../widgets/widgets.hpp"
@@ -91,13 +90,6 @@ void ArrayListRenderer::render() {
             entry.info = armorSwitch->getDisplayInfo();
         }
         entries.push_back(entry);
-    }
-
-    if (friendsManager && friendsManager->teams.enabled) {
-        DisplayEntry e;
-        e.name = "Teams";
-        e.info = "";
-        entries.push_back(e);
     }
 
     if (entries.empty()) {

@@ -1,4 +1,5 @@
 #include "killaura.h"
+#include "antibot.h"
 #include "../../jni/java.h"
 #include "../../sdk/core/minecraft.h"
 #include "../../ui/menu/menu.h"
@@ -21,11 +22,6 @@
 #include <Windows.h>
 
 KillAura* killAura = nullptr;
-
-// Temporarily suspended per user request (WIP): while true, KillAura performs no
-// rotation, no attacks and touches no packets, regardless of its enabled/saved state.
-// Flip to false to re-arm it.
-static constexpr bool kKillAuraSuspended = true;
 
 namespace {
 constexpr double kPi = 3.14159265358979323846;
@@ -66,7 +62,6 @@ void resolveC03(JNIEnv* env) {
 
 KillAura::KillAura() : Module("KillAura") {
     keybind = 0;
-    locked = true;  // WIP — hidden/grayed until experiments are unlocked
     std::random_device rd;
     rng_.seed(rd());
     rollNextDelay();
@@ -141,16 +136,33 @@ void KillAura::onEnable() {
     switchIndex_ = 0;
     lastAttackMs_ = 0;
     rotationSentTicks_ = 0;
+    haveWritten_ = false;
+    cameraOwned_ = false;
+}
+
+void KillAura::standDown() {
+    hasAim_.store(false, std::memory_order_release);
+    haveCur_ = false;
+    rotationSentTicks_ = 0;
+    // The module loop hits this ~500x/second while a GUI is open. Once idle there is
+    // nothing left to release, so stop before touching JNI again.
+    if (!haveTarget_ && !cameraOwned_)
+        return;
+    if (JNIEnv* env = Java::Env())
+        clearTarget(env);
+    if (player.isValid()) {
+        syncRealRotation();
+        releaseCamera();
+    } else {
+        // No player to read or write — forget the tracking instead of feeding it garbage.
+        cameraOwned_ = false;
+        haveWritten_ = false;
+    }
 }
 
 void KillAura::onDisable() {
-    hasAim_.store(false, std::memory_order_release);
-    haveCur_ = false;
     targetUuid_ = "";
-    rotationSentTicks_ = 0;
-    JNIEnv* env = Java::Env();
-    if (env)
-        clearTarget(env);
+    standDown();
 }
 
 bool KillAura::isHoldingWeapon() {
@@ -176,69 +188,137 @@ bool KillAura::hasLineOfSight(double ex, double ey, double ez, double tx, double
     return true;
 }
 
+void KillAura::syncRealRotation() {
+    const float gameYaw = player.getYaw();
+    const float gamePitch = player.getPitch();
+    if (!haveWritten_) {
+        realYaw_ = gameYaw;
+        realPitch_ = gamePitch;
+    } else {
+        // Everything the client reports beyond our own last write is mouse input, whether
+        // or not the camera got restored in between — which is exactly why this is a delta
+        // and not a fresh read.
+        realYaw_ += gameYaw - lastWrittenYaw_;
+        realPitch_ = std::clamp(realPitch_ + (gamePitch - lastWrittenPitch_), -90.0f, 90.0f);
+    }
+    // Consume the delta. The module loop syncs on every idle iteration, so leaving the old
+    // baseline in place would count the same mouse movement over and over.
+    lastWrittenYaw_ = gameYaw;
+    lastWrittenPitch_ = gamePitch;
+    haveWritten_ = true;
+}
+
+void KillAura::releaseCamera() {
+    if (!cameraOwned_)
+        return;
+    cameraOwned_ = false;
+    if (!settings.silent || !player.isValid())
+        return;
+    player.setYaw(realYaw_);
+    player.setPitch(realPitch_);
+    lastWrittenYaw_ = realYaw_;
+    lastWrittenPitch_ = realPitch_;
+    haveWritten_ = true;
+}
+
 void KillAura::applyMoveFix(JNIEnv* env, jobject playerInstance, float diffDeg) {
     if (!moveFieldsResolved_) {
         moveFieldsResolved_ = true;
         jclass pcls = env->GetObjectClass(playerInstance);
         if (pcls) {
-            miField_ = env->GetFieldID(pcls, "movementInput", "Lnet/minecraft/util/MovementInput;");
-            if (!miField_) {
+            const auto findField = [env, pcls](const char* name, const char* srg) -> jfieldID {
+                jfieldID f = env->GetFieldID(pcls, name, "F");
+                if (!f) {
+                    env->ExceptionClear();
+                    f = env->GetFieldID(pcls, srg, "F");
+                }
                 env->ExceptionClear();
-                miField_ = env->GetFieldID(pcls, "field_71158_b", "Lnet/minecraft/util/MovementInput;");
-            }
+                return f;
+            };
+            entStrafe_ = findField("moveStrafing", "field_70702_br");
+            entForward_ = findField("moveForward", "field_70701_bs");
             env->DeleteLocalRef(pcls);
         }
-        if (miField_) {
-            jobject mi = env->GetObjectField(playerInstance, miField_);
-            if (mi) {
-                jclass micls = env->GetObjectClass(mi);
-                if (micls) {
-                    miStrafe_ = env->GetFieldID(micls, "moveStrafe", "F");
-                    if (!miStrafe_) {
-                        env->ExceptionClear();
-                        miStrafe_ = env->GetFieldID(micls, "field_78902_a", "F");
-                    }
-                    miForward_ = env->GetFieldID(micls, "moveForward", "F");
-                    if (!miForward_) {
-                        env->ExceptionClear();
-                        miForward_ = env->GetFieldID(micls, "field_78900_b", "F");
-                    }
-                    env->DeleteLocalRef(micls);
-                }
-                env->DeleteLocalRef(mi);
-            }
-        }
-        moveFieldsOk_ = miField_ && miStrafe_ && miForward_;
+        moveFieldsOk_ = entStrafe_ && entForward_;
         if (env->ExceptionCheck())
             env->ExceptionClear();
     }
     if (!moveFieldsOk_)
         return;
 
-    jobject mi = env->GetObjectField(playerInstance, miField_);
-    if (!mi) {
-        if (env->ExceptionCheck())
-            env->ExceptionClear();
+    const float strafe0 = env->GetFloatField(playerInstance, entStrafe_);
+    const float forward0 = env->GetFloatField(playerInstance, entForward_);
+    if (env->ExceptionCheck()) {
+        env->ExceptionClear();
         return;
     }
-    const float strafe = env->GetFloatField(mi, miStrafe_);
-    const float forward = env->GetFloatField(mi, miForward_);
-    if (strafe != 0.0f || forward != 0.0f) {
-        const float d = diffDeg * static_cast<float>(kPi) / 180.0f;
-        const float cs = std::cos(d), sn = std::sin(d);
-        env->SetFloatField(mi, miStrafe_, strafe * cs - forward * sn);
-        env->SetFloatField(mi, miForward_, forward * cs + strafe * sn);
+    if (strafe0 == 0.0f && forward0 == 0.0f)
+        return;
+
+    // EntityLivingBase.moveFlying builds the world motion as
+    //     motion = Rot(rotationYaw) * (strafe, forward)
+    // and rotationYaw now carries the aura yaw, so to keep the motion pointing
+    // where the real (mouse) yaw points we pre-rotate the input by the difference:
+    //     (strafe', forward') = Rot(realYaw - auraYaw) * (strafe, forward)
+    const float d = diffDeg * static_cast<float>(kPi) / 180.0f;
+    const float cs = std::cos(d), sn = std::sin(d);
+    const float idealStrafe = strafe0 * cs - forward0 * sn;
+    const float idealForward = forward0 * cs + strafe0 * sn;
+
+    // ...then snap that back onto the grid of inputs the client can actually
+    // produce. Vanilla only ever feeds these fields {-1, 0, +1} * scale, so the
+    // exact rotated vector is a value no combination of keypresses can generate:
+    // a simulation anticheat replays the legal combinations against the yaw we
+    // sent, finds none that reproduces our motion, and flags every tick we
+    // strafe. The closest legal combination costs at most 22.5 deg of heading
+    // and leaves both field values indistinguishable from a real keypress.
+    const float scale = std::max(std::abs(strafe0), std::abs(forward0));
+    if (scale <= 0.0001f)
+        return;
+
+    // Cardinal and diagonal inputs differ in magnitude, and moveFlying only
+    // renormalises once the magnitude reaches 1 — so at full walking speed all
+    // eight directions travel at exactly the same speed and are interchangeable.
+    // Below that (sneaking, item use, NoSlowDown) speed IS the magnitude, so the
+    // replacement has to keep the same number of pressed axes or the player
+    // visibly changes speed.
+    const bool preserveAxisCount = scale < 0.999f;
+    const int axes0 = (strafe0 != 0.0f ? 1 : 0) + (forward0 != 0.0f ? 1 : 0);
+
+    float bestStrafe = strafe0, bestForward = forward0, bestDot = -1e9f;
+    for (int s = -1; s <= 1; ++s) {
+        for (int f = -1; f <= 1; ++f) {
+            if (s == 0 && f == 0)
+                continue;
+            if (preserveAxisCount && ((s != 0 ? 1 : 0) + (f != 0 ? 1 : 0)) != axes0)
+                continue;
+            const float candS = static_cast<float>(s), candF = static_cast<float>(f);
+            const float dot =
+                (candS * idealStrafe + candF * idealForward) / std::sqrt(candS * candS + candF * candF);
+            if (dot > bestDot) {
+                bestDot = dot;
+                bestStrafe = candS * scale;
+                bestForward = candF * scale;
+            }
+        }
     }
-    env->DeleteLocalRef(mi);
+
+    env->SetFloatField(playerInstance, entStrafe_, bestStrafe);
+    env->SetFloatField(playerInstance, entForward_, bestForward);
     if (env->ExceptionCheck())
         env->ExceptionClear();
 }
 
 void KillAura::onPreMotion(JNIEnv* env, jobject playerInstance) {
-    if (kKillAuraSuspended)
-        return;
     if (!enabled || !env || !playerInstance)
         return;
+
+    // Order matters: read the user's rotation back BEFORE touching the camera, then hand
+    // the camera back if last tick's flying packet never came (dropped by FakeLag/Blink,
+    // or rotation owned by Clutch/ThrowPots). Doing both unconditionally is what keeps a
+    // missed restore a one-tick cosmetic hiccup instead of a permanent drift.
+    syncRealRotation();
+    releaseCamera();
 
     // Snapshot the target under the lock, taking LOCAL refs so we can release it
     // before calling into the game (attackEntity re-enters other gates).
@@ -283,11 +363,8 @@ void KillAura::onPreMotion(JNIEnv* env, jobject playerInstance) {
         return;
     }
 
-    // The real (mouse-driven) rotation this tick — valid because `silent` restores
-    // rotationYaw to it at the end of every tick, so the game accumulates raw mouse
-    // movement on top of it.
-    realYaw_ = player.getYaw();
-    realPitch_ = player.getPitch();
+    // The real (mouse-driven) rotation for this tick is already in realYaw_/realPitch_,
+    // tracked by delta in syncRealRotation() rather than re-read here.
 
     // Step the aura rotation toward the aim (once per tick), tracked independently of
     // the real rotation.
@@ -328,11 +405,18 @@ void KillAura::onPreMotion(JNIEnv* env, jobject playerInstance) {
     // movement the game (and Grim) simulate uses it and the flying packet carries it.
     player.setYaw(curYaw_);
     player.setPitch(curPitch_);
+    lastWrittenYaw_ = curYaw_;
+    lastWrittenPitch_ = curPitch_;
+    haveWritten_ = true;
+    cameraOwned_ = true;
     // MoveFix: rotate the movement input so the world movement stays in the real look
     // direction. Without it, Grim's simulation sees movement that can't come from a
     // valid input relative to the sent (aura) yaw → Simulation flag while moving.
-    if (settings.moveFix)
-        applyMoveFix(env, playerInstance, realYaw_ - curYaw_);
+    // MoveFix is meaningful for silent rotations. With Silent disabled the
+    // camera already follows the aura yaw, so rotating input again would make
+    // WASD feel offset and was the source of the broken visible-mode behavior.
+    if (settings.moveFix && settings.silent)
+        applyMoveFix(env, playerInstance, wrapDegrees(realYaw_ - curYaw_));
     hasAim_.store(true, std::memory_order_release);
 
     // Attack pre-motion (before the flying packet → clean packet order). Needs a prior
@@ -365,8 +449,6 @@ void KillAura::onPreMotion(JNIEnv* env, jobject playerInstance) {
 }
 
 void KillAura::onOutgoingPacket(JNIEnv* env, jobject packet) {
-    if (kKillAuraSuspended)
-        return;
     // onPreMotion already computed + applied the rotation. Here we only pin the flying
     // packet's yaw/pitch to it (so nothing else perturbs the sent rotation) and count
     // that a flying packet carried the aim (gates the pre-motion attack).
@@ -393,22 +475,24 @@ void KillAura::onOutgoingPacket(JNIEnv* env, jobject packet) {
     if (settings.silent) {
         player.setYaw(realYaw_);
         player.setPitch(realPitch_);
+        lastWrittenYaw_ = realYaw_;
+        lastWrittenPitch_ = realPitch_;
+        haveWritten_ = true;
     }
+    cameraOwned_ = false;
 }
 
 void KillAura::onUpdate() {
-    if (kKillAuraSuspended)
-        return;
     if (!enabled)
         return;
     if (Menu::isOpen || mc.isInGui() || !player.isValid()) {
-        hasAim_.store(false, std::memory_order_release);
-        haveCur_ = false;
+        // The pre-motion hook keys off haveTarget_ alone, so a target left over from
+        // before the GUI opened would keep the aura rotating behind the inventory screen.
+        standDown();
         return;
     }
     if (settings.weaponOnly && !isHoldingWeapon()) {
-        hasAim_.store(false, std::memory_order_release);
-        haveCur_ = false;
+        standDown();
         return;
     }
 
@@ -453,7 +537,7 @@ void KillAura::onUpdate() {
 
     for (int i = 0; i < static_cast<int>(players.size()); ++i) {
         PlayerInfo& p = players[i];
-        if (p.isNPC)
+        if (AntiBot::Filtered(p))
             continue;
         if (!settings.invisibles && p.isInvisible)
             continue;
@@ -463,7 +547,7 @@ void KillAura::onUpdate() {
             bool friendByName = friendsManager->isFriend(FriendsManager::stripColorCodes(p.name));
             if (friendByUUID || friendByName)
                 continue;
-            if (p.isOnLocalTeam)
+            if (p.isOnLocalTeam && friendsManager->honorsVanillaTeams())
                 continue;
             if (!p.uuid.empty() && friendsManager->isLunarTeammate(p.uuid))
                 continue;
@@ -684,7 +768,6 @@ void KillAura::saveSettings(json::Value& node) const {
     node["throughWalls"] = settings.throughWalls;
     node["invisibles"] = settings.invisibles;
     node["weaponOnly"] = settings.weaponOnly;
-    node["antiBot"] = settings.antiBot;
     node["maxHurtTime"] = settings.maxHurtTime;
     node["moveFix"] = settings.moveFix;
     node["silent"] = settings.silent;
@@ -707,7 +790,7 @@ void KillAura::loadSettings(const json::Value& node) {
     settings.throughWalls = node["throughWalls"].as_bool(settings.throughWalls);
     settings.invisibles = node["invisibles"].as_bool(settings.invisibles);
     settings.weaponOnly = node["weaponOnly"].as_bool(settings.weaponOnly);
-    settings.antiBot = node["antiBot"].as_bool(settings.antiBot);
+    // Older configs still carry "antiBot" here; ignored on purpose, the AntiBot module owns it.
     settings.maxHurtTime = std::clamp(node["maxHurtTime"].as_int(settings.maxHurtTime), 0, 10);
     settings.moveFix = node["moveFix"].as_bool(settings.moveFix);
     settings.silent = node["silent"].as_bool(settings.silent);

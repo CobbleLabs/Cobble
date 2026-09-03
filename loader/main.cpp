@@ -594,12 +594,62 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         SecureZeroMemory(&injData, sizeof(injData));
     }
 
-    // Use Secure Manual Mapping with shared memory sections
-    // No WriteProcessMemory, no disk write, uses NT syscalls
-    // NO FALLBACK - insecure methods are worse than failing
-    if (!SecureMapper::SecureManualMap(lunar.pid, dllData, dllSize)) {
+    // Run the mapper off the window thread. SecureManualMap may wait for the
+    // remote entry point, but the loader must continue dispatching messages so
+    // Windows does not classify that bounded wait as an application hang.
+    struct InjectionWorkerContext {
+        DWORD pid;
+        BYTE* data;
+        size_t size;
+        bool succeeded;
+    } workerContext{lunar.pid, dllData, dllSize, false};
+
+    auto injectionEntry = [](LPVOID parameter) -> DWORD {
+        auto* worker = static_cast<InjectionWorkerContext*>(parameter);
+        try {
+            worker->succeeded = SecureMapper::SecureManualMap(worker->pid, worker->data, worker->size);
+        } catch (...) {
+            worker->succeeded = false;
+        }
+        return 0;
+    };
+
+    HANDLE injectionWorker = CreateThread(nullptr, 0, injectionEntry, &workerContext, 0, nullptr);
+    if (!injectionWorker) {
         if (hMapFile)
             CloseHandle(hMapFile);
+        SecureZeroMemory(decryptedDll.data(), decryptedDll.size());
+        LoaderUI::SetError(OBFUSCATE_STRING("Launch failed"));
+        while (renderFrame())
+            ;
+        LoaderUI::Shutdown();
+        return 1;
+    }
+
+    bool loaderWindowOpen = true;
+    while (WaitForSingleObject(injectionWorker, 0) == WAIT_TIMEOUT) {
+        if (loaderWindowOpen)
+            loaderWindowOpen = renderFrame();
+        else
+            Sleep(10);
+    }
+
+    WaitForSingleObject(injectionWorker, INFINITE);
+    CloseHandle(injectionWorker);
+    const bool injectionSucceeded = workerContext.succeeded;
+
+    if (!loaderWindowOpen) {
+        if (hMapFile)
+            CloseHandle(hMapFile);
+        SecureZeroMemory(decryptedDll.data(), decryptedDll.size());
+        LoaderUI::Shutdown();
+        return 0;
+    }
+
+    if (!injectionSucceeded) {
+        if (hMapFile)
+            CloseHandle(hMapFile);
+        SecureZeroMemory(decryptedDll.data(), decryptedDll.size());
         LoaderUI::SetError(OBFUSCATE_STRING("Launch failed"));
         while (renderFrame())
             ;

@@ -1,4 +1,5 @@
 #include "piercing.h"
+#include "antibot.h"
 #include "backtrack.h"
 
 #include "../../jni/java.h"
@@ -172,6 +173,11 @@ jobject Piercing::selectTarget(bool hiddenOnly, bool& targetVisible) {
     double closestHit = std::numeric_limits<double>::max();
 
     const double expandVal = static_cast<double>(settings.expand);
+    Backtrack::HeldTargetSnapshot backtrackSnapshot;
+    if (!hiddenOnly && settings.backtrackCheck && backtrack &&
+        backtrack->enabled) {
+        backtrackSnapshot = backtrack->heldTargetSnapshot();
+    }
 
     // Read local player name + team color once per call. Piercing::selectTarget
     // runs on two threads (module tick + WM_LBUTTONDOWN via handleAttackInput),
@@ -181,7 +187,7 @@ jobject Piercing::selectTarget(bool hiddenOnly, bool& targetVisible) {
     const ChatColor localTeamColor = static_cast<ChatColor>(mc.getLocalPlayerTeamColor());
 
     for (auto& candidate : players) {
-        if (!candidate.instance || candidate.isNPC)
+        if (!candidate.instance || AntiBot::Filtered(candidate))
             continue;
         if (candidate.isInvisible && !settings.targetInvisibles)
             continue;
@@ -197,8 +203,8 @@ jobject Piercing::selectTarget(bool hiddenOnly, bool& targetVisible) {
             }
 
             if (settings.ignoreTeams) {
-                // Vanilla /team API (isOnSameTeam JNI check).
-                if (candidate.isOnLocalTeam)
+                // Vanilla /team API (isOnSameTeam JNI check), if Teams honours it.
+                if (candidate.isOnLocalTeam && friendsManager->honorsVanillaTeams())
                     continue;
                 // Apollo + Lunar API teammates (auto-detected, not manual friends).
                 if (!candidate.uuid.empty() &&
@@ -255,25 +261,28 @@ jobject Piercing::selectTarget(bool hiddenOnly, bool& targetVisible) {
 
         double candidateHit = std::numeric_limits<double>::max();
 
-        if (!hiddenOnly && settings.backtrackCheck && backtrack && backtrack->enabled) {
-            const auto* history = backtrack->getPositionHistory(candidate.uuid);
-            if (history && !history->empty()) {
-                for (const auto& snap : *history) {
-                    double snapMinX = snap.x - 0.3 - expandVal;
-                    double snapMaxX = snap.x + 0.3 + expandVal;
-                    double snapMinY = snap.y - expandVal;
-                    double snapMaxY = snap.y + (candidate.isSneaking ? 1.62 : 1.8) + expandVal;
-                    double snapMinZ = snap.z - 0.3 - expandVal;
-                    double snapMaxZ = snap.z + 0.3 + expandVal;
+        if (!hiddenOnly && settings.backtrackCheck &&
+            backtrackSnapshot.active && backtrackSnapshot.valid &&
+            backtrackSnapshot.pendingPackets > 0 &&
+            backtrackSnapshot.entityId == candidate.entityId) {
+            const double realX = backtrackSnapshot.x;
+            const double realY = backtrackSnapshot.y;
+            const double realZ = backtrackSnapshot.z;
+            const double realMinX = realX - 0.3 - expandVal;
+            const double realMaxX = realX + 0.3 + expandVal;
+            const double realMinY = realY - expandVal;
+            const double realMaxY =
+                realY + (candidate.isSneaking ? 1.62 : 1.8) + expandVal;
+            const double realMinZ = realZ - 0.3 - expandVal;
+            const double realMaxZ = realZ + 0.3 + expandVal;
 
-                    double backHitDistance = 0.0;
-                    if (rayIntersectsBox(originX, originY, originZ,
-                                         directionX, directionY, directionZ,
-                                         snapMinX, snapMinY, snapMinZ, snapMaxX, snapMaxY, snapMaxZ,
-                                         maxDistance, backHitDistance)) {
-                        candidateHit = std::min(candidateHit, backHitDistance);
-                    }
-                }
+            double backtrackHit = 0.0;
+            if (rayIntersectsBox(originX, originY, originZ,
+                                 directionX, directionY, directionZ,
+                                 realMinX, realMinY, realMinZ,
+                                 realMaxX, realMaxY, realMaxZ,
+                                 maxDistance, backtrackHit)) {
+                candidateHit = std::min(candidateHit, backtrackHit);
             }
         }
 

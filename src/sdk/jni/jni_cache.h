@@ -103,6 +103,11 @@ extern jfieldID fid_pointedEntity;  // EntityRenderer.pointedEntity
 extern jfieldID fid_posX;
 extern jfieldID fid_posY;
 extern jfieldID fid_posZ;
+// Exact protocol-space position maintained by vanilla packet handlers.
+// These are optional on runtime-obfuscated clients until explicit aliases resolve.
+extern jfieldID fid_serverPosX;
+extern jfieldID fid_serverPosY;
+extern jfieldID fid_serverPosZ;
 extern jfieldID fid_lastTickPosX;
 extern jfieldID fid_lastTickPosY;
 extern jfieldID fid_lastTickPosZ;
@@ -225,6 +230,11 @@ extern jmethodID mid_setKeyBindState;
 extern jmethodID mid_unPressAllKeys;
 extern jmethodID mid_getKeyCode;
 extern jfieldID fid_pressed;
+// KeyBinding.pressTime — the queued-press counter drained by KeyBinding.isPressed().
+// Minecraft.runTick() calls rightClickMouse() once per queued press REGARDLESS of
+// rightClickDelayTimer, so bumping this is what makes a synthetic use-item press
+// land on the very next tick instead of waiting out the 4-tick right-click delay.
+extern jfieldID fid_pressTime;
 
 // =============================================================================
 // MouseHelper class IDs

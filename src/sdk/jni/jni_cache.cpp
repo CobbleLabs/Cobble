@@ -3,6 +3,8 @@
 #include "../../util/logger.hpp"
 #include "../../util/aes_string.hpp"
 
+#include <initializer_list>
+
 namespace JniCache {
 
 // =============================================================================
@@ -10,6 +12,23 @@ namespace JniCache {
 // =============================================================================
 
 static bool g_initialized = false;
+
+// Resolve only the supplied names. Entity owns many instance ints, so a
+// descriptor-only fallback could silently bind serverPosX/Y/Z to unrelated state.
+static jfieldID resolveExplicitField(JNIEnv* env, jclass cls,
+                                     std::initializer_list<const char*> names,
+                                     const char* signature) {
+    if (!env || !cls || !signature)
+        return nullptr;
+    for (const char* name : names) {
+        jfieldID field = env->GetFieldID(cls, name, signature);
+        if (field)
+            return field;
+        if (env->ExceptionCheck())
+            env->ExceptionClear();
+    }
+    return nullptr;
+}
 
 // Classes
 jclass cls_Minecraft = nullptr;
@@ -77,6 +96,9 @@ jfieldID fid_pointedEntity = nullptr;  // EntityRenderer.pointedEntity
 jfieldID fid_posX = nullptr;
 jfieldID fid_posY = nullptr;
 jfieldID fid_posZ = nullptr;
+jfieldID fid_serverPosX = nullptr;
+jfieldID fid_serverPosY = nullptr;
+jfieldID fid_serverPosZ = nullptr;
 jfieldID fid_lastTickPosX = nullptr;
 jfieldID fid_lastTickPosY = nullptr;
 jfieldID fid_lastTickPosZ = nullptr;
@@ -160,6 +182,7 @@ jmethodID mid_setKeyBindState = nullptr;
 jmethodID mid_unPressAllKeys = nullptr;
 jmethodID mid_getKeyCode = nullptr;
 jfieldID fid_pressed = nullptr;
+jfieldID fid_pressTime = nullptr;
 
 // MouseHelper IDs
 jmethodID mid_ungrabMouseCursor = nullptr;
@@ -548,6 +571,23 @@ static bool resolveIds(JNIEnv* env) {
             TRY_FIELD(fid_posZ, cls_Entity, "field_70161_v", "D");   // 1.7.10 SRG
         if (!fid_posZ && !is_1_7_10)
             TRY_FIELD(fid_posZ, cls_Entity, "u", "D");
+
+        // Keep this alias list explicit. In runtime-obfuscated environments where
+        // the Notch names are not verified, Backtrack safely waits for an absolute
+        // S18 instead of guessing among Entity's many int fields.
+        if (!fid_serverPosX) {
+            fid_serverPosX = resolveExplicitField(
+                env, cls_Entity, {"serverPosX", "field_70118_ct"}, "I");
+        }
+        if (!fid_serverPosY) {
+            fid_serverPosY = resolveExplicitField(
+                env, cls_Entity, {"serverPosY", "field_70117_cu"}, "I");
+        }
+        if (!fid_serverPosZ) {
+            fid_serverPosZ = resolveExplicitField(
+                env, cls_Entity, {"serverPosZ", "field_70116_cv"}, "I");
+        }
+
         TRY_FIELD(fid_lastTickPosX, cls_Entity, "lastTickPosX", "D");
         if (!fid_lastTickPosX)
             TRY_FIELD(fid_lastTickPosX, cls_Entity, "field_70142_S", "D");
@@ -854,6 +894,14 @@ static bool resolveIds(JNIEnv* env) {
         }
         TRY_METHOD(mid_getKeyCode, cls_KeyBinding, "getKeyCode", "()I");
         TRY_FIELD(fid_pressed, cls_KeyBinding, "pressed", "Z");
+        // KeyBinding has two int fields (keyCode, pressTime), so the descriptor
+        // fallback inside TRY_FIELD can never disambiguate them — the named
+        // lookups below are the only path. MCP first, then SRG.
+        TRY_FIELD(fid_pressTime, cls_KeyBinding, "pressTime", "I");
+        if (!fid_pressTime) {
+            env->ExceptionClear();
+            TRY_FIELD(fid_pressTime, cls_KeyBinding, "field_74515_c", "I");
+        }
     }
 
     // =========================================================================
@@ -1247,6 +1295,10 @@ void Cleanup() {
     DELETE_GLOBAL(cls_Mouse);
 
 #undef DELETE_GLOBAL
+
+    fid_serverPosX = nullptr;
+    fid_serverPosY = nullptr;
+    fid_serverPosZ = nullptr;
 
     g_initialized = false;
     log_debug("JniCache cleaned up");

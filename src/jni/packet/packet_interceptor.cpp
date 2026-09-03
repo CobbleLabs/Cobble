@@ -62,6 +62,11 @@ bool Init() {
                                                           &ApolloPacketObserver::NativeOnReceive);
             COBBLE_TRACE(regHooks ? "PacketInterceptor::Init: RegisterHooks ok" : "PacketInterceptor::Init: RegisterHooks failed");
 
+            // Resolve/register IncomingHook before any bytecode can reference it.
+            bool btInit = BacktrackGate::Init(env);
+            COBBLE_TRACE(btInit ? "PacketInterceptor::Init: BacktrackGate::Init ok"
+                                : "PacketInterceptor::Init: BacktrackGate::Init failed");
+
             bool sdInit = SlowDownGate::Init(env);
             COBBLE_TRACE(sdInit ? "PacketInterceptor::Init: SlowDownGate::Init ok" : "PacketInterceptor::Init: SlowDownGate::Init failed");
 
@@ -97,23 +102,20 @@ bool Init() {
             // registered, so a failed DefineClass can never leave a dangling call.
             targets.renderGhost = bgInit;
 
-            // Backtrack: the packet-hold approach (blocking hook on S14/S18
-            // processPacket) is DISABLED. On Lunar it fails verification (those
-            // methods are tiny/branchless so they carry no StackMapTable, and our
-            // patcher only shifts existing tables, it cannot synthesize one — the
-            // RetransformClasses returns FAILS_VERIFICATION=62). Worse, retransforming
-            // S14PacketEntity (a hot class, parent of the S15/S16/S17 relative-move
-            // packets) leaves the JVM in a broken ~3s/tick state that PERSISTS even
-            // after Cobble fully unhooks and ejects — it hard-freezes the client and
-            // drops the connection. Real backtrack is being rebuilt on the safe path
-            // (client-side entity-position rollback / the already-verified
-            // NetworkManager.channelRead0 hook), so we never define the IncomingHook
-            // bridge nor arm the S14/S18 retransform here.
+            // Backtrack blocks only at the already-verified NetworkManager.channelRead0
+            // entry. Keep the legacy S14/S18 processPacket retransforms permanently off.
+            targets.incomingBacktrack = regHooks && btInit;
             targets.backtrack = false;
             BytecodePatcher::SetTargets(targets);
 
             bool instHook = BytecodePatcher::InstallBytecodeHook(env);
             COBBLE_TRACE(instHook ? "PacketInterceptor::Init: InstallBytecodeHook ok" : "PacketInterceptor::Init: InstallBytecodeHook failed");
+            const bool backtrackOperational =
+                btInit && instHook && BytecodePatcher::IsIncomingBacktrackReady();
+            BacktrackGate::SetOperational(backtrackOperational);
+            if (!backtrackOperational) {
+                log_err("[Backtrack] Disabled: native bridge or required bytecode hooks are incomplete");
+            }
 
             // interceptReady gates on the packet hooks (NoItemRelease/Apollo/nametags),
             // not on the slowdown bridge — if the slowdown retransform fails, no-slow
@@ -138,15 +140,38 @@ bool Init() {
     return true;
 }
 
-void Shutdown() {
+bool Shutdown() {
     JNIEnv* env = Java::Env();
-    if (env) {
-        bool safeToUnregister = BytecodePatcher::Shutdown(env);
-        AltManagerGate::Shutdown(env);
-        SlowDownGate::Shutdown(env, safeToUnregister);
-        BacktrackGate::Shutdown(env, safeToUnregister);
+    if (!env) {
+        initialized = false;
+        return false;
     }
+
+    BacktrackGate::SetOperational(false);
+    const bool safeToUnregister = BytecodePatcher::Shutdown(env);
+    if (!safeToUnregister) {
+        // Injected calls may still exist. Keep every bridge and its native state alive;
+        // cobble::context::shutdown will abort FreeLibrary for this degraded path.
+        log_err("[PacketInterceptor] Bytecode restoration failed; keeping native bridges loaded");
+        return false;
+    }
+
+    if (!SlowDownGate::Shutdown(env, true)) {
+        log_err("[PacketInterceptor] SlowDownGate teardown failed; keeping DLL loaded");
+        return false;
+    }
+    if (!BacktrackGate::Shutdown(env, true)) {
+        log_err("[PacketInterceptor] BacktrackGate teardown failed; keeping DLL loaded");
+        return false;
+    }
+    if (!BacktrackGhostGate::Shutdown(env, true)) {
+        log_err("[PacketInterceptor] BacktrackGhostGate teardown failed; keeping DLL loaded");
+        return false;
+    }
+
+    AltManagerGate::Shutdown(env);
     initialized = false;
+    return true;
 }
 
 bool IsReady() {

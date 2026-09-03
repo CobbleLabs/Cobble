@@ -201,6 +201,21 @@ void Minecraft::restoreMovementKeys() {
     if (!gameSettings)
         return;
 
+    // A game screen (inventory, chest, chat...) is still up. Vanilla holds every keybind
+    // unpressed for as long as a screen is open — Minecraft.displayGuiScreen goes through
+    // setIngameNotInFocus() → KeyBinding.unPressAllKeys(), and the keyboard event loop
+    // skips setKeyBindState while currentScreen is non-null. Re-pressing from the physical
+    // key state here overrode all of that and left the player walking around inside their
+    // own inventory, with nothing to ever clear it. Forget the saved state instead; the
+    // next real key event resyncs it, and InventoryMove is what deliberately allows
+    // movement in screens.
+    if (isInGui()) {
+        keysReleased = false;
+        savedKeyStates.clear();
+        env->DeleteLocalRef(gameSettings);
+        return;
+    }
+
     jfieldID keyBindFields[] = {JniCache::fid_keyBindForward, JniCache::fid_keyBindBack,   JniCache::fid_keyBindLeft,
                                 JniCache::fid_keyBindRight,   JniCache::fid_keyBindJump,   JniCache::fid_keyBindSneak,
                                 JniCache::fid_keyBindAttack,  JniCache::fid_keyBindUseItem};

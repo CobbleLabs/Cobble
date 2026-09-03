@@ -124,7 +124,8 @@ public:
         bool entityLock = false;  // Keep the acquired entity until it becomes invalid
         bool weaponOnly = false;
         bool stopOnHitbox = false;  // Stops aim assist when crosshair is inside hitbox
-        bool antiBot = true;
+        // Bot filtering moved out to the AntiBot module (src/module/combat/antibot.h) so one
+        // switch governs every targeting module instead of each keeping its own idea of a bot.
 
         AimMode aimMode = AimMode::SMOOTH;
         TargetMode targetMode = TargetMode::DISTANCE;
@@ -150,6 +151,11 @@ private:
     void releaseCachedTarget(JNIEnv* env);
     void resetTargetState(JNIEnv* env);
     void updateSimulatedJitter();
+    // Every early-out (menu open, mouse released, no target, crosshair already
+    // inside the hitbox) must leave the controller timer fresh. applyAimController
+    // scales its step by the elapsed time, so a dt inflated by an idle stretch
+    // turns the next update into one large catch-up snap instead of a step.
+    void markAimIdle() { controllerTimer.Start(); }
 
     // Weapon check
     bool isHoldingWeapon();
@@ -166,6 +172,10 @@ private:
 
     // Apply randomized aim
     void applyAimRand(float yawDiff, float pitchDiff, float speed);
+    // Single time-based controller used by every aim mode. Unlike the legacy
+    // stack of reaction ramps/accumulators, this consumes one error vector once
+    // per update and is independent of the 2 ms module-loop cadence.
+    void applyAimController(float yawDiff, float pitchDiff);
 
     // Get aim point (handles closest point vs center)
     bool getAimPoint(double targetX, double targetY, double targetZ, double& aimX, double& aimY, double& aimZ);
@@ -177,6 +187,10 @@ private:
     AimBoost pitchBoost2{0.7f, 1.3f, 600, 900, false};
 
     // Mouse + smoothing state
+    // Preserve sub-GCD movement so fast tracking never quantizes to zero for
+    // several ticks and feels stuck.
+    double yawRotationResidual = 0.0;
+    double pitchRotationResidual = 0.0;
     double cursorAccumY = 0.0;
     float cachedMouseSensitivity = 0.5f;
 
@@ -211,8 +225,17 @@ private:
     float simulatedJitterTargetYaw = 0.0f;
     float simulatedJitterTargetPitch = 0.0f;
     int simulatedJitterIntervalMs = 30;
+    // Jitter is an OFFSET from the tracked rotation, not a rotation speed.
+    // applyAimController consumes per-iteration steps, so adding the raw offset
+    // on every loop (~2 ms / ~500 Hz) integrated it into a runaway drift of up to
+    // ~200 deg/s, which the tracking error then fought back - the random up/down
+    // and sideways flicking. These hold the offset already folded into the
+    // rotation so only its change is ever injected as a step.
+    float appliedJitterYaw_ = 0.0f;
+    float appliedJitterPitch_ = 0.0f;
 
     Timer reactionTimeTimer;
+    Timer controllerTimer;
 
     // Cached Target for hybrid tracking
     jobject cachedTarget = nullptr;

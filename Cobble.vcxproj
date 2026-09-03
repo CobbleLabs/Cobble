@@ -96,10 +96,12 @@
     <ClCompile Include="src\sdk\mc\player_list.cpp" />
     <ClCompile Include="src\module\module_manager.cpp" />
     <ClCompile Include="src\module\combat\autoclicker.cpp" />
+    <ClCompile Include="src\module\combat\autorod.cpp" />
     <ClCompile Include="src\module\combat\blockhit.cpp" />
     <ClCompile Include="src\module\combat\aimassist.cpp" />
     <ClCompile Include="src\module\combat\killaura.cpp" />
     <ClCompile Include="src\module\combat\aimbow.cpp" />
+    <ClCompile Include="src\module\combat\antibot.cpp" />
     <ClCompile Include="src\module\utility\armorswitch.cpp" />
     <ClCompile Include="src\module\utility\autorefill.cpp" />
     <ClCompile Include="src\module\combat\velocity.cpp" />
@@ -123,9 +125,12 @@
     <ClCompile Include="src\module\movement\timer.cpp" />
     <ClCompile Include="src\module\movement\timerrange.cpp" />
     <ClCompile Include="src\module\movement\sprint.cpp" />
+    <ClCompile Include="src\module\movement\inventorymove.cpp" />
     <ClCompile Include="src\module\utility\autotool.cpp" />
     <ClCompile Include="src\module\utility\inventorymanager.cpp" />
     <ClCompile Include="src\module\utility\throwpots.cpp" />
+    <ClCompile Include="src\module\utility\autopot.cpp" />
+    <ClCompile Include="src\module\utility\teams.cpp" />
     <ClCompile Include="src\module\utility\altmanager.cpp" />
     <ClCompile Include="src\module\visual\nametags.cpp" />
     <ClCompile Include="src\module\visual\anti_debuff.cpp" />
@@ -195,8 +200,11 @@
     <ClInclude Include="src\module\module.h" />
     <ClInclude Include="src\module\module_manager.h" />
     <ClInclude Include="src\module\combat\autoclicker.h" />
+    <ClInclude Include="src\module\combat\autorod.h" />
+    <ClInclude Include="src\module\combat\blockhit.h" />
     <ClInclude Include="src\module\combat\aimassist.h" />
     <ClInclude Include="src\module\combat\aimbow.h" />
+    <ClInclude Include="src\module\combat\antibot.h" />
     <ClInclude Include="src\module\combat\killaura.h" />
     <ClInclude Include="src\module\utility\armorswitch.h" />
     <ClInclude Include="src\module\utility\autorefill.h" />
@@ -220,6 +228,7 @@
     <ClInclude Include="src\module\movement\timer.h" />
     <ClInclude Include="src\module\movement\timerrange.h" />
     <ClInclude Include="src\module\movement\sprint.h" />
+    <ClInclude Include="src\module\movement\inventorymove.h" />
     <ClInclude Include="src\module\utility\autotool.h" />
     <ClInclude Include="src\module\utility\inventorymanager.h" />
     <ClInclude Include="src\module\utility\altmanager.h" />
@@ -278,6 +287,8 @@
     <ClInclude Include="src\module\movement\fakelag.h" />
     <ClInclude Include="src\module\utility\noitemrelease.h" />
     <ClInclude Include="src\module\utility\throwpots.h" />
+    <ClInclude Include="src\module\utility\autopot.h" />
+    <ClInclude Include="src\module\utility\teams.h" />
     <ClInclude Include="src\jni\packet\outgoing_gate.hpp" />
     <!-- External -->
     <ClInclude Include="infra\ext\jni\jni.h" />

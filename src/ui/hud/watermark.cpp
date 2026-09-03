@@ -10,6 +10,16 @@
 #include "hud_drag.hpp"
 #include "generated/version.h"  // COBBLE_VERSION
 
+// The version shown on the watermark is deliberately NOT COBBLE_VERSION.
+//
+// COBBLE_VERSION comes from cobble.json and is the version handed to the auth
+// server: the licence check, the telemetry payload, the updater check and the
+// session validator all send it, so it has to name a version the server has
+// actually released or login fails. The watermark, on the other hand, should say
+// what build this really is. Keep this string as the source-of-truth build number
+// and bump cobble.json only once that build ships.
+#define COBBLE_DISPLAY_VERSION "1.7.0"
+
 #include <algorithm>
 #include <chrono>
 #include <cmath>
@@ -68,9 +78,9 @@ void Watermark::render() {
     char fpsNum[16];
     std::snprintf(fpsNum, sizeof(fpsNum), "%d", (int)(fpsSmooth + 0.5f));
 
-    // Segments: (dot) Cobble  v1.3.2  |  240 FPS
+    // Segments: (dot) Cobble  v1.7.0  |  240 FPS
     const char* nameStr = "Cobble";
-    const std::string verStr = "v" COBBLE_VERSION;
+    const std::string verStr = "v" COBBLE_DISPLAY_VERSION;
     const char* fpsSuf = "FPS";
 
     ImVec2 nameSz = fBold->CalcTextSizeA(fontSize, FLT_MAX, 0.0f, nameStr);

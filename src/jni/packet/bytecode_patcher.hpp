@@ -7,13 +7,13 @@ namespace BytecodePatcher {
 struct HookTargets {
     bool outgoing = false;
     bool incoming = false;
+    bool incomingBacktrack = false;  // add blocking IncomingHook only to NetworkManager.channelRead0
     bool customPayload = false;
     bool teams = false;
     bool lunarNametags = false;
     bool slowdown = false;  // patch EntityLivingBase.onLivingUpdate ONLY when SlowDownHook native is registered
     bool renderGhost = false;  // patch RenderGlobal.renderEntities ONLY when BacktrackGhostHook native is registered
-    bool backtrack = false;  // blocking-patch NetHandlerPlayClient.handleEntity/handleEntityTeleport (S14/S18)
-                             // ONLY when the IncomingHook native is registered
+    bool backtrack = false;  // legacy S14/S18 processPacket patch; keep disabled
 };
 
 void SetTargets(const HookTargets& targets);
@@ -30,6 +30,13 @@ bool RegisterHooks(JNIEnv* env, jboolean(JNICALL* shouldSend)(JNIEnv*, jclass, j
 
 bool InstallBytecodeHook(JNIEnv* env);
 
+// True only when both pieces required by incoming Backtrack were actually
+// written: the NetworkManager observer/gate prefix and the client-thread
+// EntityLivingBase SlowDown hook.
+bool IsIncomingBacktrackReady();
+
+// Restores every class known to contain an injected native call and unregisters
+// PacketHook. False means teardown is incomplete and the caller must keep the DLL loaded.
 bool Shutdown(JNIEnv* env);
 
 }  // namespace BytecodePatcher
