@@ -245,6 +245,7 @@
     <ClInclude Include="src\module\visual\pings.h" />
     <!-- UI -->
     <ClInclude Include="src\ui\core\overlay.h" />
+    <ClInclude Include="src\ui\core\hud_fonts.h" />
     <ClInclude Include="src\ui\menu\menu.h" />
     <ClInclude Include="src\ui\hud\arraylist.h" />
     <ClInclude Include="src\ui\hud\hud_color.hpp" />

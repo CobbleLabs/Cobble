@@ -7,9 +7,13 @@
 
 namespace Watermark {
 inline bool enabled = true;
-inline bool rainbow = true;   // flowing gradient on "Cobble" (vs flat accent color)
+inline bool rainbow = true;   // flowing gradient on "Cobble" (vs flat white)
 inline int rainbowType = 0;   // 0 Flow, 1 Solid, 2 Fast, 3 Wide
 inline float scale = 1.0f;
+// Stable hud_fonts ID (see ui/core/hud_fonts.h). 1 = Inter Bold, which also
+// selects the built-in Bold/Regular weight pairing for the meta text; any other
+// family is used for the whole watermark.
+inline int fontStyle = 1;
 
 // Smoothed FPS readout: eases toward RenderData::gameFps so the number
 // doesn't jitter frame-to-frame. Seeded lazily on the first render.

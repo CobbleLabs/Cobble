@@ -64,6 +64,13 @@
 // maximum damage reduction, no sprint resets — and Legit mode releases reactively
 // with jitter.
 //
+// One consequence of the arithmetic is worth stating outright: a gap per attack is only
+// affordable while the attacks are more than a couple of ticks apart. At 12 CPS they are
+// ~1.7 ticks apart, so an unconditional gap-per-attack keeps the key up on every tick and
+// the block never exists. The schedule therefore refuses to open a gap in a block that is
+// not currently up, and holds a minimum blocked run between gaps; what that buys back is
+// sprint on the attack after each gap rather than on every attack.
+//
 // Note for double-tap sprinters: EntityPlayerSP only restores sprint immediately
 // when keyBindSprint is held. Without a sprint key it sets sprintToggleTimer = 7
 // instead, and no blockhit schedule can win that back.
@@ -95,14 +102,14 @@ public:
         int mode = (int)Mode::Perfect;
         int modeKeybind = 0;  // key to cycle Hold -> Perfect -> Legit
 
-        // Ticks the block is held down around an attack (Perfect/Legit). 1 is both the
-        // minimum and the optimum: it is exactly the gap the sprint rule above needs,
-        // and every extra tick is block uptime given away for nothing.
+        // Width of the release gap in ticks (Perfect/Legit). 1 is both the minimum and
+        // the optimum: it is exactly the gap the sprint rule above needs, and every extra
+        // tick is block uptime given away for nothing.
         int releaseTicks = 1;
-        // Floor on how long the block must have been up before it may be dropped
-        // again. 0 by default because the Perfect schedule is already minimal — any
-        // non-zero value suppresses scheduled releases and costs sprint hits. Only
-        // raise it if a server needs a longer visible block.
+        // Floor on how long the block must have been up before a gap may be opened in it.
+        // The module enforces two ticks internally whatever this says, because at any
+        // realistic CPS a gap per attack is a gap per tick and the block stops existing;
+        // this only raises that floor, for a server that needs a longer visible block.
         int minBlockTicks = 0;
         // Derive the attack ticks from the measured cadence and open the gap BEFORE
         // the hit. This is the only thing that preserves sprint hits; with it off,

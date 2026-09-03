@@ -9,6 +9,7 @@
 #include "../../sdk/core/minecraft.h"
 #include "../../sdk/player/player.h"
 #include "../../sdk/player/render_data.h"
+#include "../core/hud_fonts.h"
 #include "../core/overlay.h"
 #include "../menu/menu.h"
 #include "../widgets/widgets.hpp"
@@ -18,15 +19,51 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
-#include <cstring>
 #include <string>
-#include <unordered_map>
-#include <unordered_set>
+#include <vector>
 
-// Per-row appear animation state (module name -> progress 0..1), persisted
-// across frames. render() runs single-threaded on the GL thread, so a plain
-// static map is safe here.
-static std::unordered_map<std::string, float> g_rowAnim;
+// Persistent row state, held in draw order.
+//
+// A row outlives the module being enabled: when a module turns off its row keeps
+// its slot and folds away (height + alpha) instead of disappearing between two
+// frames, which is what made the list pop on every toggle. render() runs
+// single-threaded on the GL thread, so plain statics are safe here.
+namespace {
+
+struct Row {
+    std::string name;
+    std::string info;
+    float prog = 0.0f;   // 0 = fully folded away, 1 = fully in
+    bool alive = false;  // seen in this frame's module sweep
+    // Re-measured every frame: font, scale and the info text all change under us.
+    float nameW = 0.0f;
+    float infoW = 0.0f;
+    float itemW = 0.0f;
+};
+
+std::vector<Row> g_rows;
+
+void markLive(const std::string& name, const std::string& info) {
+    for (auto& r : g_rows) {
+        if (r.name == name) {
+            r.alive = true;
+            r.info = info;
+            return;
+        }
+    }
+    Row row;
+    row.name = name;
+    row.info = info;
+    row.alive = true;
+    g_rows.push_back(std::move(row));
+}
+
+inline float easeOutCubic(float t) {
+    const float inv = 1.0f - t;
+    return 1.0f - inv * inv * inv;
+}
+
+}  // namespace
 
 void ArrayListRenderer::render() {
     // If a drag is in progress but the list can't draw (disabled, no player, or
@@ -39,113 +76,113 @@ void ArrayListRenderer::render() {
     };
 
     if (!enabled) {
+        g_rows.clear();
         cancelMove();
         return;
     }
     // Render while the menu is open too, so the block can be grabbed and dragged
     // for positioning (same as the DroppedInfo overlay).
     if (!player.isValid()) {
+        g_rows.clear();
         cancelMove();
         return;  // Hide in main menu
     }
 
-    // Build list of display entries (name + info)
-    struct DisplayEntry {
-        std::string name;
-        std::string info;      // Empty if no info
-        std::string infoText;  // Preformatted " info"
-        ImVec2 nameSize;
-        ImVec2 infoSize;
-        float totalWidth;
-    };
-    std::vector<DisplayEntry> entries;
+    // ---- Live sweep -------------------------------------------------------
+    for (auto& r : g_rows)
+        r.alive = false;
 
-    // Add enabled modules with their display info
     for (auto* mod : moduleManager->getModules()) {
-        if (mod && mod->enabled) {
-            DisplayEntry entry;
-            entry.name = mod->name;
-            if (showInfo) {
-                entry.info = mod->getDisplayInfo();
-            }
-            entries.push_back(entry);
-        }
+        if (mod && mod->enabled)
+            markLive(mod->name, showInfo ? mod->getDisplayInfo() : std::string());
     }
 
-    // Special case: Show AutoRefill when onInventoryOpen is enabled (passive mode)
-    if (autoRefill && !autoRefill->enabled && autoRefill->settings.onInventoryOpen) {
-        DisplayEntry entry;
-        entry.name = autoRefill->name;
-        if (showInfo) {
-            entry.info = autoRefill->getDisplayInfo();
-        }
-        entries.push_back(entry);
-    }
+    // AutoRefill and ArmorSwitch keep working while disabled (passive
+    // inventory-open mode), so they still belong in the list.
+    if (autoRefill && !autoRefill->enabled && autoRefill->settings.onInventoryOpen)
+        markLive(autoRefill->name, showInfo ? autoRefill->getDisplayInfo() : std::string());
+    if (armorSwitch && !armorSwitch->enabled && armorSwitch->settings.onInventoryOpen)
+        markLive(armorSwitch->name, showInfo ? armorSwitch->getDisplayInfo() : std::string());
 
-    // Special case: Show ArmorSwitch when onInventoryOpen is enabled (passive mode)
-    if (armorSwitch && !armorSwitch->enabled && armorSwitch->settings.onInventoryOpen) {
-        DisplayEntry entry;
-        entry.name = armorSwitch->name;
-        if (showInfo) {
-            entry.info = armorSwitch->getDisplayInfo();
-        }
-        entries.push_back(entry);
-    }
+    // ---- Fold in / out ----------------------------------------------------
+    float dtA = ImGui::GetIO().DeltaTime;
+    if (dtA <= 0.0f || dtA > 0.25f)
+        dtA = 1.0f / 60.0f;  // guard hitches / first frame
+    const float step = dtA * 7.0f;  // ~0.14s each way
+    for (auto& r : g_rows)
+        r.prog = (std::clamp)(r.prog + (r.alive ? step : -step), 0.0f, 1.0f);
+    g_rows.erase(std::remove_if(g_rows.begin(), g_rows.end(),
+                                [](const Row& r) { return !r.alive && r.prog <= 0.0f; }),
+                 g_rows.end());
 
-    if (entries.empty()) {
+    if (g_rows.empty()) {
         cancelMove();
         return;
     }
 
-    // Font picker: 0 = Inter Regular (slot 5, clean default), 1 = Inter Bold (slot 2).
-    ImFont* arrayFont = font(fontStyle == 1 ? 2 : 5);
+    // Font picker: a stable hud_fonts ID (0 = Inter Regular, 1 = Inter Bold, then
+    // whatever system families this machine has).
+    ImFont* arrayFont = hud_fonts::GetById(fontStyle);
     if (!arrayFont)
-        arrayFont = font(2);  // fall back to Bold if the regular slot is unavailable
+        arrayFont = font(5);
     if (!arrayFont)
+        arrayFont = font(2);
+    if (!arrayFont || arrayFont->FontSize <= 0.0f) {
+        cancelMove();
         return;
-
-    // Base font size with scale applied (24px base)
-    float fontSize = 24.0f * scale;
-
-    for (auto& entry : entries) {
-        entry.nameSize = arrayFont->CalcTextSizeA(fontSize, FLT_MAX, 0.0f, entry.name.c_str());
-        entry.infoText = entry.info.empty() ? "" : " " + entry.info;
-        entry.infoSize = entry.info.empty() ? ImVec2(0, 0)
-                                            : arrayFont->CalcTextSizeA(fontSize, FLT_MAX, 0.0f, entry.infoText.c_str());
-        entry.totalWidth = entry.nameSize.x + entry.infoSize.x;
-    }
-
-    // Sort by total text width (sizes already calculated)
-    if (sortByLength) {
-        std::sort(entries.begin(), entries.end(),
-                  [](const DisplayEntry& a, const DisplayEntry& b) { return a.totalWidth > b.totalWidth; });
     }
 
     ImDrawList* draw = ImGui::GetWindowDrawList();
-    if (!draw)
+    if (!draw) {
+        cancelMove();
         return;
+    }
+
+    // ---- Metrics ----------------------------------------------------------
+    const float fontSize = 24.0f * scale;
+    const float infoFS = fontSize * 0.86f;  // the info reads as secondary
+    // CalcTextSizeA reports the em box (height == font size), so rows drawn at
+    // exactly that height leave no air and the block reads as a wall of text.
+    const float rowH = std::floor(fontSize * 1.18f);
+    const float padIn = 7.0f * scale;   // air between the text and the row edge
+    const float barWidth = 3.0f * scale;
+    const float barGap = 6.0f * scale;  // air between the text and the colour bar
+    const float infoGap = 5.0f * scale;
+    const float rounding = 4.0f * scale;
+
+    // Baseline-align the smaller info text against the name instead of
+    // top-aligning two different font sizes.
+    const float unit = 1.0f / arrayFont->FontSize;
+    const float infoDrop = arrayFont->Ascent * unit * (fontSize - infoFS);
+
+    for (auto& r : g_rows) {
+        r.nameW = arrayFont->CalcTextSizeA(fontSize, FLT_MAX, 0.0f, r.name.c_str()).x;
+        r.infoW = r.info.empty() ? 0.0f : arrayFont->CalcTextSizeA(infoFS, FLT_MAX, 0.0f, r.info.c_str()).x;
+        const float textW = r.nameW + (r.info.empty() ? 0.0f : infoGap + r.infoW);
+        r.itemW = padIn + textW + (colorBar ? barGap + barWidth : padIn);
+    }
+
+    // stable_sort: equal-width rows must not trade places every frame.
+    if (sortByLength)
+        std::stable_sort(g_rows.begin(), g_rows.end(),
+                         [](const Row& a, const Row& b) { return a.itemW > b.itemW; });
 
     float screenWidth = static_cast<float>(RenderData::screenWidth);
     float screenHeight = static_cast<float>(RenderData::screenHeight);
-
-    // Styling values scaled
-    float padding = 10.0f * scale;
-    float barWidth = 3.0f * scale;
 
     // `anchor` now only decides row alignment (left/right) and the default
     // corner the block starts at before the user drags it elsewhere.
     bool anchorLeft = (anchor == 1 || anchor == 3);    // TopLeft or BottomLeft
     bool anchorBottom = (anchor == 2 || anchor == 3);  // BottomRight or BottomLeft
 
-    // Whole-block dimensions (width = widest row, height = sum of rows).
-    float edgePadding = colorBar ? barWidth + 5.0f * scale : 3.0f * scale;
+    // Whole-block dimensions. Both axes take the folded contribution so the box
+    // grows and shrinks with the animation instead of snapping a frame early.
     float blockWidth = 0.0f;
     float blockHeight = 0.0f;
-    for (const auto& entry : entries) {
-        float itemWidth = entry.totalWidth + padding + edgePadding;
-        if (itemWidth > blockWidth)
-            blockWidth = itemWidth;
-        blockHeight += entry.nameSize.y;
+    for (const auto& r : g_rows) {
+        const float e = easeOutCubic(r.prog);
+        blockWidth = (std::max)(blockWidth, r.itemW * e);
+        blockHeight += rowH * e;
     }
 
     // First time (or after a reset) place the block at the chosen corner.
@@ -154,21 +191,22 @@ void ArrayListRenderer::render() {
         posY = anchorBottom ? (screenHeight - yOffset - blockHeight) : yOffset;
     }
 
-    // Keep the anchored edge fixed when the block resizes (e.g. a module toggles
-    // on/off changes the width). posX/posY track the top-left corner, but a
-    // right-anchored list should keep its right edge put, and a bottom-anchored
-    // one its bottom edge -- otherwise the block drifts out of the corner when a
-    // row appears/disappears. Skip while dragging (the user owns the position).
-    static float prevBlockWidth = -1.0f;
-    static float prevBlockHeight = -1.0f;
-    if (prevBlockWidth >= 0.0f && !dragging) {
-        if (!anchorLeft)
-            posX += prevBlockWidth - blockWidth;  // keep right edge fixed
-        if (anchorBottom)
-            posY += prevBlockHeight - blockHeight;  // keep bottom edge fixed
+    // Keep the anchored edge fixed when the block resizes. What the user placed is
+    // the corner the list hugs, not the top-left of the box, so a right-anchored
+    // list has to keep its right edge and a bottom-anchored one its bottom edge --
+    // otherwise the block drifts every time a row appears or disappears. Storing
+    // the edge (rather than applying a size delta) also survives the list going
+    // empty and coming back, which a running delta does not: it would restart from
+    // a collapsed box and walk the whole list sideways. Skip while dragging (the
+    // user owns the position).
+    static float prevRightEdge = -1.0f;
+    static float prevBottomEdge = -1.0f;
+    if (!dragging) {
+        if (!anchorLeft && prevRightEdge >= 0.0f)
+            posX = prevRightEdge - blockWidth;
+        if (anchorBottom && prevBottomEdge >= 0.0f)
+            posY = prevBottomEdge - blockHeight;
     }
-    prevBlockWidth = blockWidth;
-    prevBlockHeight = blockHeight;
 
     // Shared grab-and-drag (same manner + style as Dropped Pots): hover the block
     // with the menu open to grab it, drop to place. Position persists on menu
@@ -179,12 +217,13 @@ void ArrayListRenderer::render() {
     posX = (std::clamp)(posX, 0.0f, (std::max)(0.0f, screenWidth - blockWidth));
     posY = (std::clamp)(posY, 0.0f, (std::max)(0.0f, screenHeight - blockHeight));
 
-    float blockX = posX;
-    float y = posY;
-    int idx = 0;
+    prevRightEdge = posX + blockWidth;
+    prevBottomEdge = posY + blockHeight;
 
-    // Colors
-    ImU32 infoColor = IM_COL32(180, 180, 180, 255);  // Light gray for info
+    const float blockX = posX;
+    float y = posY;
+
+    const ImU32 infoColor = IM_COL32(158, 163, 173, 255);
 
     long long rainbowTimeMs = 0;
     if (rainbow) {
@@ -192,82 +231,51 @@ void ArrayListRenderer::render() {
         rainbowTimeMs = std::chrono::duration_cast<std::chrono::milliseconds>(now).count();
     }
 
-    // Row animation timing.
-    float dtA = ImGui::GetIO().DeltaTime;
-    if (dtA <= 0.0f || dtA > 0.25f) dtA = 1.0f / 60.0f;  // guard hitches / first frame
+    const ImU32 flatColor =
+        useAccent ? GetAccentRGB()
+                  : IM_COL32((int)(color[0] * 255.0f), (int)(color[1] * 255.0f), (int)(color[2] * 255.0f), 255);
 
-    // Forget animation state for rows no longer shown, so a module re-animates
-    // the next time it turns on instead of snapping in fully lit.
-    {
-        std::unordered_set<std::string> seen;
-        for (const auto& e : entries) seen.insert(e.name);
-        for (auto it = g_rowAnim.begin(); it != g_rowAnim.end();) {
-            if (seen.find(it->first) == seen.end())
-                it = g_rowAnim.erase(it);
-            else
-                ++it;
-        }
-    }
+    const int rowCount = static_cast<int>(g_rows.size());
+    for (int idx = 0; idx < rowCount; ++idx) {
+        const Row& r = g_rows[static_cast<size_t>(idx)];
+        const float e = easeOutCubic(r.prog);
+        const float rh = rowH * e;
 
-    for (const auto& entry : entries) {
-        float totalWidth = entry.totalWidth;
-        float lineHeight = entry.nameSize.y;
+        const ImU32 moduleColor =
+            rainbow ? hud::GetRainbowColorEx(idx, rainbowSaturation, rainbowTimeMs, rainbowType) : flatColor;
 
-        // Get color (rainbow or accent)
-        ImU32 moduleColor;
-        if (rainbow) {
-            moduleColor = hud::GetRainbowColorEx(idx, rainbowSaturation, rainbowTimeMs, rainbowType);
-        } else {
-            // Use custom color if set, otherwise use accent color
-            if (color[0] < 0) {
-                // Accent color from theme (follows the global accent + rainbow).
-                moduleColor = GetAccentRGB();
-            } else {
-                moduleColor = IM_COL32((int)(color[0] * 255), (int)(color[1] * 255), (int)(color[2] * 255), 255);
-            }
-        }
-
-        // Calculate X position: rows align to one side of the (movable) block.
-        float itemWidth = totalWidth + padding + edgePadding;
+        // Rows align to one side of the (movable) block.
         float rectX1, rectX2, textX, barX1, barX2;
-
         if (anchorLeft) {
-            // Left-aligned within the block
             rectX1 = blockX;
-            rectX2 = blockX + itemWidth;
-            textX = blockX + (colorBar ? barWidth + padding * 0.5f : padding * 0.5f);
+            rectX2 = blockX + r.itemW;
+            textX = rectX1 + (colorBar ? barWidth + barGap : padIn);
             barX1 = blockX;
             barX2 = blockX + barWidth;
         } else {
-            // Right-aligned within the block (default)
-            float rightEdge = blockX + blockWidth;
-            rectX1 = rightEdge - itemWidth;
+            const float rightEdge = blockX + blockWidth;
+            rectX1 = rightEdge - r.itemW;
             rectX2 = rightEdge;
-            textX = rectX1 + padding * 0.5f;
+            textX = rectX1 + padIn;
             barX1 = rightEdge - barWidth;
             barX2 = rightEdge;
         }
 
-        // Per-row appear animation: slide in from the anchored edge + fade in.
-        float& prog = g_rowAnim[entry.name];
-        prog = (std::min)(1.0f, prog + dtA * 6.0f);  // ~0.17s to settle
-        float eased = 1.0f - (1.0f - prog) * (1.0f - prog) * (1.0f - prog);  // easeOutCubic
-        float slide = (1.0f - eased) * 14.0f * scale;
-        if (anchorLeft) slide = -slide;  // come in from whichever edge the block hugs
+        // Slide in from whichever edge the block hugs.
+        float slide = (1.0f - e) * 14.0f * scale;
+        if (anchorLeft)
+            slide = -slide;
         rectX1 += slide;
         rectX2 += slide;
         textX += slide;
         barX1 += slide;
         barX2 += slide;
 
-        float rounding = 4.0f * scale;
-
         // United look: rows share one continuous background. Round only the OUTER
         // corners of the whole block — the top corners of the first row and the
         // bottom corners of the last row — and leave the shared inner edges square
         // so consecutive rows fuse into a single connected shape instead of a
         // stack of separate pills.
-        const int rowCount = static_cast<int>(entries.size());
         const bool isFirst = (idx == 0);
         const bool isLast = (idx == rowCount - 1);
         ImDrawFlags cornerFlags;
@@ -282,28 +290,32 @@ void ArrayListRenderer::render() {
 
         // Background: flat rounded dark base, no accent wash.
         if (showBackground) {
-            draw->AddRectFilled(ImVec2(rectX1, y), ImVec2(rectX2, y + lineHeight),
-                                hud::ColScaleAlpha(IM_COL32(19, 19, 19, 150), eased), rounding, cornerFlags);
+            draw->AddRectFilled(ImVec2(rectX1, y), ImVec2(rectX2, y + rh),
+                                hud::ColScaleAlpha(IM_COL32(19, 19, 19, 150), e), rounding, cornerFlags);
         }
 
-        // Text shadow for readability when background is off
+        // Text sits centred in the row, and folds toward the row centre with it.
+        const float nameY = y + (rh - fontSize) * 0.5f;
+        const float infoY = nameY + infoDrop;
+        const float infoX = textX + r.nameW + infoGap;
+
+        // Without a background the text needs its own contrast. A 4-tap dark
+        // outline stays crisp over any terrain; a single diagonal drop shadow
+        // only works when the background happens to be lighter on that side.
         if (!showBackground) {
-            ImU32 shadowColor = hud::ColScaleAlpha(IM_COL32(0, 0, 0, 200), eased);
-            float sd = 1.0f * scale;
-            draw->AddText(arrayFont, fontSize, ImVec2(textX + sd, y + sd), shadowColor, entry.name.c_str());
-            if (!entry.info.empty()) {
-                draw->AddText(arrayFont, fontSize, ImVec2(textX + entry.nameSize.x + sd, y + sd), shadowColor,
-                              entry.infoText.c_str());
+            const ImU32 sh = hud::ColScaleAlpha(IM_COL32(0, 0, 0, 140), e);
+            const float sd = (std::max)(1.0f, std::floor(scale));
+            const float tap[4][2] = {{-sd, 0.0f}, {sd, 0.0f}, {0.0f, -sd}, {0.0f, sd}};
+            for (const auto& t : tap) {
+                draw->AddText(arrayFont, fontSize, ImVec2(textX + t[0], nameY + t[1]), sh, r.name.c_str());
+                if (!r.info.empty())
+                    draw->AddText(arrayFont, infoFS, ImVec2(infoX + t[0], infoY + t[1]), sh, r.info.c_str());
             }
         }
 
-        // Draw name with module color (fades in with the row)
-        draw->AddText(arrayFont, fontSize, ImVec2(textX, y), hud::ColScaleAlpha(moduleColor, eased), entry.name.c_str());
-
-        // Draw info with gray color
-        if (!entry.info.empty()) {
-            draw->AddText(arrayFont, fontSize, ImVec2(textX + entry.nameSize.x, y), hud::ColScaleAlpha(infoColor, eased),
-                          entry.infoText.c_str());
+        draw->AddText(arrayFont, fontSize, ImVec2(textX, nameY), hud::ColScaleAlpha(moduleColor, e), r.name.c_str());
+        if (!r.info.empty()) {
+            draw->AddText(arrayFont, infoFS, ImVec2(infoX, infoY), hud::ColScaleAlpha(infoColor, e), r.info.c_str());
         }
 
         // Color bar on edge: a clean solid strip of the module color. Rounded on
@@ -311,7 +323,7 @@ void ArrayListRenderer::render() {
         // accent strip matching the united background instead of square-capped
         // segments poking past the block's rounded corners.
         if (colorBar) {
-            ImU32 mc = hud::ColScaleAlpha(moduleColor, eased);
+            const ImU32 mc = hud::ColScaleAlpha(moduleColor, e);
             ImDrawFlags barFlags;
             if (rowCount == 1)
                 barFlags = anchorLeft ? ImDrawFlags_RoundCornersLeft : ImDrawFlags_RoundCornersRight;
@@ -321,12 +333,11 @@ void ArrayListRenderer::render() {
                 barFlags = anchorLeft ? ImDrawFlags_RoundCornersBottomLeft : ImDrawFlags_RoundCornersBottomRight;
             else
                 barFlags = ImDrawFlags_RoundCornersNone;
-            float barRound = (barFlags == ImDrawFlags_RoundCornersNone) ? 0.0f : rounding;
-            draw->AddRectFilled(ImVec2(barX1, y), ImVec2(barX2, y + lineHeight), mc, barRound, barFlags);
+            const float barRound = (barFlags == ImDrawFlags_RoundCornersNone) ? 0.0f : rounding;
+            draw->AddRectFilled(ImVec2(barX1, y), ImVec2(barX2, y + rh), mc, barRound, barFlags);
         }
 
-        y += lineHeight;
-        idx++;
+        y += rh;
     }
 }
 

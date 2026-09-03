@@ -58,6 +58,7 @@
 #include "../../util/logger.hpp"
 #include "../../util/network/http.hpp"
 #include "../../util/team/friends_manager.h"
+#include "../core/hud_fonts.h"
 #include "../hud/arraylist.h"
 #include "../hud/watermark.h"
 #include "../../module/visual/target_hud.h"
@@ -1518,6 +1519,18 @@ static void renderModuleList(int tab) {
 // The duplicated blocks are local code (function-local statics included), so
 // there is no ODR/global-symbol conflict. All rendering uses ui:: wrappers,
 // runs on the GL render thread, and routes through getModuleForSubtab.
+// Font picker shared by the HUD settings pages. The combo lists the families
+// this machine actually has, while the setting stores hud_fonts' stable ID, so a
+// config never re-points at a different face on a PC with a different font set.
+static void hudFontCombo(const char* label, int* fontId) {
+    const int count = hud_fonts::Count();
+    if (count <= 0 || !hud_fonts::Names())
+        return;
+    int row = hud_fonts::ComboIndexOf(*fontId);
+    if (ui::Combo(label, &row, hud_fonts::Names(), count))
+        *fontId = hud_fonts::IdAt(row);
+}
+
 static void renderModuleConfig(int tab) {
     if (tab < 0 || tab >= (int)ui::tabs.size())
         return;
@@ -1680,8 +1693,7 @@ static void renderModuleConfig(int tab) {
             []() {
                 ui::Checkbox("Sort by Length", &ArrayListRenderer::sortByLength);
                 ui::Checkbox("Show Info", &ArrayListRenderer::showInfo);
-                const char* fontItems[] = {"Inter Regular", "Inter Bold"};
-                ui::Combo("Font", &ArrayListRenderer::fontStyle, fontItems, 2);
+                hudFontCombo("Font", &ArrayListRenderer::fontStyle);
                 ui::SliderFloat("Size", &ArrayListRenderer::scale, 0.5f, 2.0f, "%.1fx");
 
                 // The ArrayList is dragged directly on screen (same manner as
@@ -1706,7 +1718,9 @@ static void renderModuleConfig(int tab) {
                     }
                 }
                 if (!ArrayListRenderer::rainbow) {
-                    ui::color("Color", ArrayListRenderer::color);
+                    ui::Checkbox("Follow Accent", &ArrayListRenderer::useAccent);
+                    if (!ArrayListRenderer::useAccent)
+                        ui::color("Color", ArrayListRenderer::color, /*alpha=*/false);
                 }
             });
     } else if (ui::cur_tab == 1 && t.cur_subtab == 9) {
@@ -1728,6 +1742,7 @@ static void renderModuleConfig(int tab) {
             },
             "Options",
             []() {
+                hudFontCombo("Font", &Watermark::fontStyle);
                 ui::SliderFloat("Size", &Watermark::scale, 0.5f, 2.0f, "%.1fx");
 
                 // Dragged directly on screen, same manner as the ArrayList.
@@ -2332,24 +2347,28 @@ static void renderClickGuiNew(float openAnim, float pop, float contentT) {
                                   ui::s(8));
             }
 
-            // Cursor spotlight: the pill brightens where the cursor actually is. The
-            // gradient's own ends are clamped into the pill's flat middle band and its
-            // end alphas recomputed to match, so it reaches zero by itself rather than
-            // being cut off by a clip rect — no hard edge, no spill past the rounding.
+            // Cursor spotlight: the pill brightens where the cursor actually is.
+            //
+            // The glow is sized so BOTH ends always land inside the pill's flat middle
+            // band, and the CENTRE is what gets clamped — never the ends. Clamping the
+            // ends (the previous approach) left them sitting at a nonzero alpha, which
+            // is exactly a hard, full-pill-height vertical edge: for a ~90px pill the
+            // 34px reach overran the band from almost any cursor position, so the edge
+            // was visible essentially the whole time the pill was hovered. Terminating
+            // at alpha 0 by construction makes that impossible at any pill width.
             if (st.hover > 0.01f) {
                 const float r = ui::s(8);
                 const float lx = bb.Min.x + r, rx = bb.Max.x - r;
-                if (rx > lx) {
-                    const float reach = ui::s(34);
-                    const float mx = ImClamp(io.MousePos.x, lx, rx);
-                    const float x0 = ImMax(lx, mx - reach);
-                    const float x1 = ImMin(rx, mx + reach);
-                    const float peak = 0.11f * st.hover;
-                    const ImU32 cm = GetSchemeColor(peak);
-                    const ImU32 c0 = GetSchemeColor(peak * (1.0f - (mx - x0) / reach));
-                    const ImU32 c1 = GetSchemeColor(peak * (1.0f - (x1 - mx) / reach));
-                    dl->AddRectFilledMultiColor({x0, bb.Min.y}, {mx, bb.Max.y}, c0, cm, cm, c0);
-                    dl->AddRectFilledMultiColor({mx, bb.Min.y}, {x1, bb.Max.y}, cm, c1, c1, cm);
+                const float reach = ImMin(ui::s(34), (rx - lx) * 0.5f);
+                if (reach > 0.5f) {
+                    const float mx = ImClamp(io.MousePos.x, lx + reach, rx - reach);
+                    const ImU32 cm = GetSchemeColor(0.11f * st.hover);
+                    // Fade to the accent at alpha 0, not to transparent black: vertex
+                    // colours are interpolated unpremultiplied, so a black end would
+                    // dim the middle of the ramp on its way out.
+                    const ImU32 c0 = GetSchemeColor(0.0f);
+                    dl->AddRectFilledMultiColor({mx - reach, bb.Min.y}, {mx, bb.Max.y}, c0, cm, cm, c0);
+                    dl->AddRectFilledMultiColor({mx, bb.Min.y}, {mx + reach, bb.Max.y}, cm, c0, c0, cm);
                 }
             }
 

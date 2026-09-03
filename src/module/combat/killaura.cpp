@@ -62,6 +62,7 @@ void resolveC03(JNIEnv* env) {
 
 KillAura::KillAura() : Module("KillAura") {
     keybind = 0;
+    locked = true;  // Bloqueado
     std::random_device rd;
     rng_.seed(rd());
     rollNextDelay();

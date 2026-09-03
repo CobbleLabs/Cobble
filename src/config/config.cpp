@@ -644,6 +644,10 @@ void ConfigManager::applyConfig() {
         scale = config_["hud"]["arrayListScale"].as_float(1.0f);
         rainbowSaturation = config_["hud"]["arrayListSaturation"].as_float(0.7f);
         anchor = config_["hud"]["arrayListAnchor"].as_int(0);
+        useAccent = config_["hud"]["arrayListUseAccent"].as_bool(true);
+        color[0] = config_["hud"]["arrayListColorR"].as_float(color[0]);
+        color[1] = config_["hud"]["arrayListColorG"].as_float(color[1]);
+        color[2] = config_["hud"]["arrayListColorB"].as_float(color[2]);
         ui::gui_mode = config_["hud"]["guiMode"].as_int(ui::gui_mode);
         posX = config_["hud"]["arrayListPosX"].as_float(-1.0f);
         posY = config_["hud"]["arrayListPosY"].as_float(-1.0f);
@@ -651,6 +655,7 @@ void ConfigManager::applyConfig() {
         Watermark::rainbow = config_["hud"]["watermarkRainbow"].as_bool(true);
         Watermark::rainbowType = config_["hud"]["watermarkRainbowType"].as_int(0);
         Watermark::scale = config_["hud"]["watermarkScale"].as_float(1.0f);
+        Watermark::fontStyle = config_["hud"]["watermarkFontStyle"].as_int(Watermark::fontStyle);
         Watermark::posX = config_["hud"]["watermarkPosX"].as_float(-1.0f);
         Watermark::posY = config_["hud"]["watermarkPosY"].as_float(-1.0f);
         NotificationManager::enabled = config_["hud"]["notifications"].as_bool(true);
@@ -772,6 +777,10 @@ void ConfigManager::buildConfigFromModules() {
     config_["hud"]["arrayListScale"] = scale;
     config_["hud"]["arrayListSaturation"] = rainbowSaturation;
     config_["hud"]["arrayListAnchor"] = anchor;
+    config_["hud"]["arrayListUseAccent"] = useAccent;
+    config_["hud"]["arrayListColorR"] = color[0];
+    config_["hud"]["arrayListColorG"] = color[1];
+    config_["hud"]["arrayListColorB"] = color[2];
     config_["hud"]["guiMode"] = ui::gui_mode;
     config_["hud"]["arrayListPosX"] = posX;
     config_["hud"]["arrayListPosY"] = posY;
@@ -779,6 +788,7 @@ void ConfigManager::buildConfigFromModules() {
     config_["hud"]["watermarkRainbow"] = Watermark::rainbow;
     config_["hud"]["watermarkRainbowType"] = Watermark::rainbowType;
     config_["hud"]["watermarkScale"] = Watermark::scale;
+    config_["hud"]["watermarkFontStyle"] = Watermark::fontStyle;
     config_["hud"]["watermarkPosX"] = Watermark::posX;
     config_["hud"]["watermarkPosY"] = Watermark::posY;
     config_["hud"]["notifications"] = NotificationManager::enabled;

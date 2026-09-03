@@ -51,6 +51,15 @@ bool gameFocused() {
 constexpr float kMinIntervalTicks = 0.5f;
 constexpr std::uint32_t kMaxIntervalTicks = 40;
 
+// Floor on how many ticks the block stays down between two release gaps. A gap costs
+// one tick of block uptime per attack, and at any realistic CPS the attacks are closer
+// together than that: 12 CPS is an attack every ~1.7 ticks, so "one gap per attack"
+// means the key is up on essentially every tick and the block never exists at all.
+// Two ticks of enforced run turns that into a repeating block-block-gap — the attack
+// right after each gap still lands with sprint, and the block is genuinely up the rest
+// of the time. The Min Block Ticks setting only ever raises this.
+constexpr std::uint32_t kMinBlockRunTicks = 2;
+
 }  // namespace
 
 BlockHit::BlockHit() : Module("BlockHit"), rng_((unsigned)nowMs()) {
@@ -376,16 +385,19 @@ void BlockHit::onClientTick(JNIEnv* env) {
     const int minBlockTicks = std::clamp(settings.minBlockTicks, 0, 10);
     const bool engaged = engaged_.load(std::memory_order_acquire);
 
-    // Decide the desired key state for this tick, then reconcile. Exactly one JNI write
-    // per transition and none at all while the state is already right — the previous
+    // Decide whether this tick belongs to a release gap, then reconcile. Exactly one JNI
+    // write per transition and none at all while the state is already right — the previous
     // design chained release/press branches and could do both in one tick, which
     // cancelled out and left the block permanently on.
-    bool wantDown = false;
+    //
+    // The flag below means "the key should be UP this tick". Every branch computes when to
+    // give the block away; Hold mode gives it away never.
+    bool wantGap = false;
     if (mode != Mode::Hold) {
         const bool usePredictor = mode == Mode::Perfect && settings.predictive &&
                                   haveAttackHistory_ && attackIntervalTicks_ > 0.0f;
         if (usePredictor) {
-            wantDown = sprintSafeGapDue(releaseTicks);
+            wantGap = sprintSafeGapDue(releaseTicks);
             reactiveDownUntil_ = 0;
         } else {
             // No usable cadence yet (first hits of a fight, or Legit mode): release for
@@ -397,17 +409,27 @@ void BlockHit::onClientTick(JNIEnv* env) {
                     window += (int)(rng_() % 2);  // no human releases for the same span twice
                 reactiveDownUntil_ = tick_ + (std::uint32_t)window;
             }
-            wantDown = tick_ < reactiveDownUntil_;
+            wantGap = tick_ < reactiveDownUntil_;
         }
     }
 
-    // Escape hatch: never drop a block that has not been up for the configured floor.
-    // Zero by default, since the schedule above is already the minimum gap.
-    if (wantDown && engaged && usingItem && minBlockTicks > 0 &&
-        (int)(tick_ - blockedSinceTick_) < minBlockTicks)
-        wantDown = false;
+    // A block that was never pressed cannot be released. This is what made Perfect look
+    // dead at any realistic CPS: with attacks ~1.7 ticks apart one falls inside the
+    // sprint-safe window on essentially every tick, so the gap was permanently due,
+    // release() returned early because nothing was engaged, and press() was never
+    // reached at all. Opening a gap only means something once there is a block to open
+    // it in, so bootstrap the block first and let the schedule carve gaps out of it.
+    if (wantGap && !engaged)
+        wantGap = false;
 
-    if (wantDown)
+    // Then hold the blocked run between two gaps, so a fast cadence cannot re-open the
+    // gap on the very next tick and collapse uptime back to zero.
+    const std::uint32_t runFloor =
+        std::max(static_cast<std::uint32_t>(minBlockTicks), kMinBlockRunTicks);
+    if (wantGap && (tick_ - blockedSinceTick_) < runFloor)
+        wantGap = false;
+
+    if (wantGap)
         release(env, keyBind);
     else
         press(env, keyBind);

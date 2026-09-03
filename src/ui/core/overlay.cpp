@@ -13,6 +13,7 @@
 #include "../menu/menu.h"
 #include "../widgets/icons.hpp"
 #include "../widgets/widgets.hpp"
+#include "hud_fonts.h"
 #include "../../jni/apollo/apollo_handshake.hpp"
 
 // Embedded font data
@@ -24,7 +25,9 @@
 #include <atomic>
 #include <chrono>
 #include <mutex>
+#include <string>
 #include <thread>
+#include <vector>
 
 #include "../../../infra/ext/imgui/imgui.h"
 #include "../../../infra/ext/imgui/imgui_impl_opengl2.h"
@@ -33,6 +36,145 @@
 #include "../../util/math/worldToScreen.h"
 
 extern LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
+
+// ---------------------------------------------------------------------------
+// hud_fonts — pickable HUD families (see ui/core/hud_fonts.h for the contract).
+// Lives here because the atlas is built here and this TU is already compiled.
+// ---------------------------------------------------------------------------
+namespace hud_fonts {
+namespace {
+
+struct SysCandidate {
+    int id;                // stable, persisted in configs — never renumber
+    const char* label;
+    const wchar_t* file;   // relative to %WINDIR%\Fonts
+};
+
+// Faces that ship with Windows, so nothing has to be embedded or redistributed.
+// Weight-heavy variants first: a HUD reads better in semibold/bold than in a
+// text weight. Missing files are skipped silently.
+constexpr SysCandidate kSysCandidates[] = {
+    {2, "Segoe UI Semibold", L"seguisb.ttf"},
+    {3, "Segoe UI Bold", L"segoeuib.ttf"},
+    {4, "Segoe UI", L"segoeui.ttf"},
+    {5, "Verdana Bold", L"verdanab.ttf"},
+    {6, "Tahoma Bold", L"tahomabd.ttf"},
+    {7, "Trebuchet MS Bold", L"trebucbd.ttf"},
+    {8, "Arial Bold", L"arialbd.ttf"},
+    {9, "Calibri Bold", L"calibrib.ttf"},
+    {10, "Franklin Gothic", L"framd.ttf"},
+    {11, "Consolas Bold", L"consolab.ttf"},
+    {12, "Impact", L"impact.ttf"},
+};
+
+struct Entry {
+    int id;
+    const char* label;
+    ImFont* font;
+};
+
+std::vector<Entry> g_entries;
+std::vector<const char*> g_names;
+
+// Rasterised once at 26px: the ArrayList draws at 24 and the Watermark at 19, so
+// both downscale (soft) instead of upscaling (blurry). Horizontal oversampling
+// only — vertical costs atlas area for no visible gain at these sizes.
+constexpr float kExtraPixelSize = 26.0f;
+
+bool fileExists(const std::wstring& path) {
+    const DWORD attr = GetFileAttributesW(path.c_str());
+    return attr != INVALID_FILE_ATTRIBUTES && !(attr & FILE_ATTRIBUTE_DIRECTORY);
+}
+
+std::vector<char> toUtf8(const std::wstring& w) {
+    std::vector<char> out;
+    const int need = WideCharToMultiByte(CP_UTF8, 0, w.c_str(), -1, nullptr, 0, nullptr, nullptr);
+    if (need <= 0)
+        return out;
+    out.resize((size_t)need);
+    if (WideCharToMultiByte(CP_UTF8, 0, w.c_str(), -1, out.data(), need, nullptr, nullptr) <= 0)
+        out.clear();
+    return out;
+}
+
+}  // namespace
+
+void Register(ImFontAtlas* atlas) {
+    if (!atlas)
+        return;
+
+    // Always rebuilt, never skipped when non-empty: the overlay tears the ImGui
+    // context down and calls SetupImGui again when the GL context changes, and the
+    // ImFont pointers from the old atlas are dangling the moment that happens.
+    g_entries.clear();
+    g_names.clear();
+
+    // The embedded faces are already in the atlas; entries 0/1 must stay these
+    // two so previously saved ArrayList font values keep their meaning.
+    ImFont* interRegular = atlas->Fonts.Size > 5 ? atlas->Fonts[5] : nullptr;
+    ImFont* interBold = atlas->Fonts.Size > 2 ? atlas->Fonts[2] : nullptr;
+    g_entries.push_back({kInterRegular, "Inter Regular", interRegular ? interRegular : interBold});
+    g_entries.push_back({kInterBold, "Inter Bold", interBold});
+
+    wchar_t winDir[MAX_PATH] = {};
+    const UINT n = GetWindowsDirectoryW(winDir, MAX_PATH);
+    if (n > 0 && n < MAX_PATH) {
+        const std::wstring fontDir = std::wstring(winDir) + L"\\Fonts\\";
+
+        ImFontConfig cfg;
+        cfg.OversampleH = 2;
+        cfg.OversampleV = 1;
+        // Left at the default (true): the atlas allocated this file's bytes and
+        // must free them after the build, unlike the embedded static arrays.
+        const ImWchar* ranges = atlas->GetGlyphRangesDefault();
+
+        for (const SysCandidate& c : kSysCandidates) {
+            const std::wstring path = fontDir + c.file;
+            // Probed first because ImGui asserts on a font file it can't open.
+            if (!fileExists(path))
+                continue;
+            std::vector<char> utf8 = toUtf8(path);
+            if (utf8.empty())
+                continue;
+            if (ImFont* f = atlas->AddFontFromFileTTF(utf8.data(), kExtraPixelSize, &cfg, ranges))
+                g_entries.push_back({c.id, c.label, f});
+        }
+    }
+
+    g_names.clear();
+    g_names.reserve(g_entries.size());
+    for (const Entry& e : g_entries)
+        g_names.push_back(e.label);
+}
+
+int Count() { return (int)g_entries.size(); }
+
+const char* const* Names() { return g_names.empty() ? nullptr : g_names.data(); }
+
+int IdAt(int comboIndex) {
+    if (comboIndex < 0 || comboIndex >= (int)g_entries.size())
+        return kInterRegular;
+    return g_entries[(size_t)comboIndex].id;
+}
+
+int ComboIndexOf(int id) {
+    for (size_t i = 0; i < g_entries.size(); ++i)
+        if (g_entries[i].id == id)
+            return (int)i;
+    return 0;
+}
+
+ImFont* GetById(int id) {
+    for (const Entry& e : g_entries)
+        if (e.id == id && e.font)
+            return e.font;
+    for (const Entry& e : g_entries)
+        if (e.font)
+            return e.font;
+    return nullptr;
+}
+
+}  // namespace hud_fonts
 
 namespace {
 std::atomic<bool> initStarted{false};
@@ -138,6 +280,11 @@ void SetupImGui() {
     // 5: ArrayList Regular (Inter Regular 22px) - the clean geometric-sans look;
     //    the ArrayList's font picker swaps between this (Regular) and slot 2 (Bold).
     io.Fonts->AddFontFromMemoryTTF((void*)inter_regular_ttf_data, inter_regular_ttf_size, 22.0f, &fontConfig);
+
+    // Slots 0-5 above are addressed by hardcoded index across the UI and must stay
+    // exactly where they are. Everything the user can pick for a HUD element is
+    // appended after them, from the system font directory.
+    hud_fonts::Register(io.Fonts);
 
     defaultFont = io.Fonts->Fonts[0];
 
