@@ -132,7 +132,9 @@
     <ClCompile Include="src\module\utility\throwpots.cpp" />
     <ClCompile Include="src\module\utility\autopot.cpp" />
     <ClCompile Include="src\module\utility\teams.cpp" />
+    <ClCompile Include="src\module\movement\faststop.cpp" />
     <ClCompile Include="src\module\utility\altmanager.cpp" />
+    <ClCompile Include="src\module\utility\altmanager_auth.cpp" />
     <ClCompile Include="src\module\visual\nametags.cpp" />
     <ClCompile Include="src\module\visual\anti_debuff.cpp" />
     <ClCompile Include="src\module\movement\no_slow_down.cpp" />
@@ -233,7 +235,10 @@
     <ClInclude Include="src\module\movement\inventorymove.h" />
     <ClInclude Include="src\module\utility\autotool.h" />
     <ClInclude Include="src\module\utility\inventorymanager.h" />
+    <ClInclude Include="src\module\movement\faststop.h" />
     <ClInclude Include="src\module\utility\altmanager.h" />
+    <ClInclude Include="src\module\utility\altmanager_auth.h" />
+    <ClInclude Include="src\util\network\auth_http.hpp" />
     <ClInclude Include="src\module\visual\nametags.h" />
     <ClInclude Include="src\module\visual\anti_debuff.h" />
     <ClInclude Include="src\module\movement\no_slow_down.h" />

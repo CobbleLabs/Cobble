@@ -235,8 +235,8 @@ void AutoClicker::onUpdate() {
 
         // Perform exactly one click
         if (useRightClick) {
-            SendMessage(hwnd, WM_RBUTTONDOWN, MK_RBUTTON, 0);
-            SendMessage(hwnd, WM_RBUTTONUP, 0, 0);
+            PostMessage(hwnd, WM_RBUTTONDOWN, MK_RBUTTON, 0);
+            PostMessage(hwnd, WM_RBUTTONUP, 0, 0);
         } else {
             // Check HitSelect before attacking
             if (hitSelect && hitSelect->enabled && !hitSelect->shouldAllowClick()) {
@@ -244,8 +244,8 @@ void AutoClicker::onUpdate() {
                 stableLastClick = now;
                 return;
             }
-            SendMessage(hwnd, WM_LBUTTONDOWN, MK_LBUTTON, 0);
-            SendMessage(hwnd, WM_LBUTTONUP, 0, 0);
+            PostMessage(hwnd, WM_LBUTTONDOWN, MK_LBUTTON, 0);
+            PostMessage(hwnd, WM_LBUTTONUP, 0, 0);
         }
         stableClickCount++;
         stableLastClick = now;

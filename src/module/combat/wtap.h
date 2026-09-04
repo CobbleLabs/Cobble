@@ -32,6 +32,8 @@ public:
     void saveSettings(json::Value& node) const override;
     void loadSettings(const json::Value& node) override;
 
+    bool isTapping() const;
+
 private:
     enum class State {
         Idle,

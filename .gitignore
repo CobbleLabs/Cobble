@@ -48,9 +48,6 @@ infra/keys/
 *.zip
 
 # Auto-generated
-loader/res/Cobble.enc
-loader/src/util/dll_hash.h
-loader/src/security/integrity_gen.hpp
 loader/res/test38.enc
 loader/src/test6/test33.h
 loader/src/test3/test18.hpp
@@ -69,3 +66,6 @@ tests/
 
 # Third-party client binaries pulled apart for reference — never ours to ship
 extracted/
+
+# Stray copy of the vmprotect submodule (real one is the `vmprotect` gitlink)
+infra/vmprotect/

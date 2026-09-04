@@ -428,6 +428,93 @@ void Minecraft::windowClick(int slotId, int button) {
 }
 
 // =============================================================================
+// dropSlot - Throw an item out of a slot (windowClick mode 4)
+// Mode 4 is vanilla's THROW: button 0 drops one item, button 1 drops the stack.
+// With no GUI open, openContainer is the player's own inventoryContainer, so
+// this works without ever showing a screen.
+// =============================================================================
+
+void Minecraft::dropSlot(int slotId, bool wholeStack) {
+    if (!isValid())
+        return;
+
+    JNIEnv* env = Java::Env();
+    if (!env)
+        return;
+
+    jobject localPlayer = getPlayer();
+    if (!localPlayer)
+        return;
+
+    if (!JniCache::fid_openContainer) {
+        env->DeleteLocalRef(localPlayer);
+        return;
+    }
+
+    jobject openContainer = env->GetObjectField(localPlayer, JniCache::fid_openContainer);
+    if (!openContainer) {
+        env->DeleteLocalRef(localPlayer);
+        return;
+    }
+
+    int windowId = 0;
+    if (JniCache::fid_windowId) {
+        windowId = env->GetIntField(openContainer, JniCache::fid_windowId);
+    }
+
+    env->DeleteLocalRef(openContainer);
+
+    if (!JniCache::fid_playerController) {
+        env->DeleteLocalRef(localPlayer);
+        return;
+    }
+
+    jobject playerController = env->GetObjectField(instance, JniCache::fid_playerController);
+    if (!playerController) {
+        env->DeleteLocalRef(localPlayer);
+        return;
+    }
+
+    jclass controllerCls = env->GetObjectClass(playerController);
+
+    // windowClick(int windowId, int slotId, int mouseButton, int mode, EntityPlayer player)
+    jmethodID mid_windowClick = env->GetMethodID(
+        controllerCls, OBFUSCATE_STRING("windowClick").c_str(),
+        OBFUSCATE_STRING("(IIIILnet/minecraft/entity/player/EntityPlayer;)Lnet/minecraft/item/ItemStack;").c_str());
+
+    if (!mid_windowClick) {
+        env->DeleteLocalRef(controllerCls);
+        env->DeleteLocalRef(playerController);
+        env->DeleteLocalRef(localPlayer);
+        return;
+    }
+
+    // Container slot mapping: hotbar (0-8) -> container slots 36-44
+    int containerSlot = slotId;
+    if (slotId >= 0 && slotId <= 8) {
+        containerSlot = slotId + 36;
+    }
+
+    const int button = wholeStack ? 1 : 0;
+
+    log_debug("[dropSlot] slotId=%d -> containerSlot=%d, windowId=%d, button=%d, mode=4 (throw)", slotId,
+              containerSlot, windowId, button);
+
+    jobject result =
+        env->CallObjectMethod(playerController, mid_windowClick, windowId, containerSlot, button, 4, localPlayer);
+
+    if (env->ExceptionCheck()) {
+        env->ExceptionClear();
+    }
+
+    if (result)
+        env->DeleteLocalRef(result);
+    env->DeleteLocalRef(controllerCls);
+    env->DeleteLocalRef(playerController);
+    env->DeleteLocalRef(localPlayer);
+}
+
+// =============================================================================
 // windowClickSwap - Swap a container slot with a hotbar slot (mode 2)
 // This is like pressing a number key while hovering over a slot
 // =============================================================================

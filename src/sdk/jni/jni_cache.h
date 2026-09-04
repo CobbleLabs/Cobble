@@ -282,6 +282,7 @@ extern jmethodID mid_getBlockPos;  // 1.8.x
 
 extern jfieldID fid_BLOCK;
 extern jfieldID fid_ENTITY;
+extern jfieldID fid_MISS;  // Used to blank a crosshair hit we refuse to act on
 
 // =============================================================================
 // World class IDs

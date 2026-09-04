@@ -7,7 +7,9 @@
 
 #include <algorithm>
 #include <cmath>
-#include <random>
+#include <cstdlib>
+#include <numeric>
+#include <utility>
 
 ThrowPots* throwPots = nullptr;
 
@@ -50,131 +52,63 @@ void resolveC03(JNIEnv* env) {
         env->ExceptionClear();
 }
 
-bool isStrongHealingPotion(int damage) {
-    return (damage & 0x20) != 0;
+// 1.8 potion metadata layout: the low nibble is the base potion type, 0x20
+// marks tier II and 0x4000 marks a splash potion. Testing the bits instead of
+// the SDK's isHealthPotion whitelist also catches the extended-flag variants
+// (e.g. 16453) that the whitelist misses.
+constexpr int kPotionBaseMask = 0x0F;
+constexpr int kPotionTierTwoBit = 0x20;
+constexpr int kPotionSplashBit = 0x4000;
+constexpr int kPotionBaseRegeneration = 1;
+constexpr int kPotionBaseHealing = 5;
+
+bool isSplashPotionMeta(int damage) {
+    return (damage & kPotionSplashBit) != 0;
 }
 
-// Cubic-free smoothstep: enough to kill the linear-ramp look without the
-// overshoot a back-ease would add, which on a pitch sweep would read as a
-// jitter past the floor and back.
-float smoothstep(float t) {
-    t = (std::clamp)(t, 0.0f, 1.0f);
-    return t * t * (3.0f - 2.0f * t);
+// Vape's ItemStackScoreUtil counts Instant Health (potion id 6, base 5) and
+// Regeneration (potion id 10, base 1) as healing.
+bool isHealingPotionMeta(int damage) {
+    const int base = damage & kPotionBaseMask;
+    return base == kPotionBaseHealing || base == kPotionBaseRegeneration;
+}
+
+bool isStrongHealingPotion(int damage) {
+    return (damage & kPotionTierTwoBit) != 0;
 }
 
 }  // namespace
 
 ThrowPots::ThrowPots() : Module("ThrowPots") {
     keybind = 0;
-    rng_.seed(static_cast<uint64_t>(std::chrono::steady_clock::now().time_since_epoch().count()) ^
-              (reinterpret_cast<uint64_t>(this) * 0x9E3779B97F4A7C15ull));
+    rng_.seed(static_cast<unsigned int>(std::chrono::steady_clock::now().time_since_epoch().count()));
 }
 
-void ThrowPots::applyPreset(ThrowPotsPreset preset) {
-    settings.preset = static_cast<int>(preset);
-    switch (preset) {
-        case ThrowPotsPreset::Instant:
-            // The old flat behaviour, kept reachable on purpose: fastest possible
-            // burst, zero humanization.
-            settings.switchDelay = 0;
-            settings.throwDelay = 40;
-            settings.reactionMs = 0;
-            settings.jitterPercent = 0;
-            settings.fatigue = false;
-            settings.pitchJitter = 0;
-            settings.aimSmoothMs = 0;
-            break;
-        case ThrowPotsPreset::Fast:
-            settings.switchDelay = 30;
-            settings.throwDelay = 60;
-            settings.reactionMs = 55;
-            settings.jitterPercent = 18;
-            settings.fatigue = false;
-            settings.pitchJitter = 2;
-            settings.aimSmoothMs = 50;
-            break;
-        case ThrowPotsPreset::Human:
-            settings.switchDelay = 55;
-            settings.throwDelay = 90;
-            settings.reactionMs = 120;
-            settings.jitterPercent = 30;
-            settings.fatigue = true;
-            settings.pitchJitter = 4;
-            settings.aimSmoothMs = 90;
-            break;
-        case ThrowPotsPreset::Careful:
-            settings.switchDelay = 95;
-            settings.throwDelay = 150;
-            settings.reactionMs = 220;
-            settings.jitterPercent = 50;
-            settings.fatigue = true;
-            settings.pitchJitter = 7;
-            settings.aimSmoothMs = 150;
-            break;
-        case ThrowPotsPreset::Custom:
-        default:
-            break;
-    }
-}
-
-int64_t ThrowPots::jitter(int baseMs) const {
-    return jitter(baseMs, settings.jitterPercent);
-}
-
-// Two uniform draws averaged: a soft bell, so most delays land near the base and
-// the tails are rare instead of a flat spread that is itself a signature.
-int64_t ThrowPots::jitter(int baseMs, int spreadPercent) const {
-    if (baseMs <= 0)
-        return 0;
-    const int spread = (std::clamp)(spreadPercent, 0, 100);
-    if (spread == 0)
-        return baseMs;
-    std::uniform_real_distribution<float> dist(-1.0f, 1.0f);
-    const float noise = (dist(rng_) + dist(rng_)) * 0.5f;
-    const float scaled = static_cast<float>(baseMs) * (1.0f + noise * (static_cast<float>(spread) / 100.0f));
-    return static_cast<int64_t>(std::lround((std::max)(0.0f, scaled)));
-}
-
-// A real burst slows down as it runs; the fourth pot never comes as fast as the
-// first. Capped so a nine-pot Dynamic burst does not crawl.
-float ThrowPots::fatigueScale() const {
-    if (!settings.fatigue || successfulThrows_ <= 0)
-        return 1.0f;
-    return 1.0f + 0.07f * static_cast<float>((std::min)(successfulThrows_, 5));
-}
-
-float ThrowPots::pickAimPitch() const {
-    const float base = static_cast<float>((std::clamp)(settings.aimPitch, 0, 90));
-    if (settings.pitchJitter <= 0)
-        return base;
-    std::uniform_real_distribution<float> dist(-1.0f, 1.0f);
-    const float noise = (dist(rng_) + dist(rng_)) * 0.5f;
-    return (std::clamp)(base + noise * static_cast<float>(settings.pitchJitter), -90.0f, 90.0f);
-}
-
-void ThrowPots::enterState(State next, int64_t delayMs) {
-    state_ = next;
-    stateStart_ = std::chrono::steady_clock::now();
-    stateDelay_ = delayMs > 0 ? delayMs : 0;
+int ThrowPots::rollItemDelay() {
+    const int low = (std::min)(settings.delayMinMs, settings.delayMaxMs);
+    const int high = (std::max)(settings.delayMinMs, settings.delayMaxMs);
+    if (high <= low)
+        return low;
+    std::uniform_int_distribution<int> spread(low, high);
+    return spread(rng_);
 }
 
 void ThrowPots::resetTransientState() {
     state_ = State::Idle;
-    stateDelay_ = 0;
     plan_.clear();
     planIndex_ = 0;
     target_ = {};
-    successfulThrows_ = 0;
+    scrollTarget_ = -1;
+    itemDelayMs_ = 0;
+    successfulUses_ = 0;
     retryCount_ = 0;
     pitchModified_ = false;
-    aimSweepMs_ = 0;
-    restoreSweepMs_ = 0;
     rotationRequested_.store(false, std::memory_order_release);
     rotationSent_.store(false, std::memory_order_release);
-    aimFinal_.store(false, std::memory_order_release);
     pendingUse_.store(false, std::memory_order_release);
     useDispatched_.store(false, std::memory_order_release);
-    useSucceeded_.store(false, std::memory_order_release);
+    pendingDropSlot_.store(-1, std::memory_order_release);
+    dropDispatched_.store(false, std::memory_order_release);
 }
 
 void ThrowPots::onEnable() {
@@ -186,15 +120,8 @@ void ThrowPots::onEnable() {
 
     originalSlot_ = player.getCurrentSlot();
     originalPitch_ = player.getPitch();
-
-    // Fail fast when there is nothing to throw, so the keybind does not light the
-    // module up for a reaction delay and then quietly give up. The plan is rebuilt
-    // once the reaction elapses, because health can change in the meantime.
-    if (!buildPlan()) {
+    if (!buildPlan() || !selectNextItem())
         finish(true);
-        return;
-    }
-    enterState(State::Reacting, jitter(settings.reactionMs));
 }
 
 void ThrowPots::onDisable() {
@@ -206,131 +133,178 @@ void ThrowPots::onWorldChange() {
 }
 
 bool ThrowPots::buildPlan() {
-    std::vector<PlannedPotion> available;
-    for (const auto& slot : mc.getInventorySlots()) {
-        if (slot.slotId < 0 || slot.slotId > 8 || slot.itemId != kPotionItemId || !slot.isSplashPotion ||
-            !slot.isHealthPotion || slot.stackSize <= 0) {
-            continue;
-        }
-        const bool strong = isStrongHealingPotion(slot.damage);
-        if (!settings.allowHealthI && !strong)
-            continue;
-        available.push_back({slot.slotId, slot.damage, slot.stackSize, strong ? 8 : 4});
-    }
-    if (available.empty())
-        return false;
+    const std::vector<SlotInfo> slots = mc.getInventorySlots();
 
-    if (settings.randomSlots) {
-        std::shuffle(available.begin(), available.end(), rng_);
-    } else {
-        std::stable_sort(available.begin(), available.end(), [](const PlannedPotion& left, const PlannedPotion& right) {
-            return left.healAmount > right.healAmount;
-        });
-    }
+    // Vape scans the 9 hotbar slots, shuffling the scan order when Random is on.
+    std::vector<int> order(kHotbarSize);
+    std::iota(order.begin(), order.end(), 0);
+    if (settings.randomOrder)
+        std::shuffle(order.begin(), order.end(), rng_);
+
+    const bool soupEnabled = settings.type == ThrowPotsType::Both || settings.type == ThrowPotsType::Soup;
+    const bool potsEnabled = settings.type == ThrowPotsType::Both || settings.type == ThrowPotsType::Pots;
 
     const float maxHealth = player.getMaxHealth();
-    healTarget_ = maxHealth * (static_cast<float>(settings.targetHealthPercent) / 100.0f);
-    const float missingHealth = healTarget_ - player.getHealth();
-    if (missingHealth <= 0.0f)
-        return false;
+    const float flooredHealth = std::floor(player.getHealth());
+    const size_t planCap = static_cast<size_t>((std::max)(1, settings.maxThrows));
+    int queuedHealing = 0;
 
-    size_t desiredCount = 1;
-    if (settings.mode == ThrowPotsMode::Double) {
-        desiredCount = static_cast<size_t>((std::min)(2, static_cast<int>(std::ceil(missingHealth / 8.0f))));
-    } else if (settings.mode == ThrowPotsMode::Dynamic) {
-        float remaining = missingHealth;
-        desiredCount = 0;
-        for (const auto& potion : available) {
-            if (desiredCount >= static_cast<size_t>(settings.maxThrows) || remaining <= 0.0f)
-                break;
-            remaining -= static_cast<float>(potion.healAmount);
-            ++desiredCount;
+    for (int slotId : order) {
+        if (static_cast<size_t>(slotId) >= slots.size())
+            continue;
+        const SlotInfo& slot = slots[slotId];
+        if (slot.slotId != slotId || slot.itemId <= 0 || slot.stackSize <= 0)
+            continue;
+
+        PlannedItem item;
+        item.slot = slotId;
+        item.itemId = slot.itemId;
+        item.damage = slot.damage;
+        item.stackSize = slot.stackSize;
+
+        if (soupEnabled && slot.itemId == kSoupItemId) {
+            item.isSoup = true;
+            item.healAmount = kSoupHealAmount;
+        } else if (potsEnabled && slot.itemId == kPotionItemId && isSplashPotionMeta(slot.damage) &&
+                   isHealingPotionMeta(slot.damage)) {
+            const bool strong = isStrongHealingPotion(slot.damage);
+            if (!settings.allowHealthI && !strong)
+                continue;
+            // Vape's 4 * (amplifier + 1): Heal I heals 4, Heal II heals 8.
+            item.healAmount = strong ? 8 : 4;
+        } else {
+            continue;
         }
+
+        // Single always uses exactly one item, regardless of health.
+        if (settings.mode == ThrowPotsMode::Single) {
+            plan_.assign(1, item);
+            return true;
+        }
+
+        // Dynamic queues an item only while it cannot overheal.
+        if (static_cast<float>(queuedHealing + item.healAmount) + flooredHealth > maxHealth)
+            continue;
+
+        queuedHealing += item.healAmount;
+        plan_.push_back(item);
+        if (plan_.size() >= planCap)
+            break;
     }
 
-    desiredCount = (std::min)(desiredCount, available.size());
-    plan_.assign(available.begin(), available.begin() + desiredCount);
-    return !plan_.empty();
+    if (plan_.empty())
+        return false;
+
+    // Vape orders the queue by absolute hotbar distance from the starting slot.
+    const int anchor = originalSlot_;
+    std::stable_sort(plan_.begin(), plan_.end(), [anchor](const PlannedItem& left, const PlannedItem& right) {
+        return std::abs(left.slot - anchor) < std::abs(right.slot - anchor);
+    });
+    return true;
 }
 
-bool ThrowPots::selectNextPotion() {
-    if (!player.isValid() || planIndex_ >= plan_.size())
-        return false;
-    if (settings.mode == ThrowPotsMode::Dynamic && player.getHealth() >= healTarget_)
+bool ThrowPots::selectNextItem() {
+    if (!player.isValid())
         return false;
 
-    target_ = plan_[planIndex_];
-    bool valid = false;
-    for (const auto& slot : mc.getInventorySlots()) {
-        if (slot.slotId == target_.slot && slot.itemId == kPotionItemId && slot.isSplashPotion &&
-            slot.isHealthPotion && slot.damage == target_.damage && slot.stackSize > 0) {
-            target_.stackSize = slot.stackSize;
-            valid = true;
+    // Vape walks its whole queue; an item that vanished mid-run (traded away,
+    // eaten by another module) skips to the next one instead of ending the run.
+    while (planIndex_ < plan_.size()) {
+        target_ = plan_[planIndex_];
+        if (targetItemPresent(true))
             break;
-        }
+        ++planIndex_;
     }
-    if (!valid)
+    if (planIndex_ >= plan_.size())
         return false;
 
     rotationRequested_.store(false, std::memory_order_release);
     rotationSent_.store(false, std::memory_order_release);
-    aimFinal_.store(false, std::memory_order_release);
     pendingUse_.store(false, std::memory_order_release);
     useDispatched_.store(false, std::memory_order_release);
-    useSucceeded_.store(false, std::memory_order_release);
-    player.setCurrentSlot(target_.slot);
-    enterState(State::SwitchDelay,
-               static_cast<int64_t>(std::lround(static_cast<float>(jitter(settings.switchDelay)) * fatigueScale())));
+    pendingDropSlot_.store(-1, std::memory_order_release);
+    dropDispatched_.store(false, std::memory_order_release);
+
+    beginSlotChange(target_.slot, State::SwitchDelay);
     return true;
 }
 
-bool ThrowPots::targetPotionPresent(bool requireOriginalStackSize) const {
+bool ThrowPots::targetItemPresent(bool requireOriginalStackSize) const {
     for (const auto& slot : mc.getInventorySlots()) {
         if (slot.slotId != target_.slot)
             continue;
-        if (slot.itemId != kPotionItemId || !slot.isSplashPotion || !slot.isHealthPotion ||
-            slot.damage != target_.damage) {
+        if (slot.itemId != target_.itemId || slot.damage != target_.damage)
             return false;
-        }
         return !requireOriginalStackSize || slot.stackSize >= target_.stackSize;
     }
     return false;
 }
 
+void ThrowPots::beginSlotChange(int slot, State afterArrival) {
+    scrollTarget_ = slot;
+    stateStart_ = std::chrono::steady_clock::now();
+
+    if (!settings.scroll) {
+        player.setCurrentSlot(slot);
+        state_ = afterArrival;
+        return;
+    }
+
+    // Scroll mode walks currentItem one slot per Scroll delay, the way Vape's
+    // selectHotbarSlot does, so the switch stays observable instead of jumping.
+    state_ = afterArrival == State::SwitchDelay ? State::Scroll : State::RestoreScroll;
+}
+
+void ThrowPots::stepScroll() {
+    const int current = player.getCurrentSlot();
+    if (current == scrollTarget_)
+        return;
+    // Snap on an unreadable slot rather than stepping, so the scroll states can
+    // never spin without making progress toward the target.
+    if (current < 0 || current > 8) {
+        player.setCurrentSlot(scrollTarget_);
+        return;
+    }
+    player.setCurrentSlot(current < scrollTarget_ ? current + 1 : current - 1);
+}
+
 void ThrowPots::requestDownRotation() {
     aimYaw_.store(player.getYaw(), std::memory_order_release);
-    aimStartPitch_ = player.getPitch();
-    aimEndPitch_ = pickAimPitch();
-    aimSweepMs_ = settings.aimSmoothMs > 0 ? jitter(settings.aimSmoothMs, 25) : 0;
-    // A sweep shorter than a couple of ticks reaches the server as a single jump
-    // anyway, so collapse it rather than pay for the extra states.
-    if (aimSweepMs_ < 20)
-        aimSweepMs_ = 0;
-
-    const float initialPitch = aimSweepMs_ > 0 ? aimStartPitch_ : aimEndPitch_;
-    aimPitch_.store(initialPitch, std::memory_order_release);
-    aimFinal_.store(aimSweepMs_ <= 0, std::memory_order_release);
     rotationSent_.store(false, std::memory_order_release);
     rotationRequested_.store(true, std::memory_order_release);
-    enterState(State::AwaitRotation, aimSweepMs_);
+    state_ = State::AwaitRotation;
+    stateStart_ = std::chrono::steady_clock::now();
 
     if (settings.aim == ThrowPotsAim::Down) {
-        player.setPitch(initialPitch);
-        player.setPrevPitch(initialPitch);
+        player.setPitch(90.0f);
+        player.setPrevPitch(90.0f);
+        mc.updateMouseOver();
         pitchModified_ = true;
-        // While sweeping, the raytrace is refreshed once at the end instead of on
-        // every step: updateMouseOver off the client thread is the expensive and
-        // risky part, and a splash potion does not need a block under the cursor.
-        if (aimSweepMs_ <= 0)
-            mc.updateMouseOver();
     }
 }
 
 void ThrowPots::queueUse() {
     useDispatched_.store(false, std::memory_order_release);
-    useSucceeded_.store(false, std::memory_order_release);
     pendingUse_.store(true, std::memory_order_release);
-    enterState(State::AwaitUseFlush, 0);
+    state_ = State::AwaitUseFlush;
+    stateStart_ = std::chrono::steady_clock::now();
+}
+
+void ThrowPots::queueBowlDrop() {
+    dropDispatched_.store(false, std::memory_order_release);
+    pendingDropSlot_.store(target_.slot, std::memory_order_release);
+    state_ = State::AwaitDropFlush;
+    stateStart_ = std::chrono::steady_clock::now();
+}
+
+void ThrowPots::advanceAfterItem() {
+    pendingDropSlot_.store(-1, std::memory_order_release);
+    dropDispatched_.store(false, std::memory_order_release);
+    ++planIndex_;
+    retryCount_ = 0;
+    itemDelayMs_ = rollItemDelay();
+    state_ = State::ItemDelay;
+    stateStart_ = std::chrono::steady_clock::now();
 }
 
 void ThrowPots::retryOrRestore() {
@@ -338,14 +312,10 @@ void ThrowPots::retryOrRestore() {
     useDispatched_.store(false, std::memory_order_release);
     rotationRequested_.store(false, std::memory_order_release);
     rotationSent_.store(false, std::memory_order_release);
-    aimFinal_.store(false, std::memory_order_release);
 
-    if (settings.retryOnFail && retryCount_ < kMaxRetries && targetPotionPresent(true)) {
+    if (settings.retryOnFail && retryCount_ < kMaxRetries && targetItemPresent(true)) {
         ++retryCount_;
-        player.setCurrentSlot(target_.slot);
-        // A person who notices a throw did not land pauses a beat longer than
-        // normal before trying again, so a retry never reads as a machine repeat.
-        enterState(State::SwitchDelay, jitter(settings.switchDelay + 45, 40));
+        beginSlotChange(target_.slot, State::SwitchDelay);
         return;
     }
     beginRestore();
@@ -353,33 +323,24 @@ void ThrowPots::retryOrRestore() {
 
 void ThrowPots::beginRestore() {
     pendingUse_.store(false, std::memory_order_release);
+    pendingDropSlot_.store(-1, std::memory_order_release);
     rotationRequested_.store(false, std::memory_order_release);
     rotationSent_.store(false, std::memory_order_release);
-    aimFinal_.store(false, std::memory_order_release);
-    if (!settings.switchBack) {
+
+    if (!settings.switchBack || originalSlot_ < 0 || originalSlot_ > 8) {
         finish(true);
         return;
     }
-
-    int64_t wait = jitter(settings.switchDelay);
-    restoreSweepMs_ = 0;
-    if (pitchModified_ && settings.aimSmoothMs > 0) {
-        // Come back up the same way we went down. rotationRequested_ is already
-        // false here, so the gate is out of the way and the real player pitch is
-        // what reaches the server.
-        restoreSweepMs_ = jitter(settings.aimSmoothMs, 25);
-        if (wait < restoreSweepMs_)
-            wait = restoreSweepMs_;
-    }
-    enterState(State::RestoreDelay, wait);
+    beginSlotChange(originalSlot_, State::RestoreDelay);
 }
 
 void ThrowPots::finish(bool restorePlayerState) {
     pendingUse_.store(false, std::memory_order_release);
     useDispatched_.store(false, std::memory_order_release);
+    pendingDropSlot_.store(-1, std::memory_order_release);
+    dropDispatched_.store(false, std::memory_order_release);
     rotationRequested_.store(false, std::memory_order_release);
     rotationSent_.store(false, std::memory_order_release);
-    aimFinal_.store(false, std::memory_order_release);
 
     if (restorePlayerState && player.isValid()) {
         if (pitchModified_) {
@@ -392,13 +353,12 @@ void ThrowPots::finish(bool restorePlayerState) {
     }
 
     state_ = State::Idle;
-    stateDelay_ = 0;
     plan_.clear();
+    planIndex_ = 0;
     target_ = {};
     originalSlot_ = -1;
+    scrollTarget_ = -1;
     pitchModified_ = false;
-    aimSweepMs_ = 0;
-    restoreSweepMs_ = 0;
     enabled = false;
 }
 
@@ -417,19 +377,22 @@ void ThrowPots::onUpdate() {
         case State::Idle:
             break;
 
-        case State::Reacting:
-            if (elapsed < stateDelay_)
+        case State::Scroll:
+            if (elapsed < settings.scrollDelayMs)
                 return;
-            // Rebuilt here rather than reused from onEnable: health, and the
-            // hotbar, can both move during the reaction window.
-            if (!buildPlan() || !selectNextPotion())
-                finish(true);
+            if (player.getCurrentSlot() == scrollTarget_) {
+                state_ = State::SwitchDelay;
+                stateStart_ = now;
+                return;
+            }
+            stepScroll();
+            stateStart_ = now;
             break;
 
         case State::SwitchDelay:
-            if (elapsed < stateDelay_)
+            if (elapsed < settings.switchDelay)
                 return;
-            if (player.getCurrentSlot() != target_.slot || !targetPotionPresent(true)) {
+            if (player.getCurrentSlot() != target_.slot || !targetItemPresent(true)) {
                 retryOrRestore();
                 return;
             }
@@ -439,76 +402,70 @@ void ThrowPots::onUpdate() {
                 requestDownRotation();
             break;
 
-        case State::AwaitRotation: {
+        case State::AwaitRotation:
             aimYaw_.store(player.getYaw(), std::memory_order_release);
-
-            bool arrived = true;
-            if (aimSweepMs_ > 0) {
-                const float progress =
-                    (std::clamp)(static_cast<float>(elapsed) / static_cast<float>(aimSweepMs_), 0.0f, 1.0f);
-                const float pitch = aimStartPitch_ + (aimEndPitch_ - aimStartPitch_) * smoothstep(progress);
-                aimPitch_.store(pitch, std::memory_order_release);
-                if (settings.aim == ThrowPotsAim::Down) {
-                    player.setPitch(pitch);
-                    player.setPrevPitch(pitch);
-                }
-                arrived = progress >= 1.0f;
-                if (arrived) {
-                    aimFinal_.store(true, std::memory_order_release);
-                    if (settings.aim == ThrowPotsAim::Down)
-                        mc.updateMouseOver();
-                    aimSweepMs_ = 0;  // one refresh only, however long we wait for the gate
-                }
-            }
-
-            if (arrived && rotationSent_.load(std::memory_order_acquire))
+            if (rotationSent_.load(std::memory_order_acquire))
                 queueUse();
             else if (elapsed >= kPacketTimeoutMs)
                 retryOrRestore();
             break;
-        }
 
         case State::AwaitUseFlush:
             if (useDispatched_.load(std::memory_order_acquire)) {
                 pendingUse_.store(false, std::memory_order_release);
                 rotationRequested_.store(false, std::memory_order_release);
                 rotationSent_.store(false, std::memory_order_release);
-                aimFinal_.store(false, std::memory_order_release);
-                if (!useSucceeded_.load(std::memory_order_acquire)) {
-                    retryOrRestore();
-                    return;
-                }
-                enterState(State::Verify, static_cast<int64_t>(std::lround(
-                                              static_cast<float>(jitter(settings.throwDelay)) * fatigueScale())));
+                state_ = State::Verify;
+                stateStart_ = now;
             } else if (elapsed >= kPacketTimeoutMs) {
                 retryOrRestore();
             }
             break;
 
         case State::Verify:
-            if (elapsed < stateDelay_)
+            // Vape holds the use key for ~51 ms before moving on; the same
+            // window is what the client needs to actually consume the stack.
+            if (elapsed < kUseSettleMs)
                 return;
-            if (targetPotionPresent(true)) {
+            if (targetItemPresent(true)) {
                 retryOrRestore();
                 return;
             }
 
-            ++successfulThrows_;
-            ++planIndex_;
-            retryCount_ = 0;
-            if (!selectNextPotion())
+            ++successfulUses_;
+            if (target_.isSoup && settings.throwBowls) {
+                queueBowlDrop();
+                return;
+            }
+            advanceAfterItem();
+            break;
+
+        case State::AwaitDropFlush:
+            // A bowl that will not drop is not worth aborting the queue over.
+            if (dropDispatched_.load(std::memory_order_acquire) || elapsed >= kPacketTimeoutMs)
+                advanceAfterItem();
+            break;
+
+        case State::ItemDelay:
+            if (elapsed < itemDelayMs_)
+                return;
+            if (!selectNextItem())
                 beginRestore();
             break;
 
-        case State::RestoreDelay:
-            if (pitchModified_ && restoreSweepMs_ > 0) {
-                const float progress =
-                    (std::clamp)(static_cast<float>(elapsed) / static_cast<float>(restoreSweepMs_), 0.0f, 1.0f);
-                const float pitch = aimEndPitch_ + (originalPitch_ - aimEndPitch_) * smoothstep(progress);
-                player.setPitch(pitch);
-                player.setPrevPitch(pitch);
+        case State::RestoreScroll:
+            if (elapsed < settings.scrollDelayMs)
+                return;
+            if (player.getCurrentSlot() == scrollTarget_) {
+                finish(true);
+                return;
             }
-            if (elapsed < stateDelay_)
+            stepScroll();
+            stateStart_ = now;
+            break;
+
+        case State::RestoreDelay:
+            if (elapsed < settings.switchDelay)
                 return;
             finish(true);
             break;
@@ -516,7 +473,8 @@ void ThrowPots::onUpdate() {
 }
 
 bool ThrowPots::needsOutgoingPacket() const {
-    return rotationRequested_.load(std::memory_order_acquire) || pendingUse_.load(std::memory_order_acquire);
+    return rotationRequested_.load(std::memory_order_acquire) || pendingUse_.load(std::memory_order_acquire) ||
+           pendingDropSlot_.load(std::memory_order_acquire) >= 0;
 }
 
 bool ThrowPots::isRewritingRotation() const {
@@ -536,180 +494,127 @@ void ThrowPots::onOutgoingPacket(JNIEnv* env, jobject packet) {
         if (!tpYawField || !tpPitchField || !tpRotatingField)
             return;
         env->SetFloatField(packet, tpYawField, aimYaw_.load(std::memory_order_acquire));
-        env->SetFloatField(packet, tpPitchField, aimPitch_.load(std::memory_order_acquire));
+        env->SetFloatField(packet, tpPitchField, 90.0f);
         env->SetBooleanField(packet, tpRotatingField, JNI_TRUE);
         if (env->ExceptionCheck()) {
             env->ExceptionClear();
             return;
         }
-        // Mid-sweep packets carry an intermediate pitch and must NOT release the
-        // use: the module only counts the rotation as delivered once the value it
-        // published is the final one.
-        if (!aimFinal_.load(std::memory_order_acquire))
-            return;
         rotationSent_.store(true, std::memory_order_release);
     }
 
     if (pendingUse_.exchange(false, std::memory_order_acq_rel)) {
-        const bool used = mc.sendUseHeldItem();
-        useSucceeded_.store(used, std::memory_order_release);
+        // sendUseItem returns whether the LOCAL stack changed, which is false
+        // for soup (the bowl replaces it in place). The stack check in Verify
+        // is what decides success, so the return value is deliberately ignored.
+        mc.sendUseHeldItem();
         useDispatched_.store(true, std::memory_order_release);
+    }
+
+    const int dropSlot = pendingDropSlot_.exchange(-1, std::memory_order_acq_rel);
+    if (dropSlot >= 0) {
+        mc.dropSlot(dropSlot, false);
+        dropDispatched_.store(true, std::memory_order_release);
     }
 }
 
 void ThrowPots::onRenderMenu() {
     ui::two_column(
-        "Action",
+        "Items",
         [this]() {
             ui::Binder("Keybind", &keybind);
             ImGui::Spacing();
 
-            static const char* modes[] = {"Dynamic", "Single", "Double"};
+            static const char* types[] = {"Both", "Pots", "Soup"};
+            int type = static_cast<int>(settings.type);
+            if (ui::Combo("Type", &type, types, IM_ARRAYSIZE(types)))
+                settings.type = static_cast<ThrowPotsType>(type);
+
+            static const char* modes[] = {"Dynamic", "Single"};
             int mode = static_cast<int>(settings.mode);
             if (ui::Combo("Mode", &mode, modes, IM_ARRAYSIZE(modes)))
                 settings.mode = static_cast<ThrowPotsMode>(mode);
 
-            ui::SliderInt("Target Health (%)", &settings.targetHealthPercent, 1, 100, "%d");
             if (settings.mode == ThrowPotsMode::Dynamic)
-                ui::SliderInt("Max Throws", &settings.maxThrows, 1, 9, "%d");
-            ui::Checkbox("Random Slots", &settings.randomSlots);
+                ui::SliderInt("Max Items", &settings.maxThrows, 1, 9, "%d");
+            ui::Checkbox("Random", &settings.randomOrder);
             ui::Checkbox("Allow Heal I", &settings.allowHealthI);
+            ui::Checkbox("Throw Bowls", &settings.throwBowls);
         },
-        "Aim",
+        "Timing",
         [this]() {
             static const char* aims[] = {"Current", "Down", "Silent Down"};
             int aim = static_cast<int>(settings.aim);
             if (ui::Combo("Aim", &aim, aims, IM_ARRAYSIZE(aims)))
                 settings.aim = static_cast<ThrowPotsAim>(aim);
 
-            if (settings.aim != ThrowPotsAim::Current) {
-                bool touched = false;
-                ui::SliderInt("Aim Pitch", &settings.aimPitch, 45, 90, "%d");
-                touched |= ui::SliderInt("Pitch Jitter", &settings.pitchJitter, 0, 15, "%d");
-                touched |= ui::SliderInt("Aim Smoothing (ms)", &settings.aimSmoothMs, 0, 250, "%d");
-                if (touched)
-                    settings.preset = static_cast<int>(ThrowPotsPreset::Custom);
-            }
+            if (ui::SliderInt("Delay Min (ms)", &settings.delayMinMs, 0, 200, "%d"))
+                settings.delayMaxMs = (std::max)(settings.delayMaxMs, settings.delayMinMs);
+            if (ui::SliderInt("Delay Max (ms)", &settings.delayMaxMs, 0, 200, "%d"))
+                settings.delayMinMs = (std::min)(settings.delayMinMs, settings.delayMaxMs);
 
+            ui::SliderInt("Switch Delay (ms)", &settings.switchDelay, 0, 250, "%d");
+            ui::Checkbox("Scroll", &settings.scroll);
+            if (settings.scroll)
+                ui::SliderInt("Scroll Delay (ms)", &settings.scrollDelayMs, 0, 200, "%d");
             ui::Checkbox("Switch Back", &settings.switchBack);
             ui::Checkbox("Retry on Fail", &settings.retryOnFail);
         });
-
-    ui::two_column(
-        "Timing",
-        [this]() {
-            static const char* presets[] = {"Instant", "Fast", "Human", "Careful", "Custom"};
-            int preset = (std::clamp)(settings.preset, 0, 4);
-            if (ui::Combo("Preset", &preset, presets, IM_ARRAYSIZE(presets))) {
-                if (preset == static_cast<int>(ThrowPotsPreset::Custom))
-                    settings.preset = preset;
-                else
-                    applyPreset(static_cast<ThrowPotsPreset>(preset));
-            }
-
-            bool touched = false;
-            touched |= ui::SliderInt("Reaction (ms)", &settings.reactionMs, 0, 500, "%d");
-            touched |= ui::SliderInt("Switch Delay (ms)", &settings.switchDelay, 0, 250, "%d");
-            touched |= ui::SliderInt("Throw Delay (ms)", &settings.throwDelay, 0, 500, "%d");
-            if (touched)
-                settings.preset = static_cast<int>(ThrowPotsPreset::Custom);
-        },
-        "Humanization",
-        [this]() {
-            bool touched = false;
-            touched |= ui::SliderInt("Jitter (%)", &settings.jitterPercent, 0, 100, "%d");
-            touched |= ui::Checkbox("Fatigue", &settings.fatigue);
-            if (touched)
-                settings.preset = static_cast<int>(ThrowPotsPreset::Custom);
-
-            ImGui::Spacing();
-            ImGui::TextDisabled("Jitter spreads every delay; Fatigue widens the");
-            ImGui::TextDisabled("gaps as the burst runs, like a tiring hand.");
-        });
-
-    ImGui::Spacing();
-    switch (state_) {
-        case State::Idle:
-            ImGui::TextDisabled("Idle - press the keybind to throw once");
-            break;
-        case State::Reacting:
-            ImGui::TextDisabled("Reacting...");
-            break;
-        default:
-            ImGui::TextDisabled("Throwing - %d thrown", successfulThrows_);
-            break;
-    }
-    if (settings.preset == static_cast<int>(ThrowPotsPreset::Instant))
-        ImGui::TextDisabled("Instant: flat timing and an exact 90 pitch snap - the old, obvious behaviour.");
 }
 
 std::string ThrowPots::getDisplayInfo() {
-    switch (settings.mode) {
-        case ThrowPotsMode::Dynamic:
-            return "Dynamic " + std::to_string(settings.targetHealthPercent) + "%";
-        case ThrowPotsMode::Single:
-            return "Single";
-        case ThrowPotsMode::Double:
-            return "Double";
-    }
-    return "";
+    const char* type = settings.type == ThrowPotsType::Both  ? "Both"
+                       : settings.type == ThrowPotsType::Pots ? "Pots"
+                                                              : "Soup";
+    return std::string(settings.mode == ThrowPotsMode::Dynamic ? "Dynamic " : "Single ") + type;
 }
 
 void ThrowPots::saveSettings(json::Value& node) const {
-    node["randomSlots"] = settings.randomSlots;
+    node["type"] = static_cast<int>(settings.type);
     node["mode"] = static_cast<int>(settings.mode);
-    node["aim"] = static_cast<int>(settings.aim);
-    node["targetHealthPercent"] = settings.targetHealthPercent;
-    node["maxThrows"] = settings.maxThrows;
-    node["throwDelay"] = settings.throwDelay;
-    node["switchDelay"] = settings.switchDelay;
+    node["delayMinMs"] = settings.delayMinMs;
+    node["delayMaxMs"] = settings.delayMaxMs;
+    node["scroll"] = settings.scroll;
+    node["scrollDelayMs"] = settings.scrollDelayMs;
+    node["randomOrder"] = settings.randomOrder;
+    node["throwBowls"] = settings.throwBowls;
     node["allowHealthI"] = settings.allowHealthI;
+    node["aim"] = static_cast<int>(settings.aim);
+    node["switchDelay"] = settings.switchDelay;
     node["switchBack"] = settings.switchBack;
     node["retryOnFail"] = settings.retryOnFail;
-    node["preset"] = settings.preset;
-    node["reactionMs"] = settings.reactionMs;
-    node["jitterPercent"] = settings.jitterPercent;
-    node["fatigue"] = settings.fatigue;
-    node["aimPitch"] = settings.aimPitch;
-    node["pitchJitter"] = settings.pitchJitter;
-    node["aimSmoothMs"] = settings.aimSmoothMs;
+    node["maxThrows"] = settings.maxThrows;
 }
 
 void ThrowPots::loadSettings(const json::Value& node) {
-    settings.randomSlots = node["randomSlots"].as_bool(settings.randomSlots);
-    const int storedMode = (std::max)(0, (std::min)(2, node["mode"].as_int(static_cast<int>(settings.mode))));
-    if (!node.has("targetHealthPercent") && node.has("healthThreshold")) {
-        // Migrate the first Cobble implementation: Single=0, Double=1,
-        // HealToHealth=2 -> raid0source ordering Dynamic=0, Single=1, Double=2.
-        settings.mode = storedMode == 0 ? ThrowPotsMode::Single
-                                        : storedMode == 1 ? ThrowPotsMode::Double : ThrowPotsMode::Dynamic;
+    settings.type = static_cast<ThrowPotsType>(
+        (std::max)(0, (std::min)(2, node["type"].as_int(static_cast<int>(settings.type)))));
+
+    // The previous raid0source layout was Dynamic=0, Single=1, Double=2 and had
+    // no Soup handling; Double folds into Dynamic capped at two items.
+    const int storedMode = node["mode"].as_int(static_cast<int>(settings.mode));
+    if (storedMode == 2) {
+        settings.mode = ThrowPotsMode::Dynamic;
+        if (!node.has("maxThrows"))
+            settings.maxThrows = 2;
     } else {
-        settings.mode = static_cast<ThrowPotsMode>(storedMode);
+        settings.mode = static_cast<ThrowPotsMode>((std::max)(0, (std::min)(1, storedMode)));
     }
+
+    settings.delayMinMs = (std::max)(0, (std::min)(200, node["delayMinMs"].as_int(settings.delayMinMs)));
+    settings.delayMaxMs = (std::max)(0, (std::min)(200, node["delayMaxMs"].as_int(settings.delayMaxMs)));
+    if (settings.delayMaxMs < settings.delayMinMs)
+        std::swap(settings.delayMinMs, settings.delayMaxMs);
+
+    settings.scroll = node["scroll"].as_bool(settings.scroll);
+    settings.scrollDelayMs = (std::max)(0, (std::min)(200, node["scrollDelayMs"].as_int(settings.scrollDelayMs)));
+    settings.randomOrder = node["randomOrder"].as_bool(node["randomSlots"].as_bool(settings.randomOrder));
+    settings.throwBowls = node["throwBowls"].as_bool(settings.throwBowls);
+    settings.allowHealthI = node["allowHealthI"].as_bool(settings.allowHealthI);
     settings.aim = static_cast<ThrowPotsAim>(
         (std::max)(0, (std::min)(2, node["aim"].as_int(static_cast<int>(settings.aim)))));
-    if (node.has("targetHealthPercent")) {
-        settings.targetHealthPercent = node["targetHealthPercent"].as_int(settings.targetHealthPercent);
-    } else if (node.has("healthThreshold")) {
-        settings.targetHealthPercent =
-            static_cast<int>(node["healthThreshold"].as_float(20.0f) * 5.0f);
-    }
-    settings.targetHealthPercent = (std::max)(1, (std::min)(100, settings.targetHealthPercent));
-    settings.maxThrows = (std::max)(1, (std::min)(9, node["maxThrows"].as_int(settings.maxThrows)));
-    settings.throwDelay = (std::max)(0, (std::min)(500, node["throwDelay"].as_int(settings.throwDelay)));
     settings.switchDelay = (std::max)(0, (std::min)(250, node["switchDelay"].as_int(settings.switchDelay)));
-    settings.allowHealthI = node["allowHealthI"].as_bool(settings.allowHealthI);
     settings.switchBack = node["switchBack"].as_bool(settings.switchBack);
     settings.retryOnFail = node["retryOnFail"].as_bool(settings.retryOnFail);
-
-    // Configs written before the humanization pass inherit the Human defaults
-    // rather than being pinned to Instant: keeping the old flat timing silently
-    // would defeat the point of the change, and Instant is still one click away.
-    settings.preset = (std::max)(0, (std::min)(4, node["preset"].as_int(settings.preset)));
-    settings.reactionMs = (std::max)(0, (std::min)(500, node["reactionMs"].as_int(settings.reactionMs)));
-    settings.jitterPercent = (std::max)(0, (std::min)(100, node["jitterPercent"].as_int(settings.jitterPercent)));
-    settings.fatigue = node["fatigue"].as_bool(settings.fatigue);
-    settings.aimPitch = (std::max)(45, (std::min)(90, node["aimPitch"].as_int(settings.aimPitch)));
-    settings.pitchJitter = (std::max)(0, (std::min)(15, node["pitchJitter"].as_int(settings.pitchJitter)));
-    settings.aimSmoothMs = (std::max)(0, (std::min)(250, node["aimSmoothMs"].as_int(settings.aimSmoothMs)));
+    settings.maxThrows = (std::max)(1, (std::min)(9, node["maxThrows"].as_int(settings.maxThrows)));
 }

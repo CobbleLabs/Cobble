@@ -139,6 +139,16 @@ struct Minecraft {
     // Check if GUI is open (chat, inventory, etc)
     bool isInGui();
 
+    // Class name of the screen in currentScreen ("" when none is open).
+    // Obfuscated clients return the runtime (Notch/Lunar) name, so callers must
+    // not assume it is readable.
+    std::string getCurrentScreenName();
+
+    // True while the pre-join menus are up: a GuiScreen is open and no world is
+    // loaded (server browser, main menu, direct connect...). When the runtime
+    // exposes readable class names this narrows down to the server browser.
+    bool isInServerBrowser();
+
     // Like isInGui(), but false for the chat box: vanilla keeps drawing the world
     // behind GuiChat, while every other screen paints over it. World-space
     // overlays (ESP, tracers, nametags) must hide for the latter only.
@@ -211,6 +221,7 @@ struct Minecraft {
     std::vector<SlotInfo> getArmorSlots();                     // Get 4 armor slots (0=helmet, 1=chest, 2=legs, 3=boots)
     void windowClick(int slotId, int button);                  // Click inventory slot (shift-click)
     void windowClickSwap(int containerSlot, int hotbarIndex);  // Swap container slot with hotbar (mode 2)
+    void dropSlot(int slotId, bool wholeStack);                // Throw an item out of a slot (mode 4)
     void openInventory();                                      // Open player inventory GUI
     void closeInventory();                                     // Close current GUI
     bool isInventoryOpen();                                    // Check if any container GUI is open
@@ -282,7 +293,16 @@ struct Minecraft {
     int getForwardKey();    // Returns key code for forward keybind
     int getJumpKey();       // Returns key code for jump keybind (default space)
     int getBackKey();       // Returns key code for back keybind
+    int getLeftKey();       // Returns key code for strafe-left keybind
+    int getRightKey();      // Returns key code for strafe-right keybind
     int getInventoryKey();  // Returns key code for inventory keybind (default 'E')
+
+    // True while any of the four movement keybinds (forward/back/left/right) is
+    // held. Reads KeyBinding.pressed straight from GameSettings, so it follows
+    // remapped keys, respects the game's own focus/menu handling, and stays
+    // correct while the click GUI has the keys released. Falls back to polling
+    // the physical scan codes if the field couldn't be resolved.
+    bool isMoving();
 
     // Mouse grab control (for menu open/close)
     // Releases or grabs mouse at LWJGL level to prevent camera movement when menu is open

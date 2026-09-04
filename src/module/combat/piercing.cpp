@@ -11,6 +11,7 @@
 #include "../../util/logger.hpp"
 #include "../../util/network/json.hpp"
 #include "../../util/team/friends_manager.h"
+#include "../../util/diagnostics.hpp"
 
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
@@ -39,6 +40,36 @@ constexpr std::uint64_t ATTACK_JITTER_MS = 40;
 bool isWeapon(int itemId) {
     return itemId == 268 || itemId == 272 || itemId == 267 || itemId == 276 || itemId == 283 ||
            itemId == 271 || itemId == 275 || itemId == 258 || itemId == 279 || itemId == 286;
+}
+
+struct Box {
+    double minX, minY, minZ, maxX, maxY, maxZ;
+};
+
+// Hitbox to ray-test a candidate against: the real AABB when the server has
+// synced one, a standing/sneaking approximation otherwise, grown by `expand`.
+Box hitboxOf(const PlayerInfo& candidate, double expand) {
+    Box box{candidate.hitboxMinX, candidate.hitboxMinY, candidate.hitboxMinZ,
+            candidate.hitboxMaxX, candidate.hitboxMaxY, candidate.hitboxMaxZ};
+
+    if (box.maxX <= box.minX || box.maxY <= box.minY || box.maxZ <= box.minZ) {
+        box.minX = candidate.posX - 0.3;
+        box.maxX = candidate.posX + 0.3;
+        box.minY = candidate.posY;
+        box.maxY = candidate.posY + (candidate.isSneaking ? 1.62 : 1.8);
+        box.minZ = candidate.posZ - 0.3;
+        box.maxZ = candidate.posZ + 0.3;
+    }
+
+    if (expand > 0.0) {
+        box.minX -= expand;
+        box.minY -= expand;
+        box.minZ -= expand;
+        box.maxX += expand;
+        box.maxY += expand;
+        box.maxZ += expand;
+    }
+    return box;
 }
 
 bool isAttackOrSwingPacket(JNIEnv* env, jobject packet) {
@@ -131,21 +162,58 @@ bool Piercing::rayIntersectsBox(double originX, double originY, double originZ,
     return true;
 }
 
-jobject Piercing::selectTarget(bool hiddenOnly, bool& targetVisible) {
-    targetVisible = false;
+bool Piercing::isFriendly(const PlayerInfo& candidate, const std::string& localName,
+                          ChatColor localTeamColor) const {
+    if (!friendsManager)
+        return false;
+
+    if (settings.ignoreFriends) {
+        if (!candidate.uuid.empty() && friendsManager->isFriendByUUID(candidate.uuid))
+            return true;
+        // Legacy name-based match — kicks in for friends added by name whose UUID
+        // hasn't been resolved yet (first seconds after login).
+        if (friendsManager->isFriend(FriendsManager::stripColorCodes(candidate.name)))
+            return true;
+    }
+
+    if (settings.ignoreTeams) {
+        // Vanilla /team API (isOnSameTeam JNI check), if Teams honours it.
+        if (candidate.isOnLocalTeam && friendsManager->honorsVanillaTeams())
+            return true;
+        // Apollo + Lunar API teammates (auto-detected, not manual friends).
+        if (!candidate.uuid.empty() && (friendsManager->isApolloTeammate(candidate.uuid) ||
+                                        friendsManager->isLunarTeammate(candidate.uuid)))
+            return true;
+        // Scoreboard prefix/suffix teammates (color-independent, e.g. the
+        // "TEAM_RED" style Bedwars puts every teammate under).
+        const std::string& scoreboardName =
+            candidate.profileName.empty() ? candidate.name : candidate.profileName;
+        if (friendsManager->isScoreboardTeammate(localName, scoreboardName))
+            return true;
+        // Same chat-color tag as us → treat as teammate.
+        if (friendsManager->isTeammate(candidate.uuid, static_cast<ChatColor>(candidate.teamColor),
+                                       localTeamColor))
+            return true;
+    }
+
+    return false;
+}
+
+Piercing::TargetPick Piercing::selectTarget(bool hiddenOnly) {
+    TargetPick pick;
 
     JNIEnv* env = Java::Env();
     if (!env)
-        return nullptr;
+        return pick;
 
     if (!enabled || !shouldUpdate() || Menu::isOpen || mc.isInGui() || !player.isValid() || !mc.instance)
-        return nullptr;
+        return pick;
 
     if (settings.weaponsOnly && !isWeapon(player.getHeldItemId()))
-        return nullptr;
+        return pick;
 
     if (hiddenOnly && !settings.throughWalls)
-        return nullptr;
+        return pick;
 
     if (env->ExceptionCheck())
         env->ExceptionClear();
@@ -168,17 +236,6 @@ jobject Piercing::selectTarget(bool hiddenOnly, bool& targetVisible) {
     if (friendsManager)
         friendsManager->resolvePending(players);
 
-    jobject selectedTarget = nullptr;
-    PlayerInfo* selectedCandidate = nullptr;
-    double closestHit = std::numeric_limits<double>::max();
-
-    const double expandVal = static_cast<double>(settings.expand);
-    Backtrack::HeldTargetSnapshot backtrackSnapshot;
-    if (!hiddenOnly && settings.backtrackCheck && backtrack &&
-        backtrack->enabled) {
-        backtrackSnapshot = backtrack->heldTargetSnapshot();
-    }
-
     // Read local player name + team color once per call. Piercing::selectTarget
     // runs on two threads (module tick + WM_LBUTTONDOWN via handleAttackInput),
     // so any per-call cached-across-calls state races and corrupts. Both JNI
@@ -186,43 +243,56 @@ jobject Piercing::selectTarget(bool hiddenOnly, bool& targetVisible) {
     const std::string localName = mc.getLocalPlayerName();
     const ChatColor localTeamColor = static_cast<ChatColor>(mc.getLocalPlayerTeamColor());
 
+    const double expandVal = static_cast<double>(settings.expand);
+    const double visibleRange = static_cast<double>(settings.distance);
+    const double hiddenRange = static_cast<double>(settings.throughWallsRange);
+    const double pierceRange = settings.pierceTeams ? static_cast<double>(settings.pierceRange) : 0.0;
+    // Widest reach any pass can grant. The friendly sweep has to see every body
+    // that could be shielding somebody inside that reach, so it scans this far
+    // regardless of which range the winning candidate ends up using.
+    const double scanRange = std::max({visibleRange, hiddenRange, pierceRange});
+
+    // ---- Pass 1: friends and teammates -------------------------------------
+    // Two things come out of this: the ID list the crosshair guard matches
+    // against, and how far away the nearest off-limits body sits. The latter is
+    // what makes a farther candidate count as "pierced through" rather than as
+    // an ordinary out-of-reach target.
+    double nearestFriendlyHit = std::numeric_limits<double>::max();
+    for (auto& candidate : players) {
+        if (!candidate.instance || AntiBot::Filtered(candidate))
+            continue;
+        if (!isFriendly(candidate, localName, localTeamColor))
+            continue;
+
+        pick.friendlyIds.push_back(candidate.entityId);
+
+        const Box box = hitboxOf(candidate, expandVal);
+        double friendlyHit = 0.0;
+        if (rayIntersectsBox(originX, originY, originZ,
+                             directionX, directionY, directionZ,
+                             box.minX, box.minY, box.minZ, box.maxX, box.maxY, box.maxZ,
+                             scanRange, friendlyHit))
+            nearestFriendlyHit = std::min(nearestFriendlyHit, friendlyHit);
+    }
+    const bool friendlyInRay = nearestFriendlyHit < std::numeric_limits<double>::max();
+
+    // ---- Pass 2: attackable candidates -------------------------------------
+    PlayerInfo* selectedCandidate = nullptr;
+    double closestHit = std::numeric_limits<double>::max();
+
+    Backtrack::HeldTargetSnapshot backtrackSnapshot;
+    if (!hiddenOnly && settings.backtrackCheck && backtrack &&
+        backtrack->enabled) {
+        backtrackSnapshot = backtrack->heldTargetSnapshot();
+    }
+
     for (auto& candidate : players) {
         if (!candidate.instance || AntiBot::Filtered(candidate))
             continue;
         if (candidate.isInvisible && !settings.targetInvisibles)
             continue;
-        if (friendsManager) {
-            if (settings.ignoreFriends) {
-                if (!candidate.uuid.empty() && friendsManager->isFriendByUUID(candidate.uuid))
-                    continue;
-                // Legacy name-based match — kicks in for friends added by name
-                // whose UUID hasn't been resolved yet (first seconds after login).
-                const std::string cleanName = FriendsManager::stripColorCodes(candidate.name);
-                if (friendsManager->isFriend(cleanName))
-                    continue;
-            }
-
-            if (settings.ignoreTeams) {
-                // Vanilla /team API (isOnSameTeam JNI check), if Teams honours it.
-                if (candidate.isOnLocalTeam && friendsManager->honorsVanillaTeams())
-                    continue;
-                // Apollo + Lunar API teammates (auto-detected, not manual friends).
-                if (!candidate.uuid.empty() &&
-                    (friendsManager->isApolloTeammate(candidate.uuid) ||
-                     friendsManager->isLunarTeammate(candidate.uuid)))
-                    continue;
-                // Scoreboard prefix/suffix teammates (color-independent, e.g. the
-                // "TEAM_RED" style Bedwars puts every teammate under).
-                const std::string& scoreboardName =
-                    candidate.profileName.empty() ? candidate.name : candidate.profileName;
-                if (friendsManager->isScoreboardTeammate(localName, scoreboardName))
-                    continue;
-                // Same chat-color tag as us → treat as teammate.
-                ChatColor playerColor = static_cast<ChatColor>(candidate.teamColor);
-                if (friendsManager->isTeammate(candidate.uuid, playerColor, localTeamColor))
-                    continue;
-            }
-        }
+        if (isFriendly(candidate, localName, localTeamColor))
+            continue;
 
         const bool isVisible = mc.canEntityBeSeen(candidate.instance);
         if (hiddenOnly && isVisible)
@@ -230,35 +300,13 @@ jobject Piercing::selectTarget(bool hiddenOnly, bool& targetVisible) {
         if (!isVisible && !settings.throughWalls)
             continue;
 
-        const double maxDistance =
-            isVisible ? static_cast<double>(settings.distance) : static_cast<double>(settings.throughWallsRange);
+        const double baseRange = isVisible ? visibleRange : hiddenRange;
+        // Extra reach is only on the table while a friend/teammate is in the ray;
+        // it exists to cover the depth their body adds, nothing else.
+        const double reach =
+            (settings.pierceTeams && friendlyInRay) ? std::max(baseRange, pierceRange) : baseRange;
 
-        double minX = candidate.hitboxMinX;
-        double minY = candidate.hitboxMinY;
-        double minZ = candidate.hitboxMinZ;
-        double maxX = candidate.hitboxMaxX;
-        double maxY = candidate.hitboxMaxY;
-        double maxZ = candidate.hitboxMaxZ;
-
-        if (maxX <= minX || maxY <= minY || maxZ <= minZ) {
-            minX = candidate.posX - 0.3;
-            maxX = candidate.posX + 0.3;
-            minY = candidate.posY;
-            maxY = candidate.posY + (candidate.isSneaking ? 1.62 : 1.8);
-            minZ = candidate.posZ - 0.3;
-            maxZ = candidate.posZ + 0.3;
-        }
-
-        // Apply hitbox expansion
-        if (expandVal > 0.0) {
-            minX -= expandVal;
-            minY -= expandVal;
-            minZ -= expandVal;
-            maxX += expandVal;
-            maxY += expandVal;
-            maxZ += expandVal;
-        }
-
+        const Box box = hitboxOf(candidate, expandVal);
         double candidateHit = std::numeric_limits<double>::max();
 
         if (!hiddenOnly && settings.backtrackCheck &&
@@ -281,7 +329,7 @@ jobject Piercing::selectTarget(bool hiddenOnly, bool& targetVisible) {
                                  directionX, directionY, directionZ,
                                  realMinX, realMinY, realMinZ,
                                  realMaxX, realMaxY, realMaxZ,
-                                 maxDistance, backtrackHit)) {
+                                 reach, backtrackHit)) {
                 candidateHit = std::min(candidateHit, backtrackHit);
             }
         }
@@ -289,19 +337,28 @@ jobject Piercing::selectTarget(bool hiddenOnly, bool& targetVisible) {
         double currentHit = 0.0;
         if (rayIntersectsBox(originX, originY, originZ,
                             directionX, directionY, directionZ,
-                            minX, minY, minZ, maxX, maxY, maxZ,
-                            maxDistance, currentHit)) {
+                            box.minX, box.minY, box.minZ, box.maxX, box.maxY, box.maxZ,
+                            reach, currentHit)) {
             candidateHit = std::min(candidateHit, currentHit);
         }
+
+        if (candidateHit >= std::numeric_limits<double>::max())
+            continue;
+
+        // Past the plain reach and *not* behind a friendly body → this is just an
+        // out-of-range player, so the pierce budget must not rescue it.
+        if (candidateHit > baseRange && candidateHit < nearestFriendlyHit)
+            continue;
 
         if (candidateHit < closestHit) {
             jobject newTarget = env->NewLocalRef(candidate.instance);
             if (newTarget) {
-                if (selectedTarget)
-                    env->DeleteLocalRef(selectedTarget);
-                selectedTarget = newTarget;
+                if (pick.entity)
+                    env->DeleteLocalRef(pick.entity);
+                pick.entity = newTarget;
                 selectedCandidate = &candidate;
-                targetVisible = isVisible;
+                pick.visible = isVisible;
+                pick.behindFriendly = friendlyInRay && candidateHit >= nearestFriendlyHit;
                 closestHit = candidateHit;
             }
         }
@@ -309,19 +366,20 @@ jobject Piercing::selectTarget(bool hiddenOnly, bool& targetVisible) {
 
     // Rate-limited pick trace — helps diagnose "why did Piercing hit my friend"
     // by showing what info the filter saw for the selected candidate.
-    if (selectedTarget && selectedCandidate) {
+    if (pick.entity && selectedCandidate) {
         static std::atomic<std::uint64_t> s_lastLogMs{0};
         std::uint64_t nowLocal = nowMs();
         std::uint64_t last = s_lastLogMs.load(std::memory_order_relaxed);
         if (nowLocal - last > 1500) {
             s_lastLogMs.store(nowLocal, std::memory_order_relaxed);
             log_debug("[Piercing] pick name=%s prof=%s uuid=%s isOnLocalTeam=%d teamColor=%d "
-                      "hidden=%d ignoreF=%d ignoreT=%d",
+                      "hidden=%d ignoreF=%d ignoreT=%d friendlies=%zu pierced=%d dist=%.2f",
                       selectedCandidate->name.c_str(), selectedCandidate->profileName.c_str(),
                       selectedCandidate->uuid.empty() ? "?" : selectedCandidate->uuid.substr(0, 8).c_str(),
                       selectedCandidate->isOnLocalTeam ? 1 : 0, selectedCandidate->teamColor,
-                      targetVisible ? 0 : 1, settings.ignoreFriends ? 1 : 0,
-                      settings.ignoreTeams ? 1 : 0);
+                      pick.visible ? 0 : 1, settings.ignoreFriends ? 1 : 0,
+                      settings.ignoreTeams ? 1 : 0, pick.friendlyIds.size(),
+                      pick.behindFriendly ? 1 : 0, closestHit);
         }
     }
 
@@ -334,32 +392,150 @@ jobject Piercing::selectTarget(bool hiddenOnly, bool& targetVisible) {
 
     if (env->ExceptionCheck()) {
         env->ExceptionClear();
-        if (selectedTarget) {
-            env->DeleteLocalRef(selectedTarget);
-            selectedTarget = nullptr;
+        if (pick.entity) {
+            env->DeleteLocalRef(pick.entity);
+            pick.entity = nullptr;
         }
     }
-    return selectedTarget;
+    return pick;
+}
+
+bool Piercing::applyCrosshairOverride(JNIEnv* env, const TargetPick& pick) {
+    if (!env || !mc.instance || !JniCache::fid_objectMouseOver || !JniCache::fid_typeOfHit ||
+        !JniCache::fid_entityHit || !JniCache::cls_MovingObjectType || !JniCache::fid_ENTITY)
+        return false;
+
+    // Hidden targets are attacked synchronously from the input hook. Leaving
+    // them in objectMouseOver would race the renderer and can duplicate hits.
+    const bool placeTarget = pick.entity != nullptr && pick.visible;
+    const bool guardFriendlies = settings.protectTeams && !pick.friendlyIds.empty();
+    if (!placeTarget && !guardFriendlies)
+        return false;
+
+    jobject mouseOver = env->GetObjectField(mc.instance, JniCache::fid_objectMouseOver);
+    if (!mouseOver) {
+        if (env->ExceptionCheck())
+            env->ExceptionClear();
+        return false;
+    }
+
+    // Does vanilla's own raycast land on somebody we refuse to hit? Matching by
+    // entity ID rather than by our ray means a crosshair the two raycasts
+    // disagree about (partial-tick interpolation) is still recognised.
+    bool crosshairFriendly = false;
+    if (guardFriendlies && JniCache::mid_getEntityId) {
+        jobject hitEntity = env->GetObjectField(mouseOver, JniCache::fid_entityHit);
+        if (hitEntity) {
+            const jint hitId = env->CallIntMethod(hitEntity, JniCache::mid_getEntityId);
+            if (env->ExceptionCheck()) {
+                env->ExceptionClear();
+            } else {
+                crosshairFriendly = std::find(pick.friendlyIds.begin(), pick.friendlyIds.end(),
+                                              static_cast<int>(hitId)) != pick.friendlyIds.end();
+            }
+            env->DeleteLocalRef(hitEntity);
+        } else if (env->ExceptionCheck()) {
+            env->ExceptionClear();
+        }
+    }
+
+    bool blanked = false;
+
+    if (placeTarget) {
+        jobject entityType = env->GetStaticObjectField(JniCache::cls_MovingObjectType, JniCache::fid_ENTITY);
+        if (entityType) {
+            const bool typeReady = !env->ExceptionCheck();
+            if (typeReady)
+                env->SetObjectField(mouseOver, JniCache::fid_typeOfHit, entityType);
+
+            if (typeReady && !env->ExceptionCheck())
+                env->SetObjectField(mouseOver, JniCache::fid_entityHit, pick.entity);
+
+            if (typeReady && !env->ExceptionCheck() &&
+                JniCache::fid_entityRenderer && JniCache::fid_pointedEntity) {
+                jobject renderer = env->GetObjectField(mc.instance, JniCache::fid_entityRenderer);
+                if (renderer) {
+                    if (!env->ExceptionCheck())
+                        env->SetObjectField(renderer, JniCache::fid_pointedEntity, pick.entity);
+                    env->DeleteLocalRef(renderer);
+                }
+            }
+
+            env->DeleteLocalRef(entityType);
+        }
+    } else if (crosshairFriendly && JniCache::fid_MISS) {
+        // A friend/teammate is under the crosshair and there is nobody behind
+        // them to pierce to. Blank the hit instead of leaving it: vanilla's MISS
+        // branch only swings the item, so the click can't damage them at all.
+        jobject missType = env->GetStaticObjectField(JniCache::cls_MovingObjectType, JniCache::fid_MISS);
+        if (missType) {
+            const bool typeReady = !env->ExceptionCheck();
+            if (typeReady)
+                env->SetObjectField(mouseOver, JniCache::fid_typeOfHit, missType);
+
+            if (typeReady && !env->ExceptionCheck()) {
+                env->SetObjectField(mouseOver, JniCache::fid_entityHit, nullptr);
+                blanked = !env->ExceptionCheck();
+            }
+
+            if (blanked && JniCache::fid_entityRenderer && JniCache::fid_pointedEntity) {
+                jobject renderer = env->GetObjectField(mc.instance, JniCache::fid_entityRenderer);
+                if (renderer) {
+                    if (!env->ExceptionCheck())
+                        env->SetObjectField(renderer, JniCache::fid_pointedEntity, nullptr);
+                    env->DeleteLocalRef(renderer);
+                }
+            }
+
+            env->DeleteLocalRef(missType);
+        }
+    }
+
+    env->DeleteLocalRef(mouseOver);
+    if (env->ExceptionCheck())
+        env->ExceptionClear();
+    return blanked;
 }
 
 bool Piercing::handleAttackInput() {
+    // Avoid heavy JNI work right after a world change — the cache is being
+    // re-resolved and Java objects are being GC'd.  Let the click fall
+    // through to vanilla instead of blocking the message pump.
+    if (Diagnostics::g_inWorldChange.load(std::memory_order_relaxed))
+        return false;
+
+    JNIEnv* env = Java::Env();
+    if (!env)
+        return false;
+
+    // Pick ANY target in the ray — visible or hidden. selectTarget skips friends
+    // and teammates, so "friend in the crosshair with an enemy behind" resolves
+    // to the enemy: the friend's ray hit is closer but discarded, and the body
+    // farther along the same ray wins (Pierce Teams grants it the reach the
+    // friend's own depth costs).
+    TargetPick pick = selectTarget(false);
+
+    // Do this on the input thread so the write lands in the same frame as the
+    // click about to be processed, rather than whenever the module tick next
+    // runs. It either points vanilla at the pierced enemy or blanks a crosshair
+    // sitting on a friend.
+    const bool blanked = applyCrosshairOverride(env, pick);
+
+    if (!pick.entity) {
+        // Swallow the click only when we actually shielded somebody — otherwise
+        // this was an ordinary miss and vanilla must handle it normally.
+        return blanked;
+    }
+
     // Rate-limit — an external autoclicker sending WM_LBUTTONDOWN at 17 CPS
     // would otherwise spray Piercing attacks at that rate and trip Watchdog's
     // MultiInteractA / BadPacketsE (inhuman use-entity packet cadence).
     const std::uint64_t nowLocal = nowMs();
     const std::uint64_t last = lastAttackMs_.load(std::memory_order_acquire);
-    if (last != 0 && nowLocal - last < ATTACK_MIN_GAP_MS)
-        return false;
-
-    // Pick ANY target in the ray — visible or hidden. selectTarget already
-    // filters friends/teammates, so the "friend directly in the crosshair with
-    // an enemy behind" case picks the enemy (friend ray-hit happens first at a
-    // closer distance but the friend is skipped, so the enemy — further along
-    // the same ray — becomes the winning candidate).
-    bool targetVisible = false;
-    jobject target = selectTarget(false, targetVisible);
-    if (!target)
-        return false;
+    if (last != 0 && nowLocal - last < ATTACK_MIN_GAP_MS) {
+        env->DeleteLocalRef(pick.entity);
+        return blanked;
+    }
 
     // LWJGL polls mouse state independently from the Windows message. Mark the
     // synchronous attack so its own swing/C02 packets pass, then keep the
@@ -367,7 +543,7 @@ bool Piercing::handleAttackInput() {
     // click-loop attack on the same target — otherwise the same input can
     // register a second attack via raw input and MultiInteractA fires.
     manualAttackActive_.store(true, std::memory_order_release);
-    const bool attacked = mc.attackEntity(target);
+    const bool attacked = mc.attackEntity(pick.entity);
     if (attacked) {
         suppressDuplicatePacketsUntilMs_.store(nowLocal + DUPLICATE_PACKET_GUARD_MS,
                                                std::memory_order_release);
@@ -376,8 +552,8 @@ bool Piercing::handleAttackInput() {
     }
     manualAttackActive_.store(false, std::memory_order_release);
 
-    Java::Env()->DeleteLocalRef(target);
-    return attacked;
+    env->DeleteLocalRef(pick.entity);
+    return attacked || blanked;
 }
 
 bool Piercing::shouldSendOutgoingPacket(JNIEnv* env, jobject packet) {
@@ -399,55 +575,14 @@ void Piercing::onUpdate() {
     if (!env)
         return;
 
-    bool targetVisible = false;
-    jobject target = selectTarget(false, targetVisible);
-    if (!target)
-        return;
+    // Runs unconditionally, not only when a target was found: with no enemy
+    // behind them a friend/teammate still has to be lifted out of the crosshair,
+    // otherwise vanilla's own raycast keeps them there and the click lands.
+    TargetPick pick = selectTarget(false);
+    applyCrosshairOverride(env, pick);
 
-    // Hidden targets are attacked synchronously from the input hook. Leaving
-    // them in objectMouseOver would race the renderer and can duplicate hits.
-    if (!targetVisible || !JniCache::fid_objectMouseOver || !JniCache::fid_typeOfHit ||
-        !JniCache::fid_entityHit || !JniCache::cls_MovingObjectType || !JniCache::fid_ENTITY) {
-        env->DeleteLocalRef(target);
-        return;
-    }
-
-    jobject mouseOver = env->GetObjectField(mc.instance, JniCache::fid_objectMouseOver);
-    if (!mouseOver) {
-        env->DeleteLocalRef(target);
-        if (env->ExceptionCheck())
-            env->ExceptionClear();
-        return;
-    }
-
-    if (target) {
-        jobject entityType = env->GetStaticObjectField(JniCache::cls_MovingObjectType, JniCache::fid_ENTITY);
-        if (entityType) {
-            const bool typeReady = !env->ExceptionCheck();
-            if (typeReady)
-                env->SetObjectField(mouseOver, JniCache::fid_typeOfHit, entityType);
-
-            if (typeReady && !env->ExceptionCheck())
-                env->SetObjectField(mouseOver, JniCache::fid_entityHit, target);
-
-            if (typeReady && !env->ExceptionCheck() &&
-                JniCache::fid_entityRenderer && JniCache::fid_pointedEntity) {
-                jobject renderer = env->GetObjectField(mc.instance, JniCache::fid_entityRenderer);
-                if (renderer) {
-                    if (!env->ExceptionCheck())
-                        env->SetObjectField(renderer, JniCache::fid_pointedEntity, target);
-                    env->DeleteLocalRef(renderer);
-                }
-            }
-
-            env->DeleteLocalRef(entityType);
-        }
-    }
-
-    env->DeleteLocalRef(target);
-    env->DeleteLocalRef(mouseOver);
-    if (env->ExceptionCheck())
-        env->ExceptionClear();
+    if (pick.entity)
+        env->DeleteLocalRef(pick.entity);
 }
 
 void Piercing::onRenderMenu() {
@@ -474,6 +609,12 @@ void Piercing::onRenderMenu() {
             ui::Checkbox("Target Invisibles", &settings.targetInvisibles);
             ui::Checkbox("Ignore Friends", &settings.ignoreFriends);
             ui::Checkbox("Ignore Teams", &settings.ignoreTeams);
+
+            ImGui::Spacing();
+            ui::Checkbox("Pierce Teams", &settings.pierceTeams);
+            if (settings.pierceTeams)
+                ui::SliderFloat("Pierce Range", &settings.pierceRange, 3.0f, 6.0f, "%.2f");
+            ui::Checkbox("Protect Teams", &settings.protectTeams);
         });
 }
 
@@ -495,6 +636,9 @@ void Piercing::saveSettings(json::Value& node) const {
     node["throughWallsRange"] = settings.throughWallsRange;
     node["backtrackCheck"] = settings.backtrackCheck;
     node["expand"] = settings.expand;
+    node["pierceTeams"] = settings.pierceTeams;
+    node["pierceRange"] = settings.pierceRange;
+    node["protectTeams"] = settings.protectTeams;
 }
 
 void Piercing::loadSettings(const json::Value& node) {
@@ -507,4 +651,7 @@ void Piercing::loadSettings(const json::Value& node) {
     settings.throughWallsRange = node["throughWallsRange"].as_float(settings.throughWallsRange);
     settings.backtrackCheck = node["backtrackCheck"].as_bool(settings.backtrackCheck);
     settings.expand = node["expand"].as_float(settings.expand);
+    settings.pierceTeams = node["pierceTeams"].as_bool(settings.pierceTeams);
+    settings.pierceRange = node["pierceRange"].as_float(settings.pierceRange);
+    settings.protectTeams = node["protectTeams"].as_bool(settings.protectTeams);
 }

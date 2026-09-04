@@ -2,6 +2,7 @@
 #include "../../config/config.hpp"
 #include "../../module/combat/piercing.h"
 #include "../../module/module_manager.h"
+#include "../../module/utility/altmanager.h"
 #include "../../sdk/core/minecraft.h"
 #include "../../sdk/player/render_data.h"
 #include "../../util/logger.hpp"
@@ -329,9 +330,25 @@ LRESULT CALLBACK HookedWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam
 
     // Don't toggle menu if a keybind binder is active (user is selecting a new key)
     if (msg == WM_KEYDOWN && wParam == Menu::menuKey && !ui::IsBinderActive()) {
+        // On the multiplayer menu the key belongs to the Alt Manager window
+        // instead of the click GUI. If the click GUI is already open it keeps
+        // priority so the key still closes it.
+        if (!Menu::isOpen && AltManagerWindow::isAvailable()) {
+            if (AltManagerWindow::isOpen) {
+                AltManagerWindow::Close();
+                ConfigManager::get().onSettingChanged();
+            } else {
+                AltManagerWindow::isOpen = true;
+            }
+            // A Minecraft GUI is already up here, so the mouse is ungrabbed and
+            // there are no movement keys to release.
+            return 1;
+        }
+
         Menu::isOpen = !Menu::isOpen;
 
         if (Menu::isOpen) {
+            AltManagerWindow::Close();
             mc.releaseMovementKeys();
             mc.ungrabMouse();  // Release mouse at LWJGL level to prevent camera movement
         } else {
@@ -457,6 +474,26 @@ LRESULT CALLBACK HookedWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam
         return 1;
     }
 
+    // Alt Manager window: same input capture as the click GUI, so clicks and
+    // typing land on the overlay instead of the server list behind it.
+    if (AltManagerWindow::isOpen) {
+        if (msg == WM_KEYDOWN && wParam == VK_ESCAPE) {
+            AltManagerWindow::Close();
+            ImGui::GetIO().MouseDrawCursor = false;
+            ConfigManager::get().onSettingChanged();
+            return 1;
+        }
+
+        // Let close/quit messages through (Alt+F4, close button, etc.)
+        if (msg == WM_CLOSE || msg == WM_DESTROY || msg == WM_QUIT ||
+            (msg == WM_SYSCOMMAND && (wParam & 0xFFF0) == SC_CLOSE) || (msg == WM_SYSKEYDOWN && wParam == VK_F4)) {
+            return CallWindowProcA(originalWndProc, hWnd, msg, wParam, lParam);
+        }
+
+        ImGui_ImplWin32_WndProcHandler(hWnd, msg, wParam, lParam);
+        return 1;
+    }
+
     if (msg == WM_LBUTTONDOWN && piercing && piercing->handleAttackInput()) {
         suppressPiercingRelease = true;
         return 1;
@@ -536,6 +573,7 @@ BOOL __stdcall HookedSwapBuffers(HDC hdc) {
 
             Menu::isOpen = false;
             Menu::moduleToBind = nullptr;
+            AltManagerWindow::Close();
 
             ImGui_ImplOpenGL2_Shutdown();
             ImGui_ImplWin32_Shutdown();
@@ -611,14 +649,15 @@ BOOL __stdcall HookedSwapBuffers(HDC hdc) {
         // Watermark is an independent HUD element with its own on/off toggle.
         bool hasWatermark = Watermark::enabled;
         bool menuAnimating = Menu::openAnim > 0.01f;
+        bool altWindowOpen = AltManagerWindow::isOpen;
         // Dev builds always render so the "dev build" warning is never hidden.
 #ifdef COBBLE_DEV_BUILD
         constexpr bool hasDevWarning = true;
 #else
         constexpr bool hasDevWarning = false;
 #endif
-        if (!Menu::isOpen && !menuAnimating && !hasRenderWork && !hasNotifications && !hasArrayList &&
-            !hasWatermark && !hasDevWarning) {
+        if (!Menu::isOpen && !menuAnimating && !altWindowOpen && !hasRenderWork && !hasNotifications &&
+            !hasArrayList && !hasWatermark && !hasDevWarning) {
             return originalSwapBuffers(hdc);
         }
 
@@ -630,15 +669,16 @@ BOOL __stdcall HookedSwapBuffers(HDC hdc) {
 
         ImGuiIO& io = ImGui::GetIO();
         io.DisplaySize = ImVec2((float)RenderData::screenWidth, (float)RenderData::screenHeight);
-        io.MouseDrawCursor = Menu::isOpen;
+        io.MouseDrawCursor = Menu::isOpen || AltManagerWindow::isOpen;
 
         // Auto-close menu on alt-tab. The watermark's file dialog runs on its own
         // thread and legitimately takes the foreground, so it is not an alt-tab:
         // closing the menu under it would drop the pick the user is about to make.
-        if (Menu::isOpen && GetForegroundWindow() != Overlay::gameWindow && !Watermark::pickerBusy()) {
+        if ((Menu::isOpen || AltManagerWindow::isOpen) && GetForegroundWindow() != Overlay::gameWindow && !Watermark::pickerBusy()) {
             Menu::isOpen = false;
             Menu::openAnim = 0.f;  // Skip close animation
             Menu::moduleToBind = nullptr;
+            AltManagerWindow::Close();
             io.MouseDrawCursor = false;
             mc.restoreMovementKeys();
             ConfigManager::get().onSettingChanged();
@@ -663,6 +703,7 @@ BOOL __stdcall HookedSwapBuffers(HDC hdc) {
         ImGui::End();
 
         Menu::Render();
+        AltManagerWindow::Render();
 
         ImGui::EndFrame();
         frameStarted = false;

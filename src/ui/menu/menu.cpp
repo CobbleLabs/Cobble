@@ -31,6 +31,7 @@
 #include "../../module/movement/timer.h"
 #include "../../module/movement/timerrange.h"
 #include "../../module/movement/sprint.h"
+#include "../../module/movement/faststop.h"
 #include "../../module/utility/armorswitch.h"
 #include "../../module/utility/autorefill.h"
 #include "../../module/utility/altmanager.h"
@@ -177,6 +178,8 @@ Module* getModuleForSubtab(int tabIdx, int subtabIdx) {
                 return sprint;
             case 5:
                 return inventoryMove;
+            case 6:
+                return fastStop;
         }
     }
     // Utility Tab (3)

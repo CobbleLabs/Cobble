@@ -10,6 +10,10 @@
 
 class Backtrack : public Module {
 public:
+    // Backtrack engagement mode. Always = engage whenever crosshair is on target;
+    // OnlyOnHit = engage only after landing a hit, auto-disengage when the hold
+    // window expires. OnlyOnHit is subtler because the ghost only appears mid-fight.
+    enum class Mode { Always = 0, OnlyOnHit = 1 };
     struct HoldIntent {
         int targetEntityId = -1;
         std::uint64_t engagementEpoch = 0;
@@ -46,12 +50,23 @@ public:
     std::string getDisplayInfo() override;
 
     void onClientTick(JNIEnv* env);
+
+    // Called by attackEntity / KillAura / Piercing when a hit actually lands on
+    // a player. In OnlyOnHit mode this opens the retention window.
+    void notifyHitLanded(int entityId);
     bool needsClientTick() const;
 
     HoldIntent holdIntent() const;
     HeldTargetSnapshot heldTargetSnapshot() const;
 
     struct Settings {
+        // ---- Mode ----
+        // Always: engage whenever the crosshair is on a player (classic behaviour).
+        // OnlyOnHit: engage only after landing a hit; the hold lasts for holdMs then
+        // expires automatically. Much subtler because the ghost only materialises
+        // during an actual exchange.
+        Mode mode = Mode::Always;
+
         // ---- Retention ----
         // How long a movement packet may sit in the queue before it is replayed.
         // This IS the backtrack window: the ghost box shows where the server still
@@ -127,6 +142,12 @@ private:
     std::atomic<bool> discardRequested_{false};
     std::atomic<std::uint64_t> visualEpoch_{1};
     BoxAnimation boxAnimation_;
+
+    // OnlyOnHit state: the entity ID of the last player we hit, and a timestamp
+    // that records when the engagement window started. The window stays open for
+    // holdMs after the last hit.
+    std::atomic<int> hitEntityId_{-1};
+    std::atomic<std::uint64_t> hitTimestamp_{0};  // GetTickCount64
 };
 
 extern Backtrack* backtrack;

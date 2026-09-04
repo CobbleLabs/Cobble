@@ -211,6 +211,7 @@ jmethodID mid_getBlockPos = nullptr;
 // MovingObjectType IDs
 jfieldID fid_BLOCK = nullptr;
 jfieldID fid_ENTITY = nullptr;
+jfieldID fid_MISS = nullptr;
 
 // World IDs
 jfieldID fid_playerEntities = nullptr;
@@ -981,12 +982,18 @@ static bool resolveIds(JNIEnv* env) {
                          "Lnet/minecraft/util/MovingObjectPosition$MovingObjectType;");
         TRY_STATIC_FIELD(fid_ENTITY, cls_MovingObjectType, "ENTITY",
                          "Lnet/minecraft/util/MovingObjectPosition$MovingObjectType;");
+        TRY_STATIC_FIELD(fid_MISS, cls_MovingObjectType, "MISS",
+                         "Lnet/minecraft/util/MovingObjectPosition$MovingObjectType;");
 
         if (!fid_BLOCK) {
             // Obfuscated fallback (field_76322_a = MISS, field_76323_b = BLOCK, field_76321_c = ENTITY)
             TRY_STATIC_FIELD(fid_BLOCK, cls_MovingObjectType, "field_76323_b",
                              "Lnet/minecraft/util/MovingObjectPosition$MovingObjectType;");
             TRY_STATIC_FIELD(fid_ENTITY, cls_MovingObjectType, "field_76321_c",
+                             "Lnet/minecraft/util/MovingObjectPosition$MovingObjectType;");
+        }
+        if (!fid_MISS) {
+            TRY_STATIC_FIELD(fid_MISS, cls_MovingObjectType, "field_76322_a",
                              "Lnet/minecraft/util/MovingObjectPosition$MovingObjectType;");
         }
     }

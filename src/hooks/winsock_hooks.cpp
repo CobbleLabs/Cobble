@@ -43,12 +43,21 @@ std::atomic<int> blockedPacketCount{0};
 std::atomic<int> sendCallCount{0};
 std::atomic<int> afdSendBlockedCount{0};  // Track NIO blocked sends
 
+// Thread allowed to bypass the stalls below. Only ever one at a time (the Alt
+// Manager serializes its login worker), so a single id is enough.
+std::atomic<DWORD> exemptThreadId{0};
+
+bool callerIsExempt() {
+    const DWORD id = exemptThreadId.load(std::memory_order_relaxed);
+    return id != 0 && id == GetCurrentThreadId();
+}
+
 // Hooked NtDeviceIoControlFile - intercepts Java NIO socket sends
 NTSTATUS NTAPI HookedNtDeviceIoControlFile(HANDLE FileHandle, HANDLE Event, PVOID ApcRoutine, PVOID ApcContext,
                                            PVOID IoStatusBlock, ULONG IoControlCode, PVOID InputBuffer,
                                            ULONG InputBufferLength, PVOID OutputBuffer, ULONG OutputBufferLength) {
     // Check if this is an AFD send operation (used by Java NIO for socket sends)
-    if (IoControlCode == IOCTL_AFD_SEND && WinsockHooks::StopOutbound.load()) {
+    if (IoControlCode == IOCTL_AFD_SEND && WinsockHooks::StopOutbound.load() && !callerIsExempt()) {
         afdSendBlockedCount++;
 
         // Block by busy-waiting until StopOutbound is false
@@ -58,13 +67,13 @@ NTSTATUS NTAPI HookedNtDeviceIoControlFile(HANDLE FileHandle, HANDLE Event, PVOI
     }
 
     return OriginalNtDeviceIoControlFile(FileHandle, Event, ApcRoutine, ApcContext, IoStatusBlock, IoControlCode,
-                                         InputBuffer, InputBufferLength, OutputBuffer, OutputBufferLength);
+                                        InputBuffer, InputBufferLength, OutputBuffer, OutputBufferLength);
 }
 
 // Hooked WSASend - blocks outbound packets when StopOutbound is true
 int WINAPI HookedWSASend(SOCKET s, LPWSABUF lpBuffers, DWORD dwBufferCount, LPDWORD lpNumberOfBytesSent, DWORD dwFlags,
                          LPWSAOVERLAPPED lpOverlapped, LPWSAOVERLAPPED_COMPLETION_ROUTINE lpCompletionRoutine) {
-    if (WinsockHooks::StopOutbound.load()) {
+    if (WinsockHooks::StopOutbound.load() && !callerIsExempt()) {
         blockedPacketCount++;
         while (WinsockHooks::StopOutbound.load()) {
             Sleep(1);
@@ -88,14 +97,30 @@ int WINAPI HookedSend(SOCKET s, const char* buf, int len, int flags) {
 int WINAPI HookedWSARecv(SOCKET s, LPWSABUF lpBuffers, DWORD dwBufferCount, LPDWORD lpNumberOfBytesRecvd,
                          LPDWORD lpFlags, LPWSAOVERLAPPED lpOverlapped,
                          LPWSAOVERLAPPED_COMPLETION_ROUTINE lpCompletionRoutine) {
-    while (WinsockHooks::StopInbound.load()) {
-        Sleep(1);
+    if (!callerIsExempt()) {
+        while (WinsockHooks::StopInbound.load()) {
+            Sleep(1);
+        }
     }
 
     return OriginalWSARecv(s, lpBuffers, dwBufferCount, lpNumberOfBytesRecvd, lpFlags, lpOverlapped,
                            lpCompletionRoutine);
 }
 }  // namespace
+
+void WinsockHooks::ExemptCurrentThread() {
+    exemptThreadId.store(GetCurrentThreadId(), std::memory_order_relaxed);
+}
+
+void WinsockHooks::UnexemptCurrentThread() {
+    DWORD self = GetCurrentThreadId();
+    exemptThreadId.compare_exchange_strong(self, 0, std::memory_order_relaxed);
+}
+
+void WinsockHooks::ReleaseStalls() {
+    StopOutbound.store(false);
+    StopInbound.store(false);
+}
 
 bool WinsockHooks::Init() {
     if (hooksInitialized)

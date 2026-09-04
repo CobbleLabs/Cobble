@@ -26,6 +26,7 @@
 #include "module/movement/timer.h"
 #include "module/movement/timerrange.h"
 #include "module/movement/sprint.h"
+#include "module/movement/faststop.h"
 #include "module/utility/armorswitch.h"
 #include "module/utility/autorefill.h"
 #include "module/utility/altmanager.h"
@@ -40,6 +41,7 @@
 #include "module/utility/teams.h"
 #include "module/utility/throwpots.h"
 #include "module/utility/autopot.h"
+
 #include "module/visual/blockesp.h"
 #include "module/visual/chams.h"
 #include "module/visual/esp.h"
@@ -251,6 +253,8 @@ void cobble::context::initialize(HMODULE hModule) {
     inventoryManager = new InventoryManager();
     COBBLE_TRACE("alloc:AltManager");
     altManager = new AltManager();
+    COBBLE_TRACE("alloc:FastStop");
+    fastStop = new FastStop();
     COBBLE_TRACE("alloc:NameTags");
     nameTags = new NameTags();
     COBBLE_TRACE("alloc:AntiDebuff");
@@ -323,6 +327,7 @@ void cobble::context::initialize(HMODULE hModule) {
     moduleManager->registerModule(inventoryManager);
     moduleManager->registerModule(teamsModule);
     moduleManager->registerModule(altManager);
+    moduleManager->registerModule(fastStop);
     moduleManager->registerModule(nameTags);
     moduleManager->registerModule(antiDebuff);
     moduleManager->registerModule(esp);
@@ -782,6 +787,10 @@ bool cobble::context::shutdown() {
     if (altManager) {
         delete altManager;
         altManager = nullptr;
+    }
+    if (fastStop) {
+        delete fastStop;
+        fastStop = nullptr;
     }
     if (nameTags) {
         delete nameTags;

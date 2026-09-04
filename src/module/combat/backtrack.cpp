@@ -338,6 +338,13 @@ bool Backtrack::attackSourceActive() const {
     return false;
 }
 
+void Backtrack::notifyHitLanded(int entityId) {
+    if (settings.mode != Mode::OnlyOnHit)
+        return;
+    hitEntityId_.store(entityId, std::memory_order_relaxed);
+    hitTimestamp_.store(GetTickCount64(), std::memory_order_release);
+}
+
 bool Backtrack::targetWithinRange(JNIEnv* env, jobject target) const {
     if (!env || !target || !player.isValid() || !JniCache::fid_posX ||
         !JniCache::fid_posY || !JniCache::fid_posZ) {
@@ -397,6 +404,19 @@ void Backtrack::tickWholeStream(JNIEnv* env) {
 
     const bool mayEngage = !Menu::isOpen && !mc.isInGui() &&
                            !(settings.onlyWhileAttacking && !attackSourceActive());
+
+    // OnlyOnHit: only allow engagement when a recent hit has been registered
+    // against the entity we are looking at, and the hit window has not expired.
+    const bool hitGateOpen = [&]() {
+        if (settings.mode != Mode::OnlyOnHit)
+            return true;  // Always mode: no extra gate
+        const std::uint64_t ts = hitTimestamp_.load(std::memory_order_acquire);
+        if (ts == 0)
+            return false;
+        const std::uint64_t elapsed = GetTickCount64() - ts;
+        return elapsed <= static_cast<std::uint64_t>((std::max)(settings.holdMs, 20));
+    }();
+
     bool engaged = false;
     if (mayEngage && JniCache::mid_getEntityId) {
         jobject target = targetedPlayer(env);
@@ -404,7 +424,10 @@ void Backtrack::tickWholeStream(JNIEnv* env) {
             const int entityId = env->CallIntMethod(target, JniCache::mid_getEntityId);
             const bool readId = !env->ExceptionCheck() && entityId >= 0;
             clearException(env);
-            if (readId && targetWithinRange(env, target)) {
+            // In OnlyOnHit mode, only engage the entity we recently hit
+            const bool hitMatch = (settings.mode != Mode::OnlyOnHit) ||
+                                  (hitEntityId_.load(std::memory_order_relaxed) == entityId);
+            if (readId && hitMatch && hitGateOpen && targetWithinRange(env, target)) {
                 intent = holdIntent();
                 // Switching targets inside a live stream re-primes the base against the
                 // new entity and leaves the queue alone. The packets already retained
@@ -492,6 +515,21 @@ void Backtrack::onClientTick(JNIEnv* env) {
             flushPending(env);
         }
         return;
+    }
+
+    // OnlyOnHit gate for non-whole-stream path
+    if (settings.mode == Mode::OnlyOnHit) {
+        const std::uint64_t ts = hitTimestamp_.load(std::memory_order_acquire);
+        const bool windowExpired = (ts == 0) ||
+            (GetTickCount64() - ts > static_cast<std::uint64_t>((std::max)(settings.holdMs, 20)));
+        if (windowExpired) {
+            closeAdmission();
+            if (BacktrackGate::HasPending()) {
+                drainRequested_.store(true, std::memory_order_release);
+                flushPending(env);
+            }
+            return;
+        }
     }
 
     jobject target = targetedPlayer(env);
@@ -679,6 +717,13 @@ void Backtrack::onRenderMenu() {
                 setEnabled(enabledValue);
             }
             ImGui::Spacing();
+            {
+                int mode = static_cast<int>(settings.mode);
+                const char* modeLabels[] = {"Always", "Only on Hit"};
+                if (ui::Combo("Mode", &mode, modeLabels, IM_ARRAYSIZE(modeLabels))) {
+                    settings.mode = static_cast<Mode>(mode);
+                }
+            }
             ui::SliderInt("Hold Time (ms)", &settings.holdMs, 20, 400, "%d");
             ui::SliderInt("Packet Limit", &settings.maxPackets, 2, 64, "%d");
             ui::Checkbox("Whole Stream", &settings.wholeStream);
@@ -731,6 +776,7 @@ void Backtrack::saveSettings(json::Value& node) const {
     node = json::Value();
     node["enabled"] = enabledValue;
     node["keybind"] = keybindValue;
+    node["mode"] = static_cast<int>(settings.mode);
     node["holdMs"] = settings.holdMs;
     node["maxPackets"] = settings.maxPackets;
     node["wholeStream"] = settings.wholeStream;
@@ -741,6 +787,7 @@ void Backtrack::saveSettings(json::Value& node) const {
 }
 
 void Backtrack::loadSettings(const json::Value& node) {
+    settings.mode = static_cast<Mode>(std::clamp(node["mode"].as_int(static_cast<int>(settings.mode)), 0, 1));
     settings.holdMs = std::clamp(node["holdMs"].as_int(settings.holdMs), 20, 400);
     settings.maxPackets = std::clamp(node["maxPackets"].as_int(settings.maxPackets), 2, 64);
     settings.wholeStream = node["wholeStream"].as_bool(settings.wholeStream);

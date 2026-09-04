@@ -2,6 +2,7 @@
 // Contains SDK_Init and basic Minecraft instance methods
 
 #include "minecraft.h"
+#include "../../module/combat/backtrack.h"
 #include "../../util/aes_string.hpp"
 #include "../../util/inventory/inventory_hooks.h"
 #include "../../util/logger.hpp"
@@ -246,6 +247,89 @@ bool Minecraft::isInGui() {
     return result;
 }
 
+std::string Minecraft::getCurrentScreenName() {
+    if (!isValid() || !fid_currentScreen)
+        return std::string();
+
+    JNIEnv* env = Java::Env();
+    if (!env)
+        return std::string();
+
+    jobject screen = env->GetObjectField(instance, fid_currentScreen);
+    if (env->ExceptionCheck())
+        env->ExceptionClear();
+    if (!screen)
+        return std::string();
+
+    std::string name;
+    jclass screenCls = env->GetObjectClass(screen);
+    jclass classCls = screenCls ? env->GetObjectClass(screenCls) : nullptr;
+    jmethodID midGetName =
+        classCls ? env->GetMethodID(classCls, OBFUSCATE_STRING("getName").c_str(),
+                                    OBFUSCATE_STRING("()Ljava/lang/String;").c_str())
+                 : nullptr;
+    if (midGetName) {
+        jstring jname = static_cast<jstring>(env->CallObjectMethod(screenCls, midGetName));
+        if (env->ExceptionCheck())
+            env->ExceptionClear();
+        if (jname) {
+            const char* raw = env->GetStringUTFChars(jname, nullptr);
+            if (raw) {
+                name.assign(raw);
+                env->ReleaseStringUTFChars(jname, raw);
+            }
+            env->DeleteLocalRef(jname);
+        }
+    }
+    if (env->ExceptionCheck())
+        env->ExceptionClear();
+
+    if (classCls)
+        env->DeleteLocalRef(classCls);
+    if (screenCls)
+        env->DeleteLocalRef(screenCls);
+    env->DeleteLocalRef(screen);
+    return name;
+}
+
+bool Minecraft::isInServerBrowser() {
+    if (!isValid())
+        return false;
+
+    // A GuiScreen must be up, and we must not be in a world: that rules out the
+    // in-game screens (chat, inventory, ESC menu) while covering every pre-join
+    // menu regardless of mappings.
+    if (!isInGui())
+        return false;
+
+    JNIEnv* env = Java::Env();
+    if (!env)
+        return false;
+
+    jobject world = getWorld();
+    if (env->ExceptionCheck())
+        env->ExceptionClear();
+    if (world) {
+        env->DeleteLocalRef(world);
+        return false;
+    }
+
+    // When the runtime ships readable class names, narrow this down to the
+    // server list and its sub-screens. Obfuscated runtimes fall through to the
+    // no-world check above.
+    const std::string screen = getCurrentScreenName();
+    if (screen.find(OBFUSCATE_STRING("net.minecraft")) != std::string::npos ||
+        screen.find(OBFUSCATE_STRING("Gui")) != std::string::npos) {
+        return screen.find(OBFUSCATE_STRING("GuiMultiplayer")) != std::string::npos ||
+               screen.find(OBFUSCATE_STRING("GuiScreenServerList")) != std::string::npos ||
+               screen.find(OBFUSCATE_STRING("GuiScreenAddServer")) != std::string::npos ||
+               screen.find(OBFUSCATE_STRING("GuiConnecting")) != std::string::npos ||
+               screen.find(OBFUSCATE_STRING("GuiMainMenu")) != std::string::npos;
+    }
+
+    return true;
+}
+
 // True when an open screen is painted over the world. Chat is the one exception:
 // GuiChat is a thin overlay over normal gameplay, so hiding the client's visuals
 // the moment the user presses T would be wrong. Every other screen -- inventory,
@@ -470,6 +554,15 @@ bool Minecraft::attackEntity(jobject target) {
 
         env->CallVoidMethod(controller, attackMethod, localPlayer, target);
         attacked = !env->ExceptionCheck();
+
+        // Notify Backtrack of the successful hit for OnlyOnHit mode.
+        if (attacked && backtrack && JniCache::mid_getEntityId) {
+            const int targetId = env->CallIntMethod(target, JniCache::mid_getEntityId);
+            if (!env->ExceptionCheck() && targetId >= 0)
+                backtrack->notifyHitLanded(targetId);
+            if (env->ExceptionCheck())
+                env->ExceptionClear();
+        }
     }
 
     if (env->ExceptionCheck())
