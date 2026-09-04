@@ -68,6 +68,7 @@ bool RayIntersectsPlayerBox(double eyeX, double eyeY, double eyeZ, double dirX, 
 Pings::Pings() : Module("Pings") {
     keybind = 0; // The module itself is toggled by menu, but has a separate action keybind
     renders = true;
+    worldVisual = true;
     usesPlayerCache = true;
     enabled = true; // Enabled by default
 }

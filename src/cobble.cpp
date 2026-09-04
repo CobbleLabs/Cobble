@@ -485,6 +485,10 @@ void cobble::context::initialize(HMODULE hModule) {
             RenderData::Update();
             // Cache real game FPS here (main JNI thread) for the HUD/watermark.
             RenderData::gameFps = mc.getGameFps();
+            // Same reason: the render thread can't touch JNI, and it needs to know
+            // whether a screen is covering the world so world-space visuals can
+            // stand down (see ModuleManager::onRender).
+            RenderData::guiCoversWorld = mc.isGuiCoveringWorld();
             lastRenderUpdate = now;
         }
 

@@ -99,6 +99,7 @@ void resolveC03(JNIEnv* env) {
 Clutch::Clutch(PlaceMode mode)
     : Module(mode == PlaceMode::Clutch ? "Clutch" : "Scaffold"), placeMode_(mode) {
     renders = true;
+    worldVisual = true;  // the placement preview is a world-space block outline
     usesPlayerCache = true;
 }
 

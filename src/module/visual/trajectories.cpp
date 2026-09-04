@@ -33,6 +33,7 @@ static constexpr int MAX_SIMULATION_TICKS = 240;
 Trajectories::Trajectories() : Module("Trajectories") {
     keybind = 0;
     renders = true;
+    worldVisual = true;
 }
 
 void Trajectories::onEnable() {

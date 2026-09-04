@@ -2,6 +2,7 @@
 #include "../jni/packet/bytecode_patcher.hpp"
 #include "../jni/java.h"
 #include "../sdk/core/minecraft.h"
+#include "../sdk/player/render_data.h"
 #include "../ui/menu/menu.h"
 #include "../util/diagnostics.hpp"
 #include "../util/inject_trace.hpp"
@@ -222,9 +223,19 @@ void ModuleManager::onRender() {
     if (!sdk::internal::gateD())
         return;
     COBBLE_DLL_ULTRA_START("Cobble.ModuleManager.Render");
+    // World-space visuals (ESP, tracers, nametags, ...) stand down while a screen
+    // covers the world. The ImGui overlay is the last thing drawn each frame, so
+    // otherwise they land on top of the open inventory instead of behind it --
+    // boxes over the item slots, tracers sweeping across the panel. Screen-space
+    // HUD modules keep drawing. The flag is sampled on the JNI thread; chat does
+    // not count as covering (see RenderData::guiCoversWorld).
+    const bool hideWorldVisuals = RenderData::guiCoversWorld;
     for (auto* mod : modules) {
-        if (mod->enabled)
-            mod->onRender();
+        if (!mod->enabled)
+            continue;
+        if (hideWorldVisuals && mod->worldVisual)
+            continue;
+        mod->onRender();
     }
     COBBLE_DLL_ULTRA_END();
 }

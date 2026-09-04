@@ -18,6 +18,7 @@ Tracers* tracers = nullptr;
 Tracers::Tracers() : Module("Tracers") {
     keybind = 0;
     renders = true;
+    worldVisual = true;
     usesPlayerCache = true;
 }
 
@@ -196,6 +197,19 @@ static ImU32 WithAlpha(ImU32 color, float alpha) {
     return (color & 0x00FFFFFFu) | (byteAlpha << 24);
 }
 
+// Point on the cubic bezier at t. AddBezierCubic strokes the whole curve in one
+// colour, and the lines need their alpha to vary along their length (clear around
+// the crosshair, ramping up towards the target), so the curve is sampled here and
+// stroked segment by segment instead.
+static ImVec2 BezierPoint(const ImVec2& p0, const ImVec2& p1, const ImVec2& p2, const ImVec2& p3, float t) {
+    const float u = 1.0f - t;
+    const float w0 = u * u * u;
+    const float w1 = 3.0f * u * u * t;
+    const float w2 = 3.0f * u * t * t;
+    const float w3 = t * t * t;
+    return ImVec2(p0.x * w0 + p1.x * w1 + p2.x * w2 + p3.x * w3, p0.y * w0 + p1.y * w1 + p2.y * w2 + p3.y * w3);
+}
+
 void Tracers::onRender() {
     if (!RenderData::updated)
         return;
@@ -246,6 +260,10 @@ void Tracers::onRender() {
         // Bottom center of screen
         startPos = ImVec2(RenderData::screenWidth / 2.0f, RenderData::screenHeight - 8.0f);
     }
+
+    // The crosshair gap is authored in 1080p pixels; without this a gap that keeps
+    // the centre of the screen clear at 1080p is a barely visible nick at 4K.
+    const float pixelScale = (std::clamp)((float)RenderData::screenHeight / 1080.0f, 0.6f, 3.0f);
 
     const long long now = GetTickCount64();
     const float frameSeconds =
@@ -307,7 +325,12 @@ void Tracers::onRender() {
         }
 
         const float distanceFade = (std::clamp)(1.0f - p.distance / (std::max)(settings.range, 1.0f), 0.25f, 0.9f);
-        color = WithAlpha(color, distanceFade);
+
+        // The colour picker's own alpha is respected; distance and health modes
+        // always come back fully opaque, so this is 1.0 for them. Shift matches
+        // WithAlpha() above.
+        const float pickedAlpha = (float)((color >> 24) & 0xFF) / 255.0f;
+        const float baseAlpha = distanceFade * pickedAlpha * (std::clamp)(settings.opacity, 0.05f, 1.0f);
 
         const ImVec2 endPos(screenPos.x, screenPos.y);
         const float verticalSpan = endPos.y - startPos.y;
@@ -316,11 +339,72 @@ void Tracers::onRender() {
         const ImVec2 controlA(startPos.x + bendDirection, startPos.y + verticalSpan * 0.33f);
         const ImVec2 controlB(endPos.x - bendDirection, startPos.y + verticalSpan * 0.72f);
 
-        draw->AddBezierCubic(startPos, controlA, controlB, endPos, IM_COL32(0, 0, 0, 150),
-                             settings.thickness + 2.5f);
-        draw->AddBezierCubic(startPos, controlA, controlB, endPos, color, settings.thickness);
-        draw->AddCircleFilled(endPos, (std::max)(1.75f, settings.thickness), color, 12);
-        draw->AddCircle(endPos, (std::max)(2.5f, settings.thickness + 0.75f), IM_COL32(0, 0, 0, 150), 12, 1.0f);
+        // Sample the curve and keep a running arc length, so the gap and the ramp
+        // are measured in real screen pixels. t alone bunches up wherever the curve
+        // bends and would make the gap breathe as the target moves.
+        constexpr int kSegments = 32;
+        ImVec2 pts[kSegments + 1];
+        float arc[kSegments + 1];
+        pts[0] = startPos;
+        arc[0] = 0.0f;
+        for (int i = 1; i <= kSegments; ++i) {
+            pts[i] = BezierPoint(startPos, controlA, controlB, endPos, (float)i / (float)kSegments);
+            const float sx = pts[i].x - pts[i - 1].x;
+            const float sy = pts[i].y - pts[i - 1].y;
+            arc[i] = arc[i - 1] + std::sqrt(sx * sx + sy * sy);
+        }
+        const float totalArc = arc[kSegments];
+
+        // Clear a hole around the start point. From the centre that is the whole
+        // point -- 20 players used to mean 20 lines crossing under the crosshair.
+        // From the bottom of the screen the origin is already out of the way, so
+        // only a short ramp is used there.
+        float gapLen = (std::max)(0.0f, settings.startGap) * pixelScale;
+        if (settings.lineFrom != 0)
+            gapLen *= 0.35f;
+        float rampLen = (std::max)(1.0f, gapLen * 1.3f);
+
+        // A target close to the origin would otherwise vanish completely; give it
+        // the last 45% of whatever length it has instead of nothing.
+        if (gapLen + rampLen > totalArc * 0.55f) {
+            const float budget = totalArc * 0.55f;
+            const float shrink = budget / (std::max)(1.0f, gapLen + rampLen);
+            gapLen *= shrink;
+            rampLen = (std::max)(1.0f, rampLen * shrink);
+        }
+
+        // Alpha per segment, computed once and used by both stroke passes.
+        float segAlpha[kSegments];
+        for (int i = 1; i <= kSegments; ++i) {
+            const float mid = (arc[i - 1] + arc[i]) * 0.5f;
+            float a = (std::clamp)((mid - gapLen) / rampLen, 0.0f, 1.0f);
+            a = a * a * (3.0f - 2.0f * a);  // smoothstep: no hard edge where the line begins
+            segAlpha[i - 1] = baseAlpha * a;
+        }
+
+        // Outline first, as a full pass: interleaving the two would let each
+        // segment's dark edge paint over the previous segment's coloured stroke and
+        // leave the line looking dashed. It is a thin, half-transparent edge now
+        // rather than the old solid black cable that doubled every line's weight.
+        if (settings.outline) {
+            const float outlineW = settings.thickness + 1.5f;
+            for (int i = 0; i < kSegments; ++i) {
+                if (segAlpha[i] <= 0.004f)
+                    continue;
+                draw->AddLine(pts[i], pts[i + 1], WithAlpha(IM_COL32_BLACK, segAlpha[i] * 0.42f), outlineW);
+            }
+        }
+
+        for (int i = 0; i < kSegments; ++i) {
+            if (segAlpha[i] <= 0.004f)
+                continue;
+            draw->AddLine(pts[i], pts[i + 1], WithAlpha(color, segAlpha[i]), settings.thickness);
+        }
+
+        if (settings.endDot) {
+            const float dotR = (std::max)(1.25f, settings.thickness * 0.65f);
+            draw->AddCircleFilled(endPos, dotR, WithAlpha(color, baseAlpha), 10);
+        }
     }
 
     for (auto it = smoothedPlayers.begin(); it != smoothedPlayers.end();) {
@@ -349,6 +433,10 @@ void Tracers::onRenderMenu() {
 
             ui::SliderFloat("Thickness", &settings.thickness, 1.0f, 5.0f, "%.1fpx");
             ui::SliderFloat("Range", &settings.range, 16.0f, 256.0f, "%.0fm");
+            ui::SliderFloat("Opacity", &settings.opacity, 0.1f, 1.0f, "%.2f");
+            ui::SliderFloat("Crosshair Gap", &settings.startGap, 0.0f, 160.0f, "%.0fpx");
+            ui::Checkbox("Outline", &settings.outline);
+            ui::Checkbox("End Dot", &settings.endDot);
         },
         "Colors",
         [this]() {
@@ -375,6 +463,10 @@ void Tracers::saveSettings(json::Value& node) const {
     node["thickness"] = settings.thickness;
     node["range"] = settings.range;
     node["lineFrom"] = settings.lineFrom;
+    node["opacity"] = settings.opacity;
+    node["startGap"] = settings.startGap;
+    node["outline"] = settings.outline;
+    node["endDot"] = settings.endDot;
     json::writeColor(node, "tracerColor", settings.tracerColor);
 }
 
@@ -385,5 +477,9 @@ void Tracers::loadSettings(const json::Value& node) {
     settings.thickness = node["thickness"].as_float(settings.thickness);
     settings.range = node["range"].as_float(settings.range);
     settings.lineFrom = node["lineFrom"].as_int(settings.lineFrom);
+    settings.opacity = node["opacity"].as_float(settings.opacity);
+    settings.startGap = node["startGap"].as_float(settings.startGap);
+    settings.outline = node["outline"].as_bool(settings.outline);
+    settings.endDot = node["endDot"].as_bool(settings.endDot);
     json::readColor(node, "tracerColor", settings.tracerColor);
 }

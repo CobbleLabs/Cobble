@@ -17,6 +17,17 @@ struct Module {
     bool locked = false;           // If true, module is hidden/grayed in UI until unlocked
     bool renders = false;          // If true, module draws in onRender
     bool usesPlayerCache = false;  // If true, module uses shared visual cache
+    // If true, onRender() draws in WORLD space (projected through
+    // WorldToScreen) rather than at fixed screen coordinates. The overlay is
+    // drawn from wglSwapBuffers, i.e. last, after Minecraft has drawn both the
+    // world and any open GUI screen on top of it -- so with the inventory open,
+    // ESP boxes and tracers land on top of the inventory panel itself, over the
+    // item slots and tooltips, tracking entities the player is not looking at.
+    // These modules are skipped while a screen covers the world. Screen-space
+    // HUD elements (target HUD, dropped-item list) leave this false and keep
+    // drawing, and so does anything that renders inside the game's own world
+    // pass (Chams), which is correctly occluded by the GUI already.
+    bool worldVisual = false;
 
     // Global unlock for modules explicitly marked as locked.
     static inline bool experimentalUnlocked = false;

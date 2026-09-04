@@ -30,5 +30,13 @@ inline bool dragging = false;
 inline float dragOffsetX = 0.0f;
 inline float dragOffsetY = 0.0f;
 
+// Last drawn box, in screen pixels (0 width = not drawn this frame). The
+// ArrayList's auto-placement reads it so an auto-positioned list doesn't land
+// on top of the watermark; one frame of staleness is invisible.
+inline float lastX = 0.0f;
+inline float lastY = 0.0f;
+inline float lastW = 0.0f;
+inline float lastH = 0.0f;
+
 void render();
 }  // namespace Watermark

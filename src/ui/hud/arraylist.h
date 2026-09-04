@@ -30,10 +30,17 @@ inline float scale = 1.0f;
 inline bool useAccent = true;
 inline float color[4] = {1.0f, 0.47f, 0.05f, 1.0f};
 inline float yOffset = 5.0f;
-inline int anchor = 0;  // 0=TopRight, 1=TopLeft, 2=BottomRight, 3=BottomLeft
+// Top-left by default. Minecraft draws the sidebar scoreboard against the RIGHT
+// edge, vertically centred, so a top-right list grows straight down into it as
+// soon as a handful of modules are on. The left edge is empty in vanilla (the
+// hotbar/health are bottom-centre), so nothing collides there. A config saved
+// with the old default keeps its own value -- switching the anchor now actually
+// moves the block, which it did not before.
+inline int anchor = 1;  // 0=TopRight, 1=TopLeft, 2=BottomRight, 3=BottomLeft
 
 // Free positioning: absolute top-left of the whole block, in screen pixels.
-// -1 means "not placed yet" -> derive the start position from `anchor`.
+// -1 on both means "auto": park the block in the `anchor` corner and keep it
+// there (recomputed every frame) until it is dragged somewhere.
 inline float posX = -1.0f;
 inline float posY = -1.0f;
 // Drag state (same pattern as DroppedInfo): grab the block with the menu open,

@@ -204,6 +204,7 @@ ItemESP::ItemESP() : Module("ItemESP") {
     // the menu is closed. Without this, hasRenderWork() returns false and the
     // overlay skips the whole frame, so the ESP box only showed with the GUI open.
     renders = true;
+    worldVisual = true;
     settings.box = true;
     settings.filled = true;
     settings.outline = true;

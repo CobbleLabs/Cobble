@@ -82,6 +82,7 @@ static bool sendPacket(JNIEnv* env, jobject packet) {
 Blink::Blink() : Module("Blink") {
     keybind = 0;                   // No keybind by default
     renders = true;                // Enable onRender for breadcrumbs
+    worldVisual = true;            // the breadcrumbs are world-space
     settings.movementOnly = true;  // Fixed, not configurable
 }
 

@@ -56,6 +56,28 @@ void Minecraft::setKeyBindState(int keyCode, bool pressed) {
     if (!env)
         return;
 
+    // Never hold a key down while a GUI screen is open.
+    //
+    // Vanilla stops feeding KeyBinding.setKeyBindState the moment a screen opens,
+    // and displayGuiScreen releases everything through unPressAllKeys -- yet
+    // MovementInputFromOptions.updatePlayerMoveState() reads KeyBinding.pressed
+    // with no screen check at all. So client code that presses a key here while
+    // the inventory is up walks the player around inside their own menu, which is
+    // exactly what made InventoryMove pointless: movement in screens happened
+    // whether the module was on or not. Several modules press keys in passing
+    // (WTap, Velocity, Sprint, AutoRefill, BridgeAssist), so the gate sits at the
+    // one choke point they all funnel through rather than in five callers.
+    //
+    // Releases always go through -- letting go of a key cannot create movement.
+    // Sprint is allowed too: it is a modifier that moves nobody on its own, and
+    // AutoRefill/WTap use it to restore the player's sprint state across an
+    // inventory action. getSprintKey() costs a few JNI calls, so it is only
+    // reached on the rare press-while-in-a-screen path.
+    //
+    // InventoryMove is unaffected: it writes KeyBinding.pressed directly.
+    if (pressed && isInGui() && keyCode != getSprintKey())
+        return;
+
     env->CallStaticVoidMethod(JniCache::cls_KeyBinding, JniCache::mid_setKeyBindState, keyCode, pressed);
 }
 

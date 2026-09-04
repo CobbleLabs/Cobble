@@ -235,6 +235,7 @@ static const MinecraftBlock ALL_MINECRAFT_BLOCKS[] = {
 BlockESP::BlockESP() : Module("BlockESP") {
     keybind = 0;
     renders = true;
+    worldVisual = true;
     usesPlayerCache = true;
     std::memset(enabledBlockIds, 0, sizeof(enabledBlockIds));
     enabledBlockIds[56] = true;  // Diamond Ore

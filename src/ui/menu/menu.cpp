@@ -1702,10 +1702,15 @@ static void renderModuleConfig(int tab) {
                 ImGui::TextWrapped("Drag the ArrayList directly on screen to move it.");
                 ImGui::PopStyleColor();
 
-                // Changing this resets the block back to the chosen corner.
+                // Picking a corner moves the block there and keeps it there (it
+                // tracks the corner as rows come and go) until it is dragged.
                 const char* anchorItems[] = {"Top Right", "Top Left", "Bottom Right", "Bottom Left"};
-                if (ui::Combo("Position (reset corner)", &ArrayListRenderer::anchor, anchorItems, 4)) {
-                    ArrayListRenderer::posX = -1.0f;  // -1 -> re-derive from the new corner
+                if (ui::Combo("Corner", &ArrayListRenderer::anchor, anchorItems, 4)) {
+                    ArrayListRenderer::posX = -1.0f;  // -1 -> back to auto placement
+                    ArrayListRenderer::posY = -1.0f;
+                }
+                if (ImGui::Button("Reset Position", ImVec2(-1, ui::s(24)))) {
+                    ArrayListRenderer::posX = -1.0f;
                     ArrayListRenderer::posY = -1.0f;
                 }
 
@@ -1749,6 +1754,11 @@ static void renderModuleConfig(int tab) {
                 ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetColorU32(ImGuiCol_TextDisabled));
                 ImGui::TextWrapped("Drag the Watermark directly on screen to move it.");
                 ImGui::PopStyleColor();
+
+                if (ImGui::Button("Reset Position", ImVec2(-1, ui::s(24)))) {
+                    Watermark::posX = -1.0f;  // -1 -> back to the top-left margin
+                    Watermark::posY = -1.0f;
+                }
             });
     } else if (ui::cur_tab == 1 && t.cur_subtab == 12) {
         // ClickGUI settings: switch between the Old (original) and New (redesigned)
@@ -2342,34 +2352,21 @@ static void renderClickGuiNew(float openAnim, float pop, float contentT) {
             auto& st = ui::anim_obj(key.c_str(), 0, new_cat_state{0.f, 0.f});
             st.hover = ui::animate(st.hover, 0.f, 1.f, hov);
             st.sel = ui::animate(st.sel, 0.f, 1.f, selected);
-            if (ImMax(st.hover, st.sel) > 0.01f) {
-                dl->AddRectFilled(bb.Min, bb.Max, GetSchemeColor(0.12f * ImMax(st.sel, st.hover * 0.55f)),
-                                  ui::s(8));
-            }
 
-            // Cursor spotlight: the pill brightens where the cursor actually is.
+            // Hover/selected pill. One rounded fill, nothing layered on top of it.
             //
-            // The glow is sized so BOTH ends always land inside the pill's flat middle
-            // band, and the CENTRE is what gets clamped — never the ends. Clamping the
-            // ends (the previous approach) left them sitting at a nonzero alpha, which
-            // is exactly a hard, full-pill-height vertical edge: for a ~90px pill the
-            // 34px reach overran the band from almost any cursor position, so the edge
-            // was visible essentially the whole time the pill was hovered. Terminating
-            // at alpha 0 by construction makes that impossible at any pill width.
-            if (st.hover > 0.01f) {
-                const float r = ui::s(8);
-                const float lx = bb.Min.x + r, rx = bb.Max.x - r;
-                const float reach = ImMin(ui::s(34), (rx - lx) * 0.5f);
-                if (reach > 0.5f) {
-                    const float mx = ImClamp(io.MousePos.x, lx + reach, rx - reach);
-                    const ImU32 cm = GetSchemeColor(0.11f * st.hover);
-                    // Fade to the accent at alpha 0, not to transparent black: vertex
-                    // colours are interpolated unpremultiplied, so a black end would
-                    // dim the middle of the ramp on its way out.
-                    const ImU32 c0 = GetSchemeColor(0.0f);
-                    dl->AddRectFilledMultiColor({mx - reach, bb.Min.y}, {mx, bb.Max.y}, c0, cm, cm, c0);
-                    dl->AddRectFilledMultiColor({mx, bb.Min.y}, {mx + reach, bb.Max.y}, cm, c0, c0, cm);
-                }
+            // There used to be a "cursor spotlight" here: two gradient quads tracking
+            // the mouse inside the pill. Both were drawn at full pill height with
+            // square ends, so the ramp ran straight through the pill's rounded corners
+            // and stood on its own as a full-height vertical edge -- the "|" that
+            // appeared whenever a tab was hovered. A gradient can't be clipped to a
+            // rounded rect with ImGui's draw list, so the effect is gone rather than
+            // retried. The pill is inset horizontally so neighbouring tabs (laid out
+            // edge to edge) can never fuse into one bar either.
+            if (ImMax(st.hover, st.sel) > 0.01f) {
+                const float inset = ui::s(3);
+                dl->AddRectFilled(ImVec2(bb.Min.x + inset, bb.Min.y), ImVec2(bb.Max.x - inset, bb.Max.y),
+                                  GetSchemeColor(0.13f * ImMax(st.sel, st.hover * 0.6f)), ui::s(8));
             }
 
             ImU32 col = ui::col_anim(
@@ -2413,16 +2410,36 @@ static void renderClickGuiNew(float openAnim, float pop, float contentT) {
 
         // Accent wash bleeding down from the indicator into the content area, so the
         // light travels with the selected tab instead of the tab merely being marked.
-        // Three bands (fade in / solid / fade out) because AddRectFilledMultiColor
-        // only interpolates between corners.
+        //
+        // Emitted as narrow vertical slices. The old version used three quads, and the
+        // two side quads had three transparent corners each: AddRectFilledMultiColor
+        // interpolates bilinearly over two triangles, so a quad whose alpha must vary
+        // along BOTH axes comes out as a diagonal wedge -- the fade ran corner to
+        // corner and half the band was flat empty. In a slice the alpha varies only
+        // vertically (top from the horizontal envelope, bottom transparent), which is
+        // linear and therefore exactly what the draw list can represent.
         {
             const float washH = ui::s(60);
             const float fade = ui::s(32);
-            const ImU32 lit = GetSchemeColor(0.085f);
+            const float wx0 = ux0 - fade, wx1 = ux1 + fade;
             const ImU32 nil = GetSchemeColor(0.0f);
-            dl->AddRectFilledMultiColor(ImVec2(ux0 - fade, uy), ImVec2(ux0, uy + washH), nil, lit, nil, nil);
-            dl->AddRectFilledMultiColor(ImVec2(ux0, uy), ImVec2(ux1, uy + washH), lit, lit, nil, nil);
-            dl->AddRectFilledMultiColor(ImVec2(ux1, uy), ImVec2(ux1 + fade, uy + washH), lit, nil, nil, nil);
+            auto envelope = [&](float px) {
+                if (px <= ux0)
+                    return ImSaturate((px - wx0) / fade);
+                if (px >= ux1)
+                    return ImSaturate((wx1 - px) / fade);
+                return 1.0f;
+            };
+            const int slices = ImClamp((int)((wx1 - wx0) / ui::s(6)), 8, 96);
+            const float step = (wx1 - wx0) / (float)slices;
+            float px = wx0;
+            for (int i = 0; i < slices; ++i) {
+                const float nx = px + step;
+                dl->AddRectFilledMultiColor(ImVec2(px, uy), ImVec2(nx, uy + washH),
+                                            GetSchemeColor(0.085f * envelope(px)),
+                                            GetSchemeColor(0.085f * envelope(nx)), nil, nil);
+                px = nx;
+            }
         }
 
         // Header separator: a hairline brightest at the centre, fading toward
@@ -2490,26 +2507,18 @@ void Menu::Render() {
     ApplyStyle();
     ui::updateScale();
 
-    // Dark overlay behind the menu: a flat dim plus a vignette pulling the edges
-    // down, so attention falls to the centre where the panel is instead of the whole
-    // frame going uniformly grey. Four gradient strips, one per edge — they overlap
-    // in the corners, which is exactly what makes the corners the darkest part.
+    // Dark overlay behind the menu: one flat dim over the whole frame, nothing else.
+    //
+    // This used to add a "vignette" made of four edge-to-centre gradient strips. Two
+    // strips overlap across every screen corner, so each corner got double alpha
+    // inside a hard-edged 34%x34% rectangle -- the four semi-transparent grey squares
+    // in the corners. Any per-edge gradient built this way has the same problem
+    // (a real vignette is radial, and it cannot be faked with axis-aligned quads),
+    // so the dim is now simply uniform.
     {
         ImDrawList* bg = ImGui::GetBackgroundDrawList();
         const ImVec2 ds = ImGui::GetIO().DisplaySize;
-        bg->AddRectFilled(ImVec2(0, 0), ds, IM_COL32(0, 0, 0, (int)(104 * openAnim)));
-
-        const int edgeA = (int)(58.0f * openAnim);
-        if (edgeA > 0) {
-            const ImU32 e = IM_COL32(0, 0, 0, edgeA);
-            const ImU32 z = IM_COL32(0, 0, 0, 0);
-            const float vx = ds.x * 0.34f;
-            const float vy = ds.y * 0.34f;
-            bg->AddRectFilledMultiColor(ImVec2(0, 0), ImVec2(vx, ds.y), e, z, z, e);
-            bg->AddRectFilledMultiColor(ImVec2(ds.x - vx, 0), ImVec2(ds.x, ds.y), z, e, e, z);
-            bg->AddRectFilledMultiColor(ImVec2(0, 0), ImVec2(ds.x, vy), e, e, z, z);
-            bg->AddRectFilledMultiColor(ImVec2(0, ds.y - vy), ImVec2(ds.x, ds.y), z, z, e, e);
-        }
+        bg->AddRectFilled(ImVec2(0, 0), ds, IM_COL32(0, 0, 0, (int)(128 * openAnim)));
     }
 
     if (ui::gui_mode == 1)

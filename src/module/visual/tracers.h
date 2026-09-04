@@ -43,6 +43,21 @@ public:
 
         // Line start position (0 = center, 1 = bottom)
         int lineFrom = 0;  // 0=Center, 1=Bottom
+
+        // Master alpha. Lines used to be drawn at up to 90% opacity with a solid
+        // black halo behind them, which put a bundle of near-opaque cables through
+        // the middle of the screen. These four keys are new, so a config saved by an
+        // older build picks the calmer defaults up instead of keeping the loud look.
+        float opacity = 0.6f;
+
+        // Pixels of empty space around the start point before a line becomes
+        // visible, followed by a ramp of ~1.3x that length. Measured along the
+        // curve and scaled by resolution, so the crosshair stays readable no matter
+        // how many players are on screen. 0 restores lines that touch the origin.
+        float startGap = 55.0f;
+
+        bool outline = true;  // thin dark edge for contrast on bright terrain
+        bool endDot = true;   // small dot at the target end of the line
     } settings;
 
 private:

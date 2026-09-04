@@ -187,6 +187,7 @@ void clearException(JNIEnv* env) {
 Backtrack::Backtrack() : Module("Backtrack") {
     keybind = 0;
     renders = true;
+    worldVisual = true;  // the ghost is drawn at the target's held-back position
     usesPlayerCache = true;
 }
 

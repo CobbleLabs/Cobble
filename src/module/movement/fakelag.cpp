@@ -81,6 +81,7 @@ bool packetClassContains(JNIEnv* env, jobject packet, const char* needle) {
 
 FakeLag::FakeLag() : Module("FakeLag") {
     renders = true;
+    worldVisual = true;  // draws the held-back position in world space
     locked = true;  // Bloqueado
 }
 

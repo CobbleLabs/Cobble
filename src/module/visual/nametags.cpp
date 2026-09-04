@@ -195,6 +195,7 @@ NameTags* nameTags = nullptr;
 NameTags::NameTags() : Module("NameTags") {
     keybind = 0;  // No default keybind
     renders = true;
+    worldVisual = true;
     usesPlayerCache = true;
 }
 

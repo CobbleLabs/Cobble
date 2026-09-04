@@ -19,6 +19,7 @@ ESP* esp = nullptr;
 ESP::ESP() : Module("ESP") {
     keybind = 0;
     renders = true;
+    worldVisual = true;
     usesPlayerCache = true;
 }
 

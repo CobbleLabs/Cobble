@@ -139,6 +139,11 @@ struct Minecraft {
     // Check if GUI is open (chat, inventory, etc)
     bool isInGui();
 
+    // Like isInGui(), but false for the chat box: vanilla keeps drawing the world
+    // behind GuiChat, while every other screen paints over it. World-space
+    // overlays (ESP, tracers, nametags) must hide for the latter only.
+    bool isGuiCoveringWorld();
+
     // Mouse click (for autoclicker)
     void clickMouse();
     bool attackEntity(jobject target);

@@ -15,6 +15,7 @@
 #include "../widgets/widgets.hpp"
 #include "hud_color.hpp"
 #include "hud_drag.hpp"
+#include "watermark.h"
 
 #include <algorithm>
 #include <chrono>
@@ -170,8 +171,9 @@ void ArrayListRenderer::render() {
     float screenWidth = static_cast<float>(RenderData::screenWidth);
     float screenHeight = static_cast<float>(RenderData::screenHeight);
 
-    // `anchor` now only decides row alignment (left/right) and the default
-    // corner the block starts at before the user drags it elsewhere.
+    // `anchor` decides row alignment (left/right) and, while the block is
+    // auto-placed, which corner it lives in. Auto-placement is re-evaluated every
+    // frame (see below), so changing the anchor actually moves the list.
     bool anchorLeft = (anchor == 1 || anchor == 3);    // TopLeft or BottomLeft
     bool anchorBottom = (anchor == 2 || anchor == 3);  // BottomRight or BottomLeft
 
@@ -185,23 +187,64 @@ void ArrayListRenderer::render() {
         blockHeight += rowH * e;
     }
 
-    // First time (or after a reset) place the block at the chosen corner.
-    if (posX < 0.0f || posY < 0.0f) {
-        posX = anchorLeft ? 0.0f : (screenWidth - blockWidth);
-        posY = anchorBottom ? (screenHeight - yOffset - blockHeight) : yOffset;
-    }
-
-    // Keep the anchored edge fixed when the block resizes. What the user placed is
-    // the corner the list hugs, not the top-left of the box, so a right-anchored
-    // list has to keep its right edge and a bottom-anchored one its bottom edge --
-    // otherwise the block drifts every time a row appears or disappears. Storing
-    // the edge (rather than applying a size delta) also survives the list going
-    // empty and coming back, which a running delta does not: it would restart from
-    // a collapsed box and walk the whole list sideways. Skip while dragging (the
-    // user owns the position).
+    // ---- Placement --------------------------------------------------------
+    // Two modes. `placement == 1` (auto) parks the block in the anchor corner and
+    // recomputes it every frame; `placement == 0` (user-placed) keeps whatever the
+    // last drag produced. posX/posY < 0 is the "auto" sentinel that a fresh config
+    // and the reset button both write, and a position loaded from disk is taken as
+    // user-placed. Previously the corner was only ever computed once, so the anchor
+    // setting did nothing after the first frame -- picking BottomLeft left the list
+    // sitting in the top right until the config was wiped.
+    static int placement = -1;  // -1 undecided, 0 user-placed, 1 auto corner
+    static int prevAnchor = -1;
     static float prevRightEdge = -1.0f;
     static float prevBottomEdge = -1.0f;
-    if (!dragging) {
+
+    if (posX < 0.0f || posY < 0.0f)
+        placement = 1;
+    else if (placement < 0)
+        placement = 0;
+
+    // Changing the anchor is a request to move to that corner, so it hands the
+    // block back to auto placement and drops the remembered edges (which were
+    // measured against the old corner and would otherwise drag it sideways).
+    if (anchor != prevAnchor) {
+        if (prevAnchor >= 0)
+            placement = 1;
+        prevAnchor = anchor;
+        prevRightEdge = -1.0f;
+        prevBottomEdge = -1.0f;
+    }
+
+    const float edgeMargin = std::floor(4.0f * scale);
+
+    if (placement == 1) {
+        posX = anchorLeft ? edgeMargin : (screenWidth - blockWidth - edgeMargin);
+        posY = anchorBottom ? (screenHeight - blockHeight - yOffset) : yOffset;
+
+        // Don't land on the watermark. Both start life in a top corner, so an
+        // auto-placed list would otherwise be drawn straight through it. Push
+        // down past it, never sideways: moving horizontally would abandon the
+        // corner the user asked for. A bottom-anchored list can't reach it.
+        if (!anchorBottom && Watermark::enabled && Watermark::lastW > 0.0f) {
+            const float wx1 = Watermark::lastX;
+            const float wx2 = wx1 + Watermark::lastW;
+            const float wy2 = Watermark::lastY + Watermark::lastH;
+            const bool xOverlap = (posX < wx2) && (posX + blockWidth > wx1);
+            if (xOverlap && posY < wy2)
+                posY = wy2 + edgeMargin;
+        }
+    }
+
+    // A user-placed block keeps its anchored edge fixed when it resizes. What the
+    // user placed is the corner the list hugs, not the top-left of the box, so a
+    // right-anchored list has to keep its right edge and a bottom-anchored one its
+    // bottom edge -- otherwise the block drifts every time a row appears or
+    // disappears. Storing the edge (rather than applying a size delta) also
+    // survives the list going empty and coming back, which a running delta does
+    // not: it would restart from a collapsed box and walk the whole list sideways.
+    // Skip while dragging (the user owns the position).
+    if (placement == 0 && !dragging) {
         if (!anchorLeft && prevRightEdge >= 0.0f)
             posX = prevRightEdge - blockWidth;
         if (anchorBottom && prevBottomEdge >= 0.0f)
@@ -212,6 +255,11 @@ void ArrayListRenderer::render() {
     // with the menu open to grab it, drop to place. Position persists on menu
     // close (main thread), not here (render thread).
     hud::dragBox(posX, posY, blockWidth, blockHeight, 2.0f, dragging, dragOffsetX, dragOffsetY);
+
+    // Grabbing it takes it out of auto placement for good: from here the stored
+    // position is the truth until the user resets it or changes the anchor.
+    if (dragging)
+        placement = 0;
 
     // Keep the block fully on-screen (parenthesized to dodge windows.h min/max macros).
     posX = (std::clamp)(posX, 0.0f, (std::max)(0.0f, screenWidth - blockWidth));

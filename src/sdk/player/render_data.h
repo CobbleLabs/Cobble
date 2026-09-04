@@ -29,6 +29,17 @@ struct RenderData {
     // render thread (watermark/HUD) can read it without touching JNI.
     static inline int gameFps = 0;
 
+    // True while a Java GUI screen is covering the world (inventory, chest,
+    // pause menu, ...), cached on the main thread for the same reason as
+    // gameFps: the render thread must not call into JNI.
+    //
+    // The overlay draws from wglSwapBuffers, after Minecraft has drawn the world
+    // AND the open screen on top of it, so world-space visuals otherwise land on
+    // top of the inventory panel itself. Chat is deliberately not counted -- the
+    // chat box is a thin overlay over normal gameplay, and hiding ESP the moment
+    // the user presses T would be the wrong behaviour.
+    static inline bool guiCoversWorld = false;
+
     // Cached JNI IDs
     static inline jclass activeRenderInfoClass = nullptr;
     static inline jfieldID projectionField = nullptr;

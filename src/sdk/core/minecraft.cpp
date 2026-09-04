@@ -246,6 +246,44 @@ bool Minecraft::isInGui() {
     return result;
 }
 
+// True when an open screen is painted over the world. Chat is the one exception:
+// GuiChat is a thin overlay over normal gameplay, so hiding the client's visuals
+// the moment the user presses T would be wrong. Every other screen -- inventory,
+// chest, pause, death, the container GUIs -- covers the view, and the ImGui
+// overlay is drawn from wglSwapBuffers *after* it, so world-space visuals end up
+// on top of the screen's own panel instead of behind it.
+bool Minecraft::isGuiCoveringWorld() {
+    if (!isValid() || !fid_currentScreen)
+        return false;
+
+    JNIEnv* env = Java::Env();
+    if (!env)
+        return false;
+
+    jobject screen = env->GetObjectField(instance, fid_currentScreen);
+    if (!screen)
+        return false;
+
+    // Resolved once and held as a global ref: this is polled on the RenderData
+    // cadence and AssignClass does a real classloader round-trip. Retry a
+    // bounded number of times (only reached with a screen actually open, so the
+    // loader is up by then) instead of giving up after a single miss.
+    static jclass guiChatCls = nullptr;
+    static int guiChatAttempts = 0;
+    if (!guiChatCls && guiChatAttempts < 20) {
+        ++guiChatAttempts;
+        jclass local = nullptr;
+        if (Java::AssignClass(OBFUSCATE_STRING("net.minecraft.client.gui.GuiChat"), local) && local) {
+            guiChatCls = (jclass)env->NewGlobalRef(local);
+            env->DeleteLocalRef(local);
+        }
+    }
+
+    const bool covers = !(guiChatCls && env->IsInstanceOf(screen, guiChatCls));
+    env->DeleteLocalRef(screen);
+    return covers;
+}
+
 // =============================================================================
 // getItemEntityList - Get all item entities
 // =============================================================================
