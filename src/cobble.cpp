@@ -10,6 +10,7 @@
 #include "module/combat/backtrack.h"
 #include "module/combat/hitselect.h"
 #include "module/combat/nohitdelay.h"
+#include "module/combat/opportunity.h"
 #include "module/combat/criticals.h"
 #include "module/combat/piercing.h"
 #include "module/combat/wtap.h"
@@ -210,6 +211,8 @@ void cobble::context::initialize(HMODULE hModule) {
     noHitDelay = new NoHitDelay();
     COBBLE_TRACE("alloc:Criticals");
     criticals = new Criticals();
+    COBBLE_TRACE("alloc:Opportunity");
+    opportunity = new Opportunity();
     COBBLE_TRACE("alloc:WTap");
     wTap = new WTap();
     COBBLE_TRACE("alloc:NoSlowDown");
@@ -299,6 +302,7 @@ void cobble::context::initialize(HMODULE hModule) {
     moduleManager->registerModule(hitSelect);
     moduleManager->registerModule(noHitDelay);
     moduleManager->registerModule(criticals);
+    moduleManager->registerModule(opportunity);
     moduleManager->registerModule(wTap);
     moduleManager->registerModule(noSlowDown);
     moduleManager->registerModule(noJumpDelay);
@@ -694,6 +698,10 @@ bool cobble::context::shutdown() {
     if (criticals) {
         delete criticals;
         criticals = nullptr;
+    }
+    if (opportunity) {
+        delete opportunity;
+        opportunity = nullptr;
     }
     if (wTap) {
         delete wTap;

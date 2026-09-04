@@ -17,6 +17,112 @@
 using namespace ArrayListRenderer;
 
 namespace {
+static void copy_config_text(char* destination, size_t capacity, const std::string& value) {
+    if (!destination || capacity == 0)
+        return;
+    strncpy_s(destination, capacity, value.c_str(), capacity - 1);
+}
+
+// Watermark legacy migration.
+//
+// The watermark used to be a fixed "title | version | FPS" badge with one flag
+// per part; it is now an ordered item list. A config written by an older build
+// therefore has to be translated instead of read field-for-field. Only called
+// when the new `watermarkItems` key is absent, so it can never overwrite a
+// current config, and it reads the old flat R/G/B/A colour keys that nothing
+// else looks at any more.
+static void migrate_legacy_watermark(const json::Value& hud) {
+    // Old configs stored a colour as four sibling floats ("...R"/"G"/"B"/"A").
+    auto readFlat = [&hud](const char* base, float rgba[4]) {
+        const std::string b(base);
+        rgba[0] = hud[b + "R"].as_float(rgba[0]);
+        rgba[1] = hud[b + "G"].as_float(rgba[1]);
+        rgba[2] = hud[b + "B"].as_float(rgba[2]);
+        rgba[3] = hud[b + "A"].as_float(rgba[3]);
+    };
+
+    Watermark::scale = hud["watermarkScale"].as_float(Watermark::scale);
+    // One face became two; the old single choice drove both.
+    Watermark::fontPrimary = hud["watermarkFontStyle"].as_int(Watermark::fontPrimary);
+    Watermark::fontSecondary = Watermark::fontPrimary;
+    Watermark::secondaryRatio = hud["watermarkMetaScale"].as_float(Watermark::secondaryRatio);
+    Watermark::rainbowType = hud["watermarkRainbowType"].as_int(Watermark::rainbowType);
+    Watermark::showBackground = hud["watermarkBackground"].as_bool(Watermark::showBackground);
+    Watermark::showBorder = hud["watermarkBorder"].as_bool(Watermark::showBorder);
+    Watermark::borderWidth = hud["watermarkBorderWidth"].as_float(Watermark::borderWidth);
+    Watermark::rounding = hud["watermarkRounding"].as_float(Watermark::rounding);
+    Watermark::paddingX = hud["watermarkPaddingX"].as_float(Watermark::paddingX);
+    Watermark::paddingY = hud["watermarkPaddingY"].as_float(Watermark::paddingY);
+    Watermark::showAccentBar = hud["watermarkBar"].as_bool(Watermark::showAccentBar);
+    Watermark::barWidth = hud["watermarkBarWidth"].as_float(Watermark::barWidth);
+    Watermark::barSide = Watermark::BarLeft;
+    Watermark::barColorMode =
+        hud["watermarkBarUseAccent"].as_bool(true) ? Watermark::ColorAccent : Watermark::ColorCustom;
+    Watermark::itemGap = hud["watermarkTitleMetaGap"].as_float(Watermark::itemGap);
+    Watermark::labelGap = hud["watermarkNumberLabelGap"].as_float(Watermark::labelGap);
+
+    // The old drop shadow is one of the text effects now.
+    if (hud["watermarkShadow"].as_bool(false)) {
+        Watermark::textEffect = Watermark::EffectShadow;
+        readFlat("watermarkShadow", Watermark::effectColor);
+    }
+    readFlat("watermarkBackground", Watermark::backgroundColor);
+    readFlat("watermarkBorder", Watermark::borderColor);
+    readFlat("watermarkBar", Watermark::barColor);
+    readFlat("watermarkImage", Watermark::imageTint);
+    // Title/meta were per-part colours; they are the two shared text colours now.
+    readFlat("watermarkTitle", Watermark::primaryColor);
+    readFlat("watermarkMeta", Watermark::secondaryColor);
+
+    // Rebuild the strip; the array order IS the draw order.
+    auto add = [](int kind, const std::string& text, int weight, int colorMode) -> Watermark::Item* {
+        if (Watermark::itemCount >= Watermark::kMaxItems)
+            return nullptr;
+        Watermark::Item& it = Watermark::items[Watermark::itemCount++];
+        it = Watermark::Item();
+        it.kind = kind;
+        it.weight = weight;
+        it.colorMode = colorMode;
+        copy_config_text(it.text, sizeof(it.text), text);
+        return &it;
+    };
+
+    Watermark::itemCount = 0;
+    const bool legacyImage = hud["watermarkImage"].as_bool(false) && Watermark::imagePath[0] != '\0';
+    const bool imageRight = hud["watermarkImageSide"].as_int(0) == 1;
+    if (legacyImage && !imageRight)
+        add(Watermark::KindImage, "", Watermark::WeightPrimary, Watermark::ColorPrimary);
+
+    if (hud["watermarkShowTitle"].as_bool(true)) {
+        // Rainbow used to be a title-only flag, and "use accent" a separate one.
+        const int mode = hud["watermarkRainbow"].as_bool(true)
+                             ? Watermark::ColorRainbow
+                             : (hud["watermarkTitleUseAccent"].as_bool(true) ? Watermark::ColorAccent
+                                                                            : Watermark::ColorPrimary);
+        add(Watermark::KindText, hud["watermarkTitle"].as_string("Cobble"), Watermark::WeightPrimary, mode);
+    }
+    if (hud["watermarkShowVersion"].as_bool(true))
+        add(Watermark::KindText, hud["watermarkVersion"].as_string(""), Watermark::WeightSecondary,
+            Watermark::ColorSecondary);
+    if (hud["watermarkShowFps"].as_bool(true)) {
+        if (Watermark::Item* sep =
+                add(Watermark::KindSeparator, "", Watermark::WeightPrimary, Watermark::ColorSecondary))
+            sep->gap = hud["watermarkSeparatorGap"].as_float(-1.0f);
+        const bool fpsAccent = hud["watermarkFpsUseAccent"].as_bool(true);
+        Watermark::Item* fps =
+            add(Watermark::KindFps, hud["watermarkFpsLabel"].as_string("FPS"), Watermark::WeightPrimary,
+                fpsAccent ? Watermark::ColorAccent : Watermark::ColorCustom);
+        if (fps && !fpsAccent)
+            readFlat("watermarkFps", fps->color);
+    }
+    if (legacyImage && imageRight)
+        add(Watermark::KindImage, "", Watermark::WeightPrimary, Watermark::ColorPrimary);
+
+    // A legacy config with every part switched off keeps its blank strip instead
+    // of silently getting the new default badge handed back to it.
+    Watermark::itemsInitialized = true;
+}
+
 static std::string trim_copy(std::string s) {
     auto not_space = [](unsigned char c) { return !std::isspace(c); };
     s.erase(s.begin(), std::find_if(s.begin(), s.end(), not_space));
@@ -649,15 +755,113 @@ void ConfigManager::applyConfig() {
         color[1] = config_["hud"]["arrayListColorG"].as_float(color[1]);
         color[2] = config_["hud"]["arrayListColorB"].as_float(color[2]);
         ui::gui_mode = config_["hud"]["guiMode"].as_int(ui::gui_mode);
-        posX = config_["hud"]["arrayListPosX"].as_float(-1.0f);
-        posY = config_["hud"]["arrayListPosY"].as_float(-1.0f);
+        // Free position as a fraction of the anchored corner (see hud_place.hpp).
+        // The old absolute arrayListPosX/PosY are deliberately NOT migrated: auto
+        // placement used to write its own computed pixels into them, so a stored
+        // value said nothing about whether the user had ever moved the block.
+        relX = config_["hud"]["arrayListRelX"].as_float(0.0f);
+        relY = config_["hud"]["arrayListRelY"].as_float(0.0f);
+        userPlaced = config_["hud"]["arrayListPlaced"].as_bool(false);
         Watermark::enabled = config_["hud"]["watermark"].as_bool(true);
-        Watermark::rainbow = config_["hud"]["watermarkRainbow"].as_bool(true);
-        Watermark::rainbowType = config_["hud"]["watermarkRainbowType"].as_int(0);
-        Watermark::scale = config_["hud"]["watermarkScale"].as_float(1.0f);
-        Watermark::fontStyle = config_["hud"]["watermarkFontStyle"].as_int(Watermark::fontStyle);
-        Watermark::posX = config_["hud"]["watermarkPosX"].as_float(-1.0f);
-        Watermark::posY = config_["hud"]["watermarkPosY"].as_float(-1.0f);
+        Watermark::scale = config_["hud"]["watermarkScale"].as_float(Watermark::scale);
+        Watermark::opacity = config_["hud"]["watermarkOpacity"].as_float(Watermark::opacity);
+        Watermark::fontPrimary = config_["hud"]["watermarkFontPrimary"].as_int(Watermark::fontPrimary);
+        Watermark::fontSecondary = config_["hud"]["watermarkFontSecondary"].as_int(Watermark::fontSecondary);
+        Watermark::fontSize = config_["hud"]["watermarkFontSize"].as_float(Watermark::fontSize);
+        Watermark::secondaryRatio = config_["hud"]["watermarkSecondaryRatio"].as_float(Watermark::secondaryRatio);
+        Watermark::rainbowType = config_["hud"]["watermarkRainbowType"].as_int(Watermark::rainbowType);
+        Watermark::rainbowSaturation = config_["hud"]["watermarkSaturation"].as_float(Watermark::rainbowSaturation);
+        Watermark::layout = config_["hud"]["watermarkLayout"].as_int(Watermark::layout);
+        Watermark::align = config_["hud"]["watermarkAlign"].as_int(Watermark::align);
+        Watermark::itemGap = config_["hud"]["watermarkItemGap"].as_float(Watermark::itemGap);
+        Watermark::labelGap = config_["hud"]["watermarkLabelGap"].as_float(Watermark::labelGap);
+        Watermark::showBackground = config_["hud"]["watermarkBackground"].as_bool(Watermark::showBackground);
+        Watermark::backgroundGradient = config_["hud"]["watermarkGradient"].as_bool(Watermark::backgroundGradient);
+        Watermark::gradientVertical =
+            config_["hud"]["watermarkGradientVertical"].as_bool(Watermark::gradientVertical);
+        Watermark::rounding = config_["hud"]["watermarkRounding"].as_float(Watermark::rounding);
+        Watermark::paddingX = config_["hud"]["watermarkPaddingX"].as_float(Watermark::paddingX);
+        Watermark::paddingY = config_["hud"]["watermarkPaddingY"].as_float(Watermark::paddingY);
+        Watermark::showBorder = config_["hud"]["watermarkBorder"].as_bool(Watermark::showBorder);
+        Watermark::borderWidth = config_["hud"]["watermarkBorderWidth"].as_float(Watermark::borderWidth);
+        Watermark::showGlow = config_["hud"]["watermarkGlow"].as_bool(Watermark::showGlow);
+        Watermark::glowUseAccent = config_["hud"]["watermarkGlowAccent"].as_bool(Watermark::glowUseAccent);
+        Watermark::glowSize = config_["hud"]["watermarkGlowSize"].as_float(Watermark::glowSize);
+        Watermark::showAccentBar = config_["hud"]["watermarkBar"].as_bool(Watermark::showAccentBar);
+        Watermark::barSide = config_["hud"]["watermarkBarSide"].as_int(Watermark::barSide);
+        Watermark::barColorMode = config_["hud"]["watermarkBarColorMode"].as_int(Watermark::barColorMode);
+        Watermark::barWidth = config_["hud"]["watermarkBarWidth"].as_float(Watermark::barWidth);
+        Watermark::barGap = config_["hud"]["watermarkBarGap"].as_float(Watermark::barGap);
+        Watermark::barInset = config_["hud"]["watermarkBarInset"].as_float(Watermark::barInset);
+        Watermark::barRounding = config_["hud"]["watermarkBarRounding"].as_float(Watermark::barRounding);
+        Watermark::textEffect = config_["hud"]["watermarkEffect"].as_int(Watermark::textEffect);
+        Watermark::effectSize = config_["hud"]["watermarkEffectSize"].as_float(Watermark::effectSize);
+        Watermark::separatorThickness =
+            config_["hud"]["watermarkSeparatorThickness"].as_float(Watermark::separatorThickness);
+        Watermark::separatorLength = config_["hud"]["watermarkSeparatorLength"].as_float(Watermark::separatorLength);
+        Watermark::clock24h = config_["hud"]["watermarkClock24h"].as_bool(Watermark::clock24h);
+        Watermark::clockSeconds = config_["hud"]["watermarkClockSeconds"].as_bool(Watermark::clockSeconds);
+        Watermark::uptimeHours = config_["hud"]["watermarkUptimeHours"].as_bool(Watermark::uptimeHours);
+        // Colours are nested {r,g,b,a} objects now, like every module's own
+        // settings. The old flat "...R"/"G"/"B"/"A" keys are read only by
+        // migrate_legacy_watermark() below.
+        json::readColor(config_["hud"], "watermarkPrimaryColor", Watermark::primaryColor);
+        json::readColor(config_["hud"], "watermarkSecondaryColor", Watermark::secondaryColor);
+        json::readColor(config_["hud"], "watermarkBackgroundColor", Watermark::backgroundColor);
+        json::readColor(config_["hud"], "watermarkBackgroundColor2", Watermark::backgroundColor2);
+        json::readColor(config_["hud"], "watermarkBorderColor", Watermark::borderColor);
+        json::readColor(config_["hud"], "watermarkGlowColor", Watermark::glowColor);
+        json::readColor(config_["hud"], "watermarkBarColor", Watermark::barColor);
+        json::readColor(config_["hud"], "watermarkEffectColor", Watermark::effectColor);
+        json::readColor(config_["hud"], "watermarkSeparatorColor", Watermark::separatorColor);
+        json::readColor(config_["hud"], "watermarkImageTint", Watermark::imageTint);
+
+        Watermark::anchor = config_["hud"]["watermarkAnchor"].as_int(Watermark::anchor);
+        Watermark::margin = config_["hud"]["watermarkMargin"].as_float(Watermark::margin);
+        Watermark::relX = config_["hud"]["watermarkRelX"].as_float(Watermark::relX);
+        Watermark::relY = config_["hud"]["watermarkRelY"].as_float(Watermark::relY);
+        Watermark::userPlaced = config_["hud"]["watermarkPlaced"].as_bool(false);
+
+        // The image keys kept their names, so they load the same either way; the
+        // renderer notices the new path by itself and reloads.
+        copy_config_text(Watermark::imagePath, sizeof(Watermark::imagePath),
+                         config_["hud"]["watermarkImagePath"].as_string(Watermark::imagePath));
+        Watermark::imageScale = config_["hud"]["watermarkImageScale"].as_float(Watermark::imageScale);
+        Watermark::imageOpacity = config_["hud"]["watermarkImageOpacity"].as_float(Watermark::imageOpacity);
+        Watermark::imageRounding = config_["hud"]["watermarkImageRounding"].as_float(Watermark::imageRounding);
+        Watermark::imageAnimationSpeed =
+            config_["hud"]["watermarkImageAnimationSpeed"].as_float(Watermark::imageAnimationSpeed);
+        // The item list is what makes a config "new format". Its absence is the
+        // signal that this file predates the rewrite, so the old fixed-badge keys
+        // get translated once instead of being read field-for-field forever.
+        if (config_["hud"].has("watermarkItems")) {
+            const json::Value& wmItems = config_["hud"]["watermarkItems"];
+            Watermark::itemCount = 0;
+            for (const json::Value& node : wmItems.array()) {
+                if (Watermark::itemCount >= Watermark::kMaxItems)
+                    break;
+                const int kind = node["kind"].as_int(Watermark::KindText);
+                if (kind < 0 || kind >= Watermark::KindCount)
+                    continue;  // a kind this build doesn't know: drop the row
+                Watermark::Item item;
+                item.kind = kind;
+                item.enabled = node["on"].as_bool(true);
+                item.colorMode =
+                    (std::clamp)(node["color"].as_int(Watermark::ColorPrimary), 0, Watermark::ColorModeCount - 1);
+                item.weight = (std::clamp)(node["weight"].as_int(Watermark::WeightPrimary), 0, 1);
+                item.labelBefore = node["labelFirst"].as_bool(false);
+                // Negative gap means "follow the shared itemGap", so it round-trips
+                // as-is rather than being clamped to zero.
+                item.gap = node["gap"].as_float(-1.0f);
+                item.size = node["size"].as_float(item.size);
+                copy_config_text(item.text, sizeof(item.text), node["text"].as_string(""));
+                json::readColor(node, "custom", item.color);
+                Watermark::items[Watermark::itemCount++] = item;
+            }
+            Watermark::itemsInitialized = true;
+        } else {
+            migrate_legacy_watermark(config_["hud"]);
+        }
         NotificationManager::enabled = config_["hud"]["notifications"].as_bool(true);
     }
 
@@ -782,15 +986,111 @@ void ConfigManager::buildConfigFromModules() {
     config_["hud"]["arrayListColorG"] = color[1];
     config_["hud"]["arrayListColorB"] = color[2];
     config_["hud"]["guiMode"] = ui::gui_mode;
-    config_["hud"]["arrayListPosX"] = posX;
-    config_["hud"]["arrayListPosY"] = posY;
+    // Fraction of the anchored corner, plus the bit that says the user actually
+    // dragged it. Absolute pixels are gone; see hud/hud_place.hpp.
+    config_["hud"]["arrayListRelX"] = relX;
+    config_["hud"]["arrayListRelY"] = relY;
+    config_["hud"]["arrayListPlaced"] = userPlaced;
     config_["hud"]["watermark"] = Watermark::enabled;
-    config_["hud"]["watermarkRainbow"] = Watermark::rainbow;
-    config_["hud"]["watermarkRainbowType"] = Watermark::rainbowType;
     config_["hud"]["watermarkScale"] = Watermark::scale;
-    config_["hud"]["watermarkFontStyle"] = Watermark::fontStyle;
-    config_["hud"]["watermarkPosX"] = Watermark::posX;
-    config_["hud"]["watermarkPosY"] = Watermark::posY;
+    config_["hud"]["watermarkOpacity"] = Watermark::opacity;
+    config_["hud"]["watermarkFontPrimary"] = Watermark::fontPrimary;
+    config_["hud"]["watermarkFontSecondary"] = Watermark::fontSecondary;
+    config_["hud"]["watermarkFontSize"] = Watermark::fontSize;
+    config_["hud"]["watermarkSecondaryRatio"] = Watermark::secondaryRatio;
+    config_["hud"]["watermarkRainbowType"] = Watermark::rainbowType;
+    config_["hud"]["watermarkSaturation"] = Watermark::rainbowSaturation;
+    config_["hud"]["watermarkLayout"] = Watermark::layout;
+    config_["hud"]["watermarkAlign"] = Watermark::align;
+    config_["hud"]["watermarkItemGap"] = Watermark::itemGap;
+    config_["hud"]["watermarkLabelGap"] = Watermark::labelGap;
+    config_["hud"]["watermarkBackground"] = Watermark::showBackground;
+    config_["hud"]["watermarkGradient"] = Watermark::backgroundGradient;
+    config_["hud"]["watermarkGradientVertical"] = Watermark::gradientVertical;
+    config_["hud"]["watermarkRounding"] = Watermark::rounding;
+    config_["hud"]["watermarkPaddingX"] = Watermark::paddingX;
+    config_["hud"]["watermarkPaddingY"] = Watermark::paddingY;
+    config_["hud"]["watermarkBorder"] = Watermark::showBorder;
+    config_["hud"]["watermarkBorderWidth"] = Watermark::borderWidth;
+    config_["hud"]["watermarkGlow"] = Watermark::showGlow;
+    config_["hud"]["watermarkGlowAccent"] = Watermark::glowUseAccent;
+    config_["hud"]["watermarkGlowSize"] = Watermark::glowSize;
+    config_["hud"]["watermarkBar"] = Watermark::showAccentBar;
+    config_["hud"]["watermarkBarSide"] = Watermark::barSide;
+    config_["hud"]["watermarkBarColorMode"] = Watermark::barColorMode;
+    config_["hud"]["watermarkBarWidth"] = Watermark::barWidth;
+    config_["hud"]["watermarkBarGap"] = Watermark::barGap;
+    config_["hud"]["watermarkBarInset"] = Watermark::barInset;
+    config_["hud"]["watermarkBarRounding"] = Watermark::barRounding;
+    config_["hud"]["watermarkEffect"] = Watermark::textEffect;
+    config_["hud"]["watermarkEffectSize"] = Watermark::effectSize;
+    config_["hud"]["watermarkSeparatorThickness"] = Watermark::separatorThickness;
+    config_["hud"]["watermarkSeparatorLength"] = Watermark::separatorLength;
+    config_["hud"]["watermarkClock24h"] = Watermark::clock24h;
+    config_["hud"]["watermarkClockSeconds"] = Watermark::clockSeconds;
+    config_["hud"]["watermarkUptimeHours"] = Watermark::uptimeHours;
+    config_["hud"]["watermarkAnchor"] = Watermark::anchor;
+    config_["hud"]["watermarkMargin"] = Watermark::margin;
+    config_["hud"]["watermarkRelX"] = Watermark::relX;
+    config_["hud"]["watermarkRelY"] = Watermark::relY;
+    config_["hud"]["watermarkPlaced"] = Watermark::userPlaced;
+    config_["hud"]["watermarkImagePath"] = Watermark::imagePath;
+    config_["hud"]["watermarkImageScale"] = Watermark::imageScale;
+    config_["hud"]["watermarkImageOpacity"] = Watermark::imageOpacity;
+    config_["hud"]["watermarkImageRounding"] = Watermark::imageRounding;
+    config_["hud"]["watermarkImageAnimationSpeed"] = Watermark::imageAnimationSpeed;
+    json::writeColor(config_["hud"], "watermarkPrimaryColor", Watermark::primaryColor);
+    json::writeColor(config_["hud"], "watermarkSecondaryColor", Watermark::secondaryColor);
+    json::writeColor(config_["hud"], "watermarkBackgroundColor", Watermark::backgroundColor);
+    json::writeColor(config_["hud"], "watermarkBackgroundColor2", Watermark::backgroundColor2);
+    json::writeColor(config_["hud"], "watermarkBorderColor", Watermark::borderColor);
+    json::writeColor(config_["hud"], "watermarkGlowColor", Watermark::glowColor);
+    json::writeColor(config_["hud"], "watermarkBarColor", Watermark::barColor);
+    json::writeColor(config_["hud"], "watermarkEffectColor", Watermark::effectColor);
+    json::writeColor(config_["hud"], "watermarkSeparatorColor", Watermark::separatorColor);
+    json::writeColor(config_["hud"], "watermarkImageTint", Watermark::imageTint);
+
+    // The strip itself. Written as an array so the order is the draw order, and
+    // written even when empty -- an empty list is a real choice, and its presence
+    // is what tells the loader this config is already in the new format.
+    json::Value wmItems;
+    wmItems.array();
+    for (int i = 0; i < Watermark::itemCount; ++i) {
+        const Watermark::Item& item = Watermark::items[i];
+        json::Value node;
+        node["kind"] = item.kind;
+        node["on"] = item.enabled;
+        node["color"] = item.colorMode;
+        node["weight"] = item.weight;
+        node["labelFirst"] = item.labelBefore;
+        node["gap"] = item.gap;
+        node["size"] = item.size;
+        node["text"] = item.text;
+        json::writeColor(node, "custom", item.color);
+        wmItems.push_back(node);
+    }
+    config_["hud"]["watermarkItems"] = wmItems;
+
+    // config_ keeps every key it parsed, so retired ones would be written back
+    // forever. Drop them once the new format has been saved over them.
+    static const char* const kRetiredHudKeys[] = {
+        "arrayListPosX",        "arrayListPosY",        "watermarkPosX",          "watermarkPosY",
+        "watermarkRainbow",     "watermarkFontStyle",   "watermarkShowTitle",     "watermarkShowVersion",
+        "watermarkShowFps",     "watermarkTitle",       "watermarkVersion",       "watermarkFpsLabel",
+        "watermarkMetaScale",   "watermarkTitleUseAccent", "watermarkFpsUseAccent", "watermarkShadow",
+        "watermarkBarUseAccent", "watermarkTitleMetaGap", "watermarkSeparatorGap", "watermarkNumberLabelGap",
+        "watermarkImage",       "watermarkImageSide",   "watermarkImageGap",      "watermarkBackgroundR",
+        "watermarkBackgroundG", "watermarkBackgroundB", "watermarkBackgroundA",   "watermarkBorderR",
+        "watermarkBorderG",     "watermarkBorderB",     "watermarkBorderA",       "watermarkShadowR",
+        "watermarkShadowG",     "watermarkShadowB",     "watermarkShadowA",       "watermarkBarR",
+        "watermarkBarG",        "watermarkBarB",        "watermarkBarA",          "watermarkTitleR",
+        "watermarkTitleG",      "watermarkTitleB",      "watermarkTitleA",        "watermarkMetaR",
+        "watermarkMetaG",       "watermarkMetaB",       "watermarkMetaA",         "watermarkFpsR",
+        "watermarkFpsG",        "watermarkFpsB",        "watermarkFpsA",          "watermarkImageR",
+        "watermarkImageG",      "watermarkImageB",      "watermarkImageA",
+    };
+    for (const char* key : kRetiredHudKeys)
+        config_["hud"].remove(key);
     config_["hud"]["notifications"] = NotificationManager::enabled;
 
     // Friends

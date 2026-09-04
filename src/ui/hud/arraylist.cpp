@@ -15,6 +15,7 @@
 #include "../widgets/widgets.hpp"
 #include "hud_color.hpp"
 #include "hud_drag.hpp"
+#include "hud_place.hpp"
 #include "watermark.h"
 
 #include <algorithm>
@@ -141,20 +142,22 @@ void ArrayListRenderer::render() {
 
     // ---- Metrics ----------------------------------------------------------
     const float fontSize = 24.0f * scale;
-    const float infoFS = fontSize * 0.86f;  // the info reads as secondary
+    const float infoFS = fontSize;  // suffix matches the module-name size
     // CalcTextSizeA reports the em box (height == font size), so rows drawn at
     // exactly that height leave no air and the block reads as a wall of text.
     const float rowH = std::floor(fontSize * 1.18f);
     const float padIn = 7.0f * scale;   // air between the text and the row edge
     const float barWidth = 3.0f * scale;
     const float barGap = 6.0f * scale;  // air between the text and the colour bar
-    const float infoGap = 5.0f * scale;
+    // Use the active font's space width instead of a fixed pixel gap. This keeps
+    // the suffix locked to the prefix when the font or ArrayList scale changes.
+    const float infoGap = arrayFont->CalcTextSizeA(fontSize, FLT_MAX, 0.0f, " ").x;
     const float rounding = 4.0f * scale;
 
-    // Baseline-align the smaller info text against the name instead of
-    // top-aligning two different font sizes.
-    const float unit = 1.0f / arrayFont->FontSize;
-    const float infoDrop = arrayFont->Ascent * unit * (fontSize - infoFS);
+    // The suffix uses the same size and baseline as the module name, so its
+    // position is a direct continuation of the prefix rather than a second
+    // independently positioned text run.
+    const float infoDrop = 0.0f;
 
     for (auto& r : g_rows) {
         r.nameW = arrayFont->CalcTextSizeA(fontSize, FLT_MAX, 0.0f, r.name.c_str()).x;
@@ -168,8 +171,16 @@ void ArrayListRenderer::render() {
         std::stable_sort(g_rows.begin(), g_rows.end(),
                          [](const Row& a, const Row& b) { return a.itemW > b.itemW; });
 
-    float screenWidth = static_cast<float>(RenderData::screenWidth);
-    float screenHeight = static_cast<float>(RenderData::screenHeight);
+    // Live screen size, not just RenderData: during the first frames after
+    // injecting into an already-fullscreen game the reported size can still be
+    // unset, and laying the block out against that is what left it in the wrong
+    // corner. An unusable size skips the frame instead.
+    float screenWidth = 0.0f;
+    float screenHeight = 0.0f;
+    if (!hud::screenSize(screenWidth, screenHeight)) {
+        cancelMove();
+        return;
+    }
 
     // `anchor` decides row alignment (left/right) and, while the block is
     // auto-placed, which corner it lives in. Auto-placement is re-evaluated every
@@ -188,39 +199,24 @@ void ArrayListRenderer::render() {
     }
 
     // ---- Placement --------------------------------------------------------
-    // Two modes. `placement == 1` (auto) parks the block in the anchor corner and
-    // recomputes it every frame; `placement == 0` (user-placed) keeps whatever the
-    // last drag produced. posX/posY < 0 is the "auto" sentinel that a fresh config
-    // and the reset button both write, and a position loaded from disk is taken as
-    // user-placed. Previously the corner was only ever computed once, so the anchor
-    // setting did nothing after the first frame -- picking BottomLeft left the list
-    // sitting in the top right until the config was wiped.
-    static int placement = -1;  // -1 undecided, 0 user-placed, 1 auto corner
-    static int prevAnchor = -1;
-    static float prevRightEdge = -1.0f;
-    static float prevBottomEdge = -1.0f;
-
-    if (posX < 0.0f || posY < 0.0f)
-        placement = 1;
-    else if (placement < 0)
-        placement = 0;
-
-    // Changing the anchor is a request to move to that corner, so it hands the
-    // block back to auto placement and drops the remembered edges (which were
-    // measured against the old corner and would otherwise drag it sideways).
-    if (anchor != prevAnchor) {
-        if (prevAnchor >= 0)
-            placement = 1;
-        prevAnchor = anchor;
-        prevRightEdge = -1.0f;
-        prevBottomEdge = -1.0f;
-    }
-
+    //
+    // Two modes, decided by one explicit flag. While `userPlaced` is false the
+    // block is parked in the `anchor` corner and that is recomputed every frame,
+    // so changing the anchor moves it. Once dragged, the stored position takes
+    // over -- as a FRACTION of the screen measured at the anchored corner, which
+    // is what makes it survive a resolution change and makes a growing/shrinking
+    // block keep its anchored edge planted without remembering the old edge.
     const float edgeMargin = std::floor(4.0f * scale);
 
-    if (placement == 1) {
-        posX = anchorLeft ? edgeMargin : (screenWidth - blockWidth - edgeMargin);
-        posY = anchorBottom ? (screenHeight - blockHeight - yOffset) : yOffset;
+    float blockX = 0.0f;
+    float blockY = 0.0f;
+
+    if (userPlaced) {
+        hud::placeToPixels(!anchorLeft, anchorBottom, relX, relY, blockWidth, blockHeight, screenWidth,
+                           screenHeight, blockX, blockY);
+    } else {
+        blockX = anchorLeft ? edgeMargin : (screenWidth - blockWidth - edgeMargin);
+        blockY = anchorBottom ? (screenHeight - blockHeight - yOffset) : yOffset;
 
         // Don't land on the watermark. Both start life in a top corner, so an
         // auto-placed list would otherwise be drawn straight through it. Push
@@ -230,46 +226,32 @@ void ArrayListRenderer::render() {
             const float wx1 = Watermark::lastX;
             const float wx2 = wx1 + Watermark::lastW;
             const float wy2 = Watermark::lastY + Watermark::lastH;
-            const bool xOverlap = (posX < wx2) && (posX + blockWidth > wx1);
-            if (xOverlap && posY < wy2)
-                posY = wy2 + edgeMargin;
+            const bool xOverlap = (blockX < wx2) && (blockX + blockWidth > wx1);
+            if (xOverlap && blockY < wy2)
+                blockY = wy2 + edgeMargin;
         }
     }
 
-    // A user-placed block keeps its anchored edge fixed when it resizes. What the
-    // user placed is the corner the list hugs, not the top-left of the box, so a
-    // right-anchored list has to keep its right edge and a bottom-anchored one its
-    // bottom edge -- otherwise the block drifts every time a row appears or
-    // disappears. Storing the edge (rather than applying a size delta) also
-    // survives the list going empty and coming back, which a running delta does
-    // not: it would restart from a collapsed box and walk the whole list sideways.
-    // Skip while dragging (the user owns the position).
-    if (placement == 0 && !dragging) {
-        if (!anchorLeft && prevRightEdge >= 0.0f)
-            posX = prevRightEdge - blockWidth;
-        if (anchorBottom && prevBottomEdge >= 0.0f)
-            posY = prevBottomEdge - blockHeight;
-    }
-
     // Shared grab-and-drag (same manner + style as Dropped Pots): hover the block
-    // with the menu open to grab it, drop to place. Position persists on menu
-    // close (main thread), not here (render thread).
-    hud::dragBox(posX, posY, blockWidth, blockHeight, 2.0f, dragging, dragOffsetX, dragOffsetY);
+    // with the menu open to grab it, drop to place.
+    hud::dragBox(blockX, blockY, blockWidth, blockHeight, 2.0f, dragging, dragOffsetX, dragOffsetY);
 
     // Grabbing it takes it out of auto placement for good: from here the stored
-    // position is the truth until the user resets it or changes the anchor.
+    // fraction is the truth until the user resets it or picks another corner.
     if (dragging)
-        placement = 0;
+        userPlaced = true;
 
     // Keep the block fully on-screen (parenthesized to dodge windows.h min/max macros).
-    posX = (std::clamp)(posX, 0.0f, (std::max)(0.0f, screenWidth - blockWidth));
-    posY = (std::clamp)(posY, 0.0f, (std::max)(0.0f, screenHeight - blockHeight));
+    blockX = (std::clamp)(blockX, 0.0f, (std::max)(0.0f, screenWidth - blockWidth));
+    blockY = (std::clamp)(blockY, 0.0f, (std::max)(0.0f, screenHeight - blockHeight));
 
-    prevRightEdge = posX + blockWidth;
-    prevBottomEdge = posY + blockHeight;
+    // Store back what was actually drawn, so a clamp can't leave the saved
+    // fraction describing a position the block never occupied.
+    if (userPlaced)
+        hud::placeToFractions(!anchorLeft, anchorBottom, blockX, blockY, blockWidth, blockHeight, screenWidth,
+                              screenHeight, relX, relY);
 
-    const float blockX = posX;
-    float y = posY;
+    float y = blockY;
 
     const ImU32 infoColor = IM_COL32(158, 163, 173, 255);
 

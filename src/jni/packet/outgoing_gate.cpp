@@ -16,6 +16,7 @@
 #include "../../module/combat/aimassist.h"
 #include "../../module/combat/backtrack.h"
 #include "../../module/combat/killaura.h"
+#include "../../module/combat/opportunity.h"
 
 namespace OutgoingPacketGate {
 
@@ -52,21 +53,25 @@ jboolean JNICALL NativeShouldSend(JNIEnv* env, jclass cls, jobject packet) {
     const bool autoPotPacketWork = autoPot && autoPot->enabled && autoPot->needsOutgoingPacket();
     const bool autoPotRotating = autoPotPacketWork && autoPot->isRewritingRotation();
     const bool potRotating = throwPotsRotating || autoPotRotating;
+    // Clutch/Scaffold no longer rewrite this packet: they move the real rotation on the
+    // client tick, so the flying packet already carries the placement aim by the time it
+    // gets here. What is still needed is the priority -- while the placement owns the
+    // head, the aim modules must not overwrite it on the wire.
     const bool clutchRotating =
         (clutch && clutch->enabled && clutch->isRewritingRotation()) ||
         (scaffold && scaffold->enabled && scaffold->isRewritingRotation());
-    if (scaffold && scaffold->enabled && !potRotating) {
-        scaffold->onOutgoingPacket(env, packet);
-    }
-    if (clutch && clutch->enabled && !potRotating) {
-        clutch->onOutgoingPacket(env, packet);
-    }
+
+    // Opportunity claims the head the same way, for the same reason: the web/lava/fire
+    // placement is raytraced from the rotation this packet carries, so nothing may
+    // overwrite it mid-flick. No `enabled` check -- a module that was switched off
+    // mid-opportunity still owns the head until it has flicked back.
+    const bool oppRotating = opportunity && opportunity->isRewritingRotation();
 
     // KillAura silent rotation: rewrites the flying packet's yaw/pitch onto the
     // combat aim. Deferred while clutch owns the rotation (placement aim).
     const bool killAuraRotating =
         killAura && killAura->enabled && killAura->isRewritingRotation();
-    if (killAura && killAura->enabled && !clutchRotating && !potRotating) {
+    if (killAura && killAura->enabled && !clutchRotating && !potRotating && !oppRotating) {
         killAura->onOutgoingPacket(env, packet);
     }
 
@@ -74,7 +79,8 @@ jboolean JNICALL NativeShouldSend(JNIEnv* env, jclass cls, jobject packet) {
     // packet's yaw/pitch with the randomized server rotation. Deferred while
     // clutch or KillAura is rewriting rotation so a combat/placement aim is never
     // perturbed.
-    if (aimAssist && aimAssist->enabled && !clutchRotating && !killAuraRotating && !potRotating) {
+    if (aimAssist && aimAssist->enabled && !clutchRotating && !killAuraRotating && !potRotating &&
+        !oppRotating) {
         aimAssist->onOutgoingPacket(env, packet);
     }
 

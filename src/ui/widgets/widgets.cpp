@@ -24,7 +24,7 @@ static std::string g_descriptionContext;
 
 static const DescriptionEntry kModuleDescriptions[] = {
     {"", "AutoClicker", "", "Clicks automatically while you hold the attack button."},
-    {"", "AutoRod", "", "Sequences a rod cast and follow-up hit from a controlled attack cadence."},
+    {"", "AutoRod", "", "Rods players who are out of sword range, holding the rod until the hook lands."},
     {"", "AimAssist", "", "Smoothly guides your aim toward a valid player target."},
     {"", "KillAura", "", "Auto-targets and attacks nearby players with silent rotations, randomized clicking and reach."},
     {"", "AimBow", "", "Aims the bow at the nearest player, solving the arrow arc and lead."},
@@ -34,10 +34,11 @@ static const DescriptionEntry kModuleDescriptions[] = {
     {"", "NoHitDelay", "", "Removes the client-side delay between valid attacks."},
     {"", "Criticals", "", "Automates critical-hit movement when its conditions are met."},
     {"", "WTap", "", "Briefly resets forward movement or sprint after attacks to control spacing."},
-    {"", "BlockHit", "", "Blocks with the sword around your own hits, restoring the vanilla 1.8 hit-and-block rhythm."},
+    {"", "BlockHit", "", "Blocks with the sword only when an incoming hit can actually be reduced, and lets go when it cannot."},
     {"", "Backtrack", "", "Targets recent server positions to compensate for movement and latency."},
     {"", "Piercing", "", "Finds and attacks valid entities through obstructing blocks."},
     {"", "AntiBot", "", "Decides what counts as a fake player. Every combat module asks it before choosing a target."},
+    {"", "Opportunity", "", "Watches the nearest enemy and takes the free play when it is there: a cobweb in their feet, lava under them, fire on their block, or water to wash them off it."},
     {"", "NameTags", "", "Renders readable, customizable information above players."},
     {"", "ESP", "", "Highlights players through terrain with configurable boxes and health."},
     {"", "Chams", "", "Re-renders nearby players through terrain with a configurable material."},
@@ -260,15 +261,42 @@ static const DescriptionEntry kOptionDescriptions[] = {
     {"NoItemRelease", "Mode", "All", "Prevents release packets for every supported item except bows and fishing rods."},
     {"Tracers", "Line From", "Bottom", "Starts tracer lines at the bottom-center of the screen."},
     {"Tracers", "Line From", "Center", "Starts tracer lines at the center of the screen."},
-    {"BlockHit", "Switch Mode Key", "", "Cycles BlockHit between Hold, Perfect and Legit in game, without opening the menu."},
-    {"BlockHit", "Only While Attacking", "", "Blocks only around your own swings instead of holding a block between fights."},
-    {"BlockHit", "Release Ticks", "", "How many ticks the block is held before it is dropped so the next hit lands unblocked."},
-    {"BlockHit", "Min Block Ticks", "", "Never releases before this many ticks, so the server always registers the block."},
-    {"BlockHit", "Predictive", "", "Starts the block from the predicted hit instead of waiting for the swing to be confirmed."},
-    {"BlockHit", "Skip On Block Target", "", "Leaves the block alone when your crosshair is on terrain, so mining is not interrupted."},
-    {"BlockHit", "Mode", "Hold", "Keeps the block up between hits — the simplest rhythm and the safest anywhere."},
-    {"BlockHit", "Mode", "Perfect", "Blocks and releases on exact tick boundaries around every hit for maximum uptime."},
-    {"BlockHit", "Mode", "Legit", "Adds human timing variance so the block and release pattern never repeats identically."},
+    {"BlockHit", "Switch Mode Key", "", "Cycles the strategy in game, without opening the menu."},
+    {"BlockHit", "Mode", "Aggressive", "Blocks only in the gaps your own cadence leaves, so a block never costs you a sprint hit."},
+    {"BlockHit", "Mode", "Trade", "Blocks whenever a hit can land, then opens a two-tick gap so your next hit keeps its knockback."},
+    {"BlockHit", "Mode", "Defensive", "Maximum uptime: halves every hit that can land and never spends a tick on sprint."},
+    {"BlockHit", "Mode", "Turtle", "Never lets go while the fight is on. Halves everything and costs 80% of your movement speed."},
+    {"BlockHit", "Mode", "Adaptive", "Reads your health and whether anything is hitting you, and picks between the other three every tick."},
+    {"AutoRod", "Only While Attacking", "", "Only casts on a real click. Off, it casts on its own whenever a target is in the band."},
+    {"AutoRod", "Require Weapon", "", "Only casts out of a sword or axe, so it never interrupts what you were doing with something else."},
+    {"AutoRod", "Auto Hit", "", "Swings once after swapping back, if the crosshair is still on someone."},
+    {"AutoRod", "Min Distance", "", "Closer than this it will not cast: a sword hit is worth more than a knockback and the rod would cost you the swing."},
+    {"AutoRod", "Max Distance", "", "Farther than this the hook's own gravity drops it under the hitbox before it arrives."},
+    {"AutoRod", "Cooldown (ms)", "", "Minimum gap between sequences, measured from the end of the last one."},
+    {"AutoRod", "Timing Jitter (%)", "", "Spread applied to the cooldown and the follow-up hit. The rod-hold length is physics and is never jittered."},
+    {"Opportunity", "Reach", "", "Longest eye-to-hit distance it will use. Past your real reach the server refuses the placement anyway."},
+    {"Opportunity", "Self Safe Distance", "", "Refuses lava and fire this close to you — which is also exactly why a human would not take that shot."},
+    {"Opportunity", "Global Cooldown", "", "Floor between any two plays, so a taken web is never instantly followed by a lava bucket."},
+    {"Opportunity", "Require Line Of Sight", "", "Will not place through a wall it cannot see past."},
+    {"Opportunity", "Ignore Teammates", "", "Never targets your own team, scoreboard team or friends list."},
+    {"Opportunity", "Ignore Invisibles", "", "Skips invisible players instead of aiming at something you could not see."},
+    {"Opportunity", "React Min", "", "Fastest human reaction it will fake before starting the flick."},
+    {"Opportunity", "React Max", "", "Slowest reaction. The real delay is drawn between the two and never lands on either bound."},
+    {"Opportunity", "Flick Ticks", "", "How many ticks the head takes to travel. Short flicks finish sooner regardless."},
+    {"Opportunity", "Aim Noise", "", "Per-tick jitter along the flick, so the same play never traces the same path twice."},
+    {"Opportunity", "Overshoot", "", "Slightly overshoots on the penultimate tick, then corrects — what a real mouse does."},
+    {"Opportunity", "Snap Back", "", "Flicks the head back where it was looking once the item is placed."},
+    {"Opportunity", "Switch Back", "", "Returns to your previous hotbar slot a human moment after the placement."},
+    {"Opportunity", "Play", "Cobweb", "Puts a web in their feet: no collision box, so the server allows it inside them."},
+    {"Opportunity", "Play", "Lava", "Empties a lava bucket into their cell. The server raytraces the bucket from the rotation on the wire."},
+    {"Opportunity", "Play", "Fire", "Flint and steel on the block they stand on. Only the top face works — fire needs a solid floor."},
+    {"Opportunity", "Play", "Water", "Washes them off the block with a water bucket."},
+    {"Opportunity", "Use This Play", "", "Whether this specific play is armed. Each one keeps its own window, gate, chance and cooldown."},
+    {"Opportunity", "Min Distance", "", "Below this the play is skipped, so it does not fire point-blank."},
+    {"Opportunity", "Max Distance", "", "How far the enemy may be for this play to be considered."},
+    {"Opportunity", "Max Health", "", "Only takes this play while the target is at or below this health."},
+    {"Opportunity", "Chance", "", "Percentage of chances actually taken. Below 100 it sometimes just lets one go, like a person would."},
+    {"Opportunity", "Cooldown", "", "How long this play waits after a successful placement before it may fire again."},
     {"InventoryMove", "Movement", "", "Passes WASD through to the game while a screen is open."},
     {"InventoryMove", "Jump", "", "Passes the jump key through while a screen is open."},
     {"InventoryMove", "Sneak", "", "Passes the sneak key through while a screen is open."},
@@ -536,7 +564,7 @@ std::vector<ui::tab_t> ui::tabs = {
     {ICON_FA_CROSSHAIRS,
      "Combat",
      {"AutoClicker", "AimAssist", "Velocity", "Reach", "HitSelect", "NoHitDelay", "Criticals", "WTap",
-      "Piercing", "AimBow", "BlockHit", "KillAura", "AutoRod", "AntiBot"}},
+      "Piercing", "AimBow", "BlockHit", "KillAura", "AutoRod", "AntiBot", "Opportunity"}},
     {ICON_FA_EYE,
      "Visuals",
      {"NameTags", "ESP", "ItemESP", "Tracers", "BlockESP", "Trajectories", "AntiDebuff", "ArrayList",
@@ -1194,8 +1222,15 @@ bool ui::SliderFloat(const char* label, float* v, float v_min, float v_max, cons
         }
     }
 
-    // Handle text input mode - render input and return early
-    if (inputState.editing) {
+    // Handle text input mode - render input and return early.
+    //
+    // The flag is re-checked against allowDirectInput on purpose: anim_obj keys its
+    // storage by LABEL, and labels like "Scale" or "Font Size" are shared with
+    // sliders on other pages that never opted in. Editing ends on Enter, Escape or
+    // a click elsewhere -- none of which happens when the menu is closed by its
+    // keybind mid-edit -- so a left-over flag would otherwise turn one of those
+    // other sliders into a text box the next time it is drawn.
+    if (allowDirectInput && inputState.editing) {
         ItemAdd(total_bb, id);
         ItemSize(total_bb);
         const ImVec2 postItemCursor = window->DC.CursorPos;
@@ -1217,8 +1252,9 @@ bool ui::SliderFloat(const char* label, float* v, float v_min, float v_max, cons
                                           GetColor(ImGuiCol_Text), 64);
         window->DrawList->AddText(total_bb.Min, GetColor(ImGuiCol_TextDisabled), label, FindRenderedTextEnd(label));
 
-        // Position input at value location
-        float inputWidth = s(25.f);
+        // Position input at value location. Wide enough for the text it replaces:
+        // a unit suffix ("19 px") needs more room than a bare multiplier ("1.00x").
+        float inputWidth = ImMax(s(25.f), value_size.x + s(10.f));
         ImVec2 inputPos(total_bb.Max.x - inputWidth, total_bb.Min.y);
         SetCursorScreenPos(inputPos);
         PushItemWidth(inputWidth);
@@ -1226,40 +1262,43 @@ bool ui::SliderFloat(const char* label, float* v, float v_min, float v_max, cons
         PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(s(2), s(1)));
         PushStyleColor(ImGuiCol_FrameBg, GetColor(ImGuiCol_FrameBgActive));
 
-        // Set focus only on first frame
-        if (inputState.justStarted) {
+        // Focus on the first frame only. The flag is cleared at the very end of the
+        // branch, not here: on this frame the input is not the active item yet, and
+        // the "focus went elsewhere" test below would read that as a click away and
+        // shut the editor before it ever opened.
+        if (inputState.justStarted)
             SetKeyboardFocusHere();
-            inputState.justStarted = false;
-        }
 
         ImGuiInputTextFlags flags =
             ImGuiInputTextFlags_CharsDecimal | ImGuiInputTextFlags_AutoSelectAll | ImGuiInputTextFlags_EnterReturnsTrue;
         bool enterPressed = InputText("##valueinput", inputState.buffer, sizeof(inputState.buffer), flags);
+        const bool inputActive = IsItemActive();
 
-        // Only close on Enter key press
+        // A typed value is deliberately NOT clamped to [v_min, v_max]. The slider's
+        // range is what the grab can reach comfortably, not a hard limit -- typing
+        // is how you ask for a value past the end of it (a 10x watermark image from a
+        // slider that stops at 4x). Whoever reads the value is what bounds it.
+        auto commit = [&]() {
+            float newVal = 0.0f;
+            if (sscanf_s(inputState.buffer, "%f", &newVal) == 1 && std::isfinite(newVal)) {
+                *v = newVal;
+                MarkItemEdited(id);
+            }
+            inputState.editing = false;
+        };
+
         if (enterPressed) {
-            float newVal = 0.0f;
-            if (sscanf_s(inputState.buffer, "%f", &newVal) == 1 && std::isfinite(newVal)) {
-                *v = newVal;
-                MarkItemEdited(id);
-            }
-            inputState.editing = false;
+            commit();
+        } else if (IsKeyPressed(ImGuiKey_Escape)) {
+            inputState.editing = false;  // discard
+        } else if (!inputActive && !inputState.justStarted) {
+            // Focus left the box -- clicked away, or it never took focus at all.
+            // Accept what is in it, the way a text field does, and close. Keying off
+            // the active item rather than a hit-test on the click means a click that
+            // lands a pixel off the input box can no longer swallow the whole edit.
+            commit();
         }
-
-        // Cancel on escape
-        if (IsKeyPressed(ImGuiKey_Escape)) {
-            inputState.editing = false;
-        }
-
-        // Close if clicked outside the input box
-        if (IsMouseClicked(ImGuiMouseButton_Left) && !IsItemHovered()) {
-            float newVal = 0.0f;
-            if (sscanf_s(inputState.buffer, "%f", &newVal) == 1 && std::isfinite(newVal)) {
-                *v = newVal;
-                MarkItemEdited(id);
-            }
-            inputState.editing = false;
-        }
+        inputState.justStarted = false;
 
         PopStyleColor();
         PopStyleVar();

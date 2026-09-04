@@ -18,6 +18,8 @@
 #include "../../module/combat/backtrack.h"
 #include "../../module/combat/autorod.h"
 #include "../../module/combat/blockhit.h"
+#include "../../module/combat/opportunity.h"
+#include "../../module/utility/clutch.h"
 #include "../../sdk/core/minecraft.h"
 #include "../../sdk/jni/jni_cache.h"
 #include "../../sdk/player/player.h"
@@ -171,7 +173,11 @@ void JNICALL NativeOnSlowDown(JNIEnv* env, jclass, jobject playerInstance) {
     const bool wantBt = backtrack && backtrack->needsClientTick();
     const bool wantRod = autoRod && autoRod->needsClientTick();
     const bool wantBlock = blockHit && blockHit->needsClientTick();
-    if (!wantSlow && !wantAura && !wantBt && !wantRod && !wantBlock)
+    const bool wantClutch = clutch && clutch->needsClientTick();
+    const bool wantScaffold = scaffold && scaffold->needsClientTick();
+    const bool wantOpportunity = opportunity && opportunity->needsClientTick();
+    if (!wantSlow && !wantAura && !wantBt && !wantRod && !wantBlock && !wantClutch &&
+        !wantScaffold && !wantOpportunity)
         return;
 
     // Use Minecraft.thePlayer as the authority. Backtrack's client-thread pump
@@ -196,7 +202,8 @@ void JNICALL NativeOnSlowDown(JNIEnv* env, jclass, jobject playerInstance) {
     if (wantBt)
         backtrack->onClientTick(env);
 
-    if (!wantSlow && !wantAura && !wantRod && !wantBlock)
+    if (!wantSlow && !wantAura && !wantRod && !wantBlock && !wantClutch && !wantScaffold &&
+        !wantOpportunity)
         return;
 
     std::lock_guard<std::recursive_mutex> lock(player.instanceMutex);
@@ -215,6 +222,19 @@ void JNICALL NativeOnSlowDown(JNIEnv* env, jclass, jobject playerInstance) {
     // from the async module loop.
     if (wantRod)
         autoRod->onClientTick(env);
+    // Clutch/Scaffold move the REAL rotation, so they run after KillAura's pre-motion
+    // aim: when a fall is about to kill you, the placement owns the head, and
+    // outgoing_gate defers the aim modules' packet rewrite for the same reason. Both
+    // stand down on their own while AutoRod is sequencing, so the hotbar has one owner.
+    if (wantClutch)
+        clutch->onClientTick(env);
+    if (wantScaffold)
+        scaffold->onClientTick(env);
+    // Opportunity runs after the placement modules and stands down on its own while any of
+    // them owns the head: staying alive is worth more than a cobweb. Like them it moves the
+    // REAL rotation, so it has to be here rather than on the async module loop.
+    if (wantOpportunity)
+        opportunity->onClientTick(env);
     // BlockHit is dispatched LAST on purpose: KillAura's attack for this tick is
     // already recorded by the time we get here, so the release window can be timed
     // against it without a one-tick lag, and AutoRod has already claimed the

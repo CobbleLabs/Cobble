@@ -140,7 +140,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     }
 
     LoaderUI::SetState(LoaderUI::State::INITIALIZING);
-    LoaderUI::SetMessage(OBFUSCATE_STRING("Initializing..."));
+    LoaderUI::SetMessage(OBFUSCATE_STRING("Cobble"));
 
     auto renderFrame = []() -> bool {
         return LoaderUI::Render();
@@ -161,7 +161,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 
 
 #if !defined(COBBLE_DEV_BUILD)
-    LoaderUI::SetMessage(OBFUSCATE_STRING("Checking for updates..."));
+    LoaderUI::SetMessage(OBFUSCATE_STRING("Update"));
     renderFrame();
 
     COBBLE_DEV_LOG("Checking for loader updates");
@@ -194,7 +194,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 
     if (updateResult.success && updateResult.mandatory) {
 
-        LoaderUI::SetMessage(OBFUSCATE_STRING("Downloading update..."));
+        LoaderUI::SetMessage(OBFUSCATE_STRING("Update"));
         renderFrame();
 
 
@@ -235,7 +235,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 
 
         Updater::cleanupTempDir(tempDir);
-        LoaderUI::SetError(OBFUSCATE_STRING("Update failed - please try again"));
+        LoaderUI::SetError(OBFUSCATE_STRING("Update failed"));
         while (renderFrame())
             ;
         LoaderUI::Shutdown();
@@ -254,7 +254,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     HMODULE hModule = GetModuleHandle(nullptr);
     HRSRC hRes = FindResource(hModule, MAKEINTRESOURCE(IDR_COBBLE_DLL), RT_RCDATA);
     if (!hRes) {
-        LoaderUI::SetError(OBFUSCATE_STRING("Launch failed"));
+        LoaderUI::SetError(OBFUSCATE_STRING("Injection failed"));
         while (renderFrame())
             ;
         LoaderUI::Shutdown();
@@ -278,7 +278,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     COBBLE_DEV_LOG("Starting startup license verification");
     bool startupLicenseValid = false;
     bool needsLogin = false;
-    LoaderUI::SetMessage(OBFUSCATE_STRING("Verifying session"));
+    LoaderUI::SetMessage(OBFUSCATE_STRING("Session"));
     std::atomic<bool> licenseCheckDone{false};
     std::thread licenseCheckWorker([&]() {
         for (const auto& url : cobble_config::GetServerUrls()) {
@@ -346,7 +346,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
                 }
 
                 LoaderUI::SetState(LoaderUI::State::AUTHENTICATING);
-                LoaderUI::SetMessage(OBFUSCATE_STRING("Signing in"));
+                LoaderUI::SetMessage(OBFUSCATE_STRING("Account"));
                 renderFrame();
 
                 COBBLE_DEV_LOG("Submitting login request (username_length=%zu)", username.size());
@@ -411,7 +411,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 
 
     if (lunar.pid == 0) {
-        LoaderUI::SetMessage(OBFUSCATE_STRING("Waiting for Minecraft..."));
+        LoaderUI::SetMessage(OBFUSCATE_STRING("Minecraft"));
 
         auto nextScan = std::chrono::steady_clock::now();
         while (true) {
@@ -445,7 +445,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 
 
     LoaderUI::SetState(LoaderUI::State::INITIALIZING);
-    LoaderUI::SetMessage(OBFUSCATE_STRING("Preparing launch"));
+    LoaderUI::SetMessage(OBFUSCATE_STRING("Session"));
     renderFrame();
 
     std::string payloadKey;
@@ -509,7 +509,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     SecureZeroMemory(&payloadKey[0], payloadKey.size());
 
     if (decryptedDll.empty() || !PayloadCrypto::ValidatePE(decryptedDll)) {
-        LoaderUI::SetError(OBFUSCATE_STRING("Launch failed"));
+        LoaderUI::SetError(OBFUSCATE_STRING("Injection failed"));
         while (renderFrame())
             ;
         LoaderUI::Shutdown();
@@ -521,7 +521,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 
 
     LoaderUI::SetState(LoaderUI::State::INJECTING);
-    LoaderUI::SetMessage(OBFUSCATE_STRING("Launching into Minecraft"));
+    LoaderUI::SetMessage(OBFUSCATE_STRING("Minecraft"));
     renderFrame();
 
 
@@ -669,7 +669,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         if (hMapFile)
             CloseHandle(hMapFile);
         SecureZeroMemory(decryptedDll.data(), decryptedDll.size());
-        LoaderUI::SetError(OBFUSCATE_STRING("Launch failed"));
+        LoaderUI::SetError(OBFUSCATE_STRING("Injection failed"));
         while (renderFrame())
             ;
         LoaderUI::Shutdown();
@@ -700,7 +700,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         if (hMapFile)
             CloseHandle(hMapFile);
         SecureZeroMemory(decryptedDll.data(), decryptedDll.size());
-        LoaderUI::SetError(OBFUSCATE_STRING("Launch failed"));
+        LoaderUI::SetError(OBFUSCATE_STRING("Injection failed"));
         while (renderFrame())
             ;
         LoaderUI::Shutdown();

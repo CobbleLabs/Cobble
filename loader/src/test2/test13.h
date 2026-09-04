@@ -28,4 +28,4 @@ std::string GetPayloadKey();
 std::string GetHandshakeSig();
 int64_t GetHandshakeTimestamp();
 std::string GetSyncToken();
-}
+}  

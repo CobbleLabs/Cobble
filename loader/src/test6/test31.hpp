@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 
 
@@ -224,7 +224,7 @@ constexpr uint32_t state_seed(const char* str, uint32_t offset = 0) {
 #define OBFUSCATE_END       \
     default:                \
         __debugbreak();     \
-        ; /* Anti-tamper */ \
+        ;                 \
         }                   \
         }                   \
     __obf_exit:;            \

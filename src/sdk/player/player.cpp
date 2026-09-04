@@ -103,6 +103,16 @@ void LocalPlayer::initFields() {
         // HurtTime (in EntityLivingBase)
         fid_hurtTime = resolveField(livingCls, {"hurtTime", "field_70737_aN", "ax"}, "I");
 
+        // The damage-immunity counter. attackEntityFrom sets it to
+        // maxHurtResistantTime (20) on every hit that lands, and Entity.onEntityUpdate
+        // decrements it once per tick; while it is above half, a new hit only
+        // registers if it is strictly stronger than the last one. Modules read it to
+        // know whether the next incoming swing can actually hurt us.
+        fid_hurtResistantTime =
+            resolveField(livingCls, {"hurtResistantTime", "field_70172_ad", "ap"}, "I");
+        fid_maxHurtResistantTime =
+            resolveField(livingCls, {"maxHurtResistantTime", "field_70771_an", "aB"}, "I");
+
         // Jump (in EntityLivingBase)
         mid_jump = resolveMethod(livingCls, {"jump", "func_70664_aZ", "bF"}, "()V");
 
@@ -480,6 +490,39 @@ int LocalPlayer::getHurtTime() {
     if (!isValid() || !fid_hurtTime)
         return 0;
     return Java::Env()->GetIntField(instance, fid_hurtTime);
+}
+
+int LocalPlayer::getHurtResistantTime() {
+    jfieldID fid = fid_hurtResistantTime ? fid_hurtResistantTime : JniCache::fid_hurtResistantTime;
+    if (!isValid() || !fid)
+        return 0;
+    JNIEnv* env = Java::Env();
+    if (!env)
+        return 0;
+    const int value = env->GetIntField(instance, fid);
+    if (env->ExceptionCheck()) {
+        env->ExceptionClear();
+        return 0;
+    }
+    return value;
+}
+
+int LocalPlayer::getMaxHurtResistantTime() {
+    jfieldID fid =
+        fid_maxHurtResistantTime ? fid_maxHurtResistantTime : JniCache::fid_maxHurtResistantTime;
+    // 20 is the vanilla value and the right answer when the field cannot be read:
+    // callers divide by it, so never hand back zero.
+    if (!isValid() || !fid)
+        return 20;
+    JNIEnv* env = Java::Env();
+    if (!env)
+        return 20;
+    const int value = env->GetIntField(instance, fid);
+    if (env->ExceptionCheck()) {
+        env->ExceptionClear();
+        return 20;
+    }
+    return value > 0 ? value : 20;
 }
 
 void LocalPlayer::jump() {

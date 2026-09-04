@@ -38,11 +38,19 @@ inline float yOffset = 5.0f;
 // moves the block, which it did not before.
 inline int anchor = 1;  // 0=TopRight, 1=TopLeft, 2=BottomRight, 3=BottomLeft
 
-// Free positioning: absolute top-left of the whole block, in screen pixels.
-// -1 on both means "auto": park the block in the `anchor` corner and keep it
-// there (recomputed every frame) until it is dragged somewhere.
-inline float posX = -1.0f;
-inline float posY = -1.0f;
+// Free positioning, stored as the screen FRACTION of the anchored corner rather
+// than an absolute top-left pixel (see hud/hud_place.hpp). Absolute pixels broke
+// in two ways: a config saved at one resolution -- or written during the first
+// frames after injecting into an already-fullscreen game -- described a screen
+// that no longer existed, and there was no way to tell a stale saved position
+// from a deliberate one, because auto-placement wrote its own computed pixels
+// into the same fields that "-1 means auto" was encoded in.
+//
+// `userPlaced` is that missing bit: only an actual drag sets it. While it is
+// false the block is parked in the `anchor` corner every frame.
+inline float relX = 0.0f;
+inline float relY = 0.0f;
+inline bool userPlaced = false;
 // Drag state (same pattern as DroppedInfo): grab the block with the menu open,
 // it follows the mouse while the menu is visually hidden, drop to place it.
 inline bool dragging = false;

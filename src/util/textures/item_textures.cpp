@@ -8,7 +8,6 @@
 #include <shlobj.h>
 
 #define STB_IMAGE_IMPLEMENTATION
-#define STBI_ONLY_PNG
 #include "../../../infra/ext/stb/stb_image.h"
 
 ItemTextureManager& ItemTextureManager::get() {

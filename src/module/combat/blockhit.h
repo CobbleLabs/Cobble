@@ -9,15 +9,15 @@
 
 #include "../module.h"
 
-// BlockHit — sword blocking between hits, driven entirely through the vanilla
-// client code path.
+// BlockHit — sword blocking placed where a block can actually do something,
+// expressed entirely through the vanilla client code path.
 //
 // WHY THIS IS ANTICHEAT-AGNOSTIC
 // ------------------------------
 // The module never builds or sends a packet. It only writes
-// GameSettings.keyBindUseItem.pressed (plus the queued-press counter, exactly
-// like a real mouse-down does) and lets Minecraft.runTick() do the rest.
-// Verified against the live 1.8.9 client's own bytecode, runTick contains:
+// GameSettings.keyBindUseItem.pressed (plus the queued-press counter, exactly like
+// a real mouse-down does) and lets Minecraft.runTick() do the rest. Verified
+// against the live 1.8.9 client's own bytecode, runTick contains:
 //
 //     if (thePlayer.isUsingItem() && !keyBindUseItem.isKeyDown())
 //         playerController.onStoppedUsingItem(thePlayer);      // C07 RELEASE_USE_ITEM
@@ -26,54 +26,63 @@
 //     if (keyBindUseItem.isKeyDown() && rightClickDelayTimer == 0 && !isUsingItem())
 //         rightClickMouse();
 //
-// So `pressed = true` makes the game itself emit the block, and `pressed = false`
-// makes the game itself emit the release — in vanilla order, with vanilla
-// rightClickDelayTimer cadence, vanilla item animation and vanilla C07 on release.
-// There is no synthetic packet, no ordering anomaly and no state the server can see
-// that a human holding RMB would not produce. Nothing is left to detect.
+// So `pressed = true` makes the game itself emit the block and `pressed = false`
+// makes the game itself emit the release — vanilla order, vanilla
+// rightClickDelayTimer cadence, vanilla animation, vanilla C07 on release. There is
+// no synthetic packet and no state the server can see that a human holding RMB
+// would not produce.
 //
-// Two consequences of that same bytecode drive the whole design:
-//   1. runTick releases the item whenever the use key is up, so any approach that
-//      sets itemInUse without holding the key alive gets cancelled a tick later.
-//      Owning the keybind is the only stable way to hold a block.
-//   2. The pre-motion hook this module runs from (EntityLivingBase.onLivingUpdate,
-//      reached via WorldClient.updateEntities at runTick offset 2468) executes AFTER
-//      the input block above. A keybind write therefore takes effect on the NEXT
-//      tick. Every timing decision here is expressed in whole ticks and accounts
-//      for that one-tick pipeline.
+// Two consequences of that same bytecode constrain everything below:
+//   1. runTick releases the item whenever the use key is up, so owning the keybind
+//      is the only stable way to hold a block.
+//   2. This module's hook (EntityLivingBase.onLivingUpdate, reached from
+//      WorldClient.updateEntities at runTick offset 2468) runs AFTER the input block
+//      above, so a keybind write lands on the NEXT tick. Every number here is in
+//      whole ticks and accounts for that one-tick pipeline.
 //
-// WHY IT IS GOOD FOR PVP
-// ----------------------
-// A held block costs the sprint reset. EntityPlayerSP.onLivingUpdate scales the
-// movement input by 0.2 while isUsingItem() is true, which trips its own
-// `moveForward < 0.8` test and calls setSprinting(false); a non-sprint hit loses its
-// knockback bonus. That sprint decision is taken one tick BEFORE the click it
-// affects, and that is what pins the whole schedule:
+// WHAT THE STRATEGY IS
+// --------------------
+// A block is worth its cost only when an incoming hit can actually be reduced, and
+// 1.8 says out loud when that is. EntityLivingBase.attackEntityFrom sets
+// hurtResistantTime = maxHurtResistantTime (20) on every hit that lands, and while
+// hurtResistantTime > 10 a new hit is processed only `if (amount > lastDamage)`, and
+// then only for the difference. Entity.onEntityUpdate decrements it once per tick,
+// before this hook runs. So for ~10 ticks after every hit taken we are effectively
+// immune, and a block held across those ticks reduces nothing whatsoever.
 //
-//   tick A-2 : write pressed = false.
-//   tick A-1 : runTick sees the key up and calls onStoppedUsingItem (C07), so
-//              isUsingItem() is already false when onLivingUpdate re-evaluates
-//              sprinting -> sprint is restored. Write pressed = true again here.
-//   tick A   : clickMouse() (offset 2174) attacks WITH sprint, then the queued use
-//              press (2184) re-engages the block in the same tick, after the hit.
+// It is not free either. isUsingItem() scales moveStrafe/moveForward by 0.2 in
+// EntityPlayerSP.onLivingUpdate, which trips its own `moveForward < 0.8` test and
+// calls setSprinting(false), and a non-sprint attack loses a knockback level
+// (`if (isSprinting()) ++knockback`). Blocking inside the immunity window pays the
+// full movement and knockback price for exactly zero damage reduction — which is
+// where the previous schedule spent most of its ticks.
 //
-// So the release has to be scheduled TWO ticks ahead of the attack, not one, and the
-// block only has to be down for a single tick per attack. Perfect mode derives the
-// attack ticks from a phase-locked model of the measured cadence and opens exactly
-// that one-tick gap; every other tick stays blocked. Hold mode never releases —
-// maximum damage reduction, no sprint resets — and Legit mode releases reactively
-// with jitter.
+// Hence the one rule the whole module is built on: block while vulnerable, let go
+// while immune. The fight itself then drives the rhythm instead of a timer, and
+// every hit you take buys ten ticks of full-speed, full-knockback counter-attacking.
 //
-// One consequence of the arithmetic is worth stating outright: a gap per attack is only
-// affordable while the attacks are more than a couple of ticks apart. At 12 CPS they are
-// ~1.7 ticks apart, so an unconditional gap-per-attack keeps the key up on every tick and
-// the block never exists. The schedule therefore refuses to open a gap in a block that is
-// not currently up, and holds a minimum blocked run between gaps; what that buys back is
-// sprint on the attack after each gap rather than on every attack.
+// THE SPRINT GAP
+// --------------
+// An attack at tick A keeps its sprint bonus only if isUsingItem() was already false
+// when onLivingUpdate evaluated sprinting at A-1. Writing the key up at A-2 makes
+// runTick call onStoppedUsingItem at A-1 (C07, before updateEntities), so sprint is
+// restored in time; writing it back down at A-1 re-presses inside runTick A, where
+// offset 2184 runs after the attack at 2174 — the hit lands sprinting and the block
+// is back up in the same tick. The gap is therefore exactly two ticks wide and must
+// start two ticks BEFORE the attack. Only Trade spends uptime on it.
 //
-// Note for double-tap sprinters: EntityPlayerSP only restores sprint immediately
-// when keyBindSprint is held. Without a sprint key it sets sprintToggleTimer = 7
-// instead, and no blockhit schedule can win that back.
+// Note for double-tap sprinters: EntityPlayerSP restores sprint immediately only
+// while keyBindSprint is held. Without a sprint key it sets sprintToggleTimer = 7
+// and no schedule can win that back.
+//
+// WHY IT CANNOT STUTTER
+// ---------------------
+// Whatever a mode asks for, the key cannot change state faster than a floor of
+// three ticks down / two ticks up. Both numbers are physical, not taste: two ticks
+// up is precisely what the sprint rule above needs, and three ticks down is the
+// shortest block worth a C08/C07 round trip. That caps the transition rate at one
+// cycle per five ticks even in the worst case, and the immunity rule keeps the real
+// rate far below it.
 class BlockHit : public Module {
 public:
     BlockHit();
@@ -92,51 +101,52 @@ public:
     // Stays true while we still own the keybind so a disable can always hand it back.
     bool needsClientTick() const { return enabled || engaged_.load(std::memory_order_acquire); }
 
+    // Five intents, not five timings. Each one answers "what is a block for" and the
+    // module works out the ticks; there is nothing to tune.
     enum class Mode {
-        Hold = 0,     // never release; attacks pass through the block (max damage reduction)
-        Perfect = 1,  // predictive release on the attack tick only (sprint-safe, max uptime)
-        Legit = 2     // reactive release window with jitter
+        // Your swings come first. Blocks only in the gaps your own cadence leaves —
+        // if the next attack is closer than four ticks it does not block at all, so a
+        // held block never costs you a sprint hit. What it covers is the silence:
+        // backing off, waiting out a crit, closing distance.
+        Aggressive = 0,
+        // The even trade, and the one to leave on. Blocks whenever a hit can land,
+        // and once a block has been up long enough to have earned it, opens the
+        // two-tick sprint gap in front of your next attack so the hit keeps its
+        // knockback. Gives away a little uptime for a lot of pressure.
+        Trade = 1,
+        // Uptime above all. Blocks whenever a hit can land and never spends a tick on
+        // sprint, so every incoming hit is halved; the only time the key comes up is
+        // the immunity window, where blocking cannot help anyway and the movement is
+        // worth more than an animation.
+        Defensive = 2,
+        // Never lets go while the fight is on. Halves everything, including the hits
+        // the other modes correctly ignore, and costs 80% of your movement speed for
+        // as long as it is held — that is the actual price, not a caveat. For eating
+        // a burst you cannot outrun. Adaptive never chooses it for you.
+        Turtle = 3,
+        // The default. Picks between Aggressive, Trade and Defensive every tick from
+        // health and whether anything is actually hitting you: healthy and untouched
+        // plays Aggressive, hurt plays Trade, low and under fire plays Defensive.
+        Adaptive = 4
     };
 
     struct Settings {
-        int mode = (int)Mode::Perfect;
-        int modeKeybind = 0;  // key to cycle Hold -> Perfect -> Legit
-
-        // Width of the release gap in ticks (Perfect/Legit). 1 is both the minimum and
-        // the optimum: it is exactly the gap the sprint rule above needs, and every extra
-        // tick is block uptime given away for nothing.
-        int releaseTicks = 1;
-        // Floor on how long the block must have been up before a gap may be opened in it.
-        // The module enforces two ticks internally whatever this says, because at any
-        // realistic CPS a gap per attack is a gap per tick and the block stops existing;
-        // this only raises that floor, for a server that needs a longer visible block.
-        int minBlockTicks = 0;
-        // Derive the attack ticks from the measured cadence and open the gap BEFORE
-        // the hit. This is the only thing that preserves sprint hits; with it off,
-        // Perfect degrades to a reactive release after the hit has already landed.
-        bool predictive = true;
-        // Require an attack source to be active (LMB held, AutoClicker, or KillAura
-        // holding a target). Off = block whenever a sword is held.
-        bool onlyWhileAttacking = true;
-
-        // Sword blocking works with the crosshair on a block: activation fails for a
-        // sword and rightClickMouse() falls through to sendUseItem. The only cost is a
-        // C08 block-placement packet, which matters solely when the block is
-        // interactive (chest, door, button) and would open instead. Off by default
-        // because in an arena the crosshair sits on terrain most of the time, and
-        // refusing to block there is what makes the module look broken.
-        bool skipOnBlockTarget = false;
+        int mode = (int)Mode::Adaptive;
+        int modeKeybind = 0;  // cycles Aggressive -> Trade -> Defensive -> Turtle -> Adaptive
     } settings;
-
 private:
     // ---- Client-thread state (touched only inside onClientTick). ----
-    std::uint32_t tick_ = 0;              // monotonic client-tick counter
-    std::uint32_t blockedSinceTick_ = 0;  // tick the current press began
-    std::uint32_t lastAttackTick_ = 0;    // schedule anchor
-    std::uint32_t reactiveDownUntil_ = 0;  // exclusive end of a reactive release window
-    float attackIntervalTicks_ = 0.0f;  // EMA of the measured attack cadence
+    std::uint32_t tick_ = 0;               // monotonic client-tick counter
+    std::uint32_t blockedSinceTick_ = 0;   // tick the current press began
+    std::uint32_t releasedSinceTick_ = 0;  // tick the current release began
+    std::uint32_t lastAttackTick_ = 0;     // our own last swing; anchors the cadence model
+    std::uint32_t lastHitTakenTick_ = 0;   // last tick hurtTime rose, i.e. we were hit
+    std::uint32_t gapTicksLeft_ = 0;       // remaining ticks of an open sprint gap
+    float attackIntervalTicks_ = 0.0f;     // EMA of our measured attack cadence
     bool haveAttackHistory_ = false;
+    bool haveTakenHit_ = false;
     bool userOwnsKey_ = false;  // physical RMB is down; hands off entirely
+    int prevHurtTime_ = 0;      // edge detector for hits taken
     std::uint64_t observedAuraAttackMs_ = 0;
     std::mt19937 rng_;
 
@@ -148,17 +158,48 @@ private:
     // Hand-off: incremented on the module thread, drained on the client thread. A
     // counter rather than a flag so a burst of clicks between two ticks is not lost.
     std::atomic<std::uint32_t> attackSignals_{0};
+    // When the last real click was latched, from either source. This is what makes
+    // "an attack is happening" a statement about now instead of about which modules
+    // are armed; see attackSourceActive().
+    std::atomic<std::uint64_t> lastAttackSignalMs_{0};
     std::atomic<bool> attackHeld_{false};
     // True while WE hold the keybind down. Read by needsClientTick/getDisplayInfo.
     std::atomic<bool> engaged_{false};
     std::atomic<bool> serverBlocking_{false};
-
+    // Why the schedule stood down on the last client tick, or null while it is running,
+    // and which mode Adaptive resolved to. Both are always string literals (static
+    // storage), so publishing the bare pointer across threads is safe and the ArrayList
+    // renders it without a copy.
+    std::atomic<const char*> gateReason_{nullptr};
+    std::atomic<const char*> activeMode_{nullptr};
     static bool isSwordId(int itemId);
     bool isHoldingSword() const;
+    // True when an exchange is actually running: LMB held, clicks landing from either
+    // source, or KillAura holding a target.
     bool attackSourceActive() const;
-    // True when this tick is inside the sprint-safe gap for an upcoming attack, i.e.
-    // when the phase-locked cadence model places an attack in [tick+2, tick+1+release].
-    bool sprintSafeGapDue(int releaseTicks) const;
+
+    // 1.0 when the health fields cannot be read, so an unreadable player never gets
+    // mistaken for a dying one.
+    float healthFraction() const;
+    // hurtResistantTime is still above half: a follow-up hit of the same strength
+    // cannot touch us, so a block would reduce nothing.
+    bool damageImmune() const;
+    // Something has hit us within the last two seconds.
+    bool underPressure() const;
+    // Ticks until our own next swing, from the phase-locked cadence model
+    // (anchor + round(interval * k)). kNoAttackDue when there is no usable cadence.
+    std::uint32_t ticksUntilOurAttack() const;
+
+    // Adaptive resolved against this tick. Never returns Adaptive or Turtle.
+    Mode resolveMode() const;
+    // The mode's own answer, before the gap logic and the hysteresis floors.
+    bool wantsBlock(Mode effective) const;
+
+    // Right-clicking one of these opens a screen or flips a state instead of raising
+    // the sword, so blocking is impossible while the crosshair is on it. Detected
+    // rather than configured: plain terrain blocks fine and always did.
+    static bool isInteractiveBlockId(int blockId);
+    bool crosshairWouldInteract() const;
 
     // JNI plumbing. keyBind is a local ref the caller owns.
     jobject useItemKeyBind(JNIEnv* env) const;

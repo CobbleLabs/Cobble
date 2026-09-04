@@ -632,8 +632,10 @@ BOOL __stdcall HookedSwapBuffers(HDC hdc) {
         io.DisplaySize = ImVec2((float)RenderData::screenWidth, (float)RenderData::screenHeight);
         io.MouseDrawCursor = Menu::isOpen;
 
-        // Auto-close menu on alt-tab
-        if (Menu::isOpen && GetForegroundWindow() != Overlay::gameWindow) {
+        // Auto-close menu on alt-tab. The watermark's file dialog runs on its own
+        // thread and legitimately takes the foreground, so it is not an alt-tab:
+        // closing the menu under it would drop the pick the user is about to make.
+        if (Menu::isOpen && GetForegroundWindow() != Overlay::gameWindow && !Watermark::pickerBusy()) {
             Menu::isOpen = false;
             Menu::openAnim = 0.f;  // Skip close animation
             Menu::moduleToBind = nullptr;
