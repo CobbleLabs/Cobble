@@ -51,7 +51,7 @@ public:
 
     void onClientTick(JNIEnv* env);
 
-    // Called by attackEntity / KillAura / Piercing when a hit actually lands on
+    // Called by attackEntity / Piercing when a hit actually lands on
     // a player. In OnlyOnHit mode this opens the retention window.
     void notifyHitLanded(int entityId);
     bool needsClientTick() const;
