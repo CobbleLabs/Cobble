@@ -26,7 +26,6 @@ static const DescriptionEntry kModuleDescriptions[] = {
     {"", "AutoClicker", "", "Clicks automatically while you hold the attack button."},
     {"", "AutoRod", "", "Rods players who are out of sword range, holding the rod until the hook lands."},
     {"", "AimAssist", "", "Smoothly guides your aim toward a valid player target."},
-    {"", "KillAura", "", "Auto-targets and attacks nearby players with silent rotations, randomized clicking and reach."},
     {"", "AimBow", "", "Aims the bow at the nearest player, solving the arrow arc and lead."},
     {"", "Velocity", "", "Controls how much enemy knockback affects your movement."},
     {"", "Reach", "", "Extends the distance at which attacks can connect."},
@@ -34,7 +33,7 @@ static const DescriptionEntry kModuleDescriptions[] = {
     {"", "NoHitDelay", "", "Removes the client-side delay between valid attacks."},
     {"", "Criticals", "", "Automates critical-hit movement when its conditions are met."},
     {"", "WTap", "", "Briefly resets forward movement or sprint after attacks to control spacing."},
-    {"", "BlockHit", "", "Blocks with the sword only when an incoming hit can actually be reduced, and lets go when it cannot."},
+    {"", "BlockHit", "", "Halves incoming damage with a real block, and only raises it on the ticks a hit can actually land, so it pays vanilla's slowdown where a hand would and runs at full speed the rest of the time."},
     {"", "Backtrack", "", "Targets recent server positions to compensate for movement and latency."},
     {"", "Piercing", "", "Finds and attacks valid entities through obstructing blocks."},
     {"", "AntiBot", "", "Decides what counts as a fake player. Every combat module asks it before choosing a target."},
@@ -42,6 +41,7 @@ static const DescriptionEntry kModuleDescriptions[] = {
     {"", "NameTags", "", "Renders readable, customizable information above players."},
     {"", "ESP", "", "Highlights players through terrain with configurable boxes and health."},
     {"", "Chams", "", "Re-renders nearby players through terrain with a configurable material."},
+    {"", "Animations", "", "Replaces the first-person sword blocking pose. Thirty-one of them, some static, some driven by the raise, the mouse or your own swings."},
     {"", "ItemESP", "", "Highlights dropped items so they remain visible through terrain."},
     {"", "Tracers", "", "Draws directional lines from your screen to nearby players."},
     {"", "BlockESP", "", "Highlights selected ores and containers inside the configured range."},
@@ -261,12 +261,6 @@ static const DescriptionEntry kOptionDescriptions[] = {
     {"NoItemRelease", "Mode", "All", "Prevents release packets for every supported item except bows and fishing rods."},
     {"Tracers", "Line From", "Bottom", "Starts tracer lines at the bottom-center of the screen."},
     {"Tracers", "Line From", "Center", "Starts tracer lines at the center of the screen."},
-    {"BlockHit", "Switch Mode Key", "", "Cycles the strategy in game, without opening the menu."},
-    {"BlockHit", "Mode", "Aggressive", "Blocks only in the gaps your own cadence leaves, so a block never costs you a sprint hit."},
-    {"BlockHit", "Mode", "Trade", "Blocks whenever a hit can land, then opens a two-tick gap so your next hit keeps its knockback."},
-    {"BlockHit", "Mode", "Defensive", "Maximum uptime: halves every hit that can land and never spends a tick on sprint."},
-    {"BlockHit", "Mode", "Turtle", "Never lets go while the fight is on. Halves everything and costs 80% of your movement speed."},
-    {"BlockHit", "Mode", "Adaptive", "Reads your health and whether anything is hitting you, and picks between the other three every tick."},
     {"AutoRod", "Only While Attacking", "", "Only casts on a real click. Off, it casts on its own whenever a target is in the band."},
     {"AutoRod", "Require Weapon", "", "Only casts out of a sword or axe, so it never interrupts what you were doing with something else."},
     {"AutoRod", "Auto Hit", "", "Swings once after swapping back, if the crosshair is still on someone."},
@@ -309,7 +303,7 @@ static const DescriptionEntry kOptionDescriptions[] = {
     {"Backtrack", "Whole Stream", "", "Delays every player's movement, not just your target's. A real connection is not late only for whoever you are looking at, so leaving this on is what makes the hold read as lag."},
     {"Backtrack", "Min Range", "", "Ignores targets closer than this, since backtracking point-blank pushes the hitbox behind you."},
     {"Backtrack", "Max Range", "", "Ignores targets past this distance, so the hold only opens inside your real reach."},
-    {"Backtrack", "Only While Attacking", "", "Holds packets only while you are actually swinging — the mouse held down, AutoClicker running, or KillAura on a target."},
+    {"Backtrack", "Only While Attacking", "", "Holds packets only while you are actually swinging — the mouse held down, or AutoClicker running."},
     {"Backtrack", "Color", "", "Color of the ghost box drawn where the server still believes the target is. Its alpha is the overall opacity."},
 
     {"AimBow", "Aim Height", "", "Where on the body to aim, measured from the feet: 0 is the feet, 1 the top of the head. 0.62 is the chest, the widest part of the hitbox."},
@@ -484,6 +478,16 @@ static const DescriptionEntry kOptionDescriptions[] = {
      "Spread applied to every delay above. Real gaps scatter around an average; identical gaps are a fingerprint."},
     {"ThrowPots", "Fatigue", "",
      "Widens the gaps slightly as the burst runs. The fourth pot never comes out as fast as the first."},
+    {"Animations", "Animation", "",
+     "The pose your blocking sword is drawn in. The first is vanilla's own, unchanged; the rest either sit still, move "
+     "into place as the sword comes up, never stop moving, trail your mouse, or kick when you swing."},
+    {"Animations", "Speed", "",
+     "Time multiplier for the animations that move. Nothing at all for the static ones."},
+    {"Animations", "Scale", "", "Multiplies the pose's own size. 1.00 is whatever the animation asks for."},
+    {"Animations", "Pos X", "", "Slides the pose left or right, on top of whatever the animation is doing."},
+    {"Animations", "Pos Y", "", "Slides the pose up or down, on top of whatever the animation is doing."},
+    {"Animations", "Pos Z", "",
+     "Pushes the pose into or out of the screen, on top of whatever the animation is doing."},
 };
 
 static const char* findDescription(const DescriptionEntry* entries, size_t count, const char* context, const char* key,
@@ -501,6 +505,13 @@ static const char* resolveOptionDescription(const char* key, const char* value =
     if (const char* exact = findDescription(kOptionDescriptions, IM_ARRAYSIZE(kOptionDescriptions),
                                             g_descriptionContext.c_str(), key, value))
         return exact;
+    // A combo always asks with its selected value, so a table row written for the option as a
+    // whole -- {context, key, ""} -- would never have matched one, and every such combo fell
+    // through to the generated "Adjusts X" line instead of the text somebody wrote for it.
+    if (value && *value)
+        if (const char* byKey = findDescription(kOptionDescriptions, IM_ARRAYSIZE(kOptionDescriptions),
+                                               g_descriptionContext.c_str(), key, ""))
+            return byKey;
     if (const char* generic =
             findDescription(kOptionDescriptions, IM_ARRAYSIZE(kOptionDescriptions), "", key, ""))
         return generic;
@@ -564,11 +575,12 @@ std::vector<ui::tab_t> ui::tabs = {
     {ICON_FA_CROSSHAIRS,
      "Combat",
      {"AutoClicker", "AimAssist", "Velocity", "Reach", "HitSelect", "NoHitDelay", "Criticals", "WTap",
-      "Piercing", "AimBow", "BlockHit", "KillAura", "AutoRod", "AntiBot", "Opportunity"}},
+      "Piercing", "AimBow", "BlockHit", "AutoRod", "AntiBot", "Opportunity"}},
     {ICON_FA_EYE,
      "Visuals",
      {"NameTags", "ESP", "ItemESP", "Tracers", "BlockESP", "Trajectories", "AntiDebuff", "ArrayList",
-      "DroppedInfo", "Notifications", "Watermark", "TargetHUD", "ClickGUI", "Pings", "Chams"}},
+      "DroppedInfo", "Notifications", "Watermark", "TargetHUD", "ClickGUI", "Pings", "Chams",
+      "Animations"}},
     {ICON_FA_RUNNING,
      "Movement",
      {"Timer", "TimerRange", "NoSlowDown", "NoJumpDelay", "Sprint", "InventoryMove"}},

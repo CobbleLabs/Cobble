@@ -1,19 +1,14 @@
 #include "blockhit.h"
 
-#include <algorithm>
-#include <cmath>
-
 #include "../../sdk/core/minecraft.h"
 #include "../../sdk/jni/jni_cache.h"
 #include "../../sdk/player/player.h"
-#include "../../ui/core/overlay.h"
-#include "../../ui/hud/notifications.h"
 #include "../../ui/menu/menu.h"
 #include "../../ui/widgets/widgets.hpp"
-#include "../../util/network/json.hpp"
+#include "../../util/aes_string.hpp"
+#include "aimassist.h"
 #include "autoclicker.h"
 #include "autorod.h"
-#include "killaura.h"
 
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
@@ -27,6 +22,12 @@ BlockHit* blockHit = nullptr;
 
 namespace {
 
+// How long a hit taken keeps "somebody is on us" true. 40 ticks = 2 s, about one exchange.
+// This is what lets the block go up before we have clicked once, when we are the one being
+// jumped, and what keeps the pattern running through the part of a fight where we are only
+// taking hits.
+constexpr std::uint32_t kPressureTicks = 40;
+
 bool clearEx(JNIEnv* env) {
     if (env && env->ExceptionCheck()) {
         env->ExceptionClear();
@@ -35,119 +36,157 @@ bool clearEx(JNIEnv* env) {
     return false;
 }
 
-std::uint64_t nowMs() {
-    return (std::uint64_t)std::chrono::duration_cast<std::chrono::milliseconds>(
-               std::chrono::steady_clock::now().time_since_epoch())
-        .count();
-}
-
 bool gameFocused() {
     const HWND fg = GetForegroundWindow();
     if (!fg)
         return false;
-    // Compare process IDs, not window handles. Lunar and borderless-fullscreen can
-    // hand the foreground to a different top-level window inside the same process,
-    // and Overlay::gameWindow is only ever one of them -- an HWND equality test then
-    // reads as "unfocused" forever and silently disables the whole schedule. This is
-    // the same test the keybind dispatcher already trusts
-    // (ModuleManager::isMinecraftFocused).
+    // Process IDs, not window handles. Lunar and borderless-fullscreen can hand the
+    // foreground to a different top-level window inside the same process, so an HWND equality
+    // test reads as "unfocused" forever and silently disables the module. This is the same
+    // test the keybind dispatcher already trusts.
     DWORD fgPid = 0;
     GetWindowThreadProcessId(fg, &fgPid);
     return fgPid != 0 && fgPid == GetCurrentProcessId();
 }
 
-const char* modeName(BlockHit::Mode mode) {
-    switch (mode) {
-        case BlockHit::Mode::Aggressive:
-            return "Aggressive";
-        case BlockHit::Mode::Trade:
-            return "Trade";
-        case BlockHit::Mode::Defensive:
-            return "Defensive";
-        case BlockHit::Mode::Turtle:
-            return "Turtle";
-        default:
-            return "Adaptive";
-    }
-}
-
-// A cadence outside this range is not a fight (or is a measurement artifact) and must
-// never anchor the schedule. 1 tick = 50 ms, so 40 ticks = 2 s.
-constexpr float kMinIntervalTicks = 0.5f;
-constexpr std::uint32_t kMaxIntervalTicks = 40;
-
-// How long a click keeps "an attack is happening" true. It has to outlast the gap
-// between two clicks -- at 10 CPS that is 100 ms -- while still noticing that the
-// fight ended within half a second.
-constexpr std::uint64_t kAttackActiveWindowMs = 400;
-
-// The anti-stutter floors. Neither is a preference: two ticks up is exactly what the
-// sprint rule needs (the key has to be up when onLivingUpdate evaluates sprinting at
-// A-1, which means writing it up at A-2), and three ticks down is the shortest block
-// worth a C08 out and a C07 back. Together they cap the key at one state change per
-// five ticks in the very worst case, whatever a mode asks for.
-constexpr std::uint32_t kMinBlockedRunTicks = 3;
-constexpr std::uint32_t kMinReleasedRunTicks = 2;
-
-// Trade only carves a sprint gap out of a block that has already been up this long,
-// so the trade is uptime it has actually banked rather than a block that never
-// existed. Jittered by up to two ticks on top, because a fixed period is the one
-// thing about a block pattern that no human produces.
-constexpr std::uint32_t kTradeRunBeforeGap = 6;
-// Aggressive blocks only when its own next swing is at least this far out. Four ticks
-// is the smallest lull that fits a three-tick block plus the tick it takes to raise
-// it; anything tighter and the block would be costing a swing, which is the one thing
-// this mode will not do.
-constexpr std::uint32_t kAggressiveLullTicks = 4;
-
-// A hit taken means someone is genuinely on us, and stays true this long afterwards.
-// 40 ticks = 2 s, which is about one full exchange.
-constexpr std::uint32_t kPressureTicks = 40;
-
-// "The cadence model has nothing to say." Deliberately huge so every `<=` test
-// against it is false and every `>=` test is true without a special case.
-constexpr std::uint32_t kNoAttackDue = 0xFFFFFFFFu;
-
-// Adaptive's two thresholds, as a fraction of max health.
-constexpr float kLowHealth = 0.30f;
-constexpr float kHurtHealth = 0.55f;
-
 }  // namespace
+
+std::uint64_t BlockHit::nowMs() {
+    return (std::uint64_t)std::chrono::duration_cast<std::chrono::milliseconds>(
+               std::chrono::steady_clock::now().time_since_epoch())
+        .count();
+}
 
 BlockHit::BlockHit() : Module("BlockHit"), rng_((unsigned)nowMs()) {
     keybind = 0;
+    rollCycle();
 }
 
 void BlockHit::onEnable() {
+    tick_ = 0;
+    blockedAtTick_ = 0;
+    releasedAtTick_ = 0;
+    lastHitTakenTick_ = 0;
+    haveTakenHit_ = false;
+    prevHurtTime_ = 0;
+    beatsHeld_ = 0;
+    holePending_ = false;
+    immuneHole_ = false;
+    wasSprinting_ = false;
     prevAttackDown_ = false;
     observedAutoClick_ =
         autoClicker ? autoClicker->lastAutoClick : std::chrono::steady_clock::time_point{};
-    observedAuraAttackMs_ = killAura ? killAura->lastAttackMs() : 0;
     attackSignals_.store(0, std::memory_order_release);
-    attackHeld_.store(false, std::memory_order_release);
-    lastAttackSignalMs_.store(0, std::memory_order_release);
-    serverBlocking_.store(false, std::memory_order_release);
     gateReason_.store(nullptr, std::memory_order_release);
-    activeMode_.store(nullptr, std::memory_order_release);
-    prevHurtTime_ = 0;
-    haveTakenHit_ = false;
-    lastHitTakenTick_ = 0;
-    gapTicksLeft_ = 0;
-    resetCadence();
+    rollCycle();
+    // serverBlocking_ is NOT cleared here. If the module is toggled off and straight back on
+    // inside one tick, whatever is outstanding is still outstanding, and forgetting it would
+    // leave the server blocking for an hour.
 }
 
+// Deliberately no JNI and no packets. This runs on the module thread, and the only safe place
+// to touch the JVM is the client tick -- which keeps being dispatched while the module is off
+// precisely because needsClientTick() stays true until nothing is outstanding. The next tick
+// gates as "Off" and stands down properly.
 void BlockHit::onDisable() {
-    // No JNI from the module thread. needsClientTick() stays true while engaged_ is
-    // set, so the next client tick performs the release for us.
-    gapTicksLeft_ = 0;
+    attackSignals_.store(0, std::memory_order_release);
     gateReason_.store(nullptr, std::memory_order_release);
-    activeMode_.store(nullptr, std::memory_order_release);
+    prevAttackDown_ = false;
 }
-void BlockHit::resetCadence() {
-    attackIntervalTicks_ = 0.0f;
-    haveAttackHistory_ = false;
-    lastAttackTick_ = 0;
+
+// Reset, not release. The EntityPlayerMP that owned the server-side itemInUse went with the
+// world, so a C07 addressed to it is noise at best -- and at worst it arrives after the new
+// player has spawned and cancels a block the user started themselves. The Java handles go
+// too: a dimension change keeps the classes, but a full reconnect does not.
+void BlockHit::onWorldChange() {
+    serverBlocking_.store(false, std::memory_order_release);
+    gateReason_.store(nullptr, std::memory_order_release);
+    blockedAtTick_ = 0;
+    releasedAtTick_ = 0;
+    lastHitTakenTick_ = 0;
+    haveTakenHit_ = false;
+    prevHurtTime_ = 0;
+    beatsHeld_ = 0;
+    holePending_ = false;
+    immuneHole_ = false;
+    wasSprinting_ = false;
+    apiTried_ = false;
+    apiUsable_ = false;
+    midOnStoppedUsing_ = nullptr;
+    fMovementInput_ = nullptr;
+    fInputStrafe_ = nullptr;
+    fInputForward_ = nullptr;
+    fSprintToggle_ = nullptr;
+    fRidingEntity_ = nullptr;
+    rollCycle();
 }
+
+// ---------------------------------------------------------------------------
+// Module thread (~500 Hz). Latch beats only; nothing here touches the game.
+// ---------------------------------------------------------------------------
+
+void BlockHit::onUpdate() {
+    if (!enabled)
+        return;
+
+    // Attack edges. Vanilla only attacks an entity on a fresh keyBindAttack press, so an edge
+    // stands in one-to-one for an outgoing C02 ATTACK.
+    const bool attackDown = (GetAsyncKeyState(VK_LBUTTON) & 0x8000) != 0 && gameFocused();
+    if (attackDown && !prevAttackDown_)
+        attackSignals_.fetch_add(1, std::memory_order_acq_rel);
+    prevAttackDown_ = attackDown;
+
+    if (autoClicker && autoClicker->lastAutoClick != observedAutoClick_) {
+        observedAutoClick_ = autoClicker->lastAutoClick;
+        attackSignals_.fetch_add(1, std::memory_order_acq_rel);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// The pattern. Five numbers, drawn fresh after every release.
+// ---------------------------------------------------------------------------
+
+void BlockHit::rollCycle() {
+    std::uniform_int_distribution<int> pick(0, 99);
+
+    // Beats a hold rides out before it taps off. At 11 CPS a beat lands every 1.8 ticks, so three
+    // to six beats is a hold of roughly six to eleven ticks -- what letting go for a sprint reset
+    // actually looks like. One beat per hole was the shape of the very first version, and at 11
+    // CPS it left the sword down for more of the exchange than up.
+    const int beats = pick(rng_);
+    beatsPerHole_ = (beats < 22) ? 3u : (beats < 58 ? 4u : (beats < 84 ? 5u : 6u));
+
+    // Two signals can land on one tick -- a manual click and an aura swing -- and without a floor
+    // that is a C08 and a C07 with nothing at all in between them. Also stops a release landing
+    // in the tick right after the block came back, which is the same churn one step removed.
+    minHoldTicks_ = 2u + (std::uint32_t)(pick(rng_) % 3);
+
+    // The beats dried up -- the target died, ran out of reach, or the button came up -- and
+    // nothing has landed on us either, so the immunity gate has nothing to say. Break the hold
+    // rather than pay 80% of the walk speed indefinitely: 20..34 ticks, one to one and a half
+    // seconds. Far shorter than it was when the hold was free.
+    maxHoldTicks_ = 20u + (std::uint32_t)(pick(rng_) % 15);
+
+    // The hole. This is a real sprint reset now, not a token tap: four to eight ticks is long
+    // enough for setSprinting(true) plus the C0B to land and for the sprint to actually carry.
+    // Roughly one in seven runs nine to fourteen, because a player who re-blocks in exactly six
+    // ticks every single time, forever, does not exist.
+    const int hole = pick(rng_);
+    if (hole < 86)
+        holeTicks_ = 4u + (std::uint32_t)(pick(rng_) % 5);
+    else
+        holeTicks_ = 9u + (std::uint32_t)(pick(rng_) % 6);
+
+    // How much hurtTime is left when the sword comes back up after a hit. The immunity window
+    // and hurtTime count down together, so this is the safety margin in ticks between the block
+    // being up and the next hit being able to hurt us: a block that arrives with the hit arrives
+    // after it. Two to five, so the transition never sits on the same tick twice running.
+    immuneMargin_ = 2u + (std::uint32_t)(pick(rng_) % 4);
+}
+
+// ---------------------------------------------------------------------------
+// What has to be true for a cycle to start at all.
+// ---------------------------------------------------------------------------
 
 bool BlockHit::isSwordId(int itemId) {
     // wood / stone / iron / diamond / gold. ItemSword is the only vanilla item whose
@@ -159,508 +198,535 @@ bool BlockHit::isHoldingSword() const {
     return isSwordId(player.getHeldItemId());
 }
 
+bool BlockHit::fightLive() const {
+    // Someone is hitting us. This covers the whole opening of a fight we did not start.
+    if (haveTakenHit_ && (tick_ - lastHitTakenTick_) <= kPressureTicks)
+        return true;
+    // AimAssist only rewrites rotation while it is actually steering at a target, which makes it
+    // a precise "there is someone in reach" signal rather than just "the module is on".
+    if (aimAssist && aimAssist->isRewritingRotation())
+        return true;
+    // Manual play. Minecraft.clickMouse only turns a click into a C02 ATTACK when
+    // objectMouseOver is an entity, so this is the same question vanilla already asked.
+    return mc.isTargetingEntity();
+}
+
 // ---------------------------------------------------------------------------
-// Module thread: latch intent only. Nothing here touches the game.
+// The mechanism. One thing it cannot work without -- a way to send the release -- plus the
+// fields vanilla's own slowdown is written through, because a block we cannot pay for is the
+// physics mismatch this module was rewritten to stop presenting.
 // ---------------------------------------------------------------------------
 
-void BlockHit::onUpdate() {
-    if (settings.modeKeybind != 0) {
-        const bool down = (GetAsyncKeyState(settings.modeKeybind) & 0x8000) != 0;
-        if (down && !prevModeKey_) {
-            settings.mode = (settings.mode + 1) % ((int)Mode::Adaptive + 1);
-            NotificationManager::addSystem(std::string("BlockHit: ") +
-                                           modeName((Mode)settings.mode));
+bool BlockHit::resolveApi(JNIEnv* env, jobject playerInstance) {
+    if (apiTried_)
+        return apiUsable_;
+    if (!env || !playerInstance || !mc.instance || !JniCache::fid_playerController)
+        return false;  // not ready yet; retry next tick rather than latching a failure
+
+    jclass playerCls = env->GetObjectClass(playerInstance);
+    if (clearEx(env) || !playerCls)
+        return false;
+
+    // Deobfuscated name first, then the MCP field name. Lunar, Forge and vanilla between them
+    // ship both, and GetFieldID walks superclasses, so a remapped subclass costs nothing.
+    const auto field = [&](jclass cls, const char* name, const char* srg,
+                           const char* sig) -> jfieldID {
+        jfieldID id = env->GetFieldID(cls, OBFUSCATE_STRING(name).c_str(),
+                                     OBFUSCATE_STRING(sig).c_str());
+        if (clearEx(env) || !id) {
+            id = env->GetFieldID(cls, OBFUSCATE_STRING(srg).c_str(),
+                                 OBFUSCATE_STRING(sig).c_str());
+            clearEx(env);
         }
-        prevModeKey_ = down;
+        return id;
+    };
+
+    fMovementInput_ = field(playerCls, "movementInput", "field_71158_b",
+                            "Lnet/minecraft/util/MovementInput;");
+    fSprintToggle_ = field(playerCls, "sprintToggleTimer", "field_71503_h", "I");
+    // GetFieldID walks superclasses, so Entity.ridingEntity resolves off the player class.
+    fRidingEntity_ = field(playerCls, "ridingEntity", "field_70154_o",
+                           "Lnet/minecraft/entity/Entity;");
+
+    if (fMovementInput_) {
+        jobject input = env->GetObjectField(playerInstance, fMovementInput_);
+        if (!clearEx(env) && input) {
+            jclass inputCls = env->GetObjectClass(input);
+            if (!clearEx(env) && inputCls) {
+                fInputStrafe_ = field(inputCls, "moveStrafe", "field_78902_a", "F");
+                fInputForward_ = field(inputCls, "moveForward", "field_78900_b", "F");
+                env->DeleteLocalRef(inputCls);
+            }
+        }
+        if (input)
+            env->DeleteLocalRef(input);
     }
+    env->DeleteLocalRef(playerCls);
 
-    if (!enabled)
-        return;
-
-    // Attack edges. Vanilla only attacks an entity on a fresh keyBindAttack press
-    // (Minecraft.runTick drains the queued presses through clickMouse), so an edge is
-    // a one-to-one stand-in for an outgoing C02 ATTACK.
-    const bool attackDown = (GetAsyncKeyState(VK_LBUTTON) & 0x8000) != 0 && gameFocused();
-    if (attackDown && !prevAttackDown_) {
-        attackSignals_.fetch_add(1, std::memory_order_acq_rel);
-        lastAttackSignalMs_.store(nowMs(), std::memory_order_release);
+    jobject controller = env->GetObjectField(mc.instance, JniCache::fid_playerController);
+    if (clearEx(env) || !controller)
+        return false;  // no controller yet: still in the main menu
+    jclass controllerCls = env->GetObjectClass(controller);
+    if (!clearEx(env) && controllerCls) {
+        const std::string playerSig =
+            OBFUSCATE_STRING("(Lnet/minecraft/entity/player/EntityPlayer;)V");
+        midOnStoppedUsing_ = env->GetMethodID(
+            controllerCls, OBFUSCATE_STRING("onStoppedUsingItem").c_str(), playerSig.c_str());
+        if (clearEx(env) || !midOnStoppedUsing_) {
+            midOnStoppedUsing_ = env->GetMethodID(
+                controllerCls, OBFUSCATE_STRING("func_78766_b").c_str(), playerSig.c_str());
+            clearEx(env);
+        }
+        env->DeleteLocalRef(controllerCls);
     }
-    prevAttackDown_ = attackDown;
-    attackHeld_.store(attackDown, std::memory_order_release);
+    env->DeleteLocalRef(controller);
 
-    if (autoClicker && autoClicker->lastAutoClick != observedAutoClick_) {
-        observedAutoClick_ = autoClicker->lastAutoClick;
-        attackSignals_.fetch_add(1, std::memory_order_acq_rel);
-        lastAttackSignalMs_.store(nowMs(), std::memory_order_release);
-    }
-}
-// ---------------------------------------------------------------------------
-// What the fight looks like this tick. Everything the strategy decides comes from
-// these four reads and nothing else -- no settings, no timers.
-// ---------------------------------------------------------------------------
-
-bool BlockHit::attackSourceActive() const {
-    // The attack button being down is the start of an exchange, before any click has
-    // resolved -- without this the first hit of every fight would go unblocked.
-    if (attackHeld_.load(std::memory_order_acquire))
-        return true;
-    // Clicks that actually landed, from either source. This used to be
-    // `autoClicker->enabled`, which is a statement about the module being armed and not
-    // about anything happening: AutoClicker is normally left on and only clicks while
-    // LMB is held, so that test made the whole gate a no-op and the block sat up
-    // permanently whenever a sword was in hand -- blocking with nothing to hit.
-    const std::uint64_t last = lastAttackSignalMs_.load(std::memory_order_acquire);
-    if (last != 0 && nowMs() - last <= kAttackActiveWindowMs)
-        return true;
-    // KillAura only rewrites rotation while it actually holds a target, which makes it
-    // a precise "a fight is happening" signal rather than just "the module is on".
-    if (killAura && killAura->isRewritingRotation())
-        return true;
-    return false;
+    // Without the release there is no way back out of a block, and a block we cannot end is
+    // strictly worse than one we never started. Without the movement input there is no way to pay
+    // the slowdown, and an unpaid block is a physics mismatch on every tick of every hold -- the
+    // exact defect this version exists to remove. Either one missing and the module reports
+    // "No API" and does nothing at all. sprintToggleTimer is not in the test: it costs a
+    // double-tap sprinter one extra tap, not a flag.
+    apiUsable_ = midOnStoppedUsing_ != nullptr && fMovementInput_ != nullptr &&
+                 fInputStrafe_ != nullptr && fInputForward_ != nullptr;
+    apiTried_ = true;
+    return apiUsable_;
 }
 
-float BlockHit::healthFraction() const {
-    const float health = player.getHealth();
-    const float maxHealth = player.getMaxHealth();
-    // getHealth() returns 0 when the method could not be resolved, and a player who is
-    // actually at zero is already gated out by isValid(). Reading an unresolvable field
-    // as "dying" would pin Adaptive to Defensive for the whole session, so unknown
-    // health is full health.
-    if (health <= 0.0f || maxHealth <= 0.0f)
-        return 1.0f;
-    return std::clamp(health / maxHealth, 0.0f, 1.0f);
-}
-
-bool BlockHit::damageImmune() const {
-    // attackEntityFrom sets hurtResistantTime to maxHurtResistantTime on every hit that
-    // lands and Entity.onEntityUpdate has already decremented it by the time this hook
-    // runs. Above half, a same-strength follow-up is discarded outright, so a block
-    // would halve nothing while still killing the sprint. Unreadable field -> 0 -> never
-    // immune, which errs towards blocking more rather than less.
-    const int resist = player.getHurtResistantTime();
-    if (resist <= 0)
+bool BlockHit::clientUsingItem(JNIEnv* env, jobject playerInstance) const {
+    if (!env || !playerInstance || !player.mid_isUsingItem)
         return false;
-    return resist > player.getMaxHurtResistantTime() / 2;
-}
-
-bool BlockHit::underPressure() const {
-    return haveTakenHit_ && (tick_ - lastHitTakenTick_) <= kPressureTicks;
-}
-// Attack ticks come from a phase-locked model -- anchor + round(interval * k) -- rather
-// than a single "next attack" estimate. Rounding a fractional interval reproduces the
-// real beat of a steady clicker (1.67 ticks yields +2, +3, +5, +7, +8, +10, which is
-// exactly what 12 CPS looks like on a 20 TPS clock), and anchoring on the last observed
-// attack means a missed prediction rolls into the next slot instead of drifting.
-std::uint32_t BlockHit::ticksUntilOurAttack() const {
-    if (!haveAttackHistory_ || attackIntervalTicks_ <= 0.0f)
-        return kNoAttackDue;
-    if (tick_ - lastAttackTick_ > kMaxIntervalTicks)
-        return kNoAttackDue;  // the fight went quiet; the anchor is stale
-
-    // Sub-tick cadences cannot be scheduled -- every tick carries an attack -- and
-    // clamping to one tick makes the walk below return 1 immediately, which correctly
-    // reads as "there is no lull here" everywhere it is used.
-    const float interval = std::max(attackIntervalTicks_, 1.0f);
-    float slot = std::floor((float)(tick_ - lastAttackTick_) / interval);
-    if (slot < 1.0f)
-        slot = 1.0f;
-    for (int guard = 0; guard < 32; ++guard, slot += 1.0f) {
-        const std::uint32_t attackTick =
-            lastAttackTick_ + (std::uint32_t)std::lround(interval * slot);
-        if (attackTick > tick_)
-            return attackTick - tick_;
-    }
-    return kNoAttackDue;
-}
-
-// ---------------------------------------------------------------------------
-// The strategy. Two functions: which intent applies, and what that intent wants.
-// ---------------------------------------------------------------------------
-
-BlockHit::Mode BlockHit::resolveMode() const {
-    const float hp = healthFraction();
-    const bool pressure = underPressure();
-    // Low and being hit: nothing matters except how much of the next hit lands.
-    if (pressure && hp <= kLowHealth)
-        return Mode::Defensive;
-    // Hurt: the fight is real and both halves of it matter.
-    if (hp <= kHurtHealth)
-        return Mode::Trade;
-    // Healthy and untouched: whatever is happening, we are winning it. Do not spend a
-    // single sprint hit on a block that nothing is testing.
-    if (!pressure)
-        return Mode::Aggressive;
-    return Mode::Trade;
-}
-
-bool BlockHit::wantsBlock(Mode effective) const {
-    if (effective == Mode::Turtle)
-        return true;  // the whole point: no release, ever, while the fight is on
-    // The one rule. Inside the immunity window a block cannot reduce anything, so
-    // holding it is pure movement and knockback given away.
-    if (damageImmune())
-        return false;
-    if (effective == Mode::Aggressive)
-        return ticksUntilOurAttack() >= kAggressiveLullTicks;
-    return true;  // Trade and Defensive: any tick a hit can land is a tick to block
-}
-// ---------------------------------------------------------------------------
-// Interactive-block detection. rightClickMouse() runs onPlayerRightClick first, and
-// ItemSword does not override onItemUse, so a sword falls through to sendUseItem and
-// the block goes up -- with one exception. If the crosshair is on a block whose own
-// onBlockActivated consumes the click, that runs instead and the sword never raises,
-// so the press is a wasted C08 and, worse, opens a chest in the middle of a fight.
-// This used to be a "Skip On Block Target" checkbox that had to be off to be usable
-// (in an arena the crosshair is on terrain most of the time, and refusing to block
-// there is what made the module look broken) and had to be on to be safe. It is not a
-// preference -- it is a property of the block being looked at, so it is now read
-// rather than configured.
-// ---------------------------------------------------------------------------
-
-bool BlockHit::isInteractiveBlockId(int blockId) {
-    switch (blockId) {
-        case 23:   // dispenser
-        case 25:   // note block
-        case 26:   // bed
-        case 54:   // chest
-        case 58:   // crafting table
-        case 61:   // furnace
-        case 62:   // lit furnace
-        case 64:   // oak door
-        case 69:   // lever
-        case 71:   // iron door
-        case 77:   // stone button
-        case 84:   // jukebox
-        case 92:   // cake
-        case 93:   // unpowered repeater
-        case 94:   // powered repeater
-        case 96:   // trapdoor
-        case 107:  // oak fence gate
-        case 116:  // enchanting table
-        case 117:  // brewing stand
-        case 118:  // cauldron
-        case 130:  // ender chest
-        case 137:  // command block
-        case 138:  // beacon
-        case 143:  // wooden button
-        case 145:  // anvil
-        case 146:  // trapped chest
-        case 149:  // unpowered comparator
-        case 150:  // powered comparator
-        case 151:  // daylight detector
-        case 154:  // hopper
-        case 158:  // dropper
-        case 167:  // iron trapdoor
-        case 178:  // inverted daylight detector
-        case 183:  // spruce fence gate
-        case 184:  // birch fence gate
-        case 185:  // jungle fence gate
-        case 186:  // dark oak fence gate
-        case 187:  // acacia fence gate
-        case 193:  // spruce door
-        case 194:  // birch door
-        case 195:  // jungle door
-        case 196:  // acacia door
-        case 197:  // dark oak door
-            return true;
-        default:
-            return false;
-    }
-}
-bool BlockHit::crosshairWouldInteract() const {
-    if (!mc.isTargetingBlock())
-        return false;
-    const Minecraft::Vec3 hit = mc.getTargetedBlockPos();
-    if (!std::isfinite(hit.x) || !std::isfinite(hit.y) || !std::isfinite(hit.z))
-        return false;
-    const int id = mc.getBlockId((int)std::floor(hit.x), (int)std::floor(hit.y),
-                                 (int)std::floor(hit.z));
-    return isInteractiveBlockId(id);
-}
-
-// ---------------------------------------------------------------------------
-// JNI plumbing.
-// ---------------------------------------------------------------------------
-
-jobject BlockHit::useItemKeyBind(JNIEnv* env) const {
-    if (!env || !mc.instance || !JniCache::fid_gameSettings || !JniCache::fid_keyBindUseItem)
-        return nullptr;
-
-    jobject settingsObj = env->GetObjectField(mc.instance, JniCache::fid_gameSettings);
-    if (clearEx(env) || !settingsObj)
-        return nullptr;
-
-    jobject keyBind = env->GetObjectField(settingsObj, JniCache::fid_keyBindUseItem);
-    env->DeleteLocalRef(settingsObj);
-    if (clearEx(env))
-        return nullptr;
-    return keyBind;
-}
-
-bool BlockHit::readPressed(JNIEnv* env, jobject keyBind) {
-    if (!JniCache::fid_pressed)
-        return false;
-    const jboolean value = env->GetBooleanField(keyBind, JniCache::fid_pressed);
+    const jboolean value = env->CallBooleanMethod(playerInstance, player.mid_isUsingItem);
     if (clearEx(env))
         return false;
     return value == JNI_TRUE;
 }
 
-void BlockHit::writePressed(JNIEnv* env, jobject keyBind, bool value, bool queuePress) {
-    if (!JniCache::fid_pressed)
+// Vanilla's own lines, run late. EntityPlayerSP.onLivingUpdate does
+//
+//     if (this.isUsingItem() && !this.isRiding()) {
+//         this.movementInput.moveStrafe  *= 0.2F;
+//         this.movementInput.moveForward *= 0.2F;
+//         this.sprintToggleTimer = 0;
+//     }
+//     ...
+//     if (this.isSprinting() && (this.movementInput.moveForward < 0.8F || ...))
+//         this.setSprinting(false);
+//
+// and all of it runs BEFORE this hook, which sits at the top of EntityLivingBase.onLivingUpdate
+// -- reached from super.onLivingUpdate() at the end of the method above. A C08 sent from here
+// would therefore land one tick in front of the cost that justifies it, and one tick of
+// full-speed movement under a block the server has already registered is all a prediction engine
+// needs. So the block tick runs the same lines itself, on the same fields, with the same values.
+//
+// It is not too late to matter. EntityPlayerSP.updateEntityActionState(), the whole body of which
+// is copying movementInput into moveStrafing/moveForward, is called further down inside
+// EntityLivingBase.onLivingUpdate -- after us -- and moveEntityWithHeading reads the result after
+// that. This is the movement the tick really uses, which is the same reason anything that steers
+// the walk direction writes to these fields and not the entity's.
+//
+// Exactly once per hold, on the raise tick and no other. From the next tick the client's itemInUse
+// is genuinely set, so the branch above runs on its own before this hook is reached; applying it a
+// second time would scale the input by 0.04 and be a mismatch in the other direction.
+//
+// Multiplying both axes by one factor leaves atan2(-s, f) untouched, so a heading chosen earlier in
+// this same dispatch survives; only the magnitude changes.
+void BlockHit::applyVanillaSlowdown(JNIEnv* env, jobject playerInstance) {
+    if (!env || !playerInstance || !fMovementInput_ || !fInputStrafe_ || !fInputForward_)
         return;
-    env->SetBooleanField(keyBind, JniCache::fid_pressed, value ? JNI_TRUE : JNI_FALSE);
-    clearEx(env);
+    jobject input = env->GetObjectField(playerInstance, fMovementInput_);
+    if (clearEx(env) || !input)
+        return;
 
-    // A real mouse-down bumps pressTime (KeyBinding.onTick) in addition to setting
-    // pressed. That queued press is what lets runTick's
-    // `while (keyBindUseItem.isPressed()) rightClickMouse()` fire immediately, instead
-    // of waiting for rightClickDelayTimer to reach 0 -- up to 4 ticks after the previous
-    // use, which would stall every re-block past the window it was aimed at.
-    if (value && queuePress && JniCache::fid_pressTime) {
-        const jint queued = env->GetIntField(keyBind, JniCache::fid_pressTime);
-        if (!clearEx(env)) {
-            env->SetIntField(keyBind, JniCache::fid_pressTime, queued + 1);
-            clearEx(env);
+    const float strafe = env->GetFloatField(input, fInputStrafe_) * 0.2f;
+    const float forward = env->GetFloatField(input, fInputForward_) * 0.2f;
+    if (!clearEx(env)) {
+        env->SetFloatField(input, fInputStrafe_, strafe);
+        env->SetFloatField(input, fInputForward_, forward);
+        clearEx(env);
+    }
+    env->DeleteLocalRef(input);
+
+    // Zeroed by the same branch in vanilla. Nothing in this module depends on it -- it is the
+    // double-tap sprint timer -- but leaving it running lets a tap taken during a block start a
+    // sprint on a tick the server is predicting a blocked player.
+    if (fSprintToggle_) {
+        env->SetIntField(playerInstance, fSprintToggle_, 0);
+        clearEx(env);
+    }
+
+    // The tail of the same method. 1.0 * 0.2 is 0.2, so the test is true on every tick a block is
+    // up -- but it is written the way vanilla writes it, because being indistinguishable from
+    // vanilla is the entire point. onUpdateWalkingPlayer runs later in this tick and turns the
+    // change into C0BPacketEntityAction(STOP_SPRINTING) on its own.
+    if (forward < 0.8f && player.isSprinting())
+        player.setSprinting(false);
+}
+
+// Puts back exactly what vanilla took at the top of this tick, and reports whether the restored
+// forward input is enough for vanilla's own sprint-start test.
+//
+// A hand's release goes out in Minecraft.runTick's mouse phase, before EntityPlayerSP's slowdown
+// branch runs, so a human's release tick moves at FULL speed with the C07 already ahead of the
+// position packet. Ours goes out from inside onLivingUpdate, after vanilla has already scaled the
+// input for a block that is about to stop existing. Undoing the 0.2 makes our release tick the
+// same tick a hand produces: same packet order, same movement behind it.
+//
+// x5 rather than a re-read of the keybinds, because 0.2f is exact enough that 0.2f * 5.0f is
+// exactly 1.0f and 0.3f * 0.2f * 5.0f is exactly 0.3f -- the restored values land on the same grid
+// points updatePlayerMoveState and MoveFix would have produced. Scaling whatever is there also
+// means a sneak, a MoveFix rotation and anything else written this tick all survive it.
+//
+// `scaled` false means vanilla's branch did not run on this tick -- the player is on a mount, or an
+// item switch ran EntityPlayer.onUpdate's clearItemInUse() before this hook -- and then there is
+// nothing to give back. Multiplying an input vanilla never touched by five would be a five-fold
+// movement input, which is a speed hack and not a fix, so that case only reads.
+bool BlockHit::undoVanillaSlowdown(JNIEnv* env, jobject playerInstance, bool scaled) {
+    if (!env || !playerInstance || !fMovementInput_ || !fInputStrafe_ || !fInputForward_)
+        return false;
+    jobject input = env->GetObjectField(playerInstance, fMovementInput_);
+    if (clearEx(env) || !input)
+        return false;
+
+    const float factor = scaled ? 5.0f : 1.0f;
+    const float strafe = env->GetFloatField(input, fInputStrafe_) * factor;
+    const float forward = env->GetFloatField(input, fInputForward_) * factor;
+    bool held = false;
+    if (!clearEx(env)) {
+        if (scaled) {
+            env->SetFloatField(input, fInputStrafe_, strafe);
+            env->SetFloatField(input, fInputForward_, forward);
         }
+        held = !clearEx(env) && forward >= 0.8f;
     }
-}
-void BlockHit::press(JNIEnv* env, jobject keyBind) {
-    if (engaged_.load(std::memory_order_acquire))
-        return;
-    writePressed(env, keyBind, true, true);
-    engaged_.store(true, std::memory_order_release);
-    blockedSinceTick_ = tick_;
+    env->DeleteLocalRef(input);
+    return held;
 }
 
-void BlockHit::release(JNIEnv* env, jobject keyBind) {
-    if (!engaged_.load(std::memory_order_acquire))
-        return;
-    writePressed(env, keyBind, false, false);
-    engaged_.store(false, std::memory_order_release);
-    releasedSinceTick_ = tick_;
+// Vanilla's slowdown branch is `if (this.isUsingItem() && !this.isRiding())`, so a mount means a
+// block with no cost attached -- the exact mismatch this version exists to stop presenting. Rather
+// than reproduce the branch and then have to reproduce vehicle movement with it, the module simply
+// declines to block while riding.
+bool BlockHit::isRiding(JNIEnv* env, jobject playerInstance) const {
+    if (!env || !playerInstance || !fRidingEntity_)
+        return false;
+    jobject mount = env->GetObjectField(playerInstance, fRidingEntity_);
+    if (clearEx(env))
+        return false;
+    if (!mount)
+        return false;
+    env->DeleteLocalRef(mount);
+    return true;
 }
 
-void BlockHit::handBackKey(JNIEnv* env) {
-    if (!engaged_.load(std::memory_order_acquire)) {
-        serverBlocking_.store(false, std::memory_order_release);
-        return;
+bool BlockHit::needsClientTick() const {
+    // Still needed while switched off: an outstanding block is ours to lower, the release is
+    // client-thread work, and nothing else will do it.
+    return enabled || serverBlocking_.load(std::memory_order_acquire);
+}
+
+bool BlockHit::sendBlock(JNIEnv* env, jobject playerInstance) {
+    if (!env || !playerInstance)
+        return false;
+    // Read before the packet, because sendUseItem runs useItemRightClick locally and the slowdown
+    // this method applies a few lines down drops the sprint on the spot. The release needs to know
+    // what it is putting back.
+    wasSprinting_ = player.isSprinting();
+    // C08PacketPlayerBlockPlacement with placedBlockDirection == 255. Server side that lands in
+    // tryUseItem -> ItemSword.onItemRightClick -> setItemInUse(stack, 72000), and
+    // EntityPlayer.isBlocking() is true from that instant.
+    const bool reported = mc.sendUseHeldItem();
+    // The reported value is not the test. sendUseItem returns whatever its "did the stack
+    // change" comparison said, and a sword hands the same stack straight back, so it is false on
+    // every successful block. The real confirmation is that useItemRightClick ran at all: it
+    // sets the client's itemInUse, and it runs in the same method immediately after
+    // addToSendQueue, so a client in use-item state means the C08 is on the wire.
+    const bool took = reported || clientUsingItem(env, playerInstance);
+    if (!took) {
+        wasSprinting_ = false;
+        return false;  // nothing went out; leave the model alone and retry on the next beat
     }
-    jobject keyBind = useItemKeyBind(env);
-    if (keyBind) {
-        release(env, keyBind);
-        env->DeleteLocalRef(keyBind);
-    } else {
-        // Cannot reach the keybind: drop ownership anyway so needsClientTick() stops
-        // pinning this module alive. The user's next RMB press resyncs the state.
-        engaged_.store(false, std::memory_order_release);
-        releasedSinceTick_ = tick_;
-    }
+    // Nothing to paint. setItemInUse seeded itemInUseCount with 72000 on the line after the
+    // packet, so ItemRenderer.renderItemInFirstPerson already has its `getItemInUseCount() > 0`
+    // and RenderPlayer already has ArmPose.BLOCK. The picture is a consequence of the state now,
+    // which is the whole point of this version.
+    serverBlocking_.store(true, std::memory_order_release);
+    blockedAtTick_ = tick_;
+    // The beat that raised the block does not count against the hold: beatsPerHole_ beats have
+    // to pass on top of it before a hole opens.
+    beatsHeld_ = 0;
+    holePending_ = false;
+    immuneHole_ = false;
+    // Pay for the tick vanilla could not charge us for, because its own branch ran before this
+    // hook with itemInUse still null. From the next tick it charges us itself.
+    applyVanillaSlowdown(env, playerInstance);
+    return true;
+}
+
+void BlockHit::sendRelease(JNIEnv* env, jobject playerInstance, bool immune) {
+    // State first, packet second. If the JNI call below throws or the controller has gone, the
+    // model must still say "not blocking" -- retrying on the next beat is recoverable, but a
+    // model stuck on true would never try again.
     serverBlocking_.store(false, std::memory_order_release);
-    gapTicksLeft_ = 0;
+    releasedAtTick_ = tick_;
+    beatsHeld_ = 0;
+    holePending_ = true;
+    // A hole opened because a hit landed is timed off hurtTime, not off holeTicks_: it lasts as
+    // long as the immunity that made it free.
+    immuneHole_ = immune;
+    // The next hole is a different hole. Drawn here rather than at the next block so its length
+    // is already decided by the time the hole starts running.
+    rollCycle();
+
+    if (!env || !playerInstance || !midOnStoppedUsing_ || !mc.instance ||
+        !JniCache::fid_playerController) {
+        wasSprinting_ = false;
+        return;
+    }
+    jobject controller = env->GetObjectField(mc.instance, JniCache::fid_playerController);
+    if (clearEx(env) || !controller) {
+        wasSprinting_ = false;
+        return;
+    }
+    // Read before the release, because stopUsingItem() nulls the itemInUse this asks about.
+    // Vanilla's branch is `isUsingItem() && !isRiding()`, and both halves can be false on a
+    // release tick: an item switch runs clearItemInUse() in EntityPlayer.onUpdate ahead of this
+    // hook, and a mount skips the slowdown entirely. Undoing a scale that never happened would
+    // hand the tick a five-fold movement input.
+    const bool vanillaScaled = clientUsingItem(env, playerInstance) && !isRiding(env, playerInstance);
+    // C07PacketPlayerDigging(RELEASE_USE_ITEM), then player.stopUsingItem() -> clearItemInUse(),
+    // which zeroes itemInUseCount for us: the raised sword comes down on the same call that ends
+    // the block, with nothing to paint either way.
+    // NoItemRelease cannot swallow this: its gate only fires while physical RMB is down, and
+    // this module stands down entirely in that case.
+    env->CallVoidMethod(controller, midOnStoppedUsing_, playerInstance);
+    clearEx(env);
+    env->DeleteLocalRef(controller);
+
+    // Vanilla already scaled this tick's input, for a block that no longer exists as of the packet
+    // above. A hand's release tick moves at full speed, so ours does too.
+    const bool forwardHeld = undoVanillaSlowdown(env, playerInstance, vanillaScaled);
+    // The slowdown zeroed sprintToggleTimer, so a double-tap sprinter gets nothing back on their
+    // own. Only with real forward input behind it: a sprint the server has no input for is a worse
+    // mismatch than the one this module exists to avoid. onUpdateWalkingPlayer runs later in this
+    // same tick and only emits C0BPacketEntityAction on a change, so START_SPRINTING lands
+    // immediately behind the C07.
+    if (wasSprinting_ && forwardHeld && !player.isSprinting())
+        player.setSprinting(true);
+    wasSprinting_ = false;
+}
+
+void BlockHit::standDown(JNIEnv* env, jobject playerInstance) {
+    if (serverBlocking_.load(std::memory_order_acquire))
+        sendRelease(env, playerInstance);
+    beatsHeld_ = 0;
+    // Forget the hole. A hole is a gap inside a live exchange; when the exchange is over the
+    // next block should wait for a beat, not for a timer left running from the last fight.
+    holePending_ = false;
+}
+
+// The user pressed right-click, or another module put the client into use-item state. That
+// action sent its own C08 in the input phase of THIS tick -- Minecraft.runTick handles the
+// mouse before World.updateEntities, and our hook is inside updateEntities -- so the server's
+// itemInUse is already theirs and ours no longer exists. There is nothing to release, and
+// sending one anyway is actively harmful: onStoppedUsingItem finishes with
+// playerIn.stopUsingItem(), which wipes the client copy they just created, so the block
+// animation vanishes and vanilla will not right-click again until rightClickDelayTimer has
+// counted back down from 4. That is 200 ms of delay on the first manual block of every fight.
+// Drop ownership and say nothing.
+//
+// releasedAtTick_ is deliberately NOT stamped and the cycle is NOT rerolled. The gap exists to
+// stop this module churning against itself; a hand-over is not churn, and stamping it would add
+// more dead time before the block comes back after the user lets go. itemInUseCount is left
+// alone for the same reason the release is: the taker's own right-click set it, vanilla will
+// count it down and clear it, and zeroing it here would erase the animation of a block they
+// really are holding.
+void BlockHit::abandonBlock() {
+    serverBlocking_.store(false, std::memory_order_release);
+    beatsHeld_ = 0;
+    holePending_ = false;
 }
 
 // ---------------------------------------------------------------------------
-// Client thread, pre-motion, once per tick.
+// Client thread, once per tick, from inside EntityLivingBase.onLivingUpdate. Every packet this
+// module sends is sent here.
 // ---------------------------------------------------------------------------
 
 void BlockHit::onClientTick(JNIEnv* env) {
     if (!env)
         return;
-    // Without KeyBinding.pressed there is no channel to drive at all, and pretending
-    // otherwise would leave engaged_ desynced and re-queue a use press every tick.
-    if (!JniCache::fid_pressed)
-        return;
+    jobject self = player.instance;
 
     ++tick_;
 
-    // Drain the attack latch first: it is needed below, and a bail-out must not leave
-    // stale signals to be replayed on re-entry.
-    std::uint32_t attacks = attackSignals_.exchange(0, std::memory_order_acq_rel);
-    // KillAura fires inside this same hook and is dispatched ahead of us, so its attack
-    // for THIS tick is already visible here.
-    if (killAura && killAura->enabled) {
-        const std::uint64_t auraMs = killAura->lastAttackMs();
-        if (auraMs != observedAuraAttackMs_) {
-            observedAuraAttackMs_ = auraMs;
-            if (auraMs != 0)
-                ++attacks;
-        }
-    }
+    // Drain the latch first: a bail-out below must not leave stale signals to be replayed on
+    // re-entry.
+    std::uint32_t signals = attackSignals_.exchange(0, std::memory_order_acq_rel);
+    // One tick either had a swing or it did not. A manual click and an AutoClicker click landing
+    // together is one beat, not two -- counting it twice would end the cycle a swing early.
+    bool beat = signals > 0;
 
-    if (attacks > 0) {
-        if (haveAttackHistory_ && tick_ > lastAttackTick_) {
-            const std::uint32_t span = tick_ - lastAttackTick_;
-            if (span <= kMaxIntervalTicks) {
-                // Several attacks can be drained in one tick at high CPS, so divide the
-                // span by how many landed instead of reading it as a single interval.
-                const float measured = std::max((float)span / (float)attacks, kMinIntervalTicks);
-                attackIntervalTicks_ = attackIntervalTicks_ <= 0.0f
-                                           ? measured
-                                           : attackIntervalTicks_ * 0.6f + measured * 0.4f;
-            }
-        }
-        lastAttackTick_ = tick_;
-        haveAttackHistory_ = true;
-    } else if (haveAttackHistory_ && tick_ - lastAttackTick_ > kMaxIntervalTicks) {
-        // Two seconds without a swing: the anchor is worthless and a stale schedule
-        // would open gaps at random.
-        resetCadence();
-    }
-
-    // Hits taken, from hurtTime's rising edge. attackEntityFrom sets it to maxHurtTime
-    // (10) on every hit that actually lands and Entity.onEntityUpdate counts it back
-    // down, so a rise is one incoming hit and nothing else -- no packet reading, no
-    // entity tracking, and it cannot be desynced from the immunity window because both
-    // are set by the same method on the same tick.
+    // Hits taken, from hurtTime's rising edge. attackEntityFrom sets it to maxHurtTime (10) on
+    // every hit that actually lands and Entity.onEntityUpdate counts it back down, so a rise is
+    // one incoming hit and nothing else -- no packet reading and no entity tracking. Their swing
+    // is a beat of the pattern just as much as ours is.
     const int hurt = player.getHurtTime();
-    if (hurt > prevHurtTime_) {
+    const bool hitTaken = hurt > prevHurtTime_;
+    if (hitTaken) {
         lastHitTakenTick_ = tick_;
         haveTakenHit_ = true;
+        beat = true;
     }
     prevHurtTime_ = hurt;
 
-    if (!enabled) {
-        handBackKey(env);
+    // Without a player there is nothing to address a packet to. Drop the model rather than
+    // trying to release into a null entity -- on the next valid tick the server's own itemInUse
+    // is gone with the EntityPlayerMP that held it.
+    if (!player.isValid() || !self) {
+        serverBlocking_.store(false, std::memory_order_release);
+        beatsHeld_ = 0;
+        holePending_ = false;
+        gateReason_.store("No Player", std::memory_order_release);
         return;
-    }
-    // A physical RMB press owns the keybind outright: the user is blocking, eating or
-    // shooting, and vanilla will clear pressed itself on the mouse-up event. Drop our
-    // ownership without writing anything so the two never fight.
-    const bool physicalUse = (GetAsyncKeyState(VK_RBUTTON) & 0x8000) != 0;
-    if (physicalUse) {
-        if (engaged_.load(std::memory_order_acquire)) {
-            engaged_.store(false, std::memory_order_release);
-            gapTicksLeft_ = 0;
-        }
-        userOwnsKey_ = true;
-        serverBlocking_.store(true, std::memory_order_release);
-        return;
-    }
-    if (userOwnsKey_) {
-        // Fresh start after the user let go: their mouse-up already cleared pressed.
-        userOwnsKey_ = false;
-        releasedSinceTick_ = tick_;
-        gapTicksLeft_ = 0;
     }
 
-    // AutoRod owns the use-item channel while a sequence is unwinding; letting BlockHit
-    // re-arm between rod phases produces a zero-tick press/release and corrupts both
-    // modules. isSequencing() is the whole test -- it stays true after the module is
-    // toggled off until the sequence finishes. Gating on autoRod->enabled as well made
-    // BlockHit a no-op for the entire session whenever AutoRod was merely armed, which
-    // is its normal state.
-    //
-    // "Idle" is what used to be the Only While Attacking setting. It is not optional any
-    // more, and it is wider than the old test was: an exchange is running if we are
-    // swinging OR if something has hit us in the last two seconds, so being jumped
-    // raises the block before we have clicked once -- which the old setting got wrong in
-    // exactly the situation that costs a game.
-    //
-    // Each bail-out records WHY, so a standing-down module says so in the ArrayList
-    // instead of showing a cheerful mode name while doing nothing.
+    // Lazily resolved, and retried until it succeeds: on the first ticks after a join the player
+    // exists but playerController does not.
+    resolveApi(env, self);
+
+    // Each bail-out records WHY, so a standing-down module says so in the ArrayList instead of
+    // looking like a working one.
+    const bool rmbDown = (GetAsyncKeyState(VK_RBUTTON) & 0x8000) != 0;
+    const bool clientUsing = clientUsingItem(env, self);
+    // Ours is real now. clientUsingItem() is true for the whole of every hold BECAUSE of this
+    // module, so the raw flag can no longer stand in for "somebody else owns the channel" -- read
+    // straight it would gate the module Manual on the tick after its own block and hand the
+    // channel over to itself. Only use-item state we did not create counts as foreign.
+    const bool foreignUse = clientUsing && !serverBlocking_.load(std::memory_order_acquire);
+
     const char* gate = nullptr;
-    if (!player.isValid())
-        gate = "No Player";
+    // Set when the channel is being taken over rather than vacated: hand it over silently
+    // instead of releasing. See abandonBlock().
+    bool handOver = false;
+    if (!enabled)
+        gate = "Off";
     else if (Menu::isOpen || mc.isInGui())
         gate = "GUI";
     else if (!gameFocused())
         gate = "Unfocused";
+    // A physical RMB press, or the client sitting in use-item state for some reason that is not
+    // us -- NoItemRelease, AutoPot, ThrowPots, eating, a bow being drawn. Vanilla owns the block
+    // in all of those cases, including its own C07 on release, and two owners of one itemInUse is
+    // a desync every time. A press arriving mid-hold releases ours first and hands over on the
+    // next tick, because Minecraft.runTick's right-click gate is `!thePlayer.isUsingItem()` and
+    // will not fire theirs while ours is up.
+    else if (rmbDown || foreignUse) {
+        gate = "Manual";
+        // Only a hand-over if someone really took the channel. A right-click that produced no
+        // use-item state at all -- a chest, an empty hand, a block placed -- never touched the
+        // server's itemInUse, so ours is still up and still has to come down.
+        handOver = foreignUse;
+    }
+    // AutoRod owns the use-item channel while a sequence unwinds. isSequencing() is the whole
+    // test: it stays true after that module is toggled off until the sequence ends.
     else if (autoRod && autoRod->isSequencing())
         gate = "AutoRod";
+    // Vanilla's slowdown branch is `isUsingItem() && !isRiding()`, so a block taken on a mount is
+    // a block with no cost attached -- the exact mismatch this version exists to stop presenting.
+    // Reproducing the branch would mean reproducing vehicle movement with it, so the module simply
+    // declines to block from a saddle.
+    else if (isRiding(env, self))
+        gate = "Riding";
+    // The server's itemInUse holds the stack captured when setItemInUse ran, and isBlocking()
+    // tests THAT stack rather than the held one -- so a hotbar switch would leave us "blocking
+    // with a sword" while a bow is in hand. That is a free exploit and this module declines it.
     else if (!isHoldingSword())
         gate = "No Sword";
-    else if (crosshairWouldInteract())
-        gate = "Interact";
-    else if (!attackSourceActive() && !underPressure())
-        gate = "Idle";
+    // No release path means no way out of a block. Say so and do nothing.
+    else if (!apiUsable_)
+        gate = "No API";
 
     gateReason_.store(gate, std::memory_order_release);
     if (gate) {
-        handBackKey(env);
+        if (handOver)
+            abandonBlock();
+        else
+            standDown(env, self);
         return;
     }
-    jobject keyBind = useItemKeyBind(env);
-    if (!keyBind)
-        return;
 
-    // Someone else (or a stale frame) cleared pressed while we thought we owned it.
-    // Re-sync rather than trusting our own flag.
-    if (engaged_.load(std::memory_order_acquire) && !readPressed(env, keyBind)) {
-        engaged_.store(false, std::memory_order_release);
-        releasedSinceTick_ = tick_;
-    }
+    // ---- The cycle. Up while a hit can land, down and running while one cannot. ----
 
-    // Only the game can tell us whether the block actually took effect; used for the HUD.
-    bool usingItem = false;
-    if (player.mid_isUsingItem && player.instance) {
-        usingItem = env->CallBooleanMethod(player.instance, player.mid_isUsingItem) == JNI_TRUE;
-        if (clearEx(env))
-            usingItem = false;
-    }
-    const bool engaged = engaged_.load(std::memory_order_acquire);
-    serverBlocking_.store(usingItem && engaged, std::memory_order_release);
+    // Somebody to block. Without this gate a held AutoClicker would put a C08/C07 pair on the
+    // wire every few ticks while walking across an empty map, which is the loudest possible
+    // version of the one signature this technique has.
+    const bool live = fightLive();
 
-    // ---- The decision. One question per stage, one JNI write at the end. ----
-
-    const Mode selected = (Mode)std::clamp(settings.mode, 0, (int)Mode::Adaptive);
-    const Mode effective = selected == Mode::Adaptive ? resolveMode() : selected;
-    activeMode_.store(modeName(effective), std::memory_order_release);
-
-    bool wantBlock = wantsBlock(effective);
-
-    // The sprint gap, and only Trade pays for it. Carving it out of a block that does
-    // not exist yet is what made the old schedule collapse: the gap was due on nearly
-    // every tick, so the key spent the fight up and the block was never there to open.
-    if (gapTicksLeft_ > 0) {
-        --gapTicksLeft_;
-        wantBlock = false;
-    } else if (effective == Mode::Trade && wantBlock && engaged) {
-        const std::uint32_t runFloor = kTradeRunBeforeGap + (std::uint32_t)(rng_() % 3u);
-        if ((tick_ - blockedSinceTick_) >= runFloor && ticksUntilOurAttack() <= 2u) {
-            // Two ticks wide: this one and the next, so the key is up for A-2 and A-1 and
-            // back down inside runTick A, after the hit has already been thrown.
-            gapTicksLeft_ = kMinReleasedRunTicks - 1;
-            wantBlock = false;
+    if (serverBlocking_.load(std::memory_order_acquire)) {
+        if (beat)
+            ++beatsHeld_;
+        // The exchange is over. Down it goes, the sprint comes back, and it stays down.
+        if (!live) {
+            standDown(env, self);
+            return;
         }
-    }
-    // The floors, applied last so nothing above can talk its way past them. This is the
-    // whole answer to the stutter: a block that just went down stays down for three
-    // ticks, and a key that just came up stays up for two, so the worst case any mode
-    // can produce is one C08/C07 pair per five ticks instead of one per two.
-    if (engaged) {
-        if (!wantBlock && (tick_ - blockedSinceTick_) < kMinBlockedRunTicks)
-            wantBlock = true;
-    } else if (wantBlock && (tick_ - releasedSinceTick_) < kMinReleasedRunTicks) {
-        wantBlock = false;
+        const std::uint32_t held = tick_ - blockedAtTick_;
+        // The floor comes first: it is the only thing standing between a double signal on one
+        // tick and a C08/C07 pair with nothing between them.
+        if (held < minHoldTicks_)
+            return;
+        // Three reasons to come down, and the first is the one that makes this cheap. A hit has
+        // just landed, so attackEntityFrom will discard the next equal-or-weaker one before it
+        // ever reaches damageEntity, let alone isBlocking() -- for the length of that window the
+        // block protects nothing and the 80% is being paid for nothing. The other two are rhythm:
+        // enough swings have gone through it, or a single unbroken hold has run long enough to be
+        // worth interrupting on its own.
+        if (hitTaken || beatsHeld_ >= beatsPerHole_ || held >= maxHoldTicks_)
+            sendRelease(env, self, hurt > 0);
+        return;
     }
 
-    if (wantBlock)
-        press(env, keyBind);
-    else
-        release(env, keyBind);
-
-    env->DeleteLocalRef(keyBind);
+    // Down. Either a hole is running, or we are waiting for the beat that opens the exchange.
+    if (!live) {
+        // A hole belongs to a live exchange. Drop it so the next fight opens on a swing rather
+        // than on a timer left over from the last one.
+        holePending_ = false;
+        return;
+    }
+    if (holePending_) {
+        if (immuneHole_) {
+            // This hole is the immunity window, so it ends when the window does. hurtTime is
+            // set to 10 alongside hurtResistantTime and the two count down together, so hurtTime
+            // dropping into the margin means the next hit is a handful of ticks out -- long
+            // enough to get the sword up in front of it and not a tick longer.
+            if (hurt > static_cast<int>(immuneMargin_))
+                return;
+        } else if (tick_ - releasedAtTick_ < holeTicks_) {
+            // A rhythm hole runs on its own clock. Long enough to be a real sprint reset, which
+            // is what the hole is for now: 4 to 8 ticks of full-speed movement, not one tick of
+            // animation.
+            return;
+        }
+    } else if (!beat) {
+        // Nothing has swung yet and nothing has hit us. An idle player with the module on and a
+        // target under the crosshair puts nothing at all on the wire.
+        return;
+    } else if (hurt > static_cast<int>(immuneMargin_)) {
+        // A beat arrived, but we are deep inside our own immunity window and a block raised here
+        // would spend most of its life protecting against hits that are already being discarded.
+        // Beats arrive every few ticks in a real exchange; the next one will land closer.
+        return;
+    }
+    sendBlock(env, self);
 }
 
 std::string BlockHit::getDisplayInfo() {
-    if (userOwnsKey_)
-        return "Manual";
-    // A recorded gate outranks the mode: "No Sword" or "AutoRod" tells you why nothing
-    // is happening, where a mode name would just look like a working module.
+    // A recorded gate outranks the state: "No Sword" or "Manual" tells you why nothing is
+    // happening, where "Open" would just look like the pattern waiting for a click.
     if (const char* gate = gateReason_.load(std::memory_order_acquire))
         return gate;
-    const char* mode = activeMode_.load(std::memory_order_acquire);
-    if (!mode)
-        mode = modeName((Mode)std::clamp(settings.mode, 0, (int)Mode::Adaptive));
-    // Which intent is live, then what it is doing with the key right now. With Adaptive
-    // selected the first half is the interesting one -- it is the only way to see the
-    // strategy change under you.
-    if (serverBlocking_.load(std::memory_order_acquire))
-        return std::string(mode) + " / Block";
-    if (engaged_.load(std::memory_order_acquire))
-        return std::string(mode) + " / Raise";
-    return std::string(mode) + " / Sprint";
+    // "Block" is a real block, paid for at vanilla's own rate. "Open" is the sprint.
+    return serverBlocking_.load(std::memory_order_acquire) ? "Block" : "Open";
 }
 
 void BlockHit::onRenderMenu() {
@@ -672,25 +738,17 @@ void BlockHit::onRenderMenu() {
                 if (enabledValue != enabled)
                     setEnabled(enabledValue);
             }
-            ImGui::Spacing();
-            const char* modes[] = {"Aggressive", "Trade", "Defensive", "Turtle", "Adaptive"};
-            ui::Combo("Mode", &settings.mode, modes, IM_ARRAYSIZE(modes));
         },
-        "Binds",
-        [this]() { ui::Binder("Switch Mode Key", &settings.modeKeybind); });
-}
-// The mode is persisted under a new key. The old one held Hold/Perfect/Legit, whose
-// numbers now mean Aggressive/Trade/Defensive -- reading them back would silently hand
-// a Hold user the mode that blocks least. There is no way to tell an old 2 from a new
-// one, so the legacy key is simply left where it is and anyone upgrading lands on
-// Adaptive, which is both the new default and the better answer than whatever they had.
-void BlockHit::saveSettings(json::Value& node) const {
-    node["strategy"] = settings.mode;
-    node["modeKeybind"] = settings.modeKeybind;
-}
-
-void BlockHit::loadSettings(const json::Value& node) {
-    settings.mode =
-        std::clamp(node["strategy"].as_int((int)Mode::Adaptive), 0, (int)Mode::Adaptive);
-    settings.modeKeybind = node["modeKeybind"].as_int(settings.modeKeybind);
+        "Pattern",
+        []() {
+            // Short lines on purpose: TextWrapped takes its wrap point from the window, not
+            // the column, so a paragraph in here widens the column until the right-hand half
+            // of the ClickGUI walks off the panel.
+            ImGui::TextDisabled("A real block, at a real block's");
+            ImGui::TextDisabled("cost: a fifth of your movement,");
+            ImGui::TextDisabled("no sprint. So it only goes up");
+            ImGui::TextDisabled("when a hit can land on you, and");
+            ImGui::TextDisabled("never in the ten immune ticks");
+            ImGui::TextDisabled("after one does. Nothing to tune.");
+        });
 }

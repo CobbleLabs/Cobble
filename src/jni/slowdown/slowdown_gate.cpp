@@ -14,7 +14,6 @@
 #include <Windows.h>
 
 #include "../../module/movement/no_slow_down.h"
-#include "../../module/combat/killaura.h"
 #include "../../module/combat/backtrack.h"
 #include "../../module/combat/autorod.h"
 #include "../../module/combat/blockhit.h"
@@ -169,14 +168,13 @@ void JNICALL NativeOnSlowDown(JNIEnv* env, jclass, jobject playerInstance) {
         return;
 
     const bool wantSlow = noSlowDown && noSlowDown->enabled;
-    const bool wantAura = killAura && killAura->enabled;
     const bool wantBt = backtrack && backtrack->needsClientTick();
     const bool wantRod = autoRod && autoRod->needsClientTick();
     const bool wantBlock = blockHit && blockHit->needsClientTick();
     const bool wantClutch = clutch && clutch->needsClientTick();
     const bool wantScaffold = scaffold && scaffold->needsClientTick();
     const bool wantOpportunity = opportunity && opportunity->needsClientTick();
-    if (!wantSlow && !wantAura && !wantBt && !wantRod && !wantBlock && !wantClutch &&
+    if (!wantSlow && !wantBt && !wantRod && !wantBlock && !wantClutch &&
         !wantScaffold && !wantOpportunity)
         return;
 
@@ -202,7 +200,7 @@ void JNICALL NativeOnSlowDown(JNIEnv* env, jclass, jobject playerInstance) {
     if (wantBt)
         backtrack->onClientTick(env);
 
-    if (!wantSlow && !wantAura && !wantRod && !wantBlock && !wantClutch && !wantScaffold &&
+    if (!wantSlow && !wantRod && !wantBlock && !wantClutch && !wantScaffold &&
         !wantOpportunity)
         return;
 
@@ -215,15 +213,13 @@ void JNICALL NativeOnSlowDown(JNIEnv* env, jclass, jobject playerInstance) {
     }
     if (wantSlow)
         noSlowDown->applyMovement(env, playerInstance);
-    if (wantAura)
-        killAura->onPreMotion(env, playerInstance);
     // AutoRod's hotbar swaps and use-item have to be tick-aligned to stay in
     // vanilla packet order, so the whole sequence is driven from here rather than
     // from the async module loop.
     if (wantRod)
         autoRod->onClientTick(env);
-    // Clutch/Scaffold move the REAL rotation, so they run after KillAura's pre-motion
-    // aim: when a fall is about to kill you, the placement owns the head, and
+    // Clutch/Scaffold move the REAL rotation, so they run here rather than on the async
+    // module loop: when a fall is about to kill you, the placement owns the head, and
     // outgoing_gate defers the aim modules' packet rewrite for the same reason. Both
     // stand down on their own while AutoRod is sequencing, so the hotbar has one owner.
     if (wantClutch)
@@ -235,10 +231,9 @@ void JNICALL NativeOnSlowDown(JNIEnv* env, jclass, jobject playerInstance) {
     // REAL rotation, so it has to be here rather than on the async module loop.
     if (wantOpportunity)
         opportunity->onClientTick(env);
-    // BlockHit is dispatched LAST on purpose: KillAura's attack for this tick is
-    // already recorded by the time we get here, so the release window can be timed
-    // against it without a one-tick lag, and AutoRod has already claimed the
-    // use-item keybind for any tick where it needs it.
+    // BlockHit is dispatched LAST on purpose: AutoRod has already claimed the use-item
+    // keybind for any tick where it needs it, and the swing this tick's release window is
+    // timed against has already been recorded.
     if (wantBlock)
         blockHit->onClientTick(env);
 }

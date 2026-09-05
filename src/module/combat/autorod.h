@@ -49,7 +49,7 @@ struct PlayerInfo;
 // knockback, and the module previously required objectMouseOver to be an entity — a
 // raytrace bounded by the block-reach distance — so it could ONLY fire in the one
 // situation where rodding is a mistake. The trigger is now a real distance band, and
-// because this module does not rotate (KillAura owns the view), it also refuses to cast
+// because this module does not rotate (the aim controller owns the view), it also refuses to cast
 // unless the crosshair is already close enough to the target for the hook to arrive.
 class AutoRod : public Module {
 public:

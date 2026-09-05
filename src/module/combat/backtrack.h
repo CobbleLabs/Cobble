@@ -73,7 +73,7 @@ public:
         float minRange = 0.0f;
         float maxRange = 6.0f;
         // Hold only while an attack source is actually running (mouse held,
-        // AutoClicker on, or KillAura holding a target). With whole-stream on this
+        // AutoClicker on, or AimAssist steering at a target). With whole-stream on this
         // gates the rewind, not the stream: the delay stays put either way.
         bool onlyWhileAttacking = false;
 
@@ -101,7 +101,7 @@ private:
 
     jobject targetedPlayer(JNIEnv* env) const;
     // True when something is actually swinging: the physical attack button, the
-    // AutoClicker, or KillAura while it holds a target. Used by onlyWhileAttacking.
+    // AutoClicker, or AimAssist while it steers at a target. Used by onlyWhileAttacking.
     bool attackSourceActive() const;
     // Vanilla feet-to-feet distance against the local player, tested against the
     // configured window. Returns true when the range fields cannot be read, so a

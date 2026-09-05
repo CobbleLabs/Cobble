@@ -61,6 +61,21 @@ public:
     // and applied here to the C03 movement packet instead, so the rotation the
     // server / third-person observers see is randomized.
     void onOutgoingPacket(JNIEnv* env, jobject packet);
+
+    // True while this module is steering the client's own rotation fields.
+    //
+    // Anything that writes the rotation has to declare it, because the other writers arbitrate
+    // against each other rather than fighting over the same two floats: a placement, a thrown
+    // potion and an aim controller all writing the same tick produce a rotation none of them
+    // asked for, and the one that reads the field back afterwards treats the result as the
+    // player's own mouse movement. BlockHit and Backtrack also read this claim as their "there is
+    // someone in reach" signal, since this module only steers while it holds a target.
+    //
+    // The claim has a tail because this controller runs at ~500 Hz while the checks happen
+    // on the 20 Hz client tick. An instantaneous flag would read false on most of the ticks
+    // that matter, which is worse than no flag at all.
+    bool isRewritingRotation() const;
+
     std::string getDisplayInfo() override;
     void setEntityLock(bool enabled);
     void saveSettings(json::Value& node) const override;
@@ -157,6 +172,11 @@ private:
     // turns the next update into one large catch-up snap instead of a step.
     void markAimIdle() { controllerTimer.Start(); }
 
+    // Stamped every time a rotation write actually lands on the player. Read from the client
+    // tick and from the outgoing packet gate, hence the atomic.
+    void markRotationWrite();
+    std::atomic<unsigned long long> lastRotWriteMs_{0};
+
     // Weapon check
     bool isHoldingWeapon();
 
@@ -177,6 +197,16 @@ private:
 
     // Get aim point (handles closest point vs center)
     bool getAimPoint(double targetX, double targetY, double targetZ, double& aimX, double& aimY, double& aimZ);
+
+    // The AABB getAimPoint actually resolved this update, after its detached-box repair.
+    // Everything that offsets the aim afterwards -- the prediction lead, the packet jitter --
+    // is bounded against this box, because a rotation that leaves it is a rotation the
+    // server raytraces into empty air.
+    struct AimBox {
+        double minX = 0.0, minY = 0.0, minZ = 0.0;
+        double maxX = 0.0, maxY = 0.0, maxZ = 0.0;
+        bool valid = false;
+    } resolvedBox_;
 
     // Boost systems
     AimBoost yawBoost{0.9f, 1.1f, 450, 600, true};
@@ -259,6 +289,14 @@ private:
     std::atomic<bool> hasServerRotation_{false};
     std::atomic<float> serverYawOffset_{0.0f};
     std::atomic<float> serverPitchOffset_{0.0f};
+
+    // How far, in degrees, the sent rotation may sit off the aim point before the
+    // server's raytrace leaves the hitbox. Derived from the target's angular size at
+    // its current distance, so the packet jitter shrinks as the target gets smaller
+    // on screen instead of being a fixed amplitude that is fine at 2 blocks and a
+    // miss at 6. Zero means "no target measured" and suppresses the offset entirely.
+    std::atomic<float> packetYawBudget_{0.0f};
+    std::atomic<float> packetPitchBudget_{0.0f};
 };
 
 extern AimAssist* aimAssist;

@@ -23,6 +23,21 @@
 
 AimBow* aimBow = nullptr;
 
+// Five client ticks, so a 20 Hz consumer can never sample the gap between two of this
+// module's ~500 Hz writes and conclude the head is free.
+static constexpr unsigned long long kBowRotClaimTailMs = 250ull;
+
+bool AimBow::isRewritingRotation() const {
+    if (!enabled)
+        return false;
+    const unsigned long long last = lastRotWriteMs_.load(std::memory_order_acquire);
+    if (last == 0ull)
+        return false;
+    const unsigned long long now = GetTickCount64();
+    return now >= last && (now - last) <= kBowRotClaimTailMs;
+}
+
+
 namespace {
 constexpr double kPi = 3.14159265358979323846;
 constexpr double kDeg = 180.0 / kPi;
@@ -562,6 +577,7 @@ void AimBow::onUpdate() {
     player.setPrevYaw(std::lerp(curYaw, newYaw, 0.85f));
     player.setPitch(newPitch);
     player.setPrevPitch(std::lerp(curPitch, newPitch, 0.85f));
+    lastRotWriteMs_.store(GetTickCount64(), std::memory_order_release);
 
     lastOverrideYaw = newYaw;
     lastOverridePitch = newPitch;

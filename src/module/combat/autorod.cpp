@@ -19,7 +19,7 @@ namespace {
 constexpr double kDeg = 57.29577951308232;  // 180 / pi
 
 // The hook has to arrive where we are already pointing: this module never rotates
-// (KillAura owns the view), so a wide cone would only throw hooks past people.
+// (the aim controller owns the view), so a wide cone would only throw hooks past people.
 constexpr double kMaxCastAngle = 8.0;
 // Ticks between the swap back and the follow-up swing: one for C09(weapon) to reach
 // the server, one for the knockback to have actually moved them.

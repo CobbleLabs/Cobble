@@ -3,7 +3,6 @@
 #include "module/combat/aimassist.h"
 #include "module/combat/aimbow.h"
 #include "module/combat/antibot.h"
-#include "module/combat/killaura.h"
 #include "module/combat/autoclicker.h"
 #include "module/combat/autorod.h"
 #include "module/combat/blockhit.h"
@@ -42,6 +41,7 @@
 #include "module/utility/autopot.h"
 #include "module/visual/blockesp.h"
 #include "module/visual/chams.h"
+#include "module/visual/animations.h"
 #include "module/visual/esp.h"
 #include "module/visual/item_esp.h"
 #include "module/visual/nametags.h"
@@ -181,8 +181,6 @@ void cobble::context::initialize(HMODULE hModule) {
     blockHit = new BlockHit();
     COBBLE_TRACE("alloc:AimAssist");
     aimAssist = new AimAssist();
-    COBBLE_TRACE("alloc:KillAura");
-    killAura = new KillAura();
     COBBLE_TRACE("alloc:AimBow");
     aimBow = new AimBow();
     // Allocated before anything can target: every combat module's target filter calls into it.
@@ -259,6 +257,8 @@ void cobble::context::initialize(HMODULE hModule) {
     esp = new ESP();
     COBBLE_TRACE("alloc:Chams");
     chams = new Chams();
+    COBBLE_TRACE("alloc:Animations");
+    animations = new Animations();
     COBBLE_TRACE("alloc:ItemESP");
     itemEsp = new ItemESP();
     COBBLE_TRACE("alloc:Tracers");
@@ -287,7 +287,6 @@ void cobble::context::initialize(HMODULE hModule) {
     moduleManager->registerModule(autoRod);
     moduleManager->registerModule(blockHit);
     moduleManager->registerModule(aimAssist);
-    moduleManager->registerModule(killAura);
     moduleManager->registerModule(aimBow);
     moduleManager->registerModule(antiBot);
     moduleManager->registerModule(armorSwitch);
@@ -327,6 +326,7 @@ void cobble::context::initialize(HMODULE hModule) {
     moduleManager->registerModule(antiDebuff);
     moduleManager->registerModule(esp);
     moduleManager->registerModule(chams);
+    moduleManager->registerModule(animations);
     moduleManager->registerModule(itemEsp);
     moduleManager->registerModule(tracers);
     moduleManager->registerModule(blockESP);
@@ -642,10 +642,6 @@ bool cobble::context::shutdown() {
         delete aimAssist;
         aimAssist = nullptr;
     }
-    if (killAura) {
-        delete killAura;
-        killAura = nullptr;
-    }
     if (aimBow) {
         delete aimBow;
         aimBow = nullptr;
@@ -798,6 +794,14 @@ bool cobble::context::shutdown() {
     if (chams) {
         delete chams;
         chams = nullptr;
+    }
+    if (animations) {
+        // Cleared before the free, not after: the GL detours stay installed for the life of the
+        // process and read this pointer on the render thread. Seeing null, they put vanilla's own
+        // block transform back; seeing a freed object, they would not.
+        Animations* dead = animations;
+        animations = nullptr;
+        delete dead;
     }
     if (itemEsp) {
         delete itemEsp;

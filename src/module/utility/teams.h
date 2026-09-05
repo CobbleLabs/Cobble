@@ -6,7 +6,7 @@
 // Teams — decides who counts as a teammate, and from which evidence.
 //
 // The detection itself lives in FriendsManager because everything that needs it
-// (KillAura, AimAssist, AimBow, Piercing, Reach, ESP, Pings) already reads from
+// (AimAssist, AimBow, Piercing, Reach, ESP, Pings) already reads from
 // there off the async loop. This module is the editor for that one policy struct,
 // not a second copy of it: flipping a switch here changes what every consumer sees
 // on its next scan, with no per-module plumbing and nothing to push each tick.

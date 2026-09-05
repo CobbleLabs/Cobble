@@ -25,6 +25,26 @@
 
 AimAssist* aimAssist = nullptr;
 
+// How long a rotation write keeps the claim alive. Five client ticks: long enough that the
+// 20 Hz consumers never sample a gap between two 500 Hz writes, short enough that letting go
+// of the mouse hands the head back within a fifth of a second.
+static constexpr unsigned long long kRotClaimTailMs = 250ull;
+
+void AimAssist::markRotationWrite() {
+    lastRotWriteMs_.store(GetTickCount64(), std::memory_order_release);
+}
+
+bool AimAssist::isRewritingRotation() const {
+    if (!enabled)
+        return false;
+    const unsigned long long last = lastRotWriteMs_.load(std::memory_order_acquire);
+    if (last == 0ull)
+        return false;
+    const unsigned long long now = GetTickCount64();
+    return now >= last && (now - last) <= kRotClaimTailMs;
+}
+
+
 // ── C03PacketPlayer resolution for packet-rotation (mirrors clutch) ──────────
 // Resolved lazily on the network thread inside onOutgoingPacket, so no cross-
 // thread races on these statics.
@@ -588,17 +608,61 @@ void AimAssist::onUpdate() {
     // Prediction: lead the aim point by the target's velocity so tracking sits
     // ahead of a strafing target instead of trailing it. Hard-lock skips the
     // vertical lead so a jumping/falling target does not pull the aim off chest.
-    if (settings.prediction > 0.0f) {
+    //
+    // The lead is bounded by the hitbox itself, not by a constant. A player box is
+    // 0.6 blocks wide, so the +-0.75 block clamp this used to carry allowed an aim
+    // point nearly half a block OUTSIDE the box: the rotation pointed at empty air,
+    // the client's own raytrace stopped returning the entity, and any attack that
+    // still went out was one the server raytraced into nothing -- which is exactly
+    // what Intave reports as AttackRaytrace "attacked a player out of sight".
+    // Leading is only worth anything while the led point is still on the target.
+    if (settings.prediction > 0.0f && resolvedBox_.valid) {
         const double leadSec = (settings.prediction / 100.0) * 0.16;
-        // Bounded: the lead exists to sit ahead of a strafing target, never to
-        // push the aim point off the hitbox.
-        auto lead = [](double vel, double sec, double maxBlocks) {
-            return std::clamp(vel * sec, -maxBlocks, maxBlocks);
+        // Keep the ray off the faces: a point exactly on the plane is a coin flip
+        // between hit and miss once the server's copy of the position differs from
+        // ours by a rounding step.
+        constexpr double kFaceInset = 0.09;
+        // Room from the aim point to each face, so a point already pushed to the near
+        // side by aimAtClosestPoint gets the asymmetric budget it actually has.
+        const auto lead = [&](double vel, double point, double lo, double hi) {
+            const double back = std::max(0.0, (point - lo) - kFaceInset);
+            const double fwd = std::max(0.0, (hi - point) - kFaceInset);
+            return std::clamp(vel * leadSec, -back, fwd);
         };
-        aimX += lead(predVelX, leadSec, 0.75);
-        aimZ += lead(predVelZ, leadSec, 0.75);
+        aimX += lead(predVelX, aimX, resolvedBox_.minX, resolvedBox_.maxX);
+        aimZ += lead(predVelZ, aimZ, resolvedBox_.minZ, resolvedBox_.maxZ);
         if (!settings.horizontalOnly && !adaptiveLock)
-            aimY += lead(predVelY, leadSec, 0.35);
+            aimY += lead(predVelY, aimY, resolvedBox_.minY, resolvedBox_.maxY);
+    }
+
+    // How far the rotation may be nudged off the aim point before the ray leaves the
+    // box, in degrees, measured at the target's current distance. packetRotation adds
+    // its jitter to the C03 only -- the server raytraces a rotation the camera never
+    // had -- so that offset has to be budgeted against the target's angular size or it
+    // is a miss the player cannot see coming. Wide box and close range means a large
+    // budget; at max reach the budget collapses and so does the jitter.
+    {
+        float yawBudget = 0.0f, pitchBudget = 0.0f;
+        if (resolvedBox_.valid) {
+            const double dx = aimX - localX;
+            const double dz = aimZ - localZ;
+            const double flat = std::sqrt(dx * dx + dz * dz);
+            const double dy = aimY - eyeY;
+            const double dist = std::sqrt(flat * flat + dy * dy);
+            const double halfW =
+                std::min(resolvedBox_.maxX - resolvedBox_.minX, resolvedBox_.maxZ - resolvedBox_.minZ) * 0.5;
+            const double halfH = (resolvedBox_.maxY - resolvedBox_.minY) * 0.5;
+            if (flat > 0.05 && halfW > 0.0)
+                yawBudget = (float)(std::atan2(halfW - 0.09, flat) * 57.29577951308232);
+            if (dist > 0.05 && halfH > 0.0)
+                pitchBudget = (float)(std::atan2(halfH - 0.09, dist) * 57.29577951308232);
+            // Only part of the budget is spent, because the rendered rotation is itself
+            // still converging on the aim point and owns the rest of it.
+            yawBudget = std::clamp(yawBudget * 0.5f, 0.0f, 3.0f);
+            pitchBudget = std::clamp(pitchBudget * 0.5f, 0.0f, 3.0f);
+        }
+        packetYawBudget_.store(yawBudget, std::memory_order_release);
+        packetPitchBudget_.store(pitchBudget, std::memory_order_release);
     }
 
     auto [yawTarget, pitchTarget] = getAngles(localX, eyeY, localZ, aimX, aimY, aimZ);
@@ -663,6 +727,7 @@ void AimAssist::onUpdate() {
             player.setPitch(snappedPitch);
             player.setPrevPitch(snappedPitch);
         }
+        markRotationWrite();
         prevFrameHadTarget = hasLockedTarget;
         lastMouseDown = mouseDown;
         // The rotation was written absolutely, so no jitter offset is folded in
@@ -1192,9 +1257,22 @@ void AimAssist::applyAimController(float yawDiff, float pitchDiff) {
     updateSimulatedJitter();
     if (settings.packetRotation) {
         const float gcd = g_cachedGCD > 0.0001f ? g_cachedGCD : calculateGCD(mc.getMouseSensitivity());
-        serverYawOffset_.store(std::round(simulatedJitterYaw / gcd) * gcd, std::memory_order_relaxed);
-        serverPitchOffset_.store(settings.horizontalOnly ? 0.0f : std::round(simulatedJitterPitch / gcd) * gcd,
-                                 std::memory_order_relaxed);
+        // Whole mouse steps, because the sent rotation has to stay on the same grid the
+        // rendered one is on -- an offset that is not a multiple of the step is visible
+        // to a gcd check even though the rotation itself looks fine.
+        const auto steps = [gcd](float degrees) { return std::round(degrees / gcd); };
+        // ...and no more steps than the target's angular size can absorb. Past that the
+        // offset is not jitter any more, it is a rotation the server raytraces off the
+        // hitbox while the camera sits dead centre on it, and the miss is invisible from
+        // the player's side. A budget under one step means the target is too small at
+        // this range to afford any offset, so the true rotation goes out unmodified.
+        const float yawCap = std::floor(packetYawBudget_.load(std::memory_order_acquire) / gcd);
+        const float pitchCap = std::floor(packetPitchBudget_.load(std::memory_order_acquire) / gcd);
+        const float yawSteps = std::clamp(steps(simulatedJitterYaw), -yawCap, yawCap);
+        const float pitchSteps =
+            settings.horizontalOnly ? 0.0f : std::clamp(steps(simulatedJitterPitch), -pitchCap, pitchCap);
+        serverYawOffset_.store(yawSteps * gcd, std::memory_order_relaxed);
+        serverPitchOffset_.store(pitchSteps * gcd, std::memory_order_relaxed);
         hasServerRotation_.store(true, std::memory_order_release);
     }
 
@@ -1239,6 +1317,7 @@ void AimAssist::applyAimController(float yawDiff, float pitchDiff) {
         const float nextYaw = currentYaw + yawApply;
         player.setYaw(nextYaw);
         player.setPrevYaw(std::lerp(currentYaw, nextYaw, 0.82f));
+        markRotationWrite();
     }
     if (!settings.horizontalOnly && std::abs(pitchApply) > 0.0001f) {
         const float currentPitch = player.getPitch();
@@ -1248,6 +1327,7 @@ void AimAssist::applyAimController(float yawDiff, float pitchDiff) {
         if (std::abs(pitchApply) > 0.0001f) {
             player.setPitch(nextPitch);
             player.setPrevPitch(std::lerp(currentPitch, nextPitch, 0.82f));
+            markRotationWrite();
         }
     }
 }
@@ -1303,8 +1383,19 @@ void AimAssist::onOutgoingPacket(JNIEnv* env, jobject packet) {
             // resting on a mouse actually produces. Stepping both axes by the same signed
             // amount every time would make them perfectly correlated, which is a pattern
             // in its own right.
-            finalYaw += s_ditherSign * gcd;
-            s_ditherSign = -s_ditherSign;
+            //
+            // Direction is chosen so the step lands back inside the hitbox budget rather
+            // than always alternating: at the far edge of the box the outward step is the
+            // one that turns a hit into "attacked a player out of sight", and stepping
+            // inward makes the rotation just as fresh. Alternation is only the tiebreak
+            // when both directions are safe.
+            const float budget = packetYawBudget_.load(std::memory_order_acquire);
+            float sign = s_ditherSign;
+            if (budget > 0.0f && std::abs(offY + sign * gcd) > budget &&
+                std::abs(offY - sign * gcd) <= budget)
+                sign = -sign;
+            finalYaw += sign * gcd;
+            s_ditherSign = -sign;
         }
     }
 
@@ -1379,6 +1470,11 @@ bool AimAssist::getAimPoint(double targetX, double targetY, double targetZ, doub
             height = maxY - minY;
         }
 
+        // Publish the repaired box. Whatever offsets the aim after this point has to
+        // stay inside it, and the repair above is the only place that knows which of
+        // the raw AABB and the rebuilt one actually got used.
+        resolvedBox_ = {minX, minY, minZ, maxX, maxY, maxZ, true};
+
         if (settings.aimAtClosestPoint) {
             aimX = std::clamp(localX, minX, maxX);
             // Closest-point selection is horizontal only. Using the local eye
@@ -1413,6 +1509,11 @@ bool AimAssist::getAimPoint(double targetX, double targetY, double targetZ, doub
     }
 
     constexpr double HALF_WIDTH = 0.3;
+
+    // No AABB arrived, so assume the vanilla player box around the feet position.
+    resolvedBox_ = {targetX - HALF_WIDTH, targetY,      targetZ - HALF_WIDTH,
+                    targetX + HALF_WIDTH, targetY + 1.8, targetZ + HALF_WIDTH,
+                    true};
 
     if (settings.aimAtClosestPoint) {
         double minX = targetX - HALF_WIDTH;

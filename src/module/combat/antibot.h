@@ -10,10 +10,9 @@ struct PlayerInfo;
 
 // AntiBot — the single place that decides whether an entity is a real player.
 //
-// This used to be a checkbox inside AimAssist (and a dead one inside KillAura, where NPCs
-// were skipped unconditionally), which meant every combat module had its own idea of what
-// a bot was. Now every targeting module asks the same question through Filtered(), so one
-// switch governs the whole client and the heuristics can be tuned in one place.
+// This used to be a checkbox inside AimAssist, which meant every combat module had its own
+// idea of what a bot was. Now every targeting module asks the same question through Filtered(),
+// so one switch governs the whole client and the heuristics can be tuned in one place.
 //
 // Every check runs off a PlayerInfo snapshot: no JNI, no locks, no allocation. That is a
 // hard requirement — Filtered() is called from the async module loop at ~500 Hz while it

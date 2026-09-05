@@ -1,5 +1,6 @@
 #pragma once
 
+#include <atomic>
 #include <string>
 #include "../module.h"
 
@@ -28,6 +29,15 @@ public:
     void onUpdate() override;
     void onRenderMenu() override;
     std::string getDisplayInfo() override;
+
+    // True while the solver is steering the client's own rotation fields. Declared for the
+    // same reason AimAssist declares it: anything that writes the rotation has to say so, or two
+    // writers on one tick produce a rotation neither of them solved for. A launch pitch is the
+    // worst possible thing to have fought over -- an arcing shot solves to tens of degrees above
+    // the horizon, so losing the argument points the bow at the sky.
+    //
+    // The tail exists because this runs at ~500 Hz and the consumers are on the 20 Hz tick.
+    bool isRewritingRotation() const;
     void saveSettings(json::Value& node) const override;
     void loadSettings(const json::Value& node) override;
 
@@ -101,6 +111,9 @@ private:
     float lastOverrideYaw = 0.0f;
     float lastOverridePitch = 0.0f;
     bool hasOverride = false;
+
+    // Stamped every time a rotation write lands on the player; read off-thread.
+    std::atomic<unsigned long long> lastRotWriteMs_{0};
 
     static float wrapDeg(float a);
     void resetVelocity();

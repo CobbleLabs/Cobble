@@ -8,7 +8,6 @@
 #include "../../module/combat/aimassist.h"
 #include "../../module/combat/aimbow.h"
 #include "../../module/combat/antibot.h"
-#include "../../module/combat/killaura.h"
 #include "../../module/combat/autoclicker.h"
 #include "../../module/combat/autorod.h"
 #include "../../module/combat/blockhit.h"
@@ -46,6 +45,7 @@
 #include "../../module/utility/throwpots.h"
 #include "../../module/utility/autopot.h"
 #include "../../module/visual/blockesp.h"
+#include "../../module/visual/animations.h"
 #include "../../module/visual/chams.h"
 #include "../../module/visual/esp.h"
 #include "../../module/visual/item_esp.h"
@@ -118,12 +118,10 @@ Module* getModuleForSubtab(int tabIdx, int subtabIdx) {
             case 10:
                 return blockHit;
             case 11:
-                return killAura;
-            case 12:
                 return autoRod;
-            case 13:
+            case 12:
                 return antiBot;
-            case 14:
+            case 13:
                 return opportunity;
         }
     }
@@ -160,6 +158,8 @@ Module* getModuleForSubtab(int tabIdx, int subtabIdx) {
                 return pingsModule;
             case 14:
                 return chams;
+            case 15:
+                return animations;
         }
     }
     // Movement Tab (2): Timer, TimerRange, NoSlowDown, NoJumpDelay, Sprint, InventoryMove

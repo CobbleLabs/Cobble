@@ -11,8 +11,8 @@
 #include "../../util/logger.hpp"
 #include "../../util/math/worldToScreen.h"
 #include "../../util/network/json.hpp"
+#include "aimassist.h"
 #include "autoclicker.h"
-#include "killaura.h"
 
 #include <imgui.h>
 
@@ -331,9 +331,9 @@ bool Backtrack::attackSourceActive() const {
         return true;
     if (autoClicker && autoClicker->enabled)
         return true;
-    // KillAura only rewrites rotation while it actually holds a target, which makes
+    // AimAssist only claims the head while it is actually steering at a target, which makes
     // it a precise "a fight is happening" signal rather than just "the module is on".
-    if (killAura && killAura->isRewritingRotation())
+    if (aimAssist && aimAssist->isRewritingRotation())
         return true;
     return false;
 }

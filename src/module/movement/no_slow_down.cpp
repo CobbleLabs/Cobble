@@ -5,6 +5,7 @@
 #include "../../ui/menu/menu.h"
 #include "../../ui/widgets/widgets.hpp"
 #include "../../util/network/json.hpp"
+#include "../combat/blockhit.h"
 #include "sprint.h"
 
 #include <algorithm>
@@ -289,6 +290,20 @@ void NoSlowDown::applyMovement(JNIEnv* env, jobject playerInstance) {
 
     const bool usePressed =
         isKeyPressed(env, gameSettings, JniCache::fid_keyBindUseItem);
+    // BlockHit's block is a real one: it enters use-item state deliberately and pays vanilla's
+    // 0.2x for the whole hold, because paying it is the only thing that makes the block
+    // indistinguishable from a hand's. Rewriting the input from raw key state here would take that
+    // payment straight back out -- full movement, plus a setSprinting(true), underneath a block the
+    // server has registered -- which is precisely the NoSlow that module was rebuilt to stop
+    // producing. This module is dispatched ahead of BlockHit, so on the release tick the flag is
+    // still set and BlockHit undoes the slowdown itself a few calls later.
+    //
+    // With the use key actually held there is nothing to stand out of the way of: BlockHit gates
+    // itself off and hands the channel over, so the block being unslowed is the player's own.
+    if (!usePressed && blockHit && blockHit->isServerBlocking()) {
+        env->DeleteLocalRef(gameSettings);
+        return;
+    }
     if (!usePressed && !isPlayerUsingItem(env, playerInstance)) {
         env->DeleteLocalRef(gameSettings);
         return;
