@@ -67,5 +67,5 @@ tests/
 # Third-party client binaries pulled apart for reference — never ours to ship
 extracted/
 
-# Stray copy of the vmprotect submodule (real one is the `vmprotect` gitlink)
+# Stray copy of the reprotect submodule (real one is the `reprotect` gitlink)
 infra/vmprotect/

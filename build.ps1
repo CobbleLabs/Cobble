@@ -323,7 +323,7 @@ $vmProtectCandidate = if ($VMProtectRoot) {
         Join-Path $PSScriptRoot $VMProtectRoot
     }
 } else {
-    Join-Path $PSScriptRoot "vmprotect"
+    Join-Path $PSScriptRoot "reprotect"
 }
 $vmProtectPath = [IO.Path]::GetFullPath($vmProtectCandidate)
 

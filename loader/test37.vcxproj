@@ -39,7 +39,7 @@
       <ForcedIncludeFiles>$(ProjectDir)..\generated\build_flags.h</ForcedIncludeFiles>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp20</LanguageStandard>
-      <AdditionalIncludeDirectories>$(ProjectDir)..;$(ProjectDir)src;$(ProjectDir)src\test1;$(ProjectDir)src\test3;$(ProjectDir)src\test2;$(ProjectDir)src\test4;$(ProjectDir)res;$(ProjectDir)..\infra\ext\imgui;$(ProjectDir)..\vmprotect\sdk;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(ProjectDir)..;$(ProjectDir)src;$(ProjectDir)src\test1;$(ProjectDir)src\test3;$(ProjectDir)src\test2;$(ProjectDir)src\test4;$(ProjectDir)res;$(ProjectDir)..\infra\ext\imgui;$(ProjectDir)..\reprotect\sdk;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <!-- Obfuscation optimizations -->
       <Optimization>MaxSpeed</Optimization>
       <InlineFunctionExpansion>AnySuitable</InlineFunctionExpansion>
@@ -55,7 +55,7 @@
       <!-- Strip all symbols -->
       <AdditionalOptions>/PDBALTPATH:none %(AdditionalOptions)</AdditionalOptions>
       <AdditionalDependencies>d3d11.lib;dxgi.lib;gdi32.lib;%(AdditionalDependencies)</AdditionalDependencies>
-      <AdditionalLibraryDirectories>$(ProjectDir)..\vmprotect\bin\64\Release;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalLibraryDirectories>$(ProjectDir)..\reprotect\bin\64\Release;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
     </Link>
   </ItemDefinitionGroup>
   <!-- Pack mode: link the VMProtect marker/runtime SDK. -->
