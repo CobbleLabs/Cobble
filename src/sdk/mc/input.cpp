@@ -124,6 +124,20 @@ int Minecraft::getBackKey() {
     return env ? getKeyBindCode(env, instance, JniCache::fid_keyBindBack, 31) : 31;
 }
 
+int Minecraft::getLeftKey() {
+    if (!isValid())
+        return 30;  // A default (LWJGL key code)
+    JNIEnv* env = Java::Env();
+    return env ? getKeyBindCode(env, instance, JniCache::fid_keyBindLeft, 30) : 30;
+}
+
+int Minecraft::getRightKey() {
+    if (!isValid())
+        return 32;  // D default (LWJGL key code)
+    JNIEnv* env = Java::Env();
+    return env ? getKeyBindCode(env, instance, JniCache::fid_keyBindRight, 32) : 32;
+}
+
 // =============================================================================
 // getInventoryKey - Get the keycode for the inventory keybind
 // =============================================================================
@@ -133,6 +147,66 @@ int Minecraft::getInventoryKey() {
         return 18;  // 'E' default (LWJGL key code)
     JNIEnv* env = Java::Env();
     return env ? getKeyBindCode(env, instance, JniCache::fid_keyBindInventory, 18) : 18;
+}
+
+// =============================================================================
+// isMoving - True while any movement keybind is held
+// =============================================================================
+
+bool Minecraft::isMoving() {
+    auto physicalHeld = [](int lwjglKey) {
+        const UINT vk = MapVirtualKeyA(static_cast<UINT>(lwjglKey), MAPVK_VSC_TO_VK);
+        return vk != 0 && (GetAsyncKeyState(static_cast<int>(vk)) & 0x8000) != 0;
+    };
+
+    // Check physical WASD keys directly ('W', 'A', 'S', 'D')
+    if ((GetAsyncKeyState('W') & 0x8000) != 0 ||
+        (GetAsyncKeyState('A') & 0x8000) != 0 ||
+        (GetAsyncKeyState('S') & 0x8000) != 0 ||
+        (GetAsyncKeyState('D') & 0x8000) != 0) {
+        return true;
+    }
+
+    if (!isValid())
+        return false;
+
+    // Check physical keys mapped to Minecraft keybinds
+    if (physicalHeld(getForwardKey()) || physicalHeld(getBackKey()) ||
+        physicalHeld(getLeftKey()) || physicalHeld(getRightKey())) {
+        return true;
+    }
+
+    JNIEnv* env = Java::Env();
+    if (!env || !JniCache::fid_pressed)
+        return false;
+
+    jobject gameSettings = getGameSettings(env, instance);
+    if (!gameSettings)
+        return false;
+
+    const jfieldID moveFields[] = {JniCache::fid_keyBindForward, JniCache::fid_keyBindBack,
+                                   JniCache::fid_keyBindLeft, JniCache::fid_keyBindRight};
+
+    bool moving = false;
+    for (jfieldID fid_kb : moveFields) {
+        if (!fid_kb)
+            continue;
+
+        jobject keyBind = env->GetObjectField(gameSettings, fid_kb);
+        if (!keyBind)
+            continue;
+
+        if (env->GetBooleanField(keyBind, JniCache::fid_pressed))
+            moving = true;
+
+        env->DeleteLocalRef(keyBind);
+
+        if (moving)
+            break;
+    }
+
+    env->DeleteLocalRef(gameSettings);
+    return moving;
 }
 
 // =============================================================================

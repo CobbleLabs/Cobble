@@ -80,6 +80,7 @@ static const DescriptionEntry kModuleDescriptions[] = {
     {"", "AutoPot", "",
      "Throws splash healing potions at your feet when your health drops, counting the heal already in the air so a "
      "burst spends exactly as many potions as the missing health calls for."},
+    {"", "FastStop", "", "Cancels leftover momentum instantly when you release the movement keys."},
 };
 
 static const DescriptionEntry kOptionDescriptions[] = {
@@ -298,6 +299,8 @@ static const DescriptionEntry kOptionDescriptions[] = {
     {"InventoryMove", "Containers", "", "Keeps you moving inside chests, furnaces and your own inventory."},
     {"InventoryMove", "Text Screens", "", "Also moves while chat, signs, books and the anvil are open — careful, WASD are letters there."},
     {"InventoryMove", "Other Screens", "", "Also moves in the pause menu, options and any other non-container screen."},
+    {"Backtrack", "Mode", "Always", "Engages whenever the crosshair is on a player — the classic behaviour."},
+    {"Backtrack", "Mode", "Only on Hit", "Engages only after you actually land a hit. The ghost appears mid-fight and expires after the hold window."},
     {"Backtrack", "Hold Time (ms)", "", "How far into the past the ghost sits. Movement packets are withheld for this long, so the server keeps the target where the box is drawn."},
     {"Backtrack", "Packet Limit", "", "Hard stop on how many of the target's movement packets may be withheld at once. Reaching it releases the whole queue immediately."},
     {"Backtrack", "Whole Stream", "", "Delays every player's movement, not just your target's. A real connection is not late only for whoever you are looking at, so leaving this on is what makes the hold read as lag."},
@@ -583,7 +586,7 @@ std::vector<ui::tab_t> ui::tabs = {
       "Animations"}},
     {ICON_FA_RUNNING,
      "Movement",
-     {"Timer", "TimerRange", "NoSlowDown", "NoJumpDelay", "Sprint", "InventoryMove"}},
+     {"Timer", "TimerRange", "NoSlowDown", "NoJumpDelay", "Sprint", "InventoryMove", "FastStop"}},
     {ICON_FA_KEYBOARD,
      "Utility",
      {"ArmorSwitch", "AutoRefill", "ThrowPots", "AutoPot", "FastPlace", "NoItemRelease", "BridgeAssist", "Scaffold",

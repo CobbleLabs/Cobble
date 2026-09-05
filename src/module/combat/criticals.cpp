@@ -19,22 +19,39 @@ Criticals* criticals = nullptr;
 
 static std::mt19937 rng(std::random_device{}());
 
+// Hits trigger bounds. 1 means "every hit", which is the Chance-100 equivalent.
+static constexpr int MIN_HIT_INTERVAL = 1;
+static constexpr int MAX_HIT_INTERVAL = 10;
+
+// How long a combo can stall before the next hit counts as a fresh streak rather
+// than a continuation. Deliberately well above a 1 CPS rhythm (1000 ms between
+// hits) so slow, deliberate combos still build up instead of resetting to 1.
+static constexpr unsigned long COMBO_TIMEOUT_MS = 3000;
+
 Criticals::Criticals() : Module("Criticals") {
     keybind = 0;
-    locked = true;  // hidden/grayed until experiments are unlocked
+    locked = false;  // hidden/grayed until experiments are unlocked
 }
 
 void Criticals::onEnable() {
     lastCriticalTime = 0;
     wasAttacking = false;
-    groundSpoofTicks = 0;
-    smoothCancel = false;
+    hitCount = 0;
+    lastHitTime = 0;
 }
 
 void Criticals::onDisable() {
     wasAttacking = false;
-    groundSpoofTicks = 0;
-    smoothCancel = false;
+    hitCount = 0;
+    lastHitTime = 0;
+}
+
+bool Criticals::isRecentlyCritical(unsigned long windowMs) const {
+    if (!enabled)
+        return false;
+    if (lastCriticalTime == 0)
+        return false;
+    return (GetTickCount() - lastCriticalTime) < windowMs;
 }
 
 bool Criticals::isHoldingSword() {
@@ -56,20 +73,7 @@ bool Criticals::checkChance() {
     return dist(rng) <= settings.chance;
 }
 
-bool Criticals::canDoCritical() {
-    if (!player.isValid())
-        return false;
-
-    // Must be on ground
-    if (!player.isOnGround())
-        return false;
-
-    // Check delay
-    unsigned long now = GetTickCount();
-    if (now - lastCriticalTime < (unsigned long)settings.maxDelayMs)
-        return false;
-
-    // Check conditions
+bool Criticals::isValidAttack() {
     if (settings.onlyWhileAttacking) {
         if (!(GetAsyncKeyState(VK_LBUTTON) & 0x8000))
             return false;
@@ -85,18 +89,65 @@ bool Criticals::canDoCritical() {
             return false;
     }
 
+    return true;
+}
+
+bool Criticals::canDoCritical() {
+    if (!player.isValid())
+        return false;
+
+    // Must be on ground
+    if (!player.isOnGround())
+        return false;
+
+    // Check delay
+    unsigned long now = GetTickCount();
+    if (now - lastCriticalTime < (unsigned long)settings.maxDelayMs)
+        return false;
+
     // Don't do criticals while sneaking
     if (player.isSneaking())
         return false;
 
-    return checkChance();
+    return true;
 }
 
-void Criticals::doPacketCritical() {
-    // Packet mode: don't perform a real jump. Spoof the airborne state so the
-    // outgoing movement packet reports onGround = false; the server then treats
-    // the hit as a critical without any visible client-side movement.
-    player.setOnGround(false);
+void Criticals::handleComboHit() {
+    const unsigned long now = GetTickCount();
+
+    // A swing with nothing under the crosshair is a miss, which ends the combo.
+    // Checked directly rather than through the "Looking At Player" toggle: the
+    // streak has no meaning without knowing whether the hit actually landed.
+    if (!isLookingAtPlayer()) {
+        hitCount = 0;
+        return;
+    }
+
+    // Long enough gap since the last landed hit means the previous combo is over
+    // and this is the first hit of a new one.
+    if (hitCount > 0 && lastHitTime != 0 && now - lastHitTime > COMBO_TIMEOUT_MS)
+        hitCount = 0;
+
+    hitCount++;
+    lastHitTime = now;
+
+    // Cap so a long streak that never gets to fire cannot overflow; >= still fires.
+    if (hitCount > settings.hitInterval)
+        hitCount = settings.hitInterval;
+
+    if (hitCount < settings.hitInterval)
+        return;
+
+    if (settings.onlyWithSword && !isHoldingSword())
+        return;
+
+    // Not ready (airborne, sneaking, still inside the delay): hold the streak at
+    // the target so the next landed hit fires instead of losing the beat.
+    if (!canDoCritical())
+        return;
+
+    startCritical();
+    hitCount = 0;
 }
 
 void Criticals::doJumpCritical(double height) {
@@ -107,54 +158,15 @@ void Criticals::doJumpCritical(double height) {
 }
 
 void Criticals::startCritical() {
-    // Fire the technique for the selected mode. Modes that span more than one
-    // tick seed sequence state that advanceSequence() drains on later ticks.
     switch (settings.mode) {
-    case Mode::Packet:
-        doPacketCritical();
-        break;
-    case Mode::MiniJump:
-        doJumpCritical(0.12);
-        break;
-    case Mode::Jump:
-        doJumpCritical(0.42);
-        break;
-    case Mode::NoGround:
-        // Hold the airborne spoof for a few ticks so lenient/legacy checks
-        // register the fall over several movement packets.
-        player.setOnGround(false);
-        groundSpoofTicks = 3;
-        break;
-    case Mode::Hop:
-        // Lowest real hop that still leaves the ground; minimal displacement.
-        doJumpCritical(0.0625);
-        break;
-    case Mode::Smooth:
-        // Hop up now, cancel the velocity next tick so net movement is ~zero.
-        player.setMotionY(0.11);
-        player.setOnGround(false);
-        smoothCancel = true;
-        break;
-    case Mode::NCP:
-        // Legit jump-crit shape: only jump when strictly grounded so the
-        // movement matches a real player jump.
-        if (player.isOnGround())
+        case Mode::MiniJump:
+            doJumpCritical(0.12);
+            break;
+        case Mode::Jump:
             doJumpCritical(0.42);
-        break;
+            break;
     }
     lastCriticalTime = GetTickCount();
-}
-
-void Criticals::advanceSequence() {
-    // Continue any in-progress multi-tick technique.
-    if (groundSpoofTicks > 0) {
-        player.setOnGround(false);
-        groundSpoofTicks--;
-    }
-    if (smoothCancel) {
-        player.setMotionY(-0.11);
-        smoothCancel = false;
-    }
 }
 
 void Criticals::onUpdate() {
@@ -163,17 +175,21 @@ void Criticals::onUpdate() {
 
     if (Menu::isOpen || mc.isInGui() || !player.isValid()) {
         wasAttacking = false;
-        groundSpoofTicks = 0;
-        smoothCancel = false;
         return;
     }
 
-    advanceSequence();
-
     const bool isAttacking = (GetAsyncKeyState(VK_LBUTTON) & 0x8000) != 0;
 
-    if (isAttacking && !wasAttacking && canDoCritical())
-        startCritical();
+    // Rising edge of the attack button.
+    if (isAttacking && !wasAttacking) {
+        if (settings.trigger == Trigger::Hits) {
+            // Streak tracking has to see every swing, including the ones that
+            // miss, so it cannot sit behind isValidAttack().
+            handleComboHit();
+        } else if (isValidAttack() && canDoCritical() && checkChance()) {
+            startCritical();
+        }
+    }
 
     wasAttacking = isAttacking;
 }
@@ -190,19 +206,31 @@ void Criticals::onRenderMenu() {
             }
             ImGui::Spacing();
 
-            const char* modeItems[] = { "Packet", "MiniJump", "Jump",
-                                        "NoGround", "Hop", "Smooth", "NCP" };
+            const char* modeItems[] = {"MiniJump", "Jump"};
             int mode = static_cast<int>(settings.mode);
             if (ui::Combo("Mode", &mode, modeItems, IM_ARRAYSIZE(modeItems)))
                 settings.mode = static_cast<Mode>(mode);
 
+            const char* triggerItems[] = {"Chance", "Hits"};
+            int trigger = static_cast<int>(settings.trigger);
+            if (ui::Combo("Trigger", &trigger, triggerItems, IM_ARRAYSIZE(triggerItems)))
+                settings.trigger = static_cast<Trigger>(trigger);
+
+            // Only one of the two is meaningful at a time: Hits is a fixed cadence,
+            // so rolling a chance on top of it would defeat the point.
+            if (settings.trigger == Trigger::Hits) {
+                int hits = settings.hitInterval;
+                if (ui::SliderInt("Combo Hits", &hits, MIN_HIT_INTERVAL, MAX_HIT_INTERVAL, "%d"))
+                    settings.hitInterval = hits;
+            } else {
+                int chance = settings.chance;
+                if (ui::SliderInt("Chance", &chance, 0, 100, "%d%%"))
+                    settings.chance = chance;
+            }
+
             int delay = settings.maxDelayMs;
             if (ui::SliderInt("Delay", &delay, 50, 500, "%dms"))
                 settings.maxDelayMs = delay;
-
-            int chance = settings.chance;
-            if (ui::SliderInt("Chance", &chance, 0, 100, "%d%%"))
-                settings.chance = chance;
         },
         "Conditions",
         [this]() {
@@ -212,10 +240,10 @@ void Criticals::onRenderMenu() {
         });
 }
 
-
-
 void Criticals::saveSettings(json::Value& node) const {
     node["mode"] = static_cast<int>(settings.mode);
+    node["trigger"] = static_cast<int>(settings.trigger);
+    node["hitInterval"] = settings.hitInterval;
     node["maxDelayMs"] = settings.maxDelayMs;
     node["chance"] = settings.chance;
     node["onlyWhileAttacking"] = settings.onlyWhileAttacking;
@@ -224,15 +252,17 @@ void Criticals::saveSettings(json::Value& node) const {
 }
 
 void Criticals::loadSettings(const json::Value& node) {
-    int rawMode = node["mode"].as_int(static_cast<int>(settings.mode));
-    // Migration: "Grim" (old index 6) was removed — it was just a real jump, which
-    // the other jump modes already cover. Old configs storing it fall back to Jump;
-    // the old NCP (index 7) shifts down to its new value 6.
-    if (rawMode == 6)
-        rawMode = static_cast<int>(Mode::Jump);
-    else if (rawMode == 7)
-        rawMode = static_cast<int>(Mode::NCP);
-    settings.mode = static_cast<Mode>(std::clamp(rawMode, 0, static_cast<int>(Mode::NCP)));
+    const int rawMode = node["mode"].as_int(static_cast<int>(settings.mode));
+    // Only MiniJump (0) and Jump (1) are left. Older configs could hold any of
+    // Packet (0), MiniJump (1), Jump (2), NoGround (3), Hop (4), Smooth (5) or
+    // NCP (6): the full-height techniques land on Jump, the rest on MiniJump.
+    settings.mode = (rawMode == 1 || rawMode == 2 || rawMode == 6) ? Mode::Jump : Mode::MiniJump;
+    // Absent in older configs, so it defaults to Chance and existing setups keep
+    // behaving exactly as before.
+    const int rawTrigger = node["trigger"].as_int(static_cast<int>(settings.trigger));
+    settings.trigger = rawTrigger == 1 ? Trigger::Hits : Trigger::Chance;
+    settings.hitInterval =
+        (std::clamp)(node["hitInterval"].as_int(settings.hitInterval), MIN_HIT_INTERVAL, MAX_HIT_INTERVAL);
     settings.maxDelayMs = node["maxDelayMs"].as_int(settings.maxDelayMs);
     settings.chance = node["chance"].as_int(settings.chance);
     settings.onlyWhileAttacking = node["onlyWhileAttacking"].as_bool(settings.onlyWhileAttacking);

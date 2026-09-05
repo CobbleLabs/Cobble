@@ -39,6 +39,12 @@ void WTap::onDisable() {
     wasAttacking_ = false;
 }
 
+bool WTap::isTapping() const {
+    if (!enabled)
+        return false;
+    return state_ != State::Idle;
+}
+
 bool WTap::isHoldingWeapon() const {
     switch (player.getHeldItemId()) {
         case 267:

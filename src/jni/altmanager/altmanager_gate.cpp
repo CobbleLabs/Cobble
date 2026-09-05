@@ -1,10 +1,13 @@
 #include "altmanager_gate.hpp"
 
 #include "../../module/utility/altmanager.h"
+#include "../../sdk/core/minecraft.h"
 #include "../../util/logger.hpp"
 
 #include <atomic>
+#include <cstring>
 #include <mutex>
+#include <string>
 
 namespace AltManagerGate {
 namespace {
@@ -112,6 +115,164 @@ bool ensureCache(JNIEnv* env) {
     return true;
 }
 
+// ---------------------------------------------------------------------------
+// Session access (net.minecraft.util.Session)
+//
+// The Session fields are private final, so they are written through
+// java.lang.reflect.Field instead of plain JNI field IDs. Their names differ
+// between mappings, but their *order* does not: the four String fields are
+// [0] username, [1] playerID (uuid), [2] token, [3] sessionType.
+// ---------------------------------------------------------------------------
+
+constexpr const char* kSessionSignature = "Lnet/minecraft/util/Session;";
+
+std::mutex g_sessionMutex;
+jmethodID g_getSessionMid = nullptr;
+jfieldID g_sessionField = nullptr;
+bool g_sessionWarned = false;
+
+bool ensureSessionAccess(JNIEnv* env) {
+    if (g_getSessionMid || g_sessionField)
+        return true;
+    if (!mc.cls || !mc.instance)
+        return false;
+
+    g_getSessionMid = env->GetMethodID(mc.cls, "getSession", kSessionSignature);
+    if (!g_getSessionMid) {
+        clearPendingException(env);
+        g_getSessionMid =
+            env->GetMethodID(mc.cls, "func_110432_I", kSessionSignature);
+    }
+    if (!g_getSessionMid) {
+        clearPendingException(env);
+        g_sessionField = env->GetFieldID(mc.cls, "session", kSessionSignature);
+    }
+    if (!g_getSessionMid && !g_sessionField) {
+        clearPendingException(env);
+        g_sessionField =
+            env->GetFieldID(mc.cls, "field_71449_j", kSessionSignature);
+    }
+    clearPendingException(env);
+
+    if (!g_getSessionMid && !g_sessionField) {
+        if (!g_sessionWarned) {
+            g_sessionWarned = true;
+            log_warn("[AltManager] Session mappings could not be resolved");
+        }
+        return false;
+    }
+    return true;
+}
+
+// Returns a local ref the caller must delete.
+jobject acquireSession(JNIEnv* env) {
+    if (!ensureSessionAccess(env))
+        return nullptr;
+
+    jobject session = g_getSessionMid
+                          ? env->CallObjectMethod(mc.instance, g_getSessionMid)
+                          : env->GetObjectField(mc.instance, g_sessionField);
+    if (env->ExceptionCheck()) {
+        env->ExceptionClear();
+        return nullptr;
+    }
+    return session;
+}
+
+// Calls fn(index, fieldObject) for every String field of the Session, in
+// declaration order. The Field objects are already setAccessible(true).
+template <typename Fn>
+bool forEachSessionString(JNIEnv* env, jobject session, Fn&& fn) {
+    jclass sessionCls = env->GetObjectClass(session);
+    jclass classCls = env->FindClass("java/lang/Class");
+    jclass fieldCls = env->FindClass("java/lang/reflect/Field");
+    clearPendingException(env);
+
+    // These are local refs on an attached thread, so they must be released on
+    // every exit path (this runs outside a Java frame).
+    auto release = [&]() {
+        if (fieldCls)
+            env->DeleteLocalRef(fieldCls);
+        if (classCls)
+            env->DeleteLocalRef(classCls);
+        if (sessionCls)
+            env->DeleteLocalRef(sessionCls);
+    };
+
+    if (!sessionCls || !classCls || !fieldCls) {
+        release();
+        return false;
+    }
+
+    jmethodID midDeclaredFields = env->GetMethodID(
+        classCls, "getDeclaredFields", "()[Ljava/lang/reflect/Field;");
+    jmethodID midClassName =
+        env->GetMethodID(classCls, "getName", "()Ljava/lang/String;");
+    jmethodID midFieldType =
+        env->GetMethodID(fieldCls, "getType", "()Ljava/lang/Class;");
+    jmethodID midSetAccessible =
+        env->GetMethodID(fieldCls, "setAccessible", "(Z)V");
+    clearPendingException(env);
+    if (!midDeclaredFields || !midClassName || !midFieldType ||
+        !midSetAccessible) {
+        release();
+        return false;
+    }
+
+    jobjectArray fields = static_cast<jobjectArray>(
+        env->CallObjectMethod(sessionCls, midDeclaredFields));
+    if (env->ExceptionCheck()) {
+        env->ExceptionClear();
+        release();
+        return false;
+    }
+    if (!fields) {
+        release();
+        return false;
+    }
+
+    int stringIndex = 0;
+    const jsize count = env->GetArrayLength(fields);
+    for (jsize i = 0; i < count; ++i) {
+        jobject field = env->GetObjectArrayElement(fields, i);
+        if (!field) {
+            clearPendingException(env);
+            continue;
+        }
+
+        bool isString = false;
+        jobject type = env->CallObjectMethod(field, midFieldType);
+        if (type && !env->ExceptionCheck()) {
+            jstring typeName =
+                static_cast<jstring>(env->CallObjectMethod(type, midClassName));
+            if (typeName && !env->ExceptionCheck()) {
+                const char* raw = env->GetStringUTFChars(typeName, nullptr);
+                isString = raw && strcmp(raw, "java.lang.String") == 0;
+                if (raw)
+                    env->ReleaseStringUTFChars(typeName, raw);
+            }
+            clearPendingException(env);
+            if (typeName)
+                env->DeleteLocalRef(typeName);
+        }
+        clearPendingException(env);
+        if (type)
+            env->DeleteLocalRef(type);
+
+        if (isString) {
+            env->CallVoidMethod(field, midSetAccessible, JNI_TRUE);
+            clearPendingException(env);
+            fn(stringIndex++, field);
+        }
+
+        env->DeleteLocalRef(field);
+    }
+
+    env->DeleteLocalRef(fields);
+    release();
+    return stringIndex > 0;
+}
+
 }  // namespace
 
 void MaybeSpoofLoginPacket(JNIEnv* env, jobject packet) {
@@ -174,9 +335,129 @@ void MaybeSpoofLoginPacket(JNIEnv* env, jobject packet) {
         env->DeleteLocalRef(oldProfile);
 }
 
+bool SetSession(JNIEnv* env, const char* username, const char* uuid,
+                const char* token, const char* sessionType,
+                bool overwriteEmpty) {
+    if (!env)
+        return false;
+
+    std::lock_guard<std::mutex> lock(g_sessionMutex);
+
+    jobject session = acquireSession(env);
+    if (!session)
+        return false;
+
+    jclass fieldCls = env->FindClass("java/lang/reflect/Field");
+    jmethodID midSet =
+        fieldCls ? env->GetMethodID(fieldCls, "set",
+                                    "(Ljava/lang/Object;Ljava/lang/Object;)V")
+                 : nullptr;
+    clearPendingException(env);
+    if (!midSet) {
+        if (fieldCls)
+            env->DeleteLocalRef(fieldCls);
+        env->DeleteLocalRef(session);
+        return false;
+    }
+
+    const char* values[4] = {username, uuid, token, sessionType};
+    bool updated = false;
+
+    forEachSessionString(env, session, [&](int index, jobject field) {
+        if (index > 3)
+            return;
+        const char* value = values[index];
+        if (!value)
+            return;
+        if (!overwriteEmpty && value[0] == '\0')
+            return;
+
+        jstring jvalue = env->NewStringUTF(value);
+        if (!jvalue) {
+            clearPendingException(env);
+            return;
+        }
+        env->CallVoidMethod(field, midSet, session, jvalue);
+        if (!env->ExceptionCheck() && index == 0)
+            updated = true;
+        clearPendingException(env);
+        env->DeleteLocalRef(jvalue);
+    });
+
+    env->DeleteLocalRef(fieldCls);
+    env->DeleteLocalRef(session);
+
+    if (updated)
+        log_debug("[AltManager] Session username set to '%s'",
+                  username ? username : "");
+    return updated;
+}
+
+bool GetSession(JNIEnv* env, std::string& username, std::string& uuid,
+                std::string& token, std::string& sessionType) {
+    if (!env)
+        return false;
+
+    std::lock_guard<std::mutex> lock(g_sessionMutex);
+
+    jobject session = acquireSession(env);
+    if (!session)
+        return false;
+
+    jclass fieldCls = env->FindClass("java/lang/reflect/Field");
+    jmethodID midGet =
+        fieldCls ? env->GetMethodID(fieldCls, "get",
+                                    "(Ljava/lang/Object;)Ljava/lang/Object;")
+                 : nullptr;
+    clearPendingException(env);
+    if (!midGet) {
+        if (fieldCls)
+            env->DeleteLocalRef(fieldCls);
+        env->DeleteLocalRef(session);
+        return false;
+    }
+
+    std::string* out[4] = {&username, &uuid, &token, &sessionType};
+    bool ok = false;
+
+    forEachSessionString(env, session, [&](int index, jobject field) {
+        if (index > 3)
+            return;
+
+        jstring jvalue =
+            static_cast<jstring>(env->CallObjectMethod(field, midGet, session));
+        if (env->ExceptionCheck()) {
+            env->ExceptionClear();
+            return;
+        }
+        if (!jvalue)
+            return;
+
+        const char* raw = env->GetStringUTFChars(jvalue, nullptr);
+        if (raw) {
+            out[index]->assign(raw);
+            env->ReleaseStringUTFChars(jvalue, raw);
+            if (index == 0)
+                ok = true;
+        }
+        env->DeleteLocalRef(jvalue);
+    });
+
+    env->DeleteLocalRef(fieldCls);
+    env->DeleteLocalRef(session);
+    return ok;
+}
+
 void Shutdown(JNIEnv* env) {
     if (!env)
         return;
+
+    {
+        std::lock_guard<std::mutex> lock(g_sessionMutex);
+        g_getSessionMid = nullptr;
+        g_sessionField = nullptr;
+        g_sessionWarned = false;
+    }
 
     std::lock_guard<std::mutex> lock(g_cacheMutex);
     clearCache(env);
