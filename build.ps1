@@ -135,13 +135,13 @@ function Assert-ProtectedPE {
     )
 
     if (-not (Test-Path -LiteralPath $OutputPath)) {
-        Write-Log "VMProtect produced no protected $Label" FAIL
+        Write-Log "REProtect produced no protected $Label" FAIL
         exit 1
     }
 
     $outputInfo = Get-Item -LiteralPath $OutputPath
     if ($outputInfo.Length -lt 2) {
-        Write-Log "VMProtect produced an empty or truncated $Label" FAIL
+        Write-Log "REProtect produced an empty or truncated $Label" FAIL
         exit 1
     }
 
@@ -160,13 +160,13 @@ function Assert-ProtectedPE {
     }
 
     if ($first -ne 0x4D -or $second -ne 0x5A) {
-        Write-Log "VMProtect output for $Label is not a valid PE file" FAIL
+        Write-Log "REProtect output for $Label is not a valid PE file" FAIL
         exit 1
     }
 
     $protectedHash = Get-SHA256 $OutputPath
     if ($protectedHash -eq $OriginalHash) {
-        Write-Log "VMProtect output for $Label is byte-identical to the input" FAIL
+        Write-Log "REProtect output for $Label is byte-identical to the input" FAIL
         exit 1
     }
 
@@ -181,7 +181,7 @@ function Protect-Artifact {
     )
 
     Assert-File $InputPath "$Label was not produced"
-    Assert-File $Paths.VMProtectProject "VMProtect Ultra project is missing"
+    Assert-File $Paths.VMProtectProject "REProtect Ultra project is missing"
 
     New-Item -ItemType Directory -Force -Path $Paths.TempDir | Out-Null
     $protectedOutput = Join-Path $Paths.TempDir $OutputName
@@ -189,17 +189,17 @@ function Protect-Artifact {
     try {
         if (Test-Path $protectedOutput) { Remove-Item $protectedOutput -Force }
         $originalHash = Get-SHA256 $InputPath
-        Write-Log "Applying VMProtect Ultra to $Label (mutation + virtualization)..." STEP
+        Write-Log "Applying REProtect Ultra to $Label (mutation + virtualization)..." STEP
 
         & $Paths.VMProtectExe $InputPath $protectedOutput -pf $Paths.VMProtectProject -we
         $vmProtectExit = $LASTEXITCODE
         if ($vmProtectExit -ne 0) {
-            Write-Log "VMProtect failed for $Label (exit=$vmProtectExit)" FAIL
+            Write-Log "REProtect failed for $Label (exit=$vmProtectExit)" FAIL
             exit 1
         }
         $protectedHash = Assert-ProtectedPE $originalHash $protectedOutput $Label
         Copy-Item -LiteralPath $protectedOutput -Destination $InputPath -Force
-        Write-Log "VMProtect Ultra applied to $Label [$((Get-Item $InputPath).Length) bytes, SHA256=$protectedHash]" OK
+        Write-Log "REProtect Ultra applied to $Label [$((Get-Item $InputPath).Length) bytes, SHA256=$protectedHash]" OK
     }
     finally {
         if (Test-Path $protectedOutput) {
@@ -270,8 +270,8 @@ Write-Host ""
 if (-not $Clean -and -not $Build -and -not $Obfuscate -and -not $Pack -and -not $SkipDLL -and -not $SignExisting) {
     Write-Host "  Select build mode:" -ForegroundColor Cyan
     Write-Host "    [1]  Build without obfuscation" -ForegroundColor Green
-    Write-Host "    [2]  Build with VMProtect obfuscation" -ForegroundColor Yellow
-    Write-Host "    [3]  Build + Pack (VMProtect Ultra + signed manifest)" -ForegroundColor Yellow
+    Write-Host "    [2]  Build with REProtect obfuscation" -ForegroundColor Yellow
+    Write-Host "    [3]  Build + Pack (REProtect Ultra + signed manifest)" -ForegroundColor Yellow
     Write-Host "    [4]  Build + Pack + Deploy" -ForegroundColor Blue
     Write-Host "    [5]  Sign/deploy externally protected binaries" -ForegroundColor Magenta
     Write-Host "    [6]  Clean" -ForegroundColor Red
@@ -375,11 +375,11 @@ else {
 }
 
 if ($ProtectArtifacts) {
-    Assert-File $Paths.VMProtectBuild "VMProtect source is missing at $($Paths.VMProtectDir)"
-    Write-Log "Building VMProtect console and SDK from $($Paths.VMProtectDir)..." STEP
+    Assert-File $Paths.VMProtectBuild "REProtect source is missing at $($Paths.VMProtectDir)"
+    Write-Log "Building REProtect console and SDK from $($Paths.VMProtectDir)..." STEP
     & $Paths.VMProtectBuild -Platform x64
-    if ($LASTEXITCODE -ne 0) { Write-Log "VMProtect build failed" FAIL; exit 1 }
-    Assert-File $Paths.VMProtectExe "VMProtectCon.exe was not produced"
+    if ($LASTEXITCODE -ne 0) { Write-Log "REProtect build failed" FAIL; exit 1 }
+    Assert-File $Paths.VMProtectExe "REProtectCon.exe was not produced"
 }
 
 # --- Config generation -------------------------------------------------------
@@ -528,7 +528,7 @@ function Deploy-Release {
 
     $vpsHost = $cobbleConfig.deploy.vps_host
     $vpsUser = $cobbleConfig.deploy.vps_user
-    $sshKey = $cobbleConfig.deploy.ssh_key -replace '~', $env:USERPROFILE
+    $sshKey = [IO.Path]::GetFullPath(($cobbleConfig.deploy.ssh_key -replace '~', $env:USERPROFILE))
     $remotePath = $cobbleConfig.deploy.releases_path
 
     $sshOpts = @("-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=NUL", "-o", "LogLevel=ERROR", "-i", $sshKey)
@@ -690,7 +690,7 @@ Build-Loader "Pass 2"
 # Protect the loader after its final build pass. Dev-obfuscated builds stop
 # here without creating or signing a release manifest.
 if ($ProtectArtifacts) {
-    Assert-File $Paths.VMProtectProject "VMProtect Ultra project is missing"
+    Assert-File $Paths.VMProtectProject "REProtect Ultra project is missing"
 
     Protect-Artifact `
         -InputPath $Paths.LoaderOutput `
@@ -706,7 +706,7 @@ if ($Pack) {
     $version = Get-Version
 
     if ($Protector -eq "None") {
-        Write-Log "Skipping VMProtect; this release must not be published unprotected" WARN
+        Write-Log "Skipping REProtect; this release must not be published unprotected" WARN
     }
 
     $releaseInfo = New-SignedRelease `
@@ -725,7 +725,7 @@ if ($Deploy) {
 
     $vpsHost = $cobbleConfig.deploy.vps_host
     $vpsUser = $cobbleConfig.deploy.vps_user
-    $sshKey = $cobbleConfig.deploy.ssh_key -replace '~', $env:USERPROFILE
+    $sshKey = [IO.Path]::GetFullPath(($cobbleConfig.deploy.ssh_key -replace '~', $env:USERPROFILE))
     $remotePath = $cobbleConfig.deploy.releases_path
 
     $sshOpts = @("-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=NUL", "-o", "LogLevel=ERROR", "-i", $sshKey)
@@ -767,7 +767,7 @@ if ($Pack) {
     Write-Host "  -------" -ForegroundColor Green
     Write-Host "  Version    : $(Get-Version)" -ForegroundColor Green
     if ($Protector -eq "VMProtect") {
-        Write-Host "  Protector  : VMProtect Ultra APPLIED (DLL + loader)" -ForegroundColor Green
+        Write-Host "  Protector  : REProtect Ultra APPLIED (DLL + loader)" -ForegroundColor Green
     }
     else {
         Write-Host "  Protector  : NONE" -ForegroundColor Yellow
@@ -781,10 +781,10 @@ if ($Pack) {
 }
 else {
     if ($Obfuscate) {
-        Write-Host "  [INFO] DEV BUILD - VMProtect Ultra APPLIED (DLL + loader) - not signed/deployable" -ForegroundColor Green
+        Write-Host "  [INFO] DEV BUILD - REProtect Ultra APPLIED (DLL + loader) - not signed/deployable" -ForegroundColor Green
     }
     else {
-        Write-Host "  [INFO] DEV BUILD - VMProtect: SKIPPED - run with -Obfuscate to test protected binaries" -ForegroundColor Yellow
+        Write-Host "  [INFO] DEV BUILD - REProtect: SKIPPED - run with -Obfuscate to test protected binaries" -ForegroundColor Yellow
     }
 }
 

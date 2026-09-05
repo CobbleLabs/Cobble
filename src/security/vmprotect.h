@@ -4,14 +4,14 @@
 // identical source structure while compiling the markers as inert stubs.
 #ifdef COBBLE_DEV_BUILD
 
-inline void VMProtectBeginUltra(const char*) {}
-inline void VMProtectEnd() {}
+inline void REProtectBeginUltra(const char*) {}
+inline void REProtectEnd() {}
 
 #else
 
-#include <VMProtectSDK.h>
+#include <REProtectSDK.h>
 
 #endif
 
-#define COBBLE_DLL_ULTRA_START(name) VMProtectBeginUltra(name);
-#define COBBLE_DLL_ULTRA_END()        VMProtectEnd();
+#define COBBLE_DLL_ULTRA_START(name) REProtectBeginUltra(name);
+#define COBBLE_DLL_ULTRA_END()        REProtectEnd();

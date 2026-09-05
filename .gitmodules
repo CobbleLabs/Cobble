@@ -1,3 +1,3 @@
 [submodule "vmprotect"]
 	path = vmprotect
-	url = https://github.com/SyraTechnology/cobble-vmprotect.git
+	url = https://github.com/CobbleLabs/REProtect.git
