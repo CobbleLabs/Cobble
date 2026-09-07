@@ -502,6 +502,7 @@ if (-not $env:PAYLOAD_KEY) {
 # via GET /api/update/loader?as=<slug>. Slugs must match cobble-web DISGUISE_NAMES;
 # unknown slugs fall back to the stock binary server-side.
 # Missing rcedit/icons only skip variants - the release itself still succeeds.
+# Run tools\extract-disguise-icons.ps1 once per build pc to pull icons from installed programs.
 # NOTE: variants are stamped AFTER VMProtect. If the .vmp profile enforces
 # file-integrity checks, launch one variant once before deploying.
 function New-DisguiseVariants {
