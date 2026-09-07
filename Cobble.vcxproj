@@ -60,11 +60,15 @@
       <AdditionalLibraryDirectories>$(ProjectDir)reprotect\bin\64\Release;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
     </Link>
   </ItemDefinitionGroup>
-  <ItemDefinitionGroup Condition="'$(CobbleBuildMode)'=='Pack'">
-    <Link>
-      <AdditionalDependencies>REProtectSDK64.lib;%(AdditionalDependencies)</AdditionalDependencies>
-    </Link>
-  </ItemDefinitionGroup>
+   <ItemDefinitionGroup Condition="'$(CobbleBuildMode)'=='Pack'">
+     <Link>
+        <!-- REProtect parses Cobble.map and requires it to match the PE exactly;
+             incremental linking leaves a stale map. -->
+        <LinkIncremental>false</LinkIncremental>
+        <AdditionalOptions>/INCREMENTAL:NO %(AdditionalOptions)</AdditionalOptions>
+        <AdditionalDependencies>VMProtectSDK64.lib;%(AdditionalDependencies)</AdditionalDependencies>
+     </Link>
+   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="src\main.cpp" />
     <ClCompile Include="src\cobble.cpp" />

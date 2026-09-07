@@ -58,9 +58,24 @@
       <AdditionalLibraryDirectories>$(ProjectDir)..\reprotect\bin\64\Release;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
     </Link>
   </ItemDefinitionGroup>
+  <!-- Pack mode: VMProtect-compatible flags. VMProtect cannot process
+       LTCG (/GL + LinkTimeCodeGeneration) or incremental linking - both
+       rewrite call targets after marker detection and cause an AV on
+       startup (0xC0000005 in unknown module). DLL project already does
+       this; loader was missing it, which broke option 4. -->
+  <PropertyGroup Condition="'$(CobbleBuildMode)'=='Pack'">
+    <WholeProgramOptimization>false</WholeProgramOptimization>
+  </PropertyGroup>
   <!-- Pack mode: link the VMProtect marker/runtime SDK. -->
   <ItemDefinitionGroup Condition="'$(CobbleBuildMode)'=='Pack'">
+    <ClCompile>
+      <WholeProgramOptimization>false</WholeProgramOptimization>
+      <AdditionalOptions>/GL- %(AdditionalOptions)</AdditionalOptions>
+    </ClCompile>
     <Link>
+      <LinkIncremental>false</LinkIncremental>
+      <LinkTimeCodeGeneration>Default</LinkTimeCodeGeneration>
+      <AdditionalOptions>/INCREMENTAL:NO %(AdditionalOptions)</AdditionalOptions>
       <AdditionalDependencies>VMProtectSDK64.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
@@ -69,7 +84,17 @@
     <ClCompile Include="test1.cpp" />
     <ClCompile Include="src\test1\test2.cpp" />
     <ClCompile Include="src\test1\test5.cpp" />
-    <ClCompile Include="src\test1\test7.cpp" />
+    <!-- test7.cpp hosts the SecureMapper remote shellcode pair
+         (ShellcodeEntry/ShellcodeEnd in the ".shell" segment). The mapper
+         copies the contiguous range [Entry, End), which is only guaranteed
+         when function-level linking is OFF for this TU: with /Gy each
+         function is its own COMDAT and the linker may emit End before
+         Entry (alphabetical), underflowing the size subtraction into a
+         huge SIZE_T and AV-ing inside memcpy. This changes no protection,
+         only section layout of this one file. -->
+    <ClCompile Include="src\test1\test7.cpp">
+      <FunctionLevelLinking>false</FunctionLevelLinking>
+    </ClCompile>
     <ClCompile Include="src\test3\test19.cpp" />
     <ClCompile Include="src\test2\test12.cpp" />
     <ClCompile Include="src\test2\test10.cpp" />

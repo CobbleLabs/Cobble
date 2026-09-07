@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <chrono>
 #include <cstdint>
 #include <random>
@@ -74,16 +75,37 @@ private:
     // Session fatigue
     std::chrono::steady_clock::time_point sessionStart;
     float fatigueMultiplier = 1.0f;
-    int clicksSinceLastFatigueUpdate = 0;
+    float fatigueTargetMultiplier = 1.0f;
+    int fatiguePhaseClicksRemaining = 0;
+    bool recoveringFromFatigue = true;
 
     // Burst mode
     bool inBurst = false;
     int burstClicksRemaining = 0;
     float burstSpeedMultiplier = 1.0f;
 
-    // Non-uniform jitter
-    int currentJitterMode = 0;
-    int jitterModeClicksRemaining = 0;
+    // Wandering sigma: kurtosis drifts between focused and loose states
+    // instead of staying fixed at one value (a fixed kurtosis is a fingerprint).
+    float sigmaState = 0.22f;
+    int sigmaClicksRemaining = 0;
+    float sigmaTarget = 0.22f;
+    float sigmaSessionOffset = 0.0f;  // per-session baseline so windows never match
+
+    // Per-phase shape parameters — the whole distribution shape changes between
+    // phases so measured std / tail coverage never settles on one value.
+    float tempoStepScale = 0.14f;   // tempo random-walk step size
+    float tempoPull = 0.06f;        // tempo mean-reversion strength
+    float hesitationChance = 0.03f;
+    float doubleTapChance = 0.02f;
+    int shapePhaseClicksRemaining = 0;
+
+    // 1/f (pink noise) long-range dependence. Human motor timing has scale-free
+    // correlation structure; a plain random walk converges to white noise and
+    // fails spectral tests. Voss-McCartney algorithm.
+    std::array<float, 16> pinkRows{};
+    int pinkCounter = 0;
+    float pinkState = 0.0f;
+    float pinkAmplitude = 0.10f;  // log-space amplitude, randomized per session
 
 public:
     // For AimAssist integration
@@ -96,7 +118,9 @@ public:
     // Humanization
     void updateFatigue();
     void updateBurstMode();
-    void updateJitterMode();
+    void updateSigmaState();
+    void updateShapeParams();
+    float nextPink();
     void reseedSecureRng();
     double secureUnit();
     float generateTargetCps(float minCps, float maxCps);

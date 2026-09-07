@@ -332,6 +332,14 @@ bool SecureMapper::SecureManualMap(DWORD pid, BYTE* pData, size_t dataSize) {
     SIZE_T imageSize = pNt->OptionalHeader.SizeOfImage;
     SIZE_T contextSize = sizeof(MAPPER_CONTEXT);
     SIZE_T shellcodeSize = (SIZE_T)ShellcodeEnd - (SIZE_T)ShellcodeEntry;
+    // The shellcode MUST be the contiguous range [Entry, End). MSVC gives no
+    // ordering guarantee for /Gy COMDATs, so a flipped layout would underflow
+    // this subtraction into a huge SIZE_T and AV inside memcpy. Fail
+    // gracefully instead of crashing; correct ordering is enforced via
+    // FunctionLevelLinking=false for this TU (see loader/test37.vcxproj).
+    if ((SIZE_T)ShellcodeEnd <= (SIZE_T)ShellcodeEntry || shellcodeSize > 0x20000) {
+        return false;
+    }
     SIZE_T totalSize = imageSize + contextSize + shellcodeSize + 0x1000;
 
 

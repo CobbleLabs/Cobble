@@ -229,32 +229,37 @@ bool BlockHit::resolveApi(JNIEnv* env, jobject playerInstance) {
 
     // Deobfuscated name first, then the MCP field name. Lunar, Forge and vanilla between them
     // ship both, and GetFieldID walks superclasses, so a remapped subclass costs nothing.
-    const auto field = [&](jclass cls, const char* name, const char* srg,
-                           const char* sig) -> jfieldID {
-        jfieldID id = env->GetFieldID(cls, OBFUSCATE_STRING(name).c_str(),
-                                     OBFUSCATE_STRING(sig).c_str());
+    // The names arrive already obfuscated: OBFUSCATE_STRING needs a literal at the call site,
+    // because in a packed build it is a compile-time AES over sizeof(str), not a runtime call.
+    const auto field = [&](jclass cls, const std::string& name, const std::string& srg,
+                           const std::string& sig) -> jfieldID {
+        jfieldID id = env->GetFieldID(cls, name.c_str(), sig.c_str());
         if (clearEx(env) || !id) {
-            id = env->GetFieldID(cls, OBFUSCATE_STRING(srg).c_str(),
-                                 OBFUSCATE_STRING(sig).c_str());
+            id = env->GetFieldID(cls, srg.c_str(), sig.c_str());
             clearEx(env);
         }
         return id;
     };
 
-    fMovementInput_ = field(playerCls, "movementInput", "field_71158_b",
-                            "Lnet/minecraft/util/MovementInput;");
-    fSprintToggle_ = field(playerCls, "sprintToggleTimer", "field_71503_h", "I");
+    fMovementInput_ = field(playerCls, OBFUSCATE_STRING("movementInput"),
+                            OBFUSCATE_STRING("field_71158_b"),
+                            OBFUSCATE_STRING("Lnet/minecraft/util/MovementInput;"));
+    fSprintToggle_ = field(playerCls, OBFUSCATE_STRING("sprintToggleTimer"),
+                           OBFUSCATE_STRING("field_71503_h"), OBFUSCATE_STRING("I"));
     // GetFieldID walks superclasses, so Entity.ridingEntity resolves off the player class.
-    fRidingEntity_ = field(playerCls, "ridingEntity", "field_70154_o",
-                           "Lnet/minecraft/entity/Entity;");
+    fRidingEntity_ = field(playerCls, OBFUSCATE_STRING("ridingEntity"),
+                           OBFUSCATE_STRING("field_70154_o"),
+                           OBFUSCATE_STRING("Lnet/minecraft/entity/Entity;"));
 
     if (fMovementInput_) {
         jobject input = env->GetObjectField(playerInstance, fMovementInput_);
         if (!clearEx(env) && input) {
             jclass inputCls = env->GetObjectClass(input);
             if (!clearEx(env) && inputCls) {
-                fInputStrafe_ = field(inputCls, "moveStrafe", "field_78902_a", "F");
-                fInputForward_ = field(inputCls, "moveForward", "field_78900_b", "F");
+                fInputStrafe_ = field(inputCls, OBFUSCATE_STRING("moveStrafe"),
+                                      OBFUSCATE_STRING("field_78902_a"), OBFUSCATE_STRING("F"));
+                fInputForward_ = field(inputCls, OBFUSCATE_STRING("moveForward"),
+                                       OBFUSCATE_STRING("field_78900_b"), OBFUSCATE_STRING("F"));
                 env->DeleteLocalRef(inputCls);
             }
         }

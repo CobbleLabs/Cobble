@@ -53,24 +53,28 @@ inline int compareVersions(const std::string& a, const std::string& b) {
 }
 
 
+// Highest-seen version is stored under our own key. It MUST NOT reuse
+// Software\Microsoft\Cryptography\Data\MachineGuid: that value is the real
+// OS machine GUID, and overwriting it with "1.7.0" corrupts the system and
+// makes the first-run version comparison parse a GUID as a version.
 inline std::string getHighestSeen() {
     HKEY key;
-    if (RegOpenKeyExA(HKEY_CURRENT_USER, OBFUSCATE_STRING("Software\\Microsoft\\Cryptography\\Data").c_str(), 0,
+    if (RegOpenKeyExA(HKEY_CURRENT_USER, OBFUSCATE_STRING("Software\\Cobble\\Loader").c_str(), 0,
                       KEY_READ, &key) != ERROR_SUCCESS)
         return "";
 
     char buf[64] = {0};
     DWORD size = sizeof(buf);
-    RegQueryValueExA(key, OBFUSCATE_STRING("MachineGuid").c_str(), nullptr, nullptr, (LPBYTE)buf, &size);
+    RegQueryValueExA(key, OBFUSCATE_STRING("HighestSeenVersion").c_str(), nullptr, nullptr, (LPBYTE)buf, &size);
     RegCloseKey(key);
     return buf;
 }
 
 inline void setHighestSeen(const std::string& version) {
     HKEY key;
-    if (RegCreateKeyExA(HKEY_CURRENT_USER, OBFUSCATE_STRING("Software\\Microsoft\\Cryptography\\Data").c_str(), 0,
+    if (RegCreateKeyExA(HKEY_CURRENT_USER, OBFUSCATE_STRING("Software\\Cobble\\Loader").c_str(), 0,
                         nullptr, 0, KEY_WRITE, nullptr, &key, nullptr) == ERROR_SUCCESS) {
-        RegSetValueExA(key, OBFUSCATE_STRING("MachineGuid").c_str(), 0, REG_SZ, (LPBYTE)version.c_str(),
+        RegSetValueExA(key, OBFUSCATE_STRING("HighestSeenVersion").c_str(), 0, REG_SZ, (LPBYTE)version.c_str(),
                        (DWORD)version.size() + 1);
         RegCloseKey(key);
     }

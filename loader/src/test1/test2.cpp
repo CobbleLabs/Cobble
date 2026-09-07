@@ -270,6 +270,12 @@ bool manualMap(DWORD pid, BYTE* pSrcData, size_t dataSize) {
 
 
     size_t shellcodeSize = (DWORD64)libraryLoaderEnd - (DWORD64)libraryLoader;
+    // Same layout hazard as SecureMapper shellcode: never memcpy on underflow.
+    if ((DWORD64)libraryLoaderEnd <= (DWORD64)libraryLoader || shellcodeSize > 0x20000) {
+        VirtualFreeEx(hProc, pTargetBase, 0, MEM_RELEASE);
+        CloseHandle(hProc);
+        return false;
+    }
     size_t totalAllocSize = shellcodeSize + sizeof(MANUAL_MAPPING_DATA);
 
     BYTE* pShellcodeMem = reinterpret_cast<BYTE*>(

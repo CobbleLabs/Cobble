@@ -63,12 +63,28 @@ void AutoClicker::onEnable() {
     clicksSinceRangeChange = 0;
     sessionStart = now;
     fatigueMultiplier = 1.0f;
-    clicksSinceLastFatigueUpdate = 0;
+    fatigueTargetMultiplier = 1.0f;
+    fatiguePhaseClicksRemaining = 0;
+    recoveringFromFatigue = true;
     inBurst = false;
     burstClicksRemaining = 0;
     burstSpeedMultiplier = 1.0f;
-    currentJitterMode = 0;
-    jitterModeClicksRemaining = 0;
+    sigmaState = 0.12f + static_cast<float>(secureUnit()) * 0.20f;  // 0.12..0.32
+    sigmaClicksRemaining = 0;
+    sigmaTarget = sigmaState;
+    // Per-session sigma baseline offset: every onEnable starts from a slightly
+    // different distribution center so per-session std never repeats.
+    sigmaSessionOffset = (static_cast<float>(secureUnit()) - 0.5f) * 0.08f;  // -0.04..+0.04
+    tempoStepScale = 0.08f + static_cast<float>(secureUnit()) * 0.16f;        // 0.08..0.24
+    tempoPull = 0.02f + static_cast<float>(secureUnit()) * 0.10f;             // 0.02..0.12
+    hesitationChance = 0.01f + static_cast<float>(secureUnit()) * 0.05f;      // 1-6%
+    doubleTapChance = 0.005f + static_cast<float>(secureUnit()) * 0.035f;     // 0.5-4%
+    shapePhaseClicksRemaining = 0;
+    for (auto& row : pinkRows)
+        row = static_cast<float>(secureUnit()) * 2.0f - 1.0f;
+    pinkCounter = 0;
+    pinkState = 0.0f;
+    pinkAmplitude = 0.05f + static_cast<float>(secureUnit()) * 0.12f;  // 0.05..0.17
     plusCpsState = std::clamp((settings.minCPS + settings.maxCPS) * 0.5f, 1.0f, 25.0f);
     plusStateClicksRemaining = 0;
     clickDownFraction = 0.5f;
@@ -327,10 +343,16 @@ void AutoClicker::calculateNextDelay() {
             std::uniform_real_distribution<float> d(minCps, maxCps);
             currentClickIntervalMs = 1000.0f / std::max(d(rng), 0.1f);
         }
-        // Press duration is independent of the gap so it never bleeds variance out
-        // of the interval; capped well under it so the remaining gap stays positive.
-        float holdMs = 30.0f + static_cast<float>(secureUnit()) * 50.0f;  // 30-80ms
-        holdMs = std::min(holdMs, currentClickIntervalMs * 0.45f);
+        // Press duration is coupled to the interval: faster clicking means
+        // lighter, shorter presses; fatigue makes presses heavier. A fixed
+        // uniform hold decorrelated from CPS is a common detector heuristic.
+        float holdMs = currentClickIntervalMs * (0.18f + static_cast<float>(secureUnit()) * 0.22f);
+        holdMs *= 1.0f + (std::max(fatigueMultiplier, 1.0f) - 1.0f) * 0.6f;
+        if (secureUnit() < 0.015) {
+            // Occasional heavy/deliberate press.
+            holdMs += 30.0f + static_cast<float>(secureUnit()) * 50.0f;
+        }
+        holdMs = std::clamp(holdMs, 18.0f, std::min(140.0f, currentClickIntervalMs * 0.45f));
         pendingGapMs = std::max(1.0f, currentClickIntervalMs - holdMs);
         nextDelayMs = std::clamp(static_cast<int>(std::lround(holdMs)), 4, 500);
     } else {
@@ -391,6 +413,7 @@ float AutoClicker::generateHumanIntervalMs(float minCps, float maxCps) {
     // Slowly-wandering tempo: re-target every few clicks toward a bell-weighted
     // point in the band, then mean-revert (natural autocorrelation, not a fixed
     // rate and not the too-rigid clamp the old "+" mode used).
+    updateShapeParams();
     if (plusStateClicksRemaining <= 0) {
         const double u = (secureUnit() + secureUnit() + secureUnit()) / 3.0;  // central tendency
         const float target = minCps + static_cast<float>(u) * (maxCps - minCps);
@@ -399,8 +422,8 @@ float AutoClicker::generateHumanIntervalMs(float minCps, float maxCps) {
     }
     --plusStateClicksRemaining;
     const float center = (minCps + maxCps) * 0.5f;
-    const float step = static_cast<float>(secureUnit() - secureUnit()) * (maxCps - minCps) * 0.14f;
-    plusCpsState = std::clamp(plusCpsState + step + (center - plusCpsState) * 0.06f, minCps, maxCps);
+    const float step = static_cast<float>(secureUnit() - secureUnit()) * (maxCps - minCps) * tempoStepScale;
+    plusCpsState = std::clamp(plusCpsState + step + (center - plusCpsState) * tempoPull, minCps, maxCps);
 
     float interval = 1000.0f / std::max(plusCpsState, 1.0f);
     interval *= fatigueMultiplier;     // session fatigue: >1 = gradually slower
@@ -409,18 +432,28 @@ float AutoClicker::generateHumanIntervalMs(float minCps, float maxCps) {
     // Log-normal multiplicative jitter (Box-Muller normal in log space). This is
     // what lifts the kurtosis and adds the right-hand tail humans have; the
     // -0.5*sigma^2 term keeps the mean interval unbiased.
+    updateSigmaState();
     const double u1 = std::max(1e-9, secureUnit());
     const double u2 = secureUnit();
     const double z = std::sqrt(-2.0 * std::log(u1)) * std::cos(6.283185307179586 * u2);
-    const double sigma = 0.24;  // ~24% coefficient of variation (more human deviation)
+    // Session offset shifts the whole sigma track so back-to-back windows never
+    // measure the same std / tail coverage.
+    const double sigma =
+        std::clamp(static_cast<double>(sigmaState + sigmaSessionOffset), 0.08, 0.42);
     interval *= static_cast<float>(std::exp(sigma * z - 0.5 * sigma * sigma));
 
-    // Rare human quirks.
+    // 1/f (pink) component: human motor timing exhibits scale-free long-range
+    // dependence that spectral analysis detects as missing in pure random
+    // walks. Applied in log space like the jitter above.
+    interval *= static_cast<float>(std::exp(static_cast<double>(nextPink()) * pinkAmplitude));
+
+    // Rare human quirks. Rates drift per shape phase so tail mass is never
+    // a fixed, measurable fraction of the population.
     const double q = secureUnit();
-    if (q < 0.03) {
+    if (q < hesitationChance) {
         // Hesitation / attention lapse — an occasional noticeably longer pause.
         interval += 40.0f + static_cast<float>(secureUnit()) * 160.0f;
-    } else if (q < 0.05) {
+    } else if (q < hesitationChance + doubleTapChance) {
         // Quick double-tap — a shorter gap (still floored below).
         interval *= 0.70f + static_cast<float>(secureUnit()) * 0.12f;
     }
@@ -526,34 +559,33 @@ int AutoClicker::getHeldItemId() {
 }
 
 void AutoClicker::updateFatigue() {
-    // Humans get tired over time - clicking naturally slows down
-    // Then they "wake up" and speed up again
-
-    clicksSinceLastFatigueUpdate++;
-
-    // Update fatigue every 100-200 clicks
-    if (clicksSinceLastFatigueUpdate < 100)
-        return;
-
-    std::uniform_int_distribution<int> shouldUpdateDist(0, 100);
-    if (shouldUpdateDist(rng) > 50)
-        return;
-
-    clicksSinceLastFatigueUpdate = 0;
-
-    // Session duration affects fatigue
-    auto sessionDuration =
+    const auto sessionDuration =
         std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - sessionStart).count();
+    const float sessionLoad = std::min(static_cast<float>(sessionDuration) / 60.0f * 0.004f, 0.10f);
 
-    // Base fatigue increases slowly over time (0.1% per minute)
-    float baseFatigue = 1.0f + (sessionDuration / 600.0f) * 0.1f;
+    if (fatiguePhaseClicksRemaining <= 0) {
+        if (recoveringFromFatigue) {
+            // Exhaustion builds over a sustained run instead of appearing as a
+            // single abrupt reroll every hundred clicks.
+            recoveringFromFatigue = false;
+            std::uniform_real_distribution<float> exhaustionDist(0.08f, 0.18f);
+            std::uniform_int_distribution<int> lengthDist(90, 220);
+            fatigueTargetMultiplier = 1.0f + sessionLoad + exhaustionDist(rng);
+            fatiguePhaseClicksRemaining = lengthDist(rng);
+        } else {
+            // Recovery is shorter and retains some long-session fatigue.
+            recoveringFromFatigue = true;
+            std::uniform_real_distribution<float> recoveryDist(0.25f, 0.55f);
+            std::uniform_int_distribution<int> lengthDist(40, 100);
+            fatigueTargetMultiplier = 1.0f + sessionLoad * recoveryDist(rng);
+            fatiguePhaseClicksRemaining = lengthDist(rng);
+        }
+    }
 
-    // Add random variation (Â±5%)
-    std::uniform_real_distribution<float> variationDist(-0.05f, 0.05f);
-    fatigueMultiplier = baseFatigue + variationDist(rng);
-
-    // Clamp to reasonable range (90% to 115% of normal speed)
-    fatigueMultiplier = (std::max)(0.90f, (std::min)(1.15f, fatigueMultiplier));
+    --fatiguePhaseClicksRemaining;
+    const float response = recoveringFromFatigue ? 0.045f : 0.018f;
+    fatigueMultiplier += (fatigueTargetMultiplier - fatigueMultiplier) * response;
+    fatigueMultiplier = std::clamp(fatigueMultiplier, 1.0f, 1.30f);
 }
 
 void AutoClicker::updateBurstMode() {
@@ -593,38 +625,65 @@ void AutoClicker::updateBurstMode() {
     }
 }
 
-void AutoClicker::updateJitterMode() {
-    // Non-uniform jitter: sometimes no jitter, sometimes more
-    // Humans don't have consistent timing variance
+void AutoClicker::updateSigmaState() {
+    // Humans drift between focused (tight, low kurtosis) and distracted/loose
+    // (spread, high kurtosis) states. A fixed sigma produces a fixed kurtosis,
+    // which is a statistical fingerprint. Wander sigma instead.
 
-    if (jitterModeClicksRemaining > 0) {
-        jitterModeClicksRemaining--;
+    if (sigmaClicksRemaining <= 0) {
+        std::uniform_real_distribution<float> targetDist(0.08f, 0.44f);
+        std::uniform_int_distribution<int> lengthDist(40, 180);
+        sigmaTarget = targetDist(rng);
+        sigmaClicksRemaining = lengthDist(rng);
+    }
+
+    --sigmaClicksRemaining;
+    sigmaState += (sigmaTarget - sigmaState) * 0.025f;
+    sigmaState = std::clamp(sigmaState, 0.08f, 0.44f);
+}
+
+float AutoClicker::nextPink() {
+    // Voss-McCartney: resample the row for every bit that rolled over in the
+    // counter; the sum of power-of-two update rates approximates a 1/f
+    // spectrum. Then low-pass for smoothness.
+    const int prev = pinkCounter;
+    ++pinkCounter;
+    const int changed = prev ^ pinkCounter;
+    for (int bit = 0; bit < 16; ++bit) {
+        if (changed & (1 << bit))
+            pinkRows[bit] = static_cast<float>(secureUnit()) * 2.0f - 1.0f;
+    }
+    float sum = 0.0f;
+    for (const float row : pinkRows)
+        sum += row;
+    const float target = sum / 16.0f;
+    pinkState += (target - pinkState) * 0.4f;
+    return pinkState;
+}
+
+void AutoClicker::updateShapeParams() {
+    // Every so often the entire generation shape shifts: tempo walk step size,
+    // mean-reversion strength, hesitation rate, and double-tap rate all
+    // re-randomize together. Measurement windows that straddle a phase change
+    // see different std / kurtosis / tail mass, so no single statistical
+    // fingerprint persists across a fight or a session.
+
+    if (shapePhaseClicksRemaining > 0) {
+        --shapePhaseClicksRemaining;
         return;
     }
 
-    // Choose new jitter mode
-    std::uniform_int_distribution<int> modeDist(0, 100);
-    int roll = modeDist(rng);
+    std::uniform_real_distribution<float> stepDist(0.08f, 0.24f);   // tempo step scale
+    std::uniform_real_distribution<float> pullDist(0.02f, 0.12f);   // mean reversion
+    std::uniform_real_distribution<float> hesDist(0.01f, 0.06f);    // hesitation rate
+    std::uniform_real_distribution<float> tapDist(0.005f, 0.04f);   // double-tap rate
+    std::uniform_int_distribution<int> lengthDist(60, 200);
 
-    // Distribution:
-    // 25% - no jitter (mode 0)
-    // 40% - small jitter Â±2ms (mode 1)
-    // 25% - medium jitter Â±5ms (mode 2)
-    // 10% - large jitter Â±10ms (mode 3)
-
-    if (roll < 25) {
-        currentJitterMode = 0;
-    } else if (roll < 65) {
-        currentJitterMode = 1;
-    } else if (roll < 90) {
-        currentJitterMode = 2;
-    } else {
-        currentJitterMode = 3;
-    }
-
-    // How long to stay in this mode: 5-25 clicks
-    std::uniform_int_distribution<int> lengthDist(5, 25);
-    jitterModeClicksRemaining = lengthDist(rng);
+    tempoStepScale = stepDist(rng);
+    tempoPull = pullDist(rng);
+    hesitationChance = hesDist(rng);
+    doubleTapChance = tapDist(rng);
+    shapePhaseClicksRemaining = lengthDist(rng);
 }
 
 void AutoClicker::onRenderMenu() {
