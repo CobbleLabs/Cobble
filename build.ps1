@@ -228,6 +228,63 @@ function Get-Version {
     return "0.0.0"
 }
 
+# After a successful VPS deploy, tag HEAD as v<version> so prod is a git
+# commit we can hotfix from. Never moves an existing tag. Never fails the deploy.
+function Publish-GitTag {
+    param([string]$Version)
+
+    if ([string]::IsNullOrWhiteSpace($Version) -or $Version -eq "0.0.0") {
+        Write-Log "No version; skipped git tag. Set cobble.json version and tag the prod commit manually." WARN
+        return
+    }
+
+    $tag = "v$Version"
+    Push-Location $Paths.Root
+    try {
+        if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
+            Write-Log "git not found; create the prod tag manually: git tag -a $tag -m `"prod $tag`" && git push origin $tag" WARN
+            return
+        }
+
+        git rev-parse --is-inside-work-tree 2>$null | Out-Null
+        if ($LASTEXITCODE -ne 0) {
+            Write-Log "Not a git repo; skipped tag $tag" WARN
+            return
+        }
+
+        $branch = (git rev-parse --abbrev-ref HEAD 2>$null).Trim()
+        if ($branch -ne "main") {
+            Write-Log "Deployed from '$branch', not main. Tag $tag still points at this commit. Merge it into main so prod matches git." WARN
+        }
+
+        git rev-parse -q --verify "refs/tags/$tag" 2>$null | Out-Null
+        if ($LASTEXITCODE -eq 0) {
+            $head = (git rev-parse HEAD).Trim()
+            $tagged = (git rev-parse "$tag^{commit}").Trim()
+            if ($tagged -eq $head) {
+                Write-Log "Tag $tag already points at HEAD" OK
+            } else {
+                Write-Log "Tag $tag already exists on a different commit. Not moving it. Prod commit is $(git rev-parse --short HEAD)" WARN
+            }
+            return
+        }
+
+        git tag -a $tag -m "prod $tag"
+        if ($LASTEXITCODE -ne 0) {
+            Write-Log "Failed to create tag $tag" WARN
+            return
+        }
+        git push origin "refs/tags/$tag"
+        if ($LASTEXITCODE -ne 0) {
+            Write-Log "Created $tag locally but push failed. Run: git push origin $tag" WARN
+            return
+        }
+        Write-Log "Tagged and pushed $tag ($(git rev-parse --short HEAD))" OK
+    } finally {
+        Pop-Location
+    }
+}
+
 # Write generated/build_flags.h. ForcedIncludeFiles in the vcxproj pulls this
 # into every translation unit, so source code can branch on COBBLE_DEV_BUILD
 # without any extra plumbing. Pack builds drop the macro entirely.
@@ -558,6 +615,7 @@ if ($SignExisting) {
             "$($Paths.ReleaseDir)\manifest.json",
             "$($Paths.ReleaseDir)\manifest.sig"
         )
+        Publish-GitTag -Version (Get-Version)
     }
 
     $elapsed = (Get-Date) - $BuildStart
@@ -742,6 +800,7 @@ if ($Deploy) {
     & scp @sshOpts $files "${vpsUser}@${vpsHost}:${remotePath}/"
     if ($LASTEXITCODE -ne 0) { Write-Log "scp failed" FAIL; exit 1 }
     Write-Log "Deployed $($files.Count) files to ${vpsUser}@${vpsHost}:${remotePath}" OK
+    Publish-GitTag -Version (Get-Version)
 }
 
 # --- Summary -----------------------------------------------------------------

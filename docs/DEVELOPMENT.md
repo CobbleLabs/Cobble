@@ -2,6 +2,8 @@
 
 This guide explains how to work within the Cobble codebase: creating modules, using the UI system, and following project conventions.
 
+Work on `testing`. `main` is production. Feature branches come off `testing` and merge back into `testing`. See [UPDATE_WORKFLOW.md](UPDATE_WORKFLOW.md#branches) for releases and hotfixes.
+
 ---
 
 ## Project Structure

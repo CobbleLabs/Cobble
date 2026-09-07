@@ -1,5 +1,22 @@
 # Update & Release Workflow
 
+## Branches
+
+| Branch | Role |
+|--------|------|
+| `testing` | Daily work. Default branch. Features land here. |
+| `main` | Production. Merge here only when you are shipping. |
+
+**Feature:** branch off `testing`, merge back into `testing`.
+
+**Release:** merge `testing` → `main`, bump `cobble.json` `version`, deploy from `main`. `build.ps1 -Pack -Deploy` tags `v<version>` on that commit.
+
+**Hotfix:** branch off `main` (or the `v*` tag), fix, merge into `main`, deploy, then merge `main` into `testing` so the fix is not lost.
+
+Do not deploy from `testing`. Unfinished work on that branch would ship.
+
+---
+
 ## Overview
 
 Cobble uses an **integrated autoupdater** that allows the loader to update itself automatically. The system includes:
@@ -134,9 +151,10 @@ Option 3:
 - Prepares a temporary local deployment bundle and uploads all four artifacts
   directly to the VPS configured in `cobble.json`.
 - Does not create or publish a GitHub Release.
+- Tags and pushes `v<version>` on the deployed commit.
 
 Only the owner/operator with the signing key and VPS credentials should run
-option 3.
+option 3. The tag is the production commit: hotfix from it, not from `testing`.
 
 ### Why the VPS receives an EXE and a DLL
 
