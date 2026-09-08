@@ -12,7 +12,9 @@
                                            Use an external VMProtect source checkout
     .\build.ps1 -Pack -Protector None    Production build + signed manifest, no built-in protector
     .\build.ps1 -SignExisting -Deploy    Sign/deploy externally protected binaries
-    .\build.ps1 -Pack -Deploy            Pack + scp to VPS
+    .\build.ps1 -Pack -Deploy            Pack + scp, publish update, then tag
+    .\build.ps1 -ReleaseNotesOnly        Generate JSON/Markdown without network calls
+    .\build.ps1 -PublishOnly             Publish an already deployed release without SCP
     .\build.ps1 -Clean                   Wipe out/, generated/, hash headers
     .\build.ps1 -SkipDLL                 Loader-only rebuild
 
@@ -40,7 +42,12 @@ param(
     [switch]$Mandatory,
     [Alias("Release", "PrepareRelease")][switch]$ReleaseAlias,
     [switch]$Deploy,
-    [string]$ReleaseNotes = ""
+    [string]$ReleaseNotes = "",
+    [switch]$ReleaseNotesOnly,
+    [switch]$PublishOnly,
+    [switch]$AllowDirtyRelease,
+    [switch]$SkipUpdateAnnouncement,
+    [string]$BaseRef = ""
 )
 
 Set-StrictMode -Version Latest
@@ -68,6 +75,111 @@ function Write-Log {
     }
     $tag = $Level.PadRight(4)
     Write-Host "[$time][$tag] $Message" -ForegroundColor $color
+}
+
+function Get-ReleaseVersionFromConfig {
+    $configPath = Join-Path $PSScriptRoot "cobble.json"
+    if (-not (Test-Path -LiteralPath $configPath)) {
+        throw "cobble.json not found - copy cobble.json.example and fill in values"
+    }
+
+    $config = [IO.File]::ReadAllText($configPath) | ConvertFrom-Json
+    $version = [string]$config.version
+    if ([string]::IsNullOrWhiteSpace($version) -or $version -eq "0.0.0") {
+        throw "cobble.json must contain a release version"
+    }
+    return $version.Trim()
+}
+
+function New-ReleaseNotes {
+    param([string]$Version)
+
+    $generator = Join-Path $PSScriptRoot "tools\release_notes.ps1"
+    if (-not (Test-Path -LiteralPath $generator)) {
+        throw "tools/release_notes.ps1 not found"
+    }
+
+    $arguments = @{ Version = $Version }
+    if (-not [string]::IsNullOrWhiteSpace($BaseRef)) {
+        $arguments.BaseRef = $BaseRef
+    }
+    if ($AllowDirtyRelease) {
+        $arguments.AllowDirty = $true
+    }
+
+    $outputs = @(& $generator @arguments)
+    if ($outputs.Count -ne 1 -or -not (Test-Path -LiteralPath $outputs[0])) {
+        throw "Release note generation did not produce exactly one JSON file"
+    }
+    return [IO.Path]::GetFullPath([string]$outputs[0])
+}
+
+function Publish-UpdateAnnouncement {
+    param([string]$JsonPath)
+
+    if (-not (Test-Path -LiteralPath $JsonPath)) {
+        throw "Release announcement JSON not found: $JsonPath"
+    }
+    if ([string]::IsNullOrWhiteSpace($env:COBBLE_RELEASE_TOKEN)) {
+        throw "COBBLE_RELEASE_TOKEN is required to publish the update announcement"
+    }
+
+    $apiBase = if ([string]::IsNullOrWhiteSpace($env:COBBLE_RELEASE_API_URL)) {
+        "https://api.cobble.vip"
+    }
+    else {
+        $env:COBBLE_RELEASE_API_URL.TrimEnd("/")
+    }
+    $uri = "$apiBase/api/release/publish"
+    Write-Log "Publishing update announcement..." STEP
+    try {
+        $response = Invoke-RestMethod `
+            -Uri $uri `
+            -Method Post `
+            -Headers @{ "X-Release-Token" = $env:COBBLE_RELEASE_TOKEN } `
+            -ContentType "application/json; charset=utf-8" `
+            -InFile $JsonPath
+    }
+    catch {
+        throw "Update announcement request failed. Retry with -PublishOnly."
+    }
+
+    if ($null -eq $response -or $response.success -ne $true) {
+        throw "Update announcement was not accepted. Retry with -PublishOnly."
+    }
+    if ($null -eq $response.data -or $response.data.discord_delivered -ne $true) {
+        Write-Log "Update rows exist, but Discord delivery failed; the backend will not duplicate them." WARN
+        throw "Update announcement was saved without Discord delivery. Use the admin Discord retry action."
+    }
+    Write-Log "Website and Discord update announcement published" OK
+}
+
+if ($ReleaseNotesOnly -and $PublishOnly) {
+    Write-Log "-ReleaseNotesOnly and -PublishOnly cannot be combined" FAIL
+    exit 1
+}
+if (($ReleaseNotesOnly -or $PublishOnly) -and
+    ($Clean -or $Build -or $Obfuscate -or $Pack -or $SkipDLL -or $SignExisting -or $Deploy -or $SkipUpdateAnnouncement)) {
+    Write-Log "Standalone release-note modes cannot be combined with build, sign, or deploy modes" FAIL
+    exit 1
+}
+
+if ($ReleaseNotesOnly -or $PublishOnly) {
+    try {
+        $standaloneVersion = Get-ReleaseVersionFromConfig
+        $standaloneJson = New-ReleaseNotes -Version $standaloneVersion
+        if ($ReleaseNotesOnly) {
+            Write-Log "Release JSON: $standaloneJson" OK
+            Write-Log "Release Markdown: $([IO.Path]::ChangeExtension($standaloneJson, '.md'))" OK
+            exit 0
+        }
+        Publish-UpdateAnnouncement -JsonPath $standaloneJson
+        exit 0
+    }
+    catch {
+        Write-Log $_.Exception.Message FAIL
+        exit 1
+    }
 }
 
 if ($SignExisting -and ($Build -or $Obfuscate -or $Pack -or $SkipDLL)) {
@@ -233,6 +345,11 @@ function Get-Version {
 function Publish-GitTag {
     param([string]$Version)
 
+    if ($AllowDirtyRelease) {
+        Write-Log "Skipped git tag because -AllowDirtyRelease means HEAD may not match the deployed binaries" WARN
+        return
+    }
+
     if ([string]::IsNullOrWhiteSpace($Version) -or $Version -eq "0.0.0") {
         Write-Log "No version; skipped git tag. Set cobble.json version and tag the prod commit manually." WARN
         return
@@ -255,6 +372,12 @@ function Publish-GitTag {
         $branch = (git rev-parse --abbrev-ref HEAD 2>$null).Trim()
         if ($branch -ne "main") {
             Write-Log "Deployed from '$branch', not main. Tag $tag still points at this commit. Merge it into main so prod matches git." WARN
+        }
+
+        $dirty = @(git status --porcelain=v1 --untracked-files=all 2>$null)
+        if ($dirty.Count -gt 0) {
+            Write-Log "Skipped tag $tag because the deployed worktree contains uncommitted changes." WARN
+            return
         }
 
         git rev-parse -q --verify "refs/tags/$tag" 2>$null | Out-Null
@@ -357,6 +480,27 @@ $ProtectArtifacts = (($Pack -or $Obfuscate) -and $Protector -eq "VMProtect")
 Write-Host "  Config : $Configuration | Platform: $Platform | Mode: $BuildMode"
 Write-Host "  Pack   : $Pack | Obfuscate: $Obfuscate | Protector: $Protector | SignExisting: $SignExisting | Deploy: $Deploy"
 Write-Host ""
+
+if ($Deploy -and -not $Pack -and -not $SignExisting) {
+    Write-Log "-Deploy requires -Pack or -SignExisting" FAIL
+    exit 1
+}
+
+$releaseAnnouncementPath = ""
+if ($Deploy -and -not $SkipUpdateAnnouncement) {
+    try {
+        $releaseVersion = Get-ReleaseVersionFromConfig
+        $releaseAnnouncementPath = New-ReleaseNotes -Version $releaseVersion
+        Write-Log "Release announcement validated before build: $releaseAnnouncementPath" OK
+    }
+    catch {
+        Write-Log $_.Exception.Message FAIL
+        exit 1
+    }
+}
+elseif ($Deploy) {
+    Write-Log "Update announcement generation and publication skipped" WARN
+}
 
 # --- Paths -------------------------------------------------------------------
 
@@ -493,6 +637,9 @@ function New-SignedRelease {
     Assert-File $SourceDll "Cobble.dll not found at $SourceDll"
 
     $version = Get-Version
+    if ([string]::IsNullOrWhiteSpace($version) -or $version -eq "0.0.0") {
+        throw "Generated version is missing; set cobble.json version before packing"
+    }
 
     $releaseParent = Split-Path -Parent $Paths.ReleaseDir
     New-Item -ItemType Directory -Force -Path $releaseParent | Out-Null
@@ -564,6 +711,7 @@ function New-SignedRelease {
         Write-Log "Deployment bundle v$version signed and prepared locally" OK
 
         return [pscustomobject]@{
+            Version    = $version
             LoaderPath = Join-Path $Paths.ReleaseDir "CobbleLoader.exe"
             DllPath    = Join-Path $Paths.ReleaseDir "Cobble.dll"
             LoaderHash = $loaderHash
@@ -598,6 +746,21 @@ function Deploy-Release {
     Write-Log "Deployed $($Files.Count) files to ${vpsUser}@${vpsHost}:${remotePath}" OK
 }
 
+function Complete-ReleaseDeployment {
+    param([pscustomobject]$ReleaseInfo)
+
+    Deploy-Release -Files @(
+        $ReleaseInfo.LoaderPath,
+        $ReleaseInfo.DllPath,
+        "$($Paths.ReleaseDir)\manifest.json",
+        "$($Paths.ReleaseDir)\manifest.sig"
+    )
+    if (-not $SkipUpdateAnnouncement) {
+        Publish-UpdateAnnouncement -JsonPath $releaseAnnouncementPath
+    }
+    Publish-GitTag -Version $ReleaseInfo.Version
+}
+
 if ($SignExisting) {
     $existingDir = if ($ExistingReleaseDir) { $ExistingReleaseDir } else { "$PSScriptRoot\out\vmprotect" }
     $sourceLoader = if ($ExistingLoader) { $ExistingLoader } else { Join-Path $existingDir "CobbleLoader.exe" }
@@ -609,13 +772,7 @@ if ($SignExisting) {
 
     $releaseInfo = New-SignedRelease -SourceLoader $sourceLoader -SourceDll $sourceDll -Protected:$true
     if ($Deploy) {
-        Deploy-Release -Files @(
-            $releaseInfo.LoaderPath,
-            $releaseInfo.DllPath,
-            "$($Paths.ReleaseDir)\manifest.json",
-            "$($Paths.ReleaseDir)\manifest.sig"
-        )
-        Publish-GitTag -Version (Get-Version)
+        Complete-ReleaseDeployment -ReleaseInfo $releaseInfo
     }
 
     $elapsed = (Get-Date) - $BuildStart
@@ -776,31 +933,7 @@ if ($Pack) {
 # --- Deploy ------------------------------------------------------------------
 
 if ($Deploy) {
-    if (-not $Pack) {
-        Write-Log "-Deploy requires -Pack" FAIL; exit 1
-    }
-    Write-Log "Deploying to VPS..." STEP
-
-    $vpsHost = $cobbleConfig.deploy.vps_host
-    $vpsUser = $cobbleConfig.deploy.vps_user
-    $sshKey = [IO.Path]::GetFullPath(($cobbleConfig.deploy.ssh_key -replace '~', $env:USERPROFILE))
-    $remotePath = $cobbleConfig.deploy.releases_path
-
-    $sshOpts = @("-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=NUL", "-o", "LogLevel=ERROR", "-i", $sshKey)
-
-    & ssh @sshOpts "${vpsUser}@${vpsHost}" "mkdir -p '$remotePath'"
-    if ($LASTEXITCODE -ne 0) { Write-Log "Cannot reach remote dir $remotePath" FAIL; exit 1 }
-
-    $files = @(
-        "$($Paths.ReleaseDir)\CobbleLoader.exe"
-        "$($Paths.ReleaseDir)\Cobble.dll"
-        "$($Paths.ReleaseDir)\manifest.json"
-        "$($Paths.ReleaseDir)\manifest.sig"
-    )
-    & scp @sshOpts $files "${vpsUser}@${vpsHost}:${remotePath}/"
-    if ($LASTEXITCODE -ne 0) { Write-Log "scp failed" FAIL; exit 1 }
-    Write-Log "Deployed $($files.Count) files to ${vpsUser}@${vpsHost}:${remotePath}" OK
-    Publish-GitTag -Version (Get-Version)
+    Complete-ReleaseDeployment -ReleaseInfo $releaseInfo
 }
 
 # --- Summary -----------------------------------------------------------------

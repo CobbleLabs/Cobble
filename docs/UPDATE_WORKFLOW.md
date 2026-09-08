@@ -151,10 +151,96 @@ Option 3:
 - Prepares a temporary local deployment bundle and uploads all four artifacts
   directly to the VPS configured in `cobble.json`.
 - Does not create or publish a GitHub Release.
-- Tags and pushes `v<version>` on the deployed commit.
+- Generates release notes from the nearest reachable `v*` tag to `HEAD`.
+- Publishes the same canonical update to the website and Discord only after SCP
+  succeeds.
+- Tags and pushes `v<version>` only after the update publication succeeds.
 
 Only the owner/operator with the signing key and VPS credentials should run
 option 3. The tag is the production commit: hotfix from it, not from `testing`.
+
+### Automated release announcements
+
+Deploy the updated `cobble-server-main` and `cobble-web` before enabling this
+flow. Migration 27 adds structured changelog fields and Discord delivery state.
+
+Configure these secrets in the backend/VPS environment:
+
+```text
+RELEASE_PUBLISH_TOKEN=<long-random-machine-token>
+DISCORD_UPDATES_WEBHOOK=<rotated-updates-webhook-url>
+```
+
+Configure the build environment with the same machine token. The optional API
+URL is only needed when the backend is not hosted at `https://api.cobble.vip`:
+
+```powershell
+$env:COBBLE_RELEASE_TOKEN = "<same-machine-token>"
+$env:COBBLE_RELEASE_API_URL = "https://api.cobble.vip"
+```
+
+Never store either secret in Git, `cobble.json`, generated headers, a
+`NEXT_PUBLIC_*` variable, or a command committed to the repository. The Discord
+webhook remains backend-only. Rotate any webhook URL that has been pasted into
+chat, logs, or another non-secret channel.
+
+Before deploying, commit the release changes, merge them into `main`, bump
+`cobble.json` `version`, and confirm the previous production `v*` tag is
+reachable. Preview the generated payload without build, SCP, HTTP, or Discord
+calls:
+
+```powershell
+.\build.ps1 -ReleaseNotesOnly
+# Override tag discovery only when intentionally recovering history:
+.\build.ps1 -ReleaseNotesOnly -BaseRef v1.7.0
+```
+
+The generator uses changed paths to assign `Movement`, `Utility`, `Network`,
+`Combat`, `Settings`, or `Gui`; commit subjects become descriptions and commit
+bodies become details. Write user-facing commit messages. The JSON and Markdown
+preview are written under `out/release-preview/` and validated against the
+backend and Discord's 2,000-character limit.
+
+Run the production release only from a clean worktree:
+
+```powershell
+.\build.ps1 -Pack -Deploy
+```
+
+The release order is strict:
+
+1. Generate and validate notes from the previous production tag to `HEAD`.
+2. Build, protect, sign, and prepare the four release artifacts.
+3. Upload the artifacts to the VPS with SCP.
+4. POST the structured payload to `/api/release/publish` using
+   `X-Release-Token`.
+5. In one database transaction, create the website announcement and changelog.
+6. Send the backend-generated Markdown to Discord with `@everyone` enabled.
+7. Tag and push the deployed commit as `v<version>`.
+
+The publish endpoint is idempotent by version plus canonical Markdown. Repeating
+the same request returns the existing update; using the same version with
+different content returns a conflict.
+
+#### Recovery
+
+- **SCP failed:** nothing was announced or tagged. Fix SSH/VPS access and rerun
+  the full `-Pack -Deploy` command.
+- **SCP succeeded, but the backend request failed before saving the update:**
+  do not change commits or version; fix backend/token configuration and run
+  `.\build.ps1 -PublishOnly`. This does not rebuild or upload artifacts.
+- **Website rows exist, but Discord failed:** do not republish the release.
+  Retry Discord through authenticated admin endpoint
+  `POST /api/admin/changelogs/<id>/retry-discord`; it sends the stored canonical
+  Markdown and becomes a no-op after status `sent`.
+- **Same version, different Markdown conflict:** stop and reconcile the deployed
+  commit, version, and generated notes. Do not overwrite the existing update.
+- **Emergency dirty release:** `-AllowDirtyRelease` includes reviewed local
+  source changes in the notes but deliberately skips the Git tag because the
+  deployed binaries do not correspond exactly to `HEAD`.
+- **Intentional announcement bypass:** `-SkipUpdateAnnouncement` uploads without
+  publishing. Use only as a break-glass option, then recover with
+  `-PublishOnly` before changing the release commit.
 
 ### Why the VPS receives an EXE and a DLL
 
