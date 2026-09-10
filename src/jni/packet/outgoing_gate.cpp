@@ -32,12 +32,9 @@ jboolean JNICALL NativeShouldSend(JNIEnv* env, jclass cls, jobject packet) {
         AltManagerGate::MaybeSpoofLoginPacket(env, packet);
     }
 
-    // Fire any queued AutoRefill click just before this (flying) packet so the
-    // window-click lands ahead of movement in the tick (avoids Grim's Post).
-    // Passive "On Inventory Open" mode runs with enabled=false but still queues
-    // clicks that must be flushed, so we also open the gate when that setting
-    // is on. onOutgoingPacket() early-returns when there's no pending click.
-    if (autoRefill && (autoRefill->enabled || autoRefill->settings.onInventoryOpen)) {
+    // Flush a complete AutoRefill swap command immediately before the next
+    // flying packet. The atomic command is the only state shared with Netty.
+    if (autoRefill && autoRefill->hasPendingClick()) {
         autoRefill->onOutgoingPacket(env, packet);
     }
 

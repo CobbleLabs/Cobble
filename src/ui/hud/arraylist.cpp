@@ -99,9 +99,9 @@ void ArrayListRenderer::render() {
             markLive(mod->name, showInfo ? mod->getDisplayInfo() : std::string());
     }
 
-    // AutoRefill and ArmorSwitch keep working while disabled (passive
-    // inventory-open mode), so they still belong in the list.
-    if (autoRefill && !autoRefill->enabled && autoRefill->settings.onInventoryOpen)
+    // AutoRefill and ArmorSwitch keep working while disabled in passive modes.
+    if (autoRefill && !autoRefill->enabled &&
+        (autoRefill->settings.onInventoryOpen || autoRefill->settings.automatic))
         markLive(autoRefill->name, showInfo ? autoRefill->getDisplayInfo() : std::string());
     if (armorSwitch && !armorSwitch->enabled && armorSwitch->settings.onInventoryOpen)
         markLive(armorSwitch->name, showInfo ? armorSwitch->getDisplayInfo() : std::string());

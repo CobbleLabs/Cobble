@@ -11,7 +11,6 @@
 #include "../spectate/spectate.hpp"
 #include "utility/autorefill.h"
 
-#include <unordered_map>
 
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
@@ -129,12 +128,14 @@ void ModuleManager::update() {
 #endif
 
     for (auto* mod : modules) {
-        if (mod->enabled && mod->shouldUpdate()) {
-            // Set current module name for diagnostics
+        if (!mod->enabled)
+            continue;
+
+        const bool shouldUpdate = mod->shouldUpdate();
+        if (shouldUpdate) {
             Diagnostics::g_currentOperation.store(mod->name);
 
 #ifdef COBBLE_DEV_BUILD
-            // Track state transition: module became operational again
             auto* health = ModuleDiag::getHealth(mod->name);
             if (health && !health->wasOperational) {
                 health->wasOperational = true;
@@ -143,7 +144,6 @@ void ModuleManager::update() {
                 log_ok("[MOD] %s: recovered (operational again)", mod->name);
             }
 
-            // Exception-safe module update
             __try {
                 mod->onUpdate();
             } __except (EXCEPTION_EXECUTE_HANDLER) {
@@ -155,7 +155,6 @@ void ModuleManager::update() {
                                 mod->name, GetExceptionCode());
                     }
                 }
-                // Disable the module to prevent repeated crashes
                 mod->enabled = false;
                 log_err("[MOD] %s: disabled after exception to protect main loop", mod->name);
             }
@@ -164,17 +163,14 @@ void ModuleManager::update() {
 #endif
         }
 #ifdef COBBLE_DEV_BUILD
-        else if (mod->enabled && !mod->shouldUpdate()) {
-            // Module is enabled but shouldUpdate() returned false — degraded state
+        else {
             auto* health = ModuleDiag::getHealth(mod->name);
             if (health) {
                 health->consecutiveSkips++;
                 if (health->wasOperational) {
-                    // Transition: was working, now degraded
                     health->wasOperational = false;
                     log_warn("[MOD] %s: shouldUpdate()=false (state degraded)", mod->name);
                 } else if (!health->reportedDegraded && health->consecutiveSkips >= 500) {
-                    // Persistent degradation (500 ticks @ 2ms = ~1 second)
                     health->reportedDegraded = true;
                     log_err("[MOD] %s: persistently degraded for %u ticks",
                             mod->name, health->consecutiveSkips);
@@ -190,8 +186,10 @@ void ModuleManager::update() {
     // render thread). Cheap no-op when nothing changed.
     BytecodePatcher::ApplyHideVanillaNames(Java::Env());
 
-    // AutoRefill passive mode: always update when onInventoryOpen is enabled
-    if (autoRefill && !autoRefill->enabled && autoRefill->settings.onInventoryOpen) {
+    // AutoRefill passive modes and active disabled runs update outside the
+    // regular enabled-module loop.
+    if (autoRefill && !autoRefill->enabled &&
+        (autoRefill->settings.onInventoryOpen || autoRefill->settings.automatic || autoRefill->isRunning())) {
         if (autoRefill->shouldUpdate())
             autoRefill->onUpdate();
     }
@@ -262,29 +260,33 @@ void ModuleManager::checkKeybinds() {
     if (Menu::isOpen)
         return;
 
-    // Collect all unique keybinds and their current state
-    std::unordered_map<int, bool> currentStates;
-    for (auto* mod : modules) {
-        if (mod->keybind != 0 && currentStates.find(mod->keybind) == currentStates.end()) {
-            currentStates[mod->keybind] = (GetAsyncKeyState(mod->keybind) & 0x8000) != 0;
-        }
-    }
+    bool currentStates[256] = {};
+    bool queried[256] = {};
+    int activeKeys[256];
+    int activeKeyCount = 0;
 
-    // Toggle all modules with matching keybind on key press
     for (auto* mod : modules) {
-        if (mod->keybind == 0)
+        const int key = mod->keybind;
+        if (key <= 0 || key >= 256 || queried[key])
             continue;
 
-        bool pressed = currentStates[mod->keybind];
-        bool wasPressed = keyStates[mod->keybind];
+        queried[key] = true;
+        currentStates[key] = (GetAsyncKeyState(key) & 0x8000) != 0;
+        activeKeys[activeKeyCount++] = key;
+    }
 
-        if (pressed && !wasPressed) {
+    for (auto* mod : modules) {
+        const int key = mod->keybind;
+        if (key <= 0 || key >= 256)
+            continue;
+
+        if (currentStates[key] && !keyStates[key]) {
             mod->toggle();
         }
     }
 
-    // Update key states after processing all modules
-    for (auto& [key, pressed] : currentStates) {
-        keyStates[key] = pressed;
+    for (int i = 0; i < activeKeyCount; ++i) {
+        const int key = activeKeys[i];
+        keyStates[key] = currentStates[key];
     }
 }
