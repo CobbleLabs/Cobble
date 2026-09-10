@@ -5,11 +5,14 @@
 #ifdef COBBLE_DEV_BUILD
 
 inline void VMProtectBeginUltra(const char*) {}
+inline void VMProtectBeginMutation(const char*) {}
 inline void VMProtectEnd() {}
 
 #else
 
 #include <VMProtectSDK.h>
+
+#endif
 
 // Diagnostics: with COBBLE_VM_MUTATE_ALL defined, every Ultra marker compiles
 // as Mutation instead. Marker mode selection must be compile-time — a runtime
@@ -24,7 +27,5 @@ inline void VMProtectEnd() {}
 // Per-site escape hatch: build a single marker as Mutation when the protector's
 // virtualization chokes on that region. Prefer fixing the protector.
 #define COBBLE_DLL_MUTATION_START(name) VMProtectBeginMutation(name);
-
-#endif
 
 #define COBBLE_DLL_ULTRA_END() VMProtectEnd();
