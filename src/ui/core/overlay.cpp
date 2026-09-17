@@ -352,7 +352,6 @@ LRESULT CALLBACK HookedWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam
             mc.releaseMovementKeys();
             mc.ungrabMouse();  // Release mouse at LWJGL level to prevent camera movement
         } else {
-            Menu::moduleToBind = nullptr;
             mc.restoreMovementKeys();
             // Only re-grab mouse if Minecraft doesn't have a GUI open
             // Otherwise we'd override the inventory/escape menu mouse state
@@ -404,56 +403,9 @@ LRESULT CALLBACK HookedWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam
     }
 
     if (Menu::isOpen) {
-        if (Menu::moduleToBind != nullptr) {
-            // Persist the keybind the moment it's assigned/cleared. Previously
-            // this only hit disk on menu close; a hard close (or a main-thread
-            // freeze that stops INSERT/ESC from being processed) would lose it.
-            if (msg == WM_KEYDOWN) {
-                bool bound = false;
-                if (wParam == VK_ESCAPE) {
-                    Menu::moduleToBind->keybind = 0;
-                    Menu::moduleToBind = nullptr;
-                    bound = true;
-                } else if (wParam != Menu::menuKey) {
-                    Menu::moduleToBind->keybind = (int)wParam;
-                    Menu::moduleToBind = nullptr;
-                    bound = true;
-                }
-                if (bound)
-                    ConfigManager::get().onSettingChanged();
-                return 1;
-            }
-            switch (msg) {
-                case WM_LBUTTONDOWN:
-                    Menu::moduleToBind->keybind = VK_LBUTTON;
-                    Menu::moduleToBind = nullptr;
-                    ConfigManager::get().onSettingChanged();
-                    return 1;
-                case WM_RBUTTONDOWN:
-                    Menu::moduleToBind->keybind = VK_RBUTTON;
-                    Menu::moduleToBind = nullptr;
-                    ConfigManager::get().onSettingChanged();
-                    return 1;
-                case WM_MBUTTONDOWN:
-                    Menu::moduleToBind->keybind = VK_MBUTTON;
-                    Menu::moduleToBind = nullptr;
-                    ConfigManager::get().onSettingChanged();
-                    return 1;
-                case WM_XBUTTONDOWN: {
-                    int xbutton = GET_XBUTTON_WPARAM(wParam);
-                    int vk = (xbutton == XBUTTON1) ? VK_XBUTTON1 : VK_XBUTTON2;
-                    Menu::moduleToBind->keybind = vk;
-                    Menu::moduleToBind = nullptr;
-                    ConfigManager::get().onSettingChanged();
-                    return 1;
-                }
-            }
-        }
-
         // ESC closes menu (but not if a keybind widget is active)
         if (msg == WM_KEYDOWN && wParam == VK_ESCAPE && !ui::IsBinderActive()) {
             Menu::isOpen = false;
-            Menu::moduleToBind = nullptr;
             ImGui::GetIO().MouseDrawCursor = false;
             mc.restoreMovementKeys();
             // Only re-grab mouse if Minecraft doesn't have a GUI open
@@ -572,7 +524,6 @@ BOOL __stdcall HookedSwapBuffers(HDC hdc) {
                       (void*)targetContext, (void*)currentOriginalContext);
 
             Menu::isOpen = false;
-            Menu::moduleToBind = nullptr;
             AltManagerWindow::Close();
 
             ImGui_ImplOpenGL2_Shutdown();
@@ -677,7 +628,6 @@ BOOL __stdcall HookedSwapBuffers(HDC hdc) {
         if ((Menu::isOpen || AltManagerWindow::isOpen) && GetForegroundWindow() != Overlay::gameWindow && !Watermark::pickerBusy()) {
             Menu::isOpen = false;
             Menu::openAnim = 0.f;  // Skip close animation
-            Menu::moduleToBind = nullptr;
             AltManagerWindow::Close();
             io.MouseDrawCursor = false;
             mc.restoreMovementKeys();

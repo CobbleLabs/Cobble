@@ -958,7 +958,7 @@ static void renderModuleList(int tab) {
         return;
 
     // Repeated labels in this list aren't module options, so keep the generic
-    // description context (matches ui::subtab behavior for the sidebar rows).
+    // description context for the cards.
     ui::SetDescriptionContext("__modules__");
 
     auto& t = ui::tabs[tab];
@@ -2183,17 +2183,4 @@ void Menu::Render() {
     renderMenu(openAnim, pop, contentT);
 
     ui::handle_anims();
-}
-
-void Menu::Hotkey(const char* label, Module* module) {
-    ImGui::SameLine();
-    ImGui::PushID(label);
-
-    std::string text = (moduleToBind == module) ? "..." : "[?]";
-
-    if (ImGui::SmallButton(text.c_str())) {
-        moduleToBind = module;
-    }
-
-    ImGui::PopID();
 }

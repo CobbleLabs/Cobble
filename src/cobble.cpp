@@ -59,7 +59,6 @@
 #include "jni/packet/bytecode_patcher.hpp"
 #include "jni/packet/packet_interceptor.hpp"
 #include "sdk/network/lunar_packet_listener.hpp"
-#include "sdk/network/lunar_sender.hpp"
 #include "sdk/player/render_data.h"
 #include "sdk/player/visual_cache.h"
 #include "security/dll_integrity.hpp"
@@ -370,8 +369,6 @@ void cobble::context::initialize(HMODULE hModule) {
     COBBLE_TRACE("before LunarPacketListener::Init");
     LunarPacketListener::Init();
     COBBLE_TRACE("after LunarPacketListener::Init");
-    LunarSender::Init();
-    COBBLE_TRACE("after LunarSender::Init");
 
     // Create Named Mutex for Injection Detection
     DWORD pid = GetCurrentProcessId();

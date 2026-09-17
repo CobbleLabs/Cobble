@@ -734,7 +734,6 @@ void ConfigManager::applyConfig() {
         }
         ui::theme::accentRainbow = config_["settings"]["accentRainbow"].as_bool(false);
         ui::theme::rainbowType = config_["settings"]["rainbowType"].as_int(0);
-        ui::theme::glowAccent = config_["settings"]["glowAccent"].as_bool(false);
     }
 
     // Apply HUD settings
@@ -966,7 +965,6 @@ void ConfigManager::buildConfigFromModules() {
     config_["settings"]["accentColor"]["a"] = ui::theme::accentColor[3];
     config_["settings"]["accentRainbow"] = ui::theme::accentRainbow;
     config_["settings"]["rainbowType"] = ui::theme::rainbowType;
-    config_["settings"]["glowAccent"] = ui::theme::glowAccent;
 
     // HUD
     config_["hud"]["arrayList"] = enabled;

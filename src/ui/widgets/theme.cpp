@@ -7,12 +7,6 @@
 namespace ui {
 namespace theme {
 
-ImU32 getAccent(float alpha) {
-    ImVec4 col = ImVec4(accentColor[0], accentColor[1], accentColor[2], accentColor[3]);
-    col.w *= alpha * ImGui::GetStyle().Alpha;
-    return ImGui::ColorConvertFloat4ToU32(col);
-}
-
 void apply() {
     ImGui::StyleColorsDark();
     auto& style = ImGui::GetStyle();

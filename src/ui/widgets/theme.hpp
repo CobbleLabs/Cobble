@@ -19,16 +19,9 @@ inline float accentColor[4] = {
 
 // When true the accent cycles a rainbow (rainbowType selects the style) instead
 // of the fixed accentColor; every menu accent that uses GetSchemeColor follows it.
-// glowAccent makes the module glow sweep follow the accent (colour/rainbow)
-// instead of its metallic-white default.
 inline bool accentRainbow = false;
 inline int rainbowType = 0;  // 0 Flow, 1 Solid, 2 Fast, 3 Wide
-inline bool glowAccent = false;
 
-// Get accent color as ImU32 with optional alpha multiplier
-ImU32 getAccent(float alpha = 1.0f);
-
-// Apply the dark theme to ImGui
 void apply();
 
 // Base corner-rounding radii (unscaled). Single source of truth for menu
@@ -43,16 +36,6 @@ inline constexpr float Popup = 10.f;
 inline constexpr float Scrollbar = 6.f;
 inline constexpr float ModuleCard = 8.f;
 }  // namespace rounding
-
-// Color constants for reference (dark theme)
-namespace colors {
-constexpr ImU32 TEXT_WHITE = IM_COL32(255, 255, 255, 255);
-constexpr ImU32 TEXT_GRAY = IM_COL32(100, 100, 100, 255);
-constexpr ImU32 BG_DARK = IM_COL32(16, 16, 16, 255);
-constexpr ImU32 BG_CARD = IM_COL32(20, 20, 20, 255);
-constexpr ImU32 BG_HEADER = IM_COL32(26, 26, 26, 255);
-constexpr ImU32 BORDER = IM_COL32(255, 255, 255, 15);
-}  // namespace colors
 
 }  // namespace theme
 }  // namespace ui

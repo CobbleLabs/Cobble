@@ -89,7 +89,6 @@
     <ClCompile Include="src\sdk\core\minecraft.cpp" />
     <ClCompile Include="src\sdk\player\player.cpp" />
     <ClCompile Include="src\sdk\player\effect_tracker.cpp" />
-    <ClCompile Include="src\sdk\network\lunar_sender.cpp" />
     <ClCompile Include="src\sdk\network\lunar_packet_listener.cpp" />
     <ClCompile Include="src\sdk\jni\jni_cache.cpp" />
     <ClCompile Include="src\sdk\mc\input.cpp" />
@@ -161,7 +160,6 @@
     <!-- Config system -->
     <ClCompile Include="src\config\config.cpp" />
     <!-- Utilities -->
-    <ClCompile Include="src\util\math\math.cpp" />
     <ClCompile Include="src\util\math\worldToScreen.cpp" />
     <ClCompile Include="src\util\team\friends_manager.cpp" />
     <ClCompile Include="src\util\inventory\inventory_hooks.cpp" />
@@ -292,7 +290,6 @@
     <ClInclude Include="src\util\textures\item_textures.h" />
     <ClInclude Include="src\util\inventory\inventory_hooks.h" />
     <ClInclude Include="src\util\math\geometry.h" />
-    <ClInclude Include="src\util\math\math.h" />
     <ClInclude Include="src\util\math\worldToScreen.h" />
     <ClInclude Include="src\jni\blink\blink_gate.hpp" />
     <ClInclude Include="src\module\movement\fakelag.h" />

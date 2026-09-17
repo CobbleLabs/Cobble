@@ -2011,30 +2011,6 @@ bool ui::Combo(const char* label, int* current, const char* const items[], int c
     return changed;
 }
 
-// ==================== TAB WIDGET ====================
-
-static int rotation_start_index;
-
-static void rotate_start() {
-    rotation_start_index = ImGui::GetWindowDrawList()->VtxBuffer.Size;
-}
-
-static ImVec2 rotation_center() {
-    ImVec2 l(FLT_MAX, FLT_MAX), u(-FLT_MAX, -FLT_MAX);
-    const auto& buf = ImGui::GetWindowDrawList()->VtxBuffer;
-    for (int i = rotation_start_index; i < buf.Size; i++)
-        l = ImMin(l, buf[i].pos), u = ImMax(u, buf[i].pos);
-    return ImVec2((l.x + u.x) / 2, (l.y + u.y) / 2);
-}
-
-static void rotate_end(float rad, ImVec2 center) {
-    float s = sin(rad), c = cos(rad);
-    center = ImRotate(center, s, c) - center;
-    auto& buf = ImGui::GetWindowDrawList()->VtxBuffer;
-    for (int i = rotation_start_index; i < buf.Size; i++)
-        buf[i].pos = ImRotate(buf[i].pos, s, c) - center;
-}
-
 void ui::tab(int num) {
     auto icon = tabs[num].m_icon;
     auto name = tabs[num].m_name;
@@ -2120,69 +2096,6 @@ void ui::tab(int num) {
     // Category rows are select-only: no expansion arrow, no module rows, and no
     // per-row separator line (the selection pill above conveys state instead).
 }
-
-void ui::subtab(int num, int tab_num) {
-    SetDescriptionContext("__modules__");
-    auto name = tabs[tab_num].m_subtabs[num];
-    auto name_size = ImGui::CalcTextSize(name, 0, 1);
-
-    // Check if module is locked (experimental feature)
-    Module* mod = getModuleForSubtab(tab_num, num);
-    bool isLocked = mod && mod->showsDeveloperOnly();
-
-    bool selected = tabs[tab_num].next_subtab == num;
-
-    auto window = ImGui::GetCurrentWindow();
-    auto id = window->GetID(name);
-
-    // Larger subtab row with proper padding
-    float rowHeight = s(20);
-    float availWidth = window->Size.x - GetCursorPosX();
-    ImRect bb{window->DC.CursorPos, window->DC.CursorPos + ImVec2(availWidth, rowHeight)};
-    ItemAdd(bb, id);
-    ItemSize(bb);
-
-    bool hovered, held;
-    bool pressed = ButtonBehavior(bb, id, &hovered, &held);
-
-    // Allow selection even for locked modules - renderPage shows unlock UI
-    if (pressed && !selected) {
-        tabs[tab_num].next_subtab = num;
-        content_anim_dst = 0.f;
-    }
-
-    struct subtab_state {
-        float anim;
-        float hover;
-        ImColor col;
-    };
-    auto& obj = anim_obj(name, 0, subtab_state{0.f, 0.f, 0});
-
-    obj.anim = animate(obj.anim, 0.f, 1.f, selected);
-    obj.hover = animate(obj.hover, 0.f, 1.f, hovered);
-
-    // Hover background
-    if (obj.hover > 0.01f && !selected) {
-        window->DrawList->AddRectFilled(bb.Min, bb.Max, GetColor(ImGuiCol_FrameBgHovered, obj.hover * 0.3f), s(4));
-    }
-
-    // Center text vertically
-    float textY = bb.GetCenter().y - name_size.y / 2;
-
-    if (isLocked) {
-        // Grayed out look for locked modules
-        ImU32 grayColor = IM_COL32(100, 100, 100, 150);
-        window->DrawList->AddText(ImVec2(bb.Min.x, textY), grayColor, name, FindRenderedTextEnd(name));
-    } else {
-        obj.col = col_anim(col_anim(GetColor(ImGuiCol_TextDisabled), GetColor(ImGuiCol_Text), obj.hover),
-                           GetSchemeColor(), obj.anim);
-        window->DrawList->AddText(ImVec2(bb.Min.x, textY), obj.col, name, FindRenderedTextEnd(name));
-    }
-
-    HoverDescription(name, hovered, isLocked ? "Developer only (for now.)" : GetModuleDescription(name), isLocked);
-}
-
-// ==================== APPLY STYLE ====================
 
 void ui::apply_style() {
     theme::apply();

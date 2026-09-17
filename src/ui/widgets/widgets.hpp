@@ -34,7 +34,6 @@ namespace ui {
 
 // ==================== SCALING ====================
 inline float scale = 1.0f;
-inline float baseHeight = 1080.0f;
 inline float alpha_mod = 1.0f;
 
 void updateScale();
@@ -175,7 +174,6 @@ inline float content_anim_dst = 1.f;
 
 void handle_anims();
 void tab(int num);
-void subtab(int num, int tab_num);
 
 // ui::tab() publishes the selected row's screen rect so the sidebar can draw
 // one rail that glides between rows instead of each row owning a highlight.
