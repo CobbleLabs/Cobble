@@ -169,7 +169,7 @@ constexpr const char* VERSION = "$version";
 constexpr uint32_t BUILD_CANARY = 0x${canaryHex}u;
 
 // Host pin indices for PreferredHostIndex(). Fixed set — never store host
-// strings: DLL threads (heartbeat/pings/spectate) race PreferServerHost.
+// strings: DLL threads (heartbeat/pings) race PreferServerHost.
 constexpr int HOST_PIN_UNSET = -1;
 constexpr int HOST_PIN_PRIMARY = 0;
 constexpr int HOST_PIN_SECONDARY = 1;

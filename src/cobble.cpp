@@ -44,7 +44,6 @@
 
 #include "module/visual/blockesp.h"
 #include "module/visual/chams.h"
-#include "module/visual/animations.h"
 #include "module/visual/freelook.h"
 #include "module/visual/esp.h"
 #include "module/visual/item_esp.h"
@@ -53,7 +52,6 @@
 #include "module/visual/tracers.h"
 #include "module/visual/trajectories.h"
 #include "module/visual/dropped_info.h"
-#include "module/visual/target_hud.h"
 #include "module/visual/pings.h"
 
 #include "hooks/winsock_hooks.h"
@@ -265,8 +263,6 @@ void cobble::context::initialize(HMODULE hModule) {
     esp = new ESP();
     COBBLE_TRACE("alloc:Chams");
     chams = new Chams();
-    COBBLE_TRACE("alloc:Animations");
-    animations = new Animations();
     COBBLE_TRACE("alloc:Freelook");
     freelook = new Freelook();
     COBBLE_TRACE("alloc:ItemESP");
@@ -279,8 +275,6 @@ void cobble::context::initialize(HMODULE hModule) {
     trajectories = new Trajectories();
     COBBLE_TRACE("alloc:DroppedInfo");
     droppedInfo = new DroppedInfo();
-    COBBLE_TRACE("alloc:TargetHUD");
-    targetHud = new TargetHUD();
     COBBLE_TRACE("alloc:Pings");
     pingsModule = new Pings();
     COBBLE_TRACE("alloc:FriendsManager");
@@ -338,14 +332,12 @@ void cobble::context::initialize(HMODULE hModule) {
     moduleManager->registerModule(antiDebuff);
     moduleManager->registerModule(esp);
     moduleManager->registerModule(chams);
-    moduleManager->registerModule(animations);
     moduleManager->registerModule(freelook);
     moduleManager->registerModule(itemEsp);
     moduleManager->registerModule(tracers);
     moduleManager->registerModule(blockESP);
     moduleManager->registerModule(trajectories);
     moduleManager->registerModule(droppedInfo);
-    moduleManager->registerModule(targetHud);
     moduleManager->registerModule(pingsModule);
     log_ok("Modules registered");
     COBBLE_TRACE("modules registered");
@@ -816,14 +808,6 @@ bool cobble::context::shutdown() {
         delete chams;
         chams = nullptr;
     }
-    if (animations) {
-        // Cleared before the free, not after: the GL detours stay installed for the life of the
-        // process and read this pointer on the render thread. Seeing null, they put vanilla's own
-        // block transform back; seeing a freed object, they would not.
-        Animations* dead = animations;
-        animations = nullptr;
-        delete dead;
-    }
     if (freelook) {
         delete freelook;
         freelook = nullptr;
@@ -847,10 +831,6 @@ bool cobble::context::shutdown() {
     if (droppedInfo) {
         delete droppedInfo;
         droppedInfo = nullptr;
-    }
-    if (targetHud) {
-        delete targetHud;
-        targetHud = nullptr;
     }
     if (pingsModule) {
         delete pingsModule;

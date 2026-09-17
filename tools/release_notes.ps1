@@ -111,9 +111,6 @@ function Get-PathDescriptor {
     if ($lower -match 'security|protection|integrity|vmprotect|reprotect') {
         return [pscustomobject]@{ Category = "Utility"; Module = "Security" }
     }
-    if ($lower -match '^src/spectate/') {
-        return [pscustomobject]@{ Category = "Utility"; Module = "Spectate" }
-    }
     if ($lower -match '^src/hooks/') {
         return [pscustomobject]@{ Category = "Utility"; Module = "Hooks" }
     }

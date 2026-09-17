@@ -11,14 +11,6 @@
 #define IMGUI_DEFINE_MATH_OPERATORS
 #endif
 
-// ==================== FEATURE FLAGS ====================
-// Cobble Spectate is shelved for a future update. The full implementation
-// (SpectateManager, snapshot codec, browser/live-view page) remains in the
-// tree; flip this to 1 to surface the tab and dispatch again.
-#ifndef COBBLE_SPECTATE_ENABLED
-#define COBBLE_SPECTATE_ENABLED 0
-#endif
-
 #include "../../../infra/ext/imgui/imgui.h"
 #include "../../../infra/ext/imgui/imgui_internal.h"
 

@@ -24,7 +24,7 @@ struct Module {
     // ESP boxes and tracers land on top of the inventory panel itself, over the
     // item slots and tooltips, tracking entities the player is not looking at.
     // These modules are skipped while a screen covers the world. Screen-space
-    // HUD elements (target HUD, dropped-item list) leave this false and keep
+    // HUD elements (dropped-item list) leave this false and keep
     // drawing, and so does anything that renders inside the game's own world
     // pass (Chams), which is correctly occluded by the GUI already.
     bool worldVisual = false;

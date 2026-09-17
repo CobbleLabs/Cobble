@@ -42,7 +42,6 @@ static const DescriptionEntry kModuleDescriptions[] = {
     {"", "NameTags", "", "Renders readable, customizable information above players."},
     {"", "ESP", "", "Highlights players through terrain with configurable boxes and health."},
     {"", "Chams", "", "Re-renders nearby players through terrain with a configurable material."},
-    {"", "Animations", "", "Replaces the first-person sword blocking pose. Thirty-one of them, some static, some driven by the raise, the mouse or your own swings."},
     {"", "Freelook", "", "Rotates the third-person camera without changing the direction your player faces."},
     {"", "ItemESP", "", "Highlights dropped items so they remain visible through terrain."},
     {"", "Tracers", "", "Draws directional lines from your screen to nearby players."},
@@ -495,16 +494,6 @@ static const DescriptionEntry kOptionDescriptions[] = {
      "Spread applied to every delay above. Real gaps scatter around an average; identical gaps are a fingerprint."},
     {"ThrowPots", "Fatigue", "",
      "Widens the gaps slightly as the burst runs. The fourth pot never comes out as fast as the first."},
-    {"Animations", "Animation", "",
-     "The pose your blocking sword is drawn in. The first is vanilla's own, unchanged; the rest either sit still, move "
-     "into place as the sword comes up, never stop moving, trail your mouse, or kick when you swing."},
-    {"Animations", "Speed", "",
-     "Time multiplier for the animations that move. Nothing at all for the static ones."},
-    {"Animations", "Scale", "", "Multiplies the pose's own size. 1.00 is whatever the animation asks for."},
-    {"Animations", "Pos X", "", "Slides the pose left or right, on top of whatever the animation is doing."},
-    {"Animations", "Pos Y", "", "Slides the pose up or down, on top of whatever the animation is doing."},
-    {"Animations", "Pos Z", "",
-     "Pushes the pose into or out of the screen, on top of whatever the animation is doing."},
     {"Freelook", "Enabled", "",
      "Turns Freelook on in toggle mode. The key box assigns the key used by either activation mode."},
     {"Freelook", "Hold Key", "",
@@ -614,8 +603,7 @@ std::vector<ui::tab_t> ui::tabs = {
     {ICON_FA_EYE,
      "Visuals",
      {"NameTags", "ESP", "ItemESP", "Tracers", "BlockESP", "Trajectories", "AntiDebuff", "ArrayList",
-      "DroppedInfo", "Notifications", "Watermark", "TargetHUD", "ClickGUI", "Pings", "Chams",
-      "Animations", "Freelook"}},
+      "DroppedInfo", "Notifications", "Watermark", "ClickGUI", "Pings", "Chams", "Freelook"}},
     {ICON_FA_RUNNING,
      "Movement",
      {"Timer", "TimerRange", "NoSlowDown", "NoJumpDelay", "Sprint", "InventoryMove", "FastStop"}},
@@ -624,9 +612,6 @@ std::vector<ui::tab_t> ui::tabs = {
      {"ArmorSwitch", "AutoRefill", "ThrowPots", "AutoPot", "FastPlace", "NoItemRelease", "BridgeAssist", "Scaffold",
       "Clutch", "Breaker", "AutoTool", "InvManager", "FastBreak", "AltManager", "Teams"}},
     {ICON_FA_WIFI, "Network", {"Backtrack", "Blink", "FakeLag"}},
-#if COBBLE_SPECTATE_ENABLED
-    {ICON_FA_EYE, "Spectate", {}},
-#endif
     {ICON_FA_SAVE, "Configs", {}},
     {ICON_FA_GEAR, "Settings", {}}};
 

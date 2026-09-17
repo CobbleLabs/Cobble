@@ -7,9 +7,9 @@
 // real value whenever the server actually exposes it (a non-full health field,
 // e.g. a scoreboard/nametag health number).
 //
-// Query-driven and self-contained: ESP, NameTags and the TargetHUD all call
-// query(); a per-entity per-millisecond guard makes the multiple calls per frame
-// idempotent, so only the first advances the model.
+// Query-driven and self-contained: ESP and NameTags call query(); a per-entity
+// per-millisecond guard makes the multiple calls per frame idempotent, so only
+// the first advances the model.
 
 #include <algorithm>
 #include <chrono>
@@ -43,7 +43,7 @@ public:
         }
 
         // Advance the model at most once per millisecond (i.e. once per frame),
-        // so ESP + NameTags + TargetHUD querying the same entity don't triple-count.
+        // so ESP + NameTags querying the same entity don't double-count.
         if (now > s.lastMs) {
             s.maxHp = (p.maxHealth > 0.5f ? p.maxHealth : s.maxHp);
 

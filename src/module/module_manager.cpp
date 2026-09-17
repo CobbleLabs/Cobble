@@ -8,7 +8,6 @@
 #include "../util/inject_trace.hpp"
 #include "../util/state_check.hpp"
 #include "../security/vmprotect.h"
-#include "../spectate/spectate.hpp"
 #include "utility/autorefill.h"
 
 
@@ -197,11 +196,6 @@ void ModuleManager::update() {
         if (autoRefill->shouldUpdate())
             autoRefill->onUpdate();
     }
-
-    // Cobble Spectate: advertise presence + capture/upload host frames (when
-    // watched) + pull spectator frames. Rate-limited and no-ops unless the user
-    // has enabled spectate or is actively spectating. Runs on this JVM thread.
-    SpectateManager::get().tick();
 
     COBBLE_DLL_ULTRA_END();
 }
