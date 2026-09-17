@@ -20,7 +20,6 @@
 #include <vector>
 
 // ==================== FONT ACCESSOR ====================
-// Font indices: 0=Medium14+FA, 1=Bold14, 2=Medium17, 3=Bold17, 4=Notifications
 #define font(n) ImGui::GetIO().Fonts->Fonts[n]
 
 // ==================== COLOR SCHEME ====================
@@ -151,8 +150,6 @@ struct tab_t {
     int cur_subtab = 0;
     int next_subtab = 0;
 
-    // Per-category view state (List vs Config). In-class default initializers
-    // keep the existing constructor signature unchanged.
     CategoryView cur_view = CategoryView::List;
     CategoryView next_view = CategoryView::List;
 

@@ -1183,7 +1183,6 @@ static void renderModuleList(int tab) {
         ImU32 subCol = isLocked ? IM_COL32(90, 90, 90, 130) : ui::GetColor(ImGuiCol_TextDisabled, 0.75f);
         draw->AddText(subFont, subFS, ImVec2(textX, nameY + nameSize.y + lineGap), subCol, subtitle);
 
-        // Gear glyph centered in its zone.
         const char* gear = ICON_FA_COG;
         const char* gearEnd = ImGui::FindRenderedTextEnd(gear);
         ImVec2 gearSize = ImGui::CalcTextSize(gear, gearEnd);
@@ -1230,8 +1229,6 @@ static void renderModuleConfig(int tab) {
     float bodyMargin = 0.f;  // symmetric horizontal margin used to center the body
 
     // ----- Back_Control -----
-    // Compact "< Back" pinned to the top-right, drawn with the same drawlist +
-    // ButtonBehavior pattern as the module list rows so it fades with the menu.
     {
         ImGuiWindow* window = ImGui::GetCurrentWindow();
         const char* backLabel = "Back";
@@ -1306,14 +1303,12 @@ static void renderModuleConfig(int tab) {
             // Center content
             float width = ImGui::GetContentRegionAvail().x;
 
-            // Lock Icon
             ImVec2 iconSize = ImGui::CalcTextSize(ICON_FA_LOCK);
             ImGui::SetCursorPosX((width - iconSize.x) / 2);
             ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.5f, 0.5f, 0.5f, 1.0f));
             ImGui::Text(ICON_FA_LOCK);
             ImGui::PopStyleColor();
 
-            // Text
             const char* text = "This feature is locked.";
             ImVec2 textSize = ImGui::CalcTextSize(text);
             ImGui::SetCursorPosX((width - textSize.x) / 2);

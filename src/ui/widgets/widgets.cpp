@@ -2077,13 +2077,9 @@ void ui::tab(int num) {
         window->DrawList->AddRectFilled(pillMin, pillMax, GetSchemeColor(0.14f * pillT), s(6));
     }
 
-    // Hide icons on small resolutions
     bool showIcons = ImGui::GetIO().DisplaySize.y >= 600.0f;
-
-    // Icon position and text spacing
     float iconX = bb.Min.x + s(15);
-    float iconTextGap = s(10);  // consistent gap between icon and text
-    float textOffsetX = showIcons ? (iconX - bb.Min.x + icon_size.x + iconTextGap) : s(15);
+    float textOffsetX = showIcons ? (iconX - bb.Min.x + icon_size.x + s(10)) : s(15);
 
     if (showIcons) {
         window->DrawList->AddText({iconX, bb.GetCenter().y - icon_size.y / 2}, obj.col, icon,
