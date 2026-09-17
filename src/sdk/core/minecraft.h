@@ -312,6 +312,8 @@ struct Minecraft {
     // Send a packet to the server immediately (addToSendQueue)
     void sendPacket(jobject packet);
     int getLocalPlayerPing();
+    int getPerspective();
+    void setPerspective(int perspective);
     bool isFirstPerson();
     std::string getCurrentServerIP();
 

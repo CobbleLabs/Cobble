@@ -785,6 +785,10 @@ double LocalPlayer::getLastReportedPosZ() {
     return Java::Env()->GetDoubleField(instance, fid_lastReportedPosZ);
 }
 
+bool LocalPlayer::hasLastReportedPosition() const {
+    return isValid() && fid_lastReportedPosX && fid_lastReportedPosY && fid_lastReportedPosZ;
+}
+
 void LocalPlayer::setLastReportedPosX(double value) {
     if (!isValid() || !fid_lastReportedPosX)
         return;

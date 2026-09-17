@@ -1,4 +1,5 @@
 #include "autoclicker.h"
+#include "silentaura.h"
 #include "../../sdk/core/minecraft.h"
 #include "../../ui/core/overlay.h"
 #include "../../ui/menu/menu.h"
@@ -49,6 +50,9 @@ AutoClicker::AutoClicker() : Module("AutoClicker") {
 }
 
 void AutoClicker::onEnable() {
+    if (silentAura && silentAura->enabled)
+        silentAura->setEnabled(false);
+
     auto now = std::chrono::steady_clock::now();
 
     // Stable mode - counter-based timing with strict interval

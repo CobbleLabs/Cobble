@@ -73,6 +73,7 @@ struct LocalPlayer {
     double getLastReportedPosX();
     double getLastReportedPosY();
     double getLastReportedPosZ();
+    bool hasLastReportedPosition() const;
     void setLastReportedPosX(double value);
     void setLastReportedPosY(double value);
     void setLastReportedPosZ(double value);

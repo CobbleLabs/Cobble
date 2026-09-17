@@ -12,7 +12,7 @@ public:
     void onRender();  // Called from overlay for visual modules
     bool hasRenderWork() const;
     bool needsPlayerCache() const;
-    void checkKeybinds();
+    void checkKeybinds(bool allowActivation);
 
     void onWorldChange();
 

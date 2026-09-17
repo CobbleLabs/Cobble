@@ -9,6 +9,35 @@
 
 BridgeAssist* bridgeAssist = nullptr;
 
+int BridgeAssist::findBlockInInventory(int preferredId) const {
+    const int currentSlot = player.getCurrentSlot();
+
+    if (preferredId > 0 && preferredId <= 255) {
+        for (int slot = 0; slot < 9; ++slot) {
+            if (slot == currentSlot)
+                continue;
+            if (player.getItemInSlot(slot) == preferredId)
+                return slot;
+        }
+    }
+
+    for (int slot = 0; slot < 9; ++slot) {
+        if (slot == currentSlot)
+            continue;
+        int id = player.getItemInSlot(slot);
+        if (id > 0 && id <= 255)
+            return slot;
+    }
+
+    for (int slot = 9; slot <= 35; ++slot) {
+        int id = player.getItemInSlot(slot);
+        if (id > 0 && id <= 255)
+            return slot;
+    }
+
+    return -1;
+}
+
 void BridgeAssist::Sneak() {
     m_isEdge = true;
     if (!m_wasSneaking) {
@@ -48,11 +77,34 @@ void BridgeAssist::onUpdate() {
     // Only activate if holding a block (IDs 1-255)
     int heldItemId = player.getHeldItemId();
     if (heldItemId <= 0 || heldItemId > 255) {
+        if (settings.autoRefillBlocks && (m_shiftInitiated || m_wasSneaking)) {
+            auto now = std::chrono::steady_clock::now();
+            auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - m_lastRefillTime).count();
+            if (elapsed >= 200) {
+                int refillSlot = findBlockInInventory(m_lastBlockId);
+                if (refillSlot >= 0) {
+                    if (refillSlot < 9) {
+                        player.setCurrentSlot(refillSlot);
+                    } else {
+                        mc.windowClickSwap(refillSlot, player.getCurrentSlot());
+                    }
+                    m_lastRefillTime = now;
+                    Sneak();
+                    return;
+                }
+            } else {
+                Sneak();
+                return;
+            }
+        }
+
         if (m_wasSneaking)
             UnSneak();
         m_shiftInitiated = false;
         return;
     }
+
+    m_lastBlockId = heldItemId;
 
     // Detect sneak initiation
     if (settings.onlyWhenSneaking) {
@@ -133,17 +185,18 @@ void BridgeAssist::onRenderMenu() {
         [this]() {
             ui::Checkbox("Only When Sneaking", &settings.onlyWhenSneaking);
             ui::Checkbox("Only When Looking Down", &settings.onlyLookingDown);
+            ui::Checkbox("Auto Refill Blocks", &settings.autoRefillBlocks);
         });
 }
-
-
 
 void BridgeAssist::saveSettings(json::Value& node) const {
     node["onlyLookingDown"] = settings.onlyLookingDown;
     node["onlyWhenSneaking"] = settings.onlyWhenSneaking;
+    node["autoRefillBlocks"] = settings.autoRefillBlocks;
 }
 
 void BridgeAssist::loadSettings(const json::Value& node) {
     settings.onlyLookingDown = node["onlyLookingDown"].as_bool(settings.onlyLookingDown);
     settings.onlyWhenSneaking = node["onlyWhenSneaking"].as_bool(settings.onlyWhenSneaking);
+    settings.autoRefillBlocks = node["autoRefillBlocks"].as_bool(settings.autoRefillBlocks);
 }

@@ -118,9 +118,7 @@ void FastStop::onRenderMenu() {
 }
 
 std::string FastStop::getDisplayInfo() {
-    char buf[16];
-    snprintf(buf, sizeof(buf), "%.0f%%", settings.stopStrength * 100.0f);
-    return buf;
+    return "";
 }
 
 void FastStop::saveSettings(json::Value& node) const {

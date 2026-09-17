@@ -139,11 +139,13 @@ static std::atomic<bool> g_netHandlerPlayClientPatched{false};
 static std::atomic<bool> g_s14Patched{false};
 static std::atomic<bool> g_s18Patched{false};
 static std::atomic<bool> g_renderGlobalPatched{false};
+static std::atomic<bool> g_entityRendererPatched{false};
 static std::atomic<std::uint32_t> g_classFileLoadCallbacksInFlight{0};
 static jclass cls_PacketHook = nullptr;
 static jclass cls_NetworkManagerTarget = nullptr;
 static jclass cls_SlowdownTarget = nullptr;
 static jclass cls_RenderGlobalTarget = nullptr;
+static jclass cls_EntityRendererTarget = nullptr;
 constexpr int kPrefixLen = 8;
 
 struct ClassFileLoadCallbackScope {
@@ -1794,12 +1796,11 @@ static int patchLivingBaseClass(const uint8_t* data, size_t len, std::vector<uin
     return patched_methods;
 }
 
-// Inject `aload_1; invokestatic BacktrackGhostHook.onRenderWorld(Object)` at the
-// entry of RenderGlobal.renderEntities. Slot 1 is the view Entity (an object),
-// which the hook ignores — reusing the exact proven observer injection keeps this
-// verifiable. Fail-safe: a parse error returns -1 and the original class is kept;
-// bad bytecode is rejected cleanly by the verifier on retransform.
-static int patchRenderGlobalClass(const uint8_t* data, size_t len, std::vector<uint8_t>& out) {
+// Inject `BacktrackGhostHook.onRenderWorld(Object)` at a world-render method
+// entry. RenderGlobal passes its view Entity from slot 1; EntityRenderer passes
+// itself from slot 0 so the native bridge can delimit the temporary camera swap.
+static int patchRenderHookClass(const uint8_t* data, size_t len, std::vector<uint8_t>& out,
+                                bool cameraTarget) {
     Reader r(data, len);
     uint32_t magic = r.ReadU4();
     if (!r.ok || magic != 0xCAFEBABE)
@@ -1941,28 +1942,33 @@ static int patchRenderGlobalClass(const uint8_t* data, size_t len, std::vector<u
         if (m_name < utf8.size() && m_desc < utf8.size()) {
             const std::string& name = utf8[m_name];
             const std::string& desc = utf8[m_desc];
-            // RenderGlobal.renderEntities(Entity, ICamera, float): slot 1 is the
-            // view Entity (Object), which is what we load for the hook arg.
-            const bool nameMatch = (name == "renderEntities" ||
-                                    name == "func_180446_a" ||
-                                    name == "func_147589_a" ||
-                                    name == "a");
             bool descMatch = false;
-            if (nameMatch) {
-                if (desc.find("ICamera") != std::string::npos && desc.rfind(")V") != std::string::npos) {
-                    descMatch = true;
-                } else if (desc == "(Lpk;Lbia;F)V") {
-                    descMatch = true; // Notch 1.8.9
-                } else if (desc == "(Lsv;Lbqi;F)V") {
-                    descMatch = true; // Notch 1.7.10
-                } else if (desc == "(Lvg;Lbin;F)V") {
-                    descMatch = true; // Notch 1.12
+            if (cameraTarget) {
+                const bool nameMatch = (name == "renderWorld" ||
+                                        name == "func_78471_a" ||
+                                        name == "a");
+                descMatch = nameMatch && desc == "(FJ)V";
+            } else {
+                const bool nameMatch = (name == "renderEntities" ||
+                                        name == "func_180446_a" ||
+                                        name == "func_147589_a" ||
+                                        name == "a");
+                if (nameMatch) {
+                    if (desc.find("ICamera") != std::string::npos && desc.rfind(")V") != std::string::npos) {
+                        descMatch = true;
+                    } else if (desc == "(Lpk;Lbia;F)V") {
+                        descMatch = true;
+                    } else if (desc == "(Lsv;Lbqi;F)V") {
+                        descMatch = true;
+                    } else if (desc == "(Lvg;Lbin;F)V") {
+                        descMatch = true;
+                    }
                 }
             }
 
             if (descMatch) {
                 is_target = true;
-                log_debug("[PacketInterceptor] Found renderEntities method: %s %s", name.c_str(), desc.c_str());
+                log_debug("[PacketInterceptor] Found render hook method: %s %s", name.c_str(), desc.c_str());
             }
         }
 
@@ -1984,7 +1990,8 @@ static int patchRenderGlobalClass(const uint8_t* data, size_t len, std::vector<u
             std::vector<uint8_t> patched_attr;
 
             if (is_target && attr_name && strcmp(attr_name, "Code") == 0 && (m_access & (0x0100 | 0x0400)) == 0) {
-                if (tryPatchCodeAttributeObserver(attr_data, attr_len, cp, utf8, idx_methodref, 1, patched_attr)) {
+                if (tryPatchCodeAttributeObserver(attr_data, attr_len, cp, utf8, idx_methodref,
+                                                  cameraTarget ? 0 : 1, patched_attr)) {
                     w.WriteU2(name_index);
                     w.WriteU4(static_cast<uint32_t>(patched_attr.size()));
                     w.WriteBytes(patched_attr.data(), patched_attr.size());
@@ -2391,16 +2398,15 @@ static void JNICALL onClassFileLoadHook(jvmtiEnv* jvmti_env, JNIEnv* jni_env, jc
         return;
     }
 
-    // Backtrack 3D ghost: inject the render hook into RenderGlobal.renderEntities.
     const bool isRenderGlobalTarget =
         g_targets.renderGhost &&
         ((cls_RenderGlobalTarget && class_being_redefined &&
           jni_env->IsSameObject(class_being_redefined, cls_RenderGlobalTarget) == JNI_TRUE) ||
-         strcmp(name, "net/minecraft/client/renderer/RenderGlobal") == 0);
+         (name && strcmp(name, "net/minecraft/client/renderer/RenderGlobal") == 0));
     if (isRenderGlobalTarget) {
         COBBLE_TRACE("onClassFileLoadHook: RenderGlobal matched");
         std::vector<uint8_t> patched;
-        int patched_methods = patchRenderGlobalClass(class_data, static_cast<size_t>(class_data_len), patched);
+        int patched_methods = patchRenderHookClass(class_data, static_cast<size_t>(class_data_len), patched, false);
         if (patched_methods > 0) {
             unsigned char* buffer = nullptr;
             jvmtiError err = jvmti_env->Allocate(static_cast<jint>(patched.size()), &buffer);
@@ -2414,6 +2420,32 @@ static void JNICALL onClassFileLoadHook(jvmtiEnv* jvmti_env, JNIEnv* jni_env, jc
             }
         } else {
             COBBLE_TRACE("onClassFileLoadHook: RenderGlobal patch failed or returned 0");
+        }
+        return;
+    }
+
+    const bool isEntityRendererTarget =
+        g_targets.renderCamera &&
+        ((cls_EntityRendererTarget && class_being_redefined &&
+          jni_env->IsSameObject(class_being_redefined, cls_EntityRendererTarget) == JNI_TRUE) ||
+         (name && strcmp(name, "net/minecraft/client/renderer/EntityRenderer") == 0));
+    if (isEntityRendererTarget) {
+        COBBLE_TRACE("onClassFileLoadHook: EntityRenderer matched");
+        std::vector<uint8_t> patched;
+        int patched_methods = patchRenderHookClass(class_data, static_cast<size_t>(class_data_len), patched, true);
+        if (patched_methods > 0) {
+            unsigned char* buffer = nullptr;
+            jvmtiError err = jvmti_env->Allocate(static_cast<jint>(patched.size()), &buffer);
+            if (err == JVMTI_ERROR_NONE && buffer) {
+                memcpy(buffer, patched.data(), patched.size());
+                *new_class_data_len = static_cast<jint>(patched.size());
+                *new_class_data = buffer;
+                g_entityRendererPatched.store(true, std::memory_order_release);
+                log_ok("[PacketInterceptor] Patched EntityRenderer.renderWorld bytecode (%d method(s))",
+                       patched_methods);
+            }
+        } else {
+            COBBLE_TRACE("onClassFileLoadHook: EntityRenderer patch failed or returned 0");
         }
         return;
     }
@@ -2695,23 +2727,54 @@ bool InstallBytecodeHook(JNIEnv* env) {
     if (g_targets.renderGhost) {
         jclass renderGlobalCls = nullptr;
         if (Java::AssignClass(OBFUSCATE_STRING("net.minecraft.client.renderer.RenderGlobal"), renderGlobalCls)) {
-            if (cls_RenderGlobalTarget) {
+            if (cls_RenderGlobalTarget)
                 env->DeleteGlobalRef(cls_RenderGlobalTarget);
-            }
             cls_RenderGlobalTarget = static_cast<jclass>(env->NewGlobalRef(renderGlobalCls));
-
-            jclass classes[1] = {renderGlobalCls};
-            err = Java::tiEnv->RetransformClasses(1, classes);
-            if (err == JVMTI_ERROR_NONE) {
-                log_ok("[PacketInterceptor] Retransform requested for RenderGlobal");
+            if (!cls_RenderGlobalTarget || env->ExceptionCheck()) {
+                if (env->ExceptionCheck())
+                    env->ExceptionClear();
+                cls_RenderGlobalTarget = nullptr;
+                log_warn("[PacketInterceptor] Failed to retain RenderGlobal for retransform");
             } else {
-                log_warn("[PacketInterceptor] RenderGlobal retransform failed: %d", err);
+                jclass classes[1] = {renderGlobalCls};
+                err = Java::tiEnv->RetransformClasses(1, classes);
+                if (err == JVMTI_ERROR_NONE)
+                    log_ok("[PacketInterceptor] Retransform requested for RenderGlobal");
+                else
+                    log_warn("[PacketInterceptor] RenderGlobal retransform failed: %d", err);
             }
             env->DeleteLocalRef(renderGlobalCls);
         } else {
             if (env->ExceptionCheck())
                 env->ExceptionClear();
             log_warn("[PacketInterceptor] RenderGlobal not available for retransform");
+        }
+    }
+
+    if (g_targets.renderCamera) {
+        jclass entityRendererCls = nullptr;
+        if (Java::AssignClass(OBFUSCATE_STRING("net.minecraft.client.renderer.EntityRenderer"), entityRendererCls)) {
+            if (cls_EntityRendererTarget)
+                env->DeleteGlobalRef(cls_EntityRendererTarget);
+            cls_EntityRendererTarget = static_cast<jclass>(env->NewGlobalRef(entityRendererCls));
+            if (!cls_EntityRendererTarget || env->ExceptionCheck()) {
+                if (env->ExceptionCheck())
+                    env->ExceptionClear();
+                cls_EntityRendererTarget = nullptr;
+                log_warn("[PacketInterceptor] Failed to retain EntityRenderer for retransform");
+            } else {
+                jclass classes[1] = {entityRendererCls};
+                err = Java::tiEnv->RetransformClasses(1, classes);
+                if (err == JVMTI_ERROR_NONE)
+                    log_ok("[PacketInterceptor] Retransform requested for EntityRenderer");
+                else
+                    log_warn("[PacketInterceptor] EntityRenderer retransform failed: %d", err);
+            }
+            env->DeleteLocalRef(entityRendererCls);
+        } else {
+            if (env->ExceptionCheck())
+                env->ExceptionClear();
+            log_warn("[PacketInterceptor] EntityRenderer not available for retransform");
         }
     }
 
@@ -2761,6 +2824,11 @@ bool IsIncomingBacktrackReady() {
            slowDownHookApplied.load(std::memory_order_acquire);
 }
 
+bool IsRenderCameraReady() {
+    return g_renderGlobalPatched.load(std::memory_order_acquire) &&
+           g_entityRendererPatched.load(std::memory_order_acquire);
+}
+
 bool Shutdown(JNIEnv* env) {
     if (!env)
         return false;
@@ -2808,13 +2876,15 @@ bool Shutdown(JNIEnv* env) {
     const bool slowDownPatched = slowDownHookApplied.load(std::memory_order_acquire);
     const bool renderGlobalPatched =
         g_renderGlobalPatched.load(std::memory_order_acquire);
+    const bool entityRendererPatched =
+        g_entityRendererPatched.load(std::memory_order_acquire);
     const bool anyClassPatched =
         networkManagerPatched || lunarNetHandlerPatched ||
         netHandlerPlayClientPatched || s14Patched || s18Patched ||
-        slowDownPatched || renderGlobalPatched;
+        slowDownPatched || renderGlobalPatched || entityRendererPatched;
 
-    jclass classesToRetransform[7]{};
-    bool temporaryLocalRef[7]{};
+    jclass classesToRetransform[8]{};
+    bool temporaryLocalRef[8]{};
     jint count = 0;
 
     auto cleanupTemporaryRefs = [&]() {
@@ -2874,7 +2944,11 @@ bool Shutdown(JNIEnv* env) {
         !addPatchedClass(
             renderGlobalPatched, cls_RenderGlobalTarget,
             OBFUSCATE_STRING("net.minecraft.client.renderer.RenderGlobal"),
-            "RenderGlobal")) {
+            "RenderGlobal") ||
+        !addPatchedClass(
+            entityRendererPatched, cls_EntityRendererTarget,
+            OBFUSCATE_STRING("net.minecraft.client.renderer.EntityRenderer"),
+            "EntityRenderer")) {
         cleanupTemporaryRefs();
         return false;
     }
@@ -2935,6 +3009,10 @@ bool Shutdown(JNIEnv* env) {
         env->DeleteGlobalRef(cls_RenderGlobalTarget);
         cls_RenderGlobalTarget = nullptr;
     }
+    if (cls_EntityRendererTarget) {
+        env->DeleteGlobalRef(cls_EntityRendererTarget);
+        cls_EntityRendererTarget = nullptr;
+    }
 
     g_networkManagerPatched.store(false, std::memory_order_release);
     g_lunarNetHandlerPatched.store(false, std::memory_order_release);
@@ -2942,6 +3020,7 @@ bool Shutdown(JNIEnv* env) {
     g_s14Patched.store(false, std::memory_order_release);
     g_s18Patched.store(false, std::memory_order_release);
     g_renderGlobalPatched.store(false, std::memory_order_release);
+    g_entityRendererPatched.store(false, std::memory_order_release);
     incomingBacktrackPrefixApplied.store(false, std::memory_order_release);
     slowDownHookApplied.store(false, std::memory_order_release);
     hooksRegistered.store(false, std::memory_order_release);

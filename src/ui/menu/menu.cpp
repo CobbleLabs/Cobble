@@ -17,6 +17,7 @@
 #include "../../module/combat/criticals.h"
 #include "../../module/combat/opportunity.h"
 #include "../../module/combat/piercing.h"
+#include "../../module/combat/silentaura.h"
 #include "../../module/combat/wtap.h"
 
 #include "../../module/combat/reach.h"
@@ -48,6 +49,7 @@
 #include "../../module/visual/blockesp.h"
 #include "../../module/visual/animations.h"
 #include "../../module/visual/chams.h"
+#include "../../module/visual/freelook.h"
 #include "../../module/visual/esp.h"
 #include "../../module/visual/item_esp.h"
 #include "../../module/visual/nametags.h"
@@ -124,6 +126,8 @@ Module* getModuleForSubtab(int tabIdx, int subtabIdx) {
                 return antiBot;
             case 13:
                 return opportunity;
+            case 14:
+                return silentAura;
         }
     }
     // Visuals Tab (1)
@@ -161,6 +165,8 @@ Module* getModuleForSubtab(int tabIdx, int subtabIdx) {
                 return chams;
             case 15:
                 return animations;
+            case 16:
+                return freelook;
         }
     }
     // Movement Tab (2): Timer, TimerRange, NoSlowDown, NoJumpDelay, Sprint, InventoryMove

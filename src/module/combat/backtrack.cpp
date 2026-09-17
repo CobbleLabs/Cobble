@@ -762,11 +762,6 @@ void Backtrack::onRenderMenu() {
 }
 
 std::string Backtrack::getDisplayInfo() {
-    const BacktrackGate::Status status = BacktrackGate::GetStatus();
-    if (!status.ready || !status.operational)
-        return "Offline";
-    if (status.pendingPackets != 0)
-        return std::to_string(status.pendingPackets);
     return std::to_string(settings.holdMs) + "ms";
 }
 

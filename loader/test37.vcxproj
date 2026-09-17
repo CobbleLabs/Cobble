@@ -49,6 +49,7 @@
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
+      <UACExecutionLevel>RequireAdministrator</UACExecutionLevel>
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <OptimizeReferences>true</OptimizeReferences>
       <GenerateDebugInformation>false</GenerateDebugInformation>
@@ -84,16 +85,11 @@
     <ClCompile Include="test1.cpp" />
     <ClCompile Include="src\test1\test2.cpp" />
     <ClCompile Include="src\test1\test5.cpp" />
-    <!-- test7.cpp hosts the SecureMapper remote shellcode pair
-         (ShellcodeEntry/ShellcodeEnd in the ".shell" segment). The mapper
-         copies the contiguous range [Entry, End), which is only guaranteed
-         when function-level linking is OFF for this TU: with /Gy each
-         function is its own COMDAT and the linker may emit End before
-         Entry (alphabetical), underflowing the size subtraction into a
-         huge SIZE_T and AV-ing inside memcpy. This changes no protection,
-         only section layout of this one file. -->
+    <!-- The mapper copies [ShellcodeEntry, ShellcodeEnd) as one block. Keep
+         this TU out of COMDAT and LTCG so that range remains contiguous. -->
     <ClCompile Include="src\test1\test7.cpp">
       <FunctionLevelLinking>false</FunctionLevelLinking>
+      <WholeProgramOptimization>false</WholeProgramOptimization>
     </ClCompile>
     <ClCompile Include="src\test3\test19.cpp" />
     <ClCompile Include="src\test2\test12.cpp" />

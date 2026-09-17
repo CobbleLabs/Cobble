@@ -102,6 +102,10 @@ jfieldID fid_serverPosZ = nullptr;
 jfieldID fid_lastTickPosX = nullptr;
 jfieldID fid_lastTickPosY = nullptr;
 jfieldID fid_lastTickPosZ = nullptr;
+jfieldID fid_rotationYaw = nullptr;
+jfieldID fid_rotationPitch = nullptr;
+jfieldID fid_prevRotationYaw = nullptr;
+jfieldID fid_prevRotationPitch = nullptr;
 jmethodID mid_isInvisible = nullptr;
 jmethodID mid_getUniqueID = nullptr;
 jmethodID mid_getEntityId = nullptr;
@@ -605,6 +609,27 @@ static bool resolveIds(JNIEnv* env) {
         if (!fid_lastTickPosZ && !is_1_7_10)
             TRY_FIELD(fid_lastTickPosZ, cls_Entity, "o", "D");
 
+        TRY_FIELD(fid_rotationYaw, cls_Entity, "rotationYaw", "F");
+        if (!fid_rotationYaw)
+            TRY_FIELD(fid_rotationYaw, cls_Entity, "field_70177_z", "F");
+        if (!fid_rotationYaw)
+            TRY_FIELD(fid_rotationYaw, cls_Entity, "y", "F");
+        TRY_FIELD(fid_rotationPitch, cls_Entity, "rotationPitch", "F");
+        if (!fid_rotationPitch)
+            TRY_FIELD(fid_rotationPitch, cls_Entity, "field_70125_A", "F");
+        if (!fid_rotationPitch)
+            TRY_FIELD(fid_rotationPitch, cls_Entity, "z", "F");
+        TRY_FIELD(fid_prevRotationYaw, cls_Entity, "prevRotationYaw", "F");
+        if (!fid_prevRotationYaw)
+            TRY_FIELD(fid_prevRotationYaw, cls_Entity, "field_70126_B", "F");
+        if (!fid_prevRotationYaw)
+            TRY_FIELD(fid_prevRotationYaw, cls_Entity, "A", "F");
+        TRY_FIELD(fid_prevRotationPitch, cls_Entity, "prevRotationPitch", "F");
+        if (!fid_prevRotationPitch)
+            TRY_FIELD(fid_prevRotationPitch, cls_Entity, "field_70127_C", "F");
+        if (!fid_prevRotationPitch)
+            TRY_FIELD(fid_prevRotationPitch, cls_Entity, "B", "F");
+
         log_debug("[JniCache] Entity pos fields: posX=%p posY=%p posZ=%p lastY=%p",
                   (void*)fid_posX, (void*)fid_posY, (void*)fid_posZ, (void*)fid_lastTickPosY);
         TRY_METHOD(mid_isInvisible, cls_Entity, "isInvisible", "()Z");
@@ -969,6 +994,9 @@ static bool resolveIds(JNIEnv* env) {
                 TRY_METHOD(mid_getBlockPos, cls_MovingObjectPosition, "func_178782_a",
                            "()Lnet/minecraft/util/BlockPos;");
             }
+            if (!mid_getBlockPos) {
+                TRY_METHOD(mid_getBlockPos, cls_MovingObjectPosition, "a", "()Lcj;");
+            }
         }
     }
 
@@ -1050,8 +1078,24 @@ static bool resolveIds(JNIEnv* env) {
                        "(Lnet/minecraft/util/Vec3;Lnet/minecraft/util/Vec3;)Lnet/minecraft/util/MovingObjectPosition;");
         }
         if (!mid_rayTraceBlocks) {
+            TRY_METHOD(mid_rayTraceBlocks, cls_WorldClient, "func_72901_a",
+                       "(Lnet/minecraft/util/Vec3;Lnet/minecraft/util/Vec3;Z)Lnet/minecraft/util/MovingObjectPosition;");
+        }
+        if (!mid_rayTraceBlocks) {
+            TRY_METHOD(mid_rayTraceBlocks, cls_WorldClient, "func_147447_a",
+                       "(Lnet/minecraft/util/Vec3;Lnet/minecraft/util/Vec3;Z)Lnet/minecraft/util/MovingObjectPosition;");
+        }
+        if (!mid_rayTraceBlocks) {
             TRY_METHOD(mid_rayTraceBlocks, cls_WorldClient, "func_72933_a",
                        "(Lnet/minecraft/util/Vec3;Lnet/minecraft/util/Vec3;)Lnet/minecraft/util/MovingObjectPosition;");
+        }
+        if (!mid_rayTraceBlocks) {
+            TRY_METHOD(mid_rayTraceBlocks, cls_WorldClient, "a",
+                       "(Laui;Laui;Z)Lauh;");
+        }
+        if (!mid_rayTraceBlocks) {
+            TRY_METHOD(mid_rayTraceBlocks, cls_WorldClient, "a",
+                       "(Laui;Laui;)Lauh;");
         }
     }
 

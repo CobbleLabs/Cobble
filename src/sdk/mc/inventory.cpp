@@ -345,6 +345,36 @@ std::vector<SlotInfo> Minecraft::getArmorSlots() {
 // windowClick - Click an inventory slot (shift-click)
 // =============================================================================
 
+static jmethodID getWindowClickMethod(JNIEnv* env, jclass controllerCls) {
+    if (JniCache::mid_windowClick)
+        return JniCache::mid_windowClick;
+
+    jmethodID mid = env->GetMethodID(
+        controllerCls, OBFUSCATE_STRING("windowClick").c_str(),
+        OBFUSCATE_STRING("(IIIILnet/minecraft/entity/player/EntityPlayer;)Lnet/minecraft/item/ItemStack;").c_str());
+    if (!mid) {
+        if (env->ExceptionCheck())
+            env->ExceptionClear();
+        mid = env->GetMethodID(
+            controllerCls, OBFUSCATE_STRING("func_78753_a").c_str(),
+            OBFUSCATE_STRING("(IIIILnet/minecraft/entity/player/EntityPlayer;)Lnet/minecraft/item/ItemStack;").c_str());
+    }
+    if (!mid) {
+        if (env->ExceptionCheck())
+            env->ExceptionClear();
+        mid = env->GetMethodID(
+            controllerCls, OBFUSCATE_STRING("a").c_str(),
+            OBFUSCATE_STRING("(IIIILwn;)Lzx;").c_str());
+    }
+    if (!mid && env->ExceptionCheck()) {
+        env->ExceptionClear();
+    }
+    if (mid) {
+        JniCache::mid_windowClick = mid;
+    }
+    return mid;
+}
+
 void Minecraft::windowClick(int slotId, int button) {
     if (!isValid())
         return;
@@ -392,11 +422,11 @@ void Minecraft::windowClick(int slotId, int button) {
     jclass controllerCls = env->GetObjectClass(playerController);
 
     // windowClick(int windowId, int slotId, int mouseButton, int mode, EntityPlayer player)
-    jmethodID mid_windowClick = env->GetMethodID(
-        controllerCls, OBFUSCATE_STRING("windowClick").c_str(),
-        OBFUSCATE_STRING("(IIIILnet/minecraft/entity/player/EntityPlayer;)Lnet/minecraft/item/ItemStack;").c_str());
+    jmethodID mid_windowClick = getWindowClickMethod(env, controllerCls);
 
     if (!mid_windowClick) {
+        if (env->ExceptionCheck())
+            env->ExceptionClear();
         env->DeleteLocalRef(controllerCls);
         env->DeleteLocalRef(playerController);
         env->DeleteLocalRef(localPlayer);
@@ -478,11 +508,11 @@ void Minecraft::dropSlot(int slotId, bool wholeStack) {
     jclass controllerCls = env->GetObjectClass(playerController);
 
     // windowClick(int windowId, int slotId, int mouseButton, int mode, EntityPlayer player)
-    jmethodID mid_windowClick = env->GetMethodID(
-        controllerCls, OBFUSCATE_STRING("windowClick").c_str(),
-        OBFUSCATE_STRING("(IIIILnet/minecraft/entity/player/EntityPlayer;)Lnet/minecraft/item/ItemStack;").c_str());
+    jmethodID mid_windowClick = getWindowClickMethod(env, controllerCls);
 
     if (!mid_windowClick) {
+        if (env->ExceptionCheck())
+            env->ExceptionClear();
         env->DeleteLocalRef(controllerCls);
         env->DeleteLocalRef(playerController);
         env->DeleteLocalRef(localPlayer);
@@ -566,11 +596,11 @@ void Minecraft::windowClickSwap(int containerSlot, int hotbarIndex) {
     jclass controllerCls = env->GetObjectClass(playerController);
 
     // windowClick(int windowId, int slotId, int mouseButton, int mode, EntityPlayer player)
-    jmethodID mid_windowClick = env->GetMethodID(
-        controllerCls, OBFUSCATE_STRING("windowClick").c_str(),
-        OBFUSCATE_STRING("(IIIILnet/minecraft/entity/player/EntityPlayer;)Lnet/minecraft/item/ItemStack;").c_str());
+    jmethodID mid_windowClick = getWindowClickMethod(env, controllerCls);
 
     if (!mid_windowClick) {
+        if (env->ExceptionCheck())
+            env->ExceptionClear();
         env->DeleteLocalRef(controllerCls);
         env->DeleteLocalRef(playerController);
         env->DeleteLocalRef(localPlayer);

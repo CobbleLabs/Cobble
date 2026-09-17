@@ -111,6 +111,10 @@ extern jfieldID fid_serverPosZ;
 extern jfieldID fid_lastTickPosX;
 extern jfieldID fid_lastTickPosY;
 extern jfieldID fid_lastTickPosZ;
+extern jfieldID fid_rotationYaw;
+extern jfieldID fid_rotationPitch;
+extern jfieldID fid_prevRotationYaw;
+extern jfieldID fid_prevRotationPitch;
 
 // Methods (Entity)
 extern jmethodID mid_isInvisible;

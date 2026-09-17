@@ -268,14 +268,30 @@ struct CallbackScope {
 
 #include "../../module/visual/pings.h"
 #include "../../module/visual/chams.h"
+#include "../../module/visual/freelook.h"
+#include "../../sdk/jni/jni_cache.h"
+#include "../packet/bytecode_patcher.hpp"
 
 namespace BacktrackGhostGate {
 
 void JNICALL NativeOnRenderWorld(JNIEnv* env, jclass, jobject viewEntity) {
     CallbackScope callback;
-    (void)viewEntity;
-    if (g_shuttingDown.load(std::memory_order_acquire) || !env)
+    if (g_shuttingDown.load(std::memory_order_acquire) || !env || !viewEntity || !JniCache::cls_Entity)
         return;
+
+    const jboolean isEntity = env->IsInstanceOf(viewEntity, JniCache::cls_Entity);
+    if (env->ExceptionCheck()) {
+        env->ExceptionClear();
+        return;
+    }
+    if (isEntity != JNI_TRUE) {
+        if (freelook && BytecodePatcher::IsRenderCameraReady())
+            freelook->onCameraBegin(env);
+        return;
+    }
+
+    if (freelook)
+        freelook->onCameraReady(env);
 
     GLfloat proj[16];
     GLfloat mv[16];

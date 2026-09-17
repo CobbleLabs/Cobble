@@ -103,6 +103,7 @@
     <ClCompile Include="src\module\combat\autorod.cpp" />
     <ClCompile Include="src\module\combat\blockhit.cpp" />
     <ClCompile Include="src\module\combat\aimassist.cpp" />
+    <ClCompile Include="src\module\combat\silentaura.cpp" />
     <ClCompile Include="src\module\combat\aimbow.cpp" />
     <ClCompile Include="src\module\combat\antibot.cpp" />
     <ClCompile Include="src\module\utility\armorswitch.cpp" />
@@ -144,6 +145,7 @@
     <ClCompile Include="src\module\visual\esp.cpp" />
     <ClCompile Include="src\module\visual\animations.cpp" />
     <ClCompile Include="src\module\visual\chams.cpp" />
+    <ClCompile Include="src\module\visual\freelook.cpp" />
     <ClCompile Include="src\module\visual\item_esp.cpp" />
     <ClCompile Include="src\module\visual\tracers.cpp" />
     <ClCompile Include="src\module\visual\blockesp.cpp" />
@@ -210,6 +212,7 @@
     <ClInclude Include="src\module\combat\autorod.h" />
     <ClInclude Include="src\module\combat\blockhit.h" />
     <ClInclude Include="src\module\combat\aimassist.h" />
+    <ClInclude Include="src\module\combat\silentaura.h" />
     <ClInclude Include="src\module\combat\aimbow.h" />
     <ClInclude Include="src\module\combat\antibot.h" />
     <ClInclude Include="src\module\utility\armorswitch.h" />
@@ -248,6 +251,7 @@
     <ClInclude Include="src\module\visual\esp.h" />
     <ClInclude Include="src\module\visual\animations.h" />
     <ClInclude Include="src\module\visual\chams.h" />
+    <ClInclude Include="src\module\visual\freelook.h" />
     <ClInclude Include="src\module\visual\item_esp.h" />
     <ClInclude Include="src\module\visual\tracers.h" />
     <ClInclude Include="src\module\visual\blockesp.h" />

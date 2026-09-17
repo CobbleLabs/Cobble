@@ -1,5 +1,6 @@
 #include "aimassist.h"
 #include "antibot.h"
+#include "silentaura.h"
 #include "../../jni/java.h"
 #include "../../sdk/core/minecraft.h"
 #include "../../sdk/jni/jni_cache.h"
@@ -330,6 +331,9 @@ void AimAssist::onWorldChange() {
 
 void AimAssist::onEnable() {
     log_ok("AimAssist enabled");
+
+    if (silentAura && silentAura->enabled)
+        silentAura->setEnabled(false);
 
     std::lock_guard<std::recursive_mutex> lock(targetMutex_);
     JNIEnv* env = Java::Env();
@@ -1649,9 +1653,8 @@ void AimAssist::onRenderMenu() {
 }
 
 std::string AimAssist::getDisplayInfo() {
-    char buf[16];
-    snprintf(buf, sizeof(buf), "%.0f", settings.speed);
-    return buf;
+    static const char* names[] = {"Smooth", "Adaptive", "Blatant"};
+    return names[std::clamp(static_cast<int>(settings.aimMode), 0, 2)];
 }
 
 

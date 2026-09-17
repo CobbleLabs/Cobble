@@ -108,19 +108,23 @@ void ModuleManager::registerModule(Module* mod) {
 }
 
 void ModuleManager::update() {
-    // Only process keybinds and modules when Minecraft is focused
-    if (!isMinecraftFocused())
+    const bool focused = isMinecraftFocused();
+    if (!focused) {
+        checkKeybinds(false);
         return;
+    }
 
     // Distributed state check #1: gateAB combines stateFlags + checksum
     // invariance. If a cracker stubs Module::shouldUpdate() / isOperational(),
     // this still guards the entire update loop. Picked AB rather than ABC
     // because gateC (timing) needs the heartbeat thread alive.
-    if (!sdk::internal::gateAB())
+    if (!sdk::internal::gateAB()) {
+        checkKeybinds(false);
         return;
+    }
 
     COBBLE_DLL_ULTRA_START("Cobble.ModuleManager.Update");
-    checkKeybinds();
+    checkKeybinds(true);
 
 #ifdef COBBLE_DEV_BUILD
     ModuleDiag::g_loopIterations++;
@@ -254,11 +258,8 @@ bool ModuleManager::needsPlayerCache() const {
     return false;
 }
 
-void ModuleManager::checkKeybinds() {
-    if (mc.isInGui())
-        return;
-    if (Menu::isOpen)
-        return;
+void ModuleManager::checkKeybinds(bool allowActivation) {
+    const bool inputAllowed = allowActivation && !mc.isInGui() && !Menu::isOpen;
 
     bool currentStates[256] = {};
     bool queried[256] = {};
@@ -277,12 +278,17 @@ void ModuleManager::checkKeybinds() {
 
     for (auto* mod : modules) {
         const int key = mod->keybind;
-        if (key <= 0 || key >= 256)
-            continue;
+        const bool validKey = key > 0 && key < 256;
 
-        if (currentStates[key] && !keyStates[key]) {
-            mod->toggle();
+        if (mod->usesHoldKeybind()) {
+            const bool shouldEnable = inputAllowed && validKey && currentStates[key];
+            if (shouldEnable != mod->enabled)
+                mod->setEnabled(shouldEnable);
+            continue;
         }
+
+        if (inputAllowed && validKey && currentStates[key] && !keyStates[key])
+            mod->toggle();
     }
 
     for (int i = 0; i < activeKeyCount; ++i) {

@@ -98,9 +98,10 @@ bool Init() {
             // crashing. Gate on sdInit so we never enable the injected call when the
             // hook class itself failed to define.
             targets.slowdown = sdInit;
-            // Stage 2: only inject the render hook once the ghost native bridge is
-            // registered, so a failed DefineClass can never leave a dangling call.
+            // Stage 2: only inject render calls once the native bridge is
+            // registered, so a failed DefineClass cannot leave a dangling call.
             targets.renderGhost = bgInit;
+            targets.renderCamera = bgInit;
 
             // Backtrack blocks only at the already-verified NetworkManager.channelRead0
             // entry. Keep the legacy S14/S18 processPacket retransforms permanently off.

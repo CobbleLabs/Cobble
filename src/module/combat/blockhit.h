@@ -264,8 +264,26 @@ public:
     void onUpdate() override;
     void onRenderMenu() override;
     std::string getDisplayInfo() override;
-    // No saveSettings/loadSettings. There is nothing to persist beyond the base "enabled"
-    // and "keybind" keys, which ConfigManager writes itself.
+    void saveSettings(json::Value& node) const override;
+    void loadSettings(const json::Value& node) override;
+
+    struct Settings {
+        float range = 3.4f;
+        int maxHurtTime = 4;
+        float maxHoldTime = 3.5f;
+
+        bool fakeBlockAnimation = false;
+        bool fakeBlockRequireTarget = true;
+
+        float lagChance = 0.0f;
+        float lagDuration = 2.5f;
+        bool lagFlushAttack = false;
+        bool lagReblock = false;
+
+        bool requireLMB = true;
+        bool requireRMB = false;
+        bool requireDamage = false;
+    } settings;
 
     // Client thread, dispatched from the SlowDownGate hook inside
     // EntityLivingBase.onLivingUpdate. Every packet this module sends is sent here.
@@ -276,6 +294,7 @@ public:
 
     // True when the server currently thinks we are blocking, because of us.
     bool isServerBlocking() const { return serverBlocking_.load(std::memory_order_acquire); }
+    void notifyAttack() { attackSignals_.fetch_add(1, std::memory_order_acq_rel); }
 
 private:
     // ---- Client-thread state. Touched only inside onClientTick. ----
@@ -319,6 +338,9 @@ private:
     // Vanilla's slowdown is guarded by !isRiding(), so a mount would leave the block unpaid for.
     // Rather than reproduce that branch, the module simply does not block while riding.
     jfieldID fRidingEntity_ = nullptr;       // Entity.ridingEntity / field_70154_o
+    jfieldID fItemInUseCount_ = nullptr;     // EntityPlayer.itemInUseCount for fake animation
+    bool fakingBlock_ = false;
+    int lagTicksRemaining_ = 0;
 
     // ---- Module-thread state. ----
     bool prevAttackDown_ = false;

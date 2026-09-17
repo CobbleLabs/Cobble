@@ -13,6 +13,7 @@ struct HookTargets {
     bool lunarNametags = false;
     bool slowdown = false;  // patch EntityLivingBase.onLivingUpdate ONLY when SlowDownHook native is registered
     bool renderGhost = false;  // patch RenderGlobal.renderEntities ONLY when BacktrackGhostHook native is registered
+    bool renderCamera = false;  // patch EntityRenderer.renderWorld ONLY when BacktrackGhostHook native is registered
     bool backtrack = false;  // legacy S14/S18 processPacket patch; keep disabled
 };
 
@@ -34,6 +35,9 @@ bool InstallBytecodeHook(JNIEnv* env);
 // written: the NetworkManager observer/gate prefix and the client-thread
 // EntityLivingBase SlowDown hook.
 bool IsIncomingBacktrackReady();
+
+// True only when both render callbacks required for a bounded camera swap are active.
+bool IsRenderCameraReady();
 
 // Restores every class known to contain an injected native call and unregisters
 // PacketHook. False means teardown is incomplete and the caller must keep the DLL loaded.

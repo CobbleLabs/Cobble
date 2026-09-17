@@ -1120,6 +1120,8 @@ void ConfigManager::buildConfigFromModules() {
         config_["friends"]["quickAddKey"] = friendsManager->quickAddKey;
     }
 
+    config_["modules"].remove("Cosmetics");
+
     // Build modules config
     int enabledCount = 0;
     for (auto* mod : moduleManager->getModules()) {

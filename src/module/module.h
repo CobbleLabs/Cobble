@@ -87,6 +87,7 @@ struct Module {
 
     // Check if module can be toggled (override to block toggle in certain states)
     virtual bool canToggle() { return true; }
+    virtual bool usesHoldKeybind() const { return false; }
 
     // Check if SDK state allows operation (called before onUpdate)
     // Returns false if state is degraded - module should skip update

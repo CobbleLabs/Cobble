@@ -828,28 +828,53 @@ int Minecraft::getLocalPlayerPing() {
     return ping;
 }
 
-bool Minecraft::isFirstPerson() {
+int Minecraft::getPerspective() {
     JNIEnv* env = Java::Env();
     if (!isValid() || !env || !JniCache::fid_gameSettings || !JniCache::fid_thirdPersonView)
-        return true;
+        return 0;
 
     jobject gameSettings = env->GetObjectField(instance, JniCache::fid_gameSettings);
     if (env->ExceptionCheck()) {
         env->ExceptionClear();
         if (gameSettings)
             env->DeleteLocalRef(gameSettings);
-        return true;
+        return 0;
     }
     if (!gameSettings)
-        return true;
+        return 0;
 
-    const jint view = env->GetIntField(gameSettings, JniCache::fid_thirdPersonView);
+    const jint perspective = env->GetIntField(gameSettings, JniCache::fid_thirdPersonView);
     env->DeleteLocalRef(gameSettings);
     if (env->ExceptionCheck()) {
         env->ExceptionClear();
-        return true;
+        return 0;
     }
-    return view == 0;
+    return perspective;
+}
+
+void Minecraft::setPerspective(int perspective) {
+    JNIEnv* env = Java::Env();
+    if (!isValid() || !env || !JniCache::fid_gameSettings || !JniCache::fid_thirdPersonView)
+        return;
+
+    jobject gameSettings = env->GetObjectField(instance, JniCache::fid_gameSettings);
+    if (env->ExceptionCheck()) {
+        env->ExceptionClear();
+        if (gameSettings)
+            env->DeleteLocalRef(gameSettings);
+        return;
+    }
+    if (!gameSettings)
+        return;
+
+    env->SetIntField(gameSettings, JniCache::fid_thirdPersonView, std::clamp(perspective, 0, 2));
+    env->DeleteLocalRef(gameSettings);
+    if (env->ExceptionCheck())
+        env->ExceptionClear();
+}
+
+bool Minecraft::isFirstPerson() {
+    return getPerspective() == 0;
 }
 
 void Minecraft::sendInventoryOpenPacket() {

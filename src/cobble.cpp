@@ -12,6 +12,7 @@
 #include "module/combat/opportunity.h"
 #include "module/combat/criticals.h"
 #include "module/combat/piercing.h"
+#include "module/combat/silentaura.h"
 #include "module/combat/wtap.h"
 
 #include "module/combat/reach.h"
@@ -44,6 +45,7 @@
 #include "module/visual/blockesp.h"
 #include "module/visual/chams.h"
 #include "module/visual/animations.h"
+#include "module/visual/freelook.h"
 #include "module/visual/esp.h"
 #include "module/visual/item_esp.h"
 #include "module/visual/nametags.h"
@@ -183,6 +185,8 @@ void cobble::context::initialize(HMODULE hModule) {
     blockHit = new BlockHit();
     COBBLE_TRACE("alloc:AimAssist");
     aimAssist = new AimAssist();
+    COBBLE_TRACE("alloc:SilentAura");
+    silentAura = new SilentAura();
     COBBLE_TRACE("alloc:AimBow");
     aimBow = new AimBow();
     // Allocated before anything can target: every combat module's target filter calls into it.
@@ -263,6 +267,8 @@ void cobble::context::initialize(HMODULE hModule) {
     chams = new Chams();
     COBBLE_TRACE("alloc:Animations");
     animations = new Animations();
+    COBBLE_TRACE("alloc:Freelook");
+    freelook = new Freelook();
     COBBLE_TRACE("alloc:ItemESP");
     itemEsp = new ItemESP();
     COBBLE_TRACE("alloc:Tracers");
@@ -291,6 +297,7 @@ void cobble::context::initialize(HMODULE hModule) {
     moduleManager->registerModule(autoRod);
     moduleManager->registerModule(blockHit);
     moduleManager->registerModule(aimAssist);
+    moduleManager->registerModule(silentAura);
     moduleManager->registerModule(aimBow);
     moduleManager->registerModule(antiBot);
     moduleManager->registerModule(armorSwitch);
@@ -332,6 +339,7 @@ void cobble::context::initialize(HMODULE hModule) {
     moduleManager->registerModule(esp);
     moduleManager->registerModule(chams);
     moduleManager->registerModule(animations);
+    moduleManager->registerModule(freelook);
     moduleManager->registerModule(itemEsp);
     moduleManager->registerModule(tracers);
     moduleManager->registerModule(blockESP);
@@ -647,6 +655,10 @@ bool cobble::context::shutdown() {
         delete aimAssist;
         aimAssist = nullptr;
     }
+    if (silentAura) {
+        delete silentAura;
+        silentAura = nullptr;
+    }
     if (aimBow) {
         delete aimBow;
         aimBow = nullptr;
@@ -811,6 +823,10 @@ bool cobble::context::shutdown() {
         Animations* dead = animations;
         animations = nullptr;
         delete dead;
+    }
+    if (freelook) {
+        delete freelook;
+        freelook = nullptr;
     }
     if (itemEsp) {
         delete itemEsp;

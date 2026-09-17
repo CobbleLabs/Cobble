@@ -3,12 +3,15 @@
 #include "../../sdk/core/minecraft.h"
 #include "../../sdk/jni/jni_cache.h"
 #include "../../sdk/player/player.h"
+#include "../../sdk/player/visual_cache.h"
 #include "../../ui/menu/menu.h"
 #include "../../ui/widgets/widgets.hpp"
 #include "../../util/aes_string.hpp"
+#include "../../util/network/json.hpp"
 #include "aimassist.h"
 #include "autoclicker.h"
 #include "autorod.h"
+#include "silentaura.h"
 
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
@@ -63,6 +66,8 @@ BlockHit::BlockHit() : Module("BlockHit"), rng_((unsigned)nowMs()) {
 }
 
 void BlockHit::onEnable() {
+    if (silentAura && silentAura->enabled)
+        silentAura->setEnabled(false);
     tick_ = 0;
     blockedAtTick_ = 0;
     releasedAtTick_ = 0;
@@ -118,6 +123,9 @@ void BlockHit::onWorldChange() {
     fInputForward_ = nullptr;
     fSprintToggle_ = nullptr;
     fRidingEntity_ = nullptr;
+    fItemInUseCount_ = nullptr;
+    fakingBlock_ = false;
+    lagTicksRemaining_ = 0;
     rollCycle();
 }
 
@@ -149,38 +157,29 @@ void BlockHit::onUpdate() {
 void BlockHit::rollCycle() {
     std::uniform_int_distribution<int> pick(0, 99);
 
-    // Beats a hold rides out before it taps off. At 11 CPS a beat lands every 1.8 ticks, so three
-    // to six beats is a hold of roughly six to eleven ticks -- what letting go for a sprint reset
-    // actually looks like. One beat per hole was the shape of the very first version, and at 11
-    // CPS it left the sword down for more of the exchange than up.
     const int beats = pick(rng_);
     beatsPerHole_ = (beats < 22) ? 3u : (beats < 58 ? 4u : (beats < 84 ? 5u : 6u));
 
-    // Two signals can land on one tick -- a manual click and an aura swing -- and without a floor
-    // that is a C08 and a C07 with nothing at all in between them. Also stops a release landing
-    // in the tick right after the block came back, which is the same churn one step removed.
     minHoldTicks_ = 2u + (std::uint32_t)(pick(rng_) % 3);
 
-    // The beats dried up -- the target died, ran out of reach, or the button came up -- and
-    // nothing has landed on us either, so the immunity gate has nothing to say. Break the hold
-    // rather than pay 80% of the walk speed indefinitely: 20..34 ticks, one to one and a half
-    // seconds. Far shorter than it was when the hold was free.
-    maxHoldTicks_ = 20u + (std::uint32_t)(pick(rng_) % 15);
+    // Slinky Maximum hold duration with probabilistic rounding of fractional values
+    const int baseHold = static_cast<int>(settings.maxHoldTime);
+    const float frac = settings.maxHoldTime - static_cast<float>(baseHold);
+    maxHoldTicks_ = static_cast<std::uint32_t>(
+        (std::max)(1, baseHold + (pick(rng_) < static_cast<int>(frac * 100.0f) ? 1 : 0)));
+    minHoldTicks_ = (std::min)(minHoldTicks_, maxHoldTicks_);
 
-    // The hole. This is a real sprint reset now, not a token tap: four to eight ticks is long
-    // enough for setSprinting(true) plus the C0B to land and for the sprint to actually carry.
-    // Roughly one in seven runs nine to fourteen, because a player who re-blocks in exactly six
-    // ticks every single time, forever, does not exist.
-    const int hole = pick(rng_);
-    if (hole < 86)
-        holeTicks_ = 4u + (std::uint32_t)(pick(rng_) % 5);
-    else
-        holeTicks_ = 9u + (std::uint32_t)(pick(rng_) % 6);
+    // Slinky Reblock Instantly: eliminate cooldown delay
+    if (settings.lagReblock) {
+        holeTicks_ = 0;
+    } else {
+        const int hole = pick(rng_);
+        if (hole < 86)
+            holeTicks_ = 4u + (std::uint32_t)(pick(rng_) % 5);
+        else
+            holeTicks_ = 9u + (std::uint32_t)(pick(rng_) % 6);
+    }
 
-    // How much hurtTime is left when the sword comes back up after a hit. The immunity window
-    // and hurtTime count down together, so this is the safety margin in ticks between the block
-    // being up and the next hit being able to hurt us: a block that arrives with the hit arrives
-    // after it. Two to five, so the transition never sits on the same tick twice running.
     immuneMargin_ = 2u + (std::uint32_t)(pick(rng_) % 4);
 }
 
@@ -199,16 +198,49 @@ bool BlockHit::isHoldingSword() const {
 }
 
 bool BlockHit::fightLive() const {
-    // Someone is hitting us. This covers the whole opening of a fight we did not start.
-    if (haveTakenHit_ && (tick_ - lastHitTakenTick_) <= kPressureTicks)
-        return true;
-    // AimAssist only rewrites rotation while it is actually steering at a target, which makes it
-    // a precise "there is someone in reach" signal rather than just "the module is on".
-    if (aimAssist && aimAssist->isRewritingRotation())
-        return true;
+    if (!player.isValid())
+        return false;
+
+    // Check damage condition
+    const int hurt = player.getHurtTime();
+    if (settings.requireDamage && hurt <= 0 && (!haveTakenHit_ || (tick_ - lastHitTakenTick_) > kPressureTicks))
+        return false;
+
+    // Reject values above Maximum hurt time
+    if (hurt > settings.maxHurtTime)
+        return false;
+
     // Manual play. Minecraft.clickMouse only turns a click into a C02 ATTACK when
     // objectMouseOver is an entity, so this is the same question vanilla already asked.
-    return mc.isTargetingEntity();
+    if (mc.isTargetingEntity())
+        return true;
+
+    // AimAssist only rewrites rotation while it is actually steering at a target
+    if (aimAssist && aimAssist->isRewritingRotation())
+        return true;
+
+    // Someone is hitting us
+    if (haveTakenHit_ && (tick_ - lastHitTakenTick_) <= kPressureTicks)
+        return true;
+
+    // Target within Range
+    double px = player.getPosX();
+    double py = player.getPosY();
+    double pz = player.getPosZ();
+    double maxDistSq = static_cast<double>(settings.range * settings.range);
+
+    const VisualSnapshot snap = VisualCache::GetSnapshot();
+    for (const auto& target : snap.players) {
+        if (target.entityId == 0)
+            continue;
+        double dx = target.posX - px;
+        double dy = target.posY - py;
+        double dz = target.posZ - pz;
+        if ((dx * dx + dy * dy + dz * dz) <= maxDistSq)
+            return true;
+    }
+
+    return false;
 }
 
 // ---------------------------------------------------------------------------
@@ -250,6 +282,8 @@ bool BlockHit::resolveApi(JNIEnv* env, jobject playerInstance) {
     fRidingEntity_ = field(playerCls, OBFUSCATE_STRING("ridingEntity"),
                            OBFUSCATE_STRING("field_70154_o"),
                            OBFUSCATE_STRING("Lnet/minecraft/entity/Entity;"));
+    fItemInUseCount_ = field(playerCls, OBFUSCATE_STRING("itemInUseCount"),
+                             OBFUSCATE_STRING("field_71072_f"), OBFUSCATE_STRING("I"));
 
     if (fMovementInput_) {
         jobject input = env->GetObjectField(playerInstance, fMovementInput_);
@@ -483,6 +517,14 @@ void BlockHit::sendRelease(JNIEnv* env, jobject playerInstance, bool immune) {
     // is already decided by the time the hole starts running.
     rollCycle();
 
+    // Slinky Lag Phase: probabilistically initiate lag delay
+    if (settings.lagChance > 0.0f) {
+        std::uniform_int_distribution<int> pick(0, 99);
+        if (pick(rng_) < static_cast<int>(settings.lagChance)) {
+            lagTicksRemaining_ = static_cast<int>((std::max)(1.0f, settings.lagDuration));
+        }
+    }
+
     if (!env || !playerInstance || !midOnStoppedUsing_ || !mc.instance ||
         !JniCache::fid_playerController) {
         wasSprinting_ = false;
@@ -528,6 +570,7 @@ void BlockHit::standDown(JNIEnv* env, jobject playerInstance) {
     // Forget the hole. A hole is a gap inside a live exchange; when the exchange is over the
     // next block should wait for a beat, not for a timer left running from the last fight.
     holePending_ = false;
+    lagTicksRemaining_ = 0;
 }
 
 // The user pressed right-click, or another module put the client into use-item state. That
@@ -601,13 +644,31 @@ void BlockHit::onClientTick(JNIEnv* env) {
 
     // Each bail-out records WHY, so a standing-down module says so in the ArrayList instead of
     // looking like a working one.
+    const bool lmbDown = (GetAsyncKeyState(VK_LBUTTON) & 0x8000) != 0 || (autoClicker && autoClicker->enabled);
     const bool rmbDown = (GetAsyncKeyState(VK_RBUTTON) & 0x8000) != 0;
+
+    // If Require Right Click is active and RMB is held with a sword, suppress vanilla keyBindUseItem
+    // so Minecraft's rightClickMouse() does not fight AutoBlock's block cycle
+    if (settings.requireRMB && rmbDown && isHoldingSword() && mc.instance && JniCache::fid_gameSettings && JniCache::fid_keyBindUseItem && JniCache::fid_pressed) {
+        jobject gameSettings = env->GetObjectField(mc.instance, JniCache::fid_gameSettings);
+        if (gameSettings && !clearEx(env)) {
+            jobject keyBindUse = env->GetObjectField(gameSettings, JniCache::fid_keyBindUseItem);
+            if (keyBindUse && !clearEx(env)) {
+                env->SetBooleanField(keyBindUse, JniCache::fid_pressed, JNI_FALSE);
+                clearEx(env);
+                env->DeleteLocalRef(keyBindUse);
+            }
+            env->DeleteLocalRef(gameSettings);
+        }
+    }
+
     const bool clientUsing = clientUsingItem(env, self);
     // Ours is real now. clientUsingItem() is true for the whole of every hold BECAUSE of this
     // module, so the raw flag can no longer stand in for "somebody else owns the channel" -- read
     // straight it would gate the module Manual on the tick after its own block and hand the
     // channel over to itself. Only use-item state we did not create counts as foreign.
     const bool foreignUse = clientUsing && !serverBlocking_.load(std::memory_order_acquire);
+    const bool manualBlock = (!settings.requireRMB && rmbDown) || foreignUse;
 
     const char* gate = nullptr;
     // Set when the channel is being taken over rather than vacated: hand it over silently
@@ -619,17 +680,12 @@ void BlockHit::onClientTick(JNIEnv* env) {
         gate = "GUI";
     else if (!gameFocused())
         gate = "Unfocused";
-    // A physical RMB press, or the client sitting in use-item state for some reason that is not
-    // us -- NoItemRelease, AutoPot, ThrowPots, eating, a bow being drawn. Vanilla owns the block
-    // in all of those cases, including its own C07 on release, and two owners of one itemInUse is
-    // a desync every time. A press arriving mid-hold releases ours first and hands over on the
-    // next tick, because Minecraft.runTick's right-click gate is `!thePlayer.isUsingItem()` and
-    // will not fire theirs while ours is up.
-    else if (rmbDown || foreignUse) {
+    else if (settings.requireLMB && !lmbDown)
+        gate = "No LMB";
+    else if (settings.requireRMB && !rmbDown)
+        gate = "No RMB";
+    else if (manualBlock) {
         gate = "Manual";
-        // Only a hand-over if someone really took the channel. A right-click that produced no
-        // use-item state at all -- a chest, an empty hand, a block placed -- never touched the
-        // server's itemInUse, so ours is still up and still has to come down.
         handOver = foreignUse;
     }
     // AutoRod owns the use-item channel while a sequence unwinds. isSequencing() is the whole
@@ -653,6 +709,10 @@ void BlockHit::onClientTick(JNIEnv* env) {
 
     gateReason_.store(gate, std::memory_order_release);
     if (gate) {
+        if (fakingBlock_ && fItemInUseCount_ && self) {
+            env->SetIntField(self, fItemInUseCount_, 0);
+            fakingBlock_ = false;
+        }
         if (handOver)
             abandonBlock();
         else
@@ -662,10 +722,32 @@ void BlockHit::onClientTick(JNIEnv* env) {
 
     // ---- The cycle. Up while a hit can land, down and running while one cannot. ----
 
-    // Somebody to block. Without this gate a held AutoClicker would put a C08/C07 pair on the
-    // wire every few ticks while walking across an empty map, which is the loudest possible
-    // version of the one signature this technique has.
     const bool live = fightLive();
+
+    // Slinky Force block animation (visual only, writes 72000 to itemInUseCount)
+    if (settings.fakeBlockAnimation && !serverBlocking_.load(std::memory_order_acquire)) {
+        const bool animEligible = !settings.fakeBlockRequireTarget || live;
+        if (animEligible && fItemInUseCount_ && self) {
+            env->SetIntField(self, fItemInUseCount_, 72000);
+            fakingBlock_ = true;
+        } else if (fakingBlock_ && fItemInUseCount_ && self) {
+            env->SetIntField(self, fItemInUseCount_, 0);
+            fakingBlock_ = false;
+        }
+    } else if (fakingBlock_ && fItemInUseCount_ && self && !serverBlocking_.load(std::memory_order_acquire)) {
+        env->SetIntField(self, fItemInUseCount_, 0);
+        fakingBlock_ = false;
+    }
+
+    // Slinky Lag phase: if lag delay is active, tick it down
+    if (lagTicksRemaining_ > 0) {
+        if (settings.lagFlushAttack && beat) {
+            lagTicksRemaining_ = 0;
+        } else {
+            --lagTicksRemaining_;
+            return;
+        }
+    }
 
     if (serverBlocking_.load(std::memory_order_acquire)) {
         if (beat)
@@ -680,12 +762,7 @@ void BlockHit::onClientTick(JNIEnv* env) {
         // tick and a C08/C07 pair with nothing between them.
         if (held < minHoldTicks_)
             return;
-        // Three reasons to come down, and the first is the one that makes this cheap. A hit has
-        // just landed, so attackEntityFrom will discard the next equal-or-weaker one before it
-        // ever reaches damageEntity, let alone isBlocking() -- for the length of that window the
-        // block protects nothing and the 80% is being paid for nothing. The other two are rhythm:
-        // enough swings have gone through it, or a single unbroken hold has run long enough to be
-        // worth interrupting on its own.
+        // Three reasons to come down: damage taken, beats reached, or max hold duration elapsed
         if (hitTaken || beatsHeld_ >= beatsPerHole_ || held >= maxHoldTicks_)
             sendRelease(env, self, hurt > 0);
         return;
@@ -726,34 +803,74 @@ void BlockHit::onClientTick(JNIEnv* env) {
 }
 
 std::string BlockHit::getDisplayInfo() {
-    // A recorded gate outranks the state: "No Sword" or "Manual" tells you why nothing is
-    // happening, where "Open" would just look like the pattern waiting for a click.
+    if (fakingBlock_)
+        return "Fake";
     if (const char* gate = gateReason_.load(std::memory_order_acquire))
         return gate;
-    // "Block" is a real block, paid for at vanilla's own rate. "Open" is the sprint.
     return serverBlocking_.load(std::memory_order_acquire) ? "Block" : "Open";
 }
 
 void BlockHit::onRenderMenu() {
     bool enabledValue = enabled;
     ui::two_column(
-        "General",
+        "Main",
         [this, &enabledValue]() {
             if (ui::CheckboxBind("Enabled", &enabledValue, &keybind)) {
                 if (enabledValue != enabled)
                     setEnabled(enabledValue);
             }
+            ImGui::Spacing();
+            ui::SliderFloat("Range", &settings.range, 1.0f, 6.0f, "%.1f");
+            ui::SliderInt("Maximum Hurt Time", &settings.maxHurtTime, 0, 10, "%d");
+            ui::SliderFloat("Hold Duration", &settings.maxHoldTime, 1.0f, 10.0f, "%.1f");
+            ImGui::Spacing();
+            ImGui::Text("Conditions:");
+            ui::Checkbox("Require Left Click", &settings.requireLMB);
+            ui::Checkbox("Require Right Click", &settings.requireRMB);
+            ui::Checkbox("Require Damage", &settings.requireDamage);
         },
-        "Pattern",
-        []() {
-            // Short lines on purpose: TextWrapped takes its wrap point from the window, not
-            // the column, so a paragraph in here widens the column until the right-hand half
-            // of the ClickGUI walks off the panel.
-            ImGui::TextDisabled("A real block, at a real block's");
-            ImGui::TextDisabled("cost: a fifth of your movement,");
-            ImGui::TextDisabled("no sprint. So it only goes up");
-            ImGui::TextDisabled("when a hit can land on you, and");
-            ImGui::TextDisabled("never in the ten immune ticks");
-            ImGui::TextDisabled("after one does. Nothing to tune.");
+        "Features",
+        [this]() {
+            ImGui::Text("Force Block Animation:");
+            ui::Checkbox("Fake Animation", &settings.fakeBlockAnimation);
+            if (settings.fakeBlockAnimation) {
+                ui::Checkbox("Only Within Range", &settings.fakeBlockRequireTarget);
+            }
+            ImGui::Spacing();
+            ImGui::Text("Lag Phase:");
+            ui::SliderFloat("Chance", &settings.lagChance, 0.0f, 100.0f, "%.0f%%");
+            ui::SliderFloat("Duration", &settings.lagDuration, 0.5f, 10.0f, "%.1f");
+            ui::Checkbox("Flush On Attack", &settings.lagFlushAttack);
+            ui::Checkbox("Reblock Instantly", &settings.lagReblock);
         });
+}
+
+void BlockHit::saveSettings(json::Value& node) const {
+    node["range"] = settings.range;
+    node["maxHurtTime"] = settings.maxHurtTime;
+    node["maxHoldTime"] = settings.maxHoldTime;
+    node["fakeBlockAnimation"] = settings.fakeBlockAnimation;
+    node["fakeBlockRequireTarget"] = settings.fakeBlockRequireTarget;
+    node["lagChance"] = settings.lagChance;
+    node["lagDuration"] = settings.lagDuration;
+    node["lagFlushAttack"] = settings.lagFlushAttack;
+    node["lagReblock"] = settings.lagReblock;
+    node["requireLMB"] = settings.requireLMB;
+    node["requireRMB"] = settings.requireRMB;
+    node["requireDamage"] = settings.requireDamage;
+}
+
+void BlockHit::loadSettings(const json::Value& node) {
+    settings.range = node["range"].as_float(settings.range);
+    settings.maxHurtTime = node["maxHurtTime"].as_int(settings.maxHurtTime);
+    settings.maxHoldTime = node["maxHoldTime"].as_float(settings.maxHoldTime);
+    settings.fakeBlockAnimation = node["fakeBlockAnimation"].as_bool(settings.fakeBlockAnimation);
+    settings.fakeBlockRequireTarget = node["fakeBlockRequireTarget"].as_bool(settings.fakeBlockRequireTarget);
+    settings.lagChance = node["lagChance"].as_float(settings.lagChance);
+    settings.lagDuration = node["lagDuration"].as_float(settings.lagDuration);
+    settings.lagFlushAttack = node["lagFlushAttack"].as_bool(settings.lagFlushAttack);
+    settings.lagReblock = node["lagReblock"].as_bool(settings.lagReblock);
+    settings.requireLMB = node["requireLMB"].as_bool(settings.requireLMB);
+    settings.requireRMB = node["requireRMB"].as_bool(settings.requireRMB);
+    settings.requireDamage = node["requireDamage"].as_bool(settings.requireDamage);
 }
