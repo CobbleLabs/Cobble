@@ -99,7 +99,7 @@ inline std::string urldecode(const std::string& s) {
 }
 
 struct Response {
-    int status = 0;         // 0 = never reached the server
+    int status = 0;  // 0 = never reached the server
     std::string body;
     std::string error;
     std::vector<std::pair<std::string, std::string>> headers;  // names lowercased

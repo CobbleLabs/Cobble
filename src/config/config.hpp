@@ -306,9 +306,8 @@ private:
             // go and surviving the unwind) is the crash location.
             size_t ep = json::Parser::s_errPos;
             size_t mp = json::Parser::s_maxPos;
-            log_err("[CFG] PARSE FAIL: why='%s' errPos=%d maxPos=%d maxDepth=%d badToken='%s'",
-                    json::Parser::s_errWhy, (int)ep, (int)mp, json::Parser::s_maxDepth,
-                    json::Parser::s_errBadToken.c_str());
+            log_err("[CFG] PARSE FAIL: why='%s' errPos=%d maxPos=%d maxDepth=%d badToken='%s'", json::Parser::s_errWhy,
+                    (int)ep, (int)mp, json::Parser::s_maxDepth, json::Parser::s_errBadToken.c_str());
             // Context around the crash/failure point (prefer maxPos when the
             // normal error position wasn't set — i.e. a hard fault).
             size_t at = (ep > 0) ? ep : mp;
@@ -400,10 +399,12 @@ private:
     // Base64 decode helper (WinCrypt)
     static std::vector<uint8_t> b64decode(const std::string& input) {
         DWORD outLen = 0;
-        if (!CryptStringToBinaryA(input.c_str(), (DWORD)input.length(), CRYPT_STRING_BASE64, nullptr, &outLen, nullptr, nullptr))
+        if (!CryptStringToBinaryA(input.c_str(), (DWORD)input.length(), CRYPT_STRING_BASE64, nullptr, &outLen, nullptr,
+                                  nullptr))
             return {};
         std::vector<uint8_t> output(outLen);
-        if (!CryptStringToBinaryA(input.c_str(), (DWORD)input.length(), CRYPT_STRING_BASE64, output.data(), &outLen, nullptr, nullptr))
+        if (!CryptStringToBinaryA(input.c_str(), (DWORD)input.length(), CRYPT_STRING_BASE64, output.data(), &outLen,
+                                  nullptr, nullptr))
             return {};
         output.resize(outLen);
         return output;
@@ -413,8 +414,8 @@ private:
         if (!syncEnabled_ || hwid_.empty() || sessionToken_.empty())
             return;
 
-        std::string body = "{\"hwid\":\"" + http::json_escape(hwid_) +
-                           "\",\"token\":\"" + http::json_escape(sessionToken_) + "\"}";
+        std::string body =
+            "{\"hwid\":\"" + http::json_escape(hwid_) + "\",\"token\":\"" + http::json_escape(sessionToken_) + "\"}";
 
         // HTTPS only - encrypted traffic
         auto response = http::post_cobble(OBFUSCATE_WSTRING(L"/api/config").c_str(), body, CONFIG_SERVER_PORT);
@@ -499,9 +500,8 @@ private:
 
         // Server expects: { "hwid": ..., "token": ..., "config": <raw JSON> }
         // configJson is already a JSON object string, so embed it as-is.
-        std::string body = "{\"hwid\":\"" + http::json_escape(hwid_) +
-                           "\",\"token\":\"" + http::json_escape(sessionToken_) +
-                           "\",\"config\":" + configJson + "}";
+        std::string body = "{\"hwid\":\"" + http::json_escape(hwid_) + "\",\"token\":\"" +
+                           http::json_escape(sessionToken_) + "\",\"config\":" + configJson + "}";
 
         // HTTPS only - encrypted traffic
         auto response = http::post_cobble(OBFUSCATE_WSTRING(L"/api/config/save").c_str(), body, CONFIG_SERVER_PORT);
@@ -513,7 +513,8 @@ private:
 
         // Verify signed envelope (fail silently on tampered response)
         json::Value envelope;
-        if (!json::Parser::parse(response.body, envelope)) return;
+        if (!json::Parser::parse(response.body, envelope))
+            return;
 
         std::string payloadB64 = envelope["payload_b64"].as_string("");
         std::string sigB64 = envelope["sig_b64"].as_string("");
@@ -524,7 +525,8 @@ private:
 
         auto payloadBytes = b64decode(payloadB64);
         auto sigBytes = b64decode(sigB64);
-        if (payloadBytes.empty() || sigBytes.size() != 64) return;
+        if (payloadBytes.empty() || sigBytes.size() != 64)
+            return;
 
         uint8_t pubkey[32];
         cobble_keys::GetPublicKey(pubkey);

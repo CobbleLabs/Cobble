@@ -7,11 +7,7 @@
 
 class WTap : public Module {
 public:
-    enum class Mode {
-        Forward = 0,
-        Sprint = 1,
-        Hybrid = 2
-    };
+    enum class Mode { Forward = 0, Sprint = 1, Hybrid = 2 };
 
     struct Settings {
         Mode mode = Mode::Hybrid;
@@ -35,11 +31,7 @@ public:
     bool isTapping() const;
 
 private:
-    enum class State {
-        Idle,
-        Waiting,
-        Released
-    };
+    enum class State { Idle, Waiting, Released };
 
     static std::uint64_t nowMs();
     bool shouldTrigger();

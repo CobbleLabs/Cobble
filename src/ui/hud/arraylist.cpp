@@ -100,8 +100,7 @@ void ArrayListRenderer::render() {
     }
 
     // AutoRefill and ArmorSwitch keep working while disabled in passive modes.
-    if (autoRefill && !autoRefill->enabled &&
-        (autoRefill->settings.onInventoryOpen || autoRefill->settings.automatic))
+    if (autoRefill && !autoRefill->enabled && (autoRefill->settings.onInventoryOpen || autoRefill->settings.automatic))
         markLive(autoRefill->name, showInfo ? autoRefill->getDisplayInfo() : std::string());
     if (armorSwitch && !armorSwitch->enabled && armorSwitch->settings.onInventoryOpen)
         markLive(armorSwitch->name, showInfo ? armorSwitch->getDisplayInfo() : std::string());
@@ -109,12 +108,11 @@ void ArrayListRenderer::render() {
     // ---- Fold in / out ----------------------------------------------------
     float dtA = ImGui::GetIO().DeltaTime;
     if (dtA <= 0.0f || dtA > 0.25f)
-        dtA = 1.0f / 60.0f;  // guard hitches / first frame
+        dtA = 1.0f / 60.0f;         // guard hitches / first frame
     const float step = dtA * 7.0f;  // ~0.14s each way
     for (auto& r : g_rows)
         r.prog = (std::clamp)(r.prog + (r.alive ? step : -step), 0.0f, 1.0f);
-    g_rows.erase(std::remove_if(g_rows.begin(), g_rows.end(),
-                                [](const Row& r) { return !r.alive && r.prog <= 0.0f; }),
+    g_rows.erase(std::remove_if(g_rows.begin(), g_rows.end(), [](const Row& r) { return !r.alive && r.prog <= 0.0f; }),
                  g_rows.end());
 
     if (g_rows.empty()) {
@@ -146,7 +144,7 @@ void ArrayListRenderer::render() {
     // CalcTextSizeA reports the em box (height == font size), so rows drawn at
     // exactly that height leave no air and the block reads as a wall of text.
     const float rowH = std::floor(fontSize * 1.18f);
-    const float padIn = 7.0f * scale;   // air between the text and the row edge
+    const float padIn = 7.0f * scale;  // air between the text and the row edge
     const float barWidth = 3.0f * scale;
     const float barGap = 6.0f * scale;  // air between the text and the colour bar
     // Use the active font's space width instead of a fixed pixel gap. This keeps
@@ -168,8 +166,7 @@ void ArrayListRenderer::render() {
 
     // stable_sort: equal-width rows must not trade places every frame.
     if (sortByLength)
-        std::stable_sort(g_rows.begin(), g_rows.end(),
-                         [](const Row& a, const Row& b) { return a.itemW > b.itemW; });
+        std::stable_sort(g_rows.begin(), g_rows.end(), [](const Row& a, const Row& b) { return a.itemW > b.itemW; });
 
     // Live screen size, not just RenderData: during the first frames after
     // injecting into an already-fullscreen game the reported size can still be
@@ -212,8 +209,8 @@ void ArrayListRenderer::render() {
     float blockY = 0.0f;
 
     if (userPlaced) {
-        hud::placeToPixels(!anchorLeft, anchorBottom, relX, relY, blockWidth, blockHeight, screenWidth,
-                           screenHeight, blockX, blockY);
+        hud::placeToPixels(!anchorLeft, anchorBottom, relX, relY, blockWidth, blockHeight, screenWidth, screenHeight,
+                           blockX, blockY);
     } else {
         blockX = anchorLeft ? edgeMargin : (screenWidth - blockWidth - edgeMargin);
         blockY = anchorBottom ? (screenHeight - blockHeight - yOffset) : yOffset;

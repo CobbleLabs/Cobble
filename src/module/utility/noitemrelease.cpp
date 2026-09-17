@@ -227,8 +227,6 @@ std::string NoItemRelease::getDisplayInfo() {
     }
 }
 
-
-
 void NoItemRelease::saveSettings(json::Value& node) const {
     node["mode"] = static_cast<int>(settings.mode);
 }

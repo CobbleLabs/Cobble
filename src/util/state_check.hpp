@@ -61,10 +61,18 @@ __forceinline bool gateD() {
 
 // Composite variants — one of each kind, AND-ed in different orders. Chosen
 // so the call site bytes differ from the canonical isOperational() epilogue.
-__forceinline bool gateAB() { return gateA() && gateB(); }
-__forceinline bool gateAC() { return gateA() && gateC(); }
-__forceinline bool gateBC() { return gateB() && gateC(); }
-__forceinline bool gateABC() { return gateA() && gateB() && gateC(); }
+__forceinline bool gateAB() {
+    return gateA() && gateB();
+}
+__forceinline bool gateAC() {
+    return gateA() && gateC();
+}
+__forceinline bool gateBC() {
+    return gateB() && gateC();
+}
+__forceinline bool gateABC() {
+    return gateA() && gateB() && gateC();
+}
 
 // Wire the function pointer. Call from onCacheReady() after the baseline
 // checksum is captured.

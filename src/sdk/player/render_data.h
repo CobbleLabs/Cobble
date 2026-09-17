@@ -74,7 +74,8 @@ struct RenderData {
         }
 
         // ActiveRenderInfo - use Java::AssignClass like other SDK classes
-        if (!Java::AssignClass(OBFUSCATE_STRING("net.minecraft.client.renderer.ActiveRenderInfo"), activeRenderInfoClass)) {
+        if (!Java::AssignClass(OBFUSCATE_STRING("net.minecraft.client.renderer.ActiveRenderInfo"),
+                               activeRenderInfoClass)) {
             log_err("RenderData: ActiveRenderInfo class not found");
             initFailed = true;
             return false;
@@ -83,7 +84,7 @@ struct RenderData {
 
         // Try uppercase first (1.8.9), then lowercase (1.7.10)
         projectionField = Java::Env()->GetStaticFieldID(activeRenderInfoClass, OBFUSCATE_STRING("PROJECTION").c_str(),
-                                                         OBFUSCATE_STRING("Ljava/nio/FloatBuffer;").c_str());
+                                                        OBFUSCATE_STRING("Ljava/nio/FloatBuffer;").c_str());
         if (projectionField) {
             log_debug("RenderData: Found PROJECTION (1.8.x style)");
         } else {
@@ -96,8 +97,8 @@ struct RenderData {
         }
         if (!projectionField) {
             Java::Env()->ExceptionClear();
-            projectionField = Java::Env()->GetStaticFieldID(activeRenderInfoClass, "field_178813_c",
-                                                             "Ljava/nio/FloatBuffer;");
+            projectionField =
+                Java::Env()->GetStaticFieldID(activeRenderInfoClass, "field_178813_c", "Ljava/nio/FloatBuffer;");
             if (projectionField)
                 log_debug("RenderData: Found Forge SRG PROJECTION");
         }
@@ -123,16 +124,15 @@ struct RenderData {
             log_debug("RenderData: Found MODELVIEW (1.8.x style)");
         } else {
             Java::Env()->ExceptionClear();
-            modelViewField =
-                Java::Env()->GetStaticFieldID(activeRenderInfoClass, OBFUSCATE_STRING("modelview").c_str(),
-                                              OBFUSCATE_STRING("Ljava/nio/FloatBuffer;").c_str());
+            modelViewField = Java::Env()->GetStaticFieldID(activeRenderInfoClass, OBFUSCATE_STRING("modelview").c_str(),
+                                                           OBFUSCATE_STRING("Ljava/nio/FloatBuffer;").c_str());
             if (modelViewField)
                 log_debug("RenderData: Found modelview (1.7.x style)");
         }
         if (!modelViewField) {
             Java::Env()->ExceptionClear();
-            modelViewField = Java::Env()->GetStaticFieldID(activeRenderInfoClass, "field_178812_b",
-                                                            "Ljava/nio/FloatBuffer;");
+            modelViewField =
+                Java::Env()->GetStaticFieldID(activeRenderInfoClass, "field_178812_b", "Ljava/nio/FloatBuffer;");
             if (modelViewField)
                 log_debug("RenderData: Found Forge SRG MODELVIEW");
         }
@@ -146,8 +146,8 @@ struct RenderData {
         if (!projectionField && !modelViewField) {
             // Both supplied Forge trees declare exactly three FloatBuffers in
             // MODELVIEW, PROJECTION, OBJECTCOORDS order.
-            const auto buffers = jni_resolver::findFieldsBySignature(
-                activeRenderInfoClass, "Ljava/nio/FloatBuffer;", true);
+            const auto buffers =
+                jni_resolver::findFieldsBySignature(activeRenderInfoClass, "Ljava/nio/FloatBuffer;", true);
             if (buffers.size() == 3) {
                 modelViewField = buffers[0];
                 projectionField = buffers[1];
@@ -219,8 +219,8 @@ struct RenderData {
             m.m31 = data[13];
             m.m32 = data[14];
             m.m33 = data[15];
-            log_debug("RenderData: ReadMatrix %s via direct buffer. m00=%d, m11=%d, m22=%d, m33=%d",
-                      name, (int)(m.m00 * 1000.0f), (int)(m.m11 * 1000.0f), (int)(m.m22 * 1000.0f), (int)(m.m33 * 1000.0f));
+            log_debug("RenderData: ReadMatrix %s via direct buffer. m00=%d, m11=%d, m22=%d, m33=%d", name,
+                      (int)(m.m00 * 1000.0f), (int)(m.m11 * 1000.0f), (int)(m.m22 * 1000.0f), (int)(m.m33 * 1000.0f));
             return m;
         }
 
@@ -246,8 +246,8 @@ struct RenderData {
         m.m32 = Java::Env()->CallFloatMethod(floatBuffer, floatBufferGet, 14);
         m.m33 = Java::Env()->CallFloatMethod(floatBuffer, floatBufferGet, 15);
 
-        log_debug("RenderData: ReadMatrix %s via CallFloatMethod. m00=%d, m11=%d, m22=%d, m33=%d",
-                  name, (int)(m.m00 * 1000.0f), (int)(m.m11 * 1000.0f), (int)(m.m22 * 1000.0f), (int)(m.m33 * 1000.0f));
+        log_debug("RenderData: ReadMatrix %s via CallFloatMethod. m00=%d, m11=%d, m22=%d, m33=%d", name,
+                  (int)(m.m00 * 1000.0f), (int)(m.m11 * 1000.0f), (int)(m.m22 * 1000.0f), (int)(m.m33 * 1000.0f));
         return m;
     }
 

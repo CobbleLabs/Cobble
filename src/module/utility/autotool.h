@@ -12,8 +12,8 @@ public:
     void loadSettings(const json::Value& node) override;
 
     struct Settings {
-        bool switchBack = true;   // Switch back to previous slot when not mining
-        bool autoSword = true;    // Auto-switch to sword when attacking entities
+        bool switchBack = true;  // Switch back to previous slot when not mining
+        bool autoSword = true;   // Auto-switch to sword when attacking entities
     } settings;
 
 private:

@@ -46,9 +46,9 @@ namespace hud_fonts {
 namespace {
 
 struct SysCandidate {
-    int id;                // stable, persisted in configs — never renumber
+    int id;  // stable, persisted in configs — never renumber
     const char* label;
-    const wchar_t* file;   // relative to %WINDIR%\Fonts
+    const wchar_t* file;  // relative to %WINDIR%\Fonts
 };
 
 // Faces that ship with Windows, so nothing has to be embedded or redistributed.
@@ -148,9 +148,13 @@ void Register(ImFontAtlas* atlas) {
         g_names.push_back(e.label);
 }
 
-int Count() { return (int)g_entries.size(); }
+int Count() {
+    return (int)g_entries.size();
+}
 
-const char* const* Names() { return g_names.empty() ? nullptr : g_names.data(); }
+const char* const* Names() {
+    return g_names.empty() ? nullptr : g_names.data();
+}
 
 int IdAt(int comboIndex) {
     if (comboIndex < 0 || comboIndex >= (int)g_entries.size())
@@ -214,8 +218,7 @@ void DrawDevBuildWarning() {
     const float fs = ui::s(14.0f);
     const ImVec2 sz = f->CalcTextSizeA(fs, FLT_MAX, 0.f, text);
     const float pad = ui::s(8.0f);
-    const ImVec2 pos((float)RenderData::screenWidth - sz.x - pad,
-                     (float)RenderData::screenHeight - sz.y - pad);
+    const ImVec2 pos((float)RenderData::screenWidth - sz.x - pad, (float)RenderData::screenHeight - sz.y - pad);
     dl->AddText(f, fs, ImVec2(pos.x + 1.0f, pos.y + 1.0f), IM_COL32(0, 0, 0, 190), text);
     dl->AddText(f, fs, pos, IM_COL32(255, 80, 80, 235), text);
 }
@@ -317,7 +320,7 @@ void SetupImGui() {
     }
 
     Overlay::initialized = true;
-    
+
     // Initialize item textures (embedded in DLL, no path needed)
     ItemTextureManager::get().init("");
 }
@@ -520,8 +523,8 @@ BOOL __stdcall HookedSwapBuffers(HDC hdc) {
         bool contextChanged = (targetContext != nullptr && targetContext != currentOriginalContext);
 
         if (contextChanged && Overlay::initialized) {
-            log_debug("Overlay: GL context changed (old=0x%p new=0x%p), reinitializing...",
-                      (void*)targetContext, (void*)currentOriginalContext);
+            log_debug("Overlay: GL context changed (old=0x%p new=0x%p), reinitializing...", (void*)targetContext,
+                      (void*)currentOriginalContext);
 
             Menu::isOpen = false;
             AltManagerWindow::Close();
@@ -554,8 +557,8 @@ BOOL __stdcall HookedSwapBuffers(HDC hdc) {
         Overlay::originalContext = currentOriginalContext;
 
         if (!Overlay::initialized) {
-            log_debug("Overlay: attempting SetupImGui (ctx=0x%p, wnd=0x%p)",
-                      (void*)currentOriginalContext, (void*)Overlay::gameWindow);
+            log_debug("Overlay: attempting SetupImGui (ctx=0x%p, wnd=0x%p)", (void*)currentOriginalContext,
+                      (void*)Overlay::gameWindow);
             SetupImGui();
             if (Overlay::initialized && (!originalWndProc || lastWindow != Overlay::gameWindow)) {
                 originalWndProc =
@@ -607,8 +610,8 @@ BOOL __stdcall HookedSwapBuffers(HDC hdc) {
 #else
         constexpr bool hasDevWarning = false;
 #endif
-        if (!Menu::isOpen && !menuAnimating && !altWindowOpen && !hasRenderWork && !hasNotifications &&
-            !hasArrayList && !hasWatermark && !hasDevWarning) {
+        if (!Menu::isOpen && !menuAnimating && !altWindowOpen && !hasRenderWork && !hasNotifications && !hasArrayList &&
+            !hasWatermark && !hasDevWarning) {
             return originalSwapBuffers(hdc);
         }
 
@@ -625,7 +628,8 @@ BOOL __stdcall HookedSwapBuffers(HDC hdc) {
         // Auto-close menu on alt-tab. The watermark's file dialog runs on its own
         // thread and legitimately takes the foreground, so it is not an alt-tab:
         // closing the menu under it would drop the pick the user is about to make.
-        if ((Menu::isOpen || AltManagerWindow::isOpen) && GetForegroundWindow() != Overlay::gameWindow && !Watermark::pickerBusy()) {
+        if ((Menu::isOpen || AltManagerWindow::isOpen) && GetForegroundWindow() != Overlay::gameWindow &&
+            !Watermark::pickerBusy()) {
             Menu::isOpen = false;
             Menu::openAnim = 0.f;  // Skip close animation
             AltManagerWindow::Close();

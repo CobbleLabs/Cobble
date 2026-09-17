@@ -34,8 +34,7 @@ void Reach::onEnable() {
     rngState ^= static_cast<unsigned int>(GetTickCount());
 }
 
-void Reach::onDisable() {
-}
+void Reach::onDisable() {}
 
 float Reach::randomFloat(float min, float max) {
     rngState ^= rngState << 13;
@@ -54,7 +53,7 @@ bool Reach::shouldApplyThisTick() {
         }
         tickCounter = 0;
     }
-    
+
     // Hit chance check
     if (settings.hitChance < 100) {
         int roll = static_cast<int>(randomFloat(0.0f, 100.0f));
@@ -62,27 +61,34 @@ bool Reach::shouldApplyThisTick() {
             return false;
         }
     }
-    
+
     return true;
 }
 
 void Reach::onUpdate() {
-    if (!enabled) return;
-    if (Menu::isOpen) return;
-    if (mc.isInGui()) return;
-    if (!player.isValid()) return;
-    if (!mc.instance) return;
-    
+    if (!enabled)
+        return;
+    if (Menu::isOpen)
+        return;
+    if (mc.isInGui())
+        return;
+    if (!player.isValid())
+        return;
+    if (!mc.instance)
+        return;
+
     JNIEnv* env = Java::Env();
-    if (!env) return;
-    
+    if (!env)
+        return;
+
     if (env->ExceptionCheck()) {
         env->ExceptionClear();
     }
-    
+
     // Anti-detection: tick delay and hit chance
-    if (!shouldApplyThisTick()) return;
-    
+    if (!shouldApplyThisTick())
+        return;
+
     // Weapons only check
     if (settings.weaponsOnly) {
         int itemId = player.getHeldItemId();
@@ -90,51 +96,61 @@ void Reach::onUpdate() {
         // Axes: 271, 275, 258, 279, 286
         bool isSword = (itemId == 268 || itemId == 272 || itemId == 267 || itemId == 276 || itemId == 283);
         bool isAxe = (itemId == 271 || itemId == 275 || itemId == 258 || itemId == 279 || itemId == 286);
-        if (!isSword && !isAxe) return;
+        if (!isSword && !isAxe)
+            return;
     }
-    
+
     // Sprinting only check
-    if (settings.sprintingOnly && !player.isSprinting()) return;
-    
+    if (settings.sprintingOnly && !player.isSprinting())
+        return;
+
     // Moving only check
     if (settings.movingOnly) {
         double motionX = player.getMotionX();
         double motionZ = player.getMotionZ();
-        if (motionX * motionX + motionZ * motionZ < 0.0001) return;
+        if (motionX * motionX + motionZ * motionZ < 0.0001)
+            return;
     }
-    
+
     // Get player list
     auto playerList = mc.getPlayerList();
-    if (playerList.empty()) return;
-    
+    if (playerList.empty())
+        return;
+
     // Local player position
     double localX = player.getPosX();
     double localY = player.getPosY();
     double localZ = player.getPosZ();
-    
+
     // Find closest target within 6 blocks
     PlayerInfo* target = nullptr;
     float finalDist = 9999.0f;
-    
+
     for (auto& p : playerList) {
-        if (!p.instance) continue;
-        if (p.isInvisible) continue;
-        if (AntiBot::Filtered(p)) continue;
-        if (friendsManager && friendsManager->isFriendByUUID(p.uuid)) continue;
-        if (friendsManager && friendsManager->isApolloTeammate(p.uuid)) continue;
-        if (friendsManager && friendsManager->isLunarTeammate(p.uuid)) continue;
-        
+        if (!p.instance)
+            continue;
+        if (p.isInvisible)
+            continue;
+        if (AntiBot::Filtered(p))
+            continue;
+        if (friendsManager && friendsManager->isFriendByUUID(p.uuid))
+            continue;
+        if (friendsManager && friendsManager->isApolloTeammate(p.uuid))
+            continue;
+        if (friendsManager && friendsManager->isLunarTeammate(p.uuid))
+            continue;
+
         double dx = localX - p.posX;
         double dy = localY - p.posY;
         double dz = localZ - p.posZ;
         float dist = (float)sqrt(dx * dx + dy * dy + dz * dz);
-        
+
         if (dist <= finalDist && dist <= 6.0f) {
             finalDist = dist;
             target = &p;
         }
     }
-    
+
     // Cleanup non-targets
     for (auto& p : playerList) {
         if (p.instance && (&p != target)) {
@@ -142,71 +158,71 @@ void Reach::onUpdate() {
             p.instance = nullptr;
         }
     }
-    
-    if (!target || !target->instance) return;
-    
+
+    if (!target || !target->instance)
+        return;
+
     // Only apply for players beyond vanilla reach
     float distBetween = finalDist;
     if (distBetween > settings.distance + 0.5f || distBetween <= 3.0f) {
         env->DeleteGlobalRef(target->instance);
         return;
     }
-    
+
     // Knight reach algorithm
     float targetX = (float)target->posX;
     float targetZ = (float)target->posZ;
-    
+
     float hypothenuseDistance = hypotf((float)(localX - target->posX), (float)(localZ - target->posZ));
     float dist = settings.distance - 3.0f;
-    
+
     while (distBetween > 3.0f && (distBetween < (dist + 3.0f)) && dist > 0.05f) {
         dist -= 0.05f;
     }
-    
+
     if (hypothenuseDistance < dist) {
         dist -= hypothenuseDistance;
     }
-    
+
     float angleX = targetX - (float)localX;
     float angleZ = targetZ - (float)localZ;
-    
+
     float angle = (float)(-atan2f(angleX, angleZ) * 180.0f / PI);
     if (angleZ < 0.0f && angleX < 0.0f) {
         angle = 90.0f + (float)(atan2f(angleZ, angleX) * 180.0f / PI);
-    }
-    else if (angleZ < 0.0f && angleX > 0.0f) {
+    } else if (angleZ < 0.0f && angleX > 0.0f) {
         angle = -90.0f + (float)(atan2f(angleZ, angleX) * 180.0f / PI);
     }
-    
+
     float ax = cosf((angle + 90.0f) * PI / 180.0f);
     float az = sinf((angle + 90.0f) * PI / 180.0f);
-    
+
     float newX = targetX - ax * dist;
     float newZ = targetZ - az * dist;
-    
+
     // Get bounding box
     if (!JniCache::fid_boundingBox) {
         env->DeleteGlobalRef(target->instance);
         return;
     }
-    
+
     jobject aabb = env->GetObjectField(target->instance, JniCache::fid_boundingBox);
     if (!aabb) {
         env->DeleteGlobalRef(target->instance);
         return;
     }
-    
+
     if (!JniCache::fid_aabb_minX || !JniCache::fid_aabb_maxX) {
         env->DeleteLocalRef(aabb);
         env->DeleteGlobalRef(target->instance);
         return;
     }
-    
+
     double curMinY = env->GetDoubleField(aabb, JniCache::fid_aabb_minY);
     double curMaxY = env->GetDoubleField(aabb, JniCache::fid_aabb_maxY);
-    
+
     float newWidth = 0.6f / 2.0f;
-    
+
     // Move bounding box towards player
     env->SetDoubleField(aabb, JniCache::fid_aabb_minX, (double)(newX - newWidth));
     env->SetDoubleField(aabb, JniCache::fid_aabb_minZ, (double)(newZ - newWidth));
@@ -214,10 +230,10 @@ void Reach::onUpdate() {
     env->SetDoubleField(aabb, JniCache::fid_aabb_maxZ, (double)(newZ + newWidth));
     env->SetDoubleField(aabb, JniCache::fid_aabb_minY, curMinY);
     env->SetDoubleField(aabb, JniCache::fid_aabb_maxY, curMaxY);
-    
+
     env->DeleteLocalRef(aabb);
     env->DeleteGlobalRef(target->instance);
-    
+
     if (env->ExceptionCheck()) {
         env->ExceptionClear();
     }
@@ -234,15 +250,15 @@ void Reach::onRenderMenu() {
                 }
             }
             ImGui::Spacing();
-            
+
             ui::SliderFloat("Distance", &settings.distance, 3.0f, 6.0f, "%.2f");
-            
+
             ImGui::Spacing();
             ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.7f, 0.7f, 0.7f, 1.0f));
             ImGui::Text("Conditions");
             ImGui::PopStyleColor();
             ImGui::Spacing();
-            
+
             ui::Checkbox("Weapons Only", &settings.weaponsOnly);
             ui::Checkbox("Sprinting Only", &settings.sprintingOnly);
             ui::Checkbox("Moving Only", &settings.movingOnly);
@@ -253,14 +269,13 @@ void Reach::onRenderMenu() {
             if (ui::SliderInt("Hit Chance", &chance, 0, 100, "%d%%")) {
                 settings.hitChance = chance;
             }
-            
+
             int delay = settings.tickDelay;
             if (ui::SliderInt("Tick Delay", &delay, 0, 10, "%d")) {
                 settings.tickDelay = delay;
             }
             ui::TickTooltip();
-        }
-    );
+        });
 }
 
 std::string Reach::getDisplayInfo() {
@@ -268,8 +283,6 @@ std::string Reach::getDisplayInfo() {
     snprintf(buf, sizeof(buf), "%.2f", settings.distance);
     return buf;
 }
-
-
 
 void Reach::saveSettings(json::Value& node) const {
     node["distance"] = settings.distance;

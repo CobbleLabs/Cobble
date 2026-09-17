@@ -5,18 +5,13 @@ namespace License {
 
 bool Verify(const std::string& serverUrl);
 
-
 bool LoginWithCredentials(const std::string& serverUrl, const std::string& username, const std::string& password);
-
 
 bool RequiresLogin();
 
-
 bool FetchPayloadKey(const std::string& serverUrl);
 
-
 std::string GetLastError();
-
 
 bool IsTransportError();
 bool NeedsUpdate();
@@ -28,4 +23,4 @@ std::string GetPayloadKey();
 std::string GetHandshakeSig();
 int64_t GetHandshakeTimestamp();
 std::string GetSyncToken();
-}  
+}  // namespace License

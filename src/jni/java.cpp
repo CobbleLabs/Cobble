@@ -11,7 +11,10 @@ namespace {
 const char* notchClassName(const std::string& mcpName) {
     // 1.8.9 joined.srg class mappings for every Minecraft class referenced by
     // Cobble.  Vanilla/OptiFine ship these short Notch names at runtime.
-    struct ClassMap { const char* mcp; const char* notch; };
+    struct ClassMap {
+        const char* mcp;
+        const char* notch;
+    };
     static constexpr ClassMap kClassMap[] = {
         {"net.minecraft.block.Block", "afh"},
         {"net.minecraft.block.state.IBlockState", "alz"},
@@ -87,9 +90,8 @@ jobject loadClass(JNIEnv* env, const std::string& name) {
     if (!className)
         return nullptr;
 
-    jobject result = Java::MidLoadClass
-                         ? env->CallObjectMethod(Java::ClassLoader, Java::MidLoadClass, className)
-                         : nullptr;
+    jobject result =
+        Java::MidLoadClass ? env->CallObjectMethod(Java::ClassLoader, Java::MidLoadClass, className) : nullptr;
     if (env->ExceptionCheck())
         env->ExceptionClear();
     if (!result && Java::MidFindClass)
@@ -99,7 +101,7 @@ jobject loadClass(JNIEnv* env, const std::string& name) {
         env->ExceptionClear();
     return result;
 }
-} // namespace
+}  // namespace
 
 void setupClassLoader() {
     COBBLE_TRACE("setupClassLoader: enter");
@@ -129,11 +131,7 @@ void setupClassLoader() {
             // 1.8.9 = Lave;
             // 1.7.10 = Lbao;
             // 1.12 = Lbib;
-            if (sig == "Lnet/minecraft/client/Minecraft;" ||
-                sig == "Lave;" ||
-                sig == "Lbao;" ||
-                sig == "Lbib;") {
-
+            if (sig == "Lnet/minecraft/client/Minecraft;" || sig == "Lave;" || sig == "Lbao;" || sig == "Lbib;") {
                 jobject loader = nullptr;
                 if (Java::tiEnv->GetClassLoader(classes[i], &loader) == JVMTI_ERROR_NONE && loader) {
                     targetLoader = loader;
@@ -168,8 +166,8 @@ void setupClassLoader() {
         }
     }
 
-    Java::Initialized = (Java::ClassLoader != nullptr &&
-                         (Java::MidLoadClass != nullptr || Java::MidFindClass != nullptr));
+    Java::Initialized =
+        (Java::ClassLoader != nullptr && (Java::MidLoadClass != nullptr || Java::MidFindClass != nullptr));
     COBBLE_TRACE(Java::Initialized ? "setupClassLoader: success" : "setupClassLoader: failed (no ClassLoader loaded)");
 }
 
@@ -182,7 +180,7 @@ void Java::Init() {
     jsize count = 0;
     COBBLE_TRACE("Java::Init: calling JNI_GetCreatedJavaVMs");
     jint getVMRes = JNI_GetCreatedJavaVMs(&vm, 1, &count);
-    
+
     char traceBuf[128];
     wsprintfA(traceBuf, "Java::Init: JNI_GetCreatedJavaVMs returned %d, count = %d", getVMRes, count);
     COBBLE_TRACE(traceBuf);
@@ -272,7 +270,8 @@ void Java::Kill() {
 
 bool Java::AssignClass(std::string name, jclass& out) {
     JNIEnv* env = Env();
-    if (!env || !Java::ClassLoader || (!Java::MidLoadClass && !Java::MidFindClass)) return false;
+    if (!env || !Java::ClassLoader || (!Java::MidLoadClass && !Java::MidFindClass))
+        return false;
 
     // loadClass is required for class-loader delegation.  The findClass retry
     // retains compatibility with launchers that expose their game classes only
@@ -331,15 +330,15 @@ void Java::GetMinecraftVersion() {
     Java::Version = MinecraftVersion::UNDEFINED;
 
     JNIEnv* env = Env();
-    if (!env) return;
+    if (!env)
+        return;
 
     jclass minecraftClass = nullptr;
     if (!AssignClass(OBFUSCATE_STRING("net.minecraft.client.Minecraft"), minecraftClass))
         return;
 
-    jmethodID getMinecraft =
-        env->GetStaticMethodID(minecraftClass, OBFUSCATE_STRING("getMinecraft").c_str(),
-                               OBFUSCATE_STRING("()Lnet/minecraft/client/Minecraft;").c_str());
+    jmethodID getMinecraft = env->GetStaticMethodID(minecraftClass, OBFUSCATE_STRING("getMinecraft").c_str(),
+                                                    OBFUSCATE_STRING("()Lnet/minecraft/client/Minecraft;").c_str());
     if (!getMinecraft) {
         env->ExceptionClear();
         getMinecraft = env->GetStaticMethodID(minecraftClass, OBFUSCATE_STRING("func_71410_x").c_str(),
@@ -355,8 +354,8 @@ void Java::GetMinecraftVersion() {
     }
     if (!getMinecraft) {
         env->ExceptionClear();
-        getMinecraft = jni_resolver::findUniqueMethodBySignature(
-            minecraftClass, "()Lnet/minecraft/client/Minecraft;", true);
+        getMinecraft =
+            jni_resolver::findUniqueMethodBySignature(minecraftClass, "()Lnet/minecraft/client/Minecraft;", true);
     }
     if (!getMinecraft) {
         env->ExceptionClear();
@@ -422,7 +421,8 @@ void Java::GetMinecraftVersion() {
 }
 
 JNIEnv* Java::Env() {
-    if (!vm) return nullptr;
+    if (!vm)
+        return nullptr;
 
     JNIEnv* env = nullptr;
     jint status = vm->GetEnv((void**)&env, JNI_VERSION_1_6);

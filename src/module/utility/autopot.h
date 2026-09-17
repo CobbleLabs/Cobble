@@ -75,35 +75,35 @@ public:
 
     struct Settings {
         // --- Trigger ---
-        int healthPercent = 55;   // start potting below this share of max health
-        int targetPercent = 95;   // stop once predicted health reaches this share
-        int maxPots = 3;          // hard cap on one burst
-        bool allowHealI = true;   // fall back to Instant Health I
-        bool preferStrong = true; // spend Instant Health II first
+        int healthPercent = 55;    // start potting below this share of max health
+        int targetPercent = 95;    // stop once predicted health reaches this share
+        int maxPots = 3;           // hard cap on one burst
+        bool allowHealI = true;    // fall back to Instant Health I
+        bool preferStrong = true;  // spend Instant Health II first
         bool requireGround = true;
         bool onlyInCombat = false;
         int combatWindowMs = 4000;
 
         // --- Timing ---
         int preset = static_cast<int>(AutoPotPreset::Human);
-        int reactionMs = 140;    // health drop -> hotbar key
-        int reactionJitter = 45; // percent spread around every delay
-        int switchMs = 55;       // hotbar key -> right click
-        int throwGapMs = 210;    // between potions of one burst
-        int restoreMs = 90;      // last throw -> back to the previous slot
-        bool fatigue = true;     // a long burst gets slower, like real hands do
+        int reactionMs = 140;     // health drop -> hotbar key
+        int reactionJitter = 45;  // percent spread around every delay
+        int switchMs = 55;        // hotbar key -> right click
+        int throwGapMs = 210;     // between potions of one burst
+        int restoreMs = 90;       // last throw -> back to the previous slot
+        bool fatigue = true;      // a long burst gets slower, like real hands do
 
         // --- Aim ---
         int aim = static_cast<int>(AutoPotAim::Silent);
-        int pitch = 87;      // degrees down; 90 is straight at your feet
-        int pitchJitter = 4; // degrees of variation per throw
-        int flickMs = 90;    // Smooth: how long the pull down takes
+        int pitch = 87;       // degrees down; 90 is straight at your feet
+        int pitchJitter = 4;  // degrees of variation per throw
+        int flickMs = 90;     // Smooth: how long the pull down takes
         bool switchBack = true;
 
         // --- Reliability ---
         bool retryOnFail = true;
-        int inFlightMs = 450;   // how long a thrown potion's heal is assumed inbound
-        int misclickChance = 0; // percent chance of grabbing the wrong slot first
+        int inFlightMs = 450;    // how long a thrown potion's heal is assumed inbound
+        int misclickChance = 0;  // percent chance of grabbing the wrong slot first
     } settings;
 
     // Applies a preset's timing bundle. Public so the menu can call it from the
@@ -158,9 +158,9 @@ private:
     int64_t lastScanMs_ = 0;
     int64_t lastUiScanMs_ = 0;  // slow refresh that only runs while the menu is open
     int64_t lastDamageMs_ = 0;
-    int64_t lowSinceMs_ = 0;   // when health first went near the threshold
+    int64_t lowSinceMs_ = 0;  // when health first went near the threshold
     int64_t lastThrowMs_ = 0;
-    int burstFatigue_ = 0;     // potions thrown in the recent past
+    int burstFatigue_ = 0;  // potions thrown in the recent past
 
     // Heal that has been thrown but not yet reported by the server.
     float inFlightHeal_ = 0.0f;

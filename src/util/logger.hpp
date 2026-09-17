@@ -46,7 +46,8 @@ inline void write(const char* level, const char* fmt, ...) {
     // accept %d/%s/%x/%u/%c and silently drop everything else — %f, %zu, %lx,
     // %lld all get printed as literal characters, which corrupts diagnostics.
     int prefixLen = std::snprintf(buf, sizeof(buf), "[%s] ", level);
-    if (prefixLen < 0 || prefixLen >= (int)sizeof(buf)) prefixLen = 0;
+    if (prefixLen < 0 || prefixLen >= (int)sizeof(buf))
+        prefixLen = 0;
 
     // Format user message with va_list
     va_list args;
@@ -55,7 +56,8 @@ inline void write(const char* level, const char* fmt, ...) {
     int msgLen = std::vsnprintf(buf + prefixLen, remaining, fmt, args);
     va_end(args);
 
-    if (msgLen < 0) msgLen = 0;
+    if (msgLen < 0)
+        msgLen = 0;
     // vsnprintf always null-terminates; clamp msgLen to what actually fit.
     if ((size_t)msgLen >= remaining)
         msgLen = (int)remaining - 1;
@@ -79,9 +81,7 @@ public:
         // Nothing else needed — no console allocation.
         cobble_trace::write_step("=== Logger initialized ===");
     }
-    static void shutdown() {
-        cobble_trace::write_step("=== Logger shutdown ===");
-    }
+    static void shutdown() { cobble_trace::write_step("=== Logger shutdown ==="); }
 };
 
 #define log_debug(fmt, ...) ::cobble_log::write("DEBUG", fmt, ##__VA_ARGS__)

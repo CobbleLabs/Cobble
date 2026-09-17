@@ -4,7 +4,6 @@
 
 #pragma comment(lib, "psapi.lib")
 
-
 struct EnumWindowsData {
     DWORD targetPid;
     std::wstring windowTitle;
@@ -59,11 +58,9 @@ std::vector<ProcessInfo> findProcessesByName(const std::wstring& name) {
 }
 
 ProcessInfo findLunarClient() {
-
     auto javaProcesses = findProcessesByName(OBFUSCATE_WSTRING(L"javaw.exe"));
     auto javaExeProc = findProcessesByName(OBFUSCATE_WSTRING(L"java.exe"));
     javaProcesses.insert(javaProcesses.end(), javaExeProc.begin(), javaExeProc.end());
-
 
     for (const auto& proc : javaProcesses) {
         if (proc.windowTitle.find(OBFUSCATE_WSTRING(L"MuzCraft")) != std::wstring::npos ||
@@ -75,12 +72,9 @@ ProcessInfo findLunarClient() {
         }
     }
 
-
-
     if (!javaProcesses.empty()) {
         return javaProcesses[0];
     }
-
 
     return {0, L"", L""};
 }

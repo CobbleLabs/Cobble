@@ -24,16 +24,14 @@ namespace hud {
 //
 // The drag state lives in the caller (dragging + the grab offset) so each
 // element keeps its own persistent state without this helper owning any.
-inline void dragBox(float& x, float& y, float w, float h, float pad, bool& dragging, float& offX,
-                     float& offY) {
+inline void dragBox(float& x, float& y, float w, float h, float pad, bool& dragging, float& offX, float& offY) {
     ImDrawList* draw = ImGui::GetWindowDrawList();
     if (!draw)
         return;
 
     const ImVec2 m = ImGui::GetMousePos();
     auto outline = [&]() {
-        draw->AddRect(ImVec2(x - pad, y - pad), ImVec2(x + w + pad, y + h + pad),
-                      IM_COL32(255, 255, 255, 255));
+        draw->AddRect(ImVec2(x - pad, y - pad), ImVec2(x + w + pad, y + h + pad), IM_COL32(255, 255, 255, 255));
     };
 
     if (dragging) {

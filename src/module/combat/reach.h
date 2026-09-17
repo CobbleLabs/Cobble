@@ -16,21 +16,21 @@ public:
 
     struct Settings {
         float distance = 3.6f;
-        
+
         // Conditions
-        bool weaponsOnly = false;     // Only when holding sword/axe
-        bool sprintingOnly = false;   // Only when sprinting
-        bool movingOnly = false;      // Only when moving
-        
+        bool weaponsOnly = false;    // Only when holding sword/axe
+        bool sprintingOnly = false;  // Only when sprinting
+        bool movingOnly = false;     // Only when moving
+
         // Anti-detection
-        int hitChance = 100;          // % chance to apply reach per tick
-        int tickDelay = 0;            // Skip N ticks between applications (0 = every tick)
+        int hitChance = 100;  // % chance to apply reach per tick
+        int tickDelay = 0;    // Skip N ticks between applications (0 = every tick)
     } settings;
 
 private:
     int tickCounter = 0;
     unsigned int rngState = 0;
-    
+
     float randomFloat(float min, float max);
     bool shouldApplyThisTick();
 };

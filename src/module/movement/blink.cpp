@@ -339,8 +339,6 @@ void Blink::clearQueuedPackets() {
     }
 }
 
-
-
 void Blink::saveSettings(json::Value& node) const {
     node["timerLimit"] = settings.timerLimit;
     node["showTimerHud"] = settings.showTimerHud;

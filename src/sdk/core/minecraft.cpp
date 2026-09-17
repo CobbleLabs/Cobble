@@ -40,17 +40,18 @@ void SDK_Init() {
     Java::Env()->DeleteLocalRef(localCls);
 
     // getMinecraft() -> Minecraft instance
-    mc.mid_getMinecraft = Java::Env()->GetStaticMethodID(mc.cls, OBFUSCATE_STRING("getMinecraft").c_str(),
-                                                         OBFUSCATE_STRING("()Lnet/minecraft/client/Minecraft;").c_str());
+    mc.mid_getMinecraft =
+        Java::Env()->GetStaticMethodID(mc.cls, OBFUSCATE_STRING("getMinecraft").c_str(),
+                                       OBFUSCATE_STRING("()Lnet/minecraft/client/Minecraft;").c_str());
     if (!mc.mid_getMinecraft && Java::RuntimeObfuscated) {
         Java::Env()->ExceptionClear();
         mc.mid_getMinecraft = Java::Env()->GetStaticMethodID(mc.cls, "A", "()Lave;");
     }
     if (!mc.mid_getMinecraft) {
         Java::Env()->ExceptionClear();
-        mc.mid_getMinecraft = Java::Env()->GetStaticMethodID(
-            mc.cls, OBFUSCATE_STRING("func_71410_x").c_str(),
-            OBFUSCATE_STRING("()Lnet/minecraft/client/Minecraft;").c_str());
+        mc.mid_getMinecraft =
+            Java::Env()->GetStaticMethodID(mc.cls, OBFUSCATE_STRING("func_71410_x").c_str(),
+                                           OBFUSCATE_STRING("()Lnet/minecraft/client/Minecraft;").c_str());
     }
     if (!mc.mid_getMinecraft && Java::RuntimeObfuscated) {
         Java::Env()->ExceptionClear();
@@ -58,8 +59,8 @@ void SDK_Init() {
     }
     if (!mc.mid_getMinecraft) {
         Java::Env()->ExceptionClear();
-        mc.mid_getMinecraft = jni_resolver::findUniqueMethodBySignature(
-            mc.cls, "()Lnet/minecraft/client/Minecraft;", true);
+        mc.mid_getMinecraft =
+            jni_resolver::findUniqueMethodBySignature(mc.cls, "()Lnet/minecraft/client/Minecraft;", true);
     }
     if (!mc.mid_getMinecraft) {
         log_err("SDK_Init: failed to find getMinecraft");
@@ -85,8 +86,8 @@ void SDK_Init() {
     mc.fid_thePlayer = Java::Env()->GetFieldID(mc.cls, OBFUSCATE_STRING("thePlayer").c_str(), playerSig.c_str());
     if (!mc.fid_thePlayer) {
         Java::Env()->ExceptionClear();
-        mc.fid_thePlayer = Java::Env()->GetFieldID(mc.cls, OBFUSCATE_STRING("field_71439_g").c_str(),
-                                                   playerSig.c_str());
+        mc.fid_thePlayer =
+            Java::Env()->GetFieldID(mc.cls, OBFUSCATE_STRING("field_71439_g").c_str(), playerSig.c_str());
     }
     if (!mc.fid_thePlayer && Java::RuntimeObfuscated) {
         Java::Env()->ExceptionClear();
@@ -98,13 +99,14 @@ void SDK_Init() {
     }
 
     // theWorld field
-    mc.fid_theWorld = Java::Env()->GetFieldID(mc.cls, OBFUSCATE_STRING("theWorld").c_str(),
-                                              OBFUSCATE_STRING("Lnet/minecraft/client/multiplayer/WorldClient;").c_str());
+    mc.fid_theWorld =
+        Java::Env()->GetFieldID(mc.cls, OBFUSCATE_STRING("theWorld").c_str(),
+                                OBFUSCATE_STRING("Lnet/minecraft/client/multiplayer/WorldClient;").c_str());
     if (!mc.fid_theWorld) {
         Java::Env()->ExceptionClear();
-        mc.fid_theWorld = Java::Env()->GetFieldID(
-            mc.cls, OBFUSCATE_STRING("field_71441_e").c_str(),
-            OBFUSCATE_STRING("Lnet/minecraft/client/multiplayer/WorldClient;").c_str());
+        mc.fid_theWorld =
+            Java::Env()->GetFieldID(mc.cls, OBFUSCATE_STRING("field_71441_e").c_str(),
+                                    OBFUSCATE_STRING("Lnet/minecraft/client/multiplayer/WorldClient;").c_str());
     }
     if (!mc.fid_theWorld && Java::RuntimeObfuscated) {
         Java::Env()->ExceptionClear();
@@ -112,8 +114,8 @@ void SDK_Init() {
     }
     if (!mc.fid_theWorld) {
         Java::Env()->ExceptionClear();
-        mc.fid_theWorld = jni_resolver::findUniqueFieldBySignature(
-            mc.cls, "Lnet/minecraft/client/multiplayer/WorldClient;", false);
+        mc.fid_theWorld =
+            jni_resolver::findUniqueFieldBySignature(mc.cls, "Lnet/minecraft/client/multiplayer/WorldClient;", false);
     }
 
     // currentScreen field (to detect if GUI is open)
@@ -121,9 +123,9 @@ void SDK_Init() {
                                                    OBFUSCATE_STRING("Lnet/minecraft/client/gui/GuiScreen;").c_str());
     if (!mc.fid_currentScreen) {
         Java::Env()->ExceptionClear();
-        mc.fid_currentScreen = Java::Env()->GetFieldID(
-            mc.cls, OBFUSCATE_STRING("field_71462_r").c_str(),
-            OBFUSCATE_STRING("Lnet/minecraft/client/gui/GuiScreen;").c_str());
+        mc.fid_currentScreen =
+            Java::Env()->GetFieldID(mc.cls, OBFUSCATE_STRING("field_71462_r").c_str(),
+                                    OBFUSCATE_STRING("Lnet/minecraft/client/gui/GuiScreen;").c_str());
     }
     if (!mc.fid_currentScreen && Java::RuntimeObfuscated) {
         Java::Env()->ExceptionClear();
@@ -131,20 +133,20 @@ void SDK_Init() {
     }
     if (!mc.fid_currentScreen) {
         Java::Env()->ExceptionClear();
-        mc.fid_currentScreen = jni_resolver::findUniqueFieldBySignature(
-            mc.cls, "Lnet/minecraft/client/gui/GuiScreen;", false);
+        mc.fid_currentScreen =
+            jni_resolver::findUniqueFieldBySignature(mc.cls, "Lnet/minecraft/client/gui/GuiScreen;", false);
     }
 
     // clickMouse method
-    mc.mid_clickMouse = Java::Env()->GetMethodID(mc.cls, OBFUSCATE_STRING("clickMouse").c_str(),
-                                                 OBFUSCATE_STRING("()V").c_str());
+    mc.mid_clickMouse =
+        Java::Env()->GetMethodID(mc.cls, OBFUSCATE_STRING("clickMouse").c_str(), OBFUSCATE_STRING("()V").c_str());
     if (!mc.mid_clickMouse) {
         Java::Env()->ExceptionClear();
         mc.mid_clickMouse = Java::Env()->GetMethodID(mc.cls, OBFUSCATE_STRING("func_147116_af").c_str(),
                                                      OBFUSCATE_STRING("()V").c_str());
     }
-    mc.mid_rightClickMouse = Java::Env()->GetMethodID(mc.cls, OBFUSCATE_STRING("rightClickMouse").c_str(),
-                                                      OBFUSCATE_STRING("()V").c_str());
+    mc.mid_rightClickMouse =
+        Java::Env()->GetMethodID(mc.cls, OBFUSCATE_STRING("rightClickMouse").c_str(), OBFUSCATE_STRING("()V").c_str());
     if (!mc.mid_rightClickMouse) {
         Java::Env()->ExceptionClear();
         mc.mid_rightClickMouse = Java::Env()->GetMethodID(mc.cls, OBFUSCATE_STRING("func_147121_ag").c_str(),
@@ -154,19 +156,19 @@ void SDK_Init() {
     }
 
     // Click delay fields
-    mc.fid_rightClickDelayTimer =
-        Java::Env()->GetFieldID(mc.cls, OBFUSCATE_STRING("rightClickDelayTimer").c_str(), OBFUSCATE_STRING("I").c_str());
+    mc.fid_rightClickDelayTimer = Java::Env()->GetFieldID(mc.cls, OBFUSCATE_STRING("rightClickDelayTimer").c_str(),
+                                                          OBFUSCATE_STRING("I").c_str());
     if (!mc.fid_rightClickDelayTimer) {
         Java::Env()->ExceptionClear();
-        mc.fid_rightClickDelayTimer = Java::Env()->GetFieldID(
-            mc.cls, OBFUSCATE_STRING("field_71467_ac").c_str(), OBFUSCATE_STRING("I").c_str());
+        mc.fid_rightClickDelayTimer =
+            Java::Env()->GetFieldID(mc.cls, OBFUSCATE_STRING("field_71467_ac").c_str(), OBFUSCATE_STRING("I").c_str());
     }
     mc.fid_leftClickCounter =
         Java::Env()->GetFieldID(mc.cls, OBFUSCATE_STRING("leftClickCounter").c_str(), OBFUSCATE_STRING("I").c_str());
     if (!mc.fid_leftClickCounter) {
         Java::Env()->ExceptionClear();
-        mc.fid_leftClickCounter = Java::Env()->GetFieldID(
-            mc.cls, OBFUSCATE_STRING("field_71429_W").c_str(), OBFUSCATE_STRING("I").c_str());
+        mc.fid_leftClickCounter =
+            Java::Env()->GetFieldID(mc.cls, OBFUSCATE_STRING("field_71429_W").c_str(), OBFUSCATE_STRING("I").c_str());
     }
 
     // KeyBinding cache for releaseMovementKeys (legacy, kept for compatibility)
@@ -193,15 +195,15 @@ void SDK_Init() {
                                                      OBFUSCATE_STRING("()I").c_str());
         if (!mc.mid_getKeyCode) {
             Java::Env()->ExceptionClear();
-            mc.mid_getKeyCode = Java::Env()->GetMethodID(
-                mc.cls_keyBinding, OBFUSCATE_STRING("func_151463_i").c_str(), OBFUSCATE_STRING("()I").c_str());
+            mc.mid_getKeyCode = Java::Env()->GetMethodID(mc.cls_keyBinding, OBFUSCATE_STRING("func_151463_i").c_str(),
+                                                         OBFUSCATE_STRING("()I").c_str());
         }
         mc.fid_pressed = Java::Env()->GetFieldID(mc.cls_keyBinding, OBFUSCATE_STRING("pressed").c_str(),
                                                  OBFUSCATE_STRING("Z").c_str());
         if (!mc.fid_pressed) {
             Java::Env()->ExceptionClear();
-            mc.fid_pressed = Java::Env()->GetFieldID(
-                mc.cls_keyBinding, OBFUSCATE_STRING("field_74513_e").c_str(), OBFUSCATE_STRING("Z").c_str());
+            mc.fid_pressed = Java::Env()->GetFieldID(mc.cls_keyBinding, OBFUSCATE_STRING("field_74513_e").c_str(),
+                                                     OBFUSCATE_STRING("Z").c_str());
         }
     }
 
@@ -264,10 +266,9 @@ std::string Minecraft::getCurrentScreenName() {
     std::string name;
     jclass screenCls = env->GetObjectClass(screen);
     jclass classCls = screenCls ? env->GetObjectClass(screenCls) : nullptr;
-    jmethodID midGetName =
-        classCls ? env->GetMethodID(classCls, OBFUSCATE_STRING("getName").c_str(),
-                                    OBFUSCATE_STRING("()Ljava/lang/String;").c_str())
-                 : nullptr;
+    jmethodID midGetName = classCls ? env->GetMethodID(classCls, OBFUSCATE_STRING("getName").c_str(),
+                                                       OBFUSCATE_STRING("()Ljava/lang/String;").c_str())
+                                    : nullptr;
     if (midGetName) {
         jstring jname = static_cast<jstring>(env->CallObjectMethod(screenCls, midGetName));
         if (env->ExceptionCheck())
@@ -403,7 +404,7 @@ std::vector<ItemEntityInfo> Minecraft::getItemEntityList() {
         return result;
     }
 
-    result.reserve(size / 4); // Heuristic
+    result.reserve(size / 4);  // Heuristic
 
     for (int i = 0; i < size; i++) {
         jobject entity = env->CallObjectMethod(entityList, JniCache::mid_listGet, i);
@@ -413,65 +414,69 @@ std::vector<ItemEntityInfo> Minecraft::getItemEntityList() {
         // Check if EntityItem
         if (JniCache::cls_EntityItem && JniCache::mid_getEntityItem &&
             env->IsInstanceOf(entity, JniCache::cls_EntityItem)) {
-             jobject itemStack = env->CallObjectMethod(entity, JniCache::mid_getEntityItem);
-             if (itemStack) {
-                 ItemEntityInfo info;
-                 // We extract everything we need below and never use the entity
-                 // ref afterwards, so don't keep it — holding the local ref every
-                 // tick overflows the JNI local reference table (~512) within ~1s
-                 // and makes getItemEntityList start returning empty, which shows
-                 // up as the ESP box flickering on/off. Deleted before continue.
-                 info.instance = nullptr;
+            jobject itemStack = env->CallObjectMethod(entity, JniCache::mid_getEntityItem);
+            if (itemStack) {
+                ItemEntityInfo info;
+                // We extract everything we need below and never use the entity
+                // ref afterwards, so don't keep it — holding the local ref every
+                // tick overflows the JNI local reference table (~512) within ~1s
+                // and makes getItemEntityList start returning empty, which shows
+                // up as the ESP box flickering on/off. Deleted before continue.
+                info.instance = nullptr;
 
-                 // Position
-                 if (JniCache::fid_posX) info.posX = env->GetDoubleField(entity, JniCache::fid_posX);
-                 if (JniCache::fid_posY) info.posY = env->GetDoubleField(entity, JniCache::fid_posY);
-                 if (JniCache::fid_posZ) info.posZ = env->GetDoubleField(entity, JniCache::fid_posZ);
+                // Position
+                if (JniCache::fid_posX)
+                    info.posX = env->GetDoubleField(entity, JniCache::fid_posX);
+                if (JniCache::fid_posY)
+                    info.posY = env->GetDoubleField(entity, JniCache::fid_posY);
+                if (JniCache::fid_posZ)
+                    info.posZ = env->GetDoubleField(entity, JniCache::fid_posZ);
 
-                 // Stack Size
-                 if (JniCache::fid_stackSize) {
-                     info.stackSize = env->GetIntField(itemStack, JniCache::fid_stackSize);
-                 }
+                // Stack Size
+                if (JniCache::fid_stackSize) {
+                    info.stackSize = env->GetIntField(itemStack, JniCache::fid_stackSize);
+                }
 
-                 // Item ID and Max Stack
-                 if (JniCache::mid_getItem) {
-                     jobject item = env->CallObjectMethod(itemStack, JniCache::mid_getItem);
-                     if (item) {
-                         if (JniCache::mid_getIdFromItem && JniCache::cls_Item) {
-                             info.itemId = env->CallStaticIntMethod(JniCache::cls_Item, JniCache::mid_getIdFromItem, item);
-                         }
-                         if (JniCache::mid_getItemStackLimit) {
-                             info.maxStackSize = env->CallIntMethod(item, JniCache::mid_getItemStackLimit);
-                         }
-                         env->DeleteLocalRef(item);
-                     }
-                 }
-                 
-                 // Damage/Metadata
-                 if (JniCache::mid_getItemDamage) {
-                     info.damage = env->CallIntMethod(itemStack, JniCache::mid_getItemDamage);
-                 }
+                // Item ID and Max Stack
+                if (JniCache::mid_getItem) {
+                    jobject item = env->CallObjectMethod(itemStack, JniCache::mid_getItem);
+                    if (item) {
+                        if (JniCache::mid_getIdFromItem && JniCache::cls_Item) {
+                            info.itemId =
+                                env->CallStaticIntMethod(JniCache::cls_Item, JniCache::mid_getIdFromItem, item);
+                        }
+                        if (JniCache::mid_getItemStackLimit) {
+                            info.maxStackSize = env->CallIntMethod(item, JniCache::mid_getItemStackLimit);
+                        }
+                        env->DeleteLocalRef(item);
+                    }
+                }
 
-                 // Custom display name (server-set NBT name). Only read the string
-                 // when hasDisplayName() is true so normal drops don't pay the
-                 // GetStringUTFChars cost every tick. Keeps the raw § color codes;
-                 // the renderer parses them.
-                 if (JniCache::mid_itemStackHasDisplayName && JniCache::mid_itemStackGetDisplayName) {
-                     if (env->CallBooleanMethod(itemStack, JniCache::mid_itemStackHasDisplayName)) {
-                         jobject nameObj = env->CallObjectMethod(itemStack, JniCache::mid_itemStackGetDisplayName);
-                         if (nameObj) {
-                             info.customName = jstringToString((jstring)nameObj);
-                             info.hasCustomName = !info.customName.empty();
-                             env->DeleteLocalRef(nameObj);
-                         }
-                     }
-                 }
+                // Damage/Metadata
+                if (JniCache::mid_getItemDamage) {
+                    info.damage = env->CallIntMethod(itemStack, JniCache::mid_getItemDamage);
+                }
 
-                 env->DeleteLocalRef(itemStack);
-                 env->DeleteLocalRef(entity); // done with it — avoid local ref leak
-                 result.push_back(info);
-                 continue;
-             }
+                // Custom display name (server-set NBT name). Only read the string
+                // when hasDisplayName() is true so normal drops don't pay the
+                // GetStringUTFChars cost every tick. Keeps the raw § color codes;
+                // the renderer parses them.
+                if (JniCache::mid_itemStackHasDisplayName && JniCache::mid_itemStackGetDisplayName) {
+                    if (env->CallBooleanMethod(itemStack, JniCache::mid_itemStackHasDisplayName)) {
+                        jobject nameObj = env->CallObjectMethod(itemStack, JniCache::mid_itemStackGetDisplayName);
+                        if (nameObj) {
+                            info.customName = jstringToString((jstring)nameObj);
+                            info.hasCustomName = !info.customName.empty();
+                            env->DeleteLocalRef(nameObj);
+                        }
+                    }
+                }
+
+                env->DeleteLocalRef(itemStack);
+                env->DeleteLocalRef(entity);  // done with it — avoid local ref leak
+                result.push_back(info);
+                continue;
+            }
         }
 
         // If we reached here, we didn't use the entity
@@ -524,12 +529,12 @@ bool Minecraft::attackEntity(jobject target) {
 
     const std::string attackSignature =
         OBFUSCATE_STRING("(Lnet/minecraft/entity/player/EntityPlayer;Lnet/minecraft/entity/Entity;)V");
-    jmethodID attackMethod = env->GetMethodID(
-        controllerClass, OBFUSCATE_STRING("attackEntity").c_str(), attackSignature.c_str());
+    jmethodID attackMethod =
+        env->GetMethodID(controllerClass, OBFUSCATE_STRING("attackEntity").c_str(), attackSignature.c_str());
     if (!attackMethod) {
         env->ExceptionClear();
-        attackMethod = env->GetMethodID(
-            controllerClass, OBFUSCATE_STRING("func_78764_a").c_str(), attackSignature.c_str());
+        attackMethod =
+            env->GetMethodID(controllerClass, OBFUSCATE_STRING("func_78764_a").c_str(), attackSignature.c_str());
     }
     if (!attackMethod && env->ExceptionCheck())
         env->ExceptionClear();
@@ -619,9 +624,9 @@ bool Minecraft::sendUseHeldItem() {
     }
 
     const int currentSlot = env->GetIntField(inventory, JniCache::fid_currentItem);
-    jobjectArray mainInventory =
-        static_cast<jobjectArray>(env->GetObjectField(inventory, JniCache::fid_mainInventory));
-    if (!mainInventory || env->ExceptionCheck() || currentSlot < 0 || currentSlot >= env->GetArrayLength(mainInventory)) {
+    jobjectArray mainInventory = static_cast<jobjectArray>(env->GetObjectField(inventory, JniCache::fid_mainInventory));
+    if (!mainInventory || env->ExceptionCheck() || currentSlot < 0 ||
+        currentSlot >= env->GetArrayLength(mainInventory)) {
         env->ExceptionClear();
         env->PopLocalFrame(nullptr);
         return false;
@@ -641,8 +646,7 @@ bool Minecraft::sendUseHeldItem() {
         env->GetMethodID(controllerClass, OBFUSCATE_STRING("sendUseItem").c_str(), signature.c_str());
     if (!sendUseItem) {
         env->ExceptionClear();
-        sendUseItem =
-            env->GetMethodID(controllerClass, OBFUSCATE_STRING("func_78769_a").c_str(), signature.c_str());
+        sendUseItem = env->GetMethodID(controllerClass, OBFUSCATE_STRING("func_78769_a").c_str(), signature.c_str());
     }
     if (!sendUseItem) {
         env->ExceptionClear();
@@ -986,12 +990,14 @@ std::string Minecraft::getCurrentServerIP() {
         return "none";
     JNIEnv* env = Java::Env();
 
-    jfieldID fid_currentServerData = env->GetFieldID(cls, OBFUSCATE_STRING("currentServerData").c_str(),
-                                                     OBFUSCATE_STRING("Lnet/minecraft/client/multiplayer/ServerData;").c_str());
+    jfieldID fid_currentServerData =
+        env->GetFieldID(cls, OBFUSCATE_STRING("currentServerData").c_str(),
+                        OBFUSCATE_STRING("Lnet/minecraft/client/multiplayer/ServerData;").c_str());
     if (!fid_currentServerData) {
         env->ExceptionClear();
-        fid_currentServerData = env->GetFieldID(cls, OBFUSCATE_STRING("field_71422_O").c_str(),
-                                                 OBFUSCATE_STRING("Lnet/minecraft/client/multiplayer/ServerData;").c_str());
+        fid_currentServerData =
+            env->GetFieldID(cls, OBFUSCATE_STRING("field_71422_O").c_str(),
+                            OBFUSCATE_STRING("Lnet/minecraft/client/multiplayer/ServerData;").c_str());
         if (!fid_currentServerData) {
             env->ExceptionClear();
             return "singleplayer";
@@ -1009,7 +1015,7 @@ std::string Minecraft::getCurrentServerIP() {
     if (!fid_serverIP) {
         env->ExceptionClear();
         fid_serverIP = env->GetFieldID(cls_ServerData, OBFUSCATE_STRING("field_78845_b").c_str(),
-                                        OBFUSCATE_STRING("Ljava/lang/String;").c_str());
+                                       OBFUSCATE_STRING("Ljava/lang/String;").c_str());
         if (!fid_serverIP) {
             env->ExceptionClear();
             env->DeleteLocalRef(cls_ServerData);

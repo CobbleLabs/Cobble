@@ -37,7 +37,6 @@ bool AimBow::isRewritingRotation() const {
     return now >= last && (now - last) <= kBowRotClaimTailMs;
 }
 
-
 namespace {
 constexpr double kPi = 3.14159265358979323846;
 constexpr double kDeg = 180.0 / kPi;
@@ -354,11 +353,13 @@ void AimBow::onUpdate() {
                     lastNameRefresh = nowTick;
                 }
                 bool isScoreboardTeammate = false;
-                if (playerColor != ChatColor::WHITE && playerColor != ChatColor::GRAY && playerColor != ChatColor::UNKNOWN) {
-                    isScoreboardTeammate = friendsManager->isScoreboardTeammate(localPlayerName,
-                                                                         p.profileName.empty() ? p.name : p.profileName);
+                if (playerColor != ChatColor::WHITE && playerColor != ChatColor::GRAY &&
+                    playerColor != ChatColor::UNKNOWN) {
+                    isScoreboardTeammate = friendsManager->isScoreboardTeammate(
+                        localPlayerName, p.profileName.empty() ? p.name : p.profileName);
                 }
-                isScoreboardTeammate = isScoreboardTeammate || friendsManager->isTeammate(p.uuid, playerColor, localColor);
+                isScoreboardTeammate =
+                    isScoreboardTeammate || friendsManager->isTeammate(p.uuid, playerColor, localColor);
                 if (isScoreboardTeammate)
                     continue;
             }
@@ -373,11 +374,16 @@ void AimBow::onUpdate() {
         // Armor-tier ("class") filter: only aim at players wearing a checked tier.
         if (settings.armorFilterEnabled && settings.armorTierMask != 0) {
             auto tierBit = [](int id) -> int {
-                if (id >= 298 && id <= 301) return ARMOR_LEATHER;
-                if (id >= 302 && id <= 305) return ARMOR_CHAIN;
-                if (id >= 306 && id <= 309) return ARMOR_IRON;
-                if (id >= 310 && id <= 313) return ARMOR_DIAMOND;
-                if (id >= 314 && id <= 317) return ARMOR_GOLD;
+                if (id >= 298 && id <= 301)
+                    return ARMOR_LEATHER;
+                if (id >= 302 && id <= 305)
+                    return ARMOR_CHAIN;
+                if (id >= 306 && id <= 309)
+                    return ARMOR_IRON;
+                if (id >= 310 && id <= 313)
+                    return ARMOR_DIAMOND;
+                if (id >= 314 && id <= 317)
+                    return ARMOR_GOLD;
                 return 0;
             };
             bool match = false;
@@ -421,9 +427,8 @@ void AimBow::onUpdate() {
         if (angle > maxAngle)
             continue;
 
-        const double score = (settings.mode == AimMode::ClosestToCrosshair)
-                                 ? (double)angle
-                                 : std::sqrt(distSq + dy * dy);
+        const double score =
+            (settings.mode == AimMode::ClosestToCrosshair) ? (double)angle : std::sqrt(distSq + dy * dy);
         if (score >= bestScore)
             continue;
 
@@ -465,7 +470,6 @@ void AimBow::onUpdate() {
         return;
     }
     hasTarget = true;
-
 
     // Target velocity, in blocks per tick.
     //

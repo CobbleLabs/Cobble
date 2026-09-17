@@ -101,8 +101,7 @@ static bool update_effect(std::unordered_map<int, EffectState>& mp, int effectId
         if (it->second.lastUpdate.time_since_epoch().count() != 0) {
             elapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(now - it->second.lastUpdate).count();
         }
-        if (elapsedMs >= 0 && elapsedMs < 100 &&
-            it->second.eff.amplifier == amplifier &&
+        if (elapsedMs >= 0 && elapsedMs < 100 && it->second.eff.amplifier == amplifier &&
             std::abs(it->second.eff.duration - durationTicks) <= 2) {
             return false;
         }

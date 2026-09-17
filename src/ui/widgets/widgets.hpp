@@ -62,7 +62,8 @@ T& anim_obj(const char* label, int id, T default_value) {
     static std::vector<std::pair<std::string, T>> storage;
     std::string key = std::string(label) + std::to_string(id);
     for (auto& entry : storage) {
-        if (entry.first == key) return entry.second;
+        if (entry.first == key)
+            return entry.second;
     }
     storage.emplace_back(std::move(key), std::move(default_value));
     return storage.back().second;
@@ -131,9 +132,10 @@ bool Combo(const char* label, int* current, const char* const items[], int count
 // value is measured in (or per) game ticks, so users know what a tick is.
 inline void TickTooltip() {
     if (ImGui::IsItemHovered()) {
-        ImGui::SetTooltip("Measured in game ticks.\n"
-                          "The game runs at 20 ticks per second, so 1 tick = 50 ms.\n"
-                          "e.g. 4 ticks = 200 ms, 20 ticks = 1 second.");
+        ImGui::SetTooltip(
+            "Measured in game ticks.\n"
+            "The game runs at 20 ticks per second, so 1 tick = 50 ms.\n"
+            "e.g. 4 ticks = 200 ms, 20 ticks = 1 second.");
     }
 }
 

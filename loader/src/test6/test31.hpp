@@ -1,100 +1,57 @@
 ﻿#pragma once
 
-
-
-
 #include <cstdint>
 #include <ctime>
 #include <utility>
 
 namespace obf {
 
-
-
-
-
 #if defined(_MSC_VER)
-    #define CF_NOOPT __pragma(optimize("", off))
-    #define CF_OPT   __pragma(optimize("", on))
-    #define CF_FORCEINLINE __forceinline
-    #define CF_NOINLINE __declspec(noinline)
-    #define CF_ASSUME(x) __assume(x)
+#define CF_NOOPT __pragma(optimize("", off))
+#define CF_OPT __pragma(optimize("", on))
+#define CF_FORCEINLINE __forceinline
+#define CF_NOINLINE __declspec(noinline)
+#define CF_ASSUME(x) __assume(x)
 #else
-    #define CF_NOOPT
-    #define CF_OPT
-    #define CF_FORCEINLINE inline
-    #define CF_NOINLINE
-    #define CF_ASSUME(x) ((void)0)
+#define CF_NOOPT
+#define CF_OPT
+#define CF_FORCEINLINE inline
+#define CF_NOINLINE
+#define CF_ASSUME(x) ((void)0)
 #endif
-
-
-
-
 
 inline volatile int _cf_global_seed = 777 + (int)__TIME__[1] + (int)__TIME__[2] * 17;
 
-
-
-
-
-#define CF_NOP() \
-    do { \
-        volatile int __cf_nop_val = __COUNTER__ ^ (int)__LINE__; \
+#define CF_NOP()                                                                                \
+    do {                                                                                        \
+        volatile int __cf_nop_val = __COUNTER__ ^ (int)__LINE__;                                \
         obf::_cf_global_seed = (obf::_cf_global_seed ^ __cf_nop_val ^ (int)std::time(nullptr)); \
-        (void)__cf_nop_val; \
-    } while(0)
+        (void)__cf_nop_val;                                                                     \
+    } while (0)
 
+#define CF_MBA_ADD(a, b)                                                                        \
+    ((((unsigned int)(a) | (unsigned int)(b)) + ((unsigned int)(a) & (unsigned int)(b))) -      \
+     (((unsigned int)(a) ^ (unsigned int)(b))) +                                                \
+     (((unsigned int)(a) ^ (unsigned int)(b)) + 2U * ((unsigned int)(a) & (unsigned int)(b))) - \
+     (((unsigned int)(a) | (unsigned int)(b)) - ((unsigned int)(a) & (unsigned int)(b))))
 
+#define CF_MBA_SUB(a, b) \
+    ((((unsigned int)(a)) + (~(unsigned int)(b)) + 1U) ^ (((unsigned int)(a)) ^ ((~(unsigned int)(b)) ^ 1U)))
 
+#define CF_MBA_XOR(a, b)                                                                             \
+    (((((unsigned int)(a)) & (~(unsigned int)(b))) | ((~(unsigned int)(a)) & ((unsigned int)(b)))) ^ \
+     (((unsigned int)(a) | (unsigned int)(b)) - ((unsigned int)(a) & (unsigned int)(b))))
 
+#define CF_MBA_NOT(a) ((((unsigned int)(a)) ^ 0xFFFFFFFFU) ^ (~((unsigned int)(a))))
 
+#define CF_OPAQUE_TRUE()                                                                                          \
+    (((~0u >> 1) > 0u) && ((__LINE__ | (unsigned int)obf::_cf_global_seed) >= 0u) &&                              \
+     ((((unsigned int)obf::_cf_global_seed | 0xCAFEBABEu) ^ 0xCAFEBABEu) <= (unsigned int)obf::_cf_global_seed || \
+      true))
 
-#define CF_MBA_ADD(a, b) ( \
-    ( ((unsigned int)(a) | (unsigned int)(b)) + ((unsigned int)(a) & (unsigned int)(b)) ) \
-    - ( ((unsigned int)(a) ^ (unsigned int)(b)) ) \
-    + ( ((unsigned int)(a) ^ (unsigned int)(b)) + 2U * ((unsigned int)(a) & (unsigned int)(b)) ) \
-    - ( ((unsigned int)(a) | (unsigned int)(b)) - ((unsigned int)(a) & (unsigned int)(b)) ) \
-)
-
-#define CF_MBA_SUB(a, b) ( \
-    ( ((unsigned int)(a)) + (~(unsigned int)(b)) + 1U ) \
-    ^ ( ((unsigned int)(a)) ^ ((~(unsigned int)(b)) ^ 1U) ) \
-)
-
-#define CF_MBA_XOR(a, b) ( \
-    ( (((unsigned int)(a)) & (~(unsigned int)(b))) | ((~(unsigned int)(a)) & ((unsigned int)(b))) ) \
-    ^ ( ((unsigned int)(a) | (unsigned int)(b)) - ((unsigned int)(a) & (unsigned int)(b)) ) \
-)
-
-#define CF_MBA_NOT(a) ( \
-    ( ((unsigned int)(a)) ^ 0xFFFFFFFFU ) \
-    ^ ( ~((unsigned int)(a)) ) \
-)
-
-
-
-
-
-
-
-#define CF_OPAQUE_TRUE() \
-    ( \
-        ((~0u >> 1) > 0u) && \
-        ((__LINE__ | (unsigned int)obf::_cf_global_seed) >= 0u) && \
-        ((((unsigned int)obf::_cf_global_seed | 0xCAFEBABEu) ^ 0xCAFEBABEu) <= (unsigned int)obf::_cf_global_seed \
-            || true) \
-    )
-
-#define CF_OPAQUE_FALSE() \
-    ( \
-        ((unsigned int)obf::_cf_global_seed == 0xDEADBEEF) && \
-        (((unsigned int)(__LINE__) ^ (unsigned int)obf::_cf_global_seed) == 0xDEADBEEF) && \
-        false \
-    )
-
-
-
-
+#define CF_OPAQUE_FALSE()                                  \
+    (((unsigned int)obf::_cf_global_seed == 0xDEADBEEF) && \
+     (((unsigned int)(__LINE__) ^ (unsigned int)obf::_cf_global_seed) == 0xDEADBEEF) && false)
 
 namespace junk {
 
@@ -107,7 +64,8 @@ CF_FORCEINLINE static int func_1() {
 
 CF_FORCEINLINE static int func_2() {
     volatile int x = (__COUNTER__ * 3) ^ (_cf_global_seed);
-    for(int i = 0; i < ((__COUNTER__ % 2) + 2); ++i) x ^= i;
+    for (int i = 0; i < ((__COUNTER__ % 2) + 2); ++i)
+        x ^= i;
     return x;
 }
 
@@ -129,7 +87,8 @@ CF_FORCEINLINE static int func_4() {
 
 CF_FORCEINLINE static int func_5() {
     volatile int x = (((int)std::time(nullptr) ^ _cf_global_seed + __COUNTER__) % 7);
-    if (x == 0) x = 1;
+    if (x == 0)
+        x = 1;
     x = (x * 13) + 71;
     return x;
 }
@@ -148,56 +107,37 @@ CF_FORCEINLINE static int func_7() {
     return x;
 }
 
-using junk_func_ptr = int(*)();
-static junk_func_ptr table[] = {
-    func_1, func_2, func_3, func_4, func_5, func_6, func_7
-};
+using junk_func_ptr = int (*)();
+static junk_func_ptr table[] = {func_1, func_2, func_3, func_4, func_5, func_6, func_7};
 constexpr size_t table_size = sizeof(table) / sizeof(junk_func_ptr);
 
-}
+}  // namespace junk
 
+#define CF_JUNK()                                                                                                     \
+    (obf::junk::table[((obf::_cf_global_seed ^ __COUNTER__ ^ (int)std::time(nullptr) ^ (int)__LINE__) & 0x7FFFFFFF) % \
+                      obf::junk::table_size]())
 
-#define CF_JUNK() \
-    (obf::junk::table[ \
-        ((obf::_cf_global_seed ^ __COUNTER__ ^ (int)std::time(nullptr) ^ (int)__LINE__) & 0x7FFFFFFF) % obf::junk::table_size \
-    ]())
+#define CF_CHECK(condition) (CF_OPAQUE_TRUE() && (condition))
 
-
-
-
-
-
-#define CF_CHECK(condition) \
-    (CF_OPAQUE_TRUE() && (condition))
-
-
-#define CF_SECURITY_PROLOGUE() \
-    do { \
-        CF_NOP(); \
-        CF_JUNK(); \
+#define CF_SECURITY_PROLOGUE()                                                  \
+    do {                                                                        \
+        CF_NOP();                                                               \
+        CF_JUNK();                                                              \
         obf::_cf_global_seed = CF_MBA_XOR(obf::_cf_global_seed, (int)__LINE__); \
-    } while(0)
+    } while (0)
 
-
-#define CF_SECURITY_EPILOGUE() \
-    do { \
+#define CF_SECURITY_EPILOGUE()                                              \
+    do {                                                                    \
         obf::_cf_global_seed = CF_MBA_ADD(obf::_cf_global_seed, CF_JUNK()); \
-        CF_NOP(); \
-    } while(0)
-
+        CF_NOP();                                                           \
+    } while (0)
 
 #define CF_CRITICAL_BEGIN() CF_SECURITY_PROLOGUE()
 #define CF_CRITICAL_END() CF_SECURITY_EPILOGUE()
 
-
-
-
-
-
 constexpr uint32_t state_seed(const char* str, uint32_t offset = 0) {
     return str[offset] == '\0' ? 0x5A5A5A5A : str[offset] + 0x9E3779B9 + state_seed(str, offset + 1);
 }
-
 
 #define OBFUSCATE_BEGIN                                                                     \
     {                                                                                       \
@@ -221,21 +161,19 @@ constexpr uint32_t state_seed(const char* str, uint32_t offset = 0) {
         goto __obf_exit;              \
     } break;
 
-#define OBFUSCATE_END       \
-    default:                \
-        __debugbreak();     \
-        ;                 \
-        }                   \
-        }                   \
-    __obf_exit:;            \
+#define OBFUSCATE_END   \
+    default:            \
+        __debugbreak(); \
+        ;               \
+        }               \
+        }               \
+    __obf_exit:;        \
         }
-
 
 template <auto Func, uint32_t Seed = state_seed(__FILE__)>
 struct OpaqueDispatcher {
     template <typename... Args>
     static inline auto call(Args&&... args) {
-
         volatile int state = (Seed ^ 0x5A5A5A5A) % 7;
 
         for (int i = 0; i < 10; i++) {
@@ -265,17 +203,11 @@ struct OpaqueDispatcher {
             }
         }
 
-
         return Func(std::forward<Args>(args)...);
     }
 };
 
-
 #define OBFUSCATED_CALL(func, ...) obf::OpaqueDispatcher<&func>::call(__VA_ARGS__)
-
-
-
-
 
 #define JUNK_CODE_1               \
     {                             \
@@ -293,4 +225,4 @@ struct OpaqueDispatcher {
             __debugbreak();                   \
     }
 
-}
+}  // namespace obf

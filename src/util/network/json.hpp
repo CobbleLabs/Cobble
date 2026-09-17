@@ -219,8 +219,8 @@ private:
     bool bool_;
     double number_;
     std::string string_;
-    Members members_;          // object key/value pairs (insertion order)
-    std::vector<Value> array_; // array elements
+    Members members_;           // object key/value pairs (insertion order)
+    std::vector<Value> array_;  // array elements
 
     friend class Parser;
 };
@@ -514,22 +514,41 @@ private:
                 pos++;
                 char e = json[pos];
                 switch (e) {
-                    case '"':  out += '"';  break;
-                    case '\\': out += '\\'; break;
-                    case '/':  out += '/';  break;
-                    case 'n':  out += '\n'; break;
-                    case 't':  out += '\t'; break;
-                    case 'r':  out += '\r'; break;
-                    case 'b':  out += '\b'; break;
-                    case 'f':  out += '\f'; break;
+                    case '"':
+                        out += '"';
+                        break;
+                    case '\\':
+                        out += '\\';
+                        break;
+                    case '/':
+                        out += '/';
+                        break;
+                    case 'n':
+                        out += '\n';
+                        break;
+                    case 't':
+                        out += '\t';
+                        break;
+                    case 'r':
+                        out += '\r';
+                        break;
+                    case 'b':
+                        out += '\b';
+                        break;
+                    case 'f':
+                        out += '\f';
+                        break;
                     case 'u': {
                         // Minimal \uXXXX handling: emit the low byte (config
                         // strings are ASCII in practice). Skip the 4 hex digits.
                         if (pos + 4 < json.length()) {
                             auto hex = [](char h) -> int {
-                                if (h >= '0' && h <= '9') return h - '0';
-                                if (h >= 'a' && h <= 'f') return h - 'a' + 10;
-                                if (h >= 'A' && h <= 'F') return h - 'A' + 10;
+                                if (h >= '0' && h <= '9')
+                                    return h - '0';
+                                if (h >= 'a' && h <= 'f')
+                                    return h - 'a' + 10;
+                                if (h >= 'A' && h <= 'F')
+                                    return h - 'A' + 10;
                                 return 0;
                             };
                             int cp = (hex(json[pos + 1]) << 12) | (hex(json[pos + 2]) << 8) |

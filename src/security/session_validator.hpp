@@ -16,10 +16,10 @@
 
 #include "../util/network/http.hpp"
 #include "../util/network/json.hpp"
-#include "anti_attach.hpp"     // Runtime debugger detection (same folder)
-#include "dll_integrity.hpp"   // Anti-patch detection (same folder)
-#include "loader_verify.hpp"   // PEB-list reverification (same folder)
-#include "tweetnacl.h"         // Ed25519 verification (same folder)
+#include "anti_attach.hpp"    // Runtime debugger detection (same folder)
+#include "dll_integrity.hpp"  // Anti-patch detection (same folder)
+#include "loader_verify.hpp"  // PEB-list reverification (same folder)
+#include "tweetnacl.h"        // Ed25519 verification (same folder)
 #include "generated/server_config.h"
 #include "generated/keys.h"
 
@@ -264,21 +264,24 @@ inline bool ValidateInjection() {
 
 // Get validated username (empty if not validated)
 inline std::string GetUsername() {
-    if (!g_SessionValid) return "";
+    if (!g_SessionValid)
+        return "";
     std::lock_guard<std::mutex> lock(g_SessionMutex);
     return g_Username;
 }
 
 // Get injection secret for server validation
 inline std::string GetInjectionSecret() {
-    if (!g_SessionValid) return "";
+    if (!g_SessionValid)
+        return "";
     std::lock_guard<std::mutex> lock(g_SessionMutex);
     return g_InjectionSecret;
 }
 
 // Get HWID for server calls
 inline std::string GetHWID() {
-    if (!g_SessionValid) return "";
+    if (!g_SessionValid)
+        return "";
     std::lock_guard<std::mutex> lock(g_SessionMutex);
     return g_HWID;
 }
@@ -383,8 +386,8 @@ inline std::string computeSyncHash() {
 
 inline std::atomic<bool> g_HeartbeatRunning{false};
 inline HANDLE g_HeartbeatThread = nullptr;
-inline HMODULE g_DllModule = nullptr;          // Captured at startup, used by reverify().
-inline std::atomic<int> g_AttachStrikes{0};    // Counter for runtime anti-debug detections.
+inline HMODULE g_DllModule = nullptr;        // Captured at startup, used by reverify().
+inline std::atomic<int> g_AttachStrikes{0};  // Counter for runtime anti-debug detections.
 
 // Threshold + jitter so the corruption doesn't fire on the same heartbeat
 // every time. The reverser can't associate "I patched X → cheat broke now"
@@ -415,9 +418,8 @@ inline bool DoHeartbeat() {
     syncHashLocal = computeSyncHash();
 
     // Build JSON body. Cloudflare WAF rejects form-encoded.
-    std::string body = std::string("{\"session_token\":\"") + http::json_escape(sessionTokenCopy) +
-                       "\",\"hwid\":\"" + http::json_escape(hwidCopy) +
-                       "\",\"username\":\"" + http::json_escape(usernameCopy) +
+    std::string body = std::string("{\"session_token\":\"") + http::json_escape(sessionTokenCopy) + "\",\"hwid\":\"" +
+                       http::json_escape(hwidCopy) + "\",\"username\":\"" + http::json_escape(usernameCopy) +
                        "\",\"version\":\"" + http::json_escape(cobble_config::VERSION) + "\"";
     if (!syncHashLocal.empty()) {
         body += ",\"sync_hash\":\"" + http::json_escape(syncHashLocal) + "\"";

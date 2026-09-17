@@ -25,9 +25,10 @@ struct Response {
 namespace _detail {
 
 inline HINTERNET openSession() {
-    HINTERNET h = WinHttpOpen(OBFUSCATE_WSTRING(L"Mozilla/5.0").c_str(), WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, WINHTTP_NO_PROXY_NAME,
-                              WINHTTP_NO_PROXY_BYPASS, 0);
-    if (!h) return nullptr;
+    HINTERNET h = WinHttpOpen(OBFUSCATE_WSTRING(L"Mozilla/5.0").c_str(), WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,
+                              WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
+    if (!h)
+        return nullptr;
     DWORD timeout = 5000;
     WinHttpSetOption(h, WINHTTP_OPTION_CONNECT_TIMEOUT, &timeout, sizeof(timeout));
     WinHttpSetOption(h, WINHTTP_OPTION_SEND_TIMEOUT, &timeout, sizeof(timeout));
@@ -59,26 +60,42 @@ inline void readBody(HINTERNET hRequest, Response& res) {
 inline Response get(const std::wstring& host, int port, const std::wstring& path, bool https = false) {
     Response res;
     HINTERNET session = _detail::openSession();
-    if (!session) { res.error = "WinHttpOpen failed"; return res; }
+    if (!session) {
+        res.error = "WinHttpOpen failed";
+        return res;
+    }
 
     HINTERNET connect = WinHttpConnect(session, host.c_str(), static_cast<INTERNET_PORT>(port), 0);
-    if (!connect) { res.error = "WinHttpConnect failed"; WinHttpCloseHandle(session); return res; }
+    if (!connect) {
+        res.error = "WinHttpConnect failed";
+        WinHttpCloseHandle(session);
+        return res;
+    }
 
     DWORD flags = https ? WINHTTP_FLAG_SECURE : 0;
     HINTERNET request = WinHttpOpenRequest(connect, L"GET", path.c_str(), nullptr, WINHTTP_NO_REFERER,
                                            WINHTTP_DEFAULT_ACCEPT_TYPES, flags);
-    if (!request) { res.error = "WinHttpOpenRequest failed"; WinHttpCloseHandle(connect); WinHttpCloseHandle(session); return res; }
+    if (!request) {
+        res.error = "WinHttpOpenRequest failed";
+        WinHttpCloseHandle(connect);
+        WinHttpCloseHandle(session);
+        return res;
+    }
 
     if (!WinHttpSendRequest(request, WINHTTP_NO_ADDITIONAL_HEADERS, 0, WINHTTP_NO_REQUEST_DATA, 0, 0, 0) ||
         !WinHttpReceiveResponse(request, nullptr)) {
         res.error = "request failed";
-        WinHttpCloseHandle(request); WinHttpCloseHandle(connect); WinHttpCloseHandle(session);
+        WinHttpCloseHandle(request);
+        WinHttpCloseHandle(connect);
+        WinHttpCloseHandle(session);
         return res;
     }
 
     _detail::readBody(request, res);
 
-    WinHttpCloseHandle(request); WinHttpCloseHandle(connect); WinHttpCloseHandle(session);
+    WinHttpCloseHandle(request);
+    WinHttpCloseHandle(connect);
+    WinHttpCloseHandle(session);
     return res;
 }
 
@@ -88,28 +105,44 @@ inline Response post(const std::wstring& host, int port, const std::wstring& pat
                      bool https = false) {
     Response res;
     HINTERNET session = _detail::openSession();
-    if (!session) { res.error = "WinHttpOpen failed"; return res; }
+    if (!session) {
+        res.error = "WinHttpOpen failed";
+        return res;
+    }
 
     HINTERNET connect = WinHttpConnect(session, host.c_str(), static_cast<INTERNET_PORT>(port), 0);
-    if (!connect) { res.error = "WinHttpConnect failed"; WinHttpCloseHandle(session); return res; }
+    if (!connect) {
+        res.error = "WinHttpConnect failed";
+        WinHttpCloseHandle(session);
+        return res;
+    }
 
     DWORD flags = https ? WINHTTP_FLAG_SECURE : 0;
     HINTERNET request = WinHttpOpenRequest(connect, L"POST", path.c_str(), nullptr, WINHTTP_NO_REFERER,
                                            WINHTTP_DEFAULT_ACCEPT_TYPES, flags);
-    if (!request) { res.error = "WinHttpOpenRequest failed"; WinHttpCloseHandle(connect); WinHttpCloseHandle(session); return res; }
+    if (!request) {
+        res.error = "WinHttpOpenRequest failed";
+        WinHttpCloseHandle(connect);
+        WinHttpCloseHandle(session);
+        return res;
+    }
 
     const wchar_t* headers = L"Content-Type: application/json\r\n";
     if (!WinHttpSendRequest(request, headers, static_cast<DWORD>(-1L), (LPVOID)jsonBody.c_str(),
                             static_cast<DWORD>(jsonBody.length()), static_cast<DWORD>(jsonBody.length()), 0) ||
         !WinHttpReceiveResponse(request, nullptr)) {
         res.error = "request failed";
-        WinHttpCloseHandle(request); WinHttpCloseHandle(connect); WinHttpCloseHandle(session);
+        WinHttpCloseHandle(request);
+        WinHttpCloseHandle(connect);
+        WinHttpCloseHandle(session);
         return res;
     }
 
     _detail::readBody(request, res);
 
-    WinHttpCloseHandle(request); WinHttpCloseHandle(connect); WinHttpCloseHandle(session);
+    WinHttpCloseHandle(request);
+    WinHttpCloseHandle(connect);
+    WinHttpCloseHandle(session);
     return res;
 }
 
@@ -152,11 +185,21 @@ inline std::string json_escape(const std::string& s) {
     out.reserve(s.size() + 8);
     for (char c : s) {
         switch (c) {
-            case '"':  out += "\\\""; break;
-            case '\\': out += "\\\\"; break;
-            case '\n': out += "\\n";  break;
-            case '\r': out += "\\r";  break;
-            case '\t': out += "\\t";  break;
+            case '"':
+                out += "\\\"";
+                break;
+            case '\\':
+                out += "\\\\";
+                break;
+            case '\n':
+                out += "\\n";
+                break;
+            case '\r':
+                out += "\\r";
+                break;
+            case '\t':
+                out += "\\t";
+                break;
             default:
                 if (static_cast<unsigned char>(c) < 0x20) {
                     char buf[8];
@@ -181,17 +224,21 @@ struct MojangProfile {
 };
 
 inline std::string formatUUID(const std::string& raw) {
-    if (raw.length() != 32) return raw;
-    return raw.substr(0, 8) + "-" + raw.substr(8, 4) + "-" + raw.substr(12, 4) + "-" + raw.substr(16, 4) + "-" + raw.substr(20);
+    if (raw.length() != 32)
+        return raw;
+    return raw.substr(0, 8) + "-" + raw.substr(8, 4) + "-" + raw.substr(12, 4) + "-" + raw.substr(16, 4) + "-" +
+           raw.substr(20);
 }
 
 inline MojangProfile lookupMojangUUID(const std::string& username) {
     MojangProfile profile;
     std::wstring path = OBFUSCATE_WSTRING(L"/users/profiles/minecraft/");
-    for (char c : username) path += static_cast<wchar_t>(c);
+    for (char c : username)
+        path += static_cast<wchar_t>(c);
 
     auto response = get(OBFUSCATE_WSTRING(L"api.mojang.com").c_str(), 443, path, true);
-    if (!response.success) return profile;
+    if (!response.success)
+        return profile;
 
     const std::string& body = response.body;
     size_t idPos = body.find("\"id\":");
@@ -220,14 +267,19 @@ inline MojangProfile lookupMojangUUID(const std::string& username) {
 
 inline std::string lookupMojangName(const std::string& uuid) {
     std::string clean;
-    for (char c : uuid) if (c != '-') clean += c;
-    if (clean.length() != 32) return "";
+    for (char c : uuid)
+        if (c != '-')
+            clean += c;
+    if (clean.length() != 32)
+        return "";
 
     std::wstring path = OBFUSCATE_WSTRING(L"/session/minecraft/profile/");
-    for (char c : clean) path += static_cast<wchar_t>(c);
+    for (char c : clean)
+        path += static_cast<wchar_t>(c);
 
     auto response = get(OBFUSCATE_WSTRING(L"sessionserver.mojang.com").c_str(), 443, path, true);
-    if (!response.success) return "";
+    if (!response.success)
+        return "";
 
     const std::string& body = response.body;
     size_t namePos = body.find("\"name\"");

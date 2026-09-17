@@ -26,81 +26,81 @@ struct MinecraftItem {
 
 static const MinecraftItem ALL_MINECRAFT_ITEMS[] = {
     // ── Swords ─────────────────────────────────────────────
-    { 268, "Wooden Sword" },
-    { 272, "Stone Sword" },
-    { 267, "Iron Sword" },
-    { 276, "Diamond Sword" },
-    { 283, "Golden Sword" },
+    {268, "Wooden Sword"},
+    {272, "Stone Sword"},
+    {267, "Iron Sword"},
+    {276, "Diamond Sword"},
+    {283, "Golden Sword"},
     // ── Axes ───────────────────────────────────────────────
-    { 271, "Wooden Axe" },
-    { 275, "Stone Axe" },
-    { 258, "Iron Axe" },
-    { 279, "Diamond Axe" },
-    { 286, "Golden Axe" },
+    {271, "Wooden Axe"},
+    {275, "Stone Axe"},
+    {258, "Iron Axe"},
+    {279, "Diamond Axe"},
+    {286, "Golden Axe"},
     // ── Bow & Arrows ───────────────────────────────────────
-    { 261, "Bow" },
-    { 262, "Arrow" },
+    {261, "Bow"},
+    {262, "Arrow"},
     // ── Helmets ────────────────────────────────────────────
-    { 298, "Leather Helmet" },
-    { 302, "Chainmail Helmet" },
-    { 306, "Iron Helmet" },
-    { 310, "Diamond Helmet" },
-    { 314, "Golden Helmet" },
+    {298, "Leather Helmet"},
+    {302, "Chainmail Helmet"},
+    {306, "Iron Helmet"},
+    {310, "Diamond Helmet"},
+    {314, "Golden Helmet"},
     // ── Chestplates ────────────────────────────────────────
-    { 299, "Leather Chestplate" },
-    { 303, "Chainmail Chestplate" },
-    { 307, "Iron Chestplate" },
-    { 311, "Diamond Chestplate" },
-    { 315, "Golden Chestplate" },
+    {299, "Leather Chestplate"},
+    {303, "Chainmail Chestplate"},
+    {307, "Iron Chestplate"},
+    {311, "Diamond Chestplate"},
+    {315, "Golden Chestplate"},
     // ── Leggings ───────────────────────────────────────────
-    { 300, "Leather Leggings" },
-    { 304, "Chainmail Leggings" },
-    { 308, "Iron Leggings" },
-    { 312, "Diamond Leggings" },
-    { 316, "Golden Leggings" },
+    {300, "Leather Leggings"},
+    {304, "Chainmail Leggings"},
+    {308, "Iron Leggings"},
+    {312, "Diamond Leggings"},
+    {316, "Golden Leggings"},
     // ── Boots ──────────────────────────────────────────────
-    { 301, "Leather Boots" },
-    { 305, "Chainmail Boots" },
-    { 309, "Iron Boots" },
-    { 313, "Diamond Boots" },
-    { 317, "Golden Boots" },
+    {301, "Leather Boots"},
+    {305, "Chainmail Boots"},
+    {309, "Iron Boots"},
+    {313, "Diamond Boots"},
+    {317, "Golden Boots"},
     // ── Potions ────────────────────────────────────────────
-    { 373, "Potion" },
-    { 438, "Splash Potion" },
+    {373, "Potion"},
+    {438, "Splash Potion"},
     // ── Throwables ─────────────────────────────────────────
-    { 368, "Ender Pearl" },
-    { 344, "Egg" },
-    { 332, "Snowball" },
-    { 385, "Fire Charge" },
+    {368, "Ender Pearl"},
+    {344, "Egg"},
+    {332, "Snowball"},
+    {385, "Fire Charge"},
     // ── Food ───────────────────────────────────────────────
-    { 260, "Apple" },
-    { 322, "Golden Apple" },
-    { 297, "Bread" },
-    { 364, "Cooked Beef" },
-    { 366, "Cooked Chicken" },
-    { 320, "Cooked Porkchop" },
-    { 391, "Carrot" },
-    { 396, "Golden Carrot" },
-    { 360, "Melon Slice" },
-    { 393, "Baked Potato" },
+    {260, "Apple"},
+    {322, "Golden Apple"},
+    {297, "Bread"},
+    {364, "Cooked Beef"},
+    {366, "Cooked Chicken"},
+    {320, "Cooked Porkchop"},
+    {391, "Carrot"},
+    {396, "Golden Carrot"},
+    {360, "Melon Slice"},
+    {393, "Baked Potato"},
     // ── Pickaxes ───────────────────────────────────────────
-    { 270, "Wooden Pickaxe" },
-    { 274, "Stone Pickaxe" },
-    { 257, "Iron Pickaxe" },
-    { 278, "Diamond Pickaxe" },
+    {270, "Wooden Pickaxe"},
+    {274, "Stone Pickaxe"},
+    {257, "Iron Pickaxe"},
+    {278, "Diamond Pickaxe"},
     // ── Other PvP Tools ────────────────────────────────────
-    { 259, "Flint and Steel" },
-    { 346, "Fishing Rod" },
-    { 359, "Shears" },
-    { 403, "Enchanted Book" },
-    { 384, "Bottle o' Enchanting" },
+    {259, "Flint and Steel"},
+    {346, "Fishing Rod"},
+    {359, "Shears"},
+    {403, "Enchanted Book"},
+    {384, "Bottle o' Enchanting"},
     // ── Materials ──────────────────────────────────────────
-    { 264, "Diamond" },
-    { 265, "Iron Ingot" },
-    { 266, "Gold Ingot" },
-    { 388, "Emerald" },
-    { 263, "Coal" },
-    { 331, "Redstone" },
+    {264, "Diamond"},
+    {265, "Iron Ingot"},
+    {266, "Gold Ingot"},
+    {388, "Emerald"},
+    {263, "Coal"},
+    {331, "Redstone"},
 };
 
 // Look up a human-readable name for an item id from the known-items table.
@@ -125,23 +125,56 @@ struct ColoredRun {
 // formatting codes (k-o, r) and unknown chars so the caller can handle them.
 static bool mcColorForCode(char c, ImU32& out) {
     switch (c) {
-        case '0': out = IM_COL32(0, 0, 0, 255); return true;
-        case '1': out = IM_COL32(0, 0, 170, 255); return true;
-        case '2': out = IM_COL32(0, 170, 0, 255); return true;
-        case '3': out = IM_COL32(0, 170, 170, 255); return true;
-        case '4': out = IM_COL32(170, 0, 0, 255); return true;
-        case '5': out = IM_COL32(170, 0, 170, 255); return true;
-        case '6': out = IM_COL32(255, 170, 0, 255); return true;
-        case '7': out = IM_COL32(170, 170, 170, 255); return true;
-        case '8': out = IM_COL32(85, 85, 85, 255); return true;
-        case '9': out = IM_COL32(85, 85, 255, 255); return true;
-        case 'a': out = IM_COL32(85, 255, 85, 255); return true;
-        case 'b': out = IM_COL32(85, 255, 255, 255); return true;
-        case 'c': out = IM_COL32(255, 85, 85, 255); return true;
-        case 'd': out = IM_COL32(255, 85, 255, 255); return true;
-        case 'e': out = IM_COL32(255, 255, 85, 255); return true;
-        case 'f': out = IM_COL32(255, 255, 255, 255); return true;
-        default:  return false;  // k-o (formatting), r (reset), or unknown
+        case '0':
+            out = IM_COL32(0, 0, 0, 255);
+            return true;
+        case '1':
+            out = IM_COL32(0, 0, 170, 255);
+            return true;
+        case '2':
+            out = IM_COL32(0, 170, 0, 255);
+            return true;
+        case '3':
+            out = IM_COL32(0, 170, 170, 255);
+            return true;
+        case '4':
+            out = IM_COL32(170, 0, 0, 255);
+            return true;
+        case '5':
+            out = IM_COL32(170, 0, 170, 255);
+            return true;
+        case '6':
+            out = IM_COL32(255, 170, 0, 255);
+            return true;
+        case '7':
+            out = IM_COL32(170, 170, 170, 255);
+            return true;
+        case '8':
+            out = IM_COL32(85, 85, 85, 255);
+            return true;
+        case '9':
+            out = IM_COL32(85, 85, 255, 255);
+            return true;
+        case 'a':
+            out = IM_COL32(85, 255, 85, 255);
+            return true;
+        case 'b':
+            out = IM_COL32(85, 255, 255, 255);
+            return true;
+        case 'c':
+            out = IM_COL32(255, 85, 85, 255);
+            return true;
+        case 'd':
+            out = IM_COL32(255, 85, 255, 255);
+            return true;
+        case 'e':
+            out = IM_COL32(255, 255, 85, 255);
+            return true;
+        case 'f':
+            out = IM_COL32(255, 255, 255, 255);
+            return true;
+        default:
+            return false;  // k-o (formatting), r (reset), or unknown
     }
 }
 
@@ -237,19 +270,25 @@ void ItemESP::onUpdate() {
     // Fetch render pos directly from MC (since we are on game thread)
     RenderPos rPos = mc.getRenderPos();
     float pTicks = mc.getPartialTicks();
-    
+
     // Fetch local player for fallback interpolation logic (optional, but good for consistency)
     jobject localPlayer = mc.getPlayer();
     double lx = 0, ly = 0, lz = 0;
     double llx = 0, lly = 0, llz = 0;
-    
+
     if (localPlayer) {
-        if (JniCache::fid_posX) lx = Java::Env()->GetDoubleField(localPlayer, JniCache::fid_posX);
-        if (JniCache::fid_posY) ly = Java::Env()->GetDoubleField(localPlayer, JniCache::fid_posY);
-        if (JniCache::fid_posZ) lz = Java::Env()->GetDoubleField(localPlayer, JniCache::fid_posZ);
-        if (JniCache::fid_lastTickPosX) llx = Java::Env()->GetDoubleField(localPlayer, JniCache::fid_lastTickPosX);
-        if (JniCache::fid_lastTickPosY) lly = Java::Env()->GetDoubleField(localPlayer, JniCache::fid_lastTickPosY);
-        if (JniCache::fid_lastTickPosZ) llz = Java::Env()->GetDoubleField(localPlayer, JniCache::fid_lastTickPosZ);
+        if (JniCache::fid_posX)
+            lx = Java::Env()->GetDoubleField(localPlayer, JniCache::fid_posX);
+        if (JniCache::fid_posY)
+            ly = Java::Env()->GetDoubleField(localPlayer, JniCache::fid_posY);
+        if (JniCache::fid_posZ)
+            lz = Java::Env()->GetDoubleField(localPlayer, JniCache::fid_posZ);
+        if (JniCache::fid_lastTickPosX)
+            llx = Java::Env()->GetDoubleField(localPlayer, JniCache::fid_lastTickPosX);
+        if (JniCache::fid_lastTickPosY)
+            lly = Java::Env()->GetDoubleField(localPlayer, JniCache::fid_lastTickPosY);
+        if (JniCache::fid_lastTickPosZ)
+            llz = Java::Env()->GetDoubleField(localPlayer, JniCache::fid_lastTickPosZ);
         Java::Env()->DeleteLocalRef(localPlayer);
     }
 
@@ -313,7 +352,8 @@ static void Render3DBox(ImDrawList* draw, float x, float y, float z, double rend
     if (drawFilled) {
         for (int f = 0; f < 6; f++) {
             int i0 = faces[f][0], i1 = faces[f][1], i2 = faces[f][2], i3 = faces[f][3];
-            if (!visible[i0] || !visible[i1] || !visible[i2] || !visible[i3]) continue;
+            if (!visible[i0] || !visible[i1] || !visible[i2] || !visible[i3])
+                continue;
 
             float ax = screenCorners[i1].x - screenCorners[i0].x;
             float ay = screenCorners[i1].y - screenCorners[i0].y;
@@ -333,8 +373,8 @@ static void Render3DBox(ImDrawList* draw, float x, float y, float z, double rend
         }
     }
 
-    static constexpr int edges[12][2] = {{0, 1}, {1, 2}, {2, 3}, {3, 0}, {4, 5}, {5, 6}, {6, 7}, {7, 4}, 
-                                         {0, 4}, {1, 5}, {2, 6}, {3, 7}};
+    static constexpr int edges[12][2] = {{0, 1}, {1, 2}, {2, 3}, {3, 0}, {4, 5}, {5, 6},
+                                         {6, 7}, {7, 4}, {0, 4}, {1, 5}, {2, 6}, {3, 7}};
 
     if (drawOutline) {
         for (int i = 0; i < 12; i++) {
@@ -356,14 +396,17 @@ static void Render3DBox(ImDrawList* draw, float x, float y, float z, double rend
 }
 
 void ItemESP::onRender() {
-    if (!RenderData::updated) return;
-    if (GetTickCount64() - lastUpdateTick > 300) return;
+    if (!RenderData::updated)
+        return;
+    if (GetTickCount64() - lastUpdateTick > 300)
+        return;
 
     // Background draw list renders every frame regardless of whether an ImGui
     // window is active. GetWindowDrawList() only draws reliably while the menu
     // is open, which made the boxes flicker on/off when the GUI was closed.
     ImDrawList* draw = ImGui::GetBackgroundDrawList();
-    if (!draw) return;
+    if (!draw)
+        return;
 
     std::vector<ItemEntityInfo> localCache;
     double renderX, renderY, renderZ;
@@ -385,7 +428,7 @@ void ItemESP::onRender() {
         localLastY = cachedLocalLastY;
         localLastZ = cachedLocalLastZ;
     }
-    
+
     // Fallback
     bool useFallback = (renderX == 0.0 && renderY == 0.0 && renderZ == 0.0);
     if (useFallback) {
@@ -394,10 +437,14 @@ void ItemESP::onRender() {
         renderZ = localLastZ + (localZ - localLastZ) * partialTicks;
     }
 
-    auto outlineCol = ImGui::ColorConvertFloat4ToU32(ImVec4(settings.outlineColor[0], settings.outlineColor[1], settings.outlineColor[2], settings.outlineColor[3]));
-    auto boxCol = ImGui::ColorConvertFloat4ToU32(ImVec4(settings.boxColor[0], settings.boxColor[1], settings.boxColor[2], settings.boxColor[3]));
-    auto fillCol = ImGui::ColorConvertFloat4ToU32(ImVec4(settings.filledColor[0], settings.filledColor[1], settings.filledColor[2], settings.filledColor[3]));
-    auto nameCol = ImGui::ColorConvertFloat4ToU32(ImVec4(settings.nameColor[0], settings.nameColor[1], settings.nameColor[2], settings.nameColor[3]));
+    auto outlineCol = ImGui::ColorConvertFloat4ToU32(
+        ImVec4(settings.outlineColor[0], settings.outlineColor[1], settings.outlineColor[2], settings.outlineColor[3]));
+    auto boxCol = ImGui::ColorConvertFloat4ToU32(
+        ImVec4(settings.boxColor[0], settings.boxColor[1], settings.boxColor[2], settings.boxColor[3]));
+    auto fillCol = ImGui::ColorConvertFloat4ToU32(
+        ImVec4(settings.filledColor[0], settings.filledColor[1], settings.filledColor[2], settings.filledColor[3]));
+    auto nameCol = ImGui::ColorConvertFloat4ToU32(
+        ImVec4(settings.nameColor[0], settings.nameColor[1], settings.nameColor[2], settings.nameColor[3]));
 
     for (const auto& item : localCache) {
         // Distance check
@@ -406,7 +453,8 @@ void ItemESP::onRender() {
         double dz = item.posZ - localZ;
         float dist = (float)std::sqrt(dx * dx + dy * dy + dz * dz);
 
-        if (dist > settings.range) continue;
+        if (dist > settings.range)
+            continue;
 
         if (item.itemId >= 0 && item.itemId < 512 && !enabledItemIds[item.itemId]) {
             continue;
@@ -414,51 +462,57 @@ void ItemESP::onRender() {
 
         // Entities don't have lastTickPos in our struct yet, so we just use current pos
         // Or we could add lastTickPos to ItemEntityInfo if we want smooth interpolation
-        // For items, they usually don't move fast unless sliding. 
+        // For items, they usually don't move fast unless sliding.
         // For now, use static pos.
-        float interpX = (float)item.posX; 
+        float interpX = (float)item.posX;
         float interpY = (float)item.posY;
         float interpZ = (float)item.posZ;
 
         if (settings.box3D) {
-            Render3DBox(draw, interpX, interpY, interpZ, renderX, renderY, renderZ, boxCol, outlineCol, fillCol, settings.outline, settings.filled);
+            Render3DBox(draw, interpX, interpY, interpZ, renderX, renderY, renderZ, boxCol, outlineCol, fillCol,
+                        settings.outline, settings.filled);
         }
 
         bool needs2DBox = settings.box;
         bool needs2DFilled = settings.filled && !settings.box3D;
-        
+
         // Project center for Quantity Text
         // Item roughly 0.25 height
         Vector3 topPos = {interpX - (float)renderX, interpY + 0.5f - (float)renderY, interpZ - (float)renderZ};
         Vector3 bottomPos = {interpX - (float)renderX, interpY - (float)renderY, interpZ - (float)renderZ};
-        
-        Vector2 sTop, sBot;
-        bool topVis = CWorldToScreen::WorldToScreen(topPos, RenderData::modelView, RenderData::projection, RenderData::screenWidth, RenderData::screenHeight, sTop);
-        bool botVis = CWorldToScreen::WorldToScreen(bottomPos, RenderData::modelView, RenderData::projection, RenderData::screenWidth, RenderData::screenHeight, sBot);
 
-        if (!topVis && !botVis) continue;
+        Vector2 sTop, sBot;
+        bool topVis = CWorldToScreen::WorldToScreen(topPos, RenderData::modelView, RenderData::projection,
+                                                    RenderData::screenWidth, RenderData::screenHeight, sTop);
+        bool botVis = CWorldToScreen::WorldToScreen(bottomPos, RenderData::modelView, RenderData::projection,
+                                                    RenderData::screenWidth, RenderData::screenHeight, sBot);
+
+        if (!topVis && !botVis)
+            continue;
 
         if (needs2DBox || needs2DFilled) {
-             float height = sBot.y - sTop.y;
-             if (height < 1.0f) height = 1.0f;
-             if (height > 500.0f) height = 500.0f; // clamp
+            float height = sBot.y - sTop.y;
+            if (height < 1.0f)
+                height = 1.0f;
+            if (height > 500.0f)
+                height = 500.0f;  // clamp
 
-             float width = height; // Square for items usually
-             float left = sBot.x - width * 0.5f;
-             float right = sBot.x + width * 0.5f;
-             float top = sTop.y;
-             float bottom = sBot.y;
+            float width = height;  // Square for items usually
+            float left = sBot.x - width * 0.5f;
+            float right = sBot.x + width * 0.5f;
+            float top = sTop.y;
+            float bottom = sBot.y;
 
-             if (needs2DFilled) {
-                 draw->AddRectFilled(ImVec2(left, top), ImVec2(right, bottom), fillCol);
-             }
-             if (needs2DBox) {
-                 if (settings.outline) {
-                     draw->AddRect(ImVec2(left - 1, top - 1), ImVec2(right + 1, bottom + 1), outlineCol);
-                     draw->AddRect(ImVec2(left + 1, top + 1), ImVec2(right - 1, bottom - 1), outlineCol);
-                 }
-                 draw->AddRect(ImVec2(left, top), ImVec2(right, bottom), boxCol);
-             }
+            if (needs2DFilled) {
+                draw->AddRectFilled(ImVec2(left, top), ImVec2(right, bottom), fillCol);
+            }
+            if (needs2DBox) {
+                if (settings.outline) {
+                    draw->AddRect(ImVec2(left - 1, top - 1), ImVec2(right + 1, bottom + 1), outlineCol);
+                    draw->AddRect(ImVec2(left + 1, top + 1), ImVec2(right - 1, bottom - 1), outlineCol);
+                }
+                draw->AddRect(ImVec2(left, top), ImVec2(right, bottom), boxCol);
+            }
         }
 
         // Track how far above the box we've drawn so stacked labels don't overlap.
@@ -471,7 +525,8 @@ void ItemESP::onRender() {
         if (settings.showName) {
             ImFont* regular = ImGui::GetFont();
             ImFont* boldFont = font(2);  // bold face (same one the ArrayList uses)
-            if (!boldFont) boldFont = regular;
+            if (!boldFont)
+                boldFont = regular;
             float nameFS = regular->FontSize * settings.nameScale;
             float sh = (std::max)(1.0f, settings.nameScale);  // shadow offset scales with text
 
@@ -489,7 +544,8 @@ void ItemESP::onRender() {
             for (const auto& run : runs) {
                 ImVec2 sz = runFont(run)->CalcTextSizeA(nameFS, FLT_MAX, 0.0f, run.text.c_str());
                 totalW += sz.x;
-                if (sz.y > rowH) rowH = sz.y;
+                if (sz.y > rowH)
+                    rowH = sz.y;
             }
 
             float nX = sBot.x - totalW * 0.5f;
@@ -506,14 +562,14 @@ void ItemESP::onRender() {
 
         // Quantity (Show Quantity)
         if (settings.showQuantity && item.isStackable()) {
-             std::string qty = "x" + std::to_string(item.stackSize);
+            std::string qty = "x" + std::to_string(item.stackSize);
 
-             ImVec2 textSize = ImGui::CalcTextSize(qty.c_str());
-             float tX = sBot.x - textSize.x * 0.5f; // Center horizontally
-             float tY = labelBaseY - textSize.y;    // Above the box / name
+            ImVec2 textSize = ImGui::CalcTextSize(qty.c_str());
+            float tX = sBot.x - textSize.x * 0.5f;  // Center horizontally
+            float tY = labelBaseY - textSize.y;     // Above the box / name
 
-             draw->AddText(ImVec2(tX + 1, tY + 1), IM_COL32(0, 0, 0, 255), qty.c_str()); // Shadow
-             draw->AddText(ImVec2(tX, tY), IM_COL32(255, 255, 255, 255), qty.c_str());
+            draw->AddText(ImVec2(tX + 1, tY + 1), IM_COL32(0, 0, 0, 255), qty.c_str());  // Shadow
+            draw->AddText(ImVec2(tX, tY), IM_COL32(255, 255, 255, 255), qty.c_str());
         }
     }
 }
@@ -536,10 +592,12 @@ void ItemESP::onRenderMenu() {
             // Box 2D / Box 3D act like radio buttons: enabling one disables the
             // other. Done inline so the switch is immediate and consistent.
             if (ui::Checkbox("Box 2D", &settings.box)) {
-                if (settings.box) settings.box3D = false;
+                if (settings.box)
+                    settings.box3D = false;
             }
             if (ui::Checkbox("Box 3D", &settings.box3D)) {
-                if (settings.box3D) settings.box = false;
+                if (settings.box3D)
+                    settings.box = false;
             }
             ui::Checkbox("Filled", &settings.filled);
             ui::Checkbox("Outline", &settings.outline);
@@ -640,7 +698,8 @@ void ItemESP::saveSettings(json::Value& node) const {
     std::string customStr = "";
     for (int i = 0; i < 512; i++) {
         if (enabledItemIds[i]) {
-            if (!customStr.empty()) customStr += ",";
+            if (!customStr.empty())
+                customStr += ",";
             customStr += std::to_string(i);
         }
     }
@@ -669,14 +728,16 @@ void ItemESP::loadSettings(const json::Value& node) {
                 std::string num = s.substr(start, end - start);
                 if (!num.empty()) {
                     int id = std::stoi(num);
-                    if (id >= 0 && id < 512) enabledItemIds[id] = true;
+                    if (id >= 0 && id < 512)
+                        enabledItemIds[id] = true;
                 }
                 start = end + 1;
             }
             std::string num = s.substr(start);
             if (!num.empty()) {
                 int lastId = std::stoi(num);
-                if (lastId >= 0 && lastId < 512) enabledItemIds[lastId] = true;
+                if (lastId >= 0 && lastId < 512)
+                    enabledItemIds[lastId] = true;
             }
         }
     } else {

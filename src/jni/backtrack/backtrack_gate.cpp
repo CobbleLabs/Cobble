@@ -32,32 +32,17 @@
 namespace {
 
 static const std::uint8_t kIncomingHookBytecode[] = {
-    0xCA, 0xFE, 0xBA, 0xBE, 0x00, 0x00, 0x00, 0x34, 0x00, 0x0C,
-    0x01, 0x00, 0x1D,
-    'c','o','m','/','c','o','b','b','l','e','/','a','g','e','n','t','/',
-    'I','n','c','o','m','i','n','g','H','o','o','k',
-    0x07, 0x00, 0x01,
-    0x01, 0x00, 0x10,
-    'j','a','v','a','/','l','a','n','g','/','O','b','j','e','c','t',
-    0x07, 0x00, 0x03,
-    0x01, 0x00, 0x06, '<','i','n','i','t','>',
-    0x01, 0x00, 0x03, '(',')','V',
-    0x01, 0x00, 0x04, 'C','o','d','e',
-    0x01, 0x00, 0x0A, 'c','a','n','P','r','o','c','e','s','s',
-    0x01, 0x00, 0x27,
-    '(','L','j','a','v','a','/','l','a','n','g','/','O','b','j','e','c','t',';',
-        'L','j','a','v','a','/','l','a','n','g','/','O','b','j','e','c','t',';',')','Z',
-    0x0C, 0x00, 0x05, 0x00, 0x06,
-    0x0A, 0x00, 0x04, 0x00, 0x0A,
-    0x00, 0x01, 0x00, 0x02, 0x00, 0x04, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x02,
-    0x00, 0x01, 0x00, 0x05, 0x00, 0x06, 0x00, 0x01,
-    0x00, 0x07, 0x00, 0x00, 0x00, 0x11,
-    0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0x05,
-    0x2A, 0xB7, 0x00, 0x0B, 0xB1,
-    0x00, 0x00, 0x00, 0x00,
-    0x01, 0x09, 0x00, 0x08, 0x00, 0x09, 0x00, 0x00,
-    0x00, 0x00,
+    0xCA, 0xFE, 0xBA, 0xBE, 0x00, 0x00, 0x00, 0x34, 0x00, 0x0C, 0x01, 0x00, 0x1D, 'c',  'o',  'm',  '/',  'c',  'o',
+    'b',  'b',  'l',  'e',  '/',  'a',  'g',  'e',  'n',  't',  '/',  'I',  'n',  'c',  'o',  'm',  'i',  'n',  'g',
+    'H',  'o',  'o',  'k',  0x07, 0x00, 0x01, 0x01, 0x00, 0x10, 'j',  'a',  'v',  'a',  '/',  'l',  'a',  'n',  'g',
+    '/',  'O',  'b',  'j',  'e',  'c',  't',  0x07, 0x00, 0x03, 0x01, 0x00, 0x06, '<',  'i',  'n',  'i',  't',  '>',
+    0x01, 0x00, 0x03, '(',  ')',  'V',  0x01, 0x00, 0x04, 'C',  'o',  'd',  'e',  0x01, 0x00, 0x0A, 'c',  'a',  'n',
+    'P',  'r',  'o',  'c',  'e',  's',  's',  0x01, 0x00, 0x27, '(',  'L',  'j',  'a',  'v',  'a',  '/',  'l',  'a',
+    'n',  'g',  '/',  'O',  'b',  'j',  'e',  'c',  't',  ';',  'L',  'j',  'a',  'v',  'a',  '/',  'l',  'a',  'n',
+    'g',  '/',  'O',  'b',  'j',  'e',  'c',  't',  ';',  ')',  'Z',  0x0C, 0x00, 0x05, 0x00, 0x06, 0x0A, 0x00, 0x04,
+    0x00, 0x0A, 0x00, 0x01, 0x00, 0x02, 0x00, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0x00, 0x01, 0x00, 0x05, 0x00,
+    0x06, 0x00, 0x01, 0x00, 0x07, 0x00, 0x00, 0x00, 0x11, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0x05, 0x2A, 0xB7,
+    0x00, 0x0B, 0xB1, 0x00, 0x00, 0x00, 0x00, 0x01, 0x09, 0x00, 0x08, 0x00, 0x09, 0x00, 0x00, 0x00, 0x00,
 };
 
 constexpr std::uint64_t kRetentionMs = 180;
@@ -271,12 +256,8 @@ std::mutex g_stateMutex;
 std::mutex g_replayMutex;
 
 struct CallbackScope {
-    CallbackScope() {
-        g_callbacksInFlight.fetch_add(1, std::memory_order_acq_rel);
-    }
-    ~CallbackScope() {
-        g_callbacksInFlight.fetch_sub(1, std::memory_order_acq_rel);
-    }
+    CallbackScope() { g_callbacksInFlight.fetch_add(1, std::memory_order_acq_rel); }
+    ~CallbackScope() { g_callbacksInFlight.fetch_sub(1, std::memory_order_acq_rel); }
 };
 
 void clearException(JNIEnv* env) {
@@ -316,28 +297,24 @@ void clearSnapshotLocked() {
 }
 
 bool snapshotMatchesLocked(int entityId, std::uint64_t engagementEpoch) {
-    return g_snapshot.entityId == entityId &&
-           g_snapshot.engagementEpoch == engagementEpoch;
+    return g_snapshot.entityId == entityId && g_snapshot.engagementEpoch == engagementEpoch;
 }
 
 void refreshSnapshotPendingLocked() {
     std::size_t pending = 0;
-    if (g_replay.active &&
-        snapshotMatchesLocked(g_replay.entityId, g_replay.engagementEpoch)) {
+    if (g_replay.active && snapshotMatchesLocked(g_replay.entityId, g_replay.engagementEpoch)) {
         ++pending;
     }
     for (const HeldPacket& held : g_queue) {
         if (snapshotMatchesLocked(held.entityId, held.engagementEpoch))
             ++pending;
     }
-    const std::size_t maximum =
-        static_cast<std::size_t>((std::numeric_limits<std::uint32_t>::max)());
+    const std::size_t maximum = static_cast<std::size_t>((std::numeric_limits<std::uint32_t>::max)());
     g_snapshot.pendingPackets = static_cast<std::uint32_t>((std::min)(pending, maximum));
 }
 
 bool checkedAdd(std::int32_t base, std::int32_t delta, std::int32_t& result) {
-    const std::int64_t sum = static_cast<std::int64_t>(base) +
-                             static_cast<std::int64_t>(delta);
+    const std::int64_t sum = static_cast<std::int64_t>(base) + static_cast<std::int64_t>(delta);
     if (sum < static_cast<std::int64_t>((std::numeric_limits<std::int32_t>::min)()) ||
         sum > static_cast<std::int64_t>((std::numeric_limits<std::int32_t>::max)())) {
         return false;
@@ -346,8 +323,7 @@ bool checkedAdd(std::int32_t base, std::int32_t delta, std::int32_t& result) {
     return true;
 }
 
-bool applyMovement(const Movement& movement, std::int32_t& x,
-                   std::int32_t& y, std::int32_t& z) {
+bool applyMovement(const Movement& movement, std::int32_t& x, std::int32_t& y, std::int32_t& z) {
     if (movement.kind == MovementKind::Teleport) {
         x = movement.x;
         y = movement.y;
@@ -358,9 +334,7 @@ bool applyMovement(const Movement& movement, std::int32_t& x,
     std::int32_t nextX = 0;
     std::int32_t nextY = 0;
     std::int32_t nextZ = 0;
-    if (!checkedAdd(x, movement.x, nextX) ||
-        !checkedAdd(y, movement.y, nextY) ||
-        !checkedAdd(z, movement.z, nextZ)) {
+    if (!checkedAdd(x, movement.x, nextX) || !checkedAdd(y, movement.y, nextY) || !checkedAdd(z, movement.z, nextZ)) {
         return false;
     }
     x = nextX;
@@ -372,8 +346,7 @@ bool applyMovement(const Movement& movement, std::int32_t& x,
 void foldSnapshotLocked(const Movement& movement) {
     if (!g_snapshot.valid && movement.kind != MovementKind::Teleport)
         return;
-    if (!applyMovement(movement, g_snapshot.serverX, g_snapshot.serverY,
-                       g_snapshot.serverZ)) {
+    if (!applyMovement(movement, g_snapshot.serverX, g_snapshot.serverY, g_snapshot.serverZ)) {
         g_snapshot.valid = false;
         g_emergencyDrain.store(true, std::memory_order_release);
         return;
@@ -405,17 +378,13 @@ void rebuildSnapshotLocked() {
     // mixture. Only the engaged target's packets move the rewind; another player's
     // movement is skipped rather than treated as a break in the chain.
     const bool wholeStream = g_wholeStream.load(std::memory_order_acquire);
-    const bool replayIsBase = g_replay.active &&
-                              g_replay.entityId == g_processedBase.entityId &&
+    const bool replayIsBase = g_replay.active && g_replay.entityId == g_processedBase.entityId &&
                               g_replay.engagementEpoch == g_processedBase.engagementEpoch;
     if (replayIsBase) {
-        if (!applyMovement(g_replay.movement, g_snapshot.serverX, g_snapshot.serverY,
-                           g_snapshot.serverZ)) {
+        if (!applyMovement(g_replay.movement, g_snapshot.serverX, g_snapshot.serverY, g_snapshot.serverZ)) {
             g_snapshot.valid = false;
         }
-    } else if (g_replay.active &&
-               (!wholeStream ||
-                g_replay.engagementEpoch != g_processedBase.engagementEpoch)) {
+    } else if (g_replay.active && (!wholeStream || g_replay.engagementEpoch != g_processedBase.engagementEpoch)) {
         g_snapshot.valid = false;
     }
     if (g_replay.active)
@@ -444,8 +413,7 @@ void publishMovementLocked(const HeldPacket& held) {
         rebuildSnapshotLocked();
         return;
     }
-    if (!g_processedBase.valid ||
-        g_processedBase.entityId != held.entityId ||
+    if (!g_processedBase.valid || g_processedBase.entityId != held.entityId ||
         g_processedBase.engagementEpoch != held.engagementEpoch) {
         g_snapshot.valid = false;
         g_snapshot.entityId = held.entityId;
@@ -458,8 +426,7 @@ void publishMovementLocked(const HeldPacket& held) {
     rebuildSnapshotLocked();
 }
 
-bool prefixForEntityLocked(JNIEnv* env, jobject sourceHandler, int entityId,
-                           std::uint64_t& engagementEpoch) {
+bool prefixForEntityLocked(JNIEnv* env, jobject sourceHandler, int entityId, std::uint64_t& engagementEpoch) {
     if (!sameObject(env, sourceHandler, g_connectionHandler))
         return false;
     // Whole-stream retention: once the stream is held, every entity's movement joins
@@ -483,10 +450,8 @@ bool prefixForEntityLocked(JNIEnv* env, jobject sourceHandler, int entityId,
 // Evaluated twice per packet — once to decide, once again under the commit lock after
 // the GlobalRef exists — so it lives here rather than being written out twice.
 // Caller holds g_stateMutex.
-bool shouldRetainLocked(JNIEnv* env, jobject source, int entityId, bool& prefix,
-                        std::uint64_t& streamEpoch) {
-    const Backtrack::HoldIntent intent =
-        ::backtrack ? ::backtrack->holdIntent() : Backtrack::HoldIntent{};
+bool shouldRetainLocked(JNIEnv* env, jobject source, int entityId, bool& prefix, std::uint64_t& streamEpoch) {
+    const Backtrack::HoldIntent intent = ::backtrack ? ::backtrack->holdIntent() : Backtrack::HoldIntent{};
     prefix = prefixForEntityLocked(env, source, entityId, streamEpoch);
     // Whole-stream retention opens on the hold signal, which the module asserts for as
     // long as it is enabled rather than only while a target is engaged. Latency does
@@ -495,16 +460,13 @@ bool shouldRetainLocked(JNIEnv* env, jobject source, int entityId, bool& prefix,
     const bool opens = g_wholeStream.load(std::memory_order_acquire)
                            ? intent.streamHold
                            : (intent.active && intent.targetEntityId == entityId);
-    const bool newAdmission = g_operational.load(std::memory_order_acquire) && opens &&
-                              pendingCountLocked() == 0;
+    const bool newAdmission = g_operational.load(std::memory_order_acquire) && opens && pendingCountLocked() == 0;
     if (!prefix)
         streamEpoch = intent.engagementEpoch;
     return prefix || newAdmission;
 }
 
-jfieldID resolveField(JNIEnv* env, jclass cls,
-                      std::initializer_list<const char*> names,
-                      const char* signature) {
+jfieldID resolveField(JNIEnv* env, jclass cls, std::initializer_list<const char*> names, const char* signature) {
     if (!env || !cls)
         return nullptr;
     for (const char* name : names) {
@@ -525,17 +487,15 @@ jfieldID resolveField(JNIEnv* env, jclass cls,
 // file order, and these classes declare their positions first:
 //   S14PacketEntity           int entityId; byte posX, posY, posZ, yaw, pitch; ...
 //   S18PacketEntityTeleport   int entityId, posX, posY, posZ; byte yaw, pitch; ...
-jfieldID resolveFieldOrdered(JNIEnv* env, jclass cls, const char* label,
-                             std::initializer_list<const char*> names,
+jfieldID resolveFieldOrdered(JNIEnv* env, jclass cls, const char* label, std::initializer_list<const char*> names,
                              const char* signature, std::size_t index) {
     jfieldID field = resolveField(env, cls, names, signature);
     if (!field) {
-        const std::vector<jfieldID> ordered =
-            jni_resolver::findFieldsBySignature(cls, signature, false);
+        const std::vector<jfieldID> ordered = jni_resolver::findFieldsBySignature(cls, signature, false);
         if (index < ordered.size()) {
             field = ordered[index];
-            log_warn("[BacktrackGate] %s resolved by descriptor order (%s #%u)", label,
-                     signature, static_cast<unsigned>(index));
+            log_warn("[BacktrackGate] %s resolved by descriptor order (%s #%u)", label, signature,
+                     static_cast<unsigned>(index));
         }
     }
     clearException(env);
@@ -548,9 +508,8 @@ jmethodID resolveProcessMethod(JNIEnv* env, jclass cls) {
     if (!env || !cls)
         return nullptr;
 
-    for (const char* descriptor : {
-             "(Lnet/minecraft/network/INetHandler;)V",
-             "(Lnet/minecraft/network/play/INetHandlerPlayClient;)V"}) {
+    for (const char* descriptor :
+         {"(Lnet/minecraft/network/INetHandler;)V", "(Lnet/minecraft/network/play/INetHandlerPlayClient;)V"}) {
         const auto variants = jni_resolver::signatureVariants(descriptor);
         for (const char* name : {"processPacket", "func_148833_a", "a"}) {
             for (const std::string& variant : variants) {
@@ -560,8 +519,7 @@ jmethodID resolveProcessMethod(JNIEnv* env, jclass cls) {
                 clearException(env);
             }
         }
-        jmethodID method =
-            jni_resolver::findUniqueMethodBySignature(cls, descriptor, false);
+        jmethodID method = jni_resolver::findUniqueMethodBySignature(cls, descriptor, false);
         clearException(env);
         if (method)
             return method;
@@ -587,12 +545,10 @@ jmethodID resolveProcessMethod(JNIEnv* env, jclass cls) {
                 if (Java::tiEnv->GetMethodName(methods[i], &name, &sig, nullptr) == JVMTI_ERROR_NONE) {
                     Java::tiEnv->GetMethodModifiers(methods[i], &modifiers);
                     const std::size_t len = sig ? std::strlen(sig) : 0;
-                    const bool oneObjectArgVoid =
-                        len > 4 && sig[0] == '(' && sig[1] == 'L' && sig[len - 3] == ';' &&
-                        sig[len - 2] == ')' && sig[len - 1] == 'V' &&
-                        std::strchr(sig, ';') == sig + (len - 3);
-                    if ((modifiers & 0x0008) == 0 && oneObjectArgVoid &&
-                        std::strstr(sig, "NetHandler") != nullptr) {
+                    const bool oneObjectArgVoid = len > 4 && sig[0] == '(' && sig[1] == 'L' && sig[len - 3] == ';' &&
+                                                  sig[len - 2] == ')' && sig[len - 1] == 'V' &&
+                                                  std::strchr(sig, ';') == sig + (len - 3);
+                    if ((modifiers & 0x0008) == 0 && oneObjectArgVoid && std::strstr(sig, "NetHandler") != nullptr) {
                         // ACC_BRIDGE (0x0040): the synthetic method the compiler emits
                         // for processPacket(T). Calling it works, but prefer the real
                         // one so a single scan cannot pick the wrapper by accident.
@@ -601,8 +557,8 @@ jmethodID resolveProcessMethod(JNIEnv* env, jclass cls) {
                                 bridgeMatch = methods[i];
                         } else {
                             match = methods[i];
-                            log_warn("[BacktrackGate] processPacket resolved structurally: %s%s",
-                                     name ? name : "?", sig);
+                            log_warn("[BacktrackGate] processPacket resolved structurally: %s%s", name ? name : "?",
+                                     sig);
                         }
                     }
                 }
@@ -652,12 +608,10 @@ void resetResolvedIds(JNIEnv* env) {
 bool resolveMovementIds(JNIEnv* env) {
     jclass localS14 = nullptr;
     jclass localS18 = nullptr;
-    const bool haveS14 =
-        Java::AssignClass("net.minecraft.network.play.server.S14PacketEntity", localS14) && localS14;
+    const bool haveS14 = Java::AssignClass("net.minecraft.network.play.server.S14PacketEntity", localS14) && localS14;
     clearException(env);
     const bool haveS18 =
-        Java::AssignClass("net.minecraft.network.play.server.S18PacketEntityTeleport", localS18) &&
-        localS18;
+        Java::AssignClass("net.minecraft.network.play.server.S18PacketEntityTeleport", localS18) && localS18;
     clearException(env);
     if (!haveS14 || !haveS18) {
         if (!haveS14)
@@ -680,13 +634,11 @@ bool resolveMovementIds(JNIEnv* env) {
     if (!g_s14 || !g_s18)
         return false;
 
-    g_s14EntityId = resolveFieldOrdered(env, g_s14, "S14.entityId",
-                                        {"entityId", "field_149074_a", "a"}, "I", 0);
+    g_s14EntityId = resolveFieldOrdered(env, g_s14, "S14.entityId", {"entityId", "field_149074_a", "a"}, "I", 0);
     g_s14X = resolveFieldOrdered(env, g_s14, "S14.posX", {"posX", "field_149072_b", "b"}, "B", 0);
     g_s14Y = resolveFieldOrdered(env, g_s14, "S14.posY", {"posY", "field_149073_c", "c"}, "B", 1);
     g_s14Z = resolveFieldOrdered(env, g_s14, "S14.posZ", {"posZ", "field_149070_d", "d"}, "B", 2);
-    g_s18EntityId = resolveFieldOrdered(env, g_s18, "S18.entityId",
-                                        {"entityId", "field_149458_a", "a"}, "I", 0);
+    g_s18EntityId = resolveFieldOrdered(env, g_s18, "S18.entityId", {"entityId", "field_149458_a", "a"}, "I", 0);
     g_s18X = resolveFieldOrdered(env, g_s18, "S18.posX", {"posX", "x", "field_149456_b", "b"}, "I", 1);
     g_s18Y = resolveFieldOrdered(env, g_s18, "S18.posY", {"posY", "y", "field_149457_c", "c"}, "I", 2);
     g_s18Z = resolveFieldOrdered(env, g_s18, "S18.posZ", {"posZ", "z", "field_149454_d", "d"}, "I", 3);
@@ -697,9 +649,8 @@ bool resolveMovementIds(JNIEnv* env) {
     if (!g_s18Process)
         log_err("[BacktrackGate] Unresolved member: S18.processPacket");
 
-    return g_s14EntityId && g_s14X && g_s14Y && g_s14Z &&
-           g_s18EntityId && g_s18X && g_s18Y && g_s18Z &&
-           g_s14Process && g_s18Process;
+    return g_s14EntityId && g_s14X && g_s14Y && g_s14Z && g_s18EntityId && g_s18X && g_s18Y && g_s18Z && g_s14Process &&
+           g_s18Process;
 }
 
 bool resolvePacketListener(JNIEnv* env) {
@@ -714,25 +665,22 @@ bool resolvePacketListener(JNIEnv* env) {
     if (!g_networkManager)
         return false;
 
-    const auto signatures =
-        jni_resolver::signatureVariants("Lnet/minecraft/network/INetHandler;");
+    const auto signatures = jni_resolver::signatureVariants("Lnet/minecraft/network/INetHandler;");
     for (const char* name : {"packetListener", "field_150744_m", "m"}) {
         for (const std::string& signature : signatures) {
-            g_packetListener =
-                env->GetFieldID(g_networkManager, name, signature.c_str());
+            g_packetListener = env->GetFieldID(g_networkManager, name, signature.c_str());
             if (g_packetListener)
                 return true;
             clearException(env);
         }
     }
-    g_packetListener = jni_resolver::findUniqueFieldBySignature(
-        g_networkManager, "Lnet/minecraft/network/INetHandler;", false);
+    g_packetListener =
+        jni_resolver::findUniqueFieldBySignature(g_networkManager, "Lnet/minecraft/network/INetHandler;", false);
     clearException(env);
     return g_packetListener != nullptr;
 }
 
-bool decodeMovement(JNIEnv* env, jobject packet, int& entityId,
-                    Movement& movement) {
+bool decodeMovement(JNIEnv* env, jobject packet, int& entityId, Movement& movement) {
     if (env->IsInstanceOf(packet, g_s14) == JNI_TRUE) {
         entityId = env->GetIntField(packet, g_s14EntityId);
         movement.kind = MovementKind::Relative;
@@ -824,8 +772,7 @@ void deleteDetached(JNIEnv* env, DetachedState& detached) {
 
 enum class ReplayResult { Sent, HandlerThrew, ConnectionChanged, Discarded };
 
-ReplayResult replayPacket(JNIEnv* env, const HeldPacket& held,
-                          jobject expectedHandler) {
+ReplayResult replayPacket(JNIEnv* env, const HeldPacket& held, jobject expectedHandler) {
     if (g_discarding.load(std::memory_order_acquire))
         return ReplayResult::Discarded;
 
@@ -837,9 +784,7 @@ ReplayResult replayPacket(JNIEnv* env, const HeldPacket& held,
         return ReplayResult::ConnectionChanged;
     }
 
-    const jmethodID method = held.movement.kind == MovementKind::Teleport
-                                 ? g_s18Process
-                                 : g_s14Process;
+    const jmethodID method = held.movement.kind == MovementKind::Teleport ? g_s18Process : g_s14Process;
     env->CallVoidMethod(held.packet, method, liveHandler);
     const bool threw = env->ExceptionCheck() == JNI_TRUE;
     clearException(env);
@@ -860,18 +805,16 @@ bool worldPositionToProtocol(double value, std::int32_t& result) {
     return true;
 }
 
-bool readEntityBase(JNIEnv* env, jobject entity, std::int32_t& x,
-                    std::int32_t& y, std::int32_t& z, bool& protocolExact) {
+bool readEntityBase(JNIEnv* env, jobject entity, std::int32_t& x, std::int32_t& y, std::int32_t& z,
+                    bool& protocolExact) {
     protocolExact = false;
-    if (!env || !entity || !JniCache::cls_Entity ||
-        env->IsInstanceOf(entity, JniCache::cls_Entity) != JNI_TRUE) {
+    if (!env || !entity || !JniCache::cls_Entity || env->IsInstanceOf(entity, JniCache::cls_Entity) != JNI_TRUE) {
         clearException(env);
         return false;
     }
     clearException(env);
 
-    if (JniCache::fid_serverPosX && JniCache::fid_serverPosY &&
-        JniCache::fid_serverPosZ) {
+    if (JniCache::fid_serverPosX && JniCache::fid_serverPosY && JniCache::fid_serverPosZ) {
         x = static_cast<std::int32_t>(env->GetIntField(entity, JniCache::fid_serverPosX));
         y = static_cast<std::int32_t>(env->GetIntField(entity, JniCache::fid_serverPosY));
         z = static_cast<std::int32_t>(env->GetIntField(entity, JniCache::fid_serverPosZ));
@@ -891,8 +834,7 @@ bool readEntityBase(JNIEnv* env, jobject entity, std::int32_t& x,
         env->ExceptionClear();
         return false;
     }
-    return worldPositionToProtocol(worldX, x) &&
-           worldPositionToProtocol(worldY, y) &&
+    return worldPositionToProtocol(worldX, x) && worldPositionToProtocol(worldY, y) &&
            worldPositionToProtocol(worldZ, z);
 }
 
@@ -900,12 +842,10 @@ bool readEntityBase(JNIEnv* env, jobject entity, std::int32_t& x,
 
 namespace BacktrackGate {
 
-jboolean JNICALL NativeCanProcess(JNIEnv* env, jclass, jobject networkManager,
-                                  jobject packet) {
+jboolean JNICALL NativeCanProcess(JNIEnv* env, jclass, jobject networkManager, jobject packet) {
     CallbackScope callback;
     if (!env || !packet || !g_initialized.load(std::memory_order_acquire) ||
-        g_shuttingDown.load(std::memory_order_acquire) ||
-        g_discarding.load(std::memory_order_acquire)) {
+        g_shuttingDown.load(std::memory_order_acquire) || g_discarding.load(std::memory_order_acquire)) {
         return JNI_TRUE;
     }
 
@@ -1001,8 +941,7 @@ jboolean JNICALL NativeCanProcess(JNIEnv* env, jclass, jobject networkManager,
 
                 if (!commitAbort && sameObject(env, source, g_connectionHandler)) {
                     const std::uint64_t admitMs = nowMs();
-                    g_queue.push_back({packetGlobal, entityId, streamEpoch,
-                                       g_connectionEpoch, admitMs,
+                    g_queue.push_back({packetGlobal, entityId, streamEpoch, g_connectionEpoch, admitMs,
                                        nextReleaseDeadlineLocked(admitMs), movement});
                     packetGlobal = nullptr;
                     ++g_latency.admitsSinceService;
@@ -1012,14 +951,12 @@ jboolean JNICALL NativeCanProcess(JNIEnv* env, jclass, jobject networkManager,
                     // of the target's own updates may be withheld. Whole-stream depth
                     // is bounded by the hold window times the arrival rate instead, so
                     // there it only needs a memory backstop.
-                    const std::size_t cap =
-                        g_softQueueLimit.load(std::memory_order_acquire);
+                    const std::size_t cap = g_softQueueLimit.load(std::memory_order_acquire);
                     const std::size_t pending = pendingCountLocked();
-                    const bool overflow =
-                        g_wholeStream.load(std::memory_order_acquire)
-                            ? (pending >= kStreamQueueCeiling ||
-                               static_cast<std::size_t>(g_snapshot.pendingPackets) >= cap)
-                            : (pending >= cap);
+                    const bool overflow = g_wholeStream.load(std::memory_order_acquire)
+                                              ? (pending >= kStreamQueueCeiling ||
+                                                 static_cast<std::size_t>(g_snapshot.pendingPackets) >= cap)
+                                              : (pending >= cap);
                     if (overflow)
                         g_emergencyDrain.store(true, std::memory_order_release);
                 } else if (!commitAbort && prefix) {
@@ -1048,8 +985,7 @@ jboolean JNICALL NativeCanProcess(JNIEnv* env, jclass, jobject networkManager,
     return queued ? JNI_FALSE : JNI_TRUE;
 }
 
-bool PrimeTarget(JNIEnv* env, jobject entity, int entityId,
-                 std::uint64_t engagementEpoch) {
+bool PrimeTarget(JNIEnv* env, jobject entity, int entityId, std::uint64_t engagementEpoch) {
     if (!env || !entity || entityId < 0 || engagementEpoch == 0)
         return false;
 
@@ -1057,8 +993,7 @@ bool PrimeTarget(JNIEnv* env, jobject entity, int entityId,
     std::int32_t baseY = 0;
     std::int32_t baseZ = 0;
     bool protocolExact = false;
-    const bool readBase = readEntityBase(env, entity, baseX, baseY, baseZ,
-                                         protocolExact);
+    const bool readBase = readEntityBase(env, entity, baseX, baseY, baseZ, protocolExact);
 
     std::lock_guard<std::mutex> replayLock(g_replayMutex);
     std::lock_guard<std::mutex> stateLock(g_stateMutex);
@@ -1072,12 +1007,11 @@ bool PrimeTarget(JNIEnv* env, jobject entity, int entityId,
     const bool wholeStream = g_wholeStream.load(std::memory_order_acquire);
     bool hasDifferentPrefix = false;
     if (g_replay.active) {
-        hasDifferentPrefix = g_replay.engagementEpoch != engagementEpoch ||
-                             (!wholeStream && g_replay.entityId != entityId);
+        hasDifferentPrefix =
+            g_replay.engagementEpoch != engagementEpoch || (!wholeStream && g_replay.entityId != entityId);
     }
     for (const HeldPacket& held : g_queue) {
-        if (held.engagementEpoch != engagementEpoch ||
-            (!wholeStream && held.entityId != entityId)) {
+        if (held.engagementEpoch != engagementEpoch || (!wholeStream && held.entityId != entityId)) {
             hasDifferentPrefix = true;
             break;
         }
@@ -1085,8 +1019,7 @@ bool PrimeTarget(JNIEnv* env, jobject entity, int entityId,
     if (hasDifferentPrefix)
         return false;
 
-    if (!g_processedBase.valid ||
-        g_processedBase.entityId != entityId ||
+    if (!g_processedBase.valid || g_processedBase.entityId != entityId ||
         g_processedBase.engagementEpoch != engagementEpoch) {
         if (!readBase)
             return false;
@@ -1141,13 +1074,11 @@ int ServiceClientThread(JNIEnv* env, bool flushAll) {
                 // Each packet carries its own deadline from the latency model, so the
                 // hold time varies packet to packet instead of every one waiting out
                 // the same constant.
-                const bool draining =
-                    flushAll || g_emergencyDrain.load(std::memory_order_acquire);
+                const bool draining = flushAll || g_emergencyDrain.load(std::memory_order_acquire);
                 if (draining || nowMs() >= g_queue.front().releaseAtMs) {
                     held = std::move(g_queue.front());
                     g_queue.pop_front();
-                    g_replay = {true, held.entityId, held.engagementEpoch,
-                                held.connectionEpoch, held.movement};
+                    g_replay = {true, held.entityId, held.engagementEpoch, held.connectionEpoch, held.movement};
                     expectedHandler = g_connectionHandler;
                     rebuildSnapshotLocked();
                 }
@@ -1170,21 +1101,17 @@ int ServiceClientThread(JNIEnv* env, bool flushAll) {
             jobject handlerToDelete = nullptr;
             {
                 std::lock_guard<std::mutex> lock(g_stateMutex);
-                const bool ownsBase = g_processedBase.valid &&
-                                      g_processedBase.entityId == held.entityId &&
+                const bool ownsBase = g_processedBase.valid && g_processedBase.entityId == held.entityId &&
                                       g_processedBase.engagementEpoch == held.engagementEpoch;
                 // Whole-stream retention releases everyone else's movement as well. Such
                 // a packet says nothing about where the engaged target is: it must
                 // neither advance their base nor be mistaken for a break in the chain.
                 // The same goes for the stream running with nobody primed, which is the
                 // normal state while you are not aiming at anything.
-                const bool inert = !ownsBase &&
-                                   g_wholeStream.load(std::memory_order_acquire) &&
-                                   (!g_processedBase.valid ||
-                                    g_processedBase.engagementEpoch == held.engagementEpoch);
-                if (!inert &&
-                    (!ownsBase || !applyMovement(held.movement, g_processedBase.x,
-                                                 g_processedBase.y, g_processedBase.z))) {
+                const bool inert = !ownsBase && g_wholeStream.load(std::memory_order_acquire) &&
+                                   (!g_processedBase.valid || g_processedBase.engagementEpoch == held.engagementEpoch);
+                if (!inert && (!ownsBase || !applyMovement(held.movement, g_processedBase.x, g_processedBase.y,
+                                                           g_processedBase.z))) {
                     g_processedBase.valid = false;
                     g_snapshot.valid = false;
                     g_emergencyDrain.store(true, std::memory_order_release);
@@ -1243,8 +1170,7 @@ Status GetStatus() {
     std::lock_guard<std::mutex> lock(g_stateMutex);
     status.snapshotValid = g_snapshot.valid;
     const std::size_t count = pendingCountLocked();
-    const std::size_t maximum =
-        static_cast<std::size_t>((std::numeric_limits<std::uint32_t>::max)());
+    const std::size_t maximum = static_cast<std::size_t>((std::numeric_limits<std::uint32_t>::max)());
     status.pendingPackets = static_cast<std::uint32_t>((std::min)(count, maximum));
     return status;
 }
@@ -1276,8 +1202,7 @@ bool HasPendingForCurrentConnection(JNIEnv* env) {
     bool current = false;
     {
         std::lock_guard<std::mutex> lock(g_stateMutex);
-        current = pendingCountLocked() != 0 &&
-                  sameObject(env, live, g_connectionHandler);
+        current = pendingCountLocked() != 0 && sameObject(env, live, g_connectionHandler);
     }
     if (live)
         env->DeleteLocalRef(live);
@@ -1366,8 +1291,7 @@ bool Shutdown(JNIEnv* env, bool safeToUnregister) {
     g_operational.store(false, std::memory_order_release);
     g_shuttingDown.store(true, std::memory_order_release);
 
-    const auto deadline =
-        std::chrono::steady_clock::now() + std::chrono::milliseconds(2000);
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(2000);
     while (g_callbacksInFlight.load(std::memory_order_acquire) != 0) {
         if (std::chrono::steady_clock::now() >= deadline) {
             log_err("[BacktrackGate] Timed out waiting for incoming callbacks");

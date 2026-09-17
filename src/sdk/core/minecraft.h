@@ -27,7 +27,7 @@ struct PlayerInfo {
     float health = 20.0f;
     float maxHealth = 20.0f;
     bool isInvisible = false;
-    bool isNPC = false;  // NPC detection (bots, server entities)
+    bool isNPC = false;          // NPC detection (bots, server entities)
     bool isOnLocalTeam = false;  // Vanilla scoreboard comparison against the local player
     int hurtTime = 0;
 
@@ -89,10 +89,10 @@ struct PlayerInfo {
 };
 
 struct ItemEntityInfo {
-    jobject instance = nullptr; // Caller must delete
+    jobject instance = nullptr;  // Caller must delete
     double posX = 0, posY = 0, posZ = 0;
     int itemId = 0;
-    int damage = 0; // Metadata
+    int damage = 0;  // Metadata
     int stackSize = 0;
     int maxStackSize = 64;
     bool hasCustomName = false;  // Item carries a server-set NBT name

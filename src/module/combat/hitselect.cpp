@@ -208,8 +208,6 @@ std::string HitSelect::getDisplayInfo() {
     return "";
 }
 
-
-
 void HitSelect::saveSettings(json::Value& node) const {
     node["minComboHits"] = settings.minComboHits;
     node["comboDetectionTime"] = settings.comboDetectionTime;

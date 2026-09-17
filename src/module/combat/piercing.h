@@ -73,11 +73,9 @@ private:
     // holds a friend/teammate we refuse to hit. Returns true if it wrote MISS.
     bool applyCrosshairOverride(JNIEnv* env, const TargetPick& pick);
 
-    static bool rayIntersectsBox(double originX, double originY, double originZ,
-                                 double directionX, double directionY, double directionZ,
-                                 double minX, double minY, double minZ,
-                                 double maxX, double maxY, double maxZ,
-                                 double maxDistance, double& hitDistance);
+    static bool rayIntersectsBox(double originX, double originY, double originZ, double directionX, double directionY,
+                                 double directionZ, double minX, double minY, double minZ, double maxX, double maxY,
+                                 double maxZ, double maxDistance, double& hitDistance);
 
     std::atomic<bool> manualAttackActive_{false};
     std::atomic<std::uint64_t> suppressDuplicatePacketsUntilMs_{0};

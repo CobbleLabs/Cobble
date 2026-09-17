@@ -15,8 +15,7 @@ static bool g_initialized = false;
 
 // Resolve only the supplied names. Entity owns many instance ints, so a
 // descriptor-only fallback could silently bind serverPosX/Y/Z to unrelated state.
-static jfieldID resolveExplicitField(JNIEnv* env, jclass cls,
-                                     std::initializer_list<const char*> names,
+static jfieldID resolveExplicitField(JNIEnv* env, jclass cls, std::initializer_list<const char*> names,
                                      const char* signature) {
     if (!env || !cls || !signature)
         return nullptr;
@@ -287,73 +286,79 @@ jmethodID mid_setGrabbed = nullptr;
 // =============================================================================
 
 // Idempotent resolver macros -- skip if already resolved (safe for Reinit).
-#define CACHE_CLASS(var, name)                                      \
-    do {                                                            \
-        if (var) break;                                             \
-        jclass local = nullptr;                                     \
-        if (Java::AssignClass(OBFUSCATE_STRING(name), local)) {     \
-            var = (jclass)env->NewGlobalRef(local);                 \
-            env->DeleteLocalRef(local);                             \
-        }                                                           \
+#define CACHE_CLASS(var, name)                                  \
+    do {                                                        \
+        if (var)                                                \
+            break;                                              \
+        jclass local = nullptr;                                 \
+        if (Java::AssignClass(OBFUSCATE_STRING(name), local)) { \
+            var = (jclass)env->NewGlobalRef(local);             \
+            env->DeleteLocalRef(local);                         \
+        }                                                       \
     } while (0)
 
-#define CACHE_CLASS_CRITICAL(var, name)                                \
-    do {                                                               \
-        if (var) break;                                                \
-        jclass local = nullptr;                                        \
-        if (!Java::AssignClass(OBFUSCATE_STRING(name), local)) {       \
-            log_err("JniCache: Failed to find critical class");        \
-            return false;                                              \
-        }                                                              \
-        var = (jclass)env->NewGlobalRef(local);                        \
-        env->DeleteLocalRef(local);                                    \
+#define CACHE_CLASS_CRITICAL(var, name)                          \
+    do {                                                         \
+        if (var)                                                 \
+            break;                                               \
+        jclass local = nullptr;                                  \
+        if (!Java::AssignClass(OBFUSCATE_STRING(name), local)) { \
+            log_err("JniCache: Failed to find critical class");  \
+            return false;                                        \
+        }                                                        \
+        var = (jclass)env->NewGlobalRef(local);                  \
+        env->DeleteLocalRef(local);                              \
     } while (0)
 
-#define TRY_METHOD(var, cls, name, sig)                     \
-    do {                                                    \
-        if (var) break;                                     \
-        std::string _mn = OBFUSCATE_STRING(name);           \
-        std::string _ms = OBFUSCATE_STRING(sig);            \
-        var = env->GetMethodID(cls, _mn.c_str(), _ms.c_str()); \
-        if (!var)                                           \
-            env->ExceptionClear();                          \
-        if (!var)                                           \
+#define TRY_METHOD(var, cls, name, sig)                                               \
+    do {                                                                              \
+        if (var)                                                                      \
+            break;                                                                    \
+        std::string _mn = OBFUSCATE_STRING(name);                                     \
+        std::string _ms = OBFUSCATE_STRING(sig);                                      \
+        var = env->GetMethodID(cls, _mn.c_str(), _ms.c_str());                        \
+        if (!var)                                                                     \
+            env->ExceptionClear();                                                    \
+        if (!var)                                                                     \
             var = jni_resolver::findUniqueMethodBySignature(cls, _ms.c_str(), false); \
     } while (0)
 
-#define TRY_STATIC_METHOD(var, cls, name, sig)                        \
-    do {                                                              \
-        if (var) break;                                               \
-        std::string _mn = OBFUSCATE_STRING(name);                     \
-        std::string _ms = OBFUSCATE_STRING(sig);                      \
-        var = env->GetStaticMethodID(cls, _mn.c_str(), _ms.c_str());  \
-        if (!var)                                                     \
-            env->ExceptionClear();                                    \
-        if (!var)                                                     \
+#define TRY_STATIC_METHOD(var, cls, name, sig)                                       \
+    do {                                                                             \
+        if (var)                                                                     \
+            break;                                                                   \
+        std::string _mn = OBFUSCATE_STRING(name);                                    \
+        std::string _ms = OBFUSCATE_STRING(sig);                                     \
+        var = env->GetStaticMethodID(cls, _mn.c_str(), _ms.c_str());                 \
+        if (!var)                                                                    \
+            env->ExceptionClear();                                                   \
+        if (!var)                                                                    \
             var = jni_resolver::findUniqueMethodBySignature(cls, _ms.c_str(), true); \
     } while (0)
 
-#define TRY_FIELD(var, cls, name, sig)                      \
-    do {                                                    \
-        if (var) break;                                     \
-        std::string _fn = OBFUSCATE_STRING(name);           \
-        std::string _fs = OBFUSCATE_STRING(sig);            \
-        var = env->GetFieldID(cls, _fn.c_str(), _fs.c_str()); \
-        if (!var)                                           \
-            env->ExceptionClear();                          \
-        if (!var)                                           \
+#define TRY_FIELD(var, cls, name, sig)                                               \
+    do {                                                                             \
+        if (var)                                                                     \
+            break;                                                                   \
+        std::string _fn = OBFUSCATE_STRING(name);                                    \
+        std::string _fs = OBFUSCATE_STRING(sig);                                     \
+        var = env->GetFieldID(cls, _fn.c_str(), _fs.c_str());                        \
+        if (!var)                                                                    \
+            env->ExceptionClear();                                                   \
+        if (!var)                                                                    \
             var = jni_resolver::findUniqueFieldBySignature(cls, _fs.c_str(), false); \
     } while (0)
 
-#define TRY_STATIC_FIELD(var, cls, name, sig)                        \
-    do {                                                             \
-        if (var) break;                                              \
-        std::string _fn = OBFUSCATE_STRING(name);                    \
-        std::string _fs = OBFUSCATE_STRING(sig);                     \
-        var = env->GetStaticFieldID(cls, _fn.c_str(), _fs.c_str()); \
-        if (!var)                                                    \
-            env->ExceptionClear();                                   \
-        if (!var)                                                    \
+#define TRY_STATIC_FIELD(var, cls, name, sig)                                       \
+    do {                                                                            \
+        if (var)                                                                    \
+            break;                                                                  \
+        std::string _fn = OBFUSCATE_STRING(name);                                   \
+        std::string _fs = OBFUSCATE_STRING(sig);                                    \
+        var = env->GetStaticFieldID(cls, _fn.c_str(), _fs.c_str());                 \
+        if (!var)                                                                   \
+            env->ExceptionClear();                                                  \
+        if (!var)                                                                   \
             var = jni_resolver::findUniqueFieldBySignature(cls, _fs.c_str(), true); \
     } while (0)
 
@@ -450,8 +455,7 @@ static bool resolveIds(JNIEnv* env) {
 
     TRY_STATIC_METHOD(mid_getMinecraft, cls_Minecraft, "getMinecraft", "()Lnet/minecraft/client/Minecraft;");
     if (!mid_getMinecraft) {
-        TRY_STATIC_METHOD(mid_getMinecraft, cls_Minecraft, "func_71410_x",
-                          "()Lnet/minecraft/client/Minecraft;");
+        TRY_STATIC_METHOD(mid_getMinecraft, cls_Minecraft, "func_71410_x", "()Lnet/minecraft/client/Minecraft;");
     }
     if (!mid_getMinecraft && Java::RuntimeObfuscated) {
         TRY_STATIC_METHOD(mid_getMinecraft, cls_Minecraft, "A", "()Lave;");
@@ -479,8 +483,7 @@ static bool resolveIds(JNIEnv* env) {
     } else {
         TRY_FIELD(fid_thePlayer, cls_Minecraft, "thePlayer", "Lnet/minecraft/client/entity/EntityPlayerSP;");
         if (!fid_thePlayer) {
-            TRY_FIELD(fid_thePlayer, cls_Minecraft, "field_71439_g",
-                      "Lnet/minecraft/client/entity/EntityPlayerSP;");
+            TRY_FIELD(fid_thePlayer, cls_Minecraft, "field_71439_g", "Lnet/minecraft/client/entity/EntityPlayerSP;");
         }
         if (!fid_thePlayer && Java::RuntimeObfuscated) {
             TRY_FIELD(fid_thePlayer, cls_Minecraft, "h", "Lbew;");
@@ -489,8 +492,7 @@ static bool resolveIds(JNIEnv* env) {
 
     TRY_FIELD(fid_theWorld, cls_Minecraft, "theWorld", "Lnet/minecraft/client/multiplayer/WorldClient;");
     if (!fid_theWorld) {
-        TRY_FIELD(fid_theWorld, cls_Minecraft, "field_71441_e",
-                  "Lnet/minecraft/client/multiplayer/WorldClient;");
+        TRY_FIELD(fid_theWorld, cls_Minecraft, "field_71441_e", "Lnet/minecraft/client/multiplayer/WorldClient;");
     }
     TRY_FIELD(fid_currentScreen, cls_Minecraft, "currentScreen", "Lnet/minecraft/client/gui/GuiScreen;");
     if (!fid_currentScreen) {
@@ -504,13 +506,11 @@ static bool resolveIds(JNIEnv* env) {
         TRY_FIELD(fid_leftClickCounter, cls_Minecraft, "field_71429_W", "I");
     TRY_FIELD(fid_objectMouseOver, cls_Minecraft, "objectMouseOver", "Lnet/minecraft/util/MovingObjectPosition;");
     if (!fid_objectMouseOver) {
-        TRY_FIELD(fid_objectMouseOver, cls_Minecraft, "field_71476_x",
-                  "Lnet/minecraft/util/MovingObjectPosition;");
+        TRY_FIELD(fid_objectMouseOver, cls_Minecraft, "field_71476_x", "Lnet/minecraft/util/MovingObjectPosition;");
     }
     TRY_FIELD(fid_gameSettings, cls_Minecraft, "gameSettings", "Lnet/minecraft/client/settings/GameSettings;");
     if (!fid_gameSettings) {
-        TRY_FIELD(fid_gameSettings, cls_Minecraft, "field_71474_y",
-                  "Lnet/minecraft/client/settings/GameSettings;");
+        TRY_FIELD(fid_gameSettings, cls_Minecraft, "field_71474_y", "Lnet/minecraft/client/settings/GameSettings;");
     }
     TRY_FIELD(fid_renderManager, cls_Minecraft, "renderManager",
               "Lnet/minecraft/client/renderer/entity/RenderManager;");
@@ -533,11 +533,9 @@ static bool resolveIds(JNIEnv* env) {
         TRY_FIELD(fid_playerController, cls_Minecraft, "field_71442_b",
                   "Lnet/minecraft/client/multiplayer/PlayerControllerMP;");
     }
-    TRY_FIELD(fid_entityRenderer, cls_Minecraft, "entityRenderer",
-              "Lnet/minecraft/client/renderer/EntityRenderer;");
+    TRY_FIELD(fid_entityRenderer, cls_Minecraft, "entityRenderer", "Lnet/minecraft/client/renderer/EntityRenderer;");
     if (!fid_entityRenderer) {
-        TRY_FIELD(fid_entityRenderer, cls_Minecraft, "field_71460_t",
-                  "Lnet/minecraft/client/renderer/EntityRenderer;");
+        TRY_FIELD(fid_entityRenderer, cls_Minecraft, "field_71460_t", "Lnet/minecraft/client/renderer/EntityRenderer;");
     }
 
     if (cls_EntityRenderer) {
@@ -547,8 +545,7 @@ static bool resolveIds(JNIEnv* env) {
         }
         TRY_FIELD(fid_pointedEntity, cls_EntityRenderer, "pointedEntity", "Lnet/minecraft/entity/Entity;");
         if (!fid_pointedEntity) {
-            TRY_FIELD(fid_pointedEntity, cls_EntityRenderer, "field_78528_u",
-                      "Lnet/minecraft/entity/Entity;");
+            TRY_FIELD(fid_pointedEntity, cls_EntityRenderer, "field_78528_u", "Lnet/minecraft/entity/Entity;");
         }
     }
 
@@ -563,17 +560,17 @@ static bool resolveIds(JNIEnv* env) {
         // findUnique... path returns null and info.posY silently reads as 0.
         TRY_FIELD(fid_posX, cls_Entity, "posX", "D");
         if (!fid_posX)
-            TRY_FIELD(fid_posX, cls_Entity, "field_70165_t", "D");   // 1.7.10 SRG
+            TRY_FIELD(fid_posX, cls_Entity, "field_70165_t", "D");  // 1.7.10 SRG
         if (!fid_posX && !is_1_7_10)
             TRY_FIELD(fid_posX, cls_Entity, "s", "D");
         TRY_FIELD(fid_posY, cls_Entity, "posY", "D");
         if (!fid_posY)
-            TRY_FIELD(fid_posY, cls_Entity, "field_70163_u", "D");   // 1.7.10 SRG
+            TRY_FIELD(fid_posY, cls_Entity, "field_70163_u", "D");  // 1.7.10 SRG
         if (!fid_posY && !is_1_7_10)
             TRY_FIELD(fid_posY, cls_Entity, "t", "D");
         TRY_FIELD(fid_posZ, cls_Entity, "posZ", "D");
         if (!fid_posZ)
-            TRY_FIELD(fid_posZ, cls_Entity, "field_70161_v", "D");   // 1.7.10 SRG
+            TRY_FIELD(fid_posZ, cls_Entity, "field_70161_v", "D");  // 1.7.10 SRG
         if (!fid_posZ && !is_1_7_10)
             TRY_FIELD(fid_posZ, cls_Entity, "u", "D");
 
@@ -581,16 +578,13 @@ static bool resolveIds(JNIEnv* env) {
         // the Notch names are not verified, Backtrack safely waits for an absolute
         // S18 instead of guessing among Entity's many int fields.
         if (!fid_serverPosX) {
-            fid_serverPosX = resolveExplicitField(
-                env, cls_Entity, {"serverPosX", "field_70118_ct"}, "I");
+            fid_serverPosX = resolveExplicitField(env, cls_Entity, {"serverPosX", "field_70118_ct"}, "I");
         }
         if (!fid_serverPosY) {
-            fid_serverPosY = resolveExplicitField(
-                env, cls_Entity, {"serverPosY", "field_70117_cu"}, "I");
+            fid_serverPosY = resolveExplicitField(env, cls_Entity, {"serverPosY", "field_70117_cu"}, "I");
         }
         if (!fid_serverPosZ) {
-            fid_serverPosZ = resolveExplicitField(
-                env, cls_Entity, {"serverPosZ", "field_70116_cv"}, "I");
+            fid_serverPosZ = resolveExplicitField(env, cls_Entity, {"serverPosZ", "field_70116_cv"}, "I");
         }
 
         TRY_FIELD(fid_lastTickPosX, cls_Entity, "lastTickPosX", "D");
@@ -630,8 +624,8 @@ static bool resolveIds(JNIEnv* env) {
         if (!fid_prevRotationPitch)
             TRY_FIELD(fid_prevRotationPitch, cls_Entity, "B", "F");
 
-        log_debug("[JniCache] Entity pos fields: posX=%p posY=%p posZ=%p lastY=%p",
-                  (void*)fid_posX, (void*)fid_posY, (void*)fid_posZ, (void*)fid_lastTickPosY);
+        log_debug("[JniCache] Entity pos fields: posX=%p posY=%p posZ=%p lastY=%p", (void*)fid_posX, (void*)fid_posY,
+                  (void*)fid_posZ, (void*)fid_lastTickPosY);
         TRY_METHOD(mid_isInvisible, cls_Entity, "isInvisible", "()Z");
         TRY_METHOD(mid_getUniqueID, cls_Entity, "getUniqueID", "()Ljava/util/UUID;");
         TRY_METHOD(mid_getEntityId, cls_Entity, "getEntityId", "()I");
@@ -746,8 +740,8 @@ static bool resolveIds(JNIEnv* env) {
     if (cls_EntityItem) {
         TRY_METHOD(mid_getEntityItem, cls_EntityItem, "getEntityItem", "()Lnet/minecraft/item/ItemStack;");
         if (!mid_getEntityItem) {
-             // Obfuscated fallback for 1.7.10/1.8.8 if needed (func_92059_d)
-             TRY_METHOD(mid_getEntityItem, cls_EntityItem, "func_92059_d", "()Lnet/minecraft/item/ItemStack;");
+            // Obfuscated fallback for 1.7.10/1.8.8 if needed (func_92059_d)
+            TRY_METHOD(mid_getEntityItem, cls_EntityItem, "func_92059_d", "()Lnet/minecraft/item/ItemStack;");
         }
     }
 
@@ -765,10 +759,11 @@ static bool resolveIds(JNIEnv* env) {
         TRY_METHOD(mid_isSneaking, cls_EntityLivingBase, "isSneaking", "()Z");
         TRY_FIELD(fid_activePotionsMap, cls_EntityLivingBase, "activePotionsMap", "Ljava/util/Map;");
         if (!fid_activePotionsMap) {
-             // 1.7.10 obfuscated
-             TRY_FIELD(fid_activePotionsMap, cls_EntityLivingBase, "field_70713_bf", "Ljava/util/Map;");
+            // 1.7.10 obfuscated
+            TRY_FIELD(fid_activePotionsMap, cls_EntityLivingBase, "field_70713_bf", "Ljava/util/Map;");
         }
-        TRY_METHOD(mid_getActivePotionEffects, cls_EntityLivingBase, "getActivePotionEffects", "()Ljava/util/Collection;");
+        TRY_METHOD(mid_getActivePotionEffects, cls_EntityLivingBase, "getActivePotionEffects",
+                   "()Ljava/util/Collection;");
         if (!mid_getActivePotionEffects) {
             // SRG/obf fallback (common mapping name)
             TRY_METHOD(mid_getActivePotionEffects, cls_EntityLivingBase, "func_70651_bq", "()Ljava/util/Collection;");
@@ -809,29 +804,29 @@ static bool resolveIds(JNIEnv* env) {
         TRY_FIELD(fid_openContainer, cls_EntityPlayer, "openContainer", "Lnet/minecraft/inventory/Container;");
         TRY_FIELD(fid_inventory, cls_EntityPlayer, "inventory", "Lnet/minecraft/entity/player/InventoryPlayer;");
         TRY_FIELD(fid_openContainer, cls_EntityPlayer, "openContainer", "Lnet/minecraft/inventory/Container;");
-        
+
         // Cache InventoryPlayer class from the field type if possible, or lookup
         CACHE_CLASS(cls_InventoryPlayer, "net.minecraft.entity.player.InventoryPlayer");
         if (cls_InventoryPlayer) {
             TRY_FIELD(fid_armorInventory, cls_InventoryPlayer, "armorInventory", "[Lnet/minecraft/item/ItemStack;");
             if (!fid_armorInventory) {
-                 TRY_FIELD(fid_armorInventory, cls_InventoryPlayer, "field_70460_b", "[Lnet/minecraft/item/ItemStack;");
+                TRY_FIELD(fid_armorInventory, cls_InventoryPlayer, "field_70460_b", "[Lnet/minecraft/item/ItemStack;");
             }
-            
+
             TRY_FIELD(fid_mainInventory, cls_InventoryPlayer, "mainInventory", "[Lnet/minecraft/item/ItemStack;");
             if (!fid_mainInventory) {
-                 TRY_FIELD(fid_mainInventory, cls_InventoryPlayer, "field_70462_a", "[Lnet/minecraft/item/ItemStack;");
+                TRY_FIELD(fid_mainInventory, cls_InventoryPlayer, "field_70462_a", "[Lnet/minecraft/item/ItemStack;");
             }
             if (!fid_mainInventory) {
-                 TRY_FIELD(fid_mainInventory, cls_InventoryPlayer, "a", "[Lnet/minecraft/item/ItemStack;");
+                TRY_FIELD(fid_mainInventory, cls_InventoryPlayer, "a", "[Lnet/minecraft/item/ItemStack;");
             }
 
             TRY_FIELD(fid_currentItem, cls_InventoryPlayer, "currentItem", "I");
             if (!fid_currentItem) {
-                 TRY_FIELD(fid_currentItem, cls_InventoryPlayer, "field_70461_c", "I");
+                TRY_FIELD(fid_currentItem, cls_InventoryPlayer, "field_70461_c", "I");
             }
             if (!fid_currentItem) {
-                 TRY_FIELD(fid_currentItem, cls_InventoryPlayer, "c", "I");
+                TRY_FIELD(fid_currentItem, cls_InventoryPlayer, "c", "I");
             }
         }
     }
@@ -844,22 +839,22 @@ static bool resolveIds(JNIEnv* env) {
         TRY_METHOD(mid_getPotionID, cls_PotionEffect, "getPotionID", "()I");
         TRY_METHOD(mid_getDuration, cls_PotionEffect, "getDuration", "()I");
         TRY_METHOD(mid_getAmplifier, cls_PotionEffect, "getAmplifier", "()I");
-        
-        if (!mid_getPotionID) { // 1.7.10 obfuscated
-             TRY_METHOD(mid_getPotionID, cls_PotionEffect, "func_76456_a", "()I");
-             TRY_METHOD(mid_getDuration, cls_PotionEffect, "func_76459_b", "()I");
-             TRY_METHOD(mid_getAmplifier, cls_PotionEffect, "func_76458_c", "()I");
+
+        if (!mid_getPotionID) {  // 1.7.10 obfuscated
+            TRY_METHOD(mid_getPotionID, cls_PotionEffect, "func_76456_a", "()I");
+            TRY_METHOD(mid_getDuration, cls_PotionEffect, "func_76459_b", "()I");
+            TRY_METHOD(mid_getAmplifier, cls_PotionEffect, "func_76458_c", "()I");
         }
     }
-    
+
     // =========================================================================
     // Collection/Map IDs
     // =========================================================================
-    
+
     if (cls_Map) {
         TRY_METHOD(mid_mapValues, cls_Map, "values", "()Ljava/util/Collection;");
     }
-    
+
     if (cls_Collection) {
         TRY_METHOD(mid_collectionToArray, cls_Collection, "toArray", "()[Ljava/lang/Object;");
     }
@@ -1078,24 +1073,24 @@ static bool resolveIds(JNIEnv* env) {
                        "(Lnet/minecraft/util/Vec3;Lnet/minecraft/util/Vec3;)Lnet/minecraft/util/MovingObjectPosition;");
         }
         if (!mid_rayTraceBlocks) {
-            TRY_METHOD(mid_rayTraceBlocks, cls_WorldClient, "func_72901_a",
-                       "(Lnet/minecraft/util/Vec3;Lnet/minecraft/util/Vec3;Z)Lnet/minecraft/util/MovingObjectPosition;");
+            TRY_METHOD(
+                mid_rayTraceBlocks, cls_WorldClient, "func_72901_a",
+                "(Lnet/minecraft/util/Vec3;Lnet/minecraft/util/Vec3;Z)Lnet/minecraft/util/MovingObjectPosition;");
         }
         if (!mid_rayTraceBlocks) {
-            TRY_METHOD(mid_rayTraceBlocks, cls_WorldClient, "func_147447_a",
-                       "(Lnet/minecraft/util/Vec3;Lnet/minecraft/util/Vec3;Z)Lnet/minecraft/util/MovingObjectPosition;");
+            TRY_METHOD(
+                mid_rayTraceBlocks, cls_WorldClient, "func_147447_a",
+                "(Lnet/minecraft/util/Vec3;Lnet/minecraft/util/Vec3;Z)Lnet/minecraft/util/MovingObjectPosition;");
         }
         if (!mid_rayTraceBlocks) {
             TRY_METHOD(mid_rayTraceBlocks, cls_WorldClient, "func_72933_a",
                        "(Lnet/minecraft/util/Vec3;Lnet/minecraft/util/Vec3;)Lnet/minecraft/util/MovingObjectPosition;");
         }
         if (!mid_rayTraceBlocks) {
-            TRY_METHOD(mid_rayTraceBlocks, cls_WorldClient, "a",
-                       "(Laui;Laui;Z)Lauh;");
+            TRY_METHOD(mid_rayTraceBlocks, cls_WorldClient, "a", "(Laui;Laui;Z)Lauh;");
         }
         if (!mid_rayTraceBlocks) {
-            TRY_METHOD(mid_rayTraceBlocks, cls_WorldClient, "a",
-                       "(Laui;Laui;)Lauh;");
+            TRY_METHOD(mid_rayTraceBlocks, cls_WorldClient, "a", "(Laui;Laui;)Lauh;");
         }
     }
 
@@ -1200,7 +1195,7 @@ static bool resolveIds(JNIEnv* env) {
         }
         TRY_METHOD(mid_getMaxDamage, cls_Item, "getMaxDamage", "()I");
         if (!mid_getMaxDamage) {
-             TRY_METHOD(mid_getMaxDamage, cls_Item, "func_77612_l", "()I");
+            TRY_METHOD(mid_getMaxDamage, cls_Item, "func_77612_l", "()I");
         }
     }
 

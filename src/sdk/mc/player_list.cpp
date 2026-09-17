@@ -63,14 +63,12 @@ static int readEnchantLevel(JNIEnv* env, jobject itemStack, int wantEnchantId) {
         }
         jclass stackCls = env->GetObjectClass(itemStack);
         if (stackCls) {
-            s_getEnchantTagList =
-                env->GetMethodID(stackCls, OBFUSCATE_STRING("getEnchantmentTagList").c_str(),
-                                 OBFUSCATE_STRING("()Lnet/minecraft/nbt/NBTTagList;").c_str());
+            s_getEnchantTagList = env->GetMethodID(stackCls, OBFUSCATE_STRING("getEnchantmentTagList").c_str(),
+                                                   OBFUSCATE_STRING("()Lnet/minecraft/nbt/NBTTagList;").c_str());
             if (!s_getEnchantTagList) {
                 env->ExceptionClear();
-                s_getEnchantTagList =
-                    env->GetMethodID(stackCls, OBFUSCATE_STRING("func_77986_q").c_str(),
-                                     OBFUSCATE_STRING("()Lnet/minecraft/nbt/NBTTagList;").c_str());
+                s_getEnchantTagList = env->GetMethodID(stackCls, OBFUSCATE_STRING("func_77986_q").c_str(),
+                                                       OBFUSCATE_STRING("()Lnet/minecraft/nbt/NBTTagList;").c_str());
                 if (!s_getEnchantTagList) {
                     env->ExceptionClear();
                 }
@@ -83,7 +81,8 @@ static int readEnchantLevel(JNIEnv* env, jobject itemStack, int wantEnchantId) {
             s_tagCount = env->GetMethodID(tlc, OBFUSCATE_STRING("tagCount").c_str(), OBFUSCATE_STRING("()I").c_str());
             if (!s_tagCount) {
                 env->ExceptionClear();
-                s_tagCount = env->GetMethodID(tlc, OBFUSCATE_STRING("func_74745_c").c_str(), OBFUSCATE_STRING("()I").c_str());
+                s_tagCount =
+                    env->GetMethodID(tlc, OBFUSCATE_STRING("func_74745_c").c_str(), OBFUSCATE_STRING("()I").c_str());
                 if (!s_tagCount) {
                     env->ExceptionClear();
                 }
@@ -159,9 +158,17 @@ static int readEnchantLevel(JNIEnv* env, jobject itemStack, int wantEnchantId) {
 // held-item readout (so blocks/tools in hand don't clutter the nametag).
 static bool isWeaponId(int id) {
     switch (id) {
-        case 268: case 272: case 267: case 276: case 283:  // swords: wood/stone/iron/diamond/gold
-        case 271: case 275: case 258: case 279: case 286:  // axes:   wood/stone/iron/diamond/gold
-        case 261:                                           // bow
+        case 268:
+        case 272:
+        case 267:
+        case 276:
+        case 283:  // swords: wood/stone/iron/diamond/gold
+        case 271:
+        case 275:
+        case 258:
+        case 279:
+        case 286:  // axes:   wood/stone/iron/diamond/gold
+        case 261:  // bow
             return true;
         default:
             return false;
@@ -205,10 +212,10 @@ struct ReflectPotions {
     jclass cls_Class = nullptr;
     jclass cls_Field = nullptr;
     jclass cls_AccessibleObject = nullptr;
-    jmethodID mid_getDeclaredFields = nullptr;   // Class.getDeclaredFields() -> Field[]
-    jmethodID mid_fieldGet = nullptr;            // Field.get(Object) -> Object
-    jmethodID mid_setAccessible = nullptr;       // AccessibleObject.setAccessible(boolean)
-    jobject cachedField = nullptr;               // GlobalRef(Field)
+    jmethodID mid_getDeclaredFields = nullptr;  // Class.getDeclaredFields() -> Field[]
+    jmethodID mid_fieldGet = nullptr;           // Field.get(Object) -> Object
+    jmethodID mid_setAccessible = nullptr;      // AccessibleObject.setAccessible(boolean)
+    jobject cachedField = nullptr;              // GlobalRef(Field)
     ULONGLONG lastTryMs = 0;
 };
 
@@ -235,8 +242,10 @@ static bool init_reflect_potions(JNIEnv* env) {
     env->DeleteLocalRef(localField);
     env->DeleteLocalRef(localAccessible);
 
-    g_refPotions.mid_getDeclaredFields = env->GetMethodID(g_refPotions.cls_Class, "getDeclaredFields", "()[Ljava/lang/reflect/Field;");
-    g_refPotions.mid_fieldGet = env->GetMethodID(g_refPotions.cls_Field, "get", "(Ljava/lang/Object;)Ljava/lang/Object;");
+    g_refPotions.mid_getDeclaredFields =
+        env->GetMethodID(g_refPotions.cls_Class, "getDeclaredFields", "()[Ljava/lang/reflect/Field;");
+    g_refPotions.mid_fieldGet =
+        env->GetMethodID(g_refPotions.cls_Field, "get", "(Ljava/lang/Object;)Ljava/lang/Object;");
     g_refPotions.mid_setAccessible = env->GetMethodID(g_refPotions.cls_AccessibleObject, "setAccessible", "(Z)V");
     env->ExceptionClear();
 
@@ -318,7 +327,8 @@ static jobject try_get_active_potions_map_reflect(JNIEnv* env, jobject entity) {
         int alen = env->GetArrayLength(arr);
         jobject first = (alen > 0) ? env->GetObjectArrayElement(arr, 0) : nullptr;
         bool ok = (first && env->IsInstanceOf(first, JniCache::cls_PotionEffect));
-        if (first) env->DeleteLocalRef(first);
+        if (first)
+            env->DeleteLocalRef(first);
         env->DeleteLocalRef(arr);
 
         if (ok) {
@@ -701,7 +711,8 @@ std::vector<PlayerInfo> Minecraft::getPlayerList() {
                             if (JniCache::mid_getItem && JniCache::mid_getIdFromItem && JniCache::cls_Item) {
                                 jobject item = env->CallObjectMethod(stack, JniCache::mid_getItem);
                                 if (item) {
-                                    itemInfo.id = env->CallStaticIntMethod(JniCache::cls_Item, JniCache::mid_getIdFromItem, item);
+                                    itemInfo.id =
+                                        env->CallStaticIntMethod(JniCache::cls_Item, JniCache::mid_getIdFromItem, item);
                                     if (JniCache::mid_getMaxDamage)
                                         itemInfo.maxDamage = env->CallIntMethod(item, JniCache::mid_getMaxDamage);
                                     env->DeleteLocalRef(item);
@@ -711,7 +722,7 @@ std::vector<PlayerInfo> Minecraft::getPlayerList() {
                                 itemInfo.damage = env->CallIntMethod(stack, JniCache::mid_getItemDamage);
                             }
                             if (itemInfo.id > 0) {
-                                itemInfo.protection = readEnchantLevel(env, stack, 0);  // Protection = id 0
+                                itemInfo.protection = readEnchantLevel(env, stack, 0);   // Protection = id 0
                                 itemInfo.unbreaking = readEnchantLevel(env, stack, 34);  // Unbreaking = id 34
                                 itemInfo.fireProtection = readEnchantLevel(env, stack, 1);
                                 itemInfo.projectileProtection = readEnchantLevel(env, stack, 4);
@@ -724,66 +735,69 @@ std::vector<PlayerInfo> Minecraft::getPlayerList() {
                     }
                     env->DeleteLocalRef(armorList);
                 }
-                
+
                 // Main Inventory (Potions)
                 // NOTE: On many servers, remote player inventory is NOT synced to the client!
                 // This usually only works if the server sends the data (e.g. some 1.7 servers or plugins).
-                
+
                 static bool loggedMissingField = false;
                 if (!JniCache::fid_mainInventory) {
                     if (!loggedMissingField) {
-                         log_debug("[SDK] Missing fid_mainInventory - cannot count potions");
-                         loggedMissingField = true;
+                        log_debug("[SDK] Missing fid_mainInventory - cannot count potions");
+                        loggedMissingField = true;
                     }
                 } else {
                     jobjectArray mainList = (jobjectArray)env->GetObjectField(inventory, JniCache::fid_mainInventory);
                     if (mainList) {
                         int len = env->GetArrayLength(mainList);
                         for (int k = 0; k < len; k++) {
-                             jobject stack = env->GetObjectArrayElement(mainList, k);
-                             if (stack) {
-                                 int id = 0;
-                                 int damage = 0;
-                                 int amount = 1;
-                                 
-                                 // Get ID
-                                 if (JniCache::mid_getItem && JniCache::mid_getIdFromItem && JniCache::cls_Item) {
-                                      jobject item = env->CallObjectMethod(stack, JniCache::mid_getItem);
-                                      if (item) {
-                                           id = env->CallStaticIntMethod(JniCache::cls_Item, JniCache::mid_getIdFromItem, item);
-                                           env->DeleteLocalRef(item);
-                                      }
-                                 }
-                                 
-                                 if (id == 373) { // Potion
-                                      // Get Damage/Metadata
-                                      if (JniCache::mid_getItemDamage) {
-                                           damage = env->CallIntMethod(stack, JniCache::mid_getItemDamage);
-                                      }
-                                      
-                                      // get Stack Size
-                                      if (JniCache::fid_stackSize) {
-                                           amount = env->GetIntField(stack, JniCache::fid_stackSize);
-                                      }
-                                      
-                                      // Check for various Health potion IDs (Splash II, Drink II, Splash I, etc)
-                                      // 16421: Splash Health II
-                                      // 16453: Splash Health II (Alt)
-                                      // 8229: Drink Health II
-                                      // 16389: Splash Health I
-                                      // 8261: Drink Health I
-                                      if (damage == 16421 || damage == 8229 || damage == 16453 || damage == 16389 || damage == 8261) {
-                                           info.totalHealthPotions += amount;
-                                      }
-                                      
-                                      // DEBUG logging (rate limited)
-                                      // if (every_ms(5000)) {
-                                      //      log_debug("[SDK] Found Potion ID: %d Metadata: %d Amount: %d", id, damage, amount);
-                                      // }
-                                 }
-                                 
-                                 env->DeleteLocalRef(stack);
-                             }
+                            jobject stack = env->GetObjectArrayElement(mainList, k);
+                            if (stack) {
+                                int id = 0;
+                                int damage = 0;
+                                int amount = 1;
+
+                                // Get ID
+                                if (JniCache::mid_getItem && JniCache::mid_getIdFromItem && JniCache::cls_Item) {
+                                    jobject item = env->CallObjectMethod(stack, JniCache::mid_getItem);
+                                    if (item) {
+                                        id = env->CallStaticIntMethod(JniCache::cls_Item, JniCache::mid_getIdFromItem,
+                                                                      item);
+                                        env->DeleteLocalRef(item);
+                                    }
+                                }
+
+                                if (id == 373) {  // Potion
+                                    // Get Damage/Metadata
+                                    if (JniCache::mid_getItemDamage) {
+                                        damage = env->CallIntMethod(stack, JniCache::mid_getItemDamage);
+                                    }
+
+                                    // get Stack Size
+                                    if (JniCache::fid_stackSize) {
+                                        amount = env->GetIntField(stack, JniCache::fid_stackSize);
+                                    }
+
+                                    // Check for various Health potion IDs (Splash II, Drink II, Splash I, etc)
+                                    // 16421: Splash Health II
+                                    // 16453: Splash Health II (Alt)
+                                    // 8229: Drink Health II
+                                    // 16389: Splash Health I
+                                    // 8261: Drink Health I
+                                    if (damage == 16421 || damage == 8229 || damage == 16453 || damage == 16389 ||
+                                        damage == 8261) {
+                                        info.totalHealthPotions += amount;
+                                    }
+
+                                    // DEBUG logging (rate limited)
+                                    // if (every_ms(5000)) {
+                                    //      log_debug("[SDK] Found Potion ID: %d Metadata: %d Amount: %d", id, damage,
+                                    //      amount);
+                                    // }
+                                }
+
+                                env->DeleteLocalRef(stack);
+                            }
                         }
                         env->DeleteLocalRef(mainList);
                     }
@@ -808,7 +822,8 @@ std::vector<PlayerInfo> Minecraft::getPlayerList() {
                                         if (isWeaponId(hid)) {
                                             info.weapon.id = hid;
                                             if (JniCache::mid_getMaxDamage)
-                                                info.weapon.maxDamage = env->CallIntMethod(item, JniCache::mid_getMaxDamage);
+                                                info.weapon.maxDamage =
+                                                    env->CallIntMethod(item, JniCache::mid_getMaxDamage);
                                         }
                                         env->DeleteLocalRef(item);
                                     }
@@ -816,14 +831,14 @@ std::vector<PlayerInfo> Minecraft::getPlayerList() {
                                 if (isWeaponId(hid)) {
                                     if (JniCache::mid_getItemDamage)
                                         info.weapon.damage = env->CallIntMethod(hstack, JniCache::mid_getItemDamage);
-                                    info.weapon.sharpness = readEnchantLevel(env, hstack, 16);  // Sharpness = id 16
-                                    info.weapon.unbreaking = readEnchantLevel(env, hstack, 34); // Unbreaking = id 34
-                                    info.weapon.fireAspect = readEnchantLevel(env, hstack, 20); // Fire Aspect = id 20
-                                    info.weapon.knockback = readEnchantLevel(env, hstack, 19);  // Knockback = id 19
-                                    info.weapon.power = readEnchantLevel(env, hstack, 48);      // Power = id 48
-                                    info.weapon.punch = readEnchantLevel(env, hstack, 49);      // Punch = id 49
-                                    info.weapon.flame = readEnchantLevel(env, hstack, 50);      // Flame = id 50
-                                    info.weapon.infinity = readEnchantLevel(env, hstack, 51);   // Infinity = id 51
+                                    info.weapon.sharpness = readEnchantLevel(env, hstack, 16);   // Sharpness = id 16
+                                    info.weapon.unbreaking = readEnchantLevel(env, hstack, 34);  // Unbreaking = id 34
+                                    info.weapon.fireAspect = readEnchantLevel(env, hstack, 20);  // Fire Aspect = id 20
+                                    info.weapon.knockback = readEnchantLevel(env, hstack, 19);   // Knockback = id 19
+                                    info.weapon.power = readEnchantLevel(env, hstack, 48);       // Power = id 48
+                                    info.weapon.punch = readEnchantLevel(env, hstack, 49);       // Punch = id 49
+                                    info.weapon.flame = readEnchantLevel(env, hstack, 50);       // Flame = id 50
+                                    info.weapon.infinity = readEnchantLevel(env, hstack, 51);    // Infinity = id 51
                                 }
                                 env->DeleteLocalRef(hstack);
                             }
@@ -900,7 +915,8 @@ std::vector<PlayerInfo> Minecraft::getPlayerList() {
         // Reflection fallback for obfuscated environments (Notch-mapped, Lunar, etc.)
         // Try to locate EntityLivingBase's active potion map by scanning fields and looking for Map values that
         // contain PotionEffect instances.
-        if (info.potions.empty() && JniCache::mid_mapValues && JniCache::mid_collectionToArray && JniCache::cls_PotionEffect) {
+        if (info.potions.empty() && JniCache::mid_mapValues && JniCache::mid_collectionToArray &&
+            JniCache::cls_PotionEffect) {
             jobject potionMap = try_get_active_potions_map_reflect(env, entity);
             if (potionMap) {
                 jobject values = env->CallObjectMethod(potionMap, JniCache::mid_mapValues);

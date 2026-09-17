@@ -75,7 +75,8 @@ int Minecraft::getBlockId(int x, int y, int z) {
                         }
                         if (block && JniCache::cls_Block && JniCache::mid_getIdFromBlock) {
                             // Block.getIdFromBlock(Block) -> int
-                            blockId = env->CallStaticIntMethod(JniCache::cls_Block, JniCache::mid_getIdFromBlock, block);
+                            blockId =
+                                env->CallStaticIntMethod(JniCache::cls_Block, JniCache::mid_getIdFromBlock, block);
                             if (env->ExceptionCheck()) {
                                 env->ExceptionClear();
                                 blockId = 0;
@@ -113,9 +114,8 @@ bool Minecraft::damageBlock(int x, int y, int z) {
 
     bool damaged = false;
     if (Java::Version == MinecraftVersion::MC_1_7_10) {
-        jmethodID damageMethod =
-            env->GetMethodID(controllerClass, OBFUSCATE_STRING("onPlayerDamageBlock").c_str(),
-                             OBFUSCATE_STRING("(IIII)Z").c_str());
+        jmethodID damageMethod = env->GetMethodID(controllerClass, OBFUSCATE_STRING("onPlayerDamageBlock").c_str(),
+                                                  OBFUSCATE_STRING("(IIII)Z").c_str());
         if (!damageMethod) {
             env->ExceptionClear();
             damageMethod = env->GetMethodID(controllerClass, OBFUSCATE_STRING("func_78759_c").c_str(),
@@ -140,16 +140,16 @@ bool Minecraft::damageBlock(int x, int y, int z) {
 
         jclass facingClass = nullptr;
         if (damageMethod && Java::AssignClass(OBFUSCATE_STRING("net.minecraft.util.EnumFacing"), facingClass)) {
-            jmethodID valuesMethod = env->GetStaticMethodID(
-                facingClass, OBFUSCATE_STRING("values").c_str(),
-                OBFUSCATE_STRING("()[Lnet/minecraft/util/EnumFacing;").c_str());
+            jmethodID valuesMethod =
+                env->GetStaticMethodID(facingClass, OBFUSCATE_STRING("values").c_str(),
+                                       OBFUSCATE_STRING("()[Lnet/minecraft/util/EnumFacing;").c_str());
             if (!valuesMethod && env->ExceptionCheck())
                 env->ExceptionClear();
-            jobjectArray values = valuesMethod
-                                      ? static_cast<jobjectArray>(env->CallStaticObjectMethod(facingClass, valuesMethod))
-                                      : nullptr;
-            jobject facingUp = values && env->GetArrayLength(values) > 1 ? env->GetObjectArrayElement(values, 1)
-                                                                         : nullptr;
+            jobjectArray values =
+                valuesMethod ? static_cast<jobjectArray>(env->CallStaticObjectMethod(facingClass, valuesMethod))
+                             : nullptr;
+            jobject facingUp =
+                values && env->GetArrayLength(values) > 1 ? env->GetObjectArrayElement(values, 1) : nullptr;
             jobject blockPos = env->NewObject(JniCache::cls_BlockPos, JniCache::mid_blockPosInit, x, y, z);
             if (blockPos && facingUp)
                 damaged = env->CallBooleanMethod(controller, damageMethod, blockPos, facingUp) == JNI_TRUE;
@@ -200,14 +200,12 @@ bool Minecraft::damageTargetedBlock() {
         // sideHit : EnumFacing — the exact face vanilla reports for this hit.
         // Using the real side keeps our STOP_DESTROY_BLOCK consistent with the
         // START the game already sent. SRG name fallback for non-MCP mappings.
-        jfieldID fidSideHit =
-            env->GetFieldID(JniCache::cls_MovingObjectPosition, OBFUSCATE_STRING("sideHit").c_str(),
-                            OBFUSCATE_STRING("Lnet/minecraft/util/EnumFacing;").c_str());
+        jfieldID fidSideHit = env->GetFieldID(JniCache::cls_MovingObjectPosition, OBFUSCATE_STRING("sideHit").c_str(),
+                                              OBFUSCATE_STRING("Lnet/minecraft/util/EnumFacing;").c_str());
         if (!fidSideHit) {
             env->ExceptionClear();
-            fidSideHit =
-                env->GetFieldID(JniCache::cls_MovingObjectPosition, OBFUSCATE_STRING("field_178784_b").c_str(),
-                                OBFUSCATE_STRING("Lnet/minecraft/util/EnumFacing;").c_str());
+            fidSideHit = env->GetFieldID(JniCache::cls_MovingObjectPosition, OBFUSCATE_STRING("field_178784_b").c_str(),
+                                         OBFUSCATE_STRING("Lnet/minecraft/util/EnumFacing;").c_str());
         }
         if (!fidSideHit) {
             env->ExceptionClear();

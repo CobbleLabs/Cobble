@@ -110,8 +110,10 @@ void EnableBackdropBlur(HWND hwnd, int width, int height) {
     DwmSetWindowAttribute(hwnd, DWMWA_WINDOW_CORNER_PREFERENCE, &cornerPreference, sizeof(cornerPreference));
 
     HMODULE user32 = GetModuleHandleW(L"user32.dll");
-    auto setWindowCompositionAttribute = user32 ? reinterpret_cast<SetWindowCompositionAttributeFn>(
-        GetProcAddress(user32, "SetWindowCompositionAttribute")) : nullptr;
+    auto setWindowCompositionAttribute =
+        user32
+            ? reinterpret_cast<SetWindowCompositionAttributeFn>(GetProcAddress(user32, "SetWindowCompositionAttribute"))
+            : nullptr;
 
     if (setWindowCompositionAttribute) {
         AccentPolicy policy = {};
@@ -183,7 +185,8 @@ void DrawSmallTextCentered(ImDrawList* dl, ImVec2 center, const char* text, floa
     ImGui::PopFont();
 }
 
-void DrawInput(const char* id, const char* label, char* value, size_t valueSize, ImVec2 pos, float width, bool password, float& focusAnim, float dt, bool* enterPressed = nullptr) {
+void DrawInput(const char* id, const char* label, char* value, size_t valueSize, ImVec2 pos, float width, bool password,
+               float& focusAnim, float dt, bool* enterPressed = nullptr) {
     ImDrawList* dl = ImGui::GetWindowDrawList();
 
     ImGui::PushFont(g_fontSmall);
@@ -221,7 +224,8 @@ void DrawInput(const char* id, const char* label, char* value, size_t valueSize,
 
     dl->AddLine(ImVec2(fieldPos.x, fieldMax.y), ImVec2(fieldMax.x, fieldMax.y), COL_RULE, 1.0f);
     if (focusAnim > 0.01f)
-        dl->AddLine(ImVec2(fieldPos.x, fieldMax.y), ImVec2(fieldPos.x + width * focusAnim, fieldMax.y), Alpha(COL_TEXT, 0.72f * focusAnim), 1.0f);
+        dl->AddLine(ImVec2(fieldPos.x, fieldMax.y), ImVec2(fieldPos.x + width * focusAnim, fieldMax.y),
+                    Alpha(COL_TEXT, 0.72f * focusAnim), 1.0f);
 
     if (enterPressed)
         *enterPressed = enter;
@@ -235,7 +239,8 @@ bool DrawButton(ImDrawList* dl, ImVec2 min, ImVec2 max, const char* label) {
     dl->AddRectFilled(min, max, down ? COL_BUTTON_DOWN : COL_BUTTON, 0.0f);
     ImGui::PushFont(g_fontStrong);
     ImVec2 textSize = ImGui::CalcTextSize(label);
-    dl->AddText(ImVec2((min.x + max.x - textSize.x) * 0.5f, (min.y + max.y - textSize.y) * 0.5f), COL_BUTTON_TEXT, label);
+    dl->AddText(ImVec2((min.x + max.x - textSize.x) * 0.5f, (min.y + max.y - textSize.y) * 0.5f), COL_BUTTON_TEXT,
+                label);
     ImGui::PopFont();
 
     return hit && ImGui::IsMouseClicked(0);
@@ -251,8 +256,10 @@ void DrawLoginView(ImDrawList* dl, ImVec2 size, float dt, float alpha) {
     ImGui::PopFont();
 
     bool enter = false;
-    DrawInput("##username", "Username", g_username, sizeof(g_username), ImVec2(x, 78.0f), width, false, g_userFocus, dt);
-    DrawInput("##password", "Password", g_password, sizeof(g_password), ImVec2(x, 149.0f), width, true, g_passFocus, dt, &enter);
+    DrawInput("##username", "Username", g_username, sizeof(g_username), ImVec2(x, 78.0f), width, false, g_userFocus,
+              dt);
+    DrawInput("##password", "Password", g_password, sizeof(g_password), ImVec2(x, 149.0f), width, true, g_passFocus, dt,
+              &enter);
 
     if (!g_errorMessage.empty()) {
         ImGui::PushFont(g_fontSmall);
@@ -288,7 +295,8 @@ void DrawErrorView(ImDrawList* dl, ImVec2 size, float alpha) {
 
     ImGui::PushFont(g_fontBody);
     ImVec2 textSize = ImGui::CalcTextSize(g_errorMessage.c_str(), nullptr, false, width);
-    dl->AddText(g_fontBody, g_fontBody->FontSize, ImVec2(x, 110.0f), Alpha(COL_TEXT, alpha * in), g_errorMessage.c_str(), nullptr, width);
+    dl->AddText(g_fontBody, g_fontBody->FontSize, ImVec2(x, 110.0f), Alpha(COL_TEXT, alpha * in),
+                g_errorMessage.c_str(), nullptr, width);
     ImGui::PopFont();
 
     float buttonY = ImMax(170.0f, 126.0f + textSize.y);
@@ -354,7 +362,7 @@ ImFont* LoadFont(ImGuiIO& io, const char* primary, const char* fallback, float s
         font = io.Fonts->AddFontDefault();
     return font;
 }
-}
+}  // namespace
 
 namespace LoaderUI {
 bool Init() {
@@ -379,9 +387,8 @@ bool Init() {
     int screenW = GetSystemMetrics(SM_CXSCREEN);
     int screenH = GetSystemMetrics(SM_CYSCREEN);
 
-    g_hwnd = CreateWindowExW(exStyle, L"CobbleLoader", L"Cobble", style,
-                             (screenW - clientW) / 2, (screenH - clientH) / 2,
-                             clientW, clientH, nullptr, nullptr, wc.hInstance, nullptr);
+    g_hwnd = CreateWindowExW(exStyle, L"CobbleLoader", L"Cobble", style, (screenW - clientW) / 2,
+                             (screenH - clientH) / 2, clientW, clientH, nullptr, nullptr, wc.hInstance, nullptr);
     if (!g_hwnd)
         return false;
 
@@ -400,9 +407,9 @@ bool Init() {
 
     D3D_FEATURE_LEVEL featureLevel;
     const D3D_FEATURE_LEVEL featureLevels[2] = {D3D_FEATURE_LEVEL_11_0, D3D_FEATURE_LEVEL_10_0};
-    HRESULT hr = D3D11CreateDeviceAndSwapChain(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, 0,
-                                               featureLevels, 2, D3D11_SDK_VERSION, &sd,
-                                               &g_pSwapChain, &g_pd3dDevice, &featureLevel, &g_pd3dDeviceContext);
+    HRESULT hr = D3D11CreateDeviceAndSwapChain(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, 0, featureLevels, 2,
+                                               D3D11_SDK_VERSION, &sd, &g_pSwapChain, &g_pd3dDevice, &featureLevel,
+                                               &g_pd3dDeviceContext);
     if (FAILED(hr))
         return false;
 
@@ -501,8 +508,8 @@ bool Render() {
     ImGui::SetNextWindowPos(ImVec2(0, 0));
     ImGui::SetNextWindowSize(io.DisplaySize);
     ImGui::Begin("##main", nullptr,
-                 ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
-                 ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoBackground);
+                 ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings |
+                     ImGuiWindowFlags_NoBackground);
 
     ImDrawList* dl = ImGui::GetWindowDrawList();
     ImVec2 size = io.DisplaySize;
@@ -588,4 +595,4 @@ bool IsLoginButtonPressed() {
 void ClearLoginButton() {
     g_loginButtonPressed = false;
 }
-}
+}  // namespace LoaderUI

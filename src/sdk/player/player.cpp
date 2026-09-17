@@ -108,25 +108,21 @@ void LocalPlayer::initFields() {
         // decrements it once per tick; while it is above half, a new hit only
         // registers if it is strictly stronger than the last one. Modules read it to
         // know whether the next incoming swing can actually hurt us.
-        fid_hurtResistantTime =
-            resolveField(livingCls, {"hurtResistantTime", "field_70172_ad", "ap"}, "I");
-        fid_maxHurtResistantTime =
-            resolveField(livingCls, {"maxHurtResistantTime", "field_70771_an", "aB"}, "I");
+        fid_hurtResistantTime = resolveField(livingCls, {"hurtResistantTime", "field_70172_ad", "ap"}, "I");
+        fid_maxHurtResistantTime = resolveField(livingCls, {"maxHurtResistantTime", "field_70771_an", "aB"}, "I");
 
         // Jump (in EntityLivingBase)
         mid_jump = resolveMethod(livingCls, {"jump", "func_70664_aZ", "bF"}, "()V");
 
         // JumpTicks (in EntityLivingBase) - controls jump delay
         fid_jumpTicks = resolveField(livingCls, {"jumpTicks", "field_70773_bE"}, "I");
-
     }
 
     // Item-use state belongs to EntityPlayer, not EntityLivingBase. Looking it
     // up on the living class leaves a pending NoSuchMethodError and disables
     // every module that relies on this state.
     if (JniCache::cls_EntityPlayer) {
-        mid_isUsingItem = resolveMethod(
-            JniCache::cls_EntityPlayer, {"isUsingItem", "func_71039_bw", "bS"}, "()Z");
+        mid_isUsingItem = resolveMethod(JniCache::cls_EntityPlayer, {"isUsingItem", "func_71039_bw", "bS"}, "()Z");
         if (!mid_isUsingItem && Java::Env()->ExceptionCheck())
             Java::Env()->ExceptionClear();
 
@@ -148,25 +144,24 @@ void LocalPlayer::initFields() {
     jclass playerSPCls = nullptr;
     const bool is_1_7_10 = Java::Version == MinecraftVersion::MC_1_7_10;
     const bool foundPlayerClass =
-        is_1_7_10
-            ? Java::AssignClass(OBFUSCATE_STRING("net.minecraft.client.entity.EntityClientPlayerMP"), playerSPCls)
-            : Java::AssignClass(OBFUSCATE_STRING("net.minecraft.client.entity.EntityPlayerSP"), playerSPCls);
+        is_1_7_10 ? Java::AssignClass(OBFUSCATE_STRING("net.minecraft.client.entity.EntityClientPlayerMP"), playerSPCls)
+                  : Java::AssignClass(OBFUSCATE_STRING("net.minecraft.client.entity.EntityPlayerSP"), playerSPCls);
     if (foundPlayerClass) {
         const char* posXName = is_1_7_10 ? "oldPosX" : "lastReportedPosX";
         const char* posYName = is_1_7_10 ? "oldPosY" : "lastReportedPosY";
         const char* posZName = is_1_7_10 ? "oldPosZ" : "lastReportedPosZ";
         const char* yawName = is_1_7_10 ? "oldRotationYaw" : "lastReportedYaw";
         const char* pitchName = is_1_7_10 ? "oldRotationPitch" : "lastReportedPitch";
-        fid_lastReportedPosX = resolveField(playerSPCls, {posXName, is_1_7_10 ? nullptr : "field_175172_bI",
-                                                        is_1_7_10 ? nullptr : "d"}, "D");
-        fid_lastReportedPosY = resolveField(playerSPCls, {posYName, is_1_7_10 ? nullptr : "field_175166_bJ",
-                                                        is_1_7_10 ? nullptr : "e"}, "D");
-        fid_lastReportedPosZ = resolveField(playerSPCls, {posZName, is_1_7_10 ? nullptr : "field_175167_bK",
-                                                        is_1_7_10 ? nullptr : "f"}, "D");
-        fid_lastReportedYaw = resolveField(playerSPCls, {yawName, is_1_7_10 ? nullptr : "field_175164_bL",
-                                                       is_1_7_10 ? nullptr : "g"}, "F");
-        fid_lastReportedPitch = resolveField(playerSPCls, {pitchName, is_1_7_10 ? nullptr : "field_175165_bM",
-                                                         is_1_7_10 ? nullptr : "h"}, "F");
+        fid_lastReportedPosX = resolveField(
+            playerSPCls, {posXName, is_1_7_10 ? nullptr : "field_175172_bI", is_1_7_10 ? nullptr : "d"}, "D");
+        fid_lastReportedPosY = resolveField(
+            playerSPCls, {posYName, is_1_7_10 ? nullptr : "field_175166_bJ", is_1_7_10 ? nullptr : "e"}, "D");
+        fid_lastReportedPosZ = resolveField(
+            playerSPCls, {posZName, is_1_7_10 ? nullptr : "field_175167_bK", is_1_7_10 ? nullptr : "f"}, "D");
+        fid_lastReportedYaw = resolveField(
+            playerSPCls, {yawName, is_1_7_10 ? nullptr : "field_175164_bL", is_1_7_10 ? nullptr : "g"}, "F");
+        fid_lastReportedPitch = resolveField(
+            playerSPCls, {pitchName, is_1_7_10 ? nullptr : "field_175165_bM", is_1_7_10 ? nullptr : "h"}, "F");
 
         if (fid_lastReportedPosX && fid_lastReportedPosY && fid_lastReportedPosZ) {
             log_ok("LocalPlayer: lastReportedPos fields initialized (Blink ready)");
@@ -191,21 +186,18 @@ void LocalPlayer::initFields() {
         Java::AssignClass(OBFUSCATE_STRING("net.minecraft.entity.player.InventoryPlayer"), inventoryCls) &&
         Java::AssignClass(OBFUSCATE_STRING("net.minecraft.item.ItemStack"), itemStackCls) &&
         Java::AssignClass(OBFUSCATE_STRING("net.minecraft.item.Item"), itemCls)) {
-
-        fid_playerInventory = JniCache::fid_inventory
-                                  ? JniCache::fid_inventory
-                                  : resolveField(playerCls, {"inventory", "field_71071_by", "bi"},
-                                                 "Lnet/minecraft/entity/player/InventoryPlayer;");
-        mid_getCurrentItem = resolveMethod(inventoryCls, {"getCurrentItem", "func_70448_g", "h"},
-                                           "()Lnet/minecraft/item/ItemStack;");
-        mid_getItem = JniCache::mid_getItem
-                          ? JniCache::mid_getItem
-                          : resolveMethod(itemStackCls, {"getItem", "func_77973_b", "b"},
-                                          "()Lnet/minecraft/item/Item;");
-        mid_getIdFromItem = JniCache::mid_getIdFromItem
-                                ? JniCache::mid_getIdFromItem
-                                : resolveMethod(itemCls, {"getIdFromItem", "func_150891_b", "a"},
-                                                "(Lnet/minecraft/item/Item;)I", true);
+        fid_playerInventory = JniCache::fid_inventory ? JniCache::fid_inventory
+                                                      : resolveField(playerCls, {"inventory", "field_71071_by", "bi"},
+                                                                     "Lnet/minecraft/entity/player/InventoryPlayer;");
+        mid_getCurrentItem =
+            resolveMethod(inventoryCls, {"getCurrentItem", "func_70448_g", "h"}, "()Lnet/minecraft/item/ItemStack;");
+        mid_getItem = JniCache::mid_getItem ? JniCache::mid_getItem
+                                            : resolveMethod(itemStackCls, {"getItem", "func_77973_b", "b"},
+                                                            "()Lnet/minecraft/item/Item;");
+        mid_getIdFromItem =
+            JniCache::mid_getIdFromItem
+                ? JniCache::mid_getIdFromItem
+                : resolveMethod(itemCls, {"getIdFromItem", "func_150891_b", "a"}, "(Lnet/minecraft/item/Item;)I", true);
         mid_getMetadata = JniCache::mid_getItemDamage
                               ? JniCache::mid_getItemDamage
                               : resolveMethod(itemStackCls, {"getMetadata", "func_77960_j", "j"}, "()I");
@@ -258,7 +250,7 @@ void LocalPlayer::refresh() {
         // Check if the player instance actually changed
         if (instance && Java::Env()->IsSameObject(instance, localPlayer) == JNI_TRUE) {
             Java::Env()->DeleteLocalRef(localPlayer);
-            return; // Same player instance, do nothing and keep it stable!
+            return;  // Same player instance, do nothing and keep it stable!
         }
 
         // Object changed: delete old global reference
@@ -508,8 +500,7 @@ int LocalPlayer::getHurtResistantTime() {
 }
 
 int LocalPlayer::getMaxHurtResistantTime() {
-    jfieldID fid =
-        fid_maxHurtResistantTime ? fid_maxHurtResistantTime : JniCache::fid_maxHurtResistantTime;
+    jfieldID fid = fid_maxHurtResistantTime ? fid_maxHurtResistantTime : JniCache::fid_maxHurtResistantTime;
     // 20 is the vanilla value and the right answer when the field cannot be read:
     // callers divide by it, so never hand back zero.
     if (!isValid() || !fid)
@@ -574,7 +565,6 @@ int LocalPlayer::getHeldItemId() {
     return result;
 }
 
-
 int LocalPlayer::getHeldItemDamage() {
     if (!isValid())
         return -1;
@@ -599,7 +589,7 @@ int LocalPlayer::getHeldItemDamage() {
     jobject itemStack = env->CallObjectMethod(inventory, mid_getCurrentItem);
     if (!itemStack) {
         env->PopLocalFrame(nullptr);
-        return -1; // Empty hand
+        return -1;  // Empty hand
     }
 
     int result = env->CallIntMethod(itemStack, mid_getMetadata);
@@ -659,7 +649,7 @@ int LocalPlayer::getItemInSlot(int slot) {
 
     if (!itemStack) {
         env->PopLocalFrame(nullptr);
-        return -1; // Empty slot
+        return -1;  // Empty slot
     }
 
     // Get itemStack.getItem() -> Item

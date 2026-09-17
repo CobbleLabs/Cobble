@@ -327,8 +327,7 @@ void AutoRefill::onUpdate() {
                 return;
             }
 
-            const auto moveElapsed =
-                std::chrono::duration_cast<std::chrono::milliseconds>(now - lastMoveTime).count();
+            const auto moveElapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - lastMoveTime).count();
             if (moveElapsed < settings.speed)
                 return;
 
@@ -356,8 +355,7 @@ void AutoRefill::onUpdate() {
                 return;
             }
             if (!hasActiveTask_) {
-                const auto wait =
-                    std::chrono::duration_cast<std::chrono::milliseconds>(now - lastMoveTime).count();
+                const auto wait = std::chrono::duration_cast<std::chrono::milliseconds>(now - lastMoveTime).count();
                 if (wait < settings.speed)
                     return;
                 if (pendingRefills.empty()) {
@@ -464,15 +462,13 @@ void AutoRefill::onOutgoingPacket(JNIEnv* env, jobject packet) {
     std::lock_guard<std::mutex> lock(pendingClickMutex_);
     int command = pendingClickCommand_.load(std::memory_order_acquire);
     if (command < 0 || !pendingClickCommand_.compare_exchange_strong(
-                           command, CLICK_COMMAND_CLAIMED, std::memory_order_acq_rel,
-                           std::memory_order_acquire))
+                           command, CLICK_COMMAND_CLAIMED, std::memory_order_acq_rel, std::memory_order_acquire))
         return;
 
     const bool silent = (command & CLICK_COMMAND_SILENT) != 0;
     const int sourceSlot = (command >> 4) & 0xFF;
     const int hotbarSlot = command & 0xF;
-    if ((!silent || !mc.isInGui()) && sourceSlot >= 9 && sourceSlot <= 35 &&
-        hotbarSlot >= 0 && hotbarSlot <= 8) {
+    if ((!silent || !mc.isInGui()) && sourceSlot >= 9 && sourceSlot <= 35 && hotbarSlot >= 0 && hotbarSlot <= 8) {
         mc.windowClickSwap(sourceSlot, hotbarSlot);
     }
     pendingClickCommand_.store(CLICK_COMMAND_EMPTY, std::memory_order_release);
@@ -515,8 +511,7 @@ void AutoRefill::scanForRefills(const std::vector<SlotInfo>& slots) {
     for (int hotbarSlot = 0; hotbarSlot <= 8; ++hotbarSlot) {
         const int existing = hotbar[hotbarSlot];
         int source = -1;
-        if (settings.refillSoup && (existing == 0 || existing == RefillItems::BOWL) &&
-            soupIndex < soupSources.size()) {
+        if (settings.refillSoup && (existing == 0 || existing == RefillItems::BOWL) && soupIndex < soupSources.size()) {
             source = soupSources[soupIndex++];
         } else if (settings.refillPotions && existing == 0 && potionIndex < potionSources.size()) {
             source = potionSources[potionIndex++];

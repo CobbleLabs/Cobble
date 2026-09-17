@@ -62,14 +62,14 @@ public:
         float reach = 4.2f;
 
         // ---- Humanization ----
-        int reactMinMs = 110;    // reaction delay before the head starts moving
+        int reactMinMs = 110;  // reaction delay before the head starts moving
         int reactMaxMs = 240;
-        int aimTicks = 3;        // ticks the flick is spread over
-        float aimNoise = 0.6f;   // per-tick rotation noise, in degrees
-        bool overshoot = true;   // overshoot slightly then correct, like a real flick
-        bool snapBack = true;    // flick the view back where it came from afterwards
+        int aimTicks = 3;       // ticks the flick is spread over
+        float aimNoise = 0.6f;  // per-tick rotation noise, in degrees
+        bool overshoot = true;  // overshoot slightly then correct, like a real flick
+        bool snapBack = true;   // flick the view back where it came from afterwards
         bool restoreSlot = true;
-        int missChance = 0;      // % of opportunities to ignore outright
+        int missChance = 0;  // % of opportunities to ignore outright
 
         bool cameraWeight = true;  // prefer anchors close to the current view
 
@@ -98,9 +98,7 @@ public:
     // thread at 20 Hz instead of on the module loop at ~500 Hz.
     void onClientTick(JNIEnv* env);
     // Stays true while a sequence is unwinding so a disable can always settle it.
-    bool needsClientTick() const {
-        return enabled || owningRotation_.load(std::memory_order_acquire);
-    }
+    bool needsClientTick() const { return enabled || owningRotation_.load(std::memory_order_acquire); }
 
     // True while we are driving the player's rotation, so the aim modules defer
     // instead of fighting the flick.

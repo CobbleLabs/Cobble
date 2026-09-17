@@ -151,8 +151,6 @@ std::string WTap::getDisplayInfo() {
     return names[std::clamp(static_cast<int>(settings.mode), 0, 2)];
 }
 
-
-
 void WTap::saveSettings(json::Value& node) const {
     node["mode"] = static_cast<int>(settings.mode);
     node["chance"] = settings.chance;
@@ -163,8 +161,7 @@ void WTap::saveSettings(json::Value& node) const {
 }
 
 void WTap::loadSettings(const json::Value& node) {
-    settings.mode = static_cast<Mode>(
-        (std::clamp)(node["mode"].as_int(static_cast<int>(settings.mode)), 0, 2));
+    settings.mode = static_cast<Mode>((std::clamp)(node["mode"].as_int(static_cast<int>(settings.mode)), 0, 2));
     settings.chance = (std::clamp)(node["chance"].as_int(settings.chance), 0, 100);
     settings.delayMs = (std::clamp)(node["delayMs"].as_int(settings.delayMs), 0, 120);
     settings.releaseMs = (std::clamp)(node["releaseMs"].as_int(settings.releaseMs), 20, 180);

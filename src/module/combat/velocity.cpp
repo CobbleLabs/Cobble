@@ -161,53 +161,53 @@ void Velocity::applyQueuedHit(int hurtTime) {
     queuedHit.active = false;
 
     switch (hit.mode) {
-            case Mode::Ping:
-            case Mode::Regular: {
-                if (settings.tickSpread > 0) {
-                    pending.active = true;
-                    pending.totalTicks = settings.tickSpread + 1;
-                    pending.ticksRemaining = settings.tickSpread;
-                    double motionX = player.getMotionX();
-                    double motionY = player.getMotionY();
-                    double motionZ = player.getMotionZ();
-                    pending.targetMotionX = motionX * (hit.horizontal / 100.0);
-                    pending.targetMotionY = motionY * (hit.vertical / 100.0);
-                    pending.targetMotionZ = motionZ * (hit.horizontal / 100.0);
-                    pending.lastHurtTime = hurtTime;
-                    double newX = motionX - ((motionX - pending.targetMotionX) / pending.totalTicks);
-                    double newY = motionY - ((motionY - pending.targetMotionY) / pending.totalTicks);
-                    double newZ = motionZ - ((motionZ - pending.targetMotionZ) / pending.totalTicks);
-                    player.setMotionX(newX);
-                    player.setMotionY(newY);
-                    player.setMotionZ(newZ);
-                } else {
-                    pending.active = false;
-                    player.setMotionX(player.getMotionX() * (hit.horizontal / 100.0));
-                    player.setMotionY(player.getMotionY() * (hit.vertical / 100.0));
-                    player.setMotionZ(player.getMotionZ() * (hit.horizontal / 100.0));
-                }
-                break;
+        case Mode::Ping:
+        case Mode::Regular: {
+            if (settings.tickSpread > 0) {
+                pending.active = true;
+                pending.totalTicks = settings.tickSpread + 1;
+                pending.ticksRemaining = settings.tickSpread;
+                double motionX = player.getMotionX();
+                double motionY = player.getMotionY();
+                double motionZ = player.getMotionZ();
+                pending.targetMotionX = motionX * (hit.horizontal / 100.0);
+                pending.targetMotionY = motionY * (hit.vertical / 100.0);
+                pending.targetMotionZ = motionZ * (hit.horizontal / 100.0);
+                pending.lastHurtTime = hurtTime;
+                double newX = motionX - ((motionX - pending.targetMotionX) / pending.totalTicks);
+                double newY = motionY - ((motionY - pending.targetMotionY) / pending.totalTicks);
+                double newZ = motionZ - ((motionZ - pending.targetMotionZ) / pending.totalTicks);
+                player.setMotionX(newX);
+                player.setMotionY(newY);
+                player.setMotionZ(newZ);
+            } else {
+                pending.active = false;
+                player.setMotionX(player.getMotionX() * (hit.horizontal / 100.0));
+                player.setMotionY(player.getMotionY() * (hit.vertical / 100.0));
+                player.setMotionZ(player.getMotionZ() * (hit.horizontal / 100.0));
             }
+            break;
+        }
 
-            case Mode::Ignore: {
-                player.setMotionX(0);
-                player.setMotionZ(0);
-                switch (settings.verticalMode) {
-                    case VerticalMode::Never:
-                        break;
-                    case VerticalMode::OnlyInAir:
-                        if (!player.isOnGround())
-                            player.setMotionY(0);
-                        break;
-                    case VerticalMode::Always:
+        case Mode::Ignore: {
+            player.setMotionX(0);
+            player.setMotionZ(0);
+            switch (settings.verticalMode) {
+                case VerticalMode::Never:
+                    break;
+                case VerticalMode::OnlyInAir:
+                    if (!player.isOnGround())
                         player.setMotionY(0);
-                        break;
-                }
-                break;
+                    break;
+                case VerticalMode::Always:
+                    player.setMotionY(0);
+                    break;
             }
+            break;
+        }
 
-            default:
-                break;
+        default:
+            break;
     }
 }
 
@@ -307,8 +307,7 @@ void Velocity::onUpdate() {
             queueHit(currentHurtTime);
 
         const bool tickDelayElapsed = queuedHit.active && currentHurtTime <= queuedHit.applyAtHurtTime;
-        const bool microDelayElapsed = queuedHit.active &&
-                                       static_cast<long>(GetTickCount() - queuedHit.applyAtMs) >= 0;
+        const bool microDelayElapsed = queuedHit.active && static_cast<long>(GetTickCount() - queuedHit.applyAtMs) >= 0;
         if (tickDelayElapsed && microDelayElapsed)
             applyQueuedHit(currentHurtTime);
 
@@ -432,8 +431,6 @@ std::string Velocity::getDisplayInfo() {
             return "";
     }
 }
-
-
 
 void Velocity::saveSettings(json::Value& node) const {
     node["mode"] = static_cast<int>(settings.mode);

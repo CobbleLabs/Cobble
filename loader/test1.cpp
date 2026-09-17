@@ -27,11 +27,9 @@
 #include "src/test6/test34.h"
 #include "test22.h"
 
-
 #include "generated/server_config.h"
 #include "generated/keys.h"
 #include "generated/version.h"
-
 
 #include "src/test2/test14.hpp"
 #include "src/test3/test17.hpp"
@@ -39,8 +37,6 @@
 #include "src/test3/test21.h"
 #include "src/test6/test30.hpp"
 #include "src/test6/test31.hpp"
-
-
 
 struct InjectionData {
     char signature[16];
@@ -53,13 +49,11 @@ struct InjectionData {
     char sessionToken[128];
     char syncToken[65];
     char apiHost[64];
-
 };
 
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow) {
     DevConsole::Initialize();
     COBBLE_DEV_LOG("Loader startup, version=%s, server=%s", COBBLE_VERSION, cobble_config::GetServerHost().c_str());
-
 
     {
         Telemetry::Init(cobble_config::GetServerHost());
@@ -70,26 +64,17 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         }
     }
 
-
-
-
-
-
     {
         int protectionCheck = 0;
         CHECK_PROTECTION(protectionCheck, 1);
 
         if (protectionCheck == 1) {
-
             int integrityCheck = 0;
             CHECK_CODE_INTEGRITY(integrityCheck, 1);
             if (integrityCheck != 1) {
-
-
                 Telemetry::ReportImmediate("VMPROTECT_CRC_MISMATCH", Telemetry::Severity::WARN, 30,
                                            "CHECK_CODE_INTEGRITY");
             }
-
 
             int debuggerCheck = 0;
             CHECK_DEBUGGER(debuggerCheck, 0);
@@ -100,9 +85,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         }
     }
 
-
     Security::Initialize();
-
 
     {
         std::vector<Security::Detection> detections;
@@ -132,7 +115,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         }
     }
 
-
     if (!LoaderUI::Init()) {
         MessageBoxA(nullptr, OBFUSCATE_STRING("Failed to initialize UI").c_str(),
                     OBFUSCATE_STRING("Cobble Loader").c_str(), MB_ICONERROR);
@@ -142,23 +124,13 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     LoaderUI::SetState(LoaderUI::State::INITIALIZING);
     LoaderUI::SetMessage(OBFUSCATE_STRING("Cobble"));
 
-    auto renderFrame = []() -> bool {
-        return LoaderUI::Render();
-    };
+    auto renderFrame = []() -> bool { return LoaderUI::Render(); };
 
     LoaderUI::Show();
     if (!renderFrame()) {
         LoaderUI::Shutdown();
         return 0;
     }
-
-
-
-
-
-
-
-
 
 #if !defined(COBBLE_DEV_BUILD)
     LoaderUI::SetMessage(OBFUSCATE_STRING("Update"));
@@ -188,30 +160,26 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     }
     updateCheckWorker.join();
     COBBLE_DEV_LOG("Update check complete: success=%s, available=%s, mandatory=%s",
-                   updateResult.success ? "true" : "false",
-                   updateResult.updateAvailable ? "true" : "false",
+                   updateResult.success ? "true" : "false", updateResult.updateAvailable ? "true" : "false",
                    updateResult.mandatory ? "true" : "false");
 
     if (updateResult.success && updateResult.mandatory) {
-
         LoaderUI::SetMessage(OBFUSCATE_STRING("Update"));
         renderFrame();
 
-
         std::string hwid = HWID::Generate();
-
 
         std::string tempDir = Updater::getTempDownloadDir();
         std::string newLoaderPath = tempDir + "\\CobbleLoader.exe";
-
 
         std::string downloadUrl = "https://" + cobble_config::GetServerHost() + OBFUSCATE_STRING("/api/update/loader");
 
         bool downloadSuccess = false;
         std::atomic<bool> downloadDone{false};
         std::thread downloadWorker([&]() {
-            downloadSuccess = Updater::downloadAndVerify(downloadUrl, newLoaderPath, updateResult.manifest.loader.sha256,
-                                                         updateResult.manifest.loader.size, hwid, nullptr);
+            downloadSuccess =
+                Updater::downloadAndVerify(downloadUrl, newLoaderPath, updateResult.manifest.loader.sha256,
+                                           updateResult.manifest.loader.size, hwid, nullptr);
             downloadDone.store(true, std::memory_order_release);
         });
         while (!downloadDone.load(std::memory_order_acquire)) {
@@ -224,15 +192,12 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         downloadWorker.join();
 
         if (downloadSuccess) {
-
             std::string selfPath = Updater::getSelfPath();
             if (Updater::spawnStub(selfPath, newLoaderPath)) {
-
                 LoaderUI::Shutdown();
                 return 0;
             }
         }
-
 
         Updater::cleanupTempDir(tempDir);
         LoaderUI::SetError(OBFUSCATE_STRING("Update failed"));
@@ -242,14 +207,12 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         return 1;
     }
 
-
     if (updateResult.success && updateResult.updateAvailable && !updateResult.mandatory) {
         COBBLE_DEV_LOG("Optional update available: version=%s", updateResult.manifest.version.c_str());
     }
 #else
     COBBLE_DEV_LOG("Development build: automatic loader update skipped");
 #endif
-
 
     HMODULE hModule = GetModuleHandle(nullptr);
     HRSRC hRes = FindResource(hModule, MAKEINTRESOURCE(IDR_COBBLE_DLL), RT_RCDATA);
@@ -265,11 +228,9 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     BYTE* encryptedData = (BYTE*)LockResource(hData);
     DWORD encryptedSize = SizeofResource(hModule, hRes);
 
-
     std::vector<uint8_t> decryptedDll;
     BYTE* dllData = nullptr;
     size_t dllSize = 0;
-
 
     ProcessInfo lunar = {};
 
@@ -312,23 +273,18 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     }
     licenseCheckWorker.join();
     COBBLE_DEV_LOG("Startup verification complete: valid=%s, requires_login=%s, error=\"%s\", host=%s",
-                   startupLicenseValid ? "true" : "false",
-                   needsLogin || License::RequiresLogin() ? "true" : "false",
-                   License::GetLastError().c_str(),
-                   cobble_config::GetServerHost().c_str());
+                   startupLicenseValid ? "true" : "false", needsLogin || License::RequiresLogin() ? "true" : "false",
+                   License::GetLastError().c_str(), cobble_config::GetServerHost().c_str());
 
     if (startupLicenseValid) {
         licenseValid = true;
         LoaderUI::SetState(LoaderUI::State::LICENSE_VALID);
     } else if (needsLogin || License::RequiresLogin()) {
-
         LoaderUI::SetState(LoaderUI::State::LOGIN_REQUIRED);
-
 
         auto nextMcScan = std::chrono::steady_clock::now();
 
         while (renderFrame()) {
-
             auto now = std::chrono::steady_clock::now();
             if (now >= nextMcScan) {
                 lunar = findLunarClient();
@@ -377,9 +333,8 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
                     LoaderUI::Shutdown();
                     return 0;
                 }
-                COBBLE_DEV_LOG("Login request complete: valid=%s, error=\"%s\", host=%s",
-                               loginValid ? "true" : "false", License::GetLastError().c_str(),
-                               cobble_config::GetServerHost().c_str());
+                COBBLE_DEV_LOG("Login request complete: valid=%s, error=\"%s\", host=%s", loginValid ? "true" : "false",
+                               License::GetLastError().c_str(), cobble_config::GetServerHost().c_str());
 
                 if (loginValid) {
                     licenseValid = true;
@@ -409,7 +364,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         return 1;
     }
 
-
     if (lunar.pid == 0) {
         LoaderUI::SetMessage(OBFUSCATE_STRING("Minecraft"));
 
@@ -419,7 +373,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
                 LoaderUI::Shutdown();
                 return 0;
             }
-
 
             auto now = std::chrono::steady_clock::now();
             if (now >= nextScan) {
@@ -431,7 +384,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         }
     }
 
-
     if (isDllInjected(lunar.pid, L"Cobble.dll")) {
         LoaderUI::SetError(OBFUSCATE_STRING("Already injected"));
         while (renderFrame())
@@ -439,10 +391,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         LoaderUI::Shutdown();
         return 0;
     }
-
-
-
-
 
     LoaderUI::SetState(LoaderUI::State::INITIALIZING);
     LoaderUI::SetMessage(OBFUSCATE_STRING("Session"));
@@ -489,7 +437,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         return 1;
     }
 
-
     CF_CRITICAL_BEGIN();
     if (CF_CHECK(false)) {
         CF_JUNK();
@@ -502,9 +449,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     }
     CF_CRITICAL_END();
 
-
     decryptedDll = PayloadCrypto::DecryptPayloadWithKey(encryptedData, encryptedSize, payloadKey);
-
 
     SecureZeroMemory(&payloadKey[0], payloadKey.size());
 
@@ -519,18 +464,13 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     dllData = decryptedDll.data();
     dllSize = decryptedDll.size();
 
-
     LoaderUI::SetState(LoaderUI::State::INJECTING);
     LoaderUI::SetMessage(OBFUSCATE_STRING("Minecraft"));
     renderFrame();
 
-
-
     HANDLE hMapFile = nullptr;
     std::wstring sharedMemNameW;
     {
-
-
         COBBLE_VM_HIGH_START
 
         InjectionData injData = {};
@@ -547,22 +487,17 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         injData.timestamp = (uint32_t)License::GetHandshakeTimestamp();
         injData.expiresIn = 300;
 
-
         std::string handshakeSig = License::GetHandshakeSig();
         strncpy_s(injData.handshakeSig, handshakeSig.c_str(), 127);
-
 
         std::string sessionToken = License::GetSessionToken();
         strncpy_s(injData.sessionToken, sessionToken.c_str(), 127);
 
-
         std::string syncToken = License::GetSyncToken();
         strncpy_s(injData.syncToken, syncToken.c_str(), 64);
 
-
         std::string apiHost = cobble_config::GetServerHost();
         strncpy_s(injData.apiHost, apiHost.c_str(), 63);
-
 
         wchar_t pidStr[64];
         swprintf_s(pidStr, L"Local\\Cobble_%lu", lunar.pid);
@@ -570,16 +505,12 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 
         COBBLE_VM_HIGH_END
 
-
-
         SECURITY_ATTRIBUTES sa = {};
         sa.nLength = sizeof(SECURITY_ATTRIBUTES);
         sa.bInheritHandle = FALSE;
 
-
         PSECURITY_DESCRIPTOR pSD = nullptr;
         PSID pCurrentUserSid = nullptr;
-
 
         HANDLE hToken = nullptr;
         PTOKEN_USER pUserToken = nullptr;
@@ -592,7 +523,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
                 pUserToken = (PTOKEN_USER)LocalAlloc(LPTR, dwSize);
                 if (pUserToken && GetTokenInformation(hToken, TokenUser, pUserToken, dwSize, &dwSize)) {
                     pCurrentUserSid = pUserToken->User.Sid;
-
 
                     EXPLICIT_ACCESS ea = {};
                     ea.grfAccessPermissions = FILE_MAP_ALL_ACCESS;
@@ -615,11 +545,9 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
             CloseHandle(hToken);
         }
 
-
         if (!sa.lpSecurityDescriptor) {
             sa.lpSecurityDescriptor = nullptr;
         }
-
 
         hMapFile = CreateFileMappingW(INVALID_HANDLE_VALUE, &sa, PAGE_READWRITE, 0, sizeof(InjectionData),
                                       sharedMemNameW.c_str());
@@ -632,7 +560,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
             }
         }
 
-
         if (pAcl)
             LocalFree(pAcl);
         if (pUserToken)
@@ -640,12 +567,8 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         if (pSD)
             LocalFree(pSD);
 
-
         SecureZeroMemory(&injData, sizeof(injData));
     }
-
-
-
 
     struct InjectionWorkerContext {
         DWORD pid;
@@ -707,15 +630,12 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         return 1;
     }
 
-
     SecureZeroMemory(decryptedDll.data(), decryptedDll.size());
 
     LoaderUI::SetState(LoaderUI::State::INJECTING_SUCCESS);
 
-
     while (renderFrame())
         ;
-
 
     if (hMapFile)
         CloseHandle(hMapFile);

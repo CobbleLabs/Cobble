@@ -21,19 +21,19 @@ enum class Event { SelectCategory, SelectEntry, Back };
 // Static facts about a category, supplied by the caller (menu.cpp owns the real
 // tab table). Kept as plain data so tests can construct arbitrary cases.
 struct CategoryInfo {
-    bool isSpecial;   // Configs / Settings
-    int  entryCount;  // number of Module_Entry items (m_subtabs.size())
+    bool isSpecial;  // Configs / Settings
+    int entryCount;  // number of Module_Entry items (m_subtabs.size())
 };
 
 // Mirrors the animated state committed in handle_anims(). The `next*` fields are
 // the pending values applied by commit() at the animation midpoint.
 struct NavState {
-    int      category     = 0;
-    int      entry        = 0;                 // selected module index within category
-    ViewKind view         = ViewKind::List;
-    int      nextCategory = 0;
-    int      nextEntry     = 0;
-    ViewKind nextView      = ViewKind::List;
+    int category = 0;
+    int entry = 0;  // selected module index within category
+    ViewKind view = ViewKind::List;
+    int nextCategory = 0;
+    int nextEntry = 0;
+    ViewKind nextView = ViewKind::List;
 };
 
 // Pure: compute the pending transition for an event. Does not mutate cur_*.
@@ -44,7 +44,7 @@ inline NavState requestTransition(NavState s, Event e, int arg, const CategoryIn
                 // Selecting a different category always lands on its list (or
                 // its direct page when special). entry/nextEntry unchanged.
                 s.nextCategory = arg;
-                s.nextView     = info.isSpecial ? ViewKind::SpecialPage : ViewKind::List;
+                s.nextView = info.isSpecial ? ViewKind::SpecialPage : ViewKind::List;
             } else if (!info.isSpecial && s.view == ViewKind::Config) {
                 // Re-selecting the active module category while in Config
                 // returns to its list. Idempotent no-op when already in List.
@@ -57,10 +57,12 @@ inline NavState requestTransition(NavState s, Event e, int arg, const CategoryIn
             // into the valid range; if there are no entries, keep state.
             if (info.entryCount > 0) {
                 int clamped = arg;
-                if (clamped < 0) clamped = 0;
-                if (clamped >= info.entryCount) clamped = info.entryCount - 1;
+                if (clamped < 0)
+                    clamped = 0;
+                if (clamped >= info.entryCount)
+                    clamped = info.entryCount - 1;
                 s.nextEntry = clamped;
-                s.nextView  = ViewKind::Config;
+                s.nextView = ViewKind::Config;
             }
             break;
         }
@@ -76,14 +78,15 @@ inline NavState requestTransition(NavState s, Event e, int arg, const CategoryIn
 // Pure: commit pending -> current (what handle_anims does at the midpoint).
 inline NavState commit(NavState s) {
     s.category = s.nextCategory;
-    s.entry    = s.nextEntry;
-    s.view     = s.nextView;
+    s.entry = s.nextEntry;
+    s.view = s.nextView;
     return s;
 }
 
 // Pure: the view that should currently be rendered for a category.
 inline ViewKind resolveView(const NavState& s, const CategoryInfo& info) {
-    if (info.isSpecial) return ViewKind::SpecialPage;
+    if (info.isSpecial)
+        return ViewKind::SpecialPage;
     return s.view;
 }
 
@@ -92,8 +95,9 @@ inline ViewKind resolveView(const NavState& s, const CategoryInfo& info) {
 // the leading prefix; odd counts bias the extra card to the left column.
 // left ++ right preserves the original order.
 inline int columnSplit(int n) {
-    if (n <= 0) return 0;
+    if (n <= 0)
+        return 0;
     return (n + 1) / 2;  // ceil(n/2)
 }
 
-} // namespace nav
+}  // namespace nav

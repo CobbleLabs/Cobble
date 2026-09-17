@@ -563,7 +563,7 @@ void ThrowPots::onRenderMenu() {
 }
 
 std::string ThrowPots::getDisplayInfo() {
-    const char* type = settings.type == ThrowPotsType::Both  ? "Both"
+    const char* type = settings.type == ThrowPotsType::Both   ? "Both"
                        : settings.type == ThrowPotsType::Pots ? "Pots"
                                                               : "Soup";
     return std::string(settings.mode == ThrowPotsMode::Dynamic ? "Dynamic " : "Single ") + type;
@@ -587,8 +587,8 @@ void ThrowPots::saveSettings(json::Value& node) const {
 }
 
 void ThrowPots::loadSettings(const json::Value& node) {
-    settings.type = static_cast<ThrowPotsType>(
-        (std::max)(0, (std::min)(2, node["type"].as_int(static_cast<int>(settings.type)))));
+    settings.type =
+        static_cast<ThrowPotsType>((std::max)(0, (std::min)(2, node["type"].as_int(static_cast<int>(settings.type)))));
 
     // The previous raid0source layout was Dynamic=0, Single=1, Double=2 and had
     // no Soup handling; Double folds into Dynamic capped at two items.
@@ -611,8 +611,8 @@ void ThrowPots::loadSettings(const json::Value& node) {
     settings.randomOrder = node["randomOrder"].as_bool(node["randomSlots"].as_bool(settings.randomOrder));
     settings.throwBowls = node["throwBowls"].as_bool(settings.throwBowls);
     settings.allowHealthI = node["allowHealthI"].as_bool(settings.allowHealthI);
-    settings.aim = static_cast<ThrowPotsAim>(
-        (std::max)(0, (std::min)(2, node["aim"].as_int(static_cast<int>(settings.aim)))));
+    settings.aim =
+        static_cast<ThrowPotsAim>((std::max)(0, (std::min)(2, node["aim"].as_int(static_cast<int>(settings.aim)))));
     settings.switchDelay = (std::max)(0, (std::min)(250, node["switchDelay"].as_int(settings.switchDelay)));
     settings.switchBack = node["switchBack"].as_bool(settings.switchBack);
     settings.retryOnFail = node["retryOnFail"].as_bool(settings.retryOnFail);

@@ -41,10 +41,8 @@ jboolean JNICALL NativeShouldSend(JNIEnv* env, jclass cls, jobject packet) {
         autoRefill->onOutgoingPacket(env, packet);
     }
 
-    const bool throwPotsPacketWork =
-        throwPots && throwPots->enabled && throwPots->needsOutgoingPacket();
-    const bool throwPotsRotating =
-        throwPotsPacketWork && throwPots->isRewritingRotation();
+    const bool throwPotsPacketWork = throwPots && throwPots->enabled && throwPots->needsOutgoingPacket();
+    const bool throwPotsRotating = throwPotsPacketWork && throwPots->isRewritingRotation();
     // AutoPot is the automatic counterpart and stands down whenever ThrowPots is
     // running, so the two can never claim the packet at the same time. Its silent
     // pitch outranks the aim modules for the same reason ThrowPots' does: a potion
@@ -56,30 +54,26 @@ jboolean JNICALL NativeShouldSend(JNIEnv* env, jclass cls, jobject packet) {
     // client tick, so the flying packet already carries the placement aim by the time it
     // gets here. What is still needed is the priority -- while the placement owns the
     // head, the aim modules must not overwrite it on the wire.
-    const bool clutchRotating =
-        (clutch && clutch->enabled && clutch->isRewritingRotation()) ||
-        (scaffold && scaffold->enabled && scaffold->isRewritingRotation());
+    const bool clutchRotating = (clutch && clutch->enabled && clutch->isRewritingRotation()) ||
+                                (scaffold && scaffold->enabled && scaffold->isRewritingRotation());
 
     const bool silentAuraRotating = silentAura && silentAura->isRewritingRotation();
 
     // AimAssist packet-rotation (smooth camera): rewrites the outgoing movement
     // packet's yaw/pitch with the randomized server rotation. Deferred while a
     // placement, potion, or SilentAura owns the rotation.
-    if (aimAssist && aimAssist->enabled && !silentAuraRotating &&
-        !clutchRotating && !potRotating) {
+    if (aimAssist && aimAssist->enabled && !silentAuraRotating && !clutchRotating && !potRotating) {
         aimAssist->onOutgoingPacket(env, packet);
     }
 
-    const bool releasingFakeLagPacket =
-        fakeLag && fakeLag->enabled && fakeLag->isReleasing();
+    const bool releasingFakeLagPacket = fakeLag && fakeLag->enabled && fakeLag->isReleasing();
 
     // Piercing may perform a synchronous through-wall attack from the Windows
     // input hook. LWJGL can observe the same click once more through polling;
     // discard only that duplicate swing/attack before other packet observers.
     // A packet already accepted and retained by FakeLag must not be classified
     // as a fresh duplicate when it is released later.
-    if (!releasingFakeLagPacket && piercing && piercing->enabled &&
-        !piercing->shouldSendOutgoingPacket(env, packet))
+    if (!releasingFakeLagPacket && piercing && piercing->enabled && !piercing->shouldSendOutgoingPacket(env, packet))
         return JNI_FALSE;
 
     // FakeLag retains only movement packets. Run it before packet observers so

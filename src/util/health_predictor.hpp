@@ -94,15 +94,26 @@ private:
     // 1.8 melee base damage of the held item (sword/axe), fist = 1.
     static float weaponBaseDamage(int id) {
         switch (id) {
-            case 268: case 283: return 4.0f;  // wood / gold sword
-            case 272: return 5.0f;            // stone sword
-            case 267: return 6.0f;            // iron sword
-            case 276: return 7.0f;            // diamond sword
-            case 271: case 286: return 3.0f;  // wood / gold axe
-            case 275: return 4.0f;            // stone axe
-            case 258: return 5.0f;            // iron axe
-            case 279: return 6.0f;            // diamond axe
-            default: return 1.0f;             // fist / other
+            case 268:
+            case 283:
+                return 4.0f;  // wood / gold sword
+            case 272:
+                return 5.0f;  // stone sword
+            case 267:
+                return 6.0f;  // iron sword
+            case 276:
+                return 7.0f;  // diamond sword
+            case 271:
+            case 286:
+                return 3.0f;  // wood / gold axe
+            case 275:
+                return 4.0f;  // stone axe
+            case 258:
+                return 5.0f;  // iron axe
+            case 279:
+                return 6.0f;  // diamond axe
+            default:
+                return 1.0f;  // fist / other
         }
     }
 
@@ -112,14 +123,61 @@ private:
         for (const auto& a : armor) {
             switch (a.id) {
                 // Helmets
-                case 298: pts += 1; break;  case 302: case 306: case 314: pts += 2; break;  case 310: pts += 3; break;
+                case 298:
+                    pts += 1;
+                    break;
+                case 302:
+                case 306:
+                case 314:
+                    pts += 2;
+                    break;
+                case 310:
+                    pts += 3;
+                    break;
                 // Chestplates
-                case 299: pts += 3; break;  case 303: case 315: pts += 5; break;  case 307: pts += 6; break;  case 311: pts += 8; break;
+                case 299:
+                    pts += 3;
+                    break;
+                case 303:
+                case 315:
+                    pts += 5;
+                    break;
+                case 307:
+                    pts += 6;
+                    break;
+                case 311:
+                    pts += 8;
+                    break;
                 // Leggings
-                case 300: pts += 2; break;  case 316: pts += 3; break;  case 304: pts += 4; break;  case 308: pts += 5; break;  case 312: pts += 6; break;
+                case 300:
+                    pts += 2;
+                    break;
+                case 316:
+                    pts += 3;
+                    break;
+                case 304:
+                    pts += 4;
+                    break;
+                case 308:
+                    pts += 5;
+                    break;
+                case 312:
+                    pts += 6;
+                    break;
                 // Boots
-                case 301: case 305: case 317: pts += 1; break;  case 309: pts += 2; break;  case 313: pts += 3; break;
-                default: break;
+                case 301:
+                case 305:
+                case 317:
+                    pts += 1;
+                    break;
+                case 309:
+                    pts += 2;
+                    break;
+                case 313:
+                    pts += 3;
+                    break;
+                default:
+                    break;
             }
         }
         return pts;
@@ -134,8 +192,8 @@ private:
 
     static float estimateDamage(int weaponId, int sharpness, int armorPts, int protLevels) {
         float base = weaponBaseDamage(weaponId) + std::max(0, sharpness) * 1.25f;  // 1.8 sharpness
-        float armorRed = 1.0f - std::min(20, armorPts) * 0.04f;                     // 1.8 armor formula
-        float protRed = 1.0f - std::min(0.8f, protLevels * 0.04f);                  // approx EPF reduction
+        float armorRed = 1.0f - std::min(20, armorPts) * 0.04f;                    // 1.8 armor formula
+        float protRed = 1.0f - std::min(0.8f, protLevels * 0.04f);                 // approx EPF reduction
         return std::max(0.5f, base * armorRed * protRed);
     }
 };

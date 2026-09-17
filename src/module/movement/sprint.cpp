@@ -67,6 +67,5 @@ void Sprint::onRenderMenu() {
                 }
             }
         },
-        "Info",
-        [this]() { ImGui::TextWrapped("Maintains continuous sprint during movement."); });
+        "Info", [this]() { ImGui::TextWrapped("Maintains continuous sprint during movement."); });
 }

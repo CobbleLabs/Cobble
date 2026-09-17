@@ -38,7 +38,6 @@ struct CheckResult {
     std::string error;
 };
 
-
 inline int compareVersions(const std::string& a, const std::string& b) {
     int aMajor = 0, aMinor = 0, aPatch = 0;
     int bMajor = 0, bMinor = 0, bPatch = 0;
@@ -52,15 +51,14 @@ inline int compareVersions(const std::string& a, const std::string& b) {
     return aPatch - bPatch;
 }
 
-
 // Highest-seen version is stored under our own key. It MUST NOT reuse
 // Software\Microsoft\Cryptography\Data\MachineGuid: that value is the real
 // OS machine GUID, and overwriting it with "1.7.0" corrupts the system and
 // makes the first-run version comparison parse a GUID as a version.
 inline std::string getHighestSeen() {
     HKEY key;
-    if (RegOpenKeyExA(HKEY_CURRENT_USER, OBFUSCATE_STRING("Software\\Cobble\\Loader").c_str(), 0,
-                      KEY_READ, &key) != ERROR_SUCCESS)
+    if (RegOpenKeyExA(HKEY_CURRENT_USER, OBFUSCATE_STRING("Software\\Cobble\\Loader").c_str(), 0, KEY_READ, &key) !=
+        ERROR_SUCCESS)
         return "";
 
     char buf[64] = {0};
@@ -72,14 +70,13 @@ inline std::string getHighestSeen() {
 
 inline void setHighestSeen(const std::string& version) {
     HKEY key;
-    if (RegCreateKeyExA(HKEY_CURRENT_USER, OBFUSCATE_STRING("Software\\Cobble\\Loader").c_str(), 0,
-                        nullptr, 0, KEY_WRITE, nullptr, &key, nullptr) == ERROR_SUCCESS) {
+    if (RegCreateKeyExA(HKEY_CURRENT_USER, OBFUSCATE_STRING("Software\\Cobble\\Loader").c_str(), 0, nullptr, 0,
+                        KEY_WRITE, nullptr, &key, nullptr) == ERROR_SUCCESS) {
         RegSetValueExA(key, OBFUSCATE_STRING("HighestSeenVersion").c_str(), 0, REG_SZ, (LPBYTE)version.c_str(),
                        (DWORD)version.size() + 1);
         RegCloseKey(key);
     }
 }
-
 
 inline std::vector<uint8_t> base64Decode(const std::string& encoded) {
     static const char* b64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -101,11 +98,9 @@ inline std::vector<uint8_t> base64Decode(const std::string& encoded) {
     return result;
 }
 
-
 inline CheckResult TryCheck(const std::string& currentVersion, const std::string& serverHost, int port,
                             const std::string& highestSeen) {
     CheckResult result;
-
 
     HINTERNET session =
         WinHttpOpen(OBFUSCATE_WSTRING(L"Mozilla/5.0").c_str(), WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, nullptr, nullptr, 0);
@@ -133,10 +128,8 @@ inline CheckResult TryCheck(const std::string& currentVersion, const std::string
         return result;
     }
 
-
     DWORD disableRedirects = WINHTTP_OPTION_REDIRECT_POLICY_NEVER;
     WinHttpSetOption(request, WINHTTP_OPTION_REDIRECT_POLICY, &disableRedirects, sizeof(disableRedirects));
-
 
     DWORD timeout = 2000;
     WinHttpSetOption(request, WINHTTP_OPTION_CONNECT_TIMEOUT, &timeout, sizeof(timeout));
@@ -152,7 +145,6 @@ inline CheckResult TryCheck(const std::string& currentVersion, const std::string
         return result;
     }
 
-
     std::string body;
     DWORD bytesRead = 0;
     char buf[4096];
@@ -163,7 +155,6 @@ inline CheckResult TryCheck(const std::string& currentVersion, const std::string
     WinHttpCloseHandle(request);
     WinHttpCloseHandle(connect);
     WinHttpCloseHandle(session);
-
 
     json::Object response;
     if (!response.parse(body)) {
@@ -178,7 +169,6 @@ inline CheckResult TryCheck(const std::string& currentVersion, const std::string
         result.error = OBFUSCATE_STRING("Missing manifest or signature");
         return result;
     }
-
 
     std::vector<uint8_t> manifestBytes = base64Decode(manifestB64);
     std::vector<uint8_t> sigBytes = base64Decode(sigB64);
@@ -198,7 +188,6 @@ inline CheckResult TryCheck(const std::string& currentVersion, const std::string
         return result;
     }
 
-
     std::string manifestJson(manifestBytes.begin(), manifestBytes.end());
     json::Object manifest;
     if (!manifest.parse(manifestJson)) {
@@ -211,12 +200,10 @@ inline CheckResult TryCheck(const std::string& currentVersion, const std::string
     result.manifest.mandatory = manifest.get("mandatory").as_bool();
     result.manifest.notes = manifest.get("notes").as_string();
 
-
     result.manifest.loader.sha256 = manifest.get("loader_sha256").as_string();
     result.manifest.loader.size = manifest.get("loader_size").as_int();
     result.manifest.dll.sha256 = manifest.get("dll_sha256").as_string();
     result.manifest.dll.size = manifest.get("dll_size").as_int();
-
 
     if (result.manifest.mandatory) {
         if (compareVersions(currentVersion, result.manifest.minAllowed) < 0) {
@@ -235,7 +222,6 @@ inline CheckResult TryCheck(const std::string& currentVersion, const std::string
     return result;
 }
 
-
 inline CheckResult Check(const std::string& currentVersion, const std::string& host, int port) {
     std::string highestSeen = getHighestSeen();
     if (highestSeen.empty()) {
@@ -243,8 +229,7 @@ inline CheckResult Check(const std::string& currentVersion, const std::string& h
         setHighestSeen(highestSeen);
     }
 
-
     return TryCheck(currentVersion, host, port, highestSeen);
 }
 
-}
+}  // namespace Updater

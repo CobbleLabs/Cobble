@@ -38,8 +38,8 @@ constexpr std::uint64_t ATTACK_MIN_GAP_MS = 180;
 constexpr std::uint64_t ATTACK_JITTER_MS = 40;
 
 bool isWeapon(int itemId) {
-    return itemId == 268 || itemId == 272 || itemId == 267 || itemId == 276 || itemId == 283 ||
-           itemId == 271 || itemId == 275 || itemId == 258 || itemId == 279 || itemId == 286;
+    return itemId == 268 || itemId == 272 || itemId == 267 || itemId == 276 || itemId == 283 || itemId == 271 ||
+           itemId == 275 || itemId == 258 || itemId == 279 || itemId == 286;
 }
 
 struct Box {
@@ -78,10 +78,9 @@ bool isAttackOrSwingPacket(JNIEnv* env, jobject packet) {
 
     jclass packetClass = env->GetObjectClass(packet);
     jclass classClass = packetClass ? env->GetObjectClass(packetClass) : nullptr;
-    jmethodID getName =
-        classClass ? env->GetMethodID(classClass, OBFUSCATE_STRING("getName").c_str(),
-                                      OBFUSCATE_STRING("()Ljava/lang/String;").c_str())
-                   : nullptr;
+    jmethodID getName = classClass ? env->GetMethodID(classClass, OBFUSCATE_STRING("getName").c_str(),
+                                                      OBFUSCATE_STRING("()Ljava/lang/String;").c_str())
+                                   : nullptr;
     jstring name = getName ? static_cast<jstring>(env->CallObjectMethod(packetClass, getName)) : nullptr;
 
     bool result = false;
@@ -124,11 +123,9 @@ std::uint64_t Piercing::nowMs() {
     return static_cast<std::uint64_t>(GetTickCount64());
 }
 
-bool Piercing::rayIntersectsBox(double originX, double originY, double originZ,
-                                double directionX, double directionY, double directionZ,
-                                double minX, double minY, double minZ,
-                                double maxX, double maxY, double maxZ,
-                                double maxDistance, double& hitDistance) {
+bool Piercing::rayIntersectsBox(double originX, double originY, double originZ, double directionX, double directionY,
+                                double directionZ, double minX, double minY, double minZ, double maxX, double maxY,
+                                double maxZ, double maxDistance, double& hitDistance) {
     double entry = 0.0;
     double exit = maxDistance;
 
@@ -162,8 +159,7 @@ bool Piercing::rayIntersectsBox(double originX, double originY, double originZ,
     return true;
 }
 
-bool Piercing::isFriendly(const PlayerInfo& candidate, const std::string& localName,
-                          ChatColor localTeamColor) const {
+bool Piercing::isFriendly(const PlayerInfo& candidate, const std::string& localName, ChatColor localTeamColor) const {
     if (!friendsManager)
         return false;
 
@@ -181,18 +177,16 @@ bool Piercing::isFriendly(const PlayerInfo& candidate, const std::string& localN
         if (candidate.isOnLocalTeam && friendsManager->honorsVanillaTeams())
             return true;
         // Apollo + Lunar API teammates (auto-detected, not manual friends).
-        if (!candidate.uuid.empty() && (friendsManager->isApolloTeammate(candidate.uuid) ||
-                                        friendsManager->isLunarTeammate(candidate.uuid)))
+        if (!candidate.uuid.empty() &&
+            (friendsManager->isApolloTeammate(candidate.uuid) || friendsManager->isLunarTeammate(candidate.uuid)))
             return true;
         // Scoreboard prefix/suffix teammates (color-independent, e.g. the
         // "TEAM_RED" style Bedwars puts every teammate under).
-        const std::string& scoreboardName =
-            candidate.profileName.empty() ? candidate.name : candidate.profileName;
+        const std::string& scoreboardName = candidate.profileName.empty() ? candidate.name : candidate.profileName;
         if (friendsManager->isScoreboardTeammate(localName, scoreboardName))
             return true;
         // Same chat-color tag as us → treat as teammate.
-        if (friendsManager->isTeammate(candidate.uuid, static_cast<ChatColor>(candidate.teamColor),
-                                       localTeamColor))
+        if (friendsManager->isTeammate(candidate.uuid, static_cast<ChatColor>(candidate.teamColor), localTeamColor))
             return true;
     }
 
@@ -268,10 +262,8 @@ Piercing::TargetPick Piercing::selectTarget(bool hiddenOnly) {
 
         const Box box = hitboxOf(candidate, expandVal);
         double friendlyHit = 0.0;
-        if (rayIntersectsBox(originX, originY, originZ,
-                             directionX, directionY, directionZ,
-                             box.minX, box.minY, box.minZ, box.maxX, box.maxY, box.maxZ,
-                             scanRange, friendlyHit))
+        if (rayIntersectsBox(originX, originY, originZ, directionX, directionY, directionZ, box.minX, box.minY,
+                             box.minZ, box.maxX, box.maxY, box.maxZ, scanRange, friendlyHit))
             nearestFriendlyHit = std::min(nearestFriendlyHit, friendlyHit);
     }
     const bool friendlyInRay = nearestFriendlyHit < std::numeric_limits<double>::max();
@@ -281,8 +273,7 @@ Piercing::TargetPick Piercing::selectTarget(bool hiddenOnly) {
     double closestHit = std::numeric_limits<double>::max();
 
     Backtrack::HeldTargetSnapshot backtrackSnapshot;
-    if (!hiddenOnly && settings.backtrackCheck && backtrack &&
-        backtrack->enabled) {
+    if (!hiddenOnly && settings.backtrackCheck && backtrack && backtrack->enabled) {
         backtrackSnapshot = backtrack->heldTargetSnapshot();
     }
 
@@ -303,42 +294,33 @@ Piercing::TargetPick Piercing::selectTarget(bool hiddenOnly) {
         const double baseRange = isVisible ? visibleRange : hiddenRange;
         // Extra reach is only on the table while a friend/teammate is in the ray;
         // it exists to cover the depth their body adds, nothing else.
-        const double reach =
-            (settings.pierceTeams && friendlyInRay) ? std::max(baseRange, pierceRange) : baseRange;
+        const double reach = (settings.pierceTeams && friendlyInRay) ? std::max(baseRange, pierceRange) : baseRange;
 
         const Box box = hitboxOf(candidate, expandVal);
         double candidateHit = std::numeric_limits<double>::max();
 
-        if (!hiddenOnly && settings.backtrackCheck &&
-            backtrackSnapshot.active && backtrackSnapshot.valid &&
-            backtrackSnapshot.pendingPackets > 0 &&
-            backtrackSnapshot.entityId == candidate.entityId) {
+        if (!hiddenOnly && settings.backtrackCheck && backtrackSnapshot.active && backtrackSnapshot.valid &&
+            backtrackSnapshot.pendingPackets > 0 && backtrackSnapshot.entityId == candidate.entityId) {
             const double realX = backtrackSnapshot.x;
             const double realY = backtrackSnapshot.y;
             const double realZ = backtrackSnapshot.z;
             const double realMinX = realX - 0.3 - expandVal;
             const double realMaxX = realX + 0.3 + expandVal;
             const double realMinY = realY - expandVal;
-            const double realMaxY =
-                realY + (candidate.isSneaking ? 1.62 : 1.8) + expandVal;
+            const double realMaxY = realY + (candidate.isSneaking ? 1.62 : 1.8) + expandVal;
             const double realMinZ = realZ - 0.3 - expandVal;
             const double realMaxZ = realZ + 0.3 + expandVal;
 
             double backtrackHit = 0.0;
-            if (rayIntersectsBox(originX, originY, originZ,
-                                 directionX, directionY, directionZ,
-                                 realMinX, realMinY, realMinZ,
-                                 realMaxX, realMaxY, realMaxZ,
-                                 reach, backtrackHit)) {
+            if (rayIntersectsBox(originX, originY, originZ, directionX, directionY, directionZ, realMinX, realMinY,
+                                 realMinZ, realMaxX, realMaxY, realMaxZ, reach, backtrackHit)) {
                 candidateHit = std::min(candidateHit, backtrackHit);
             }
         }
 
         double currentHit = 0.0;
-        if (rayIntersectsBox(originX, originY, originZ,
-                            directionX, directionY, directionZ,
-                            box.minX, box.minY, box.minZ, box.maxX, box.maxY, box.maxZ,
-                            reach, currentHit)) {
+        if (rayIntersectsBox(originX, originY, originZ, directionX, directionY, directionZ, box.minX, box.minY,
+                             box.minZ, box.maxX, box.maxY, box.maxZ, reach, currentHit)) {
             candidateHit = std::min(candidateHit, currentHit);
         }
 
@@ -372,14 +354,14 @@ Piercing::TargetPick Piercing::selectTarget(bool hiddenOnly) {
         std::uint64_t last = s_lastLogMs.load(std::memory_order_relaxed);
         if (nowLocal - last > 1500) {
             s_lastLogMs.store(nowLocal, std::memory_order_relaxed);
-            log_debug("[Piercing] pick name=%s prof=%s uuid=%s isOnLocalTeam=%d teamColor=%d "
-                      "hidden=%d ignoreF=%d ignoreT=%d friendlies=%zu pierced=%d dist=%.2f",
-                      selectedCandidate->name.c_str(), selectedCandidate->profileName.c_str(),
-                      selectedCandidate->uuid.empty() ? "?" : selectedCandidate->uuid.substr(0, 8).c_str(),
-                      selectedCandidate->isOnLocalTeam ? 1 : 0, selectedCandidate->teamColor,
-                      pick.visible ? 0 : 1, settings.ignoreFriends ? 1 : 0,
-                      settings.ignoreTeams ? 1 : 0, pick.friendlyIds.size(),
-                      pick.behindFriendly ? 1 : 0, closestHit);
+            log_debug(
+                "[Piercing] pick name=%s prof=%s uuid=%s isOnLocalTeam=%d teamColor=%d "
+                "hidden=%d ignoreF=%d ignoreT=%d friendlies=%zu pierced=%d dist=%.2f",
+                selectedCandidate->name.c_str(), selectedCandidate->profileName.c_str(),
+                selectedCandidate->uuid.empty() ? "?" : selectedCandidate->uuid.substr(0, 8).c_str(),
+                selectedCandidate->isOnLocalTeam ? 1 : 0, selectedCandidate->teamColor, pick.visible ? 0 : 1,
+                settings.ignoreFriends ? 1 : 0, settings.ignoreTeams ? 1 : 0, pick.friendlyIds.size(),
+                pick.behindFriendly ? 1 : 0, closestHit);
         }
     }
 
@@ -451,8 +433,7 @@ bool Piercing::applyCrosshairOverride(JNIEnv* env, const TargetPick& pick) {
             if (typeReady && !env->ExceptionCheck())
                 env->SetObjectField(mouseOver, JniCache::fid_entityHit, pick.entity);
 
-            if (typeReady && !env->ExceptionCheck() &&
-                JniCache::fid_entityRenderer && JniCache::fid_pointedEntity) {
+            if (typeReady && !env->ExceptionCheck() && JniCache::fid_entityRenderer && JniCache::fid_pointedEntity) {
                 jobject renderer = env->GetObjectField(mc.instance, JniCache::fid_entityRenderer);
                 if (renderer) {
                     if (!env->ExceptionCheck())
@@ -545,8 +526,7 @@ bool Piercing::handleAttackInput() {
     manualAttackActive_.store(true, std::memory_order_release);
     const bool attacked = mc.attackEntity(pick.entity);
     if (attacked) {
-        suppressDuplicatePacketsUntilMs_.store(nowLocal + DUPLICATE_PACKET_GUARD_MS,
-                                               std::memory_order_release);
+        suppressDuplicatePacketsUntilMs_.store(nowLocal + DUPLICATE_PACKET_GUARD_MS, std::memory_order_release);
         mc.setLeftClickCounter(2);
         lastAttackMs_.store(nowLocal, std::memory_order_release);
     }
@@ -623,8 +603,6 @@ std::string Piercing::getDisplayInfo() {
     std::snprintf(buffer, sizeof(buffer), "%.2f", settings.distance);
     return buffer;
 }
-
-
 
 void Piercing::saveSettings(json::Value& node) const {
     node["distance"] = settings.distance;

@@ -4,10 +4,6 @@
 #include <string>
 #include <vector>
 
-
-
-
-
 namespace json {
 
 class Value {
@@ -215,4 +211,4 @@ private:
     }
 };
 
-}
+}  // namespace json

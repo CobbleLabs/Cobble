@@ -12,8 +12,7 @@
 namespace AltManagerGate {
 namespace {
 
-constexpr const char* kLoginStartClass =
-    "net.minecraft.network.login.client.C00PacketLoginStart";
+constexpr const char* kLoginStartClass = "net.minecraft.network.login.client.C00PacketLoginStart";
 constexpr const char* kGameProfileClass = "com.mojang.authlib.GameProfile";
 constexpr const char* kGameProfileSignature = "Lcom/mojang/authlib/GameProfile;";
 
@@ -31,14 +30,12 @@ void clearPendingException(JNIEnv* env) {
 }
 
 jfieldID findProfileField(JNIEnv* env, jclass loginStartClass) {
-    jfieldID field =
-        env->GetFieldID(loginStartClass, "profile", kGameProfileSignature);
+    jfieldID field = env->GetFieldID(loginStartClass, "profile", kGameProfileSignature);
     if (field)
         return field;
 
     clearPendingException(env);
-    field = env->GetFieldID(loginStartClass, "field_149305_a",
-                            kGameProfileSignature);
+    field = env->GetFieldID(loginStartClass, "field_149305_a", kGameProfileSignature);
     clearPendingException(env);
     return field;
 }
@@ -68,24 +65,20 @@ bool ensureCache(JNIEnv* env) {
         return true;
 
     jclass loginStartLocal = nullptr;
-    if (!Java::AssignClass(kLoginStartClass, loginStartLocal) ||
-        !loginStartLocal) {
+    if (!Java::AssignClass(kLoginStartClass, loginStartLocal) || !loginStartLocal) {
         clearPendingException(env);
         return false;
     }
-    g_loginStartClass =
-        static_cast<jclass>(env->NewGlobalRef(loginStartLocal));
+    g_loginStartClass = static_cast<jclass>(env->NewGlobalRef(loginStartLocal));
     env->DeleteLocalRef(loginStartLocal);
 
     jclass gameProfileLocal = nullptr;
-    if (!Java::AssignClass(kGameProfileClass, gameProfileLocal) ||
-        !gameProfileLocal) {
+    if (!Java::AssignClass(kGameProfileClass, gameProfileLocal) || !gameProfileLocal) {
         clearPendingException(env);
         clearCache(env);
         return false;
     }
-    g_gameProfileClass =
-        static_cast<jclass>(env->NewGlobalRef(gameProfileLocal));
+    g_gameProfileClass = static_cast<jclass>(env->NewGlobalRef(gameProfileLocal));
     env->DeleteLocalRef(gameProfileLocal);
 
     if (!g_loginStartClass || !g_gameProfileClass) {
@@ -94,14 +87,11 @@ bool ensureCache(JNIEnv* env) {
     }
 
     g_profileField = findProfileField(env, g_loginStartClass);
-    g_profileConstructor = env->GetMethodID(
-        g_gameProfileClass, "<init>",
-        "(Ljava/util/UUID;Ljava/lang/String;)V");
+    g_profileConstructor = env->GetMethodID(g_gameProfileClass, "<init>", "(Ljava/util/UUID;Ljava/lang/String;)V");
     if (!g_profileConstructor)
         clearPendingException(env);
 
-    g_getProfileId = env->GetMethodID(
-        g_gameProfileClass, "getId", "()Ljava/util/UUID;");
+    g_getProfileId = env->GetMethodID(g_gameProfileClass, "getId", "()Ljava/util/UUID;");
     if (!g_getProfileId)
         clearPendingException(env);
 
@@ -140,8 +130,7 @@ bool ensureSessionAccess(JNIEnv* env) {
     g_getSessionMid = env->GetMethodID(mc.cls, "getSession", kSessionSignature);
     if (!g_getSessionMid) {
         clearPendingException(env);
-        g_getSessionMid =
-            env->GetMethodID(mc.cls, "func_110432_I", kSessionSignature);
+        g_getSessionMid = env->GetMethodID(mc.cls, "func_110432_I", kSessionSignature);
     }
     if (!g_getSessionMid) {
         clearPendingException(env);
@@ -149,8 +138,7 @@ bool ensureSessionAccess(JNIEnv* env) {
     }
     if (!g_getSessionMid && !g_sessionField) {
         clearPendingException(env);
-        g_sessionField =
-            env->GetFieldID(mc.cls, "field_71449_j", kSessionSignature);
+        g_sessionField = env->GetFieldID(mc.cls, "field_71449_j", kSessionSignature);
     }
     clearPendingException(env);
 
@@ -169,9 +157,8 @@ jobject acquireSession(JNIEnv* env) {
     if (!ensureSessionAccess(env))
         return nullptr;
 
-    jobject session = g_getSessionMid
-                          ? env->CallObjectMethod(mc.instance, g_getSessionMid)
-                          : env->GetObjectField(mc.instance, g_sessionField);
+    jobject session = g_getSessionMid ? env->CallObjectMethod(mc.instance, g_getSessionMid)
+                                      : env->GetObjectField(mc.instance, g_sessionField);
     if (env->ExceptionCheck()) {
         env->ExceptionClear();
         return nullptr;
@@ -204,23 +191,17 @@ bool forEachSessionString(JNIEnv* env, jobject session, Fn&& fn) {
         return false;
     }
 
-    jmethodID midDeclaredFields = env->GetMethodID(
-        classCls, "getDeclaredFields", "()[Ljava/lang/reflect/Field;");
-    jmethodID midClassName =
-        env->GetMethodID(classCls, "getName", "()Ljava/lang/String;");
-    jmethodID midFieldType =
-        env->GetMethodID(fieldCls, "getType", "()Ljava/lang/Class;");
-    jmethodID midSetAccessible =
-        env->GetMethodID(fieldCls, "setAccessible", "(Z)V");
+    jmethodID midDeclaredFields = env->GetMethodID(classCls, "getDeclaredFields", "()[Ljava/lang/reflect/Field;");
+    jmethodID midClassName = env->GetMethodID(classCls, "getName", "()Ljava/lang/String;");
+    jmethodID midFieldType = env->GetMethodID(fieldCls, "getType", "()Ljava/lang/Class;");
+    jmethodID midSetAccessible = env->GetMethodID(fieldCls, "setAccessible", "(Z)V");
     clearPendingException(env);
-    if (!midDeclaredFields || !midClassName || !midFieldType ||
-        !midSetAccessible) {
+    if (!midDeclaredFields || !midClassName || !midFieldType || !midSetAccessible) {
         release();
         return false;
     }
 
-    jobjectArray fields = static_cast<jobjectArray>(
-        env->CallObjectMethod(sessionCls, midDeclaredFields));
+    jobjectArray fields = static_cast<jobjectArray>(env->CallObjectMethod(sessionCls, midDeclaredFields));
     if (env->ExceptionCheck()) {
         env->ExceptionClear();
         release();
@@ -243,8 +224,7 @@ bool forEachSessionString(JNIEnv* env, jobject session, Fn&& fn) {
         bool isString = false;
         jobject type = env->CallObjectMethod(field, midFieldType);
         if (type && !env->ExceptionCheck()) {
-            jstring typeName =
-                static_cast<jstring>(env->CallObjectMethod(type, midClassName));
+            jstring typeName = static_cast<jstring>(env->CallObjectMethod(type, midClassName));
             if (typeName && !env->ExceptionCheck()) {
                 const char* raw = env->GetStringUTFChars(typeName, nullptr);
                 isString = raw && strcmp(raw, "java.lang.String") == 0;
@@ -282,8 +262,7 @@ void MaybeSpoofLoginPacket(JNIEnv* env, jobject packet) {
     if (!ensureCache(env))
         return;
 
-    const bool isLoginStart =
-        env->IsInstanceOf(packet, g_loginStartClass) == JNI_TRUE;
+    const bool isLoginStart = env->IsInstanceOf(packet, g_loginStartClass) == JNI_TRUE;
     clearPendingException(env);
     if (!isLoginStart)
         return;
@@ -304,11 +283,8 @@ void MaybeSpoofLoginPacket(JNIEnv* env, jobject packet) {
     }
 
     jstring spoofedName = env->NewStringUTF(altManager->settings.spoofedName);
-    jobject newProfile = spoofedName
-                             ? env->NewObject(g_gameProfileClass,
-                                              g_profileConstructor, uuid,
-                                              spoofedName)
-                             : nullptr;
+    jobject newProfile =
+        spoofedName ? env->NewObject(g_gameProfileClass, g_profileConstructor, uuid, spoofedName) : nullptr;
     if (env->ExceptionCheck()) {
         env->ExceptionClear();
         newProfile = nullptr;
@@ -320,8 +296,7 @@ void MaybeSpoofLoginPacket(JNIEnv* env, jobject packet) {
             env->ExceptionClear();
             log_warn("[AltManager] Failed to replace login GameProfile");
         } else {
-            log_debug("[AltManager] Login username changed to '%s'",
-                      altManager->settings.spoofedName);
+            log_debug("[AltManager] Login username changed to '%s'", altManager->settings.spoofedName);
         }
     }
 
@@ -335,8 +310,7 @@ void MaybeSpoofLoginPacket(JNIEnv* env, jobject packet) {
         env->DeleteLocalRef(oldProfile);
 }
 
-bool SetSession(JNIEnv* env, const char* username, const char* uuid,
-                const char* token, const char* sessionType,
+bool SetSession(JNIEnv* env, const char* username, const char* uuid, const char* token, const char* sessionType,
                 bool overwriteEmpty) {
     if (!env)
         return false;
@@ -349,9 +323,7 @@ bool SetSession(JNIEnv* env, const char* username, const char* uuid,
 
     jclass fieldCls = env->FindClass("java/lang/reflect/Field");
     jmethodID midSet =
-        fieldCls ? env->GetMethodID(fieldCls, "set",
-                                    "(Ljava/lang/Object;Ljava/lang/Object;)V")
-                 : nullptr;
+        fieldCls ? env->GetMethodID(fieldCls, "set", "(Ljava/lang/Object;Ljava/lang/Object;)V") : nullptr;
     clearPendingException(env);
     if (!midSet) {
         if (fieldCls)
@@ -388,13 +360,11 @@ bool SetSession(JNIEnv* env, const char* username, const char* uuid,
     env->DeleteLocalRef(session);
 
     if (updated)
-        log_debug("[AltManager] Session username set to '%s'",
-                  username ? username : "");
+        log_debug("[AltManager] Session username set to '%s'", username ? username : "");
     return updated;
 }
 
-bool GetSession(JNIEnv* env, std::string& username, std::string& uuid,
-                std::string& token, std::string& sessionType) {
+bool GetSession(JNIEnv* env, std::string& username, std::string& uuid, std::string& token, std::string& sessionType) {
     if (!env)
         return false;
 
@@ -405,10 +375,7 @@ bool GetSession(JNIEnv* env, std::string& username, std::string& uuid,
         return false;
 
     jclass fieldCls = env->FindClass("java/lang/reflect/Field");
-    jmethodID midGet =
-        fieldCls ? env->GetMethodID(fieldCls, "get",
-                                    "(Ljava/lang/Object;)Ljava/lang/Object;")
-                 : nullptr;
+    jmethodID midGet = fieldCls ? env->GetMethodID(fieldCls, "get", "(Ljava/lang/Object;)Ljava/lang/Object;") : nullptr;
     clearPendingException(env);
     if (!midGet) {
         if (fieldCls)
@@ -424,8 +391,7 @@ bool GetSession(JNIEnv* env, std::string& username, std::string& uuid,
         if (index > 3)
             return;
 
-        jstring jvalue =
-            static_cast<jstring>(env->CallObjectMethod(field, midGet, session));
+        jstring jvalue = static_cast<jstring>(env->CallObjectMethod(field, midGet, session));
         if (env->ExceptionCheck()) {
             env->ExceptionClear();
             return;

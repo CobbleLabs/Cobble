@@ -22,33 +22,24 @@
 #pragma comment(lib, "wininet.lib")
 #pragma comment(lib, "crypt32.lib")
 
-
 #define CLIENT_VERSION COBBLE_VERSION
-
-
 
 inline void ConfigureSSLFlags(HINTERNET hRequest) {
     DWORD secFlags = SECURITY_FLAG_IGNORE_REVOCATION;
     InternetSetOptionA(hRequest, INTERNET_OPTION_SECURITY_FLAGS, &secFlags, sizeof(secFlags));
 }
 
-
-
-
-
 inline BOOL SendWithCertRetry(HINTERNET hRequest, const std::string& headers, const std::string& body) {
-    BOOL result = HttpSendRequestA(hRequest, headers.c_str(), (DWORD)headers.length(),
-                                   (LPVOID)body.c_str(), (DWORD)body.length());
+    BOOL result = HttpSendRequestA(hRequest, headers.c_str(), (DWORD)headers.length(), (LPVOID)body.c_str(),
+                                   (DWORD)body.length());
     if (result) {
         return TRUE;
     }
     DWORD err = ::GetLastError();
     if (err == ERROR_INTERNET_CLIENT_AUTH_CERT_NEEDED) {
-
-
         InternetSetOptionA(hRequest, INTERNET_OPTION_CLIENT_CERT_CONTEXT, NULL, 0);
-        result = HttpSendRequestA(hRequest, headers.c_str(), (DWORD)headers.length(),
-                                  (LPVOID)body.c_str(), (DWORD)body.length());
+        result = HttpSendRequestA(hRequest, headers.c_str(), (DWORD)headers.length(), (LPVOID)body.c_str(),
+                                  (DWORD)body.length());
     }
     return result;
 }
@@ -76,8 +67,8 @@ static void LogHttpResponse(const char* operation, HINTERNET request, DWORD stat
         std::snprintf(contentType, sizeof(contentType), "<unavailable>");
     }
 
-    COBBLE_DEV_LOG("[license.%s] HTTP status=%lu, content_type=%s, body_bytes=%zu",
-                   operation, statusCode, contentType, responseSize);
+    COBBLE_DEV_LOG("[license.%s] HTTP status=%lu, content_type=%s, body_bytes=%zu", operation, statusCode, contentType,
+                   responseSize);
 #else
     (void)operation;
     (void)request;
@@ -104,7 +95,6 @@ std::string UrlEncode(const std::string& value) {
     return escaped.str();
 }
 
-
 std::string GenerateNonce() {
     HCRYPTPROV hProv = 0;
     if (!CryptAcquireContextW(&hProv, nullptr, nullptr, PROV_RSA_FULL, CRYPT_VERIFYCONTEXT)) {
@@ -125,7 +115,6 @@ std::string GenerateNonce() {
     }
     return oss.str();
 }
-
 
 std::vector<uint8_t> Base64Decode(const std::string& input) {
     DWORD outLen = 0;
@@ -274,20 +263,15 @@ std::string LowerAscii(const std::string& value) {
 
 bool HasLoginHint(const std::string& value) {
     std::string lower = LowerAscii(value);
-    return lower.find("not registered") != std::string::npos ||
-           lower.find("no license") != std::string::npos ||
-           lower.find("login") != std::string::npos ||
-           lower.find("hwid_not_registered") != std::string::npos;
+    return lower.find("not registered") != std::string::npos || lower.find("no license") != std::string::npos ||
+           lower.find("login") != std::string::npos || lower.find("hwid_not_registered") != std::string::npos;
 }
 
 bool LooksLikeHtmlOrChallenge(const std::string& value) {
     std::string lower = LowerAscii(value);
-    return lower.find("<html") != std::string::npos ||
-           lower.find("<!doctype html") != std::string::npos ||
-           lower.find("cloudflare") != std::string::npos ||
-           lower.find("cf-ray") != std::string::npos ||
-           lower.find("just a moment") != std::string::npos ||
-           lower.find("attention required") != std::string::npos;
+    return lower.find("<html") != std::string::npos || lower.find("<!doctype html") != std::string::npos ||
+           lower.find("cloudflare") != std::string::npos || lower.find("cf-ray") != std::string::npos ||
+           lower.find("just a moment") != std::string::npos || lower.find("attention required") != std::string::npos;
 }
 
 std::string NormalizeJsonResponse(const std::string& response) {
@@ -296,10 +280,8 @@ std::string NormalizeJsonResponse(const std::string& response) {
     }
 
     size_t start = 0;
-    if (response.size() >= 3 &&
-        static_cast<unsigned char>(response[0]) == 0xEF &&
-        static_cast<unsigned char>(response[1]) == 0xBB &&
-        static_cast<unsigned char>(response[2]) == 0xBF) {
+    if (response.size() >= 3 && static_cast<unsigned char>(response[0]) == 0xEF &&
+        static_cast<unsigned char>(response[1]) == 0xBB && static_cast<unsigned char>(response[2]) == 0xBF) {
         start = 3;
     }
 
@@ -338,12 +320,9 @@ void SetUnparseableResponseError(int statusCode, const std::string& response) {
         return;
     }
 
-
-
     if (LooksLikeHtmlOrChallenge(response)) {
-        MarkTransportError(statusCode == 0
-                               ? "Server returned web challenge"
-                               : "Server returned web challenge (HTTP " + std::to_string(statusCode) + ")");
+        MarkTransportError(statusCode == 0 ? "Server returned web challenge"
+                                           : "Server returned web challenge (HTTP " + std::to_string(statusCode) + ")");
         return;
     }
 
@@ -415,9 +394,8 @@ bool StoreSessionMaterial(const json::Object& payload) {
     ScopedStringWipe injectionSecretWipe(injectionSecret);
     ScopedStringWipe syncTokenWipe(syncToken);
 
-    if (!IsAsciiToken(username, 63) || !IsAsciiToken(sessionToken, 127) ||
-        !IsHexString(injectionSecret, 64) || !IsBase64Signature64(handshakeSig) ||
-        !IsHexString(syncToken, 64) || issuedAt <= 0) {
+    if (!IsAsciiToken(username, 63) || !IsAsciiToken(sessionToken, 127) || !IsHexString(injectionSecret, 64) ||
+        !IsBase64Signature64(handshakeSig) || !IsHexString(syncToken, 64) || issuedAt <= 0) {
         g_LastError = "Invalid session";
         return false;
     }
@@ -476,7 +454,6 @@ std::string GetSyncToken() {
     return g_SyncToken;
 }
 
-
 bool FetchPayloadKey(const std::string& serverUrl) {
     ClearTransportErrorState();
     if (g_SessionToken.empty()) {
@@ -497,8 +474,7 @@ bool FetchPayloadKey(const std::string& serverUrl) {
         "{\"hwid\":\"" + JsonEscape(hwid) + "\",\"session_token\":\"" + JsonEscape(g_SessionToken) + "\"}";
     ScopedStringWipe postDataWipe(postData);
 
-    HINTERNET hInternet =
-        InternetOpenA("Mozilla/5.0", INTERNET_OPEN_TYPE_PRECONFIG, NULL, NULL, 0);
+    HINTERNET hInternet = InternetOpenA("Mozilla/5.0", INTERNET_OPEN_TYPE_PRECONFIG, NULL, NULL, 0);
 
     if (!hInternet) {
         MarkTransportError("Network error");
@@ -652,7 +628,6 @@ bool Verify(const std::string& serverUrl) {
     ClearTransportErrorState();
     COBBLE_DEV_LOG("[license.verify] Begin verification");
 
-
     std::string hwid = HWID::Generate();
     if (hwid.empty()) {
         MarkLogicalError("Failed to generate HWID");
@@ -670,13 +645,11 @@ bool Verify(const std::string& serverUrl) {
 
     std::string url = serverUrl + "/api/verify";
 
-    std::string postData =
-        "{\"hwid\":\"" + JsonEscape(hwid) + "\",\"nonce\":\"" + JsonEscape(nonce) + "\",\"version\":\"" +
-        JsonEscape(std::string(CLIENT_VERSION)) + "\"}";
+    std::string postData = "{\"hwid\":\"" + JsonEscape(hwid) + "\",\"nonce\":\"" + JsonEscape(nonce) +
+                           "\",\"version\":\"" + JsonEscape(std::string(CLIENT_VERSION)) + "\"}";
     ScopedStringWipe postDataWipe(postData);
 
-    HINTERNET hInternet =
-        InternetOpenA("Mozilla/5.0", INTERNET_OPEN_TYPE_PRECONFIG, NULL, NULL, 0);
+    HINTERNET hInternet = InternetOpenA("Mozilla/5.0", INTERNET_OPEN_TYPE_PRECONFIG, NULL, NULL, 0);
 
     if (!hInternet) {
         MarkTransportError("Failed to initialize internet");
@@ -747,9 +720,6 @@ bool Verify(const std::string& serverUrl) {
     DWORD statusCodeSize = sizeof(statusCode);
     HttpQueryInfoA(hRequest, HTTP_QUERY_STATUS_CODE | HTTP_QUERY_FLAG_NUMBER, &statusCode, &statusCodeSize, NULL);
 
-
-
-
     char buffer[4096] = {0};
     DWORD bytesRead = 0;
     std::string response;
@@ -762,24 +732,19 @@ bool Verify(const std::string& serverUrl) {
 
     LogHttpResponse("verify", hRequest, statusCode, response.size());
 
-
     InternetCloseHandle(hRequest);
     InternetCloseHandle(hConnect);
     InternetCloseHandle(hInternet);
 
-
     if (response.empty()) {
-        g_LastError =
-            "No response from server (Status: " + std::to_string(statusCode) + ")";
+        g_LastError = "No response from server (Status: " + std::to_string(statusCode) + ")";
 
         if (statusCode >= 400 && statusCode < 500) {
             g_RequiresLogin = true;
         }
-        COBBLE_DEV_LOG("[license.verify] Empty response: requires_login=%s",
-                       g_RequiresLogin ? "true" : "false");
+        COBBLE_DEV_LOG("[license.verify] Empty response: requires_login=%s", g_RequiresLogin ? "true" : "false");
         return false;
     }
-
 
     json::Object json;
     if (!ParseResponseObject(response, json)) {
@@ -795,25 +760,22 @@ bool Verify(const std::string& serverUrl) {
         return false;
     }
 
-
     std::string payloadB64 = json.get_string("payload_b64", "");
     std::string sigB64 = json.get_string("sig_b64", "");
-    COBBLE_DEV_LOG("[license.verify] Envelope parsed: payload_b64_chars=%zu, sig_b64_chars=%zu",
-                   payloadB64.size(), sigB64.size());
+    COBBLE_DEV_LOG("[license.verify] Envelope parsed: payload_b64_chars=%zu, sig_b64_chars=%zu", payloadB64.size(),
+                   sigB64.size());
 
     if (payloadB64.empty() || sigB64.empty()) {
-
         std::string errorMsg = json.get_string("error", "");
         std::string message = json.get_string("message", "");
         std::string code = json.get_string("code", "");
         const bool envelopeMissing = payloadB64.empty() && sigB64.empty();
         const bool unauthenticated = statusCode == 401 || statusCode == 403;
-        const bool emptyBootstrapResponse =
-            envelopeMissing && errorMsg.empty() && message.empty() && code.empty() &&
-            statusCode >= 200 && statusCode < 300;
+        const bool emptyBootstrapResponse = envelopeMissing && errorMsg.empty() && message.empty() && code.empty() &&
+                                            statusCode >= 200 && statusCode < 300;
 
-        if (HasLoginHint(errorMsg) || HasLoginHint(message) || HasLoginHint(code) ||
-            unauthenticated || emptyBootstrapResponse) {
+        if (HasLoginHint(errorMsg) || HasLoginHint(message) || HasLoginHint(code) || unauthenticated ||
+            emptyBootstrapResponse) {
             g_RequiresLogin = true;
             g_LastError.clear();
             ClearTransportErrorState();
@@ -830,17 +792,14 @@ bool Verify(const std::string& serverUrl) {
     std::vector<uint8_t> payloadBytes = Base64Decode(payloadB64);
     ScopedVectorWipe payloadBytesWipe(payloadBytes);
     std::vector<uint8_t> sigBytes = Base64Decode(sigB64);
-    COBBLE_DEV_LOG("[license.verify] Envelope decoded: payload_bytes=%zu, signature_bytes=%zu",
-                   payloadBytes.size(), sigBytes.size());
+    COBBLE_DEV_LOG("[license.verify] Envelope decoded: payload_bytes=%zu, signature_bytes=%zu", payloadBytes.size(),
+                   sigBytes.size());
 
     if (payloadBytes.empty() || sigBytes.size() != 64) {
         MarkLogicalError("Invalid response format");
         COBBLE_DEV_LOG("[license.verify] Rejected decoded envelope dimensions");
         return false;
     }
-
-
-
 
     bool sigValid = false;
 
@@ -872,7 +831,6 @@ bool Verify(const std::string& serverUrl) {
         return false;
     }
 
-
     std::string responseNonce = payload.get_string("nonce", "");
     CF_NOP();
     if (!CF_CHECK(responseNonce == nonce)) {
@@ -881,7 +839,6 @@ bool Verify(const std::string& serverUrl) {
         COBBLE_DEV_LOG("[license.verify] Nonce verification failed");
         return false;
     }
-
 
     int64_t expiresAt = payload.get_int("expires_at", 0);
     int64_t now = (int64_t)time(nullptr);
@@ -892,24 +849,20 @@ bool Verify(const std::string& serverUrl) {
         return false;
     }
 
-
     if (payload.get_bool("valid", false)) {
         const bool stored = StoreSessionMaterial(payload);
-        COBBLE_DEV_LOG("[license.verify] Valid license payload: session_material_stored=%s",
-                       stored ? "true" : "false");
+        COBBLE_DEV_LOG("[license.verify] Valid license payload: session_material_stored=%s", stored ? "true" : "false");
         return stored;
     }
 
-
     g_LastError = payload.get_string("message", "License not valid");
-
 
     std::string errCode = payload.get_string("code", "");
     if (HasLoginHint(errCode) || HasLoginHint(g_LastError)) {
         g_RequiresLogin = true;
     }
-    COBBLE_DEV_LOG("[license.verify] License rejected: code=\"%s\", requires_login=%s, error=\"%s\"",
-                   errCode.c_str(), g_RequiresLogin ? "true" : "false", g_LastError.c_str());
+    COBBLE_DEV_LOG("[license.verify] License rejected: code=\"%s\", requires_login=%s, error=\"%s\"", errCode.c_str(),
+                   g_RequiresLogin ? "true" : "false", g_LastError.c_str());
     return false;
 }
 
@@ -922,7 +875,6 @@ bool LoginWithCredentials(const std::string& serverUrl, const std::string& usern
     g_LastError.clear();
     ClearTransportErrorState();
     COBBLE_DEV_LOG("[license.login] Begin login");
-
 
     std::string hwid = HWID::Generate();
     if (hwid.empty()) {
@@ -944,8 +896,7 @@ bool LoginWithCredentials(const std::string& serverUrl, const std::string& usern
                            "\",\"version\":\"" + JsonEscape(std::string(CLIENT_VERSION)) + "\"}";
     ScopedStringWipe postDataWipe(postData);
 
-    HINTERNET hInternet =
-        InternetOpenA("Mozilla/5.0", INTERNET_OPEN_TYPE_PRECONFIG, NULL, NULL, 0);
+    HINTERNET hInternet = InternetOpenA("Mozilla/5.0", INTERNET_OPEN_TYPE_PRECONFIG, NULL, NULL, 0);
 
     if (!hInternet) {
         MarkTransportError("Network error");
@@ -1031,7 +982,6 @@ bool LoginWithCredentials(const std::string& serverUrl, const std::string& usern
     InternetCloseHandle(hConnect);
     InternetCloseHandle(hInternet);
 
-
     json::Object json;
     if (!ParseResponseObject(response, json)) {
         COBBLE_DEV_LOG("[license.login] Top-level JSON parsing failed");
@@ -1040,14 +990,12 @@ bool LoginWithCredentials(const std::string& serverUrl, const std::string& usern
         return false;
     }
 
-
     std::string payloadB64 = json.get_string("payload_b64", "");
     std::string sigB64 = json.get_string("sig_b64", "");
-    COBBLE_DEV_LOG("[license.login] Envelope parsed: payload_b64_chars=%zu, sig_b64_chars=%zu",
-                   payloadB64.size(), sigB64.size());
+    COBBLE_DEV_LOG("[license.login] Envelope parsed: payload_b64_chars=%zu, sig_b64_chars=%zu", payloadB64.size(),
+                   sigB64.size());
 
     if (payloadB64.empty() || sigB64.empty()) {
-
         if (statusCode != 200) {
             std::string errorMsg = json.get_string("error", "");
             std::string message = json.get_string("message", "");
@@ -1068,17 +1016,14 @@ bool LoginWithCredentials(const std::string& serverUrl, const std::string& usern
     std::vector<uint8_t> payloadBytes = Base64Decode(payloadB64);
     ScopedVectorWipe payloadBytesWipe(payloadBytes);
     std::vector<uint8_t> sigBytes = Base64Decode(sigB64);
-    COBBLE_DEV_LOG("[license.login] Envelope decoded: payload_bytes=%zu, signature_bytes=%zu",
-                   payloadBytes.size(), sigBytes.size());
+    COBBLE_DEV_LOG("[license.login] Envelope decoded: payload_bytes=%zu, signature_bytes=%zu", payloadBytes.size(),
+                   sigBytes.size());
 
     if (payloadBytes.empty() || sigBytes.size() != 64) {
         g_LastError = "Invalid response format";
         COBBLE_DEV_LOG("[license.login] Rejected decoded envelope dimensions");
         return false;
     }
-
-
-
 
     bool sigValid = false;
 
@@ -1110,7 +1055,6 @@ bool LoginWithCredentials(const std::string& serverUrl, const std::string& usern
         return false;
     }
 
-
     std::string responseNonce = payload.get_string("nonce", "");
     CF_NOP();
     if (!CF_CHECK(responseNonce == nonce)) {
@@ -1120,21 +1064,18 @@ bool LoginWithCredentials(const std::string& serverUrl, const std::string& usern
         return false;
     }
 
-
     int64_t expiresAt = payload.get_int("expires_at", 0);
     int64_t now = (int64_t)time(nullptr);
     if (now > expiresAt) {
         g_LastError = "Response expired";
-        COBBLE_DEV_LOG("[license.login] Response expired: expires_at=%lld, now=%lld",
-                       static_cast<long long>(expiresAt), static_cast<long long>(now));
+        COBBLE_DEV_LOG("[license.login] Response expired: expires_at=%lld, now=%lld", static_cast<long long>(expiresAt),
+                       static_cast<long long>(now));
         return false;
     }
 
-
     if (payload.get_bool("valid", false)) {
         const bool stored = StoreSessionMaterial(payload);
-        COBBLE_DEV_LOG("[license.login] Login accepted: session_material_stored=%s",
-                       stored ? "true" : "false");
+        COBBLE_DEV_LOG("[license.login] Login accepted: session_material_stored=%s", stored ? "true" : "false");
         return stored;
     }
 
@@ -1143,5 +1084,4 @@ bool LoginWithCredentials(const std::string& serverUrl, const std::string& usern
     return false;
 }
 
-
-}
+}  // namespace License

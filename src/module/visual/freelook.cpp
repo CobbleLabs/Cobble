@@ -75,9 +75,8 @@ void Freelook::onUpdate() {
 }
 
 void Freelook::onCameraBegin(JNIEnv* env) {
-    if (!active_.load(std::memory_order_acquire) || !env ||
-        !JniCache::fid_rotationYaw || !JniCache::fid_rotationPitch ||
-        !JniCache::fid_prevRotationYaw || !JniCache::fid_prevRotationPitch)
+    if (!active_.load(std::memory_order_acquire) || !env || !JniCache::fid_rotationYaw ||
+        !JniCache::fid_rotationPitch || !JniCache::fid_prevRotationYaw || !JniCache::fid_prevRotationPitch)
         return;
 
     std::lock_guard<std::mutex> lock(stateMutex_);

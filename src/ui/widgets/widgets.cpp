@@ -34,7 +34,9 @@ static const DescriptionEntry kModuleDescriptions[] = {
     {"", "NoHitDelay", "", "Removes the client-side delay between valid attacks."},
     {"", "Criticals", "", "Automates critical-hit movement when its conditions are met."},
     {"", "WTap", "", "Briefly resets forward movement or sprint after attacks to control spacing."},
-    {"", "AutoBlock", "", "Automatically blocks with a sword during combat with Slinky-style state machine, lag phase and visual animations."},
+    {"", "AutoBlock", "",
+     "Automatically blocks with a sword during combat with Slinky-style state machine, lag phase and visual "
+     "animations."},
     {"", "Backtrack", "", "Targets recent server positions to compensate for movement and latency."},
     {"", "Piercing", "", "Finds and attacks valid entities through obstructing blocks."},
     {"", "AntiBot", "", "Decides what counts as a fake player. Every combat module asks it before choosing a target."},
@@ -254,10 +256,12 @@ static const DescriptionEntry kOptionDescriptions[] = {
     {"SilentAura", "Require Mouse Down", "", "Runs only while the attack button is held."},
     {"AutoClicker", "Randomization", "Random", "Uses the standard pseudo-random generator for each CPS interval."},
     {"AutoClicker", "Randomization", "Natural", "Uses a separately seeded 64-bit generator for CPS and click timing."},
-    {"AutoClicker", "Randomization", "Adaptive", "Uses secure draws with changing CPS clusters, random walks, and asymmetric press timing."},
+    {"AutoClicker", "Randomization", "Adaptive",
+     "Uses secure draws with changing CPS clusters, random walks, and asymmetric press timing."},
     {"Velocity", "Mode", "Regular", "Directly scales horizontal and vertical knockback by the configured percentages."},
     {"Velocity", "Mode", "Jump", "Attempts a timed jump after taking knockback to preserve movement control."},
-    {"Velocity", "Mode", "Reduce", "Reduces knockback after the configured tick delay instead of applying it immediately."},
+    {"Velocity", "Mode", "Reduce",
+     "Reduces knockback after the configured tick delay instead of applying it immediately."},
     {"Velocity", "Mode", "Ignore", "Randomly ignores eligible knockback while using the selected vertical rule."},
     {"Velocity", "Vertical", "Never", "Never suppresses the vertical component while Ignore mode activates."},
     {"Velocity", "Vertical", "Only Air", "Suppresses vertical knockback only while you are already airborne."},
@@ -274,43 +278,83 @@ static const DescriptionEntry kOptionDescriptions[] = {
     {"NoItemRelease", "Mode", "All", "Prevents release packets for every supported item except bows and fishing rods."},
     {"Tracers", "Line From", "Bottom", "Starts tracer lines at the bottom-center of the screen."},
     {"Tracers", "Line From", "Center", "Starts tracer lines at the center of the screen."},
-    {"AutoRod", "Only While Attacking", "", "Only casts on a real click. Off, it casts on its own whenever a target is in the band."},
-    {"AutoRod", "Require Weapon", "", "Only casts out of a sword or axe, so it never interrupts what you were doing with something else."},
+    {"AutoRod", "Only While Attacking", "",
+     "Only casts on a real click. Off, it casts on its own whenever a target is in the band."},
+    {"AutoRod", "Require Weapon", "",
+     "Only casts out of a sword or axe, so it never interrupts what you were doing with something else."},
     {"AutoRod", "Auto Hit", "", "Swings once after swapping back, if the crosshair is still on someone."},
-    {"AutoRod", "Min Distance", "", "Closer than this it will not cast: a sword hit is worth more than a knockback and the rod would cost you the swing."},
-    {"AutoRod", "Max Distance", "", "Farther than this the hook's own gravity drops it under the hitbox before it arrives."},
+    {"AutoRod", "Min Distance", "",
+     "Closer than this it will not cast: a sword hit is worth more than a knockback and the rod would cost you the "
+     "swing."},
+    {"AutoRod", "Max Distance", "",
+     "Farther than this the hook's own gravity drops it under the hitbox before it arrives."},
     {"AutoRod", "Cooldown (ms)", "", "Minimum gap between sequences, measured from the end of the last one."},
-    {"AutoRod", "Timing Jitter (%)", "", "Spread applied to the cooldown and the follow-up hit. The rod-hold length is physics and is never jittered."},
+    {"AutoRod", "Timing Jitter (%)", "",
+     "Spread applied to the cooldown and the follow-up hit. The rod-hold length is physics and is never jittered."},
     {"InventoryMove", "Movement", "", "Passes WASD through to the game while a screen is open."},
     {"InventoryMove", "Jump", "", "Passes the jump key through while a screen is open."},
     {"InventoryMove", "Sneak", "", "Passes the sneak key through while a screen is open."},
     {"InventoryMove", "Sprint", "", "Passes the sprint key through while a screen is open."},
     {"InventoryMove", "Containers", "", "Keeps you moving inside chests, furnaces and your own inventory."},
-    {"InventoryMove", "Text Screens", "", "Also moves while chat, signs, books and the anvil are open — careful, WASD are letters there."},
+    {"InventoryMove", "Text Screens", "",
+     "Also moves while chat, signs, books and the anvil are open — careful, WASD are letters there."},
     {"InventoryMove", "Other Screens", "", "Also moves in the pause menu, options and any other non-container screen."},
     {"Backtrack", "Mode", "Always", "Engages whenever the crosshair is on a player — the classic behaviour."},
-    {"Backtrack", "Mode", "Only on Hit", "Engages only after you actually land a hit. The ghost appears mid-fight and expires after the hold window."},
-    {"Backtrack", "Hold Time (ms)", "", "How far into the past the ghost sits. Movement packets are withheld for this long, so the server keeps the target where the box is drawn."},
-    {"Backtrack", "Packet Limit", "", "Hard stop on how many of the target's movement packets may be withheld at once. Reaching it releases the whole queue immediately."},
-    {"Backtrack", "Whole Stream", "", "Delays every player's movement, not just your target's. A real connection is not late only for whoever you are looking at, so leaving this on is what makes the hold read as lag."},
-    {"Backtrack", "Min Range", "", "Ignores targets closer than this, since backtracking point-blank pushes the hitbox behind you."},
-    {"Backtrack", "Max Range", "", "Ignores targets past this distance, so the hold only opens inside your real reach."},
-    {"Backtrack", "Only While Attacking", "", "Holds packets only while you are actually swinging — the mouse held down, or AutoClicker running."},
-    {"Backtrack", "Color", "", "Color of the ghost box drawn where the server still believes the target is. Its alpha is the overall opacity."},
+    {"Backtrack", "Mode", "Only on Hit",
+     "Engages only after you actually land a hit. The ghost appears mid-fight and expires after the hold window."},
+    {"Backtrack", "Hold Time (ms)", "",
+     "How far into the past the ghost sits. Movement packets are withheld for this long, so the server keeps the "
+     "target where the box is drawn."},
+    {"Backtrack", "Packet Limit", "",
+     "Hard stop on how many of the target's movement packets may be withheld at once. Reaching it releases the whole "
+     "queue immediately."},
+    {"Backtrack", "Whole Stream", "",
+     "Delays every player's movement, not just your target's. A real connection is not late only for whoever you are "
+     "looking at, so leaving this on is what makes the hold read as lag."},
+    {"Backtrack", "Min Range", "",
+     "Ignores targets closer than this, since backtracking point-blank pushes the hitbox behind you."},
+    {"Backtrack", "Max Range", "",
+     "Ignores targets past this distance, so the hold only opens inside your real reach."},
+    {"Backtrack", "Only While Attacking", "",
+     "Holds packets only while you are actually swinging — the mouse held down, or AutoClicker running."},
+    {"Backtrack", "Color", "",
+     "Color of the ghost box drawn where the server still believes the target is. Its alpha is the overall opacity."},
 
-    {"AimBow", "Aim Height", "", "Where on the body to aim, measured from the feet: 0 is the feet, 1 the top of the head. 0.62 is the chest, the widest part of the hitbox."},
-    {"AimBow", "Live Charge", "", "Solves for the charge actually on the bow instead of assuming a full draw. Off means every solution assumes a full-power shot."},
-    {"AimBow", "Min Charge", "", "Floor for the charge the solver assumes. An almost-empty bow needs an absurd loft, so without a floor the crosshair flies up the moment you right-click."},
-    {"AimBow", "Strength", "", "How far ahead of a moving target to aim horizontally. 1.00x is the arrow's real flight time; lower under-leads, higher over-leads."},
-    {"AimBow", "Vertical Lead", "", "How much to lead a target that is rising or falling. Kept low by default: vertical speed reverses inside a jump, so a long shot leads to where they no longer are."},
+    {"AimBow", "Aim Height", "",
+     "Where on the body to aim, measured from the feet: 0 is the feet, 1 the top of the head. 0.62 is the chest, the "
+     "widest part of the hitbox."},
+    {"AimBow", "Live Charge", "",
+     "Solves for the charge actually on the bow instead of assuming a full draw. Off means every solution assumes a "
+     "full-power shot."},
+    {"AimBow", "Min Charge", "",
+     "Floor for the charge the solver assumes. An almost-empty bow needs an absurd loft, so without a floor the "
+     "crosshair flies up the moment you right-click."},
+    {"AimBow", "Strength", "",
+     "How far ahead of a moving target to aim horizontally. 1.00x is the arrow's real flight time; lower under-leads, "
+     "higher over-leads."},
+    {"AimBow", "Vertical Lead", "",
+     "How much to lead a target that is rising or falling. Kept low by default: vertical speed reverses inside a jump, "
+     "so a long shot leads to where they no longer are."},
     {"AimBow", "Aim Mode", "Automatic", "Targets the nearest player in range."},
-    {"AimBow", "Aim Mode", "Closest to Crosshair", "Targets whoever your own crosshair is already nearest to, so you choose who gets shot."},
+    {"AimBow", "Aim Mode", "Closest to Crosshair",
+     "Targets whoever your own crosshair is already nearest to, so you choose who gets shot."},
 
-    {"AntiBot", "Name Tag", "", "Flags a player whose name gives it away: an explicit [NPC] tag, an empty or one-letter name, or a name made only of color codes. Safe to leave on."},    {"AntiBot", "NPC UUID", "", "Flags version-2 UUIDs, which the Citizens NPC plugin hands out, and the all-zero UUID. Real accounts never have either, so this costs you nothing."},
-    {"AntiBot", "Fake Profile", "", "Flags a game profile that is not a name Mojang could issue — wrong length or illegal characters. Skipped when the profile name cannot be read."},
-    {"AntiBot", "No Health", "", "Flags an entity the server never gave health attributes to. Real players always have a max health."},
-    {"AntiBot", "Invisible", "", "Flags every invisible player as a bot. Aggressive: on any server with invisibility potions this will hide real enemies."},
-    {"AntiBot", "Reset Counters", "", "Zeroes the per-check detection counts. They also reset on their own when you change world or server."},
+    {"AntiBot", "Name Tag", "",
+     "Flags a player whose name gives it away: an explicit [NPC] tag, an empty or one-letter name, or a name made only "
+     "of color codes. Safe to leave on."},
+    {"AntiBot", "NPC UUID", "",
+     "Flags version-2 UUIDs, which the Citizens NPC plugin hands out, and the all-zero UUID. Real accounts never have "
+     "either, so this costs you nothing."},
+    {"AntiBot", "Fake Profile", "",
+     "Flags a game profile that is not a name Mojang could issue — wrong length or illegal characters. Skipped when "
+     "the profile name cannot be read."},
+    {"AntiBot", "No Health", "",
+     "Flags an entity the server never gave health attributes to. Real players always have a max health."},
+    {"AntiBot", "Invisible", "",
+     "Flags every invisible player as a bot. Aggressive: on any server with invisibility potions this will hide real "
+     "enemies."},
+    {"AntiBot", "Reset Counters", "",
+     "Zeroes the per-check detection counts. They also reset on their own when you change world or server."},
     {"Teams", "Enabled", "",
      "Master switch for team awareness. Off means every player is an enemy, including the ones the vanilla scoreboard "
      "puts on your team."},
@@ -342,7 +386,8 @@ static const DescriptionEntry kOptionDescriptions[] = {
      "While the Lunar roster names anyone in this world, green nametags are ignored entirely. Turn it off where the "
      "roster is only your party and the rest of the team is marked by color."},
     {"Teams", "Vanilla Teams", "",
-     "Obeys the game's own same-team check. This is the flag the server sets with /team, independent of anything Cobble "
+     "Obeys the game's own same-team check. This is the flag the server sets with /team, independent of anything "
+     "Cobble "
      "detects; off means a scoreboard team alone will not protect anyone."},
     {"Teams", "Quick Add", "",
      "Adds whoever you are looking at to your friends with one key. The friend list itself lives in Settings."},
@@ -430,8 +475,7 @@ static const DescriptionEntry kOptionDescriptions[] = {
      "Reference time for one cursor move. Short hops finish quicker and long crossings take longer, so this sets the "
      "scale rather than the exact duration."},
 
-    {"ThrowPots", "Mode", "Dynamic",
-     "Throws as many pots as it takes to reach the target health, up to Max Throws."},
+    {"ThrowPots", "Mode", "Dynamic", "Throws as many pots as it takes to reach the target health, up to Max Throws."},
     {"ThrowPots", "Mode", "Single", "Throws exactly one pot, whatever your health is."},
     {"ThrowPots", "Mode", "Double", "Throws up to two pots - the usual manual panic-pot."},
     {"ThrowPots", "Aim", "Current", "Throws wherever you are already looking. No rotation, nothing to hide."},
@@ -510,10 +554,9 @@ static const char* resolveOptionDescription(const char* key, const char* value =
     // through to the generated "Adjusts X" line instead of the text somebody wrote for it.
     if (value && *value)
         if (const char* byKey = findDescription(kOptionDescriptions, IM_ARRAYSIZE(kOptionDescriptions),
-                                               g_descriptionContext.c_str(), key, ""))
+                                                g_descriptionContext.c_str(), key, ""))
             return byKey;
-    if (const char* generic =
-            findDescription(kOptionDescriptions, IM_ARRAYSIZE(kOptionDescriptions), "", key, ""))
+    if (const char* generic = findDescription(kOptionDescriptions, IM_ARRAYSIZE(kOptionDescriptions), "", key, ""))
         return generic;
 
     static std::string fallback;
@@ -574,12 +617,12 @@ static void DrawSliderGradient(ImDrawList* draw, const ImRect& bounds, float wid
 std::vector<ui::tab_t> ui::tabs = {
     {ICON_FA_CROSSHAIRS,
      "Combat",
-     {"AutoClicker", "AimAssist", "Velocity", "Reach", "HitSelect", "NoHitDelay", "Criticals", "WTap",
-      "Piercing", "AimBow", "AutoBlock", "AutoRod", "AntiBot", "SilentAura"}},
+     {"AutoClicker", "AimAssist", "Velocity", "Reach", "HitSelect", "NoHitDelay", "Criticals", "WTap", "Piercing",
+      "AimBow", "AutoBlock", "AutoRod", "AntiBot", "SilentAura"}},
     {ICON_FA_EYE,
      "Visuals",
-     {"NameTags", "ESP", "ItemESP", "Tracers", "BlockESP", "Trajectories", "AntiDebuff", "ArrayList",
-      "DroppedInfo", "Notifications", "Watermark", "Pings", "Chams", "Freelook"}},
+     {"NameTags", "ESP", "ItemESP", "Tracers", "BlockESP", "Trajectories", "AntiDebuff", "ArrayList", "DroppedInfo",
+      "Notifications", "Watermark", "Pings", "Chams", "Freelook"}},
     {ICON_FA_RUNNING,
      "Movement",
      {"Timer", "TimerRange", "NoSlowDown", "NoJumpDelay", "Sprint", "InventoryMove", "FastStop"}},
@@ -788,8 +831,8 @@ void drawDescriptionTip() {
                 const float t = easeOut(raw);
                 ImVec4 color;
                 if (g_tip.rainbow)
-                    ImGui::ColorConvertHSVtoRGB(fmodf(time * 0.55f + static_cast<float>(index) * 0.03f, 1.0f),
-                                                0.72f, 1.0f, color.x, color.y, color.z);
+                    ImGui::ColorConvertHSVtoRGB(fmodf(time * 0.55f + static_cast<float>(index) * 0.03f, 1.0f), 0.72f,
+                                                1.0f, color.x, color.y, color.z);
                 else
                     color = ImLerp(accent, landed, t);
                 color.w = t * ease;
@@ -902,9 +945,9 @@ static void inline_section(const char* title, const std::function<void()>& conte
         // (s(26)) with its text vertically centered, so a top-row header lines up
         // with Back instead of sitting a few pixels higher (the larger header font
         // would otherwise start above Back's centered label).
-        ImFont* f = font(2);                          // bold, bigger than the 18px body font
-        const float headerFS = f->FontSize * 1.18f;   // enlarge "Settings"/"Options" titles
-        const float rowRef = ui::s(26.f);             // matches the Back control row height
+        ImFont* f = font(2);                         // bold, bigger than the 18px body font
+        const float headerFS = f->FontSize * 1.18f;  // enlarge "Settings"/"Options" titles
+        const float rowRef = ui::s(26.f);            // matches the Back control row height
         const float offsetY = ImMax(0.f, (rowRef - headerFS) * 0.5f);
         ImVec2 pos = window->DC.CursorPos;
         draw->AddText(f, headerFS, {pos.x, pos.y + offsetY}, ui::GetColor(ImGuiCol_Text), title,
@@ -1971,17 +2014,17 @@ bool ui::color(const char* name, float col[4], bool alpha) {
 bool ui::Combo(const char* label, int* current, const char* const items[], int count) {
     ImVec2 labelPos = ImGui::GetCursorPos();
     ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ui::GetColor(ImGuiCol_TextDisabled)), "%s", label);
-    
+
     std::string hidden_label = std::string("##") + label;
     const bool changed = ImGui::Combo(hidden_label.c_str(), current, items, count);
-    
+
     bool hovered = ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled);
     // Also consider it hovered if mouse is over the label text
     ImVec2 labelSize = ImGui::CalcTextSize(label);
     if (ImGui::IsMouseHoveringRect(ImGui::GetWindowPos() + labelPos, ImGui::GetWindowPos() + labelPos + labelSize)) {
         hovered = true;
     }
-    
+
     const char* selectedValue = current && *current >= 0 && *current < count ? items[*current] : "";
     HoverDescription(label, hovered, resolveOptionDescription(label, selectedValue));
     return changed;

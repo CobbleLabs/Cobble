@@ -52,13 +52,11 @@ ImVec4 shade(const ImVec4& color, float factor, float alpha) {
 }
 
 ImVec4 lighten(const ImVec4& color, float amount, float alpha) {
-    return ImVec4(color.x + (1.0f - color.x) * amount,
-                  color.y + (1.0f - color.y) * amount,
+    return ImVec4(color.x + (1.0f - color.x) * amount, color.y + (1.0f - color.y) * amount,
                   color.z + (1.0f - color.z) * amount, alpha);
 }
 
-bool drawPlayerBox3D(ImDrawList* draw, double x, double y, double z,
-                     double renderX, double renderY, double renderZ,
+bool drawPlayerBox3D(ImDrawList* draw, double x, double y, double z, double renderX, double renderY, double renderZ,
                      float alpha, const GhostStyle& style) {
     if (!draw)
         return false;
@@ -76,8 +74,7 @@ bool drawPlayerBox3D(ImDrawList* draw, double x, double y, double z,
         {static_cast<float>(x) - halfWidth, static_cast<float>(y) + playerHeight, static_cast<float>(z) + halfWidth},
     };
     constexpr int edges[12][2] = {
-        {0, 1}, {1, 2}, {2, 3}, {3, 0}, {4, 5}, {5, 6},
-        {6, 7}, {7, 4}, {0, 4}, {1, 5}, {2, 6}, {3, 7},
+        {0, 1}, {1, 2}, {2, 3}, {3, 0}, {4, 5}, {5, 6}, {6, 7}, {7, 4}, {0, 4}, {1, 5}, {2, 6}, {3, 7},
     };
 
     Vector2 projected[8]{};
@@ -88,9 +85,8 @@ bool drawPlayerBox3D(ImDrawList* draw, double x, double y, double z,
             corners[i].y - static_cast<float>(renderY),
             corners[i].z - static_cast<float>(renderZ),
         };
-        visible[i] = CWorldToScreen::WorldToScreen(
-            relative, RenderData::modelView, RenderData::projection,
-            RenderData::screenWidth, RenderData::screenHeight, projected[i]);
+        visible[i] = CWorldToScreen::WorldToScreen(relative, RenderData::modelView, RenderData::projection,
+                                                   RenderData::screenWidth, RenderData::screenHeight, projected[i]);
     }
 
     bool drew = false;
@@ -99,8 +95,7 @@ bool drawPlayerBox3D(ImDrawList* draw, double x, double y, double z,
     constexpr float faceShade[6] = {0.72f, 0.86f, 0.52f, 0.62f, 0.44f, 0.94f};
     constexpr float faceAlpha[6] = {0.075f, 0.055f, 0.060f, 0.045f, 0.050f, 0.065f};
     constexpr int faces[6][4] = {
-        {0, 1, 2, 3}, {4, 7, 6, 5}, {0, 4, 5, 1},
-        {1, 5, 6, 2}, {2, 6, 7, 3}, {3, 7, 4, 0},
+        {0, 1, 2, 3}, {4, 7, 6, 5}, {0, 4, 5, 1}, {1, 5, 6, 2}, {2, 6, 7, 3}, {3, 7, 4, 0},
     };
     if (style.filled) {
         for (int i = 0; i < 6; ++i) {
@@ -117,27 +112,21 @@ bool drawPlayerBox3D(ImDrawList* draw, double x, double y, double z,
                 ImVec2(projected[d].x, projected[d].y),
             };
             draw->AddConvexPolyFilled(
-                polygon, 4,
-                ImGui::ColorConvertFloat4ToU32(
-                    shade(style.color, faceShade[i], alpha * faceAlpha[i])));
+                polygon, 4, ImGui::ColorConvertFloat4ToU32(shade(style.color, faceShade[i], alpha * faceAlpha[i])));
             drew = true;
         }
     }
 
-    const ImU32 glow = ImGui::ColorConvertFloat4ToU32(
-        lighten(style.color, 0.18f, alpha * 0.22f));
-    const ImU32 outline = ImGui::ColorConvertFloat4ToU32(
-        ImVec4(0.0f, 0.0f, 0.0f, alpha * 0.82f));
-    const ImU32 line = ImGui::ColorConvertFloat4ToU32(
-        ImVec4(style.color.x, style.color.y, style.color.z, alpha));
+    const ImU32 glow = ImGui::ColorConvertFloat4ToU32(lighten(style.color, 0.18f, alpha * 0.22f));
+    const ImU32 outline = ImGui::ColorConvertFloat4ToU32(ImVec4(0.0f, 0.0f, 0.0f, alpha * 0.82f));
+    const ImU32 line = ImGui::ColorConvertFloat4ToU32(ImVec4(style.color.x, style.color.y, style.color.z, alpha));
 
     const auto drawEdges = [&](ImU32 color, float thickness) {
         for (const auto& edge : edges) {
             if (!visible[edge[0]] || !visible[edge[1]])
                 continue;
             draw->AddLine(ImVec2(projected[edge[0]].x, projected[edge[0]].y),
-                          ImVec2(projected[edge[1]].x, projected[edge[1]].y),
-                          color, thickness);
+                          ImVec2(projected[edge[1]].x, projected[edge[1]].y), color, thickness);
             drew = true;
         }
     };
@@ -151,11 +140,9 @@ bool drawPlayerBox3D(ImDrawList* draw, double x, double y, double z,
     if (!style.corners)
         return drew;
 
-    const ImU32 corner = ImGui::ColorConvertFloat4ToU32(
-        lighten(style.color, 0.52f, alpha));
+    const ImU32 corner = ImGui::ColorConvertFloat4ToU32(lighten(style.color, 0.52f, alpha));
     constexpr int cornerEdges[8][3] = {
-        {0, 1, 3}, {1, 0, 2}, {2, 1, 3}, {3, 0, 2},
-        {4, 5, 7}, {5, 4, 6}, {6, 5, 7}, {7, 4, 6},
+        {0, 1, 3}, {1, 0, 2}, {2, 1, 3}, {3, 0, 2}, {4, 5, 7}, {5, 4, 6}, {6, 5, 7}, {7, 4, 6},
     };
     for (const auto& cornerEdge : cornerEdges) {
         const int vertex = cornerEdge[0];
@@ -167,10 +154,8 @@ bool drawPlayerBox3D(ImDrawList* draw, double x, double y, double z,
         const ImVec2 pFirst(projected[first].x, projected[first].y);
         const ImVec2 pSecond(projected[second].x, projected[second].y);
         constexpr float cornerLength = 0.16f;
-        const ImVec2 firstTip(p.x + (pFirst.x - p.x) * cornerLength,
-                              p.y + (pFirst.y - p.y) * cornerLength);
-        const ImVec2 secondTip(p.x + (pSecond.x - p.x) * cornerLength,
-                               p.y + (pSecond.y - p.y) * cornerLength);
+        const ImVec2 firstTip(p.x + (pFirst.x - p.x) * cornerLength, p.y + (pFirst.y - p.y) * cornerLength);
+        const ImVec2 secondTip(p.x + (pSecond.x - p.x) * cornerLength, p.y + (pSecond.y - p.y) * cornerLength);
         draw->AddLine(p, firstTip, corner, style.lineWidth * 1.55f);
         draw->AddLine(p, secondTip, corner, style.lineWidth * 1.55f);
     }
@@ -277,14 +262,13 @@ void Backtrack::onWorldChange() {
 
 bool Backtrack::needsClientTick() const {
     return enabled || drainRequested_.load(std::memory_order_acquire) ||
-           discardRequested_.load(std::memory_order_acquire) ||
-           BacktrackGate::HasPending() || BacktrackGate::NeedsEmergencyDrain();
+           discardRequested_.load(std::memory_order_acquire) || BacktrackGate::HasPending() ||
+           BacktrackGate::NeedsEmergencyDrain();
 }
 
 jobject Backtrack::targetedPlayer(JNIEnv* env) const {
-    if (!env || !mc.instance || !JniCache::fid_objectMouseOver ||
-        !JniCache::fid_typeOfHit || !JniCache::fid_entityHit ||
-        !JniCache::cls_MovingObjectType || !JniCache::fid_ENTITY ||
+    if (!env || !mc.instance || !JniCache::fid_objectMouseOver || !JniCache::fid_typeOfHit ||
+        !JniCache::fid_entityHit || !JniCache::cls_MovingObjectType || !JniCache::fid_ENTITY ||
         !JniCache::cls_EntityPlayer) {
         return nullptr;
     }
@@ -298,13 +282,9 @@ jobject Backtrack::targetedPlayer(JNIEnv* env) const {
     }
 
     jobject hitType = env->GetObjectField(mouseOver, JniCache::fid_typeOfHit);
-    jobject entityType = env->GetStaticObjectField(JniCache::cls_MovingObjectType,
-                                                    JniCache::fid_ENTITY);
-    const bool entityHitType = hitType && entityType &&
-                               env->IsSameObject(hitType, entityType) == JNI_TRUE;
-    jobject entity = entityHitType
-                         ? env->GetObjectField(mouseOver, JniCache::fid_entityHit)
-                         : nullptr;
+    jobject entityType = env->GetStaticObjectField(JniCache::cls_MovingObjectType, JniCache::fid_ENTITY);
+    const bool entityHitType = hitType && entityType && env->IsSameObject(hitType, entityType) == JNI_TRUE;
+    jobject entity = entityHitType ? env->GetObjectField(mouseOver, JniCache::fid_entityHit) : nullptr;
 
     if (hitType)
         env->DeleteLocalRef(hitType);
@@ -312,8 +292,7 @@ jobject Backtrack::targetedPlayer(JNIEnv* env) const {
         env->DeleteLocalRef(entityType);
     env->DeleteLocalRef(mouseOver);
 
-    if (env->ExceptionCheck() || !entity ||
-        env->IsInstanceOf(entity, JniCache::cls_EntityPlayer) != JNI_TRUE) {
+    if (env->ExceptionCheck() || !entity || env->IsInstanceOf(entity, JniCache::cls_EntityPlayer) != JNI_TRUE) {
         clearException(env);
         if (entity)
             env->DeleteLocalRef(entity);
@@ -325,8 +304,7 @@ jobject Backtrack::targetedPlayer(JNIEnv* env) const {
 
 bool Backtrack::attackSourceActive() const {
     const HWND foreground = GetForegroundWindow();
-    const bool focused = foreground != nullptr &&
-                         (Overlay::gameWindow == nullptr || foreground == Overlay::gameWindow);
+    const bool focused = foreground != nullptr && (Overlay::gameWindow == nullptr || foreground == Overlay::gameWindow);
     if (focused && (GetAsyncKeyState(VK_LBUTTON) & 0x8000) != 0)
         return true;
     if (autoClicker && autoClicker->enabled)
@@ -346,8 +324,7 @@ void Backtrack::notifyHitLanded(int entityId) {
 }
 
 bool Backtrack::targetWithinRange(JNIEnv* env, jobject target) const {
-    if (!env || !target || !player.isValid() || !JniCache::fid_posX ||
-        !JniCache::fid_posY || !JniCache::fid_posZ) {
+    if (!env || !target || !player.isValid() || !JniCache::fid_posX || !JniCache::fid_posY || !JniCache::fid_posZ) {
         return true;
     }
 
@@ -402,8 +379,7 @@ void Backtrack::tickWholeStream(JNIEnv* env) {
         publishIntent(intent);
     }
 
-    const bool mayEngage = !Menu::isOpen && !mc.isInGui() &&
-                           !(settings.onlyWhileAttacking && !attackSourceActive());
+    const bool mayEngage = !Menu::isOpen && !mc.isInGui() && !(settings.onlyWhileAttacking && !attackSourceActive());
 
     // OnlyOnHit: only allow engagement when a recent hit has been registered
     // against the entity we are looking at, and the hit window has not expired.
@@ -425,16 +401,15 @@ void Backtrack::tickWholeStream(JNIEnv* env) {
             const bool readId = !env->ExceptionCheck() && entityId >= 0;
             clearException(env);
             // In OnlyOnHit mode, only engage the entity we recently hit
-            const bool hitMatch = (settings.mode != Mode::OnlyOnHit) ||
-                                  (hitEntityId_.load(std::memory_order_relaxed) == entityId);
+            const bool hitMatch =
+                (settings.mode != Mode::OnlyOnHit) || (hitEntityId_.load(std::memory_order_relaxed) == entityId);
             if (readId && hitMatch && hitGateOpen && targetWithinRange(env, target)) {
                 intent = holdIntent();
                 // Switching targets inside a live stream re-primes the base against the
                 // new entity and leaves the queue alone. The packets already retained
                 // stay retained, which is the entire point: the latency does not blink
                 // because the crosshair moved.
-                if (BacktrackGate::PrimeTarget(env, target, entityId,
-                                               intent.engagementEpoch)) {
+                if (BacktrackGate::PrimeTarget(env, target, entityId, intent.engagementEpoch)) {
                     engaged = true;
                     if (!intent.active || intent.targetEntityId != entityId) {
                         intent.active = true;
@@ -471,8 +446,7 @@ void Backtrack::onClientTick(JNIEnv* env) {
     // slider that was just dragged takes effect on the very next decision.
     const bool wholeStream = settings.wholeStream;
     BacktrackGate::Configure(static_cast<unsigned>((std::max)(settings.holdMs, 0)),
-                             static_cast<unsigned>((std::max)(settings.maxPackets, 1)),
-                             wholeStream);
+                             static_cast<unsigned>((std::max)(settings.maxPackets, 1)), wholeStream);
 
     if (discardRequested_.exchange(false, std::memory_order_acq_rel)) {
         closeStream();
@@ -507,8 +481,7 @@ void Backtrack::onClientTick(JNIEnv* env) {
         return;
     }
 
-    if (Menu::isOpen || mc.isInGui() || !player.isValid() ||
-        (settings.onlyWhileAttacking && !attackSourceActive())) {
+    if (Menu::isOpen || mc.isInGui() || !player.isValid() || (settings.onlyWhileAttacking && !attackSourceActive())) {
         closeAdmission();
         if (BacktrackGate::HasPending()) {
             drainRequested_.store(true, std::memory_order_release);
@@ -520,8 +493,8 @@ void Backtrack::onClientTick(JNIEnv* env) {
     // OnlyOnHit gate for non-whole-stream path
     if (settings.mode == Mode::OnlyOnHit) {
         const std::uint64_t ts = hitTimestamp_.load(std::memory_order_acquire);
-        const bool windowExpired = (ts == 0) ||
-            (GetTickCount64() - ts > static_cast<std::uint64_t>((std::max)(settings.holdMs, 20)));
+        const bool windowExpired =
+            (ts == 0) || (GetTickCount64() - ts > static_cast<std::uint64_t>((std::max)(settings.holdMs, 20)));
         if (windowExpired) {
             closeAdmission();
             if (BacktrackGate::HasPending()) {
@@ -585,8 +558,7 @@ void Backtrack::onClientTick(JNIEnv* env) {
             return;
         }
         publishIntent({entityId, nextEpoch, true});
-    } else if (!BacktrackGate::PrimeTarget(env, target, entityId,
-                                           intent.engagementEpoch)) {
+    } else if (!BacktrackGate::PrimeTarget(env, target, entityId, intent.engagementEpoch)) {
         closeAdmission();
         drainRequested_.store(BacktrackGate::HasPending(), std::memory_order_release);
     }
@@ -608,8 +580,7 @@ Backtrack::HeldTargetSnapshot Backtrack::heldTargetSnapshot() const {
 
     HeldTargetSnapshot result;
     result.valid = source.valid;
-    result.active = intent.active && source.valid &&
-                    intent.targetEntityId == source.entityId &&
+    result.active = intent.active && source.valid && intent.targetEntityId == source.entityId &&
                     intent.engagementEpoch == source.engagementEpoch;
     result.entityId = source.entityId;
     result.x = static_cast<double>(source.serverX) / 32.0;
@@ -627,8 +598,7 @@ void Backtrack::onRender() {
         return;
     ImGuiIO& io = ImGui::GetIO();
     float frameSeconds = io.DeltaTime;
-    if (!std::isfinite(frameSeconds) || frameSeconds <= 0.0f ||
-        frameSeconds > 0.25f) {
+    if (!std::isfinite(frameSeconds) || frameSeconds <= 0.0f || frameSeconds > 0.25f) {
         frameSeconds = 1.0f / 60.0f;
     }
     frameSeconds = (std::min)(frameSeconds, 0.05f);
@@ -640,12 +610,10 @@ void Backtrack::onRender() {
     }
 
     const HeldTargetSnapshot snapshot = heldTargetSnapshot();
-    const bool boxActive = snapshot.active && snapshot.valid &&
-                           snapshot.pendingPackets != 0 && RenderData::updated;
+    const bool boxActive = snapshot.active && snapshot.valid && snapshot.pendingPackets != 0 && RenderData::updated;
 
     if (boxActive) {
-        const bool streamChanged = !boxAnimation_.initialized ||
-                                   boxAnimation_.entityId != snapshot.entityId ||
+        const bool streamChanged = !boxAnimation_.initialized || boxAnimation_.entityId != snapshot.entityId ||
                                    boxAnimation_.engagementEpoch != snapshot.engagementEpoch ||
                                    boxAnimation_.connectionEpoch != snapshot.connectionEpoch;
         const double dx = snapshot.x - boxAnimation_.x;
@@ -674,8 +642,7 @@ void Backtrack::onRender() {
     const float alphaBlend = 1.0f - std::exp(-(boxActive ? 14.0f : 10.0f) * frameSeconds);
     boxAnimation_.alpha += ((boxActive ? 1.0f : 0.0f) - boxAnimation_.alpha) * alphaBlend;
     boxAnimation_.alpha = std::clamp(boxAnimation_.alpha, 0.0f, 1.0f);
-    if (!boxAnimation_.initialized || boxAnimation_.alpha <= 0.01f ||
-        !RenderData::updated)
+    if (!boxAnimation_.initialized || boxAnimation_.alpha <= 0.01f || !RenderData::updated)
         return;
 
     const VisualSnapshot visual = VisualCache::GetSnapshot();
@@ -693,8 +660,7 @@ void Backtrack::onRender() {
     }
 
     GhostStyle style;
-    style.color = ImVec4(settings.color[0], settings.color[1], settings.color[2],
-                         settings.color[3]);
+    style.color = ImVec4(settings.color[0], settings.color[1], settings.color[2], settings.color[3]);
 
     // The picker's own alpha is the ghost's opacity, so it scales every layer at
     // once instead of needing a second slider next to it.
@@ -702,9 +668,8 @@ void Backtrack::onRender() {
     if (alpha <= 0.01f)
         return;
 
-    (void)drawPlayerBox3D(ImGui::GetBackgroundDrawList(), boxAnimation_.x,
-                          boxAnimation_.y, boxAnimation_.z, renderX, renderY,
-                          renderZ, alpha, style);
+    (void)drawPlayerBox3D(ImGui::GetBackgroundDrawList(), boxAnimation_.x, boxAnimation_.y, boxAnimation_.z, renderX,
+                          renderY, renderZ, alpha, style);
 }
 
 void Backtrack::onRenderMenu() {
@@ -712,8 +677,7 @@ void Backtrack::onRenderMenu() {
     ui::two_column(
         "Engagement",
         [this, &enabledValue]() {
-            if (ui::CheckboxBind("Enabled", &enabledValue, &keybind) &&
-                enabledValue != enabled) {
+            if (ui::CheckboxBind("Enabled", &enabledValue, &keybind) && enabledValue != enabled) {
                 setEnabled(enabledValue);
             }
             ImGui::Spacing();
@@ -748,11 +712,9 @@ void Backtrack::onRenderMenu() {
     ImGui::Spacing();
     const BacktrackGate::Status status = BacktrackGate::GetStatus();
     if (!status.ready) {
-        ImGui::TextColored(ImVec4(1.0f, 0.35f, 0.30f, 1.0f),
-                           "Unavailable: native bridge failed");
+        ImGui::TextColored(ImVec4(1.0f, 0.35f, 0.30f, 1.0f), "Unavailable: native bridge failed");
     } else if (!status.operational) {
-        ImGui::TextColored(ImVec4(1.0f, 0.68f, 0.25f, 1.0f),
-                           "Unavailable: bytecode hooks incomplete");
+        ImGui::TextColored(ImVec4(1.0f, 0.68f, 0.25f, 1.0f), "Unavailable: bytecode hooks incomplete");
     } else if (status.pendingPackets != 0) {
         ImGui::TextColored(ImVec4(settings.color[0], settings.color[1], settings.color[2], 1.0f),
                            "Tracking %u packet(s)", status.pendingPackets);
@@ -787,10 +749,8 @@ void Backtrack::loadSettings(const json::Value& node) {
     settings.maxPackets = std::clamp(node["maxPackets"].as_int(settings.maxPackets), 2, 64);
     settings.wholeStream = node["wholeStream"].as_bool(settings.wholeStream);
     settings.minRange = std::clamp(node["minRange"].as_float(settings.minRange), 0.0f, 6.0f);
-    settings.maxRange = std::clamp(node["maxRange"].as_float(settings.maxRange),
-                                   settings.minRange, 6.0f);
-    settings.onlyWhileAttacking =
-        node["onlyWhileAttacking"].as_bool(settings.onlyWhileAttacking);
+    settings.maxRange = std::clamp(node["maxRange"].as_float(settings.maxRange), settings.minRange, 6.0f);
+    settings.onlyWhileAttacking = node["onlyWhileAttacking"].as_bool(settings.onlyWhileAttacking);
     // showGhost/filled/glow/corners/followSpeed/lineWidth were dropped: older configs
     // still carry them and are simply ignored, which is what we want — the ghost is no
     // longer something a saved config can switch off or restyle.

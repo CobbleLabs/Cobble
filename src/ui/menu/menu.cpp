@@ -555,8 +555,7 @@ static void renderConfigsPage() {
                             nameBuf[0] = '\0';
                         refresh();
                     } else {
-                        NotificationManager::addSystem("Error: " +
-                                                       (err.empty() ? std::string("delete failed") : err));
+                        NotificationManager::addSystem("Error: " + (err.empty() ? std::string("delete failed") : err));
                     }
                 }
             }
@@ -640,9 +639,8 @@ static void renderConfigsPage() {
         {
             if (visible.empty()) {
                 ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetColorU32(ImGuiCol_TextDisabled));
-                ImGui::TextWrapped("%s", pubFilter == 1
-                                             ? "You haven't published any configs."
-                                             : (browse.entries.empty() ? "No configs found." : ""));
+                ImGui::TextWrapped("%s", pubFilter == 1 ? "You haven't published any configs."
+                                                        : (browse.entries.empty() ? "No configs found." : ""));
                 ImGui::PopStyleColor();
             }
 
@@ -746,8 +744,8 @@ static void renderConfigsPage() {
             if (!browse.message.empty()) {
                 ImGui::Spacing();
                 bool isErr = (browse.status == ConfigManager::BrowseState::Error);
-                ImGui::PushStyleColor(ImGuiCol_Text, isErr ? IM_COL32(255, 90, 90, 255)
-                                                           : ImGui::GetColorU32(ImGuiCol_TextDisabled));
+                ImGui::PushStyleColor(ImGuiCol_Text,
+                                      isErr ? IM_COL32(255, 90, 90, 255) : ImGui::GetColorU32(ImGuiCol_TextDisabled));
                 ImGui::TextWrapped("%s", browse.message.c_str());
                 ImGui::PopStyleColor();
             }
@@ -799,8 +797,8 @@ static ImVec2 SampleClosedPolyline(const ImVector<ImVec2>& pts, const ImVector<f
 // than a dot chasing itself. Two stroke passes (a wide soft bloom under a crisp
 // core) plus a white-hot head bloom give it depth. `intensity` (0..1) fades the
 // whole thing in on enable and out on disable.
-static void AddOutlineSweep(ImDrawList* draw, const ImVec2& a, const ImVec2& b, float rounding,
-                            float headU, float intensity) {
+static void AddOutlineSweep(ImDrawList* draw, const ImVec2& a, const ImVec2& b, float rounding, float headU,
+                            float intensity) {
     if (!draw || intensity <= 0.01f)
         return;
 
@@ -834,9 +832,9 @@ static void AddOutlineSweep(ImDrawList* draw, const ImVec2& a, const ImVec2& b, 
     // bright point and the light visibly trails off around the contour. Width tracks
     // brightness too, so the tail also tapers to a thin line. The far side falls to
     // ~0, so it reads as a rim light gliding the contour, not a lit rectangle.
-    const int M = 192;                // gradient resolution around the loop (kept modest to bound vertex count)
-    const float headSigma = 0.022f;   // leading falloff (ahead of the head), in perimeter fraction — sharp bright head
-    const float tailTau = 0.090f;     // trailing exponential scale (behind the head) — long, dimming, directional tail
+    const int M = 192;               // gradient resolution around the loop (kept modest to bound vertex count)
+    const float headSigma = 0.022f;  // leading falloff (ahead of the head), in perimeter fraction — sharp bright head
+    const float tailTau = 0.090f;    // trailing exponential scale (behind the head) — long, dimming, directional tail
 
     ImVector<ImVec2> sp;
     ImVector<float> sb;
@@ -903,13 +901,13 @@ static void AddOutlineSweep(ImDrawList* draw, const ImVec2& a, const ImVec2& b, 
     const float vGlow = 0.60f;
     const int PASSES = 8;
     for (int k = 0; k < PASSES; ++k) {
-        const float t = (float)k / (float)(PASSES - 1);     // 0 = bright core, 1 = wide halo
+        const float t = (float)k / (float)(PASSES - 1);  // 0 = bright core, 1 = wide halo
         // Balanced width in/out (inner is capped at the corner radius anyway), so the
         // long top/bottom edges don't billow vertically. A bright, fairly narrow core
         // reads as a defined LINE — thicker than the card's 1px outline — with a
         // tighter soft halo hugging it rather than a big diffuse cloud.
         const float outerBase = ImLerp(0.55f, 0.85f, t);
-        const float outerGain = ImLerp(1.05f, 2.30f, t);    // crisp thin line -> very tight halo
+        const float outerGain = ImLerp(1.05f, 2.30f, t);  // crisp thin line -> very tight halo
         const float innerBase = ImLerp(0.40f, 0.60f, t);
         const float innerGain = ImLerp(1.05f, 2.10f, t);    // inner side, clamped below
         const float pAlpha = ImLerp(0.20f, 0.010f, t * t);  // defined core, faint metallic halo (dimmer)
@@ -1011,8 +1009,8 @@ static void renderModuleList(int tab) {
 
     const int filteredCount = (int)filteredResults.size();
 
-    const float cardGapY = ui::s(6);   // between cards
-    const float cardH = ui::s(56);     // room for name + subtitle
+    const float cardGapY = ui::s(6);  // between cards
+    const float cardH = ui::s(56);    // room for name + subtitle
     const float cardRound = ui::s(ui::theme::rounding::ModuleCard);
 
     const float avail = ImGui::GetContentRegionAvail().x;
@@ -1187,8 +1185,7 @@ static void renderModuleList(int tab) {
         ImU32 gearCol = ui::GetColor(ImGuiCol_TextDisabled, 0.45f + obj.gearHover * 0.55f);
         draw->AddText(gearPos, gearCol, gear, gearEnd);
 
-        ui::HoverDescription(name, nHovered || gHovered,
-                             isLocked ? "Developer only (for now.)" : subtitle, isLocked);
+        ui::HoverDescription(name, nHovered || gHovered, isLocked ? "Developer only (for now.)" : subtitle, isLocked);
 
         ImGui::PopID();
     };
@@ -1263,8 +1260,7 @@ static void renderModuleConfig(int tab) {
         obj.hover = ui::animate(obj.hover, 0.f, 1.f, hovered);
 
         if (obj.hover > 0.01f) {
-            window->DrawList->AddRectFilled(bb.Min, bb.Max,
-                                            ui::GetColor(ImGuiCol_FrameBgHovered, obj.hover * 0.35f),
+            window->DrawList->AddRectFilled(bb.Min, bb.Max, ui::GetColor(ImGuiCol_FrameBgHovered, obj.hover * 0.35f),
                                             ui::s(4));
         }
 
@@ -1451,12 +1447,11 @@ static void renderModuleConfig(int tab) {
                 const float colW = ImGui::CalcItemWidth();
                 for (int i = 0; i < Watermark::itemCount; ++i) {
                     const Watermark::Item& it = Watermark::items[i];
-                    const char* body = (it.kind == Watermark::KindText && it.text[0] != '\0')
-                                           ? it.text
-                                           : Watermark::kindName(it.kind);
+                    const char* body =
+                        (it.kind == Watermark::KindText && it.text[0] != '\0') ? it.text : Watermark::kindName(it.kind);
                     char label[128];
-                    ImFormatString(label, sizeof(label), "%d. %s%s##wmItem%d", i + 1, it.enabled ? "" : "[off] ",
-                                   body, i);
+                    ImFormatString(label, sizeof(label), "%d. %s%s##wmItem%d", i + 1, it.enabled ? "" : "[off] ", body,
+                                   i);
                     const bool isSel = (i == wmSelected);
                     if (isSel)
                         ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetColorU32(ImGuiCol_ButtonActive));
@@ -1935,11 +1930,10 @@ static void renderMenu(float openAnim, float pop, float contentT) {
                 // Inner top shadow: a soft gradient so the brand area above
                 // appears to cast onto the recessed categories panel.
                 float shadowH = ui::s(20);
-                navDraw->AddRectFilledMultiColor(panelMin, ImVec2(panelMax.x, panelMin.y + shadowH),
-                                                 ImGui::GetColorU32(ImVec4(0, 0, 0, 0.45f)),
-                                                 ImGui::GetColorU32(ImVec4(0, 0, 0, 0.45f)),
-                                                 ImGui::GetColorU32(ImVec4(0, 0, 0, 0.0f)),
-                                                 ImGui::GetColorU32(ImVec4(0, 0, 0, 0.0f)));
+                navDraw->AddRectFilledMultiColor(
+                    panelMin, ImVec2(panelMax.x, panelMin.y + shadowH), ImGui::GetColorU32(ImVec4(0, 0, 0, 0.45f)),
+                    ImGui::GetColorU32(ImVec4(0, 0, 0, 0.45f)), ImGui::GetColorU32(ImVec4(0, 0, 0, 0.0f)),
+                    ImGui::GetColorU32(ImVec4(0, 0, 0, 0.0f)));
 
                 ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {1, 1});
 
@@ -2027,9 +2021,9 @@ static void renderMenu(float openAnim, float pop, float contentT) {
             float seamTop = windowPos.y + ui::s(8);
             float seamBot = windowMax.y - ui::s(8);
             windowDraw->AddRectFilledMultiColor(
-                {seamX, seamTop}, {seamX + ui::s(12), seamBot},
-                ImGui::GetColorU32(ImVec4(0, 0, 0, 0.32f)), ImGui::GetColorU32(ImVec4(0, 0, 0, 0.0f)),
-                ImGui::GetColorU32(ImVec4(0, 0, 0, 0.0f)), ImGui::GetColorU32(ImVec4(0, 0, 0, 0.32f)));
+                {seamX, seamTop}, {seamX + ui::s(12), seamBot}, ImGui::GetColorU32(ImVec4(0, 0, 0, 0.32f)),
+                ImGui::GetColorU32(ImVec4(0, 0, 0, 0.0f)), ImGui::GetColorU32(ImVec4(0, 0, 0, 0.0f)),
+                ImGui::GetColorU32(ImVec4(0, 0, 0, 0.32f)));
         }
 
         // ===== MAIN CONTENT =====
@@ -2148,10 +2142,11 @@ void Menu::Render() {
     }
 
     float dt = ImGui::GetIO().DeltaTime;
-    if (dt > (1.0f / 60.0f)) dt = 1.0f / 60.0f;
+    if (dt > (1.0f / 60.0f))
+        dt = 1.0f / 60.0f;
     g_openT = ImMin(1.0f, g_openT + dt / kOpenDuration);
-    openAnim = easeOutExpo(g_openT);   // opacity: lands early, then holds
-    const float pop = easeOutBack(g_openT);      // geometry: overshoots once, settles
+    openAnim = easeOutExpo(g_openT);                   // opacity: lands early, then holds
+    const float pop = easeOutBack(g_openT);            // geometry: overshoots once, settles
     const float contentT = staggered(g_openT, 0.30f);  // widgets: trail the frame
 
     // Apply style properly (set alpha etc)

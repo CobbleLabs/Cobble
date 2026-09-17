@@ -513,15 +513,14 @@ void ESP::onRender() {
 
         constexpr float halfWidth = 0.3f;
         constexpr float playerHeight = 1.8f;
-        Vector3 bounds[8] = {
-            {interpX - halfWidth, interpY, interpZ - halfWidth},
-            {interpX + halfWidth, interpY, interpZ - halfWidth},
-            {interpX + halfWidth, interpY, interpZ + halfWidth},
-            {interpX - halfWidth, interpY, interpZ + halfWidth},
-            {interpX - halfWidth, interpY + playerHeight, interpZ - halfWidth},
-            {interpX + halfWidth, interpY + playerHeight, interpZ - halfWidth},
-            {interpX + halfWidth, interpY + playerHeight, interpZ + halfWidth},
-            {interpX - halfWidth, interpY + playerHeight, interpZ + halfWidth}};
+        Vector3 bounds[8] = {{interpX - halfWidth, interpY, interpZ - halfWidth},
+                             {interpX + halfWidth, interpY, interpZ - halfWidth},
+                             {interpX + halfWidth, interpY, interpZ + halfWidth},
+                             {interpX - halfWidth, interpY, interpZ + halfWidth},
+                             {interpX - halfWidth, interpY + playerHeight, interpZ - halfWidth},
+                             {interpX + halfWidth, interpY + playerHeight, interpZ - halfWidth},
+                             {interpX + halfWidth, interpY + playerHeight, interpZ + halfWidth},
+                             {interpX - halfWidth, interpY + playerHeight, interpZ + halfWidth}};
         float left = FLT_MAX, top = FLT_MAX, right = -FLT_MAX, bottom = -FLT_MAX;
         int projected = 0;
         for (auto& point : bounds) {
@@ -550,8 +549,8 @@ void ESP::onRender() {
         // 2D Box (only with Box 2D mode)
         if (settings.box) {
             if (settings.outline) {
-                draw->AddRect(ImVec2(left - 1.0f, top - 1.0f), ImVec2(right + 1.0f, bottom + 1.0f), outlineCol,
-                              3.0f, ImDrawFlags_None, 3.0f);
+                draw->AddRect(ImVec2(left - 1.0f, top - 1.0f), ImVec2(right + 1.0f, bottom + 1.0f), outlineCol, 3.0f,
+                              ImDrawFlags_None, 3.0f);
             }
             draw->AddRect(ImVec2(left, top), ImVec2(right, bottom), boxCol, 3.0f, ImDrawFlags_None, 1.25f);
         }

@@ -8,24 +8,13 @@
 #include "../module.h"
 
 // Which healing items are eligible (Vape's "Type" setting).
-enum class ThrowPotsType {
-    Both = 0,
-    Pots = 1,
-    Soup = 2
-};
+enum class ThrowPotsType { Both = 0, Pots = 1, Soup = 2 };
 
 // Vape's "Mode". Dynamic queues as many items as fit without overhealing,
 // Single always uses exactly one item regardless of current health.
-enum class ThrowPotsMode {
-    Dynamic = 0,
-    Single = 1
-};
+enum class ThrowPotsMode { Dynamic = 0, Single = 1 };
 
-enum class ThrowPotsAim {
-    Current = 0,
-    Down = 1,
-    SilentDown = 2
-};
+enum class ThrowPotsAim { Current = 0, Down = 1, SilentDown = 2 };
 
 // One-shot hotbar action modelled on Vape V4.21's Throwpot: collect healing
 // items from the hotbar, use them nearest-slot-first, drop the resulting soup

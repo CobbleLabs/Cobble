@@ -351,8 +351,6 @@ void AutoTool::onRenderMenu() {
         });
 }
 
-
-
 void AutoTool::saveSettings(json::Value& node) const {
     node["switchBack"] = settings.switchBack;
     node["autoSword"] = settings.autoSword;

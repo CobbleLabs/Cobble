@@ -146,8 +146,6 @@ std::string TimerMod::getDisplayInfo() {
     return buf;
 }
 
-
-
 void TimerMod::saveSettings(json::Value& node) const {
     node["speed"] = (float)settings.speed;
     node["mousePressed"] = settings.mousePressed;

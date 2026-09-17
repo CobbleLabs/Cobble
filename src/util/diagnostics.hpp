@@ -136,8 +136,7 @@ inline LONG WINAPI crashHandler(EXCEPTION_POINTERS* ep) {
         if (ep->ExceptionRecord->ExceptionCode == EXCEPTION_ACCESS_VIOLATION) {
             ULONG_PTR at = ep->ExceptionRecord->ExceptionInformation[0];
             char abuf[256];
-            wsprintfA(abuf, "CRASH! access=%s faultAddr=0x%p",
-                      at == 0 ? "READ" : (at == 1 ? "WRITE" : "EXEC"),
+            wsprintfA(abuf, "CRASH! access=%s faultAddr=0x%p", at == 0 ? "READ" : (at == 1 ? "WRITE" : "EXEC"),
                       (void*)ep->ExceptionRecord->ExceptionInformation[1]);
             COBBLE_TRACE(abuf);
         }

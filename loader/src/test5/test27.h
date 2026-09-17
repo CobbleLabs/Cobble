@@ -16,7 +16,6 @@
 
 namespace Updater {
 
-
 inline std::string sha256File(const std::string& path) {
     HANDLE file = CreateFileA(path.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING,
                               FILE_ATTRIBUTE_NORMAL, nullptr);
@@ -51,7 +50,6 @@ inline std::string sha256File(const std::string& path) {
     CryptReleaseContext(prov, 0);
     CloseHandle(file);
 
-
     static const char* hex = "0123456789abcdef";
     std::string result;
     for (DWORD i = 0; i < hashLen; i++) {
@@ -61,11 +59,9 @@ inline std::string sha256File(const std::string& path) {
     return result;
 }
 
-
 inline std::string getTempDownloadDir() {
     char temp[MAX_PATH];
     GetTempPathA(MAX_PATH, temp);
-
 
     GUID guid;
     CoCreateGuid(&guid);
@@ -77,16 +73,11 @@ inline std::string getTempDownloadDir() {
     return dir;
 }
 
-
 using ProgressCallback = void (*)(size_t downloaded, size_t total);
-
-
 
 inline bool downloadAndVerify(const std::string& url, const std::string& destPath, const std::string& expectedHash,
                               size_t expectedSize, const std::string& hwid, ProgressCallback progress = nullptr) {
-
     std::string tmpPath = destPath + ".tmp";
-
 
     bool isHttps = (url.find("https://") == 0);
     std::string host, path;
@@ -100,23 +91,19 @@ inline bool downloadAndVerify(const std::string& url, const std::string& destPat
         path = url.substr(slashPos);
     }
 
-
     path += "?hwid=" + hwid;
-
 
     std::wstring wHost(host.begin(), host.end());
     std::wstring wPath(path.begin(), path.end());
 
-
-    HINTERNET session = WinHttpOpen(OBFUSCATE_WSTRING(L"Mozilla/5.0").c_str(), WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, nullptr, nullptr, 0);
+    HINTERNET session =
+        WinHttpOpen(OBFUSCATE_WSTRING(L"Mozilla/5.0").c_str(), WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, nullptr, nullptr, 0);
     if (!session)
         return false;
-
 
     DWORD timeout = 10000;
     WinHttpSetOption(session, WINHTTP_OPTION_CONNECT_TIMEOUT, &timeout, sizeof(timeout));
     WinHttpSetOption(session, WINHTTP_OPTION_RECEIVE_TIMEOUT, &timeout, sizeof(timeout));
-
 
     INTERNET_PORT port = isHttps ? INTERNET_DEFAULT_HTTPS_PORT : INTERNET_DEFAULT_HTTP_PORT;
     HINTERNET connect = WinHttpConnect(session, wHost.c_str(), port, 0);
@@ -124,7 +111,6 @@ inline bool downloadAndVerify(const std::string& url, const std::string& destPat
         WinHttpCloseHandle(session);
         return false;
     }
-
 
     DWORD flags = isHttps ? WINHTTP_FLAG_SECURE : 0;
     HINTERNET request = WinHttpOpenRequest(connect, L"GET", wPath.c_str(), nullptr, WINHTTP_NO_REFERER,
@@ -135,14 +121,12 @@ inline bool downloadAndVerify(const std::string& url, const std::string& destPat
         return false;
     }
 
-
     if (!WinHttpSendRequest(request, nullptr, 0, nullptr, 0, 0, 0) || !WinHttpReceiveResponse(request, nullptr)) {
         WinHttpCloseHandle(request);
         WinHttpCloseHandle(connect);
         WinHttpCloseHandle(session);
         return false;
     }
-
 
     DWORD statusCode = 0;
     DWORD statusSize = sizeof(statusCode);
@@ -155,7 +139,6 @@ inline bool downloadAndVerify(const std::string& url, const std::string& destPat
         return false;
     }
 
-
     HANDLE file =
         CreateFileA(tmpPath.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
     if (file == INVALID_HANDLE_VALUE) {
@@ -165,14 +148,12 @@ inline bool downloadAndVerify(const std::string& url, const std::string& destPat
         return false;
     }
 
-
     size_t totalDownloaded = 0;
     BYTE buffer[8192];
     DWORD bytesAvailable = 0;
     DWORD bytesRead = 0;
 
     while (true) {
-
         if (!WinHttpQueryDataAvailable(request, &bytesAvailable)) {
             break;
         }
@@ -181,17 +162,14 @@ inline bool downloadAndVerify(const std::string& url, const std::string& destPat
             break;
         }
 
-
         DWORD toRead = (bytesAvailable > sizeof(buffer)) ? sizeof(buffer) : bytesAvailable;
         if (!WinHttpReadData(request, buffer, toRead, &bytesRead) || bytesRead == 0) {
             break;
         }
 
-
         DWORD bytesWritten;
         WriteFile(file, buffer, bytesRead, &bytesWritten, nullptr);
         totalDownloaded += bytesRead;
-
 
         if (progress) {
             progress(totalDownloaded, expectedSize);
@@ -204,19 +182,16 @@ inline bool downloadAndVerify(const std::string& url, const std::string& destPat
     WinHttpCloseHandle(connect);
     WinHttpCloseHandle(session);
 
-
     if (totalDownloaded != expectedSize) {
         DeleteFileA(tmpPath.c_str());
         return false;
     }
-
 
     std::string actualHash = sha256File(tmpPath);
     if (actualHash != expectedHash) {
         DeleteFileA(tmpPath.c_str());
         return false;
     }
-
 
     if (!MoveFileExA(tmpPath.c_str(), destPath.c_str(), MOVEFILE_REPLACE_EXISTING)) {
         DeleteFileA(tmpPath.c_str());
@@ -226,17 +201,13 @@ inline bool downloadAndVerify(const std::string& url, const std::string& destPat
     return true;
 }
 
-
 inline std::string getSelfPath() {
     char path[MAX_PATH];
     GetModuleFileNameA(nullptr, path, MAX_PATH);
     return path;
 }
 
-
-
 inline bool spawnStub(const std::string& currentPath, const std::string& newPath) {
-
     char cmdLine[2048];
     sprintf_s(cmdLine, "\"%s\" --update-pid %lu --update-old \"%s\" --update-new \"%s\"", newPath.c_str(),
               GetCurrentProcessId(), currentPath.c_str(), newPath.c_str());
@@ -244,23 +215,20 @@ inline bool spawnStub(const std::string& currentPath, const std::string& newPath
     STARTUPINFOA si = {sizeof(si)};
     PROCESS_INFORMATION pi;
 
-
     if (CreateProcessA(nullptr, cmdLine, nullptr, nullptr, FALSE, CREATE_NO_WINDOW, nullptr, nullptr, &si, &pi)) {
         CloseHandle(pi.hThread);
         CloseHandle(pi.hProcess);
         return true;
     }
 
-
-
     SHELLEXECUTEINFOA sei = {sizeof(sei)};
     sei.fMask = SEE_MASK_NOCLOSEPROCESS | SEE_MASK_FLAG_NO_UI;
     sei.lpVerb = "open";
     sei.lpFile = newPath.c_str();
-    
+
     char params[2048];
-    sprintf_s(params, "--update-pid %lu --update-old \"%s\" --update-new \"%s\"",
-              GetCurrentProcessId(), currentPath.c_str(), newPath.c_str());
+    sprintf_s(params, "--update-pid %lu --update-old \"%s\" --update-new \"%s\"", GetCurrentProcessId(),
+              currentPath.c_str(), newPath.c_str());
     sei.lpParameters = params;
     sei.nShow = SW_HIDE;
 
@@ -274,9 +242,7 @@ inline bool spawnStub(const std::string& currentPath, const std::string& newPath
     return false;
 }
 
-
 inline void cleanupTempDir(const std::string& dir) {
-
     WIN32_FIND_DATAA fd;
     HANDLE hFind = FindFirstFileA((dir + "\\*").c_str(), &fd);
     if (hFind != INVALID_HANDLE_VALUE) {
@@ -290,4 +256,4 @@ inline void cleanupTempDir(const std::string& dir) {
     RemoveDirectoryA(dir.c_str());
 }
 
-}
+}  // namespace Updater

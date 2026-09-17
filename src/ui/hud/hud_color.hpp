@@ -61,10 +61,22 @@ inline RGB FromHSB(float h, float s, float b) {
 inline float RainbowHue(int index, long long timeMs, int type) {
     float cycle, spread;
     switch (type) {
-        case 1: cycle = 6000.0f; spread = 0.0f; break;
-        case 2: cycle = 3500.0f; spread = 70.0f; break;
-        case 3: cycle = 11000.0f; spread = 165.0f; break;
-        default: cycle = 8000.0f; spread = 100.0f; break;
+        case 1:
+            cycle = 6000.0f;
+            spread = 0.0f;
+            break;
+        case 2:
+            cycle = 3500.0f;
+            spread = 70.0f;
+            break;
+        case 3:
+            cycle = 11000.0f;
+            spread = 165.0f;
+            break;
+        default:
+            cycle = 8000.0f;
+            spread = 100.0f;
+            break;
     }
     float t = std::fmod(static_cast<float>(timeMs % static_cast<long long>(cycle)), cycle);
     return std::fmod((t + index * spread) / cycle, 1.0f);

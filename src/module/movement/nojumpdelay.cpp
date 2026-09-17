@@ -46,6 +46,5 @@ void NoJumpDelay::onRenderMenu() {
                 }
             }
         },
-        "Info",
-        [this]() { ImGui::TextWrapped("Removes jump delay."); });
+        "Info", [this]() { ImGui::TextWrapped("Removes jump delay."); });
 }

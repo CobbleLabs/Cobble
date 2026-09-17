@@ -51,9 +51,9 @@ public:
         bool showHealth = true;
         bool showDistance = true;
         bool showArmor = true;
-        bool showWeapon = true;     // Held sword/axe icon next to the name
-        bool showEnchants = true;   // Protection/Sharpness level numbers
-        bool armorOnSide = false;   // Armor/weapon row above the name (vs beside it)
+        bool showWeapon = true;    // Held sword/axe icon next to the name
+        bool showEnchants = true;  // Protection/Sharpness level numbers
+        bool armorOnSide = false;  // Armor/weapon row above the name (vs beside it)
         bool showEffects = true;
         bool debugEffects = false;
         bool hideVanilla = true;  // No-op vanilla renderName so only our tag shows

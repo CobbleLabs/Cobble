@@ -43,10 +43,9 @@ bool isAttackPacket(JNIEnv* env, jobject packet) {
         return false;
     jclass cls = env->GetObjectClass(packet);
     jclass classClass = cls ? env->GetObjectClass(cls) : nullptr;
-    jmethodID getName = classClass
-                            ? env->GetMethodID(classClass, OBFUSCATE_STRING("getName").c_str(),
-                                               OBFUSCATE_STRING("()Ljava/lang/String;").c_str())
-                            : nullptr;
+    jmethodID getName = classClass ? env->GetMethodID(classClass, OBFUSCATE_STRING("getName").c_str(),
+                                                      OBFUSCATE_STRING("()Ljava/lang/String;").c_str())
+                                   : nullptr;
     jstring name = getName ? static_cast<jstring>(env->CallObjectMethod(cls, getName)) : nullptr;
     bool result = false;
     if (name) {
@@ -193,12 +192,10 @@ void TimerRange::onRenderMenu() {
 std::string TimerRange::getDisplayInfo() {
     static const char* modes[] = {"Before", "After", "Per Hit", "Constant"};
     char buffer[64];
-    std::snprintf(buffer, sizeof(buffer), "%s %.2f-%.2fx",
-                  modes[std::clamp(static_cast<int>(settings.mode), 0, 3)], settings.minSpeed, settings.maxSpeed);
+    std::snprintf(buffer, sizeof(buffer), "%s %.2f-%.2fx", modes[std::clamp(static_cast<int>(settings.mode), 0, 3)],
+                  settings.minSpeed, settings.maxSpeed);
     return buffer;
 }
-
-
 
 void TimerRange::saveSettings(json::Value& node) const {
     node["mode"] = static_cast<int>(settings.mode);
@@ -218,8 +215,8 @@ void TimerRange::loadSettings(const json::Value& node) {
     settings.offsetMs = (std::clamp)(node["offsetMs"].as_int(settings.offsetMs), 0, 500);
     // Migrate legacy "intervalTicks" → "durationMs" (ticks × 50ms).
     const int legacyDuration = node["intervalTicks"].as_int(0) * 50;
-    settings.durationMs = (std::clamp)(
-        node["durationMs"].as_int(legacyDuration > 0 ? legacyDuration : settings.durationMs), 10, 1000);
+    settings.durationMs =
+        (std::clamp)(node["durationMs"].as_int(legacyDuration > 0 ? legacyDuration : settings.durationMs), 10, 1000);
     settings.minSpeed = (std::clamp)(settings.minSpeed, 0.05f, 3.0f);
     settings.maxSpeed = (std::clamp)(settings.maxSpeed, settings.minSpeed, 3.0f);
     settings.targetOnly = node["targetOnly"].as_bool(settings.targetOnly);

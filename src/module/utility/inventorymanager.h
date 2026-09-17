@@ -60,15 +60,15 @@ private:
     std::chrono::steady_clock::time_point lastSwapTime;
 
     struct SwapTask {
-        int sourceSlot;    // Where the item currently is (0-35)
-        int targetHotbar;  // Where it should go (0-8)
-        int expectedId;    // Expected item id in target hotbar after swap
-        int expectedDamage; // Expected damage when compareDamage is true
+        int sourceSlot;      // Where the item currently is (0-35)
+        int targetHotbar;    // Where it should go (0-8)
+        int expectedId;      // Expected item id in target hotbar after swap
+        int expectedDamage;  // Expected damage when compareDamage is true
         bool compareDamage;
         int retryCount;
     };
     std::vector<SwapTask> pendingSwaps;
-    SwapTask lastSwap{};   // Last executed swap, for verification
+    SwapTask lastSwap{};  // Last executed swap, for verification
 
     // If true, last scan detected mismatches but couldn't schedule swaps (items missing)
     bool lastScanMissingItems = false;

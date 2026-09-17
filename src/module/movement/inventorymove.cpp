@@ -125,8 +125,7 @@ InventoryMove::ScreenKind InventoryMove::classifyScreen(JNIEnv* env) {
             break;
         }
     }
-    if (kind == ScreenKind::Other && clsGuiContainer_ &&
-        env->IsInstanceOf(screen, clsGuiContainer_) == JNI_TRUE)
+    if (kind == ScreenKind::Other && clsGuiContainer_ && env->IsInstanceOf(screen, clsGuiContainer_) == JNI_TRUE)
         kind = ScreenKind::Container;
 
     env->DeleteLocalRef(screen);
@@ -279,9 +278,8 @@ void InventoryMove::onUpdate() {
         return;
     }
 
-    jobject gameSettings = JniCache::fid_gameSettings
-                               ? env->GetObjectField(mc.instance, JniCache::fid_gameSettings)
-                               : nullptr;
+    jobject gameSettings =
+        JniCache::fid_gameSettings ? env->GetObjectField(mc.instance, JniCache::fid_gameSettings) : nullptr;
     if (clearEx(env) || !gameSettings)
         return;
 

@@ -45,7 +45,6 @@ bool AimAssist::isRewritingRotation() const {
     return now >= last && (now - last) <= kRotClaimTailMs;
 }
 
-
 // ── C03PacketPlayer resolution for packet-rotation (mirrors clutch) ──────────
 // Resolved lazily on the network thread inside onOutgoingPacket, so no cross-
 // thread races on these statics.
@@ -716,12 +715,10 @@ void AimAssist::onUpdate() {
         // Writing the exact target instead leaves a delta that is not a multiple of the
         // step, which is the one thing about a flick that a gcd check can see. What is
         // given up is at most half a step, well below the resolution of a hitbox.
-        const float gcdSnap = g_cachedGCD > 0.0001f ? g_cachedGCD
-                                                    : calculateGCD(mc.getMouseSensitivity());
+        const float gcdSnap = g_cachedGCD > 0.0001f ? g_cachedGCD : calculateGCD(mc.getMouseSensitivity());
         g_cachedGCD = gcdSnap;
         const float yawNow = player.getYaw();
-        const float snappedYaw =
-            yawNow + applyGCDStrict(wrapTo180(yawTarget - yawNow), gcdSnap);
+        const float snappedYaw = yawNow + applyGCDStrict(wrapTo180(yawTarget - yawNow), gcdSnap);
         player.setYaw(snappedYaw);
         player.setPrevYaw(snappedYaw);
         if (!settings.horizontalOnly) {
@@ -812,12 +809,18 @@ bool AimAssist::findTarget(double& targetX, double& targetY, double& targetZ) {
                     if (JniCache::fid_boundingBox && JniCache::cls_AxisAlignedBB) {
                         jobject aabb = Java::Env()->GetObjectField(cachedTarget, JniCache::fid_boundingBox);
                         if (aabb) {
-                            if (JniCache::fid_aabb_minX) targetHitboxMinX = (float)Java::Env()->GetDoubleField(aabb, JniCache::fid_aabb_minX);
-                            if (JniCache::fid_aabb_minY) targetHitboxMinY = (float)Java::Env()->GetDoubleField(aabb, JniCache::fid_aabb_minY);
-                            if (JniCache::fid_aabb_minZ) targetHitboxMinZ = (float)Java::Env()->GetDoubleField(aabb, JniCache::fid_aabb_minZ);
-                            if (JniCache::fid_aabb_maxX) targetHitboxMaxX = (float)Java::Env()->GetDoubleField(aabb, JniCache::fid_aabb_maxX);
-                            if (JniCache::fid_aabb_maxY) targetHitboxMaxY = (float)Java::Env()->GetDoubleField(aabb, JniCache::fid_aabb_maxY);
-                            if (JniCache::fid_aabb_maxZ) targetHitboxMaxZ = (float)Java::Env()->GetDoubleField(aabb, JniCache::fid_aabb_maxZ);
+                            if (JniCache::fid_aabb_minX)
+                                targetHitboxMinX = (float)Java::Env()->GetDoubleField(aabb, JniCache::fid_aabb_minX);
+                            if (JniCache::fid_aabb_minY)
+                                targetHitboxMinY = (float)Java::Env()->GetDoubleField(aabb, JniCache::fid_aabb_minY);
+                            if (JniCache::fid_aabb_minZ)
+                                targetHitboxMinZ = (float)Java::Env()->GetDoubleField(aabb, JniCache::fid_aabb_minZ);
+                            if (JniCache::fid_aabb_maxX)
+                                targetHitboxMaxX = (float)Java::Env()->GetDoubleField(aabb, JniCache::fid_aabb_maxX);
+                            if (JniCache::fid_aabb_maxY)
+                                targetHitboxMaxY = (float)Java::Env()->GetDoubleField(aabb, JniCache::fid_aabb_maxY);
+                            if (JniCache::fid_aabb_maxZ)
+                                targetHitboxMaxZ = (float)Java::Env()->GetDoubleField(aabb, JniCache::fid_aabb_maxZ);
                             Java::Env()->DeleteLocalRef(aabb);
                             const float w = targetHitboxMaxX - targetHitboxMinX;
                             const float h = targetHitboxMaxY - targetHitboxMinY;
@@ -846,8 +849,7 @@ bool AimAssist::findTarget(double& targetX, double& targetY, double& targetZ) {
                     float localYaw = player.getYaw();
                     // Position fields are feet-space; target selection must use
                     // the same eye/chest space as the actual aim point.
-                    float yawToTarget = getAngles(localX, localY + 1.62, localZ,
-                                                  cX, cY + 0.9, cZ).first;
+                    float yawToTarget = getAngles(localX, localY + 1.62, localZ, cX, cY + 0.9, cZ).first;
                     float yawDiff = std::abs(wrapTo180(-(localYaw - yawToTarget)));
                     float limit = entityLock ? std::max(90.0f, settings.fov * 0.5f) : (settings.fov * 0.5f);
                     if (adaptiveHardLock)
@@ -1018,8 +1020,7 @@ bool AimAssist::findTarget(double& targetX, double& targetY, double& targetZ) {
                 nameRefreshTimer.Start();
             }
             bool isScoreboardTeammate =
-                friendsManager->isScoreboardTeammate(localPlayerName,
-                                                     p.profileName.empty() ? p.name : p.profileName) ||
+                friendsManager->isScoreboardTeammate(localPlayerName, p.profileName.empty() ? p.name : p.profileName) ||
                 friendsManager->isTeammate(p.uuid, playerColor, localColor);
             if (isScoreboardTeammate) {
                 releasePlayerRef(p);
@@ -1032,11 +1033,16 @@ bool AimAssist::findTarget(double& targetX, double& targetY, double& targetZ) {
         // tier. ARMOR_NO_ARMOR matches players wearing nothing. Mask 0 = off.
         if (settings.armorFilterEnabled && settings.armorTierMask != 0) {
             auto tierBit = [](int id) -> int {
-                if (id >= 298 && id <= 301) return AimAssist::ARMOR_LEATHER;
-                if (id >= 302 && id <= 305) return AimAssist::ARMOR_CHAIN;
-                if (id >= 306 && id <= 309) return AimAssist::ARMOR_IRON;
-                if (id >= 310 && id <= 313) return AimAssist::ARMOR_DIAMOND;
-                if (id >= 314 && id <= 317) return AimAssist::ARMOR_GOLD;
+                if (id >= 298 && id <= 301)
+                    return AimAssist::ARMOR_LEATHER;
+                if (id >= 302 && id <= 305)
+                    return AimAssist::ARMOR_CHAIN;
+                if (id >= 306 && id <= 309)
+                    return AimAssist::ARMOR_IRON;
+                if (id >= 310 && id <= 313)
+                    return AimAssist::ARMOR_DIAMOND;
+                if (id >= 314 && id <= 317)
+                    return AimAssist::ARMOR_GOLD;
                 return 0;
             };
             bool match = false;
@@ -1045,17 +1051,22 @@ bool AimAssist::findTarget(double& targetX, double& targetY, double& targetZ) {
                 if (piece.id > 0) {
                     hasAnyArmor = true;
                     int b = tierBit(piece.id);
-                    if (b && (settings.armorTierMask & b)) { match = true; break; }
+                    if (b && (settings.armorTierMask & b)) {
+                        match = true;
+                        break;
+                    }
                 }
             }
             if (!match && (settings.armorTierMask & AimAssist::ARMOR_NO_ARMOR) && !hasAnyArmor)
                 match = true;
-            if (!match) { releasePlayerRef(p); continue; }
+            if (!match) {
+                releasePlayerRef(p);
+                continue;
+            }
         }
         // ─────────────────────────────────────────────────────────────────────
 
-        float yawToTarget = getAngles(localX, localY + 1.62, localZ,
-                                      p.posX, p.posY + 0.9, p.posZ).first;
+        float yawToTarget = getAngles(localX, localY + 1.62, localZ, p.posX, p.posY + 0.9, p.posZ).first;
         float yawDiff = std::abs(wrapTo180(-(localYaw - yawToTarget)));
 
         float maxYawDiff = (entityLock && sameAsLocked) ? std::max(90.0f, settings.fov * 0.5f) : (settings.fov * 0.5f);
@@ -1287,8 +1298,7 @@ void AimAssist::applyAimController(float yawDiff, float pitchDiff) {
     // +-amplitude no matter how often this runs, instead of accumulating it once
     // per loop into a drift the tracking error has to fight.
     const float desiredJitterYaw = settings.packetRotation ? 0.0f : simulatedJitterYaw;
-    const float desiredJitterPitch =
-        (settings.packetRotation || settings.horizontalOnly) ? 0.0f : simulatedJitterPitch;
+    const float desiredJitterPitch = (settings.packetRotation || settings.horizontalOnly) ? 0.0f : simulatedJitterPitch;
     yawStep += desiredJitterYaw - appliedJitterYaw_;
     pitchStep += desiredJitterPitch - appliedJitterPitch_;
     appliedJitterYaw_ = desiredJitterYaw;
@@ -1357,8 +1367,7 @@ void AimAssist::onOutgoingPacket(JNIEnv* env, jobject packet) {
         finalYaw = env->GetFloatField(packet, g_aim_fid_yaw) + offY;
     if (havePitch) {
         const float raw = env->GetFloatField(packet, g_aim_fid_pitch) + offP;
-        finalPitch = limitPitchOnGrid(
-            raw, g_cachedGCD > 0.0001f ? g_cachedGCD : calculateGCD(cachedMouseSensitivity));
+        finalPitch = limitPitchOnGrid(raw, g_cachedGCD > 0.0001f ? g_cachedGCD : calculateGCD(cachedMouseSensitivity));
     }
 
     // Anti-duplicate (Intave AimDuplicateLook360). We force rotating=true on every
@@ -1395,8 +1404,7 @@ void AimAssist::onOutgoingPacket(JNIEnv* env, jobject packet) {
             // when both directions are safe.
             const float budget = packetYawBudget_.load(std::memory_order_acquire);
             float sign = s_ditherSign;
-            if (budget > 0.0f && std::abs(offY + sign * gcd) > budget &&
-                std::abs(offY - sign * gcd) <= budget)
+            if (budget > 0.0f && std::abs(offY + sign * gcd) > budget && std::abs(offY - sign * gcd) <= budget)
                 sign = -sign;
             finalYaw += sign * gcd;
             s_ditherSign = -sign;
@@ -1515,9 +1523,8 @@ bool AimAssist::getAimPoint(double targetX, double targetY, double targetZ, doub
     constexpr double HALF_WIDTH = 0.3;
 
     // No AABB arrived, so assume the vanilla player box around the feet position.
-    resolvedBox_ = {targetX - HALF_WIDTH, targetY,      targetZ - HALF_WIDTH,
-                    targetX + HALF_WIDTH, targetY + 1.8, targetZ + HALF_WIDTH,
-                    true};
+    resolvedBox_ = {targetX - HALF_WIDTH, targetY, targetZ - HALF_WIDTH, targetX + HALF_WIDTH, targetY + 1.8,
+                    targetZ + HALF_WIDTH, true};
 
     if (settings.aimAtClosestPoint) {
         double minX = targetX - HALF_WIDTH;
@@ -1628,8 +1635,10 @@ void AimAssist::onRenderMenu() {
             auto tierCheckbox = [this](const char* label, int bit) {
                 bool on = (settings.armorTierMask & bit) != 0;
                 if (ui::Checkbox(label, &on)) {
-                    if (on) settings.armorTierMask |= bit;
-                    else settings.armorTierMask &= ~bit;
+                    if (on)
+                        settings.armorTierMask |= bit;
+                    else
+                        settings.armorTierMask &= ~bit;
                 }
             };
             tierCheckbox("No Armor", ARMOR_NO_ARMOR);
@@ -1646,8 +1655,7 @@ void AimAssist::onRenderMenu() {
                 // Optional key to toggle the armor filter on/off in-game.
                 ui::Binder("Armor Filter Key", &settings.armorFilterKeybind);
                 if (settings.armorFilterKeybind != 0)
-                    ImGui::TextDisabled("Filter is currently %s",
-                                        settings.armorFilterEnabled ? "ON" : "OFF");
+                    ImGui::TextDisabled("Filter is currently %s", settings.armorFilterEnabled ? "ON" : "OFF");
             }
         });
 }
@@ -1656,8 +1664,6 @@ std::string AimAssist::getDisplayInfo() {
     static const char* names[] = {"Smooth", "Adaptive", "Blatant"};
     return names[std::clamp(static_cast<int>(settings.aimMode), 0, 2)];
 }
-
-
 
 void AimAssist::saveSettings(json::Value& node) const {
     node["horizontalOnly"] = settings.horizontalOnly;
@@ -1693,10 +1699,8 @@ void AimAssist::loadSettings(const json::Value& node) {
     settings.distance = node["distance"].as_float(settings.distance);
     settings.reactionTime = node["reactionTime"].as_int(settings.reactionTime);
     settings.aimMode = static_cast<AimMode>(node["aimMode"].as_int(static_cast<int>(settings.aimMode)));
-    settings.targetMode =
-        static_cast<TargetMode>(node["targetMode"].as_int(static_cast<int>(settings.targetMode)));
-    settings.switchSortBy =
-        static_cast<SortBy>(node["switchSortBy"].as_int(static_cast<int>(settings.switchSortBy)));
+    settings.targetMode = static_cast<TargetMode>(node["targetMode"].as_int(static_cast<int>(settings.targetMode)));
+    settings.switchSortBy = static_cast<SortBy>(node["switchSortBy"].as_int(static_cast<int>(settings.switchSortBy)));
     settings.hurtTimeLock = node["hurtTimeLock"].as_bool(settings.hurtTimeLock);
     settings.breakBlocks = node["breakBlocks"].as_bool(settings.breakBlocks);
     settings.weaponOnly = node["weaponOnly"].as_bool(settings.weaponOnly);
@@ -1711,26 +1715,38 @@ void AimAssist::loadSettings(const json::Value& node) {
                                              : node["lockAim"].as_bool(settings.entityLock);
     setEntityLock(entityLock);
     settings.stopOnHitbox = node["stopOnHitbox"].as_bool(settings.stopOnHitbox);
-    settings.jitterPercent =
-        (std::clamp)(node["jitterPercent"].as_float(settings.jitterPercent), 0.0f, 100.0f);
+    settings.jitterPercent = (std::clamp)(node["jitterPercent"].as_float(settings.jitterPercent), 0.0f, 100.0f);
     settings.prediction = (std::clamp)(node["prediction"].as_float(settings.prediction), 0.0f, 100.0f);
     settings.packetRotation = node["packetRotation"].as_bool(settings.packetRotation);
     // "antiBot" is still present in older configs and is intentionally ignored: the AntiBot
     // module owns that state now and carries its own node.
-    settings.armorFilter =
-        static_cast<ArmorFilter>(node["armorFilter"].as_int(static_cast<int>(settings.armorFilter)));
+    settings.armorFilter = static_cast<ArmorFilter>(node["armorFilter"].as_int(static_cast<int>(settings.armorFilter)));
     if (node.has("armorTierMask")) {
         settings.armorTierMask = node["armorTierMask"].as_int(settings.armorTierMask);
     } else {
         // Migrate legacy single-select enum into the new multi-select bitmask.
         switch (settings.armorFilter) {
-            case ArmorFilter::NONE:      settings.armorTierMask = ARMOR_NO_ARMOR; break;
-            case ArmorFilter::LEATHER:   settings.armorTierMask = ARMOR_LEATHER;  break;
-            case ArmorFilter::CHAINMAIL: settings.armorTierMask = ARMOR_CHAIN;    break;
-            case ArmorFilter::IRON:      settings.armorTierMask = ARMOR_IRON;     break;
-            case ArmorFilter::GOLD:      settings.armorTierMask = ARMOR_GOLD;     break;
-            case ArmorFilter::DIAMOND:   settings.armorTierMask = ARMOR_DIAMOND;  break;
-            default:                     settings.armorTierMask = 0;              break;
+            case ArmorFilter::NONE:
+                settings.armorTierMask = ARMOR_NO_ARMOR;
+                break;
+            case ArmorFilter::LEATHER:
+                settings.armorTierMask = ARMOR_LEATHER;
+                break;
+            case ArmorFilter::CHAINMAIL:
+                settings.armorTierMask = ARMOR_CHAIN;
+                break;
+            case ArmorFilter::IRON:
+                settings.armorTierMask = ARMOR_IRON;
+                break;
+            case ArmorFilter::GOLD:
+                settings.armorTierMask = ARMOR_GOLD;
+                break;
+            case ArmorFilter::DIAMOND:
+                settings.armorTierMask = ARMOR_DIAMOND;
+                break;
+            default:
+                settings.armorTierMask = 0;
+                break;
         }
     }
     settings.armorFilterEnabled = node["armorFilterEnabled"].as_bool(settings.armorFilterEnabled);

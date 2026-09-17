@@ -482,11 +482,16 @@ float ascentPx(ImFont* f, float size) {
 
 ImU32 modeColor(int colorMode, const float custom[4], int phase, long long timeMs) {
     switch (colorMode) {
-        case ColorSecondary: return colorFromFloats(secondaryColor);
-        case ColorAccent: return GetAccentRGB();
-        case ColorRainbow: return hud::GetRainbowColorEx(phase, rainbowSaturation, timeMs, rainbowType);
-        case ColorCustom: return colorFromFloats(custom);
-        default: return colorFromFloats(primaryColor);
+        case ColorSecondary:
+            return colorFromFloats(secondaryColor);
+        case ColorAccent:
+            return GetAccentRGB();
+        case ColorRainbow:
+            return hud::GetRainbowColorEx(phase, rainbowSaturation, timeMs, rainbowType);
+        case ColorCustom:
+            return colorFromFloats(custom);
+        default:
+            return colorFromFloats(primaryColor);
     }
 }
 
@@ -574,11 +579,17 @@ const char* const kPresetNames[] = {"Classic", "Minimal", "Card", "Neon"};
 // Media status
 // ---------------------------------------------------------------------------
 
-bool Watermark::imageLoaded() { return g_image.texture != 0 && g_image.width > 0 && g_image.height > 0; }
+bool Watermark::imageLoaded() {
+    return g_image.texture != 0 && g_image.width > 0 && g_image.height > 0;
+}
 
-bool Watermark::imageAnimated() { return g_image.frameCount > 1; }
+bool Watermark::imageAnimated() {
+    return g_image.frameCount > 1;
+}
 
-void Watermark::requestImageReload() { ++imageReload; }
+void Watermark::requestImageReload() {
+    ++imageReload;
+}
 
 const char* Watermark::imageStatus() {
     if (imagePath[0] == '\0')
@@ -618,11 +629,12 @@ void Watermark::revealImageFolder() {
             const std::wstring args = L"/select,\"" + widen(path) + L"\"";
             ShellExecuteW(nullptr, nullptr, L"explorer.exe", args.c_str(), nullptr, SW_SHOWNORMAL);
         }).detach();
-    } catch (...) {
-    }
+    } catch (...) {}
 }
 
-bool Watermark::pickerBusy() { return g_pickerBusy.load(); }
+bool Watermark::pickerBusy() {
+    return g_pickerBusy.load();
+}
 
 bool Watermark::pollPicker() {
     if (!g_pickerReady.load())
@@ -670,11 +682,20 @@ bool Watermark::addItem(int kind) {
     Item it;
     it.kind = kind;
     switch (kind) {
-        case KindText: setText(it.text, sizeof(it.text), "Text"); break;
-        case KindFps: setText(it.text, sizeof(it.text), "FPS"); break;
-        case KindUptime: setText(it.text, sizeof(it.text), "UPTIME"); break;
-        case KindClock: it.colorMode = ColorSecondary; break;
-        default: break;
+        case KindText:
+            setText(it.text, sizeof(it.text), "Text");
+            break;
+        case KindFps:
+            setText(it.text, sizeof(it.text), "FPS");
+            break;
+        case KindUptime:
+            setText(it.text, sizeof(it.text), "UPTIME");
+            break;
+        case KindClock:
+            it.colorMode = ColorSecondary;
+            break;
+        default:
+            break;
     }
     items[itemCount++] = it;
     itemsInitialized = true;
@@ -723,9 +744,13 @@ void Watermark::resetPosition() {
     dragging = false;
 }
 
-int Watermark::presetCount() { return static_cast<int>(sizeof(kPresetNames) / sizeof(kPresetNames[0])); }
+int Watermark::presetCount() {
+    return static_cast<int>(sizeof(kPresetNames) / sizeof(kPresetNames[0]));
+}
 
-const char* const* Watermark::presetNames() { return kPresetNames; }
+const char* const* Watermark::presetNames() {
+    return kPresetNames;
+}
 
 void Watermark::applyPreset(int preset) {
     // Every preset starts from the same baseline so switching between them is
@@ -875,8 +900,7 @@ void Watermark::render() {
     // 99999) from turning the strip into one screen-filling glyph.
     const float s = (std::clamp)(scale, 0.25f, 8.0f);
     const float sizePrimary = (std::clamp)(fontSize * s, 6.0f, 512.0f);
-    const float sizeSecondary =
-        (std::clamp)(fontSize * (std::clamp)(secondaryRatio, 0.3f, 2.0f) * s, 6.0f, 512.0f);
+    const float sizeSecondary = (std::clamp)(fontSize * (std::clamp)(secondaryRatio, 0.3f, 2.0f) * s, 6.0f, 512.0f);
     const float op = (std::clamp)(opacity, 0.0f, 1.0f);
 
     float dt = ImGui::GetIO().DeltaTime;
@@ -895,9 +919,9 @@ void Watermark::render() {
     advanceImage(dt * 1000.0f);
 
     // Wall clock, matching the ArrayList so both rainbows are in phase.
-    const long long timeMs = std::chrono::duration_cast<std::chrono::milliseconds>(
-                                 std::chrono::system_clock::now().time_since_epoch())
-                                 .count();
+    const long long timeMs =
+        std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch())
+            .count();
 
     // ---- Measure ----------------------------------------------------------
 
@@ -924,11 +948,20 @@ void Watermark::render() {
         const float faceSize = useSecondary ? sizeSecondary : sizePrimary;
 
         switch (it.kind) {
-            case KindText: setText(c.value, sizeof(c.value), it.text); break;
-            case KindFps: std::snprintf(c.value, sizeof(c.value), "%d", (int)(g_fpsSmooth + 0.5f)); break;
-            case KindClock: formatClock(c.value, sizeof(c.value)); break;
-            case KindUptime: formatUptime(c.value, sizeof(c.value)); break;
-            default: break;
+            case KindText:
+                setText(c.value, sizeof(c.value), it.text);
+                break;
+            case KindFps:
+                std::snprintf(c.value, sizeof(c.value), "%d", (int)(g_fpsSmooth + 0.5f));
+                break;
+            case KindClock:
+                formatClock(c.value, sizeof(c.value));
+                break;
+            case KindUptime:
+                formatUptime(c.value, sizeof(c.value));
+                break;
+            default:
+                break;
         }
 
         if (it.kind == KindText || it.kind == KindFps || it.kind == KindClock || it.kind == KindUptime) {
@@ -1077,8 +1110,7 @@ void Watermark::render() {
     if (showGlow && glowSize > 0.0f) {
         // Concentric rounded rects with a quadratic falloff: cheap, and it reads as
         // a glow with an accent colour or as a drop shadow with a dark one.
-        const ImU32 glowBase =
-            glowUseAccent ? setAlpha(GetAccentRGB(), glowColor[3]) : colorFromFloats(glowColor);
+        const ImU32 glowBase = glowUseAccent ? setAlpha(GetAccentRGB(), glowColor[3]) : colorFromFloats(glowColor);
         const float span = (std::max)(1.0f, glowSize * s);
         const int steps = (std::clamp)(static_cast<int>(span), 1, 14);
         for (int i = steps; i >= 1; --i) {
@@ -1093,8 +1125,7 @@ void Watermark::render() {
     if (showBackground) {
         const ImU32 bg = mulAlpha(colorFromFloats(backgroundColor), op);
         if (backgroundGradient)
-            fillGradient(draw, p1, p2, bg, mulAlpha(colorFromFloats(backgroundColor2), op), round,
-                         gradientVertical);
+            fillGradient(draw, p1, p2, bg, mulAlpha(colorFromFloats(backgroundColor2), op), round, gradientVertical);
         else
             draw->AddRectFilled(p1, p2, bg, round);
     }
@@ -1161,28 +1192,26 @@ void Watermark::render() {
             const float labelY = cellY + (baseAscent - c.labelAscent);
             float tx = cellX;
             if (c.label && c.labelFirst) {
-                drawRun(draw, c.labelFont, c.labelFS, tx, labelY, c.label, col, rainbowRun, c.index, timeMs,
-                        effectPx, effectCol);
+                drawRun(draw, c.labelFont, c.labelFS, tx, labelY, c.label, col, rainbowRun, c.index, timeMs, effectPx,
+                        effectCol);
                 tx += c.labelW + c.labelGap;
-                drawRun(draw, c.valueFont, c.valueFS, tx, valueY, c.value, col, rainbowRun, c.index, timeMs,
-                        effectPx, effectCol);
+                drawRun(draw, c.valueFont, c.valueFS, tx, valueY, c.value, col, rainbowRun, c.index, timeMs, effectPx,
+                        effectCol);
             } else {
-                drawRun(draw, c.valueFont, c.valueFS, tx, valueY, c.value, col, rainbowRun, c.index, timeMs,
-                        effectPx, effectCol);
+                drawRun(draw, c.valueFont, c.valueFS, tx, valueY, c.value, col, rainbowRun, c.index, timeMs, effectPx,
+                        effectCol);
                 if (c.label) {
                     tx += c.valueW + c.labelGap;
-                    drawRun(draw, c.labelFont, c.labelFS, tx, labelY, c.label, col, rainbowRun, c.index,
-                            timeMs, effectPx, effectCol);
+                    drawRun(draw, c.labelFont, c.labelFS, tx, labelY, c.label, col, rainbowRun, c.index, timeMs,
+                            effectPx, effectCol);
                 }
             }
         } else if (c.kind == KindImage) {
-            const ImU32 tint =
-                mulAlpha(colorFromFloats(imageTint), op * (std::clamp)(imageOpacity, 0.0f, 1.0f));
+            const ImU32 tint = mulAlpha(colorFromFloats(imageTint), op * (std::clamp)(imageOpacity, 0.0f, 1.0f));
             // uv (0,0)..(1,1) with no V flip: uv.y = 0 is the first row uploaded,
             // which is the image's top row. See loadImageAsset().
             draw->AddImageRounded((ImTextureID)(intptr_t)g_image.texture, ImVec2(cellX, cellY),
-                                  ImVec2(cellX + c.w, cellY + c.h), ImVec2(0.0f, 0.0f), ImVec2(1.0f, 1.0f),
-                                  tint,
+                                  ImVec2(cellX + c.w, cellY + c.h), ImVec2(0.0f, 0.0f), ImVec2(1.0f, 1.0f), tint,
                                   (std::clamp)(imageRounding * s, 0.0f, (std::min)(c.w, c.h) * 0.5f));
         } else if (c.kind == KindSeparator) {
             draw->AddRectFilled(ImVec2(cellX, cellY), ImVec2(cellX + c.w, cellY + c.h), sepCol);

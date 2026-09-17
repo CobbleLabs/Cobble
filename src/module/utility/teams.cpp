@@ -20,14 +20,14 @@ struct ChatColorEntry {
 };
 
 constexpr ChatColorEntry kChatColors[16] = {
-    {"Black", {0.00f, 0.00f, 0.00f, 1.0f}},        {"Dark Blue", {0.00f, 0.00f, 0.67f, 1.0f}},
-    {"Dark Green", {0.00f, 0.67f, 0.00f, 1.0f}},   {"Dark Aqua", {0.00f, 0.67f, 0.67f, 1.0f}},
-    {"Dark Red", {0.67f, 0.00f, 0.00f, 1.0f}},     {"Dark Purple", {0.67f, 0.00f, 0.67f, 1.0f}},
-    {"Gold", {1.00f, 0.67f, 0.00f, 1.0f}},         {"Gray", {0.67f, 0.67f, 0.67f, 1.0f}},
-    {"Dark Gray", {0.33f, 0.33f, 0.33f, 1.0f}},    {"Blue", {0.33f, 0.33f, 1.00f, 1.0f}},
-    {"Green", {0.33f, 1.00f, 0.33f, 1.0f}},        {"Aqua", {0.33f, 1.00f, 1.00f, 1.0f}},
-    {"Red", {1.00f, 0.33f, 0.33f, 1.0f}},          {"Light Purple", {1.00f, 0.33f, 1.00f, 1.0f}},
-    {"Yellow", {1.00f, 1.00f, 0.33f, 1.0f}},       {"White", {1.00f, 1.00f, 1.00f, 1.0f}},
+    {"Black", {0.00f, 0.00f, 0.00f, 1.0f}},      {"Dark Blue", {0.00f, 0.00f, 0.67f, 1.0f}},
+    {"Dark Green", {0.00f, 0.67f, 0.00f, 1.0f}}, {"Dark Aqua", {0.00f, 0.67f, 0.67f, 1.0f}},
+    {"Dark Red", {0.67f, 0.00f, 0.00f, 1.0f}},   {"Dark Purple", {0.67f, 0.00f, 0.67f, 1.0f}},
+    {"Gold", {1.00f, 0.67f, 0.00f, 1.0f}},       {"Gray", {0.67f, 0.67f, 0.67f, 1.0f}},
+    {"Dark Gray", {0.33f, 0.33f, 0.33f, 1.0f}},  {"Blue", {0.33f, 0.33f, 1.00f, 1.0f}},
+    {"Green", {0.33f, 1.00f, 0.33f, 1.0f}},      {"Aqua", {0.33f, 1.00f, 1.00f, 1.0f}},
+    {"Red", {1.00f, 0.33f, 0.33f, 1.0f}},        {"Light Purple", {1.00f, 0.33f, 1.00f, 1.0f}},
+    {"Yellow", {1.00f, 1.00f, 0.33f, 1.0f}},     {"White", {1.00f, 1.00f, 1.00f, 1.0f}},
 };
 
 const char* const kChatColorNames[16] = {

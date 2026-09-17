@@ -97,9 +97,9 @@ static void EnsureChamsGlHooks() {
     const Hook hooks[] = {
         {"glDepthFunc", (LPVOID)hk_glDepthFunc, (LPVOID*)&o_glDepthFunc},
         {"glDepthMask", (LPVOID)hk_glDepthMask, (LPVOID*)&o_glDepthMask},
-        {"glColor4f",   (LPVOID)hk_glColor4f,   (LPVOID*)&o_glColor4f  },
-        {"glColor3f",   (LPVOID)hk_glColor3f,   (LPVOID*)&o_glColor3f  },
-        {"glEnable",    (LPVOID)hk_glEnable,    (LPVOID*)&o_glEnable   },
+        {"glColor4f", (LPVOID)hk_glColor4f, (LPVOID*)&o_glColor4f},
+        {"glColor3f", (LPVOID)hk_glColor3f, (LPVOID*)&o_glColor3f},
+        {"glEnable", (LPVOID)hk_glEnable, (LPVOID*)&o_glEnable},
     };
     for (const auto& h : hooks) {
         LPVOID target = (LPVOID)GetProcAddress(hGl, h.name);
@@ -982,15 +982,15 @@ void Minecraft::renderEntityChams(int entityId, float r, float g, float b, float
 
     // Resolve theWorld field on Minecraft. Same in 1.7 and 1.8+ (instance).
     static jfieldID s_fid_theWorld = nullptr;
-    static jfieldID s_fid_renderManager = nullptr;   // 1.8+ instance field
-    static jfieldID s_sfid_rmInstance = nullptr;     // 1.7.10 static singleton
+    static jfieldID s_fid_renderManager = nullptr;  // 1.8+ instance field
+    static jfieldID s_sfid_rmInstance = nullptr;    // 1.7.10 static singleton
     static bool s_triedFields = false;
     if (!s_triedFields) {
         s_triedFields = true;
         s_fid_theWorld = JniCache::fid_theWorld;
         if (!s_fid_theWorld && cls) {
-            s_fid_theWorld = jni_resolver::findUniqueFieldBySignature(
-                cls, "Lnet/minecraft/client/multiplayer/WorldClient;", false);
+            s_fid_theWorld =
+                jni_resolver::findUniqueFieldBySignature(cls, "Lnet/minecraft/client/multiplayer/WorldClient;", false);
         }
 
         if (is_1_7_10) {
@@ -1014,8 +1014,7 @@ void Minecraft::renderEntityChams(int entityId, float r, float g, float b, float
                 }
                 if (!s_sfid_rmInstance) {
                     s_sfid_rmInstance = jni_resolver::findUniqueFieldBySignature(
-                        JniCache::cls_RenderManager,
-                        "Lnet/minecraft/client/renderer/entity/RenderManager;", true);
+                        JniCache::cls_RenderManager, "Lnet/minecraft/client/renderer/entity/RenderManager;", true);
                 }
             }
         } else {
@@ -1025,9 +1024,8 @@ void Minecraft::renderEntityChams(int entityId, float r, float g, float b, float
                     cls, "Lnet/minecraft/client/renderer/entity/RenderManager;", false);
             }
         }
-        log_ok("[Chams] version=%s theWorld=%p renderManagerInst=%p rmSingleton=%p",
-               is_1_7_10 ? "1.7.10" : "1.8+", (void*)s_fid_theWorld, (void*)s_fid_renderManager,
-               (void*)s_sfid_rmInstance);
+        log_ok("[Chams] version=%s theWorld=%p renderManagerInst=%p rmSingleton=%p", is_1_7_10 ? "1.7.10" : "1.8+",
+               (void*)s_fid_theWorld, (void*)s_fid_renderManager, (void*)s_sfid_rmInstance);
     }
     if (!s_fid_theWorld)
         return;
@@ -1054,9 +1052,9 @@ void Minecraft::renderEntityChams(int entityId, float r, float g, float b, float
 
     static jmethodID mid_getEntityByID = nullptr;
     static jmethodID mid_renderEntitySimple = nullptr;
-    static jmethodID mid_doRenderEntity = nullptr;   // doRenderEntity / renderEntityWithPosYaw
+    static jmethodID mid_doRenderEntity = nullptr;  // doRenderEntity / renderEntityWithPosYaw
     static bool doRenderReturnsBool = false;
-    static bool doRenderTakesExtraBool = false;      // 1.8+ has trailing Z arg, 1.7.10 doesn't
+    static bool doRenderTakesExtraBool = false;  // 1.8+ has trailing Z arg, 1.7.10 doesn't
     static bool triedIds = false;
     if (!triedIds) {
         triedIds = true;
@@ -1088,17 +1086,17 @@ void Minecraft::renderEntityChams(int entityId, float r, float g, float b, float
 
         // ---- RenderManager.renderEntitySimple(Entity, float) -> boolean ----
         if (JniCache::cls_RenderManager) {
-            mid_renderEntitySimple = env->GetMethodID(JniCache::cls_RenderManager,
-                                                      OBFUSCATE_STRING("renderEntitySimple").c_str(),
-                                                      OBFUSCATE_STRING("(Lnet/minecraft/entity/Entity;F)Z").c_str());
+            mid_renderEntitySimple =
+                env->GetMethodID(JniCache::cls_RenderManager, OBFUSCATE_STRING("renderEntitySimple").c_str(),
+                                 OBFUSCATE_STRING("(Lnet/minecraft/entity/Entity;F)Z").c_str());
             if (env->ExceptionCheck()) {
                 env->ExceptionClear();
                 mid_renderEntitySimple = nullptr;
             }
             if (!mid_renderEntitySimple) {
-                mid_renderEntitySimple = env->GetMethodID(JniCache::cls_RenderManager,
-                                                          OBFUSCATE_STRING("func_147936_a").c_str(),
-                                                          OBFUSCATE_STRING("(Lnet/minecraft/entity/Entity;F)Z").c_str());
+                mid_renderEntitySimple =
+                    env->GetMethodID(JniCache::cls_RenderManager, OBFUSCATE_STRING("func_147936_a").c_str(),
+                                     OBFUSCATE_STRING("(Lnet/minecraft/entity/Entity;F)Z").c_str());
                 if (env->ExceptionCheck()) {
                     env->ExceptionClear();
                     mid_renderEntitySimple = nullptr;
@@ -1149,9 +1147,9 @@ void Minecraft::renderEntityChams(int entityId, float r, float g, float b, float
                         doRenderTakesExtraBool = true;
                 }
             } else {
-                mid_doRenderEntity = env->GetMethodID(
-                    JniCache::cls_RenderManager, OBFUSCATE_STRING("renderEntityWithPosYaw").c_str(),
-                    OBFUSCATE_STRING("(Lnet/minecraft/entity/Entity;DDDFF)Z").c_str());
+                mid_doRenderEntity =
+                    env->GetMethodID(JniCache::cls_RenderManager, OBFUSCATE_STRING("renderEntityWithPosYaw").c_str(),
+                                     OBFUSCATE_STRING("(Lnet/minecraft/entity/Entity;DDDFF)Z").c_str());
                 if (env->ExceptionCheck()) {
                     env->ExceptionClear();
                     mid_doRenderEntity = nullptr;
@@ -1159,9 +1157,9 @@ void Minecraft::renderEntityChams(int entityId, float r, float g, float b, float
                 if (mid_doRenderEntity) {
                     doRenderReturnsBool = true;
                 } else {
-                    mid_doRenderEntity = env->GetMethodID(
-                        JniCache::cls_RenderManager, OBFUSCATE_STRING("func_147939_a").c_str(),
-                        OBFUSCATE_STRING("(Lnet/minecraft/entity/Entity;DDDFF)Z").c_str());
+                    mid_doRenderEntity =
+                        env->GetMethodID(JniCache::cls_RenderManager, OBFUSCATE_STRING("func_147939_a").c_str(),
+                                         OBFUSCATE_STRING("(Lnet/minecraft/entity/Entity;DDDFF)Z").c_str());
                     if (env->ExceptionCheck()) {
                         env->ExceptionClear();
                         mid_doRenderEntity = nullptr;
@@ -1272,12 +1270,9 @@ void Minecraft::renderEntityChams(int entityId, float r, float g, float b, float
                 if (is_1_7_10) {
                     if (JniCache::fid_renderPosX_static && JniCache::fid_renderPosY_static &&
                         JniCache::fid_renderPosZ_static) {
-                        rpx = env->GetStaticDoubleField(JniCache::cls_RenderManager,
-                                                        JniCache::fid_renderPosX_static);
-                        rpy = env->GetStaticDoubleField(JniCache::cls_RenderManager,
-                                                        JniCache::fid_renderPosY_static);
-                        rpz = env->GetStaticDoubleField(JniCache::cls_RenderManager,
-                                                        JniCache::fid_renderPosZ_static);
+                        rpx = env->GetStaticDoubleField(JniCache::cls_RenderManager, JniCache::fid_renderPosX_static);
+                        rpy = env->GetStaticDoubleField(JniCache::cls_RenderManager, JniCache::fid_renderPosY_static);
+                        rpz = env->GetStaticDoubleField(JniCache::cls_RenderManager, JniCache::fid_renderPosZ_static);
                     }
                 } else if (JniCache::fid_renderPosX && JniCache::fid_renderPosY && JniCache::fid_renderPosZ) {
                     rpx = env->GetDoubleField(renderManager, JniCache::fid_renderPosX);
@@ -1298,21 +1293,29 @@ void Minecraft::renderEntityChams(int entityId, float r, float g, float b, float
                         ecls = env->GetObjectClass(entity);
                     if (ecls) {
                         fid_posX = env->GetFieldID(ecls, "posX", "D");
-                        if (env->ExceptionCheck()) env->ExceptionClear();
+                        if (env->ExceptionCheck())
+                            env->ExceptionClear();
                         fid_posY = env->GetFieldID(ecls, "posY", "D");
-                        if (env->ExceptionCheck()) env->ExceptionClear();
+                        if (env->ExceptionCheck())
+                            env->ExceptionClear();
                         fid_posZ = env->GetFieldID(ecls, "posZ", "D");
-                        if (env->ExceptionCheck()) env->ExceptionClear();
+                        if (env->ExceptionCheck())
+                            env->ExceptionClear();
                         fid_lastX = env->GetFieldID(ecls, "lastTickPosX", "D");
-                        if (env->ExceptionCheck()) env->ExceptionClear();
+                        if (env->ExceptionCheck())
+                            env->ExceptionClear();
                         fid_lastY = env->GetFieldID(ecls, "lastTickPosY", "D");
-                        if (env->ExceptionCheck()) env->ExceptionClear();
+                        if (env->ExceptionCheck())
+                            env->ExceptionClear();
                         fid_lastZ = env->GetFieldID(ecls, "lastTickPosZ", "D");
-                        if (env->ExceptionCheck()) env->ExceptionClear();
+                        if (env->ExceptionCheck())
+                            env->ExceptionClear();
                         fid_rotYaw = env->GetFieldID(ecls, OBFUSCATE_STRING("rotationYaw").c_str(), "F");
-                        if (env->ExceptionCheck()) env->ExceptionClear();
+                        if (env->ExceptionCheck())
+                            env->ExceptionClear();
                         fid_prevYaw = env->GetFieldID(ecls, OBFUSCATE_STRING("prevRotationYaw").c_str(), "F");
-                        if (env->ExceptionCheck()) env->ExceptionClear();
+                        if (env->ExceptionCheck())
+                            env->ExceptionClear();
                         env->DeleteLocalRef(ecls);
                     }
                 }

@@ -27,4 +27,4 @@ std::string GetUsername();
 std::string GetPassword();
 bool IsLoginButtonPressed();
 void ClearLoginButton();
-}
+}  // namespace LoaderUI

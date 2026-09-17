@@ -38,8 +38,7 @@ float wrapAngle(float angle) {
     return angle - 180.0f;
 }
 
-std::pair<float, float> anglesTo(double fromX, double fromY, double fromZ,
-                                 double toX, double toY, double toZ) {
+std::pair<float, float> anglesTo(double fromX, double fromY, double fromZ, double toX, double toY, double toZ) {
     const double dx = toX - fromX;
     const double dy = toY - fromY;
     const double dz = toZ - fromZ;
@@ -301,7 +300,6 @@ float mouseRotationStep() {
     return base * base * base * 1.2f;
 }
 
-
 }  // namespace
 
 SilentAura::SilentAura() : Module("SilentAura"), rng_(std::random_device{}()) {}
@@ -548,8 +546,7 @@ bool SilentAura::updateRotation(std::chrono::steady_clock::time_point now) {
     }
 
     const double eyeY = localY + (player.isSneaking() ? 1.54 : 1.62);
-    const auto [targetYaw, targetPitch] = anglesTo(localX, eyeY, localZ,
-                                                   target_.aimX, target_.aimY, target_.aimZ);
+    const auto [targetYaw, targetPitch] = anglesTo(localX, eyeY, localZ, target_.aimX, target_.aimY, target_.aimZ);
 
     if (controllerRebaseRequested_.exchange(false, std::memory_order_acq_rel))
         managedRotationInitialized_ = false;
@@ -577,16 +574,14 @@ bool SilentAura::updateRotation(std::chrono::steady_clock::time_point now) {
     if (!std::isfinite(gcd) || gcd < 0.0001f)
         return false;
 
-    yawResidual_ += static_cast<double>(std::clamp(wrapAngle(targetYaw - managedYaw_),
-                                                   -maxYawStep, maxYawStep));
-    pitchResidual_ += static_cast<double>(std::clamp(targetPitch - managedPitch_,
-                                                     -maxPitchStep, maxPitchStep));
+    yawResidual_ += static_cast<double>(std::clamp(wrapAngle(targetYaw - managedYaw_), -maxYawStep, maxYawStep));
+    pitchResidual_ += static_cast<double>(std::clamp(targetPitch - managedPitch_, -maxPitchStep, maxPitchStep));
     const long long yawSteps = std::llround(yawResidual_ / static_cast<double>(gcd));
     const long long requestedPitchSteps = std::llround(pitchResidual_ / static_cast<double>(gcd));
-    const long long minimumPitchSteps = static_cast<long long>(
-        std::ceil((-90.0 - static_cast<double>(managedPitch_)) / static_cast<double>(gcd)));
-    const long long maximumPitchSteps = static_cast<long long>(
-        std::floor((90.0 - static_cast<double>(managedPitch_)) / static_cast<double>(gcd)));
+    const long long minimumPitchSteps =
+        static_cast<long long>(std::ceil((-90.0 - static_cast<double>(managedPitch_)) / static_cast<double>(gcd)));
+    const long long maximumPitchSteps =
+        static_cast<long long>(std::floor((90.0 - static_cast<double>(managedPitch_)) / static_cast<double>(gcd)));
     const long long pitchSteps = std::clamp(requestedPitchSteps, minimumPitchSteps, maximumPitchSteps);
     const float yawStep = static_cast<float>(yawSteps) * gcd;
     const float pitchStep = static_cast<float>(pitchSteps) * gcd;
@@ -664,8 +659,7 @@ bool SilentAura::publishedRayHitsTarget(JNIEnv* env, float yaw, float pitch) {
         return entry <= exit;
     };
 
-    if (!intersectAxis(originX, directionX, minX, maxX) ||
-        !intersectAxis(originY, directionY, minY, maxY) ||
+    if (!intersectAxis(originX, directionX, minX, maxX) || !intersectAxis(originY, directionY, minY, maxY) ||
         !intersectAxis(originZ, directionZ, minZ, maxZ) || entry < 0.0 || entry > attackReach) {
         return false;
     }
@@ -763,8 +757,8 @@ void SilentAura::scheduleNextAttack(std::chrono::steady_clock::time_point now) {
 
 bool SilentAura::isHoldingWeapon() const {
     const int id = player.getHeldItemId();
-    return id == 268 || id == 272 || id == 267 || id == 276 || id == 283 ||
-           id == 271 || id == 275 || id == 258 || id == 279 || id == 286;
+    return id == 268 || id == 272 || id == 267 || id == 276 || id == 283 || id == 271 || id == 275 || id == 258 ||
+           id == 279 || id == 286;
 }
 
 void SilentAura::onUpdate() {
@@ -785,8 +779,7 @@ void SilentAura::onUpdate() {
 
     const bool mouseDown = (GetAsyncKeyState(VK_LBUTTON) & 0x8000) != 0;
     if (!player.isValid() || Menu::isOpen || mc.isInGui() || packetQueueActive() ||
-        (settings.requireMouseDown && !mouseDown) ||
-        (settings.weaponOnly && !isHoldingWeapon()) ||
+        (settings.requireMouseDown && !mouseDown) || (settings.weaponOnly && !isHoldingWeapon()) ||
         (settings.breakBlocks && mouseDown && mc.isTargetingBlock())) {
         clearTarget(env);
         controllerUpdatedAt_ = now;
@@ -830,8 +823,7 @@ void SilentAura::invalidatePublishedRotation() {
 }
 
 void SilentAura::observeAcceptedOutgoingPacket(JNIEnv* env, jobject packet, bool invalidateAttack) {
-    if (!env || !packet || !resolveC03(env) ||
-        env->IsInstanceOf(packet, g_c03.packetClass) != JNI_TRUE) {
+    if (!env || !packet || !resolveC03(env) || env->IsInstanceOf(packet, g_c03.packetClass) != JNI_TRUE) {
         return;
     }
 
@@ -975,10 +967,10 @@ void SilentAura::loadSettings(const json::Value& node) {
     if (settings.minCps > settings.maxCps)
         std::swap(settings.minCps, settings.maxCps);
     settings.maxAngle = std::clamp(node["maxAngle"].as_int(settings.maxAngle), 1, 360);
-    settings.targetMode = static_cast<TargetMode>(
-        std::clamp(node["targetMode"].as_int(static_cast<int>(settings.targetMode)), 0, 4));
-    settings.targetArea = static_cast<TargetArea>(
-        std::clamp(node["targetArea"].as_int(static_cast<int>(settings.targetArea)), 0, 1));
+    settings.targetMode =
+        static_cast<TargetMode>(std::clamp(node["targetMode"].as_int(static_cast<int>(settings.targetMode)), 0, 4));
+    settings.targetArea =
+        static_cast<TargetArea>(std::clamp(node["targetArea"].as_int(static_cast<int>(settings.targetArea)), 0, 1));
     settings.switchTargets = node["switch"].as_bool(settings.switchTargets);
     settings.requireMouseDown = node["requireMouseDown"].as_bool(settings.requireMouseDown);
     settings.weaponOnly = node["weaponOnly"].as_bool(settings.weaponOnly);

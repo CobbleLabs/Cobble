@@ -1,10 +1,5 @@
 #pragma once
 
-
-
-
-
-
 #include <Windows.h>
 #include <wininet.h>
 #include <chrono>
@@ -20,12 +15,8 @@
 
 namespace Telemetry {
 
-
-
-
 constexpr int THROTTLE_SECONDS = 300;
 constexpr int HTTP_TIMEOUT_MS = 2000;
-
 
 enum class Severity { INFO, WARN, HIGH, CRITICAL };
 
@@ -44,16 +35,12 @@ inline const char* SeverityToString(Severity s) {
     }
 }
 
-
-
-
 namespace Internal {
 inline std::mutex g_Mutex;
 inline std::unordered_map<std::string, int64_t> g_LastSent;
 inline std::string g_SessionId;
 inline std::string g_ServerHost;
 inline bool g_Initialized = false;
-
 
 inline void Initialize() {
     if (g_Initialized)
@@ -79,7 +66,6 @@ inline std::string NormalizeHost(const std::string& hostOrUrl) {
     return host;
 }
 
-
 inline std::string UrlEncode(const std::string& value) {
     std::string result;
     for (unsigned char c : value) {
@@ -93,7 +79,6 @@ inline std::string UrlEncode(const std::string& value) {
     }
     return result;
 }
-
 
 inline std::string EscapeJson(const std::string& s) {
     std::string out;
@@ -111,7 +96,6 @@ inline std::string EscapeJson(const std::string& s) {
     }
     return out;
 }
-
 
 struct TelemetryPayload {
     std::string hwid;
@@ -169,7 +153,6 @@ inline bool SendPayloadToHost(const TelemetryPayload& payload, const std::string
 }
 
 inline bool SendPayload(const TelemetryPayload& payload) {
-
     if (!g_ServerHost.empty()) {
         return SendPayloadToHost(payload, g_ServerHost);
     }
@@ -182,19 +165,16 @@ inline bool SendPayload(const TelemetryPayload& payload) {
     return false;
 }
 
-
 inline DWORD WINAPI SendThreadProc(LPVOID lpParam) {
     TelemetryPayload* pPayload = static_cast<TelemetryPayload*>(lpParam);
     TelemetryPayload payload = *pPayload;
     delete pPayload;
-
 
     Sleep(300 + (rand() % 500));
 
     SendPayload(payload);
     return 0;
 }
-
 
 inline bool IsThrottled(const std::string& code) {
     std::lock_guard<std::mutex> lock(g_Mutex);
@@ -208,18 +188,12 @@ inline bool IsThrottled(const std::string& code) {
     return (now - it->second) < THROTTLE_SECONDS;
 }
 
-
 inline void MarkSent(const std::string& code) {
     std::lock_guard<std::mutex> lock(g_Mutex);
     g_LastSent[code] =
         std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
 }
-}
-
-
-
-
-
+}  // namespace Internal
 
 inline void Init() {
     Internal::Initialize();
@@ -235,7 +209,6 @@ inline void Init(const std::string& serverHost) {
     Internal::Initialize();
 }
 
-
 inline void ReportImmediate(const std::string& event_code, Severity severity, int score,
                             const std::string& details = "") {
     Internal::Initialize();
@@ -248,7 +221,6 @@ inline void ReportImmediate(const std::string& event_code, Severity severity, in
     payload.details = details;
     payload.version = COBBLE_VERSION;
 
-
     for (int i = 0; i < 2; i++) {
         if (Internal::SendPayload(payload)) {
             return;
@@ -257,9 +229,7 @@ inline void ReportImmediate(const std::string& event_code, Severity severity, in
     }
 }
 
-
 inline void Report(const std::string& event_code, Severity severity, int score, const std::string& details = "") {
-
     Internal::Initialize();
 
     if (severity == Severity::CRITICAL) {
@@ -267,14 +237,11 @@ inline void Report(const std::string& event_code, Severity severity, int score, 
         return;
     }
 
-
     if (Internal::IsThrottled(event_code)) {
         return;
     }
 
-
     Internal::MarkSent(event_code);
-
 
     Internal::TelemetryPayload* pPayload = new Internal::TelemetryPayload();
     pPayload->hwid = Internal::g_SessionId;
@@ -284,7 +251,6 @@ inline void Report(const std::string& event_code, Severity severity, int score, 
     pPayload->details = details;
     pPayload->version = COBBLE_VERSION;
 
-
     HANDLE hThread = CreateThread(NULL, 0, Internal::SendThreadProc, pPayload, 0, NULL);
     if (hThread) {
         CloseHandle(hThread);
@@ -292,7 +258,6 @@ inline void Report(const std::string& event_code, Severity severity, int score, 
         delete pPayload;
     }
 }
-
 
 inline void ReportDebugger(const std::string& code, int score, const std::string& details = "") {
     Report(code, Severity::CRITICAL, score, details);
@@ -306,21 +271,15 @@ inline void ReportVM(const std::string& method) {
     Report("VM_" + method, Severity::WARN, 30, method + " detected");
 }
 
-
-
-
-
-
 namespace Honeypot {
 
 inline const char* FAKE_WEBHOOK_DO_NOT_USE =
     "https://discord.com/api/webhooks/1461846578431131870/"
     "dpl1XTvq-6fAkkDfyLn-yOxW-py5AORzJnInt4bOIimp_uF7H0RH1XavAqINOh7lkGqF";
 
-
 inline void TriggerHoneypot() {
     Report("HONEYPOT_TRIGGERED", Severity::CRITICAL, 100, "Cracker attempted to use fake webhook");
 }
-}
+}  // namespace Honeypot
 
-}
+}  // namespace Telemetry

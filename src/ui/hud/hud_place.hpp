@@ -46,16 +46,16 @@ inline bool screenSize(float& w, float& h) {
 // Fractions -> top-left pixel of a w x h box. `right` / `bottom` name the corner
 // the fractions were measured from, so the box keeps that edge planted when it
 // resizes.
-inline void placeToPixels(bool right, bool bottom, float relX, float relY, float w, float h, float sw,
-                          float sh, float& x, float& y) {
+inline void placeToPixels(bool right, bool bottom, float relX, float relY, float w, float h, float sw, float sh,
+                          float& x, float& y) {
     x = relX * sw - (right ? w : 0.0f);
     y = relY * sh - (bottom ? h : 0.0f);
 }
 
 // Top-left pixel -> fractions: the exact inverse of placeToPixels. Called after
 // a drag or a clamp, so what is stored always matches what was drawn.
-inline void placeToFractions(bool right, bool bottom, float x, float y, float w, float h, float sw,
-                             float sh, float& relX, float& relY) {
+inline void placeToFractions(bool right, bool bottom, float x, float y, float w, float h, float sw, float sh,
+                             float& relX, float& relY) {
     if (sw > 0.0f)
         relX = (x + (right ? w : 0.0f)) / sw;
     if (sh > 0.0f)

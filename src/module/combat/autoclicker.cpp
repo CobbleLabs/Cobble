@@ -75,10 +75,10 @@ void AutoClicker::onEnable() {
     // Per-session sigma baseline offset: every onEnable starts from a slightly
     // different distribution center so per-session std never repeats.
     sigmaSessionOffset = (static_cast<float>(secureUnit()) - 0.5f) * 0.08f;  // -0.04..+0.04
-    tempoStepScale = 0.08f + static_cast<float>(secureUnit()) * 0.16f;        // 0.08..0.24
-    tempoPull = 0.02f + static_cast<float>(secureUnit()) * 0.10f;             // 0.02..0.12
-    hesitationChance = 0.01f + static_cast<float>(secureUnit()) * 0.05f;      // 1-6%
-    doubleTapChance = 0.005f + static_cast<float>(secureUnit()) * 0.035f;     // 0.5-4%
+    tempoStepScale = 0.08f + static_cast<float>(secureUnit()) * 0.16f;       // 0.08..0.24
+    tempoPull = 0.02f + static_cast<float>(secureUnit()) * 0.10f;            // 0.02..0.12
+    hesitationChance = 0.01f + static_cast<float>(secureUnit()) * 0.05f;     // 1-6%
+    doubleTapChance = 0.005f + static_cast<float>(secureUnit()) * 0.035f;    // 0.5-4%
     shapePhaseClicksRemaining = 0;
     for (auto& row : pinkRows)
         row = static_cast<float>(secureUnit()) * 2.0f - 1.0f;
@@ -438,8 +438,7 @@ float AutoClicker::generateHumanIntervalMs(float minCps, float maxCps) {
     const double z = std::sqrt(-2.0 * std::log(u1)) * std::cos(6.283185307179586 * u2);
     // Session offset shifts the whole sigma track so back-to-back windows never
     // measure the same std / tail coverage.
-    const double sigma =
-        std::clamp(static_cast<double>(sigmaState + sigmaSessionOffset), 0.08, 0.42);
+    const double sigma = std::clamp(static_cast<double>(sigmaState + sigmaSessionOffset), 0.08, 0.42);
     interval *= static_cast<float>(std::exp(sigma * z - 0.5 * sigma * sigma));
 
     // 1/f (pink) component: human motor timing exhibits scale-free long-range
@@ -673,10 +672,10 @@ void AutoClicker::updateShapeParams() {
         return;
     }
 
-    std::uniform_real_distribution<float> stepDist(0.08f, 0.24f);   // tempo step scale
-    std::uniform_real_distribution<float> pullDist(0.02f, 0.12f);   // mean reversion
-    std::uniform_real_distribution<float> hesDist(0.01f, 0.06f);    // hesitation rate
-    std::uniform_real_distribution<float> tapDist(0.005f, 0.04f);   // double-tap rate
+    std::uniform_real_distribution<float> stepDist(0.08f, 0.24f);  // tempo step scale
+    std::uniform_real_distribution<float> pullDist(0.02f, 0.12f);  // mean reversion
+    std::uniform_real_distribution<float> hesDist(0.01f, 0.06f);   // hesitation rate
+    std::uniform_real_distribution<float> tapDist(0.005f, 0.04f);  // double-tap rate
     std::uniform_int_distribution<int> lengthDist(60, 200);
 
     tempoStepScale = stepDist(rng);
@@ -734,8 +733,6 @@ std::string AutoClicker::getDisplayInfo() {
         return "Stable";
     return "";
 }
-
-
 
 void AutoClicker::saveSettings(json::Value& node) const {
     node["minCps"] = settings.minCPS;

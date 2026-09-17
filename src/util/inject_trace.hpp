@@ -47,15 +47,14 @@ inline HANDLE open_trace_handle_once() {
         path[n + i] = fname[i];
     path[n + 17] = '\0';
 
-    HANDLE h = CreateFileA(path, FILE_APPEND_DATA, FILE_SHARE_READ | FILE_SHARE_WRITE,
-                           nullptr, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+    HANDLE h = CreateFileA(path, FILE_APPEND_DATA, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_ALWAYS,
+                           FILE_ATTRIBUTE_NORMAL, nullptr);
     if (h == INVALID_HANDLE_VALUE)
         return INVALID_HANDLE_VALUE;
 
     // First-arrival wins; if another thread already installed a handle, close
     // ours and reuse theirs.
-    HANDLE prev = (HANDLE)InterlockedCompareExchangePointer((PVOID*)&hRef,
-                                                             (PVOID)h, (PVOID)INVALID_HANDLE_VALUE);
+    HANDLE prev = (HANDLE)InterlockedCompareExchangePointer((PVOID*)&hRef, (PVOID)h, (PVOID)INVALID_HANDLE_VALUE);
     if (prev != INVALID_HANDLE_VALUE) {
         CloseHandle(h);
         return prev;
@@ -64,18 +63,19 @@ inline HANDLE open_trace_handle_once() {
 }
 
 inline void write_step(const char* step) {
-    if (!step) return;
+    if (!step)
+        return;
 
     HANDLE h = open_trace_handle_once();
-    if (h == INVALID_HANDLE_VALUE) return;
+    if (h == INVALID_HANDLE_VALUE)
+        return;
 
     SYSTEMTIME st;
     GetLocalTime(&st);
 
     char buf[2048];
-    int len = wsprintfA(buf, "[%02u:%02u:%02u.%03u] tid=%lu pid=%lu  %s\r\n",
-                        st.wHour, st.wMinute, st.wSecond, st.wMilliseconds,
-                        GetCurrentThreadId(), GetCurrentProcessId(), step);
+    int len = wsprintfA(buf, "[%02u:%02u:%02u.%03u] tid=%lu pid=%lu  %s\r\n", st.wHour, st.wMinute, st.wSecond,
+                        st.wMilliseconds, GetCurrentThreadId(), GetCurrentProcessId(), step);
     if (len > 0) {
         DWORD written = 0;
         // WriteFile on an append handle is atomic per call (Windows guarantee),
@@ -95,9 +95,11 @@ inline void clear() {
 
     char path[MAX_PATH];
     DWORD n = GetEnvironmentVariableA("TEMP", path, MAX_PATH);
-    if (n == 0 || n >= MAX_PATH - 24) return;
+    if (n == 0 || n >= MAX_PATH - 24)
+        return;
     const char* fname = "\\cobble_trace.log";
-    for (DWORD i = 0; fname[i] && n + i < MAX_PATH - 1; ++i) path[n + i] = fname[i];
+    for (DWORD i = 0; fname[i] && n + i < MAX_PATH - 1; ++i)
+        path[n + i] = fname[i];
     path[n + 17] = '\0';
     DeleteFileA(path);
 }
@@ -110,13 +112,13 @@ inline void clear() {
 // One-shot variant: emits the trace the first time this site is reached, then
 // stays silent. Useful for bisection inside a tight per-frame loop where you
 // want to know "did we ever reach this point?" without spamming every frame.
-#define COBBLE_TRACE_ONCE(step)                  \
-    do {                                         \
-        static bool _cobble_trace_once = false;  \
-        if (!_cobble_trace_once) {               \
-            _cobble_trace_once = true;           \
-            ::cobble_trace::write_step(step);    \
-        }                                        \
+#define COBBLE_TRACE_ONCE(step)                 \
+    do {                                        \
+        static bool _cobble_trace_once = false; \
+        if (!_cobble_trace_once) {              \
+            _cobble_trace_once = true;          \
+            ::cobble_trace::write_step(step);   \
+        }                                       \
     } while (0)
 
 #else  // !COBBLE_DEV_BUILD

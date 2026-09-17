@@ -19,9 +19,9 @@
 Breaker* breaker = nullptr;
 
 namespace {
-constexpr std::array<std::array<int, 3>, 6> kAdjacent = {
-    std::array<int, 3>{1, 0, 0},  std::array<int, 3>{-1, 0, 0}, std::array<int, 3>{0, 1, 0},
-    std::array<int, 3>{0, -1, 0}, std::array<int, 3>{0, 0, 1},  std::array<int, 3>{0, 0, -1}};
+constexpr std::array<std::array<int, 3>, 6> kAdjacent = {std::array<int, 3>{1, 0, 0}, std::array<int, 3>{-1, 0, 0},
+                                                         std::array<int, 3>{0, 1, 0}, std::array<int, 3>{0, -1, 0},
+                                                         std::array<int, 3>{0, 0, 1}, std::array<int, 3>{0, 0, -1}};
 }
 
 Breaker::Breaker() : Module("Breaker") {}
@@ -154,13 +154,8 @@ void Breaker::onRenderMenu() {
                 setEnabled(enabledValue);
             ui::SliderFloat("Range", &settings.range, 2.0f, 6.0f, "%.1f blocks");
         },
-        "Behavior",
-        [this]() {
-            ui::Checkbox("Legit", &settings.legit);
-        });
+        "Behavior", [this]() { ui::Checkbox("Legit", &settings.legit); });
 }
-
-
 
 void Breaker::saveSettings(json::Value& node) const {
     node["range"] = settings.range;

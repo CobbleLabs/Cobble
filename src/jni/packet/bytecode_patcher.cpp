@@ -124,12 +124,8 @@ static jclass cls_EntityRendererTarget = nullptr;
 constexpr int kPrefixLen = 8;
 
 struct ClassFileLoadCallbackScope {
-    ClassFileLoadCallbackScope() {
-        g_classFileLoadCallbacksInFlight.fetch_add(1, std::memory_order_acq_rel);
-    }
-    ~ClassFileLoadCallbackScope() {
-        g_classFileLoadCallbacksInFlight.fetch_sub(1, std::memory_order_acq_rel);
-    }
+    ClassFileLoadCallbackScope() { g_classFileLoadCallbacksInFlight.fetch_add(1, std::memory_order_acq_rel); }
+    ~ClassFileLoadCallbackScope() { g_classFileLoadCallbacksInFlight.fetch_sub(1, std::memory_order_acq_rel); }
 };
 
 // PacketHook class with both methods:
@@ -785,9 +781,8 @@ static bool tryPatchCodeAttributeObserver(const uint8_t* data, size_t len, const
 constexpr int kIncomingBacktrackPrefixLen = 13;
 
 static bool tryPatchCodeAttributeIncomingBacktrack(const uint8_t* data, size_t len,
-                                                   const std::vector<std::string>& utf8,
-                                                   uint16_t observer_methodref, uint16_t gate_methodref,
-                                                   uint16_t stack_map_table_name_index,
+                                                   const std::vector<std::string>& utf8, uint16_t observer_methodref,
+                                                   uint16_t gate_methodref, uint16_t stack_map_table_name_index,
                                                    std::vector<uint8_t>& out) {
     Reader r(data, len);
     uint16_t max_stack = r.ReadU2();
@@ -797,10 +792,8 @@ static bool tryPatchCodeAttributeIncomingBacktrack(const uint8_t* data, size_t l
     if (!r.ok)
         return false;
 
-    if (code_len >= kIncomingBacktrackPrefixLen &&
-        code[0] == 0x2c && code[1] == 0xb8 &&
-        code[4] == 0x2a && code[5] == 0x2c && code[6] == 0xb8 &&
-        code[9] == 0x9a && code[10] == 0x00 && code[11] == 0x04 &&
+    if (code_len >= kIncomingBacktrackPrefixLen && code[0] == 0x2c && code[1] == 0xb8 && code[4] == 0x2a &&
+        code[5] == 0x2c && code[6] == 0xb8 && code[9] == 0x9a && code[10] == 0x00 && code[11] == 0x04 &&
         code[12] == 0xb1) {
         const uint16_t existingObserver = static_cast<uint16_t>((code[2] << 8) | code[3]);
         const uint16_t existingGate = static_cast<uint16_t>((code[7] << 8) | code[8]);
@@ -902,8 +895,7 @@ static bool tryPatchCodeAttributeIncomingBacktrack(const uint8_t* data, size_t l
                 return false;
             replaced = true;
         } else if (attr_name &&
-                   (strcmp(attr_name, "LocalVariableTable") == 0 ||
-                    strcmp(attr_name, "LocalVariableTypeTable") == 0)) {
+                   (strcmp(attr_name, "LocalVariableTable") == 0 || strcmp(attr_name, "LocalVariableTypeTable") == 0)) {
             if (!patchLocalVariableTable(attr_data, attr_len, kIncomingBacktrackPrefixLen, patched))
                 return false;
             replaced = true;
@@ -1316,7 +1308,7 @@ static int patchNetworkManagerClass(const uint8_t* data, size_t len, std::vector
         bool is_target = false;
         bool is_incoming_target = false;
         bool is_channel_read_target = false;
-        int incoming_packet_slot = 2;      // Default: second param for channelRead0
+        int incoming_packet_slot = 2;  // Default: second param for channelRead0
         if (m_name < utf8.size() && m_desc < utf8.size()) {
             const std::string& name = utf8[m_name];
             const std::string& desc = utf8[m_desc];
@@ -1465,13 +1457,12 @@ static int patchNetworkManagerClass(const uint8_t* data, size_t len, std::vector
                     is_channel_read_target && g_targets.incoming && g_targets.incomingBacktrack;
                 bool patchOk = false;
                 if (useIncomingBacktrack) {
-                    patchOk = tryPatchCodeAttributeIncomingBacktrack(
-                        attr_data, attr_len, utf8, idx_recv_methodref, idx_bt_methodref,
-                        idx_stack_map_table_utf8, patched_attr);
+                    patchOk = tryPatchCodeAttributeIncomingBacktrack(attr_data, attr_len, utf8, idx_recv_methodref,
+                                                                     idx_bt_methodref, idx_stack_map_table_utf8,
+                                                                     patched_attr);
                 } else {
-                    patchOk = tryPatchCodeAttributeObserver(attr_data, attr_len, cp, utf8,
-                                                            idx_recv_methodref, incoming_packet_slot,
-                                                            patched_attr);
+                    patchOk = tryPatchCodeAttributeObserver(attr_data, attr_len, cp, utf8, idx_recv_methodref,
+                                                            incoming_packet_slot, patched_attr);
                 }
 
                 if (patchOk) {
@@ -1743,8 +1734,7 @@ static int patchLivingBaseClass(const uint8_t* data, size_t len, std::vector<uin
 // Inject `BacktrackGhostHook.onRenderWorld(Object)` at a world-render method
 // entry. RenderGlobal passes its view Entity from slot 1; EntityRenderer passes
 // itself from slot 0 so the native bridge can delimit the temporary camera swap.
-static int patchRenderHookClass(const uint8_t* data, size_t len, std::vector<uint8_t>& out,
-                                bool cameraTarget) {
+static int patchRenderHookClass(const uint8_t* data, size_t len, std::vector<uint8_t>& out, bool cameraTarget) {
     Reader r(data, len);
     uint32_t magic = r.ReadU4();
     if (!r.ok || magic != 0xCAFEBABE)
@@ -1888,15 +1878,11 @@ static int patchRenderHookClass(const uint8_t* data, size_t len, std::vector<uin
             const std::string& desc = utf8[m_desc];
             bool descMatch = false;
             if (cameraTarget) {
-                const bool nameMatch = (name == "renderWorld" ||
-                                        name == "func_78471_a" ||
-                                        name == "a");
+                const bool nameMatch = (name == "renderWorld" || name == "func_78471_a" || name == "a");
                 descMatch = nameMatch && desc == "(FJ)V";
             } else {
-                const bool nameMatch = (name == "renderEntities" ||
-                                        name == "func_180446_a" ||
-                                        name == "func_147589_a" ||
-                                        name == "a");
+                const bool nameMatch =
+                    (name == "renderEntities" || name == "func_180446_a" || name == "func_147589_a" || name == "a");
                 if (nameMatch) {
                     if (desc.find("ICamera") != std::string::npos && desc.rfind(")V") != std::string::npos) {
                         descMatch = true;
@@ -1934,8 +1920,8 @@ static int patchRenderHookClass(const uint8_t* data, size_t len, std::vector<uin
             std::vector<uint8_t> patched_attr;
 
             if (is_target && attr_name && strcmp(attr_name, "Code") == 0 && (m_access & (0x0100 | 0x0400)) == 0) {
-                if (tryPatchCodeAttributeObserver(attr_data, attr_len, cp, utf8, idx_methodref,
-                                                  cameraTarget ? 0 : 1, patched_attr)) {
+                if (tryPatchCodeAttributeObserver(attr_data, attr_len, cp, utf8, idx_methodref, cameraTarget ? 0 : 1,
+                                                  patched_attr)) {
                     w.WriteU2(name_index);
                     w.WriteU4(static_cast<uint32_t>(patched_attr.size()));
                     w.WriteBytes(patched_attr.data(), patched_attr.size());
@@ -2186,19 +2172,17 @@ static void JNICALL onClassFileLoadHook(jvmtiEnv* jvmti_env, JNIEnv* jni_env, jc
     const bool isNetworkManagerTarget =
         isNetworkManagerByIdentity ||
         (name && (strcmp(name, kTargetClassSlash().c_str()) == 0 || strcmp(name, "ek") == 0));
-    if (isNetworkManagerTarget &&
-        (g_targets.outgoing || g_targets.incoming || g_targets.incomingBacktrack)) {
+    if (isNetworkManagerTarget && (g_targets.outgoing || g_targets.incoming || g_targets.incomingBacktrack)) {
         COBBLE_TRACE("onClassFileLoadHook: NetworkManager matched");
         log_debug("[PacketInterceptor] onClassFileLoadHook triggered for NetworkManager");
         std::vector<uint8_t> patched;
         bool wroteIncomingBacktrack = false;
-        int patched_methods = patchNetworkManagerClass(class_data, static_cast<size_t>(class_data_len), patched,
-                                                        &wroteIncomingBacktrack);
+        int patched_methods =
+            patchNetworkManagerClass(class_data, static_cast<size_t>(class_data_len), patched, &wroteIncomingBacktrack);
         if (patched_methods <= 0) {
             if (patched_methods < 0) {
                 COBBLE_TRACE("onClassFileLoadHook: NetworkManager patching failed");
-                log_warn("[PacketInterceptor] Bytecode patch failed for %s",
-                         name ? name : "<NetworkManager>");
+                log_warn("[PacketInterceptor] Bytecode patch failed for %s", name ? name : "<NetworkManager>");
             }
             return;
         }
@@ -2314,10 +2298,9 @@ static void JNICALL onClassFileLoadHook(jvmtiEnv* jvmti_env, JNIEnv* jni_env, jc
     }
 
     const bool isRenderGlobalTarget =
-        g_targets.renderGhost &&
-        ((cls_RenderGlobalTarget && class_being_redefined &&
-          jni_env->IsSameObject(class_being_redefined, cls_RenderGlobalTarget) == JNI_TRUE) ||
-         (name && strcmp(name, "net/minecraft/client/renderer/RenderGlobal") == 0));
+        g_targets.renderGhost && ((cls_RenderGlobalTarget && class_being_redefined &&
+                                   jni_env->IsSameObject(class_being_redefined, cls_RenderGlobalTarget) == JNI_TRUE) ||
+                                  (name && strcmp(name, "net/minecraft/client/renderer/RenderGlobal") == 0));
     if (isRenderGlobalTarget) {
         COBBLE_TRACE("onClassFileLoadHook: RenderGlobal matched");
         std::vector<uint8_t> patched;
@@ -2693,12 +2676,13 @@ bool InstallBytecodeHook(JNIEnv* env) {
         }
     }
 
-    if (incomingBacktrackRequested &&
-        !(incomingBacktrackPrefixApplied.load(std::memory_order_acquire) &&
-          slowDownHookApplied.load(std::memory_order_acquire))) {
+    if (incomingBacktrackRequested && !(incomingBacktrackPrefixApplied.load(std::memory_order_acquire) &&
+                                        slowDownHookApplied.load(std::memory_order_acquire))) {
         g_targets.incomingBacktrack = false;
         incomingBacktrackPrefixApplied.store(false, std::memory_order_release);
-        log_warn("[PacketInterceptor] Incoming Backtrack hooks incomplete; disabling gate and restoring observer-only NetworkManager");
+        log_warn(
+            "[PacketInterceptor] Incoming Backtrack hooks incomplete; disabling gate and restoring observer-only "
+            "NetworkManager");
 
         if (cls_NetworkManagerTarget) {
             jclass classes[1] = {cls_NetworkManagerTarget};
@@ -2733,23 +2717,21 @@ bool Shutdown(JNIEnv* env) {
             return false;
         }
 
-        const jvmtiError disableErr = Java::tiEnv->SetEventNotificationMode(
-            JVMTI_DISABLE, JVMTI_EVENT_CLASS_FILE_LOAD_HOOK, nullptr);
+        const jvmtiError disableErr =
+            Java::tiEnv->SetEventNotificationMode(JVMTI_DISABLE, JVMTI_EVENT_CLASS_FILE_LOAD_HOOK, nullptr);
         if (disableErr != JVMTI_ERROR_NONE) {
             log_err("[BytecodePatcher] Failed to disable ClassFileLoadHook (err=%d)", disableErr);
             return false;
         }
 
         jvmtiEventCallbacks callbacks{};
-        const jvmtiError callbacksErr =
-            Java::tiEnv->SetEventCallbacks(&callbacks, sizeof(callbacks));
+        const jvmtiError callbacksErr = Java::tiEnv->SetEventCallbacks(&callbacks, sizeof(callbacks));
         if (callbacksErr != JVMTI_ERROR_NONE) {
             log_err("[BytecodePatcher] Failed to clear JVMTI callbacks (err=%d)", callbacksErr);
             return false;
         }
 
-        const auto deadline =
-            std::chrono::steady_clock::now() + std::chrono::milliseconds(2000);
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(2000);
         while (g_classFileLoadCallbacksInFlight.load(std::memory_order_acquire) != 0) {
             if (std::chrono::steady_clock::now() >= deadline) {
                 log_err("[BytecodePatcher] Timed out waiting for ClassFileLoadHook callbacks");
@@ -2759,21 +2741,14 @@ bool Shutdown(JNIEnv* env) {
         }
     }
 
-    const bool networkManagerPatched =
-        g_networkManagerPatched.load(std::memory_order_acquire);
-    const bool lunarNetHandlerPatched =
-        g_lunarNetHandlerPatched.load(std::memory_order_acquire);
-    const bool netHandlerPlayClientPatched =
-        g_netHandlerPlayClientPatched.load(std::memory_order_acquire);
+    const bool networkManagerPatched = g_networkManagerPatched.load(std::memory_order_acquire);
+    const bool lunarNetHandlerPatched = g_lunarNetHandlerPatched.load(std::memory_order_acquire);
+    const bool netHandlerPlayClientPatched = g_netHandlerPlayClientPatched.load(std::memory_order_acquire);
     const bool slowDownPatched = slowDownHookApplied.load(std::memory_order_acquire);
-    const bool renderGlobalPatched =
-        g_renderGlobalPatched.load(std::memory_order_acquire);
-    const bool entityRendererPatched =
-        g_entityRendererPatched.load(std::memory_order_acquire);
-    const bool anyClassPatched =
-        networkManagerPatched || lunarNetHandlerPatched ||
-        netHandlerPlayClientPatched ||
-        slowDownPatched || renderGlobalPatched || entityRendererPatched;
+    const bool renderGlobalPatched = g_renderGlobalPatched.load(std::memory_order_acquire);
+    const bool entityRendererPatched = g_entityRendererPatched.load(std::memory_order_acquire);
+    const bool anyClassPatched = networkManagerPatched || lunarNetHandlerPatched || netHandlerPlayClientPatched ||
+                                 slowDownPatched || renderGlobalPatched || entityRendererPatched;
 
     jclass classesToRetransform[8]{};
     bool temporaryLocalRef[8]{};
@@ -2786,8 +2761,7 @@ bool Shutdown(JNIEnv* env) {
         }
     };
 
-    auto addPatchedClass = [&](bool patched, jclass retainedGlobal,
-                               const std::string& dotName,
+    auto addPatchedClass = [&](bool patched, jclass retainedGlobal, const std::string& dotName,
                                const char* displayName) -> bool {
         if (!patched)
             return true;
@@ -2803,8 +2777,7 @@ bool Shutdown(JNIEnv* env) {
         if (!Java::AssignClass(dotName, resolved) || !resolved) {
             if (env->ExceptionCheck())
                 env->ExceptionClear();
-            log_err("[BytecodePatcher] Patched class unavailable during restore: %s",
-                    displayName);
+            log_err("[BytecodePatcher] Patched class unavailable during restore: %s", displayName);
             return false;
         }
 
@@ -2814,26 +2787,17 @@ bool Shutdown(JNIEnv* env) {
         return true;
     };
 
-    if (!addPatchedClass(networkManagerPatched, cls_NetworkManagerTarget,
-                         kTargetClassDot(), "NetworkManager") ||
-        !addPatchedClass(
-            lunarNetHandlerPatched, nullptr,
-            OBFUSCATE_STRING("com.lunarclient.bukkitapi.nethandler.client.LCNetHandlerClient"),
-            "LCNetHandlerClient") ||
-        !addPatchedClass(netHandlerPlayClientPatched, nullptr,
-                         kIncomingTargetClassDot(), "NetHandlerPlayClient") ||
-        !addPatchedClass(
-            slowDownPatched, cls_SlowdownTarget,
-            OBFUSCATE_STRING("net.minecraft.entity.EntityLivingBase"),
-            "EntityLivingBase") ||
-        !addPatchedClass(
-            renderGlobalPatched, cls_RenderGlobalTarget,
-            OBFUSCATE_STRING("net.minecraft.client.renderer.RenderGlobal"),
-            "RenderGlobal") ||
-        !addPatchedClass(
-            entityRendererPatched, cls_EntityRendererTarget,
-            OBFUSCATE_STRING("net.minecraft.client.renderer.EntityRenderer"),
-            "EntityRenderer")) {
+    if (!addPatchedClass(networkManagerPatched, cls_NetworkManagerTarget, kTargetClassDot(), "NetworkManager") ||
+        !addPatchedClass(lunarNetHandlerPatched, nullptr,
+                         OBFUSCATE_STRING("com.lunarclient.bukkitapi.nethandler.client.LCNetHandlerClient"),
+                         "LCNetHandlerClient") ||
+        !addPatchedClass(netHandlerPlayClientPatched, nullptr, kIncomingTargetClassDot(), "NetHandlerPlayClient") ||
+        !addPatchedClass(slowDownPatched, cls_SlowdownTarget, OBFUSCATE_STRING("net.minecraft.entity.EntityLivingBase"),
+                         "EntityLivingBase") ||
+        !addPatchedClass(renderGlobalPatched, cls_RenderGlobalTarget,
+                         OBFUSCATE_STRING("net.minecraft.client.renderer.RenderGlobal"), "RenderGlobal") ||
+        !addPatchedClass(entityRendererPatched, cls_EntityRendererTarget,
+                         OBFUSCATE_STRING("net.minecraft.client.renderer.EntityRenderer"), "EntityRenderer")) {
         cleanupTemporaryRefs();
         return false;
     }
@@ -2851,12 +2815,10 @@ bool Shutdown(JNIEnv* env) {
             return false;
         }
 
-        const jvmtiError retransformErr =
-            Java::tiEnv->RetransformClasses(count, classesToRetransform);
+        const jvmtiError retransformErr = Java::tiEnv->RetransformClasses(count, classesToRetransform);
         cleanupTemporaryRefs();
         if (retransformErr != JVMTI_ERROR_NONE) {
-            log_err("[BytecodePatcher] Failed to restore patched classes (err=%d)",
-                    retransformErr);
+            log_err("[BytecodePatcher] Failed to restore patched classes (err=%d)", retransformErr);
             return false;
         }
         log_ok("[BytecodePatcher] Successfully restored %d patched classes", count);

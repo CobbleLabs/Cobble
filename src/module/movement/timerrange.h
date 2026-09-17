@@ -10,17 +10,9 @@
 
 class TimerRange : public Module {
 public:
-    enum class PacketPhase {
-        PRE = 0,
-        POST = 1
-    };
+    enum class PacketPhase { PRE = 0, POST = 1 };
 
-    enum class TriggerMode {
-        BeforeHit = 0,
-        AfterHit = 1,
-        PerHit = 2,
-        Constant = 3
-    };
+    enum class TriggerMode { BeforeHit = 0, AfterHit = 1, PerHit = 2, Constant = 3 };
 
     struct Settings {
         TriggerMode mode = TriggerMode::PerHit;

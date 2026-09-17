@@ -58,7 +58,7 @@ NTSTATUS NTAPI HookedNtDeviceIoControlFile(HANDLE FileHandle, HANDLE Event, PVOI
     }
 
     return OriginalNtDeviceIoControlFile(FileHandle, Event, ApcRoutine, ApcContext, IoStatusBlock, IoControlCode,
-                                        InputBuffer, InputBufferLength, OutputBuffer, OutputBufferLength);
+                                         InputBuffer, InputBufferLength, OutputBuffer, OutputBufferLength);
 }
 
 // Hooked WSASend - blocks outbound packets when StopOutbound is true

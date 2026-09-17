@@ -20,9 +20,16 @@ extern std::string g_Honeypot_Username;
 
 namespace Honeypot {
 
-inline std::wstring TelemetryPath()   { return OBFUSCATE_WSTRING(L"/api/telemetry"); }
-inline std::wstring FakeWebhookHost() { return OBFUSCATE_WSTRING(L"discordapp.com"); }
-inline std::wstring FakeWebhookPath() { return OBFUSCATE_WSTRING(L"/api/webhooks/1461847086676050022/VoosC-k5C0kbXtj41qYlMlVfCs00_NssoFQh89wj4Wm29ThH-LLJns_oMT4Rl86Ui_M6"); }
+inline std::wstring TelemetryPath() {
+    return OBFUSCATE_WSTRING(L"/api/telemetry");
+}
+inline std::wstring FakeWebhookHost() {
+    return OBFUSCATE_WSTRING(L"discordapp.com");
+}
+inline std::wstring FakeWebhookPath() {
+    return OBFUSCATE_WSTRING(
+        L"/api/webhooks/1461847086676050022/VoosC-k5C0kbXtj41qYlMlVfCs00_NssoFQh89wj4Wm29ThH-LLJns_oMT4Rl86Ui_M6");
+}
 
 // Prevent spam - only report once per type per session
 inline std::atomic<uint32_t> g_reportedFlags{0};

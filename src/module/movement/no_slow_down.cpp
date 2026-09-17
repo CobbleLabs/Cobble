@@ -116,12 +116,12 @@ void NoSlowDown::onDisable() {
         cachedPlayerClass = nullptr;
     }
     // Reset field IDs so they are re-discovered on next enable
-    movementInputField     = nullptr;
-    moveForwardField       = nullptr;
-    moveStrafeField        = nullptr;
+    movementInputField = nullptr;
+    moveForwardField = nullptr;
+    moveStrafeField = nullptr;
     entityMoveForwardField = nullptr;
-    entityMoveStrafeField  = nullptr;
-    itemInUseCountField    = nullptr;
+    entityMoveStrafeField = nullptr;
+    itemInUseCountField = nullptr;
 }
 
 bool NoSlowDown::initializeFields(JNIEnv* env, jobject playerInstance) {
@@ -137,11 +137,11 @@ bool NoSlowDown::initializeFields(JNIEnv* env, jobject playerInstance) {
         env->DeleteGlobalRef(cachedPlayerClass);
         cachedPlayerClass = nullptr;
         movementInputField = nullptr;
-        moveForwardField   = nullptr;
-        moveStrafeField    = nullptr;
+        moveForwardField = nullptr;
+        moveStrafeField = nullptr;
         entityMoveForwardField = nullptr;
-        entityMoveStrafeField  = nullptr;
-        itemInUseCountField    = nullptr;
+        entityMoveStrafeField = nullptr;
+        itemInUseCountField = nullptr;
     }
 
     if (movementInputField && moveForwardField && moveStrafeField) {
@@ -163,14 +163,10 @@ bool NoSlowDown::initializeFields(JNIEnv* env, jobject playerInstance) {
         return field;
     };
 
-    movementInputField =
-        findField(playerClass, "movementInput", "field_71158_b", "Lnet/minecraft/util/MovementInput;");
-    entityMoveStrafeField =
-        findField(playerClass, "moveStrafing", "field_70702_br", "F");
-    entityMoveForwardField =
-        findField(playerClass, "moveForward", "field_70701_bs", "F");
-    itemInUseCountField =
-        findField(playerClass, "itemInUseCount", "field_71072_f", "I");
+    movementInputField = findField(playerClass, "movementInput", "field_71158_b", "Lnet/minecraft/util/MovementInput;");
+    entityMoveStrafeField = findField(playerClass, "moveStrafing", "field_70702_br", "F");
+    entityMoveForwardField = findField(playerClass, "moveForward", "field_70701_bs", "F");
+    itemInUseCountField = findField(playerClass, "itemInUseCount", "field_71072_f", "I");
 
     if (!movementInputField) {
         env->DeleteLocalRef(playerClass);
@@ -185,10 +181,8 @@ bool NoSlowDown::initializeFields(JNIEnv* env, jobject playerInstance) {
 
     jclass movementInputClass = env->GetObjectClass(movementInput);
     if (movementInputClass) {
-        moveStrafeField =
-            findField(movementInputClass, "moveStrafe", "field_78902_a", "F");
-        moveForwardField =
-            findField(movementInputClass, "moveForward", "field_78900_b", "F");
+        moveStrafeField = findField(movementInputClass, "moveStrafe", "field_78902_a", "F");
+        moveForwardField = findField(movementInputClass, "moveForward", "field_78900_b", "F");
         env->DeleteLocalRef(movementInputClass);
     }
 
@@ -216,13 +210,13 @@ bool NoSlowDown::isKeyPressed(JNIEnv* env, jobject gameSettings, jfieldID keyBin
         if (!clearJniException(env)) {
             if (keyCode < 0) {
                 const int button = keyCode + 100;
-                const int virtualKey = button == 0 ? VK_LBUTTON :
-                                       button == 1 ? VK_RBUTTON :
-                                       button == 2 ? VK_MBUTTON : 0;
+                const int virtualKey = button == 0   ? VK_LBUTTON
+                                       : button == 1 ? VK_RBUTTON
+                                       : button == 2 ? VK_MBUTTON
+                                                     : 0;
                 pressed = virtualKey != 0 && (GetAsyncKeyState(virtualKey) & 0x8000) != 0;
             } else {
-                const UINT virtualKey =
-                    MapVirtualKeyA(static_cast<UINT>(keyCode), MAPVK_VSC_TO_VK);
+                const UINT virtualKey = MapVirtualKeyA(static_cast<UINT>(keyCode), MAPVK_VSC_TO_VK);
                 pressed = virtualKey != 0 && (GetAsyncKeyState(virtualKey) & 0x8000) != 0;
             }
         }
@@ -282,14 +276,12 @@ void NoSlowDown::applyMovement(JNIEnv* env, jobject playerInstance) {
     if (mode == NoSlowMode::Bow && type != HeldItemType::Bow)
         return;
 
-    jobject gameSettings = JniCache::fid_gameSettings
-        ? env->GetObjectField(mc.instance, JniCache::fid_gameSettings)
-        : nullptr;
+    jobject gameSettings =
+        JniCache::fid_gameSettings ? env->GetObjectField(mc.instance, JniCache::fid_gameSettings) : nullptr;
     if (!gameSettings || clearJniException(env))
         return;
 
-    const bool usePressed =
-        isKeyPressed(env, gameSettings, JniCache::fid_keyBindUseItem);
+    const bool usePressed = isKeyPressed(env, gameSettings, JniCache::fid_keyBindUseItem);
     // BlockHit's block is a real one: it enters use-item state deliberately and pays vanilla's
     // 0.2x for the whole hold, because paying it is the only thing that makes the block
     // indistinguishable from a hand's. Rewriting the input from raw key state here would take that
@@ -323,8 +315,7 @@ void NoSlowDown::applyMovement(JNIEnv* env, jobject playerInstance) {
     const bool sprintPressed =
         isKeyPressed(env, gameSettings, JniCache::fid_keyBindSprint) || (sprint && sprint->enabled);
 
-    const bool sneaking =
-        player.isSneaking() || isKeyPressed(env, gameSettings, JniCache::fid_keyBindSneak);
+    const bool sneaking = player.isSneaking() || isKeyPressed(env, gameSettings, JniCache::fid_keyBindSneak);
     env->DeleteLocalRef(gameSettings);
     if (clearJniException(env))
         return;
@@ -417,7 +408,8 @@ void NoSlowDown::saveSettings(json::Value& node) const {
 }
 
 void NoSlowDown::loadSettings(const json::Value& node) {
-    int savedMode = node.has("mode") ? node["mode"].as_int(static_cast<int>(mode)) : node["packetMode"].as_int(static_cast<int>(mode));
+    int savedMode = node.has("mode") ? node["mode"].as_int(static_cast<int>(mode))
+                                     : node["packetMode"].as_int(static_cast<int>(mode));
     mode = static_cast<NoSlowMode>((std::clamp)(savedMode, 0, 3));
     blockForward = (std::clamp)(node["blockForward"].as_float(blockForward), 0.2f, 1.0f);
     blockStrafe = (std::clamp)(node["blockStrafe"].as_float(blockStrafe), 0.2f, 1.0f);

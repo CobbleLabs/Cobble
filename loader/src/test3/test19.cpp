@@ -11,12 +11,7 @@
 #pragma comment(lib, "ntdll.lib")
 #pragma comment(lib, "dbghelp.lib")
 
-
 #pragma optimize("", off)
-
-
-
-
 
 extern "C" NTSTATUS NTAPI NtSetInformationThread(HANDLE ThreadHandle, THREADINFOCLASS ThreadInformationClass,
                                                  PVOID ThreadInformation, ULONG ThreadInformationLength);
@@ -84,9 +79,6 @@ void HideThread(HANDLE hThread) {
 }
 
 bool ShouldApplyAntiAttach() {
-
-
-
     int protectedResult = 0;
     CHECK_PROTECTION(protectedResult, 1);
     if (protectedResult != 1) {
@@ -105,7 +97,6 @@ bool ShouldApplyAntiAttach() {
 bool HasVMRegistry() {
     std::vector<std::wstring> vmKeys;
     vmKeys.reserve(6);
-
 
     COBBLE_STR_ENCRYPTW_BEGIN
     vmKeys.push_back(OBFUSCATE_WSTRING(L"System\\ControlSet001\\Services\\VMTools"));
@@ -130,7 +121,6 @@ bool HasVMRegistry() {
 bool HasVMFiles() {
     std::vector<std::wstring> vmFiles;
     vmFiles.reserve(6);
-
 
     COBBLE_STR_ENCRYPTW_BEGIN
     vmFiles.push_back(OBFUSCATE_WSTRING(L"C:\\Windows\\System32\\vm3dgl.dll"));
@@ -169,7 +159,6 @@ bool HasVMWareACPI() {
         return false;
     }
 
-
     std::string haystack((char*)acpiData, bytesWritten);
     bool found = (haystack.find("VMWARE") != std::string::npos) || (haystack.find("VBOX") != std::string::npos) ||
                  (haystack.find("QEMU") != std::string::npos);
@@ -179,7 +168,6 @@ bool HasVMWareACPI() {
 }
 
 bool IsOnVM() {
-
     if (HasVMRegistry() || HasVMFiles() || HasVMWareACPI()) {
         return true;
     }
@@ -192,7 +180,6 @@ bool IsOnVM() {
 #pragma region AntiHook
 
 bool HasAPIHooks() {
-
     struct APICheck {
         const wchar_t* module;
         const char* function;
@@ -216,27 +203,22 @@ bool HasAPIHooks() {
 
         BYTE* pBytes = (BYTE*)pFunc;
 
-
         while (*pBytes == 0x90)
             pBytes++;
-
 
         bool hasJmp = false;
         void* jumpTarget = nullptr;
 
         if (*pBytes == 0xE9) {
-
             int32_t offset = *(int32_t*)(pBytes + 1);
             jumpTarget = pBytes + 5 + offset;
             hasJmp = true;
         } else if (*pBytes == 0xFF && pBytes[1] == 0x25) {
-
             int32_t offset = *(int32_t*)(pBytes + 2);
             void** pTarget = (void**)(pBytes + 6 + offset);
             jumpTarget = *pTarget;
             hasJmp = true;
         } else if (*pBytes == 0x48 && pBytes[1] == 0xB8 && pBytes[10] == 0xFF && pBytes[11] == 0xE0) {
-
             jumpTarget = *(void**)(pBytes + 2);
             hasJmp = true;
         }
@@ -244,17 +226,12 @@ bool HasAPIHooks() {
         if (!hasJmp)
             continue;
 
-
-
-
         MEMORY_BASIC_INFORMATION mbi = {};
         if (VirtualQuery(jumpTarget, &mbi, sizeof(mbi)) == 0)
             continue;
 
-
         if (mbi.Type == MEM_IMAGE)
             continue;
-
 
         bool isRWX = (mbi.Protect & PAGE_EXECUTE_READWRITE) || (mbi.Protect & PAGE_EXECUTE_WRITECOPY);
         bool isPrivate = (mbi.Type == MEM_PRIVATE);
@@ -339,7 +316,6 @@ bool VerifyIntegrity(const std::vector<HASHSET>& originalHashes) {
 #pragma region Initialization
 
 void Initialize() {
-
     if (ShouldApplyAntiAttach()) {
         PatchDbgBreakPoint();
         PatchDbgUiRemoteBreakin();
@@ -351,10 +327,8 @@ void Initialize() {
 
 #pragma region DetectionSystem
 
-
 std::vector<Detection> CheckRunningTools() {
     std::vector<Detection> detections;
-
 
     struct ToolDef {
         const wchar_t* name;
@@ -362,9 +336,7 @@ std::vector<Detection> CheckRunningTools() {
         int score;
     };
 
-
     COBBLE_STR_ENCRYPTW_BEGIN
-
 
     ToolDef tools[] = {
         {L"x64dbg.exe", "TOOL_X64DBG", 10},
@@ -417,11 +389,8 @@ std::vector<Detection> CheckRunningTools() {
     return detections;
 }
 
-
 std::vector<Detection> CheckVMProtect() {
     std::vector<Detection> detections;
-
-
 
     int protectedResult = 0;
     CHECK_PROTECTION(protectedResult, 1);
@@ -444,7 +413,6 @@ std::vector<Detection> CheckVMProtect() {
     return detections;
 }
 
-
 std::vector<Detection> CheckVMIndicators() {
     std::vector<Detection> detections;
 
@@ -461,22 +429,18 @@ std::vector<Detection> CheckVMIndicators() {
     return detections;
 }
 
-
 std::vector<Detection> RunSecurityChecks() {
     std::vector<Detection> all;
-
 
     auto vmProtectDetections = CheckVMProtect();
     for (auto& d : vmProtectDetections) {
         all.push_back(d);
     }
 
-
     auto toolDetections = CheckRunningTools();
     for (auto& d : toolDetections) {
         all.push_back(d);
     }
-
 
     auto vmDetections = CheckVMIndicators();
     for (auto& d : vmDetections) {
@@ -485,7 +449,6 @@ std::vector<Detection> RunSecurityChecks() {
 
     return all;
 }
-
 
 int CalculateRiskScore(const std::vector<Detection>& detections) {
     int maxScore = 0;
@@ -496,8 +459,6 @@ int CalculateRiskScore(const std::vector<Detection>& detections) {
     }
     return maxScore;
 }
-
-
 
 SecurityDecision Decide(int score) {
     COBBLE_VM_CRITICAL_START
@@ -514,13 +475,8 @@ SecurityDecision Decide(int score) {
     return result;
 }
 
-
-
 SecurityDecision RunSecurityChecksWithDecision(std::vector<Detection>& outDetections) {
-
     outDetections = RunSecurityChecks();
-
-
 
     for (const auto& d : outDetections) {
         Telemetry::Severity sev = Telemetry::Severity::INFO;
@@ -532,13 +488,12 @@ SecurityDecision RunSecurityChecksWithDecision(std::vector<Detection>& outDetect
         Telemetry::Report(d.code, sev, d.score, d.details);
     }
 
-
     int score = CalculateRiskScore(outDetections);
     return Decide(score);
 }
 
 #pragma endregion
 
-}
+}  // namespace Security
 
 #pragma optimize("", on)

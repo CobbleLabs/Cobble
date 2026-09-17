@@ -664,8 +664,6 @@ void Trajectories::onRenderMenu() {
         });
 }
 
-
-
 void Trajectories::saveSettings(json::Value& node) const {
     node["thickness"] = settings.thickness;
     json::writeColor(node, "lineColor", settings.lineColor);

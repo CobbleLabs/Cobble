@@ -15,8 +15,8 @@ struct EspPlayer {
     int entityId = 0;
     std::string name;
     std::string profileName;
-    std::string uuid;                                 // For team/friend detection
-    int teamColor = -1;                               // Apollo/Lunar teamColor for teammate detection
+    std::string uuid;    // For team/friend detection
+    int teamColor = -1;  // Apollo/Lunar teamColor for teammate detection
     bool isOnLocalTeam = false;
     double posX = 0, posY = 0, posZ = 0;              // Current position
     double lastPosX = 0, lastPosY = 0, lastPosZ = 0;  // Last tick position

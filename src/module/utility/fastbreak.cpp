@@ -75,8 +75,7 @@ void FastBreak::onRenderMenu() {
             }
             ui::SliderFloat("Delay", &settings.delayMs, 0.0f, 200.0f, "%.0f ms");
         },
-        "Options",
-        [this]() { ui::Checkbox("Item In Hand Only", &settings.blocksOnly); });
+        "Options", [this]() { ui::Checkbox("Item In Hand Only", &settings.blocksOnly); });
 }
 
 void FastBreak::saveSettings(json::Value& node) const {

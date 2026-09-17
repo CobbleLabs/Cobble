@@ -140,7 +140,7 @@ extern jmethodID mid_addToSendQueue;       // addToSendQueue(Packet) -> void
 
 extern jclass cls_NetworkPlayerInfo;
 extern jmethodID mid_getNetworkGameProfile;  // getGameProfile() -> GameProfile
-extern jmethodID mid_getResponseTime;         // getResponseTime() -> measured RTT in ms
+extern jmethodID mid_getResponseTime;        // getResponseTime() -> measured RTT in ms
 
 // =============================================================================
 // EntityLivingBase class IDs
@@ -148,8 +148,8 @@ extern jmethodID mid_getResponseTime;         // getResponseTime() -> measured R
 
 extern jmethodID mid_getHealth;
 extern jmethodID mid_getMaxHealth;
-extern jfieldID fid_activePotionsMap; // Map<Integer, PotionEffect>
-extern jmethodID mid_getActivePotionEffects; // EntityLivingBase.getActivePotionEffects() -> Collection
+extern jfieldID fid_activePotionsMap;         // Map<Integer, PotionEffect>
+extern jmethodID mid_getActivePotionEffects;  // EntityLivingBase.getActivePotionEffects() -> Collection
 extern jfieldID fid_hurtTime;
 extern jfieldID fid_hurtResistantTime;
 extern jfieldID fid_maxHurtResistantTime;
@@ -172,7 +172,7 @@ extern jfieldID fid_aabb_maxZ;
 // EntityItem class IDs
 // =============================================================================
 
-extern jmethodID mid_getEntityItem; // EntityItem.getEntityItem() -> ItemStack
+extern jmethodID mid_getEntityItem;  // EntityItem.getEntityItem() -> ItemStack
 
 // =============================================================================
 // EntityPlayer class IDs
@@ -189,8 +189,8 @@ extern jfieldID fid_openContainer;
 // InventoryPlayer & PotionEffect IDs
 // =============================================================================
 
-extern jfieldID fid_armorInventory; // ItemStack[]
-extern jfieldID fid_currentItem; // int
+extern jfieldID fid_armorInventory;  // ItemStack[]
+extern jfieldID fid_currentItem;     // int
 
 extern jmethodID mid_getPotionID;
 extern jmethodID mid_getDuration;

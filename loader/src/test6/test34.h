@@ -11,7 +11,6 @@
 
 namespace Hash {
 
-
 inline std::string SHA256(const BYTE* data, DWORD size) {
     HCRYPTPROV hProv = 0;
     HCRYPTHASH hHash = 0;
@@ -49,13 +48,11 @@ inline std::string SHA256(const BYTE* data, DWORD size) {
     return result;
 }
 
-
 inline bool Verify(const BYTE* data, DWORD size, const std::string& expectedHash) {
     std::string actualHash = SHA256(data, size);
     if (actualHash.empty() || actualHash.length() != expectedHash.length()) {
         return false;
     }
-
 
     for (size_t i = 0; i < actualHash.length(); i++) {
         if (tolower(actualHash[i]) != tolower(expectedHash[i])) {
@@ -66,35 +63,26 @@ inline bool Verify(const BYTE* data, DWORD size, const std::string& expectedHash
     return true;
 }
 
-
-
 inline bool VerifyChunked(const BYTE* data, DWORD size, const char* chunk1, const char* chunk2, const char* chunk3,
                           const char* chunk4) {
     std::string actualHash = SHA256(data, size);
     if (actualHash.length() != 64)
         return false;
 
-
-
-
-
     for (int i = 0; i < 16; i++) {
         if (tolower(actualHash[32 + i]) != tolower(chunk3[i]))
             return false;
     }
-
 
     for (int i = 0; i < 16; i++) {
         if (tolower(actualHash[i]) != tolower(chunk1[i]))
             return false;
     }
 
-
     for (int i = 0; i < 16; i++) {
         if (tolower(actualHash[48 + i]) != tolower(chunk4[i]))
             return false;
     }
-
 
     for (int i = 0; i < 16; i++) {
         if (tolower(actualHash[16 + i]) != tolower(chunk2[i]))
@@ -104,4 +92,4 @@ inline bool VerifyChunked(const BYTE* data, DWORD size, const char* chunk1, cons
     return true;
 }
 
-}
+}  // namespace Hash

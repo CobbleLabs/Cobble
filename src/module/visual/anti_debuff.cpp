@@ -10,7 +10,7 @@ AntiDebuff* antiDebuff = nullptr;
 namespace {
 constexpr int NAUSEA_POTION_ID = 9;
 constexpr int BLINDNESS_POTION_ID = 15;
-}
+}  // namespace
 
 AntiDebuff::AntiDebuff() : Module("AntiDebuff") {
     keybind = 0;
@@ -118,8 +118,6 @@ void AntiDebuff::onRenderMenu() {
             ImGui::TextWrapped("Removes visual potion debuffs locally. The server-side potion state is unchanged.");
         });
 }
-
-
 
 void AntiDebuff::saveSettings(json::Value& node) const {
     node["blindness"] = settings.blindness;

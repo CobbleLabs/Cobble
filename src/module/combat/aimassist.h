@@ -95,13 +95,13 @@ public:
 
     // Armor tier filter: only lock onto players wearing this armor tier (on any slot)
     enum class ArmorFilter {
-        ANY       = 0,  // No restriction (default)
-        NONE      = 1,  // Target players with NO armor
-        LEATHER   = 2,
+        ANY = 0,   // No restriction (default)
+        NONE = 1,  // Target players with NO armor
+        LEATHER = 2,
         CHAINMAIL = 3,
-        IRON      = 4,
-        GOLD      = 5,
-        DIAMOND   = 6,
+        IRON = 4,
+        GOLD = 5,
+        DIAMOND = 6,
     };
 
     // Aim bone: named point inside the hitbox expressed as (x,y,z) ratios of
@@ -123,11 +123,11 @@ public:
     // matches players wearing nothing). 0 = no restriction (target everyone).
     enum ArmorTierBit {
         ARMOR_NO_ARMOR = 1 << 0,  // players wearing NO armor
-        ARMOR_LEATHER  = 1 << 1,
-        ARMOR_CHAIN    = 1 << 2,
-        ARMOR_IRON     = 1 << 3,
-        ARMOR_GOLD     = 1 << 4,
-        ARMOR_DIAMOND  = 1 << 5,
+        ARMOR_LEATHER = 1 << 1,
+        ARMOR_CHAIN = 1 << 2,
+        ARMOR_IRON = 1 << 3,
+        ARMOR_GOLD = 1 << 4,
+        ARMOR_DIAMOND = 1 << 5,
     };
 
     struct Settings {
@@ -152,7 +152,7 @@ public:
         float jitterPercent = 0.0f;
         float prediction = 0.0f;      // 0-100%: lead the aim by the target's velocity
         bool packetRotation = false;  // Smooth camera, jitter only on the sent packet
-        int reactionTime = 50;  // ms
+        int reactionTime = 50;        // ms
 
         int aimBone = 0;  // Index into kBones[]; 0 = Center
 

@@ -56,10 +56,7 @@ private:
         RestoreSprintUp
     };
 
-    enum class RunFlow {
-        Packet,
-        Legit
-    };
+    enum class RunFlow { Packet, Legit };
 
     State state = State::Idle;
     RunFlow activeFlow_ = RunFlow::Packet;

@@ -10,12 +10,7 @@
 
 class FakeLag : public Module {
 public:
-    enum class Mode {
-        Pulse = 0,
-        Constant = 1,
-        Distance = 2,
-        Adaptive = 3
-    };
+    enum class Mode { Pulse = 0, Constant = 1, Distance = 2, Adaptive = 3 };
 
     struct Settings {
         Mode mode = Mode::Adaptive;

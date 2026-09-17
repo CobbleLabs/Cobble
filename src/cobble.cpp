@@ -160,7 +160,7 @@ void cobble::context::initialize(HMODULE hModule) {
     SDK_Init();
     COBBLE_TRACE("after SDK_Init");
     sdk::internal::onCacheReady();  // Capture SDK state baseline
-    sdk::internal::wireGateD();      // Wire distributed-check function pointer.
+    sdk::internal::wireGateD();     // Wire distributed-check function pointer.
     COBBLE_TRACE("after onCacheReady");
     log_ok("SDK initialized");
 
@@ -562,7 +562,8 @@ bool cobble::context::shutdown() {
         if (BacktrackGate::HasPending()) {
             JNIEnv* drainEnv = Java::Env();
             if (!drainEnv || BacktrackGate::HasPendingForCurrentConnection(drainEnv)) {
-                log_err("[Backtrack] Live-session packets remain after client-thread drain; keeping hooks and DLL loaded");
+                log_err(
+                    "[Backtrack] Live-session packets remain after client-thread drain; keeping hooks and DLL loaded");
                 return false;
             }
 

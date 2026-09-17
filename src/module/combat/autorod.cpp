@@ -66,8 +66,16 @@ AutoRod::AutoRod() : Module("AutoRod"), rng_(std::random_device{}()) {
 
 bool AutoRod::isWeapon(int itemId) {
     switch (itemId) {
-        case 267: case 268: case 272: case 276: case 283:
-        case 258: case 271: case 275: case 279: case 286:
+        case 267:
+        case 268:
+        case 272:
+        case 276:
+        case 283:
+        case 258:
+        case 271:
+        case 275:
+        case 279:
+        case 286:
             return true;
         default:
             return false;
@@ -137,8 +145,7 @@ int AutoRod::pickTarget(double& distanceOut) const {
         return 0;
 
     const double minDistance = std::clamp((double)settings.minDistance, 1.0, 20.0);
-    const double maxDistance =
-        std::max(minDistance + 0.5, std::clamp((double)settings.maxDistance, 1.0, 20.0));
+    const double maxDistance = std::max(minDistance + 0.5, std::clamp((double)settings.maxDistance, 1.0, 20.0));
 
     int bestId = 0;
     double bestAngle = 1e30;

@@ -3,27 +3,17 @@
 #include <Windows.h>
 #include <cstdint>
 
-
-
-
-
-
 namespace nt {
-
 
 constexpr int32_t STATUS_SUCCESS = 0x00000000;
 constexpr int32_t STATUS_IMAGE_NOT_AT_BASE = 0x40000003;
 
-
 constexpr uint32_t NT_SEC_COMMIT = 0x8000000;
 constexpr uint32_t NT_SEC_IMAGE = 0x1000000;
 
-
 constexpr uint32_t NT_THREAD_ALL_ACCESS = 0x1FFFFF;
 
-
 constexpr uint32_t NT_SECTION_ALL_ACCESS = 0xF001F;
-
 
 struct UNICODE_STRING {
     uint16_t Length;
@@ -60,7 +50,6 @@ struct PS_ATTRIBUTE_LIST {
     PS_ATTRIBUTE Attributes[1];
 };
 
-
 using NtCreateSection_t = int32_t(__stdcall*)(void** SectionHandle, uint32_t DesiredAccess,
                                               OBJECT_ATTRIBUTES* ObjectAttributes, LARGE_INTEGER* MaximumSize,
                                               uint32_t SectionPageProtection, uint32_t AllocationAttributes,
@@ -83,21 +72,20 @@ using NtCreateThreadEx_t = int32_t(__stdcall*)(void** ThreadHandle, uint32_t Des
 
 using NtWaitForSingleObject_t = int32_t(__stdcall*)(void* Handle, uint8_t Alertable, LARGE_INTEGER* Timeout);
 
-
-using NtSuspendThread_t          = int32_t(__stdcall*)(void* ThreadHandle, uint32_t* PreviousSuspendCount);
-using NtResumeThread_t           = int32_t(__stdcall*)(void* ThreadHandle, uint32_t* PreviousSuspendCount);
-using NtGetContextThread_t       = int32_t(__stdcall*)(void* ThreadHandle, CONTEXT* ThreadContext);
-using NtSetContextThread_t       = int32_t(__stdcall*)(void* ThreadHandle, CONTEXT* ThreadContext);
-using NtOpenThread_t             = int32_t(__stdcall*)(void** ThreadHandle, uint32_t DesiredAccess,
-                                                       OBJECT_ATTRIBUTES* ObjectAttributes, CLIENT_ID* ClientId);
+using NtSuspendThread_t = int32_t(__stdcall*)(void* ThreadHandle, uint32_t* PreviousSuspendCount);
+using NtResumeThread_t = int32_t(__stdcall*)(void* ThreadHandle, uint32_t* PreviousSuspendCount);
+using NtGetContextThread_t = int32_t(__stdcall*)(void* ThreadHandle, CONTEXT* ThreadContext);
+using NtSetContextThread_t = int32_t(__stdcall*)(void* ThreadHandle, CONTEXT* ThreadContext);
+using NtOpenThread_t = int32_t(__stdcall*)(void** ThreadHandle, uint32_t DesiredAccess,
+                                           OBJECT_ATTRIBUTES* ObjectAttributes, CLIENT_ID* ClientId);
 using NtQueryInformationThread_t = int32_t(__stdcall*)(void* ThreadHandle, uint32_t ThreadInformationClass,
                                                        void* ThreadInformation, uint32_t ThreadInformationLength,
                                                        uint32_t* ReturnLength);
 
-constexpr uint32_t THREAD_HIJACK_ACCESS = THREAD_SUSPEND_RESUME | THREAD_GET_CONTEXT | THREAD_SET_CONTEXT | THREAD_QUERY_INFORMATION;
+constexpr uint32_t THREAD_HIJACK_ACCESS =
+    THREAD_SUSPEND_RESUME | THREAD_GET_CONTEXT | THREAD_SET_CONTEXT | THREAD_QUERY_INFORMATION;
 
 using RtlInitUnicodeString_t = void(__stdcall*)(UNICODE_STRING* DestinationString, const wchar_t* SourceString);
-
 
 class Syscalls {
 private:
@@ -113,11 +101,11 @@ public:
     NtWaitForSingleObject_t NtWaitForSingleObject = nullptr;
     RtlInitUnicodeString_t RtlInitUnicodeString = nullptr;
 
-    NtSuspendThread_t          NtSuspendThread = nullptr;
-    NtResumeThread_t           NtResumeThread = nullptr;
-    NtGetContextThread_t       NtGetContextThread = nullptr;
-    NtSetContextThread_t       NtSetContextThread = nullptr;
-    NtOpenThread_t             NtOpenThread = nullptr;
+    NtSuspendThread_t NtSuspendThread = nullptr;
+    NtResumeThread_t NtResumeThread = nullptr;
+    NtGetContextThread_t NtGetContextThread = nullptr;
+    NtSetContextThread_t NtSetContextThread = nullptr;
+    NtOpenThread_t NtOpenThread = nullptr;
     NtQueryInformationThread_t NtQueryInformationThread = nullptr;
 
     bool Initialize() {
@@ -136,11 +124,11 @@ public:
         NtWaitForSingleObject = (NtWaitForSingleObject_t)GetProcAddress(m_ntdll, "NtWaitForSingleObject");
         RtlInitUnicodeString = (RtlInitUnicodeString_t)GetProcAddress(m_ntdll, "RtlInitUnicodeString");
 
-        NtSuspendThread          = (NtSuspendThread_t)GetProcAddress(m_ntdll, "NtSuspendThread");
-        NtResumeThread           = (NtResumeThread_t)GetProcAddress(m_ntdll, "NtResumeThread");
-        NtGetContextThread       = (NtGetContextThread_t)GetProcAddress(m_ntdll, "NtGetContextThread");
-        NtSetContextThread       = (NtSetContextThread_t)GetProcAddress(m_ntdll, "NtSetContextThread");
-        NtOpenThread             = (NtOpenThread_t)GetProcAddress(m_ntdll, "NtOpenThread");
+        NtSuspendThread = (NtSuspendThread_t)GetProcAddress(m_ntdll, "NtSuspendThread");
+        NtResumeThread = (NtResumeThread_t)GetProcAddress(m_ntdll, "NtResumeThread");
+        NtGetContextThread = (NtGetContextThread_t)GetProcAddress(m_ntdll, "NtGetContextThread");
+        NtSetContextThread = (NtSetContextThread_t)GetProcAddress(m_ntdll, "NtSetContextThread");
+        NtOpenThread = (NtOpenThread_t)GetProcAddress(m_ntdll, "NtOpenThread");
         NtQueryInformationThread = (NtQueryInformationThread_t)GetProcAddress(m_ntdll, "NtQueryInformationThread");
 
         m_initialized = NtCreateSection && NtMapViewOfSection && NtUnmapViewOfSection && NtClose && NtCreateThreadEx &&
@@ -152,7 +140,6 @@ public:
     bool IsInitialized() const { return m_initialized; }
 };
 
-
 inline Syscalls g_Syscalls;
 
-}
+}  // namespace nt

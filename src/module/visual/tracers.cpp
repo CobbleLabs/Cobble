@@ -454,8 +454,6 @@ void Tracers::onRenderMenu() {
     }
 }
 
-
-
 void Tracers::saveSettings(json::Value& node) const {
     node["colorByDistance"] = settings.colorByDistance;
     node["colorByHealth"] = settings.colorByHealth;

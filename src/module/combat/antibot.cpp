@@ -120,8 +120,8 @@ void AntiBot::onWorldChange() {
 }
 
 std::string AntiBot::getDisplayInfo() {
-    const bool anyCheck = settings.nameTag || settings.npcUuid || settings.fakeProfile || settings.noHealth ||
-                          settings.invisible;
+    const bool anyCheck =
+        settings.nameTag || settings.npcUuid || settings.fakeProfile || settings.noHealth || settings.invisible;
     if (!anyCheck)
         return "Off";
     const std::uint64_t last = lastHitMs_.load(std::memory_order_relaxed);
@@ -152,8 +152,9 @@ void AntiBot::onRenderMenu() {
             const std::uint32_t total = s.nameTag + s.npcUuid + s.fakeProfile + s.noHealth + s.invisible;
 
             ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetColorU32(ImGuiCol_TextDisabled));
-            ImGui::TextWrapped("Every combat module asks AntiBot before it picks a target. Turn this off and "
-                               "they will aim at NPCs.");
+            ImGui::TextWrapped(
+                "Every combat module asks AntiBot before it picks a target. Turn this off and "
+                "they will aim at NPCs.");
             ImGui::PopStyleColor();
             ImGui::Spacing();
 

@@ -129,7 +129,7 @@ private:
     jfieldID fid_lastReportedPitch = nullptr;
 
     // Cached inventory fields/methods (prevents JNI leak in getHeldItemId)
-    jclass cls_Item = nullptr;                // GlobalRef
+    jclass cls_Item = nullptr;  // GlobalRef
     jfieldID fid_playerInventory = nullptr;
     jmethodID mid_getCurrentItem = nullptr;
     jmethodID mid_getItem = nullptr;

@@ -70,9 +70,8 @@ struct Direction {
     int z;
 };
 
-constexpr std::array<Direction, 6> kDirections = {
-    Direction{1, 0, 0}, Direction{-1, 0, 0}, Direction{0, 1, 0},
-    Direction{0, -1, 0}, Direction{0, 0, 1}, Direction{0, 0, -1}};
+constexpr std::array<Direction, 6> kDirections = {Direction{1, 0, 0},  Direction{-1, 0, 0}, Direction{0, 1, 0},
+                                                  Direction{0, -1, 0}, Direction{0, 0, 1},  Direction{0, 0, -1}};
 
 // One tick of vanilla 1.8 player physics: advance by velocity, then apply air
 // drag (0.91 horizontal) and gravity (vertical -0.08, then 0.98 damping).
@@ -86,14 +85,12 @@ inline void stepPhysics(double& x, double& y, double& z, double& mx, double& my,
 }
 
 inline bool finite3(double a, double b, double c) {
-    return !std::isnan(a) && !std::isnan(b) && !std::isnan(c) && !std::isinf(a) && !std::isinf(b) &&
-           !std::isinf(c);
+    return !std::isnan(a) && !std::isnan(b) && !std::isnan(c) && !std::isinf(a) && !std::isinf(b) && !std::isinf(c);
 }
 
 }  // namespace
 
-Clutch::Clutch(PlaceMode mode)
-    : Module(mode == PlaceMode::Clutch ? "Clutch" : "Scaffold"), placeMode_(mode) {
+Clutch::Clutch(PlaceMode mode) : Module(mode == PlaceMode::Clutch ? "Clutch" : "Scaffold"), placeMode_(mode) {
     renders = true;
     worldVisual = true;  // the placement preview is a world-space block outline
     usesPlayerCache = true;
@@ -229,11 +226,10 @@ void Clutch::publishPreview(const Placement& p) {
 bool Clutch::isPlaceableBlock(int id) {
     if (id <= 0 || id > 255)
         return false;
-    static constexpr int kRejected[] = {
-        6,   8,   9,   10,  11,  26,  27,  28,  30,  31,  32,  37,  38,  39,  40,
-        50,  51,  55,  59,  63,  64,  65,  66,  68,  69,  70,  71,  72,  75,  76,
-        77,  78,  83,  90,  93,  94,  96,  104, 105, 106, 111, 115, 119, 127, 131,
-        132, 140, 141, 142, 143, 147, 148, 149, 150, 157, 171, 175};
+    static constexpr int kRejected[] = {6,   8,   9,   10,  11,  26,  27,  28,  30,  31,  32,  37,  38,  39,  40,
+                                        50,  51,  55,  59,  63,  64,  65,  66,  68,  69,  70,  71,  72,  75,  76,
+                                        77,  78,  83,  90,  93,  94,  96,  104, 105, 106, 111, 115, 119, 127, 131,
+                                        132, 140, 141, 142, 143, 147, 148, 149, 150, 157, 171, 175};
     for (int rejected : kRejected) {
         if (rejected == id)
             return false;
@@ -313,8 +309,8 @@ bool Clutch::isPlacementUsable(const Placement& p) const {
     const double px = player.getPosX();
     const double py = player.getPosY();
     const double pz = player.getPosZ();
-    if (p.targetX + 1 > px - 0.3 && p.targetX < px + 0.3 && p.targetZ + 1 > pz - 0.3 &&
-        p.targetZ < pz + 0.3 && p.targetY + 1 > py && p.targetY < py + 1.8) {
+    if (p.targetX + 1 > px - 0.3 && p.targetX < px + 0.3 && p.targetZ + 1 > pz - 0.3 && p.targetZ < pz + 0.3 &&
+        p.targetY + 1 > py && p.targetY < py + 1.8) {
         return false;
     }
 
@@ -325,8 +321,7 @@ bool Clutch::isPlacementUsable(const Placement& p) const {
     return dx * dx + dy * dy + dz * dz <= reach * reach;
 }
 
-Clutch::Placement Clutch::findPlacement(double predictedX, double predictedY,
-                                        double predictedZ) const {
+Clutch::Placement Clutch::findPlacement(double predictedX, double predictedY, double predictedZ) const {
     Placement best;
     best.score = std::numeric_limits<double>::max();
 
@@ -377,23 +372,18 @@ Clutch::Placement Clutch::findPlacement(double predictedX, double predictedY,
                         double cameraPenalty = 0.0;
                         if (settings.cameraWeight) {
                             const double horiz = std::sqrt(dx * dx + dz * dz);
-                            const float wantYaw =
-                                static_cast<float>(std::atan2(dz, dx) * 180.0 / kPi - 90.0);
-                            const float wantPitch = std::clamp(
-                                static_cast<float>(-std::atan2(dy, horiz) * 180.0 / kPi), -90.0f,
-                                90.0f);
+                            const float wantYaw = static_cast<float>(std::atan2(dz, dx) * 180.0 / kPi - 90.0);
+                            const float wantPitch =
+                                std::clamp(static_cast<float>(-std::atan2(dy, horiz) * 180.0 / kPi), -90.0f, 90.0f);
                             const float yawDiff = std::abs(wrapDegrees(wantYaw - curYaw));
                             const float pitchDiff = std::abs(wrapDegrees(wantPitch - curPitch));
-                            cameraPenalty =
-                                (yawDiff * yawDiff + pitchDiff * pitchDiff) * 0.0006;
+                            cameraPenalty = (yawDiff * yawDiff + pitchDiff * pitchDiff) * 0.0006;
                         }
 
-                        const double score = landingDx * landingDx + landingDz * landingDz +
-                                             reachSq * 0.04 + std::abs(y - centerY) * 0.8 +
-                                             cameraPenalty;
+                        const double score = landingDx * landingDx + landingDz * landingDz + reachSq * 0.04 +
+                                             std::abs(y - centerY) * 0.8 + cameraPenalty;
                         if (score < best.score) {
-                            best = {x,    y,    z,     supportX, supportY, supportZ,
-                                    hitX, hitY, hitZ,  score,    true};
+                            best = {x, y, z, supportX, supportY, supportZ, hitX, hitY, hitZ, score, true};
                         }
                     }
                 }
@@ -425,8 +415,7 @@ bool Clutch::wantsPlacement(Placement& out) const {
         const int footY = static_cast<int>(std::floor(y)) - 1;
         if (footY < 0)
             return false;
-        if (mc.getBlockId(static_cast<int>(std::floor(targetX)), footY,
-                          static_cast<int>(std::floor(targetZ))) != 0) {
+        if (mc.getBlockId(static_cast<int>(std::floor(targetX)), footY, static_cast<int>(std::floor(targetZ))) != 0) {
             return false;  // already solid ahead; nothing to bridge
         }
         out = findPlacement(targetX, y, targetZ);
@@ -470,8 +459,7 @@ void Clutch::applyRotation(float yaw, float pitch) {
     float outPitch = std::clamp(pitch, -90.0f, 90.0f);
     if (gcd > 0.0001f) {
         outYaw = curYaw + std::round(wrapDegrees(yaw - curYaw) / gcd) * gcd;
-        outPitch = std::clamp(curPitch + std::round((outPitch - curPitch) / gcd) * gcd, -90.0f,
-                              90.0f);
+        outPitch = std::clamp(curPitch + std::round((outPitch - curPitch) / gcd) * gcd, -90.0f, 90.0f);
     }
     player.setYaw(outYaw);
     player.setPitch(outPitch);
@@ -485,8 +473,7 @@ void Clutch::aimAt(const Placement& p, bool freshOpportunity) {
     const double horiz = std::sqrt(dx * dx + dz * dz);
 
     aimToYaw_ = static_cast<float>(std::atan2(dz, dx) * 180.0 / kPi - 90.0);
-    aimToPitch_ =
-        std::clamp(static_cast<float>(-std::atan2(dy, horiz) * 180.0 / kPi), -90.0f, 90.0f);
+    aimToPitch_ = std::clamp(static_cast<float>(-std::atan2(dy, horiz) * 180.0 / kPi), -90.0f, 90.0f);
     aimFromYaw_ = player.getYaw();
     aimFromPitch_ = player.getPitch();
 
@@ -498,8 +485,8 @@ void Clutch::aimAt(const Placement& p, bool freshOpportunity) {
 
     // Scale the flick length with the distance it has to cover. A fixed budget makes a
     // 4-degree correction crawl and a 90-degree whip teleport; both read as synthetic.
-    const float travel = std::max(std::abs(wrapDegrees(aimToYaw_ - aimFromYaw_)),
-                                  std::abs(aimToPitch_ - aimFromPitch_));
+    const float travel =
+        std::max(std::abs(wrapDegrees(aimToYaw_ - aimFromYaw_)), std::abs(aimToPitch_ - aimFromPitch_));
     int budget = std::clamp(settings.aimTicks, 1, 6);
     if (travel < 8.0f)
         budget = 1;
@@ -535,8 +522,7 @@ void Clutch::onClientTick(JNIEnv* env) {
     // Switched off mid-sequence, a screen went up, or AutoRod is mid-sequence and owns
     // the hotbar and the use-item channel: hand the rotation, the slot and the phase
     // back through one path so nothing can be left half-owned.
-    if (!enabled || !player.isValid() || Menu::isOpen || mc.isInGui() ||
-        (autoRod && autoRod->isSequencing())) {
+    if (!enabled || !player.isValid() || Menu::isOpen || mc.isInGui() || (autoRod && autoRod->isSequencing())) {
         if (phase_ != Phase::Idle || originalSlot_ >= 0)
             abort(env);
         return;
@@ -556,8 +542,7 @@ void Clutch::onClientTick(JNIEnv* env) {
     if (phase_ == Phase::Settle) {
         if (aimTick_ < aimTotalTicks_) {
             ++aimTick_;
-            const float t = smoothstep(static_cast<float>(aimTick_) /
-                                       static_cast<float>(aimTotalTicks_));
+            const float t = smoothstep(static_cast<float>(aimTick_) / static_cast<float>(aimTotalTicks_));
             applyRotation(aimFromYaw_ + wrapDegrees(aimToYaw_ - aimFromYaw_) * t + noise(),
                           aimFromPitch_ + (aimToPitch_ - aimFromPitch_) * t + noise());
         }
@@ -667,17 +652,15 @@ void Clutch::onClientTick(JNIEnv* env) {
                 }
 
                 ++aimTick_;
-                const float t =
-                    smoothstep(static_cast<float>(aimTick_) / static_cast<float>(aimTotalTicks_));
+                const float t = smoothstep(static_cast<float>(aimTick_) / static_cast<float>(aimTotalTicks_));
                 // Overshoot on the penultimate tick and correct on the last one. A flick that
                 // lands dead on the target the first time is not a flick a hand produced.
                 float scale = 1.0f;
                 if (settings.overshoot && aimTotalTicks_ >= 3 && aimTick_ == aimTotalTicks_ - 1)
                     scale = 1.05f + (rng_() % 70u) / 1000.0f;
 
-                applyRotation(
-                    aimFromYaw_ + wrapDegrees(aimToYaw_ - aimFromYaw_) * t * scale + noise(),
-                    aimFromPitch_ + (aimToPitch_ - aimFromPitch_) * t * scale + noise());
+                applyRotation(aimFromYaw_ + wrapDegrees(aimToYaw_ - aimFromYaw_) * t * scale + noise(),
+                              aimFromPitch_ + (aimToPitch_ - aimFromPitch_) * t * scale + noise());
 
                 if (aimTick_ >= aimTotalTicks_) {
                     phase_ = Phase::Place;
@@ -754,8 +737,8 @@ void Clutch::onClientTick(JNIEnv* env) {
                 const double dz = target_.hitZ - player.getPosZ();
                 const double horiz = std::sqrt(dx * dx + dz * dz);
                 const float holdYaw = static_cast<float>(std::atan2(dz, dx) * 180.0 / kPi - 90.0);
-                const float holdPitch = std::clamp(
-                    static_cast<float>(-std::atan2(dy, horiz) * 180.0 / kPi), -90.0f, 90.0f);
+                const float holdPitch =
+                    std::clamp(static_cast<float>(-std::atan2(dy, horiz) * 180.0 / kPi), -90.0f, 90.0f);
                 // Only a quarter of the flick's noise while holding: a hand settles when it
                 // has arrived, and too much wobble here walks the ray off the face.
                 applyRotation(holdYaw + noise() * 0.25f, holdPitch + noise() * 0.25f);
@@ -895,8 +878,7 @@ void Clutch::onRender() {
         const double verticalSpeed = motionY * 20.0;
 
         char buffer[64];
-        snprintf(buffer, sizeof(buffer), "Speed: %.2f BPS  (Y: %.2f BPS)", horizontalSpeed,
-                 verticalSpeed);
+        snprintf(buffer, sizeof(buffer), "Speed: %.2f BPS  (Y: %.2f BPS)", horizontalSpeed, verticalSpeed);
 
         const ImVec2 textSize = ImGui::CalcTextSize(buffer);
         const float x = (static_cast<float>(RenderData::screenWidth) - textSize.x) / 2.0f;
@@ -923,17 +905,16 @@ void Clutch::onRender() {
                                        static_cast<float>(interpY + point.relY - renderY),
                                        static_cast<float>(interpZ + point.relZ - renderZ)};
             Vector2 screenPos;
-            if (CWorldToScreen::WorldToScreen(cameraRelPos, RenderData::modelView,
-                                              RenderData::projection, RenderData::screenWidth,
-                                              RenderData::screenHeight, screenPos)) {
+            if (CWorldToScreen::WorldToScreen(cameraRelPos, RenderData::modelView, RenderData::projection,
+                                              RenderData::screenWidth, RenderData::screenHeight, screenPos)) {
                 screenPoints.push_back({screenPos.x, screenPos.y});
             }
         }
         if (screenPoints.size() >= 2) {
-            draw->AddPolyline(screenPoints.data(), static_cast<int>(screenPoints.size()),
-                              IM_COL32(0, 0, 0, 180), ImDrawFlags_None, 3.5f);
-            draw->AddPolyline(screenPoints.data(), static_cast<int>(screenPoints.size()),
-                              IM_COL32(0, 191, 255, 220), ImDrawFlags_None, 1.5f);
+            draw->AddPolyline(screenPoints.data(), static_cast<int>(screenPoints.size()), IM_COL32(0, 0, 0, 180),
+                              ImDrawFlags_None, 3.5f);
+            draw->AddPolyline(screenPoints.data(), static_cast<int>(screenPoints.size()), IM_COL32(0, 191, 255, 220),
+                              ImDrawFlags_None, 1.5f);
         }
     }
 
@@ -943,9 +924,12 @@ void Clutch::onRender() {
     const float minX = static_cast<float>(placement.targetX - renderX);
     const float minY = static_cast<float>(placement.targetY - renderY);
     const float minZ = static_cast<float>(placement.targetZ - renderZ);
-    const Vector3 corners[8] = {{minX, minY, minZ},               {minX + 1.0f, minY, minZ},
-                                {minX + 1.0f, minY, minZ + 1.0f}, {minX, minY, minZ + 1.0f},
-                                {minX, minY + 1.0f, minZ},        {minX + 1.0f, minY + 1.0f, minZ},
+    const Vector3 corners[8] = {{minX, minY, minZ},
+                                {minX + 1.0f, minY, minZ},
+                                {minX + 1.0f, minY, minZ + 1.0f},
+                                {minX, minY, minZ + 1.0f},
+                                {minX, minY + 1.0f, minZ},
+                                {minX + 1.0f, minY + 1.0f, minZ},
                                 {minX + 1.0f, minY + 1.0f, minZ + 1.0f},
                                 {minX, minY + 1.0f, minZ + 1.0f}};
 
@@ -953,10 +937,8 @@ void Clutch::onRender() {
     bool visible[8];
     int visibleCount = 0;
     for (int i = 0; i < 8; ++i) {
-        visible[i] = CWorldToScreen::WorldToScreen(corners[i], RenderData::modelView,
-                                                   RenderData::projection,
-                                                   RenderData::screenWidth,
-                                                   RenderData::screenHeight, screenCorners[i]);
+        visible[i] = CWorldToScreen::WorldToScreen(corners[i], RenderData::modelView, RenderData::projection,
+                                                   RenderData::screenWidth, RenderData::screenHeight, screenCorners[i]);
         if (visible[i])
             ++visibleCount;
     }
@@ -983,8 +965,7 @@ void Clutch::onRender() {
     for (const auto& edge : kEdges) {
         if (visible[edge[0]] && visible[edge[1]]) {
             draw->AddLine({screenCorners[edge[0]].x, screenCorners[edge[0]].y},
-                          {screenCorners[edge[1]].x, screenCorners[edge[1]].y}, outlineColor,
-                          1.5f);
+                          {screenCorners[edge[1]].x, screenCorners[edge[1]].y}, outlineColor, 1.5f);
         }
     }
 }
@@ -1058,17 +1039,14 @@ void Clutch::saveSettings(json::Value& node) const {
 }
 
 void Clutch::loadSettings(const json::Value& node) {
-    settings.scaffoldLead =
-        (std::clamp)(node["scaffoldLead"].as_float(settings.scaffoldLead), 0.4f, 1.6f);
-    settings.predictionMs =
-        (std::clamp)(node["predictionMs"].as_int(settings.predictionMs), 100, 800);
+    settings.scaffoldLead = (std::clamp)(node["scaffoldLead"].as_float(settings.scaffoldLead), 0.4f, 1.6f);
+    settings.predictionMs = (std::clamp)(node["predictionMs"].as_int(settings.predictionMs), 100, 800);
     settings.searchRadius = (std::clamp)(node["searchRadius"].as_int(settings.searchRadius), 1, 6);
     settings.safeDepth = (std::clamp)(node["safeDepth"].as_int(settings.safeDepth), 1, 24);
     settings.allowForward = node["allowForward"].as_bool(settings.allowForward);
     settings.reach = (std::clamp)(node["reach"].as_float(settings.reach), 3.0f, 4.5f);
     settings.reactMinMs = (std::clamp)(node["reactMinMs"].as_int(settings.reactMinMs), 0, 500);
-    settings.reactMaxMs = (std::clamp)(node["reactMaxMs"].as_int(settings.reactMaxMs),
-                                       settings.reactMinMs, 500);
+    settings.reactMaxMs = (std::clamp)(node["reactMaxMs"].as_int(settings.reactMaxMs), settings.reactMinMs, 500);
     settings.aimTicks = (std::clamp)(node["aimTicks"].as_int(settings.aimTicks), 1, 6);
     settings.aimNoise = (std::clamp)(node["aimNoise"].as_float(settings.aimNoise), 0.0f, 3.0f);
     settings.overshoot = node["overshoot"].as_bool(settings.overshoot);

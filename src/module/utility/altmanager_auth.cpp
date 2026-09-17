@@ -70,13 +70,13 @@ constexpr const char* kBrowserUserAgent =
 // Cookie replay order matters to the MSA endpoints; the mod ships two variants
 // that differ only in whether JSH or JSHP comes first, and tries both.
 const char* const kCookieOrderJshp[] = {
-    "__Host-MSAAUTH", "__Host-MSAAUTHP", "JSHP",  "JSH",       "MSPAuth",  "MSPBack", "MSPProf", "MSPRequ",
-    "MSPSoftVis",     "MSPOK",           "MSPShared", "MSPPre", "MSPCID",  "MSPOAuthVis", "AMCSecAuth",
-    "NAP",            "ANON",            "OParams", "PPLState", "WLSSC",   "uaid",    "pres",    "LOpt"};
+    "__Host-MSAAUTH", "__Host-MSAAUTHP", "JSHP",      "JSH",    "MSPAuth", "MSPBack",     "MSPProf",    "MSPRequ",
+    "MSPSoftVis",     "MSPOK",           "MSPShared", "MSPPre", "MSPCID",  "MSPOAuthVis", "AMCSecAuth", "NAP",
+    "ANON",           "OParams",         "PPLState",  "WLSSC",  "uaid",    "pres",        "LOpt"};
 const char* const kCookieOrderJsh[] = {
-    "__Host-MSAAUTH", "__Host-MSAAUTHP", "JSH",   "JSHP",      "MSPAuth",  "MSPBack", "MSPProf", "MSPRequ",
-    "MSPSoftVis",     "MSPOK",           "MSPShared", "MSPPre", "MSPCID",  "MSPOAuthVis", "AMCSecAuth",
-    "NAP",            "ANON",            "OParams", "PPLState", "WLSSC",   "uaid",    "pres",    "LOpt"};
+    "__Host-MSAAUTH", "__Host-MSAAUTHP", "JSH",       "JSHP",   "MSPAuth", "MSPBack",     "MSPProf",    "MSPRequ",
+    "MSPSoftVis",     "MSPOK",           "MSPShared", "MSPPre", "MSPCID",  "MSPOAuthVis", "AMCSecAuth", "NAP",
+    "ANON",           "OParams",         "PPLState",  "WLSSC",  "uaid",    "pres",        "LOpt"};
 
 // ---------------------------------------------------------------------------
 // Small string helpers
@@ -110,11 +110,21 @@ std::string jsonEscape(const std::string& s) {
     out.reserve(s.size() + 8);
     for (char c : s) {
         switch (c) {
-            case '"': out += "\\\""; break;
-            case '\\': out += "\\\\"; break;
-            case '\n': out += "\\n"; break;
-            case '\r': out += "\\r"; break;
-            case '\t': out += "\\t"; break;
+            case '"':
+                out += "\\\"";
+                break;
+            case '\\':
+                out += "\\\\";
+                break;
+            case '\n':
+                out += "\\n";
+                break;
+            case '\r':
+                out += "\\r";
+                break;
+            case '\t':
+                out += "\\t";
+                break;
             default:
                 if (static_cast<unsigned char>(c) < 0x20) {
                     char buf[8];
@@ -238,13 +248,17 @@ std::string pathOf(const std::string& url) {
     return p.empty() ? "/" : p;
 }
 
-bool isHttps(const std::string& url) { return startsWith(lower(url), "https://"); }
+bool isHttps(const std::string& url) {
+    return startsWith(lower(url), "https://");
+}
 
 // Every read below goes through a *const* reference to the parsed node. That is
 // deliberate: json::Value's non-const operator[] promotes the node to Object
 // (wiping arrays and strings) and inserts a Null for missing keys, which would
 // quietly corrupt a response we still want to inspect for other fields.
-bool parseJson(const std::string& body, json::Value& out) { return json::Parser::parse(body, out); }
+bool parseJson(const std::string& body, json::Value& out) {
+    return json::Parser::parse(body, out);
+}
 
 // ---------------------------------------------------------------------------
 // Worker state
@@ -297,7 +311,9 @@ void pushResults(const std::vector<Account>& accounts) {
     g_results.insert(g_results.end(), accounts.begin(), accounts.end());
 }
 
-bool cancelled() { return g_cancel.load(std::memory_order_relaxed); }
+bool cancelled() {
+    return g_cancel.load(std::memory_order_relaxed);
+}
 
 // Explorer-style common dialogs hand the hook the *child* dialog, so the window
 // that actually answers WM_CLOSE is its parent.
@@ -386,8 +402,9 @@ bool msRefreshOauth(const std::string& refreshToken, MsTokens& out, std::string&
 // prefix is "d=" for authorization-code tokens and "t=" for the MBI_SSL /
 // implicit ones. Callers that can't know which they hold try both.
 bool xblAuthenticate(const std::string& msAccessToken, const char* prefix, std::string& xblToken, std::string& err) {
-    std::string body = "{\"Properties\":{\"AuthMethod\":\"RPS\",\"SiteName\":\"user.auth.xboxlive.com\","
-                       "\"RpsTicket\":\"";
+    std::string body =
+        "{\"Properties\":{\"AuthMethod\":\"RPS\",\"SiteName\":\"user.auth.xboxlive.com\","
+        "\"RpsTicket\":\"";
     body += prefix;
     body += jsonEscape(msAccessToken);
     body += "\"},\"RelyingParty\":\"http://auth.xboxlive.com\",\"TokenType\":\"JWT\"}";
@@ -784,8 +801,8 @@ struct StoredCookie {
 
 bool isRelevantDomain(const std::string& domain) {
     const std::string d = lower(domain);
-    static const char* kInteresting[] = {"live.com", "microsoftonline.com", "microsoft.com",
-                                         "xboxlive.com", "minecraft.net", "mojang.com"};
+    static const char* kInteresting[] = {"live.com",     "microsoftonline.com", "microsoft.com",
+                                         "xboxlive.com", "minecraft.net",       "mojang.com"};
     for (const char* needle : kInteresting) {
         if (d.find(needle) != std::string::npos)
             return true;
@@ -1024,10 +1041,8 @@ bool parseJsonCookies(const std::string& text, CookieStore& out) {
         return false;
 
     // Expired entries are dead weight and can confuse the endpoints.
-    const double nowSeconds =
-        static_cast<double>(std::chrono::duration_cast<std::chrono::seconds>(
-                                std::chrono::system_clock::now().time_since_epoch())
-                                .count());
+    const double nowSeconds = static_cast<double>(
+        std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count());
 
     bool any = false;
     for (const auto& e : arr->array()) {
@@ -1548,7 +1563,9 @@ void runCookies(std::string raw) {
 // Public API
 // ---------------------------------------------------------------------------
 
-bool IsBusy() { return g_busy.load(std::memory_order_acquire); }
+bool IsBusy() {
+    return g_busy.load(std::memory_order_acquire);
+}
 
 std::string Status() {
     std::lock_guard<std::mutex> lock(g_mutex);
@@ -1560,9 +1577,13 @@ std::string LastError() {
     return g_error;
 }
 
-void ClearError() { setError(""); }
+void ClearError() {
+    setError("");
+}
 
-void Cancel() { g_cancel.store(true, std::memory_order_relaxed); }
+void Cancel() {
+    g_cancel.store(true, std::memory_order_relaxed);
+}
 
 std::vector<Account> TakeResults() {
     std::lock_guard<std::mutex> lock(g_mutex);
@@ -1576,7 +1597,9 @@ std::string AuthUrl() {
     return g_authUrl;
 }
 
-bool BeginMicrosoft() { return startWorker([]() { runMicrosoft(); }); }
+bool BeginMicrosoft() {
+    return startWorker([]() { runMicrosoft(); });
+}
 
 bool BeginRefresh(const std::string& refreshToken) {
     const std::string token = trim(refreshToken);
@@ -1605,7 +1628,9 @@ bool BeginCookies(const std::string& rawCookieData) {
     return startWorker([raw]() { runCookies(raw); });
 }
 
-int CountTokens(const std::string& raw) { return static_cast<int>(parseTokenBlob(raw).size()); }
+int CountTokens(const std::string& raw) {
+    return static_cast<int>(parseTokenBlob(raw).size());
+}
 
 std::string ReadFile(const std::string& path, std::string& errorOut) {
     errorOut.clear();
@@ -1656,8 +1681,8 @@ bool BrowseForFile() {
         ofn.lpstrFile = path;
         ofn.nMaxFile = sizeof(path);
         ofn.lpstrTitle = "Cobble - pick a token or cookie file";
-        ofn.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR | OFN_EXPLORER | OFN_ENABLEHOOK |
-                    OFN_ENABLESIZING;
+        ofn.Flags =
+            OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR | OFN_EXPLORER | OFN_ENABLEHOOK | OFN_ENABLESIZING;
         ofn.lpfnHook = &browseHookProc;
 
         const bool picked = GetOpenFileNameA(&ofn) != FALSE;
@@ -1672,7 +1697,9 @@ bool BrowseForFile() {
     return true;
 }
 
-bool IsBrowsing() { return g_browsing.load(std::memory_order_acquire); }
+bool IsBrowsing() {
+    return g_browsing.load(std::memory_order_acquire);
+}
 
 bool TakeBrowsedFile(std::string& pathOut) {
     if (!g_browseDone.load(std::memory_order_acquire))

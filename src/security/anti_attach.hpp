@@ -20,8 +20,7 @@ namespace AntiAttach {
 // Cached function pointer; resolved once and used directly so the call site
 // looks like a regular indirect call rather than a string lookup. Resolving it
 // lazily means the import is not statically visible in the IAT.
-using NtQueryInformationProcess_t =
-    NTSTATUS(NTAPI*)(HANDLE, ULONG, PVOID, ULONG, PULONG);
+using NtQueryInformationProcess_t = NTSTATUS(NTAPI*)(HANDLE, ULONG, PVOID, ULONG, PULONG);
 
 inline NtQueryInformationProcess_t resolveNtQip() {
     static NtQueryInformationProcess_t fn = nullptr;

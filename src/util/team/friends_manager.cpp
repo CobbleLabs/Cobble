@@ -665,7 +665,7 @@ bool FriendsManager::hasLunarTeammates() const {
         return false;
     uint64_t currentSerial = worldChangeSerial_.load(std::memory_order_relaxed);
     std::lock_guard<std::mutex> lock(mutex_);
-    
+
     // Check if any Lunar teammate is valid for current world
     for (const auto& entry : lunarTeammates_) {
         if (entry.second.registeredAtSerial == currentSerial) {
@@ -781,7 +781,8 @@ void FriendsManager::setApolloNametagColor(const std::string& uuid, const std::s
             if (lastGreenMs == 0 || nowMs - lastGreenMs > graceMs) {
                 apolloNametagTeammates_.erase(itTeam);
                 greenHits = 0;  // Reset hits only when actually removed
-                log_debug("[Apollo] Nametag TEAMMATE removed: %s -> %s (grace expired)", uuid.substr(0, 8).c_str(), color.c_str());
+                log_debug("[Apollo] Nametag TEAMMATE removed: %s -> %s (grace expired)", uuid.substr(0, 8).c_str(),
+                          color.c_str());
             }
             // else: within grace period, keep teammate status and greenHits
         }

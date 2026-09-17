@@ -45,13 +45,11 @@ bool IsOperational();
 //               one player selectively rubber-banding.
 void Configure(unsigned holdMs, unsigned maxHeldPackets, bool wholeStream);
 
-jboolean JNICALL NativeCanProcess(JNIEnv* env, jclass cls, jobject networkManager,
-                                  jobject packet);
+jboolean JNICALL NativeCanProcess(JNIEnv* env, jclass cls, jobject networkManager, jobject packet);
 
 // Establishes the already-processed protocol position before admission opens,
 // then rebuilds the real position from the retained FIFO. Client thread only.
-bool PrimeTarget(JNIEnv* env, jobject entity, int entityId,
-                 std::uint64_t engagementEpoch);
+bool PrimeTarget(JNIEnv* env, jobject entity, int entityId, std::uint64_t engagementEpoch);
 
 // Replays due packets, or drains the complete FIFO when flushAll is true.
 // Returns the number successfully replayed. Client thread only.

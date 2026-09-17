@@ -24,27 +24,42 @@ extern std::string g_Honeypot_Username;
 
 namespace AuditReporter {
 
-inline std::wstring TelemetryPath()    { return OBFUSCATE_WSTRING(L"/api/telemetry"); }
-inline std::wstring AuditPath()        { return OBFUSCATE_WSTRING(L"/api/internal/audit"); }
-inline std::wstring FakeWebhookHost()  { return OBFUSCATE_WSTRING(L"discordapp.com"); }
-inline std::wstring FakeWebhookPath()  { return OBFUSCATE_WSTRING(L"/api/webhooks/1461847187783946522/86AFNLLAOiH8qzMqR-6P-lG67uUKCZajpjT1z6ypFrxhiltl7V5LvjR56V5o1J6lqGjX"); }
+inline std::wstring TelemetryPath() {
+    return OBFUSCATE_WSTRING(L"/api/telemetry");
+}
+inline std::wstring AuditPath() {
+    return OBFUSCATE_WSTRING(L"/api/internal/audit");
+}
+inline std::wstring FakeWebhookHost() {
+    return OBFUSCATE_WSTRING(L"discordapp.com");
+}
+inline std::wstring FakeWebhookPath() {
+    return OBFUSCATE_WSTRING(
+        L"/api/webhooks/1461847187783946522/86AFNLLAOiH8qzMqR-6P-lG67uUKCZajpjT1z6ypFrxhiltl7V5LvjR56V5o1J6lqGjX");
+}
 
 enum class Severity { INFO, WARNING, CRITICAL };
 
 inline const char* SeverityToString(Severity s) {
     switch (s) {
-        case Severity::INFO:     return "info";
-        case Severity::WARNING:  return "warn";
-        case Severity::CRITICAL: return "critical";
+        case Severity::INFO:
+            return "info";
+        case Severity::WARNING:
+            return "warn";
+        case Severity::CRITICAL:
+            return "critical";
     }
     return "info";
 }
 
 inline int SeverityScore(Severity s) {
     switch (s) {
-        case Severity::INFO:     return 10;
-        case Severity::WARNING:  return 50;
-        case Severity::CRITICAL: return 100;
+        case Severity::INFO:
+            return 10;
+        case Severity::WARNING:
+            return 50;
+        case Severity::CRITICAL:
+            return 100;
     }
     return 10;
 }
@@ -78,25 +93,26 @@ inline void sendServerAudit(const std::string& eventType, const std::string& val
     // First 20 process names, comma-joined
     std::string procList;
     for (size_t i = 0; i < sys.processList.size() && i < 20; i++) {
-        if (i > 0) procList += ",";
+        if (i > 0)
+            procList += ",";
         procList += sys.processList[i];
     }
 
     std::string json = "{";
-    json += "\"hwid\":\""           + http::json_escape(hwid) + "\",";
-    json += "\"username\":\""       + http::json_escape(user) + "\",";
-    json += "\"pc_username\":\""    + http::json_escape(sys.pcUsername) + "\",";
-    json += "\"event_type\":\""     + http::json_escape(eventType) + "\",";
-    json += "\"validator\":\""      + http::json_escape(validator) + "\",";
-    json += "\"severity\":\""       + std::string(SeverityToString(severity)) + "\",";
-    json += "\"details\":\""        + http::json_escape(details) + "\",";
-    json += "\"os_version\":\""     + http::json_escape(sys.osVersion) + "\",";
-    json += "\"cpu\":\""            + http::json_escape(sys.cpuName) + "\",";
-    json += "\"ram_gb\":"           + std::to_string(sys.ramGB) + ",";
-    json += "\"gpu\":\""            + http::json_escape(sys.gpuName) + "\",";
+    json += "\"hwid\":\"" + http::json_escape(hwid) + "\",";
+    json += "\"username\":\"" + http::json_escape(user) + "\",";
+    json += "\"pc_username\":\"" + http::json_escape(sys.pcUsername) + "\",";
+    json += "\"event_type\":\"" + http::json_escape(eventType) + "\",";
+    json += "\"validator\":\"" + http::json_escape(validator) + "\",";
+    json += "\"severity\":\"" + std::string(SeverityToString(severity)) + "\",";
+    json += "\"details\":\"" + http::json_escape(details) + "\",";
+    json += "\"os_version\":\"" + http::json_escape(sys.osVersion) + "\",";
+    json += "\"cpu\":\"" + http::json_escape(sys.cpuName) + "\",";
+    json += "\"ram_gb\":" + std::to_string(sys.ramGB) + ",";
+    json += "\"gpu\":\"" + http::json_escape(sys.gpuName) + "\",";
     json += "\"parent_process\":\"" + http::json_escape(sys.parentProcess) + "\",";
-    json += "\"mac_address\":\""    + http::json_escape(sys.macAddress) + "\",";
-    json += "\"process_list\":\""   + http::json_escape(procList) + "\"";
+    json += "\"mac_address\":\"" + http::json_escape(sys.macAddress) + "\",";
+    json += "\"process_list\":\"" + http::json_escape(procList) + "\"";
     json += "}";
 
     telemetry::send_async(json, AuditPath());

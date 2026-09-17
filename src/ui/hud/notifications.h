@@ -6,13 +6,7 @@
 #include <string>
 #include <vector>
 
-enum class NotificationType {
-    Enabled,
-    Disabled,
-    Info,
-    Success,
-    Error
-};
+enum class NotificationType { Enabled, Disabled, Info, Success, Error };
 
 struct Notification {
     std::uint64_t id = 0;

@@ -10,7 +10,6 @@
 #include "../security/vmprotect.h"
 #include "utility/autorefill.h"
 
-
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
 #endif
@@ -43,7 +42,8 @@ constexpr uint64_t PULSE_INTERVAL_MS = 60000;
 
 inline ModuleHealth* getHealth(const char* name) {
     for (int i = 0; i < g_healthCount; i++) {
-        if (g_health[i].name == name) return &g_health[i];
+        if (g_health[i].name == name)
+            return &g_health[i];
     }
     if (g_healthCount < 64) {
         g_health[g_healthCount].name = name;
@@ -69,14 +69,15 @@ inline void logPulse() {
         // Count active/degraded modules
         int active = 0, degraded = 0, errored = 0;
         for (int i = 0; i < g_healthCount; i++) {
-            if (!g_health[i].wasOperational) degraded++;
-            if (g_health[i].exceptionCount > 0) errored++;
+            if (!g_health[i].wasOperational)
+                degraded++;
+            if (g_health[i].exceptionCount > 0)
+                errored++;
             // "active" = currently enabled is tracked by caller
         }
 
         char buf[256];
-        wsprintfA(buf, "[PULSE] loops=%I64u degraded=%d errored=%d",
-                  (unsigned long long)iters, degraded, errored);
+        wsprintfA(buf, "[PULSE] loops=%I64u degraded=%d errored=%d", (unsigned long long)iters, degraded, errored);
         cobble_trace::write_step(buf);
     }
 }
@@ -154,8 +155,7 @@ void ModuleManager::update() {
                     health->exceptionCount++;
                     if (!health->reportedException) {
                         health->reportedException = true;
-                        log_err("[MOD] %s: SEH exception in onUpdate() (code=0x%08X)",
-                                mod->name, GetExceptionCode());
+                        log_err("[MOD] %s: SEH exception in onUpdate() (code=0x%08X)", mod->name, GetExceptionCode());
                     }
                 }
                 mod->enabled = false;
@@ -175,8 +175,7 @@ void ModuleManager::update() {
                     log_warn("[MOD] %s: shouldUpdate()=false (state degraded)", mod->name);
                 } else if (!health->reportedDegraded && health->consecutiveSkips >= 500) {
                     health->reportedDegraded = true;
-                    log_err("[MOD] %s: persistently degraded for %u ticks",
-                            mod->name, health->consecutiveSkips);
+                    log_err("[MOD] %s: persistently degraded for %u ticks", mod->name, health->consecutiveSkips);
                 }
             }
         }

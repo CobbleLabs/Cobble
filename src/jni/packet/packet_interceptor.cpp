@@ -42,7 +42,8 @@ bool Init() {
         }
     }
 
-    COBBLE_TRACE(haveCaps ? "PacketInterceptor::Init: Got JVMTI caps" : "PacketInterceptor::Init: GetCapabilities failed");
+    COBBLE_TRACE(haveCaps ? "PacketInterceptor::Init: Got JVMTI caps"
+                          : "PacketInterceptor::Init: GetCapabilities failed");
 
     BytecodePatcher::HookTargets targets;
     targets.outgoing = true;       // NoItemRelease gate
@@ -54,13 +55,17 @@ bool Init() {
 
     bool interceptReady = false;
     if (Java::tiEnv && haveCaps) {
-        COBBLE_TRACE(caps.can_generate_all_class_hook_events ? "PacketInterceptor::Init: can_generate_all_class_hook_events=1" : "PacketInterceptor::Init: can_generate_all_class_hook_events=0");
-        COBBLE_TRACE(caps.can_retransform_classes ? "PacketInterceptor::Init: can_retransform_classes=1" : "PacketInterceptor::Init: can_retransform_classes=0");
+        COBBLE_TRACE(caps.can_generate_all_class_hook_events
+                         ? "PacketInterceptor::Init: can_generate_all_class_hook_events=1"
+                         : "PacketInterceptor::Init: can_generate_all_class_hook_events=0");
+        COBBLE_TRACE(caps.can_retransform_classes ? "PacketInterceptor::Init: can_retransform_classes=1"
+                                                  : "PacketInterceptor::Init: can_retransform_classes=0");
 
         if (caps.can_generate_all_class_hook_events && caps.can_retransform_classes) {
             bool regHooks = BytecodePatcher::RegisterHooks(env, &OutgoingPacketGate::NativeShouldSend,
-                                                          &ApolloPacketObserver::NativeOnReceive);
-            COBBLE_TRACE(regHooks ? "PacketInterceptor::Init: RegisterHooks ok" : "PacketInterceptor::Init: RegisterHooks failed");
+                                                           &ApolloPacketObserver::NativeOnReceive);
+            COBBLE_TRACE(regHooks ? "PacketInterceptor::Init: RegisterHooks ok"
+                                  : "PacketInterceptor::Init: RegisterHooks failed");
 
             // Resolve/register IncomingHook before any bytecode can reference it.
             bool btInit = BacktrackGate::Init(env);
@@ -68,7 +73,8 @@ bool Init() {
                                 : "PacketInterceptor::Init: BacktrackGate::Init failed");
 
             bool sdInit = SlowDownGate::Init(env);
-            COBBLE_TRACE(sdInit ? "PacketInterceptor::Init: SlowDownGate::Init ok" : "PacketInterceptor::Init: SlowDownGate::Init failed");
+            COBBLE_TRACE(sdInit ? "PacketInterceptor::Init: SlowDownGate::Init ok"
+                                : "PacketInterceptor::Init: SlowDownGate::Init failed");
 
             // Stage 1 of the backtrack 3D ghost: define the BacktrackGhostHook
             // class + register its native. No bytecode is injected yet (that is a
@@ -107,9 +113,9 @@ bool Init() {
             BytecodePatcher::SetTargets(targets);
 
             bool instHook = BytecodePatcher::InstallBytecodeHook(env);
-            COBBLE_TRACE(instHook ? "PacketInterceptor::Init: InstallBytecodeHook ok" : "PacketInterceptor::Init: InstallBytecodeHook failed");
-            const bool backtrackOperational =
-                btInit && instHook && BytecodePatcher::IsIncomingBacktrackReady();
+            COBBLE_TRACE(instHook ? "PacketInterceptor::Init: InstallBytecodeHook ok"
+                                  : "PacketInterceptor::Init: InstallBytecodeHook failed");
+            const bool backtrackOperational = btInit && instHook && BytecodePatcher::IsIncomingBacktrackReady();
             BacktrackGate::SetOperational(backtrackOperational);
             if (!backtrackOperational) {
                 log_err("[Backtrack] Disabled: native bridge or required bytecode hooks are incomplete");

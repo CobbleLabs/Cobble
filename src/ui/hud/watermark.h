@@ -29,16 +29,7 @@ namespace Watermark {
 
 // What an item draws. Text is the general case; the dynamic kinds render a
 // value plus the item's own text as a unit label ("120" + "FPS").
-enum Kind {
-    KindText = 0,
-    KindFps,
-    KindClock,
-    KindUptime,
-    KindImage,
-    KindSeparator,
-    KindSpacer,
-    KindCount
-};
+enum Kind { KindText = 0, KindFps, KindClock, KindUptime, KindImage, KindSeparator, KindSpacer, KindCount };
 
 // Where an item's colour comes from. Primary/Secondary follow the two shared
 // text colours, so a whole watermark can be recoloured from one place.
@@ -233,7 +224,7 @@ bool hasKind(int kind);
 // ---- Presets / resets ----------------------------------------------------
 
 void resetItems();     // the default "Cobble v1.7.0 | 120 FPS" strip
-void resetPosition();   // back to the anchored corner
+void resetPosition();  // back to the anchored corner
 void applyPreset(int preset);
 int presetCount();
 const char* const* presetNames();

@@ -33,14 +33,14 @@ public:
     };
 
     struct Settings {
-        Mode mode = Mode::MiniJump;      // Critical technique
+        Mode mode = Mode::MiniJump;         // Critical technique
         Trigger trigger = Trigger::Chance;  // What decides when to fire
-        int hitInterval = 2;             // Hits: fire every Nth hit
-        int maxDelayMs = 100;            // Delay between criticals (50-500ms)
-        int chance = 80;                 // Chance to do critical (0-100%)
-        bool onlyWhileAttacking = true;  // Only apply when LMB pressed
-        bool lookingAtPlayer = true;     // Only apply when looking at a player
-        bool onlyWithSword = false;      // Only apply when holding sword
+        int hitInterval = 2;                // Hits: fire every Nth hit
+        int maxDelayMs = 100;               // Delay between criticals (50-500ms)
+        int chance = 80;                    // Chance to do critical (0-100%)
+        bool onlyWhileAttacking = true;     // Only apply when LMB pressed
+        bool lookingAtPlayer = true;        // Only apply when looking at a player
+        bool onlyWithSword = false;         // Only apply when holding sword
     } settings;
 
 private:

@@ -160,10 +160,8 @@ bool Minecraft::isMoving() {
     };
 
     // Check physical WASD keys directly ('W', 'A', 'S', 'D')
-    if ((GetAsyncKeyState('W') & 0x8000) != 0 ||
-        (GetAsyncKeyState('A') & 0x8000) != 0 ||
-        (GetAsyncKeyState('S') & 0x8000) != 0 ||
-        (GetAsyncKeyState('D') & 0x8000) != 0) {
+    if ((GetAsyncKeyState('W') & 0x8000) != 0 || (GetAsyncKeyState('A') & 0x8000) != 0 ||
+        (GetAsyncKeyState('S') & 0x8000) != 0 || (GetAsyncKeyState('D') & 0x8000) != 0) {
         return true;
     }
 
@@ -171,8 +169,8 @@ bool Minecraft::isMoving() {
         return false;
 
     // Check physical keys mapped to Minecraft keybinds
-    if (physicalHeld(getForwardKey()) || physicalHeld(getBackKey()) ||
-        physicalHeld(getLeftKey()) || physicalHeld(getRightKey())) {
+    if (physicalHeld(getForwardKey()) || physicalHeld(getBackKey()) || physicalHeld(getLeftKey()) ||
+        physicalHeld(getRightKey())) {
         return true;
     }
 
@@ -184,8 +182,8 @@ bool Minecraft::isMoving() {
     if (!gameSettings)
         return false;
 
-    const jfieldID moveFields[] = {JniCache::fid_keyBindForward, JniCache::fid_keyBindBack,
-                                   JniCache::fid_keyBindLeft, JniCache::fid_keyBindRight};
+    const jfieldID moveFields[] = {JniCache::fid_keyBindForward, JniCache::fid_keyBindBack, JniCache::fid_keyBindLeft,
+                                   JniCache::fid_keyBindRight};
 
     bool moving = false;
     for (jfieldID fid_kb : moveFields) {

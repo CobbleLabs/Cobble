@@ -60,8 +60,7 @@ bool isStrongHealingPotion(int damage) {
 }
 
 int64_t nowMs() {
-    return std::chrono::duration_cast<std::chrono::milliseconds>(
-               std::chrono::steady_clock::now().time_since_epoch())
+    return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch())
         .count();
 }
 
@@ -368,8 +367,8 @@ void AutoPot::beginAim() {
         case AutoPotAim::Smooth:
             if (settings.flickMs > 0) {
                 flickFrom_ = player.getPitch();
-                enterState(State::Aiming, static_cast<int64_t>(static_cast<float>(jitter(settings.flickMs)) *
-                                                               fatigueScale()));
+                enterState(State::Aiming,
+                           static_cast<int64_t>(static_cast<float>(jitter(settings.flickMs)) * fatigueScale()));
                 return;
             }
             [[fallthrough]];
@@ -473,8 +472,7 @@ void AutoPot::onUpdate() {
     const float health = valid ? player.getHealth() : 0.0f;
     // ThrowPots owns the hand while it runs; two modules driving the hotbar at
     // once would fight over the slot and waste potions.
-    const bool blocked =
-        !valid || health <= 0.0f || Menu::isOpen || mc.isInGui() || (throwPots && throwPots->enabled);
+    const bool blocked = !valid || health <= 0.0f || Menu::isOpen || mc.isInGui() || (throwPots && throwPots->enabled);
     if (blocked) {
         if (state_ != State::Idle)
             finishBurst();
@@ -513,8 +511,7 @@ void AutoPot::onUpdate() {
     const float predicted = health + inFlightHeal_;
 
     // "Already watching the bar" tracking, used to shorten the reaction delay.
-    const float watchLevel =
-        maxHealth_ * (static_cast<float>((std::min)(100, settings.healthPercent + 20)) / 100.0f);
+    const float watchLevel = maxHealth_ * (static_cast<float>((std::min)(100, settings.healthPercent + 20)) / 100.0f);
     if (predicted <= watchLevel) {
         if (lowSinceMs_ == 0)
             lowSinceMs_ = now;
@@ -574,10 +571,10 @@ void AutoPot::onUpdate() {
 
         case State::Aiming: {
             // Smooth mode only: ease the real pitch down the way a mouse pull does.
-            const float t = stateDelayMs_ <= 0 ? 1.0f
-                                               : (std::clamp)(static_cast<float>(elapsed) /
-                                                                  static_cast<float>(stateDelayMs_),
-                                                              0.0f, 1.0f);
+            const float t =
+                stateDelayMs_ <= 0
+                    ? 1.0f
+                    : (std::clamp)(static_cast<float>(elapsed) / static_cast<float>(stateDelayMs_), 0.0f, 1.0f);
             const float eased = t * t * (3.0f - 2.0f * t);
             const float current = flickFrom_ + (aimPitch_ - flickFrom_) * eased;
             player.setPitch(current);

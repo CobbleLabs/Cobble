@@ -23,15 +23,13 @@ Pings* pingsModule = nullptr;
 
 namespace {
 bool RayIntersectsPlayerBox(double eyeX, double eyeY, double eyeZ, double dirX, double dirY, double dirZ,
-                            double playerX, double playerY, double playerZ, double maxDistance,
-                            double& hitDistance) {
+                            double playerX, double playerY, double playerZ, double maxDistance, double& hitDistance) {
     // A small expansion keeps selection stable while the rendered player position
     // catches up with the tick position stored in VisualCache.
     constexpr double horizontalRadius = 0.30 + 0.08;
     constexpr double verticalPadding = 0.08;
 
-    const double boundsMin[3] = {playerX - horizontalRadius, playerY - verticalPadding,
-                                 playerZ - horizontalRadius};
+    const double boundsMin[3] = {playerX - horizontalRadius, playerY - verticalPadding, playerZ - horizontalRadius};
     const double boundsMax[3] = {playerX + horizontalRadius, playerY + 1.80 + verticalPadding,
                                  playerZ + horizontalRadius};
     const double origin[3] = {eyeX, eyeY, eyeZ};
@@ -66,11 +64,11 @@ bool RayIntersectsPlayerBox(double eyeX, double eyeY, double eyeZ, double dirX, 
 }  // namespace
 
 Pings::Pings() : Module("Pings") {
-    keybind = 0; // The module itself is toggled by menu, but has a separate action keybind
+    keybind = 0;  // The module itself is toggled by menu, but has a separate action keybind
     renders = true;
     worldVisual = true;
     usesPlayerCache = true;
-    enabled = true; // Enabled by default
+    enabled = true;  // Enabled by default
 }
 
 void Pings::saveSettings(json::Value& node) const {
@@ -169,20 +167,21 @@ void Pings::onUpdate() {
                 bool hitPlayer = false;
                 std::string hitPlayerUUID;
                 double hitPlayerX = 0, hitPlayerY = 0, hitPlayerZ = 0;
-                double bestPlayerDist = blockDist; // Must be closer than the block we hit
+                double bestPlayerDist = blockDist;  // Must be closer than the block we hit
 
                 if (snap.valid) {
                     for (const auto& p : snap.players) {
                         if (p.uuid.empty())
-                            continue; // No UUID = can't track
+                            continue;  // No UUID = can't track
 
-                        std::string cleanPName = FriendsManager::stripColorCodes(p.profileName.empty() ? p.name : p.profileName);
+                        std::string cleanPName =
+                            FriendsManager::stripColorCodes(p.profileName.empty() ? p.name : p.profileName);
                         if (cleanPName == cleanLocalName)
-                            continue; // Skip local player
+                            continue;  // Skip local player
 
                         double hitDistance = 0.0;
-                        if (!RayIntersectsPlayerBox(eyeX, eyeY, eyeZ, dirX, dirY, dirZ, p.posX, p.posY,
-                                                    p.posZ, bestPlayerDist, hitDistance))
+                        if (!RayIntersectsPlayerBox(eyeX, eyeY, eyeZ, dirX, dirY, dirZ, p.posX, p.posY, p.posZ,
+                                                    bestPlayerDist, hitDistance))
                             continue;
 
                         hitPlayer = true;
@@ -200,7 +199,8 @@ void Pings::onUpdate() {
                     log_ok("[Pings] Aim targeted player UUID: %s", hitPlayerUUID.c_str());
                 } else if (hitBlock) {
                     sendPing(0, hitBlockX + 0.5, hitBlockY + 1.0, hitBlockZ + 0.5, "");
-                    log_debug("[Pings] Sent Location ping via raycast at: %.1f, %.1f, %.1f", hitBlockX, hitBlockY, hitBlockZ);
+                    log_debug("[Pings] Sent Location ping via raycast at: %.1f, %.1f, %.1f", hitBlockX, hitBlockY,
+                              hitBlockZ);
                 }
             }
         }
@@ -217,11 +217,16 @@ void Pings::onUpdate() {
 }
 
 static int b64val(char c) {
-    if (c >= 'A' && c <= 'Z') return c - 'A';
-    if (c >= 'a' && c <= 'z') return c - 'a' + 26;
-    if (c >= '0' && c <= '9') return c - '0' + 52;
-    if (c == '+') return 62;
-    if (c == '/') return 63;
+    if (c >= 'A' && c <= 'Z')
+        return c - 'A';
+    if (c >= 'a' && c <= 'z')
+        return c - 'a' + 26;
+    if (c >= '0' && c <= '9')
+        return c - '0' + 52;
+    if (c == '+')
+        return 62;
+    if (c == '/')
+        return 63;
     return -1;
 }
 
@@ -231,7 +236,8 @@ static std::vector<uint8_t> b64decode(const std::string& in) {
     int buf = 0, bits = 0;
     for (char c : in) {
         int v = b64val(c);
-        if (v < 0) continue;  // skip '=', whitespace, padding
+        if (v < 0)
+            continue;  // skip '=', whitespace, padding
         buf = (buf << 6) | v;
         bits += 6;
         if (bits >= 8) {
@@ -253,7 +259,7 @@ static std::string normalizeIP(const std::string& ip) {
     }
     // 3. Remove common subdomains
     for (const std::string& prefix : {"play.", "mc.", "us.", "eu.", "server."}) {
-        if (normalized.rfind(prefix, 0) == 0) { // starts with
+        if (normalized.rfind(prefix, 0) == 0) {  // starts with
             normalized = normalized.substr(prefix.length());
         }
     }
@@ -279,8 +285,8 @@ void Pings::sendPing(int type, double x, double y, double z, const std::string& 
     std::string server = normalizeIP(mc.getCurrentServerIP());
 
     if (hwid.empty() || token.empty() || server.empty()) {
-        log_debug("[Pings] sendPing aborted: hwid.empty=%d, token.empty=%d, server.empty=%d", 
-                  (int)hwid.empty(), (int)token.empty(), (int)server.empty());
+        log_debug("[Pings] sendPing aborted: hwid.empty=%d, token.empty=%d, server.empty=%d", (int)hwid.empty(),
+                  (int)token.empty(), (int)server.empty());
         return;
     }
 
@@ -300,26 +306,25 @@ void Pings::sendPing(int type, double x, double y, double z, const std::string& 
     {
         std::lock_guard<std::mutex> lock(pingsMutex);
         // Remove any previous pings from ourselves to avoid duplicate icons
-        activePings.erase(std::remove_if(activePings.begin(), activePings.end(), [&](const ActivePing& p) {
-            std::string cleanP = FriendsManager::stripColorCodes(p.sender);
-            return cleanP == sessionUser || cleanP == FriendsManager::stripColorCodes(localName);
-        }), activePings.end());
+        activePings.erase(std::remove_if(activePings.begin(), activePings.end(),
+                                         [&](const ActivePing& p) {
+                                             std::string cleanP = FriendsManager::stripColorCodes(p.sender);
+                                             return cleanP == sessionUser ||
+                                                    cleanP == FriendsManager::stripColorCodes(localName);
+                                         }),
+                          activePings.end());
         activePings.push_back(localPing);
     }
 
-    std::string body = "{\"hwid\":\"" + http::json_escape(hwid) +
-                       "\",\"token\":\"" + http::json_escape(token) +
+    std::string body = "{\"hwid\":\"" + http::json_escape(hwid) + "\",\"token\":\"" + http::json_escape(token) +
                        "\",\"server\":\"" + http::json_escape(server) + "\"";
-    body += ",\"type\":" + std::to_string(type) +
-            ",\"x\":" + std::to_string(x) +
-            ",\"y\":" + std::to_string(y) +
-            ",\"z\":" + std::to_string(z) +
-            ",\"targetPlayer\":\"" + http::json_escape(targetPlayer) + "\"" +
+    body += ",\"type\":" + std::to_string(type) + ",\"x\":" + std::to_string(x) + ",\"y\":" + std::to_string(y) +
+            ",\"z\":" + std::to_string(z) + ",\"targetPlayer\":\"" + http::json_escape(targetPlayer) + "\"" +
             ",\"mcName\":\"" + http::json_escape(localName) + "\"}";
 
     std::thread([body]() {
-        auto resp = http::post_cobble(OBFUSCATE_WSTRING(L"/api/pings/create").c_str(), body,
-                                      cobble_config::SERVER_PORT);
+        auto resp =
+            http::post_cobble(OBFUSCATE_WSTRING(L"/api/pings/create").c_str(), body, cobble_config::SERVER_PORT);
         if (!resp.success) {
             log_debug("[Pings] sendPing HTTP request failed: %s", resp.error.c_str());
         } else {
@@ -339,21 +344,20 @@ void Pings::fetchPings() {
     std::string server = normalizeIP(mc.getCurrentServerIP());
 
     if (hwid.empty() || token.empty() || server.empty()) {
-        log_debug("[Pings] fetchPings aborted: hwid.empty=%d, token.empty=%d, server.empty=%d", 
-                  (int)hwid.empty(), (int)token.empty(), (int)server.empty());
+        log_debug("[Pings] fetchPings aborted: hwid.empty=%d, token.empty=%d, server.empty=%d", (int)hwid.empty(),
+                  (int)token.empty(), (int)server.empty());
         return;
     }
 
     std::string sessionUser = SessionValidator::snapshotToken(SessionValidator::g_Username);
     std::string localName = mc.getLocalPlayerName();
 
-    std::string body = "{\"hwid\":\"" + http::json_escape(hwid) +
-                       "\",\"token\":\"" + http::json_escape(token) +
+    std::string body = "{\"hwid\":\"" + http::json_escape(hwid) + "\",\"token\":\"" + http::json_escape(token) +
                        "\",\"server\":\"" + http::json_escape(server) + "\"}";
 
     std::thread([this, body, sessionUser, localName]() {
-        auto resp = http::post_cobble(OBFUSCATE_WSTRING(L"/api/pings/active").c_str(), body,
-                                      cobble_config::SERVER_PORT);
+        auto resp =
+            http::post_cobble(OBFUSCATE_WSTRING(L"/api/pings/active").c_str(), body, cobble_config::SERVER_PORT);
         if (!resp.success) {
             log_debug("[Pings] fetchPings HTTP request failed: %s", resp.error.c_str());
             return;
@@ -380,7 +384,7 @@ void Pings::fetchPings() {
                         p.targetPlayer = item["targetPlayer"].as_string("");
                         p.timestamp = item["timestamp"].as_int(0);
                         fetchedPings.push_back(p);
-                        
+
                         log_debug("[Pings] Fetched ping: sender=%s, type=%d, x_int=%d, y_int=%d, z_int=%d",
                                   p.sender.c_str(), p.type, (int)p.x, (int)p.y, (int)p.z);
                     }
@@ -424,20 +428,15 @@ void Pings::fetchPings() {
 }
 
 // 3D wireframe box drawer helper (copied from ESP module to keep it independent)
-static void Draw3DBoxHelper(ImDrawList* draw, float x, float y, float z, double renderX, double renderY, double renderZ, ImU32 boxCol, ImU32 outlineCol) {
+static void Draw3DBoxHelper(ImDrawList* draw, float x, float y, float z, double renderX, double renderY, double renderZ,
+                            ImU32 boxCol, ImU32 outlineCol) {
     static constexpr float HALF_WIDTH = 0.3f;
     static constexpr float HEIGHT = 1.8f;
 
-    Vector3 corners[8] = {
-        {x - HALF_WIDTH, y, z - HALF_WIDTH},
-        {x + HALF_WIDTH, y, z - HALF_WIDTH},
-        {x + HALF_WIDTH, y, z + HALF_WIDTH},
-        {x - HALF_WIDTH, y, z + HALF_WIDTH},
-        {x - HALF_WIDTH, y + HEIGHT, z - HALF_WIDTH},
-        {x + HALF_WIDTH, y + HEIGHT, z - HALF_WIDTH},
-        {x + HALF_WIDTH, y + HEIGHT, z + HALF_WIDTH},
-        {x - HALF_WIDTH, y + HEIGHT, z + HALF_WIDTH}
-    };
+    Vector3 corners[8] = {{x - HALF_WIDTH, y, z - HALF_WIDTH},          {x + HALF_WIDTH, y, z - HALF_WIDTH},
+                          {x + HALF_WIDTH, y, z + HALF_WIDTH},          {x - HALF_WIDTH, y, z + HALF_WIDTH},
+                          {x - HALF_WIDTH, y + HEIGHT, z - HALF_WIDTH}, {x + HALF_WIDTH, y + HEIGHT, z - HALF_WIDTH},
+                          {x + HALF_WIDTH, y + HEIGHT, z + HALF_WIDTH}, {x - HALF_WIDTH, y + HEIGHT, z + HALF_WIDTH}};
 
     Vector2 screenCorners[8];
     bool visible[8];
@@ -447,11 +446,8 @@ static void Draw3DBoxHelper(ImDrawList* draw, float x, float y, float z, double 
                                                    RenderData::screenWidth, RenderData::screenHeight, screenCorners[i]);
     }
 
-    static constexpr int edges[12][2] = {
-        {0, 1}, {1, 2}, {2, 3}, {3, 0},
-        {4, 5}, {5, 6}, {6, 7}, {7, 4},
-        {0, 4}, {1, 5}, {2, 6}, {3, 7}
-    };
+    static constexpr int edges[12][2] = {{0, 1}, {1, 2}, {2, 3}, {3, 0}, {4, 5}, {5, 6},
+                                         {6, 7}, {7, 4}, {0, 4}, {1, 5}, {2, 6}, {3, 7}};
 
     // Draw outline
     for (int i = 0; i < 12; i++) {
@@ -479,11 +475,10 @@ static bool GetFocusScreenBounds(float x, float y, float z, double renderX, doub
     static constexpr float HALF_WIDTH = 0.34f;
     static constexpr float HEIGHT = 1.86f;
     const Vector3 corners[8] = {
-        {x - HALF_WIDTH, y, z - HALF_WIDTH}, {x + HALF_WIDTH, y, z - HALF_WIDTH},
-        {x + HALF_WIDTH, y, z + HALF_WIDTH}, {x - HALF_WIDTH, y, z + HALF_WIDTH},
+        {x - HALF_WIDTH, y, z - HALF_WIDTH},          {x + HALF_WIDTH, y, z - HALF_WIDTH},
+        {x + HALF_WIDTH, y, z + HALF_WIDTH},          {x - HALF_WIDTH, y, z + HALF_WIDTH},
         {x - HALF_WIDTH, y + HEIGHT, z - HALF_WIDTH}, {x + HALF_WIDTH, y + HEIGHT, z - HALF_WIDTH},
-        {x + HALF_WIDTH, y + HEIGHT, z + HALF_WIDTH}, {x - HALF_WIDTH, y + HEIGHT, z + HALF_WIDTH}
-    };
+        {x + HALF_WIDTH, y + HEIGHT, z + HALF_WIDTH}, {x - HALF_WIDTH, y + HEIGHT, z + HALF_WIDTH}};
 
     float minX = 100000.0f, minY = 100000.0f;
     float maxX = -100000.0f, maxY = -100000.0f;
@@ -591,11 +586,12 @@ void Pings::onRender() {
     double localZ = player.getPosZ();
 
     // Prepare theme colors
-    ImU32 pinColor = ImGui::ColorConvertFloat4ToU32(
-        ImVec4(settings.locationColor[0], settings.locationColor[1], settings.locationColor[2], settings.locationColor[3]));
+    ImU32 pinColor = ImGui::ColorConvertFloat4ToU32(ImVec4(settings.locationColor[0], settings.locationColor[1],
+                                                           settings.locationColor[2], settings.locationColor[3]));
 
     std::string localName = mc.getLocalPlayerName();
-    std::string sessionUser = SessionValidator::snapshotToken(SessionValidator::g_Username); // Authenticated username from session
+    std::string sessionUser =
+        SessionValidator::snapshotToken(SessionValidator::g_Username);  // Authenticated username from session
 
     for (const auto& ping : pingsCopy) {
         // Filter: only show pings from ourselves, friends, or teammates
@@ -613,9 +609,11 @@ void Pings::onRender() {
             } else {
                 // Try resolving sender name to UUID from the player snapshot to check Apollo/Lunar teammates
                 for (const auto& p : snap.players) {
-                    std::string cleanPName = FriendsManager::stripColorCodes(p.profileName.empty() ? p.name : p.profileName);
+                    std::string cleanPName =
+                        FriendsManager::stripColorCodes(p.profileName.empty() ? p.name : p.profileName);
                     if (cleanPName == cleanSender) {
-                        if (friendsManager->isApolloTeammate(p.uuid) || friendsManager->isLunarTeammate(p.uuid) || friendsManager->isVisualFriend(p.uuid)) {
+                        if (friendsManager->isApolloTeammate(p.uuid) || friendsManager->isLunarTeammate(p.uuid) ||
+                            friendsManager->isVisualFriend(p.uuid)) {
                             isFriend = true;
                             break;
                         }
@@ -629,7 +627,7 @@ void Pings::onRender() {
 
         if (ping.type == 0) {
             // === 1. Location Ping ===
-            Vector3 relativePos = { (float)(ping.x - renderX), (float)(ping.y - renderY), (float)(ping.z - renderZ) };
+            Vector3 relativePos = {(float)(ping.x - renderX), (float)(ping.y - renderY), (float)(ping.z - renderZ)};
             Vector2 screenPos;
             bool onScreen = CWorldToScreen::WorldToScreen(relativePos, RenderData::modelView, RenderData::projection,
                                                           RenderData::screenWidth, RenderData::screenHeight, screenPos);
@@ -638,8 +636,7 @@ void Pings::onRender() {
                 // Draw maps pinpoint with user-configurable scale
                 DrawMapsPin(draw, ImVec2(screenPos.x, screenPos.y), pinColor, settings.pingScale);
             }
-        }
-        else if (ping.type == 1) {
+        } else if (ping.type == 1) {
             const ImU32 focusColor = ImGui::ColorConvertFloat4ToU32(
                 ImVec4(settings.chamsColor[0], settings.chamsColor[1], settings.chamsColor[2], settings.chamsColor[3]));
             for (const auto& p : snap.players) {
@@ -662,13 +659,16 @@ void Pings::onRender() {
 void Pings::onRenderMenu() {
     ImGui::TextDisabled("Look at a block and press X to ping");
     ImGui::Separator();
-    
+
     // Keybind — helper to get readable key name
     auto getKeyName = [](int vk) -> std::string {
         switch (vk) {
-            case 0x04: return "Mouse3";   // Middle click
-            case 0x05: return "Mouse4";   // X1 side button
-            case 0x06: return "Mouse5";   // X2 side button
+            case 0x04:
+                return "Mouse3";  // Middle click
+            case 0x05:
+                return "Mouse4";  // X1 side button
+            case 0x06:
+                return "Mouse5";  // X2 side button
             default: {
                 char name[32] = {};
                 UINT scanCode = MapVirtualKeyA(vk, MAPVK_VK_TO_VSC);

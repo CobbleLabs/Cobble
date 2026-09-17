@@ -79,8 +79,7 @@ void BlockHit::onEnable() {
     immuneHole_ = false;
     wasSprinting_ = false;
     prevAttackDown_ = false;
-    observedAutoClick_ =
-        autoClicker ? autoClicker->lastAutoClick : std::chrono::steady_clock::time_point{};
+    observedAutoClick_ = autoClicker ? autoClicker->lastAutoClick : std::chrono::steady_clock::time_point{};
     attackSignals_.store(0, std::memory_order_release);
     gateReason_.store(nullptr, std::memory_order_release);
     rollCycle();
@@ -165,8 +164,8 @@ void BlockHit::rollCycle() {
     // Slinky Maximum hold duration with probabilistic rounding of fractional values
     const int baseHold = static_cast<int>(settings.maxHoldTime);
     const float frac = settings.maxHoldTime - static_cast<float>(baseHold);
-    maxHoldTicks_ = static_cast<std::uint32_t>(
-        (std::max)(1, baseHold + (pick(rng_) < static_cast<int>(frac * 100.0f) ? 1 : 0)));
+    maxHoldTicks_ =
+        static_cast<std::uint32_t>((std::max)(1, baseHold + (pick(rng_) < static_cast<int>(frac * 100.0f) ? 1 : 0)));
     minHoldTicks_ = (std::min)(minHoldTicks_, maxHoldTicks_);
 
     // Slinky Reblock Instantly: eliminate cooldown delay
@@ -273,27 +272,25 @@ bool BlockHit::resolveApi(JNIEnv* env, jobject playerInstance) {
         return id;
     };
 
-    fMovementInput_ = field(playerCls, OBFUSCATE_STRING("movementInput"),
-                            OBFUSCATE_STRING("field_71158_b"),
+    fMovementInput_ = field(playerCls, OBFUSCATE_STRING("movementInput"), OBFUSCATE_STRING("field_71158_b"),
                             OBFUSCATE_STRING("Lnet/minecraft/util/MovementInput;"));
-    fSprintToggle_ = field(playerCls, OBFUSCATE_STRING("sprintToggleTimer"),
-                           OBFUSCATE_STRING("field_71503_h"), OBFUSCATE_STRING("I"));
+    fSprintToggle_ = field(playerCls, OBFUSCATE_STRING("sprintToggleTimer"), OBFUSCATE_STRING("field_71503_h"),
+                           OBFUSCATE_STRING("I"));
     // GetFieldID walks superclasses, so Entity.ridingEntity resolves off the player class.
-    fRidingEntity_ = field(playerCls, OBFUSCATE_STRING("ridingEntity"),
-                           OBFUSCATE_STRING("field_70154_o"),
+    fRidingEntity_ = field(playerCls, OBFUSCATE_STRING("ridingEntity"), OBFUSCATE_STRING("field_70154_o"),
                            OBFUSCATE_STRING("Lnet/minecraft/entity/Entity;"));
-    fItemInUseCount_ = field(playerCls, OBFUSCATE_STRING("itemInUseCount"),
-                             OBFUSCATE_STRING("field_71072_f"), OBFUSCATE_STRING("I"));
+    fItemInUseCount_ =
+        field(playerCls, OBFUSCATE_STRING("itemInUseCount"), OBFUSCATE_STRING("field_71072_f"), OBFUSCATE_STRING("I"));
 
     if (fMovementInput_) {
         jobject input = env->GetObjectField(playerInstance, fMovementInput_);
         if (!clearEx(env) && input) {
             jclass inputCls = env->GetObjectClass(input);
             if (!clearEx(env) && inputCls) {
-                fInputStrafe_ = field(inputCls, OBFUSCATE_STRING("moveStrafe"),
-                                      OBFUSCATE_STRING("field_78902_a"), OBFUSCATE_STRING("F"));
-                fInputForward_ = field(inputCls, OBFUSCATE_STRING("moveForward"),
-                                       OBFUSCATE_STRING("field_78900_b"), OBFUSCATE_STRING("F"));
+                fInputStrafe_ = field(inputCls, OBFUSCATE_STRING("moveStrafe"), OBFUSCATE_STRING("field_78902_a"),
+                                      OBFUSCATE_STRING("F"));
+                fInputForward_ = field(inputCls, OBFUSCATE_STRING("moveForward"), OBFUSCATE_STRING("field_78900_b"),
+                                       OBFUSCATE_STRING("F"));
                 env->DeleteLocalRef(inputCls);
             }
         }
@@ -307,13 +304,12 @@ bool BlockHit::resolveApi(JNIEnv* env, jobject playerInstance) {
         return false;  // no controller yet: still in the main menu
     jclass controllerCls = env->GetObjectClass(controller);
     if (!clearEx(env) && controllerCls) {
-        const std::string playerSig =
-            OBFUSCATE_STRING("(Lnet/minecraft/entity/player/EntityPlayer;)V");
-        midOnStoppedUsing_ = env->GetMethodID(
-            controllerCls, OBFUSCATE_STRING("onStoppedUsingItem").c_str(), playerSig.c_str());
+        const std::string playerSig = OBFUSCATE_STRING("(Lnet/minecraft/entity/player/EntityPlayer;)V");
+        midOnStoppedUsing_ =
+            env->GetMethodID(controllerCls, OBFUSCATE_STRING("onStoppedUsingItem").c_str(), playerSig.c_str());
         if (clearEx(env) || !midOnStoppedUsing_) {
-            midOnStoppedUsing_ = env->GetMethodID(
-                controllerCls, OBFUSCATE_STRING("func_78766_b").c_str(), playerSig.c_str());
+            midOnStoppedUsing_ =
+                env->GetMethodID(controllerCls, OBFUSCATE_STRING("func_78766_b").c_str(), playerSig.c_str());
             clearEx(env);
         }
         env->DeleteLocalRef(controllerCls);
@@ -326,8 +322,8 @@ bool BlockHit::resolveApi(JNIEnv* env, jobject playerInstance) {
     // exact defect this version exists to remove. Either one missing and the module reports
     // "No API" and does nothing at all. sprintToggleTimer is not in the test: it costs a
     // double-tap sprinter one extra tap, not a flag.
-    apiUsable_ = midOnStoppedUsing_ != nullptr && fMovementInput_ != nullptr &&
-                 fInputStrafe_ != nullptr && fInputForward_ != nullptr;
+    apiUsable_ = midOnStoppedUsing_ != nullptr && fMovementInput_ != nullptr && fInputStrafe_ != nullptr &&
+                 fInputForward_ != nullptr;
     apiTried_ = true;
     return apiUsable_;
 }
@@ -525,8 +521,7 @@ void BlockHit::sendRelease(JNIEnv* env, jobject playerInstance, bool immune) {
         }
     }
 
-    if (!env || !playerInstance || !midOnStoppedUsing_ || !mc.instance ||
-        !JniCache::fid_playerController) {
+    if (!env || !playerInstance || !midOnStoppedUsing_ || !mc.instance || !JniCache::fid_playerController) {
         wasSprinting_ = false;
         return;
     }
@@ -649,7 +644,8 @@ void BlockHit::onClientTick(JNIEnv* env) {
 
     // If Require Right Click is active and RMB is held with a sword, suppress vanilla keyBindUseItem
     // so Minecraft's rightClickMouse() does not fight AutoBlock's block cycle
-    if (settings.requireRMB && rmbDown && isHoldingSword() && mc.instance && JniCache::fid_gameSettings && JniCache::fid_keyBindUseItem && JniCache::fid_pressed) {
+    if (settings.requireRMB && rmbDown && isHoldingSword() && mc.instance && JniCache::fid_gameSettings &&
+        JniCache::fid_keyBindUseItem && JniCache::fid_pressed) {
         jobject gameSettings = env->GetObjectField(mc.instance, JniCache::fid_gameSettings);
         if (gameSettings && !clearEx(env)) {
             jobject keyBindUse = env->GetObjectField(gameSettings, JniCache::fid_keyBindUseItem);

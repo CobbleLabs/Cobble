@@ -95,10 +95,10 @@ static void migrate_legacy_watermark(const json::Value& hud) {
 
     if (hud["watermarkShowTitle"].as_bool(true)) {
         // Rainbow used to be a title-only flag, and "use accent" a separate one.
-        const int mode = hud["watermarkRainbow"].as_bool(true)
-                             ? Watermark::ColorRainbow
-                             : (hud["watermarkTitleUseAccent"].as_bool(true) ? Watermark::ColorAccent
-                                                                            : Watermark::ColorPrimary);
+        const int mode =
+            hud["watermarkRainbow"].as_bool(true)
+                ? Watermark::ColorRainbow
+                : (hud["watermarkTitleUseAccent"].as_bool(true) ? Watermark::ColorAccent : Watermark::ColorPrimary);
         add(Watermark::KindText, hud["watermarkTitle"].as_string("Cobble"), Watermark::WeightPrimary, mode);
     }
     if (hud["watermarkShowVersion"].as_bool(true))
@@ -490,15 +490,14 @@ void ConfigManager::publishPublicConfigAsync(const std::string& name, const std:
         browseState_.message = "Publishing...";
     }
 
-    std::string body = "{\"hwid\":\"" + http::json_escape(hwid) + "\",\"token\":\"" +
-                       http::json_escape(token) + "\",\"name\":\"" + http::json_escape(name) +
-                       "\",\"description\":\"" + http::json_escape(description) +
-                       "\",\"anonymous\":" + (anonymous ? "true" : "false") +
+    std::string body = "{\"hwid\":\"" + http::json_escape(hwid) + "\",\"token\":\"" + http::json_escape(token) +
+                       "\",\"name\":\"" + http::json_escape(name) + "\",\"description\":\"" +
+                       http::json_escape(description) + "\",\"anonymous\":" + (anonymous ? "true" : "false") +
                        ",\"config\":" + publicJson + "}";
 
     std::thread([this, body] {
-        auto response = http::post_cobble(OBFUSCATE_WSTRING(L"/api/configs/public/publish").c_str(), body,
-                                          CONFIG_SERVER_PORT);
+        auto response =
+            http::post_cobble(OBFUSCATE_WSTRING(L"/api/configs/public/publish").c_str(), body, CONFIG_SERVER_PORT);
 
         json::Value payload;
         bool verified = response.success && verifySignedEnvelope(response.body, payload);
@@ -540,12 +539,11 @@ void ConfigManager::refreshPublicConfigsAsync() {
         browseState_.message = "Loading...";
     }
 
-    std::string body =
-        "{\"hwid\":\"" + http::json_escape(hwid) + "\",\"token\":\"" + http::json_escape(token) + "\"}";
+    std::string body = "{\"hwid\":\"" + http::json_escape(hwid) + "\",\"token\":\"" + http::json_escape(token) + "\"}";
 
     std::thread([this, body] {
-        auto response = http::post_cobble(OBFUSCATE_WSTRING(L"/api/configs/public/list").c_str(), body,
-                                          CONFIG_SERVER_PORT);
+        auto response =
+            http::post_cobble(OBFUSCATE_WSTRING(L"/api/configs/public/list").c_str(), body, CONFIG_SERVER_PORT);
 
         json::Value payload;
         bool verified = response.success && verifySignedEnvelope(response.body, payload);
@@ -606,12 +604,12 @@ void ConfigManager::downloadAndApplyPublicConfigAsync(const std::string& id) {
         browseState_.message = "Downloading...";
     }
 
-    std::string body = "{\"hwid\":\"" + http::json_escape(hwid) + "\",\"token\":\"" +
-                       http::json_escape(token) + "\",\"id\":\"" + http::json_escape(id) + "\"}";
+    std::string body = "{\"hwid\":\"" + http::json_escape(hwid) + "\",\"token\":\"" + http::json_escape(token) +
+                       "\",\"id\":\"" + http::json_escape(id) + "\"}";
 
     std::thread([this, body] {
-        auto response = http::post_cobble(OBFUSCATE_WSTRING(L"/api/configs/public/get").c_str(), body,
-                                          CONFIG_SERVER_PORT);
+        auto response =
+            http::post_cobble(OBFUSCATE_WSTRING(L"/api/configs/public/get").c_str(), body, CONFIG_SERVER_PORT);
 
         json::Value payload;
         bool verified = response.success && verifySignedEnvelope(response.body, payload);
@@ -657,12 +655,12 @@ void ConfigManager::deletePublicConfigAsync(const std::string& id) {
         browseState_.message = "Deleting...";
     }
 
-    std::string body = "{\"hwid\":\"" + http::json_escape(hwid) + "\",\"token\":\"" +
-                       http::json_escape(token) + "\",\"id\":\"" + http::json_escape(id) + "\"}";
+    std::string body = "{\"hwid\":\"" + http::json_escape(hwid) + "\",\"token\":\"" + http::json_escape(token) +
+                       "\",\"id\":\"" + http::json_escape(id) + "\"}";
 
     std::thread([this, body] {
-        auto response = http::post_cobble(OBFUSCATE_WSTRING(L"/api/configs/public/delete").c_str(), body,
-                                          CONFIG_SERVER_PORT);
+        auto response =
+            http::post_cobble(OBFUSCATE_WSTRING(L"/api/configs/public/delete").c_str(), body, CONFIG_SERVER_PORT);
 
         json::Value payload;
         bool verified = response.success && verifySignedEnvelope(response.body, payload);
@@ -685,7 +683,6 @@ void ConfigManager::deletePublicConfigAsync(const std::string& id) {
             refreshPublicConfigsAsync();
     }).detach();
 }
-
 
 void ConfigManager::applyDefaults() {
     COBBLE_TRACE("applyDefaults:enter");
@@ -775,8 +772,7 @@ void ConfigManager::applyConfig() {
         Watermark::labelGap = config_["hud"]["watermarkLabelGap"].as_float(Watermark::labelGap);
         Watermark::showBackground = config_["hud"]["watermarkBackground"].as_bool(Watermark::showBackground);
         Watermark::backgroundGradient = config_["hud"]["watermarkGradient"].as_bool(Watermark::backgroundGradient);
-        Watermark::gradientVertical =
-            config_["hud"]["watermarkGradientVertical"].as_bool(Watermark::gradientVertical);
+        Watermark::gradientVertical = config_["hud"]["watermarkGradientVertical"].as_bool(Watermark::gradientVertical);
         Watermark::rounding = config_["hud"]["watermarkRounding"].as_float(Watermark::rounding);
         Watermark::paddingX = config_["hud"]["watermarkPaddingX"].as_float(Watermark::paddingX);
         Watermark::paddingY = config_["hud"]["watermarkPaddingY"].as_float(Watermark::paddingY);
@@ -942,8 +938,8 @@ void ConfigManager::applyConfig() {
             break;
         }
     }
-    log_raw("[CFG] applyConfig done: matched %d/%d nodes, %d modules now enabled",
-            matched, (int)modules.size(), enabledCount);
+    log_raw("[CFG] applyConfig done: matched %d/%d nodes, %d modules now enabled", matched, (int)modules.size(),
+            enabledCount);
 }
 
 // Build config from current module state
@@ -1070,20 +1066,20 @@ void ConfigManager::buildConfigFromModules() {
     // config_ keeps every key it parsed, so retired ones would be written back
     // forever. Drop them once the new format has been saved over them.
     static const char* const kRetiredHudKeys[] = {
-        "arrayListPosX",        "arrayListPosY",        "watermarkPosX",          "watermarkPosY",
-        "watermarkRainbow",     "watermarkFontStyle",   "watermarkShowTitle",     "watermarkShowVersion",
-        "watermarkShowFps",     "watermarkTitle",       "watermarkVersion",       "watermarkFpsLabel",
-        "watermarkMetaScale",   "watermarkTitleUseAccent", "watermarkFpsUseAccent", "watermarkShadow",
-        "watermarkBarUseAccent", "watermarkTitleMetaGap", "watermarkSeparatorGap", "watermarkNumberLabelGap",
-        "watermarkImage",       "watermarkImageSide",   "watermarkImageGap",      "watermarkBackgroundR",
-        "watermarkBackgroundG", "watermarkBackgroundB", "watermarkBackgroundA",   "watermarkBorderR",
-        "watermarkBorderG",     "watermarkBorderB",     "watermarkBorderA",       "watermarkShadowR",
-        "watermarkShadowG",     "watermarkShadowB",     "watermarkShadowA",       "watermarkBarR",
-        "watermarkBarG",        "watermarkBarB",        "watermarkBarA",          "watermarkTitleR",
-        "watermarkTitleG",      "watermarkTitleB",      "watermarkTitleA",        "watermarkMetaR",
-        "watermarkMetaG",       "watermarkMetaB",       "watermarkMetaA",         "watermarkFpsR",
-        "watermarkFpsG",        "watermarkFpsB",        "watermarkFpsA",          "watermarkImageR",
-        "watermarkImageG",      "watermarkImageB",      "watermarkImageA",
+        "arrayListPosX",         "arrayListPosY",           "watermarkPosX",         "watermarkPosY",
+        "watermarkRainbow",      "watermarkFontStyle",      "watermarkShowTitle",    "watermarkShowVersion",
+        "watermarkShowFps",      "watermarkTitle",          "watermarkVersion",      "watermarkFpsLabel",
+        "watermarkMetaScale",    "watermarkTitleUseAccent", "watermarkFpsUseAccent", "watermarkShadow",
+        "watermarkBarUseAccent", "watermarkTitleMetaGap",   "watermarkSeparatorGap", "watermarkNumberLabelGap",
+        "watermarkImage",        "watermarkImageSide",      "watermarkImageGap",     "watermarkBackgroundR",
+        "watermarkBackgroundG",  "watermarkBackgroundB",    "watermarkBackgroundA",  "watermarkBorderR",
+        "watermarkBorderG",      "watermarkBorderB",        "watermarkBorderA",      "watermarkShadowR",
+        "watermarkShadowG",      "watermarkShadowB",        "watermarkShadowA",      "watermarkBarR",
+        "watermarkBarG",         "watermarkBarB",           "watermarkBarA",         "watermarkTitleR",
+        "watermarkTitleG",       "watermarkTitleB",         "watermarkTitleA",       "watermarkMetaR",
+        "watermarkMetaG",        "watermarkMetaB",          "watermarkMetaA",        "watermarkFpsR",
+        "watermarkFpsG",         "watermarkFpsB",           "watermarkFpsA",         "watermarkImageR",
+        "watermarkImageG",       "watermarkImageB",         "watermarkImageA",
     };
     for (const char* key : kRetiredHudKeys)
         config_["hud"].remove(key);
@@ -1133,8 +1129,8 @@ void ConfigManager::buildConfigFromModules() {
         // rest and is the single source of truth per module.
         mod->saveSettings(config_["modules"][name]);
     }
-    log_raw("[CFG] buildConfigFromModules: %d modules enabled, AimAssist.speed(live)=%d enabled(live)=%d",
-            enabledCount, (int)config_["modules"]["AimAssist"]["speed"].as_float(-1.0f),
+    log_raw("[CFG] buildConfigFromModules: %d modules enabled, AimAssist.speed(live)=%d enabled(live)=%d", enabledCount,
+            (int)config_["modules"]["AimAssist"]["speed"].as_float(-1.0f),
             (int)config_["modules"]["AimAssist"]["enabled"].as_bool(false));
 }
 

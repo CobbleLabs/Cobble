@@ -48,8 +48,7 @@ bool startsWithInsensitive(const std::string& value, const char* prefix) {
     if (value.size() < length)
         return false;
     for (std::size_t i = 0; i < length; ++i) {
-        if (std::tolower(static_cast<unsigned char>(value[i])) !=
-            std::tolower(static_cast<unsigned char>(prefix[i])))
+        if (std::tolower(static_cast<unsigned char>(value[i])) != std::tolower(static_cast<unsigned char>(prefix[i])))
             return false;
     }
     return true;
@@ -124,8 +123,7 @@ void NotificationManager::add(const std::string& moduleName, bool isEnabled) {
                                                    notification.type == NotificationType::Disabled);
                                        }),
                         notifications.end());
-    notifications.emplace_back(nextId++, moduleName,
-                               isEnabled ? NotificationType::Enabled : NotificationType::Disabled,
+    notifications.emplace_back(nextId++, moduleName, isEnabled ? NotificationType::Enabled : NotificationType::Disabled,
                                NOTIFICATION_DURATION);
     if (notifications.size() > MAX_VISIBLE_NOTIFICATIONS)
         notifications.erase(notifications.begin(), notifications.end() - MAX_VISIBLE_NOTIFICATIONS);
@@ -145,9 +143,7 @@ void NotificationManager::update() {
     std::lock_guard<std::mutex> lock(mutex);
     const auto now = std::chrono::steady_clock::now();
     notifications.erase(std::remove_if(notifications.begin(), notifications.end(),
-                                       [&](const Notification& notification) {
-                                           return notification.isExpired(now);
-                                       }),
+                                       [&](const Notification& notification) { return notification.isExpired(now); }),
                         notifications.end());
 }
 
@@ -230,8 +226,8 @@ void NotificationManager::render() {
             anim.slot += (targetSlot - anim.slot) * glide;
         anim.lastFrame = g_rowFrame;
 
-        const float slide = (1.0f - easeOutBack(elapsed / enterDuration)) * slideDist +
-                            (1.0f - visibility) * ui::s(4.0f);
+        const float slide =
+            (1.0f - easeOutBack(elapsed / enterDuration)) * slideDist + (1.0f - visibility) * ui::s(4.0f);
         const float rightX = screenWidth - margin + slide;
         const float leftX = rightX - contentWidth;
         const float rowTop = screenHeight - margin - rowHeight - anim.slot * (rowHeight + rowGap);
@@ -281,8 +277,8 @@ void NotificationManager::render() {
                             underlineH * 0.5f);
         const float fillWidth = contentWidth * life;
         if (fillWidth > underlineH)
-            draw->AddRectFilled(ImVec2(leftX, underlineY), ImVec2(leftX + fillWidth, underlineY + underlineH),
-                                accent, underlineH * 0.5f);
+            draw->AddRectFilled(ImVec2(leftX, underlineY), ImVec2(leftX + fillWidth, underlineY + underlineH), accent,
+                                underlineH * 0.5f);
 
         ++visibleIndex;
     }

@@ -334,7 +334,8 @@ void JNICALL NativeOnRenderWorld(JNIEnv* env, jclass, jobject viewEntity) {
     RenderData::modelView.m33 = mv[15];
 
     bool wasUpdated = RenderData::updated;
-    RenderData::updated = RenderData::IsMatrixValid(RenderData::projection) && RenderData::IsMatrixValid(RenderData::modelView);
+    RenderData::updated =
+        RenderData::IsMatrixValid(RenderData::projection) && RenderData::IsMatrixValid(RenderData::modelView);
 
     if (RenderData::updated && !wasUpdated) {
         log_ok("RenderData: Successfully intercepted matrices via GL callback! Proj m00=%d, MV m00=%d",
@@ -413,8 +414,7 @@ bool Init(JNIEnv* env) {
 bool Shutdown(JNIEnv* env, bool safeToUnregister) {
     g_shuttingDown.store(true, std::memory_order_release);
 
-    const auto deadline =
-        std::chrono::steady_clock::now() + std::chrono::milliseconds(2000);
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(2000);
     while (g_callbacksInFlight.load(std::memory_order_acquire) != 0) {
         if (std::chrono::steady_clock::now() >= deadline) {
             log_err("[BacktrackGhostGate] Timed out waiting for native callbacks");

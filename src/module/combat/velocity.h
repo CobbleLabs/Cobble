@@ -56,7 +56,7 @@ public:
         int legitWindow = 10;       // Ticks the jump-reset window stays active
 
         // Ping mode
-        int pingDelay = 100;        // ms the knockback reduction is held back (your "ping")
+        int pingDelay = 100;  // ms the knockback reduction is held back (your "ping")
 
         // Ignore mode
         VerticalMode verticalMode = VerticalMode::Never;

@@ -93,8 +93,8 @@ private:
 
     // Per-phase shape parameters — the whole distribution shape changes between
     // phases so measured std / tail coverage never settles on one value.
-    float tempoStepScale = 0.14f;   // tempo random-walk step size
-    float tempoPull = 0.06f;        // tempo mean-reversion strength
+    float tempoStepScale = 0.14f;  // tempo random-walk step size
+    float tempoPull = 0.06f;       // tempo mean-reversion strength
     float hesitationChance = 0.03f;
     float doubleTapChance = 0.02f;
     int shapePhaseClicksRemaining = 0;

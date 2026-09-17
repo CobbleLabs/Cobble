@@ -25,7 +25,8 @@ static bool isMovementPacket(JNIEnv* env, jobject packet) {
         return false;
     }
 
-    jmethodID mid = env->GetMethodID(clsCls, OBFUSCATE_STRING("getName").c_str(), OBFUSCATE_STRING("()Ljava/lang/String;").c_str());
+    jmethodID mid =
+        env->GetMethodID(clsCls, OBFUSCATE_STRING("getName").c_str(), OBFUSCATE_STRING("()Ljava/lang/String;").c_str());
     if (!mid) {
         env->DeleteLocalRef(clsCls);
         env->DeleteLocalRef(cls);
@@ -80,7 +81,8 @@ static bool isUseEntityPacket(JNIEnv* env, jobject packet) {
         return false;
     }
 
-    jmethodID mid = env->GetMethodID(clsCls, OBFUSCATE_STRING("getName").c_str(), OBFUSCATE_STRING("()Ljava/lang/String;").c_str());
+    jmethodID mid =
+        env->GetMethodID(clsCls, OBFUSCATE_STRING("getName").c_str(), OBFUSCATE_STRING("()Ljava/lang/String;").c_str());
     if (!mid) {
         env->DeleteLocalRef(clsCls);
         env->DeleteLocalRef(cls);
@@ -131,7 +133,8 @@ static bool isBowUsePacket(JNIEnv* env, jobject packet) {
         return false;
     }
 
-    jmethodID mid = env->GetMethodID(clsCls, OBFUSCATE_STRING("getName").c_str(), OBFUSCATE_STRING("()Ljava/lang/String;").c_str());
+    jmethodID mid =
+        env->GetMethodID(clsCls, OBFUSCATE_STRING("getName").c_str(), OBFUSCATE_STRING("()Ljava/lang/String;").c_str());
     if (!mid) {
         env->DeleteLocalRef(clsCls);
         env->DeleteLocalRef(cls);

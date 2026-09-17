@@ -55,10 +55,9 @@ bool packetClassContains(JNIEnv* env, jobject packet, const char* needle) {
     }
 
     jclass classClass = env->GetObjectClass(cls);
-    jmethodID getName = classClass
-                            ? env->GetMethodID(classClass, OBFUSCATE_STRING("getName").c_str(),
-                                               OBFUSCATE_STRING("()Ljava/lang/String;").c_str())
-                            : nullptr;
+    jmethodID getName = classClass ? env->GetMethodID(classClass, OBFUSCATE_STRING("getName").c_str(),
+                                                      OBFUSCATE_STRING("()Ljava/lang/String;").c_str())
+                                   : nullptr;
     jstring name = getName ? static_cast<jstring>(env->CallObjectMethod(cls, getName)) : nullptr;
     bool result = false;
     if (name) {
@@ -131,8 +130,8 @@ void FakeLag::onEnable() {
     cycleStartMs_ = nowMs();
     previousHurtTime_ = player.isValid() ? player.getHurtTime() : 0;
     resetAnchor();
-    log_debug("[FakeLag] Enabled (mode=%d, target=%d-%dms)", static_cast<int>(settings.mode),
-              settings.minTargetPingMs, settings.maxTargetPingMs);
+    log_debug("[FakeLag] Enabled (mode=%d, target=%d-%dms)", static_cast<int>(settings.mode), settings.minTargetPingMs,
+              settings.maxTargetPingMs);
 }
 
 void FakeLag::onDisable() {
@@ -171,11 +170,9 @@ bool FakeLag::shouldQueueMovement() const {
     if (settings.movingOnly && motion < 0.012)
         return false;
 
-    const float distanceLimit = player.isOnGround()
-                                    ? (std::max)(0.45f, settings.maxDistance * 0.72f)
-                                    : (std::min)(0.35f, settings.maxDistance * 0.35f);
-    if (serverDistance() >= distanceLimit ||
-        queuedPacketCount() >= static_cast<std::size_t>(effectivePacketLimit()))
+    const float distanceLimit = player.isOnGround() ? (std::max)(0.45f, settings.maxDistance * 0.72f)
+                                                    : (std::min)(0.35f, settings.maxDistance * 0.35f);
+    if (serverDistance() >= distanceLimit || queuedPacketCount() >= static_cast<std::size_t>(effectivePacketLimit()))
         return false;
 
     if (settings.mode == Mode::Pulse) {
@@ -319,8 +316,7 @@ void FakeLag::releaseEligible(std::uint64_t ageMs, int limit) {
     const std::uint64_t now = nowMs();
     if (limit != INT_MAX) {
         const int releaseRate = (std::clamp)(settings.releaseRate, 1, 6);
-        const std::uint64_t spacingMs =
-            static_cast<std::uint64_t>((std::max)(8, 50 / releaseRate));
+        const std::uint64_t spacingMs = static_cast<std::uint64_t>((std::max)(8, 50 / releaseRate));
         const std::uint64_t lastRelease = lastReleaseMs_.load(std::memory_order_acquire);
         if (lastRelease != 0 && now - lastRelease < spacingMs)
             return;
@@ -423,8 +419,7 @@ float FakeLag::serverDistance() const {
 
 int FakeLag::calculateTargetPing() {
     const int minimum = (std::clamp)(settings.minTargetPingMs, 40, kSafeTargetPingCeilingMs);
-    const int maximum =
-        (std::clamp)(settings.maxTargetPingMs, minimum, kSafeTargetPingCeilingMs);
+    const int maximum = (std::clamp)(settings.maxTargetPingMs, minimum, kSafeTargetPingCeilingMs);
     if (settings.mode != Mode::Adaptive || !player.isValid())
         return maximum;
 
@@ -464,8 +459,7 @@ int FakeLag::calculateHoldMs(int targetPingMs) const {
     // RTT includes both directions. The extra outbound hold needed to model a
     // target one-way latency is half the difference between target and real RTT.
     const float extraOneWay = (static_cast<float>(targetPingMs) - measuredPing) * 0.5f;
-    int holdMs =
-        (std::clamp)(static_cast<int>(std::lround(extraOneWay)), 0, kMaximumHoldMs);
+    int holdMs = (std::clamp)(static_cast<int>(std::lround(extraOneWay)), 0, kMaximumHoldMs);
 
     if (!player.isValid())
         return holdMs;
@@ -555,8 +549,7 @@ void FakeLag::onUpdate() {
         case Mode::Pulse: {
             const int pulseHold = (std::max)(settings.pulseHoldMs, 20);
             const int pulseRelease = (std::max)(settings.pulseReleaseMs, 20);
-            const std::uint64_t phase = (now - cycleStartMs_) %
-                                        static_cast<std::uint64_t>(pulseHold + pulseRelease);
+            const std::uint64_t phase = (now - cycleStartMs_) % static_cast<std::uint64_t>(pulseHold + pulseRelease);
             if (phase >= static_cast<std::uint64_t>(pulseHold)) {
                 draining_.store(true, std::memory_order_release);
                 releaseEligible(0, 1);
@@ -585,15 +578,14 @@ void FakeLag::renderPlayerBox(double x, double y, double z, unsigned int outline
     RenderPos render = mc.getRenderPos();
     constexpr float half = 0.3f;
     constexpr float height = 1.8f;
-    Vector3 corners[8] = {
-        {(float)(x - half - render.x), (float)(y - render.y), (float)(z - half - render.z)},
-        {(float)(x + half - render.x), (float)(y - render.y), (float)(z - half - render.z)},
-        {(float)(x + half - render.x), (float)(y - render.y), (float)(z + half - render.z)},
-        {(float)(x - half - render.x), (float)(y - render.y), (float)(z + half - render.z)},
-        {(float)(x - half - render.x), (float)(y + height - render.y), (float)(z - half - render.z)},
-        {(float)(x + half - render.x), (float)(y + height - render.y), (float)(z - half - render.z)},
-        {(float)(x + half - render.x), (float)(y + height - render.y), (float)(z + half - render.z)},
-        {(float)(x - half - render.x), (float)(y + height - render.y), (float)(z + half - render.z)}};
+    Vector3 corners[8] = {{(float)(x - half - render.x), (float)(y - render.y), (float)(z - half - render.z)},
+                          {(float)(x + half - render.x), (float)(y - render.y), (float)(z - half - render.z)},
+                          {(float)(x + half - render.x), (float)(y - render.y), (float)(z + half - render.z)},
+                          {(float)(x - half - render.x), (float)(y - render.y), (float)(z + half - render.z)},
+                          {(float)(x - half - render.x), (float)(y + height - render.y), (float)(z - half - render.z)},
+                          {(float)(x + half - render.x), (float)(y + height - render.y), (float)(z - half - render.z)},
+                          {(float)(x + half - render.x), (float)(y + height - render.y), (float)(z + half - render.z)},
+                          {(float)(x - half - render.x), (float)(y + height - render.y), (float)(z + half - render.z)}};
     Vector2 screen[8]{};
     bool visible[8]{};
     int visibleCount = 0;
@@ -611,8 +603,10 @@ void FakeLag::renderPlayerBox(double x, double y, double z, unsigned int outline
         for (const auto& face : faces) {
             if (!visible[face[0]] || !visible[face[1]] || !visible[face[2]] || !visible[face[3]])
                 continue;
-            ImVec2 points[4] = {{screen[face[0]].x, screen[face[0]].y}, {screen[face[1]].x, screen[face[1]].y},
-                                {screen[face[2]].x, screen[face[2]].y}, {screen[face[3]].x, screen[face[3]].y}};
+            ImVec2 points[4] = {{screen[face[0]].x, screen[face[0]].y},
+                                {screen[face[1]].x, screen[face[1]].y},
+                                {screen[face[2]].x, screen[face[2]].y},
+                                {screen[face[3]].x, screen[face[3]].y}};
             draw->AddConvexPolyFilled(points, 4, fill);
         }
     }
@@ -620,8 +614,8 @@ void FakeLag::renderPlayerBox(double x, double y, double z, unsigned int outline
                                          {6, 7}, {7, 4}, {0, 4}, {1, 5}, {2, 6}, {3, 7}};
     for (const auto& edge : edges) {
         if (visible[edge[0]] && visible[edge[1]])
-            draw->AddLine({screen[edge[0]].x, screen[edge[0]].y}, {screen[edge[1]].x, screen[edge[1]].y},
-                          outline, 2.0f);
+            draw->AddLine({screen[edge[0]].x, screen[edge[0]].y}, {screen[edge[1]].x, screen[edge[1]].y}, outline,
+                          2.0f);
     }
 }
 
@@ -714,14 +708,11 @@ void FakeLag::onRenderMenu() {
                 settings.mode = static_cast<Mode>(mode);
 
             if (settings.mode == Mode::Adaptive) {
-                ui::SliderInt("Minimum Target Ping", &settings.minTargetPingMs, 40,
-                              kSafeTargetPingCeilingMs, "%d ms");
-                ui::SliderInt("Maximum Target Ping", &settings.maxTargetPingMs, 40,
-                              kSafeTargetPingCeilingMs, "%d ms");
+                ui::SliderInt("Minimum Target Ping", &settings.minTargetPingMs, 40, kSafeTargetPingCeilingMs, "%d ms");
+                ui::SliderInt("Maximum Target Ping", &settings.maxTargetPingMs, 40, kSafeTargetPingCeilingMs, "%d ms");
                 ui::SliderFloat("Adaptive Strength", &settings.adaptiveStrength, 0.0f, 1.0f, "%.2f");
             } else {
-                ui::SliderInt("Target Ping", &settings.maxTargetPingMs, 40,
-                              kSafeTargetPingCeilingMs, "%d ms");
+                ui::SliderInt("Target Ping", &settings.maxTargetPingMs, 40, kSafeTargetPingCeilingMs, "%d ms");
             }
 
             if (settings.mode == Mode::Pulse) {
@@ -763,8 +754,6 @@ std::string FakeLag::getDisplayInfo() {
     return std::string(names[mode]) + " " + std::to_string(currentHoldMs_) + "ms";
 }
 
-
-
 void FakeLag::saveSettings(json::Value& node) const {
     node["mode"] = static_cast<int>(settings.mode);
     node["minTargetPingMs"] = settings.minTargetPingMs;
@@ -788,18 +777,14 @@ void FakeLag::saveSettings(json::Value& node) const {
 }
 
 void FakeLag::loadSettings(const json::Value& node) {
-    settings.mode = static_cast<Mode>(
-        (std::clamp)(node["mode"].as_int(static_cast<int>(settings.mode)), 0, 3));
-    settings.minTargetPingMs =
-        (std::clamp)(node["minTargetPingMs"].as_int(settings.minTargetPingMs), 40, 260);
+    settings.mode = static_cast<Mode>((std::clamp)(node["mode"].as_int(static_cast<int>(settings.mode)), 0, 3));
+    settings.minTargetPingMs = (std::clamp)(node["minTargetPingMs"].as_int(settings.minTargetPingMs), 40, 260);
     settings.maxTargetPingMs =
-        (std::clamp)(node["maxTargetPingMs"].as_int(settings.maxTargetPingMs),
-                     settings.minTargetPingMs, 260);
+        (std::clamp)(node["maxTargetPingMs"].as_int(settings.maxTargetPingMs), settings.minTargetPingMs, 260);
     settings.pulseHoldMs = (std::clamp)(node["pulseHoldMs"].as_int(settings.pulseHoldMs), 40, 1000);
     settings.pulseReleaseMs = (std::clamp)(node["pulseReleaseMs"].as_int(settings.pulseReleaseMs), 20, 500);
     settings.maxDistance = (std::clamp)(node["maxDistance"].as_float(settings.maxDistance), 0.5f, 3.0f);
-    settings.adaptiveStrength =
-        (std::clamp)(node["adaptiveStrength"].as_float(settings.adaptiveStrength), 0.0f, 1.0f);
+    settings.adaptiveStrength = (std::clamp)(node["adaptiveStrength"].as_float(settings.adaptiveStrength), 0.0f, 1.0f);
     settings.maxPackets = (std::clamp)(node["maxPackets"].as_int(settings.maxPackets), 8, 24);
     settings.releaseRate = (std::clamp)(node["releaseRate"].as_int(settings.releaseRate), 1, 6);
     settings.movingOnly = node["movingOnly"].as_bool(settings.movingOnly);

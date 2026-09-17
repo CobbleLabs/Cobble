@@ -875,8 +875,6 @@ std::string ArmorSwitch::getDisplayInfo() {
     return "Mixed";
 }
 
-
-
 void ArmorSwitch::saveSettings(json::Value& node) const {
     node["set1Material"] = settings.set1Material;
     node["set2Material"] = settings.set2Material;

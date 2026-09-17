@@ -637,14 +637,17 @@ void NameTags::renderPlayerTag(ImDrawList* draw, float screenX, float screenY, c
         if (settings.showEnchants) {
             // Priority 1 (closest to icon): Sharpness or Power
             if (weapon.sharpness > 0) {
-                cell.enchants.push_back({ "S" + std::to_string(weapon.sharpness), IM_COL32(85, 255, 255, 255) }); // Cyan Sharpness/Sword level (Exodar style)
+                cell.enchants.push_back({"S" + std::to_string(weapon.sharpness),
+                                         IM_COL32(85, 255, 255, 255)});  // Cyan Sharpness/Sword level (Exodar style)
             } else if (weapon.power > 0) {
-                cell.enchants.push_back({ "P" + std::to_string(weapon.power), IM_COL32(85, 255, 255, 255) }); // Cyan Power
+                cell.enchants.push_back(
+                    {"P" + std::to_string(weapon.power), IM_COL32(85, 255, 255, 255)});  // Cyan Power
             }
 
             // Priority 2: Unbreaking
             if (weapon.unbreaking > 0) {
-                cell.enchants.push_back({ "U" + std::to_string(weapon.unbreaking), IM_COL32(85, 255, 255, 255) }); // Cyan Unbreaking (Exodar style)
+                cell.enchants.push_back({"U" + std::to_string(weapon.unbreaking),
+                                         IM_COL32(85, 255, 255, 255)});  // Cyan Unbreaking (Exodar style)
             }
         }
         cells.push_back(cell);
@@ -660,12 +663,14 @@ void NameTags::renderPlayerTag(ImDrawList* draw, float screenX, float screenY, c
                 if (settings.showEnchants) {
                     // Priority 1 (closest to icon): Protection
                     if (it->protection > 0) {
-                        cell.enchants.push_back({ "P" + std::to_string(it->protection), IM_COL32(85, 255, 255, 255) }); // Cyan Protection
+                        cell.enchants.push_back(
+                            {"P" + std::to_string(it->protection), IM_COL32(85, 255, 255, 255)});  // Cyan Protection
                     }
 
                     // Priority 2: Unbreaking
                     if (it->unbreaking > 0) {
-                        cell.enchants.push_back({ "U" + std::to_string(it->unbreaking), IM_COL32(85, 255, 255, 255) }); // Cyan Unbreaking
+                        cell.enchants.push_back(
+                            {"U" + std::to_string(it->unbreaking), IM_COL32(85, 255, 255, 255)});  // Cyan Unbreaking
                     }
                 }
                 cells.push_back(cell);
@@ -679,7 +684,7 @@ void NameTags::renderPlayerTag(ImDrawList* draw, float screenX, float screenY, c
 
     // Calculate sizes
     ImVec2 nameSize = ImGui::CalcTextSize(nameText);
-    
+
     char healthDisplay[64];
     if (settings.showHealth) {
         snprintf(healthDisplay, sizeof(healthDisplay), " %.0f", health / 2.0f);
@@ -729,7 +734,8 @@ void NameTags::renderPlayerTag(ImDrawList* draw, float screenX, float screenY, c
 
         // Beautiful glassmorphism styled card with clean 1px border
         draw->AddRectFilled(ImVec2(posX - paddingX, posY - paddingY - extraTopPadding),
-                            ImVec2(posX + totalWidth + paddingX, posY + totalHeight + paddingY), IM_COL32(12, 12, 12, 180),
+                            ImVec2(posX + totalWidth + paddingX, posY + totalHeight + paddingY),
+                            IM_COL32(12, 12, 12, 180),
                             4.0f);  // Soft rounding
         draw->AddRect(ImVec2(posX - paddingX, posY - paddingY - extraTopPadding),
                       ImVec2(posX + totalWidth + paddingX, posY + totalHeight + paddingY), IM_COL32(255, 255, 255, 20),
@@ -794,8 +800,7 @@ void NameTags::renderPlayerTag(ImDrawList* draw, float screenX, float screenY, c
         for (const auto& c : cells) {
             unsigned int texId = ItemTextureManager::get().getTexture(c.id, c.damage);
             if (texId > 0) {
-                draw->AddImage((ImTextureID)(intptr_t)texId, ImVec2(ix, rowY),
-                               ImVec2(ix + iconSize, rowY + iconSize));
+                draw->AddImage((ImTextureID)(intptr_t)texId, ImVec2(ix, rowY), ImVec2(ix + iconSize, rowY + iconSize));
             }
 
             // Durability bar

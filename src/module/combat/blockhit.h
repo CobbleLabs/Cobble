@@ -318,27 +318,27 @@ private:
     bool wasSprinting_ = false;
 
     // ---- The cycle shape. Rerolled on every release, so it is never twice the same. ----
-    std::uint32_t beatsPerHole_ = 4;    // swings a hold rides out before it taps off
-    std::uint32_t minHoldTicks_ = 3;    // anti-churn floor: no release right after a raise
-    std::uint32_t maxHoldTicks_ = 26;   // the beats dried up; break the hold anyway
-    std::uint32_t holeTicks_ = 6;       // ticks the sword stays down for a real sprint reset
-    std::uint32_t immuneMargin_ = 3;    // hurtTime left when the sword comes back up
+    std::uint32_t beatsPerHole_ = 4;   // swings a hold rides out before it taps off
+    std::uint32_t minHoldTicks_ = 3;   // anti-churn floor: no release right after a raise
+    std::uint32_t maxHoldTicks_ = 26;  // the beats dried up; break the hold anyway
+    std::uint32_t holeTicks_ = 6;      // ticks the sword stays down for a real sprint reset
+    std::uint32_t immuneMargin_ = 3;   // hurtTime left when the sword comes back up
     std::mt19937 rng_;
 
     // ---- Java handles. Resolved once, on the client thread. ----
     bool apiTried_ = false;
-    bool apiUsable_ = false;  // false means do nothing: a block with no release is worse
+    bool apiUsable_ = false;                 // false means do nothing: a block with no release is worse
     jmethodID midOnStoppedUsing_ = nullptr;  // PlayerControllerMP.onStoppedUsingItem
     // Vanilla's own slowdown targets. EntityPlayerSP.onLivingUpdate has already run its copy for
     // this tick before we are called, so the block tick applies it here instead.
-    jfieldID fMovementInput_ = nullptr;      // EntityPlayerSP.movementInput / field_71158_b
-    jfieldID fInputStrafe_ = nullptr;        // MovementInput.moveStrafe     / field_78902_a
-    jfieldID fInputForward_ = nullptr;       // MovementInput.moveForward    / field_78900_b
-    jfieldID fSprintToggle_ = nullptr;       // EntityPlayerSP.sprintToggleTimer / field_71503_h
+    jfieldID fMovementInput_ = nullptr;  // EntityPlayerSP.movementInput / field_71158_b
+    jfieldID fInputStrafe_ = nullptr;    // MovementInput.moveStrafe     / field_78902_a
+    jfieldID fInputForward_ = nullptr;   // MovementInput.moveForward    / field_78900_b
+    jfieldID fSprintToggle_ = nullptr;   // EntityPlayerSP.sprintToggleTimer / field_71503_h
     // Vanilla's slowdown is guarded by !isRiding(), so a mount would leave the block unpaid for.
     // Rather than reproduce that branch, the module simply does not block while riding.
-    jfieldID fRidingEntity_ = nullptr;       // Entity.ridingEntity / field_70154_o
-    jfieldID fItemInUseCount_ = nullptr;     // EntityPlayer.itemInUseCount for fake animation
+    jfieldID fRidingEntity_ = nullptr;    // Entity.ridingEntity / field_70154_o
+    jfieldID fItemInUseCount_ = nullptr;  // EntityPlayer.itemInUseCount for fake animation
     bool fakingBlock_ = false;
     int lagTicksRemaining_ = 0;
 

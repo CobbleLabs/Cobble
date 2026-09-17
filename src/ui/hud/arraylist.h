@@ -17,7 +17,7 @@ inline bool sortByLength = true;
 inline bool rainbow = false;
 inline int rainbowType = 0;  // 0 Flow, 1 Solid, 2 Fast, 3 Wide
 inline bool colorBar = true;
-inline bool showInfo = true;   // Show module info (CPS, speed, etc.)
+inline bool showInfo = true;  // Show module info (CPS, speed, etc.)
 // Stable hud_fonts ID, not an atlas slot. 0/1 are Inter Regular/Bold, which is
 // what keeps the old two-entry values ("arrayListFontStyle") meaning the same
 // faces now that system families are selectable too.

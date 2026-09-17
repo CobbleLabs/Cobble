@@ -14,17 +14,12 @@ struct MANUAL_MAPPING_DATA {
     HINSTANCE hMod;
 };
 
-
 bool manualMap(DWORD pid, const std::wstring& dllPath);
-
 
 bool manualMap(DWORD pid, BYTE* pData, size_t dataSize);
 
-
 bool injectDllLoadLibrary(DWORD pid, const std::wstring& dllPath);
 
-
 bool isDllInjected(DWORD pid, const std::wstring& dllName);
-
 
 bool ejectDll(DWORD pid, const std::wstring& dllName);

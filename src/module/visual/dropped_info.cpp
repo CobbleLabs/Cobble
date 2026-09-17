@@ -63,8 +63,9 @@ void DroppedInfo::onRender() {
     if (!draw)
         return;
 
-    ImFont* f = font(2); // Bold font
-    if (!f) return;
+    ImFont* f = font(2);  // Bold font
+    if (!f)
+        return;
 
     int count = 0;
     {
@@ -85,8 +86,7 @@ void DroppedInfo::onRender() {
     float padY = 6.0f * s;
     float rounding = 6.0f * s;
 
-    ImU32 accent = IM_COL32((int)(g_SchemeColor[0] * 255.0f), 
-                            (int)(g_SchemeColor[1] * 255.0f), 
+    ImU32 accent = IM_COL32((int)(g_SchemeColor[0] * 255.0f), (int)(g_SchemeColor[1] * 255.0f),
                             (int)(g_SchemeColor[2] * 255.0f), 255);
     ImU32 gray = IM_COL32(150, 155, 165, 255);
     ImU32 shadow = IM_COL32(0, 0, 0, 200);
@@ -149,11 +149,8 @@ void DroppedInfo::onRenderMenu() {
                 settings.scale = 1.0f;
             }
         },
-        "Display",
-        [this]() { ui::Checkbox("Background", &settings.background); });
+        "Display", [this]() { ui::Checkbox("Background", &settings.background); });
 }
-
-
 
 void DroppedInfo::saveSettings(json::Value& node) const {
     node["x"] = settings.x;

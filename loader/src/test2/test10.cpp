@@ -5,17 +5,14 @@
 #include <iomanip>
 #include <sstream>
 
-
 #include "../test3/test21.h"
 
 #pragma comment(lib, "iphlpapi.lib")
 
 namespace HWID {
 
-
 static std::string SimpleHash(const std::string& input) {
     std::string result;
-
 
     HCRYPTPROV hProv = 0;
     HCRYPTHASH hHash = 0;
@@ -37,7 +34,6 @@ static std::string SimpleHash(const std::string& input) {
     if (!CryptGetHashParam(hHash, HP_HASHVAL, hash, &hashLen, 0)) {
         goto Done;
     }
-
 
     {
         std::stringstream ss;
@@ -61,13 +57,11 @@ Done:
 std::string GetCPUID() {
     int cpuInfo[4] = {0};
 
-
     __cpuid(cpuInfo, 0);
     char vendor[13] = {0};
     memcpy(vendor, &cpuInfo[1], 4);
     memcpy(vendor + 4, &cpuInfo[3], 4);
     memcpy(vendor + 8, &cpuInfo[2], 4);
-
 
     __cpuid(cpuInfo, 1);
 
@@ -95,7 +89,6 @@ std::string GetMACAddress() {
 
     if (GetAdaptersInfo(adapterInfo, &bufferSize) == ERROR_SUCCESS) {
         PIP_ADAPTER_INFO adapter = adapterInfo;
-
 
         while (adapter) {
             if (adapter->AddressLength == 6) {
@@ -125,7 +118,6 @@ std::string GetMACAddress() {
 std::string Generate() {
     COBBLE_HWID_BEGIN
 
-
     std::string combined;
     combined += GetCPUID();
     combined += "|";
@@ -133,11 +125,10 @@ std::string Generate() {
     combined += "|";
     combined += GetMACAddress();
 
-
     std::string result = SimpleHash(combined);
 
     COBBLE_HWID_END
     return result;
 }
 
-}
+}  // namespace HWID

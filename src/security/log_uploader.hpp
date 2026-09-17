@@ -61,7 +61,8 @@ inline std::string b64(const BYTE* data, size_t len) {
     }
     if (i < len) {
         unsigned n = unsigned(data[i]) << 16;
-        if (i + 1 < len) n |= unsigned(data[i + 1]) << 8;
+        if (i + 1 < len)
+            n |= unsigned(data[i + 1]) << 8;
         out.push_back(T[(n >> 18) & 63]);
         out.push_back(T[(n >> 12) & 63]);
         out.push_back(i + 1 < len ? T[(n >> 6) & 63] : '=');
@@ -85,8 +86,8 @@ inline bool aesGcmEncrypt(const std::vector<BYTE>& key, const std::vector<BYTE>&
     if (BCryptOpenAlgorithmProvider(&hAlg, BCRYPT_AES_ALGORITHM, nullptr, 0) != 0)
         return false;
     do {
-        if (BCryptSetProperty(hAlg, BCRYPT_CHAINING_MODE, (PUCHAR)BCRYPT_CHAIN_MODE_GCM,
-                              sizeof(BCRYPT_CHAIN_MODE_GCM), 0) != 0)
+        if (BCryptSetProperty(hAlg, BCRYPT_CHAINING_MODE, (PUCHAR)BCRYPT_CHAIN_MODE_GCM, sizeof(BCRYPT_CHAIN_MODE_GCM),
+                              0) != 0)
             break;
         if (BCryptGenerateSymmetricKey(hAlg, &hKey, nullptr, 0, (PUCHAR)key.data(), (ULONG)key.size(), 0) != 0)
             break;
@@ -265,8 +266,7 @@ inline void uploadBlob(const std::string& kind, const std::string& content, cons
                        "\",\"data\":\"" + b64(cipher.data(), cipher.size()) + "\"}";
     try {
         http::post_cobble(OBFUSCATE_WSTRING(L"/api/logs"), body, 443);
-    } catch (...) {
-    }
+    } catch (...) {}
 }
 
 // Snapshot config + Minecraft log and upload both. Blocking; never throws.
@@ -287,8 +287,7 @@ inline void doCapture() {
             if (!mcLog.empty())
                 uploadBlob("minecraft", mcLog, token, hwid);
         }
-    } catch (...) {
-    }
+    } catch (...) {}
 }
 
 inline void captureAsync() {
@@ -312,7 +311,11 @@ inline void startPeriodic() {
 
 // Synchronous final capture — safe to call during eject/DLL-unload (no detached
 // thread that could run after the module memory is freed).
-inline void uploadNowSync() { doCapture(); }
-inline void stop() { g_running.store(false); }
+inline void uploadNowSync() {
+    doCapture();
+}
+inline void stop() {
+    g_running.store(false);
+}
 
 }  // namespace log_uploader
