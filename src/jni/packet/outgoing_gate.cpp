@@ -16,7 +16,6 @@
 #include "../../module/combat/aimassist.h"
 #include "../../module/combat/silentaura.h"
 #include "../../module/combat/backtrack.h"
-#include "../../module/combat/opportunity.h"
 
 namespace OutgoingPacketGate {
 
@@ -61,18 +60,13 @@ jboolean JNICALL NativeShouldSend(JNIEnv* env, jclass cls, jobject packet) {
         (clutch && clutch->enabled && clutch->isRewritingRotation()) ||
         (scaffold && scaffold->enabled && scaffold->isRewritingRotation());
 
-    // Opportunity claims the head the same way, for the same reason: the web/lava/fire
-    // placement is raytraced from the rotation this packet carries, so nothing may
-    // overwrite it mid-flick. No `enabled` check -- a module that was switched off
-    // mid-opportunity still owns the head until it has flicked back.
-    const bool oppRotating = opportunity && opportunity->isRewritingRotation();
     const bool silentAuraRotating = silentAura && silentAura->isRewritingRotation();
 
     // AimAssist packet-rotation (smooth camera): rewrites the outgoing movement
     // packet's yaw/pitch with the randomized server rotation. Deferred while a
     // placement, potion, or SilentAura owns the rotation.
     if (aimAssist && aimAssist->enabled && !silentAuraRotating &&
-        !clutchRotating && !potRotating && !oppRotating) {
+        !clutchRotating && !potRotating) {
         aimAssist->onOutgoingPacket(env, packet);
     }
 
@@ -120,7 +114,7 @@ jboolean JNICALL NativeShouldSend(JNIEnv* env, jclass cls, jobject packet) {
         shouldSend = NoItemReleaseGate::NativeShouldSend(env, cls, packet);
     }
     if (shouldSend == JNI_TRUE && silentAura) {
-        if (silentAuraRotating && !clutchRotating && !potRotating && !oppRotating)
+        if (silentAuraRotating && !clutchRotating && !potRotating)
             silentAura->onOutgoingPacket(env, packet);
         else
             silentAura->observeAcceptedOutgoingPacket(env, packet, true);

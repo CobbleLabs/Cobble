@@ -14,7 +14,6 @@
 #include "../../module/combat/hitselect.h"
 #include "../../module/combat/nohitdelay.h"
 #include "../../module/combat/criticals.h"
-#include "../../module/combat/opportunity.h"
 #include "../../module/combat/piercing.h"
 #include "../../module/combat/silentaura.h"
 #include "../../module/combat/wtap.h"
@@ -112,8 +111,6 @@ Module* getModuleForSubtab(int tabIdx, int subtabIdx) {
             case 12:
                 return antiBot;
             case 13:
-                return opportunity;
-            case 14:
                 return silentAura;
         }
     }
