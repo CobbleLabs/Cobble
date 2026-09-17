@@ -1,401 +1,205 @@
-# Cobble – Development Guide
+# Development
 
-This guide explains how to work within the Cobble codebase: creating modules, using the UI system, and following project conventions.
+Work on `testing`. `main` is production. Feature branches come off `testing` and merge back into it. Releases are documented in [UPDATE_WORKFLOW.md](UPDATE_WORKFLOW.md).
 
-Work on `testing`. `main` is production. Feature branches come off `testing` and merge back into `testing`. See [UPDATE_WORKFLOW.md](UPDATE_WORKFLOW.md#branches) for releases and hotfixes.
+This is a Windows / MSVC codebase. The Mac checkout can edit sources; it cannot run `build.ps1`.
 
 ---
 
-## Project Structure
+## Local build
+
+Copy `cobble.json.example` to `cobble.json` and fill `server.host`, `version`, `payload_key` (64 hex chars, must match cobble-server `PAYLOAD_KEY`), and `public_key_hex` (64 hex chars). `cobble.json` is gitignored.
+
+```powershell
+.\build.ps1 -Build
+```
+
+That is a Dev binary (`COBBLE_DEV_BUILD` defined, output `out/bin/Dev/`). It does not check for updates. There is no Debug configuration; every MSBuild pass is `Release|x64` (VS 2022, toolset v143).
+
+`generate_config.ps1` is invoked by `build.ps1`, not by a PreBuildEvent. Opening `Cobble.sln` in Visual Studio and hitting Build requires `generated/` headers already present.
+
+Do not delete `reprotect/`. It is the VMProtect SDK root referenced by the vcxproj and by `-Pack` / `-Obfuscate`. It is empty until `git submodule update --init`.
+
+Vendor code under `infra/ext` (imgui, MinHook, JNI headers, stb) is not a place to add features.
+
+---
+
+## Source layout
 
 ```
 src/
-|-- cobble.cpp/.hpp     # Entry point, module lifecycle
-|-- jni/                # JVM bridge
-|   |-- apollo/         # Apollo packet observer
-|   |-- noitemrelease/  # NoItemRelease sendPacket gate
-|   `-- packet/         # PacketInterceptor + bytecode patcher
-|-- sdk/                # Minecraft wrappers
-|-- module/
-|   |-- module.h        # Base class
-|   |-- module_manager.h/.cpp
-|   |-- combat/         # AutoClicker, AimAssist, Velocity, Reach
-|   |-- visual/         # NameTags
-|   `-- utility/        # NoJumpDelay
-`-- ui/
-    |-- core/           # Overlay, ImGui hooks
-    |-- widgets/        # Consolidated widgets
-    |-- menu/           # Tab navigation
-    `-- hud/            # ArrayList, Notifications
+  cobble.cpp / cobble.hpp   DLL worker: init, main loop, shutdown
+  main.cpp                  DllMain → CreateThread
+  module/                   combat, movement, utility, visual + ModuleManager
+  ui/                       overlay, menu, widgets, HUD
+  sdk/                      Minecraft JNI wrappers
+  jni/                      JVMTI gates, Apollo, packet interceptor
+  config/                   config.json + cloud sync
+  security/                 loader verify, session, integrity, heartbeat
+  util/                     math, HTTP/JSON, FriendsManager, HealthPredictor
 ```
+
+`cobble.hpp` holds only `cobble::context`. Module pointers are `extern` in each module header, defined `= nullptr` in the `.cpp`, and heap-allocated in `cobble.cpp`.
 
 ---
 
-## How to Create a Module
+## Adding a module
 
-### Step 1: Create Files
+Reach (`src/module/combat/reach.h`, `reach.cpp`) is the pattern.
 
-```
-src/module/<category>/
-├── mymodule.h
-└── mymodule.cpp
-```
+### 1. Files
 
-### Step 2: Header
+`src/module/<combat|movement|utility|visual>/<name>.h` and `.cpp`.
 
 ```cpp
-// src/module/combat/mymodule.h
 #pragma once
 #include "../module.h"
 
-class MyModule : public Module
-{
+class Reach : public Module {
 public:
-    MyModule();
-    
+    Reach();
     void onEnable() override;
     void onDisable() override;
     void onUpdate() override;
     void onRenderMenu() override;
-    
+    std::string getDisplayInfo() override;
+    void saveSettings(json::Value& node) const override;
+    void loadSettings(const json::Value& node) override;
+
     struct Settings {
-        float myValue = 5.0f;
-        bool myToggle = true;
+        float distance = 3.6f;
     } settings;
 };
 
-extern MyModule* myModule;
+extern Reach* reach;
 ```
 
-### Step 3: Implementation
+In the `.cpp`: `Reach* reach = nullptr;` and `Reach::Reach() : Module("Reach")`. The constructor string is the config key and the ArrayList name.
+
+A module with no extra fields can omit `saveSettings` / `loadSettings`. Set `renders`, `worldVisual`, `usesPlayerCache`, or `locked` in the constructor when they apply.
+
+### 2. Project
+
+Add both files to `Cobble.vcxproj` (`ClCompile` and `ClInclude`). There is no `.filters` file. A JNI gate gets the same treatment under `src/jni/`.
+
+### 3. Lifecycle in `cobble.cpp`
+
+Include the header. `new` after `moduleManager`. `registerModule`. `delete` in shutdown after overlay/JNI teardown.
+
+Keep existing alloc order:
+
+- AntiBot before combat modules that query it
+- `scaffold = new Clutch(PlaceMode::Scaffold)` then `clutch = new Clutch(PlaceMode::Clutch)`
+- `friendsManager` then `teamsModule`
+- Do not `registerModule(friendsManager)`
+
+Shutdown already disables registered modules by setting `enabled = false` and calling `onDisable()` (it does not go through `toggle()`, so locks do not block eject).
+
+### 4. Menu (two lists, one index)
+
+Append the label to the correct vector in `ui::tabs` (`src/ui/widgets/widgets.cpp`). Add the matching `case` in `getModuleForSubtab` (`src/ui/menu/menu.cpp`) and include the header there.
+
+Those two lists are the same index space. Inserting in the middle of one without shifting the other maps the wrong module for every later card. Search, gear, and right-click all go through `getModuleForSubtab`.
+
+Combat currently ends **AntiBot then SilentAura**. Visuals special pages (not modules): ArrayList **7**, Notifications **9**, Watermark **10**.
+
+### 5. Config
+
+Override `saveSettings` / `loadSettings`. Read with `as_float` / `as_bool` / `as_int` defaults so a missing key keeps the in-memory default. Do not add `if (name == "…")` in `config.cpp`.
+
+### 6. Descriptions
+
+Add a row to `kModuleDescriptions` in `src/ui/widgets/widgets.cpp`. Missing entries fall back to a generic sentence. Add `kOptionDescriptions` only when a shared label (“Mode”, “Range”) needs a per-module or per-combo-value tip.
+
+### 7. `onRenderMenu`
+
+Use `ui::` widgets (`src/ui/widgets/widgets.hpp`). Standard layout is `ui::two_column`. Do not bind `Enabled` to `&enabled` — that skips `toggle()` / `onEnable` / `onDisable`:
 
 ```cpp
-// src/module/combat/mymodule.cpp
-#include "mymodule.h"
-#include "../../sdk/minecraft.h"
-#include "../../ui/menu/menu.h"
-#include "../../ui/widgets/widgets.hpp"
-
-MyModule* myModule = nullptr;
-
-MyModule::MyModule() : Module("MyModule")
-{
-    keybind = 'M';  // Default keybind (0 = none)
-}
-
-void MyModule::onEnable() { }
-void MyModule::onDisable() { }
-
-void MyModule::onUpdate()
-{
-    if (!enabled) return;
-    if (Menu::isOpen) return;
-    if (!player.isValid()) return;
-    
-    // Your logic here
-}
-
-void MyModule::onRenderMenu()
-{
-    ui::two_column(
-        "Settings", [this]() {
-            ui::CheckboxBind("Enabled", &enabled, &keybind);
-            ImGui::Spacing();
-            ui::SliderFloat("Value", &settings.myValue, 0.0f, 10.0f, "%.1f");
-        },
-        "Options", [this]() {
-            ui::Checkbox("Toggle", &settings.myToggle);
-        }
-    );
+bool enabledValue = enabled;
+if (ui::CheckboxBind("Enabled", &enabledValue, &keybind)) {
+    if (enabledValue != enabled)
+        setEnabled(enabledValue);
 }
 ```
 
-### Step 4: Register in cobble.cpp
-
-```cpp
-// Add include
-#include "module/combat/mymodule.h"
-
-// In initialize()
-myModule = new MyModule();
-moduleManager->registerModule(myModule);
-
-// In shutdown()
-if (myModule) myModule->setEnabled(false);
-// ... after Overlay::Shutdown()
-if (myModule) { delete myModule; myModule = nullptr; }
-```
-
-### Step 5: Add to Menu
-
-**widgets.cpp** – Add to tab subtabs:
-```cpp
-std::vector<ui::tab_t> ui::tabs = {
-    { ICON_FA_CROSSHAIRS, "Combat", { "AutoClicker", ..., "MyModule" } },
-    // ...
-};
-```
-
-**menu.cpp** – Add to module lookup:
-```cpp
-#include "../../module/combat/mymodule.h"
-
-static Module* getModuleForSubtab(int tabIdx, int subtabIdx)
-{
-    if (tabIdx == 0) {  // Combat
-        switch (subtabIdx) {
-            // ...
-            case 5: return myModule;
-        }
-    }
-}
-```
-
-### Step 6: Add to vcxproj
-
-```xml
-<ClCompile Include="src\module\combat\mymodule.cpp" />
-```
-
-### Step 7: Add to ConfigManager
-
-**config.cpp** – Add serialization in `applyConfig()` and `buildConfigFromModules()`:
-
-```cpp
-// In applyConfig() - load settings from JSON:
-else if (name == "MyModule" && myModule) {
-    auto& s = myModule->settings;
-    s.myValue = data["myValue"].as_float(s.myValue);
-    s.myToggle = data["myToggle"].as_bool(s.myToggle);
-}
-
-// In buildConfigFromModules() - save settings to JSON:
-else if (name == "MyModule" && myModule) {
-    const auto& s = myModule->settings;
-    config_["modules"][name]["myValue"] = s.myValue;
-    config_["modules"][name]["myToggle"] = s.myToggle;
-}
-```
-
-**Note:** The config is automatically saved when the menu closes. No extra code needed.
+Call `ui::TickTooltip()` immediately after a widget whose value is in game ticks. Use `ui::DescribeLastItem` for buttons that are not a standard checkbox/slider/combo.
 
 ---
 
-## UI Guidelines
+## Menu index map
 
-### Layout Helpers
+**Combat (tab 0)**
 
-```cpp
-// Two columns (standard layout)
-ui::two_column(
-    "Left Title", []() { /* widgets */ },
-    "Right Title", []() { /* widgets */ }
-);
+| i | Label | Pointer |
+|---|--------|---------|
+| 0 | AutoClicker | `autoClicker` |
+| 1 | AimAssist | `aimAssist` |
+| 2 | Velocity | `velocity` |
+| 3 | Reach | `reach` |
+| 4 | HitSelect | `hitSelect` |
+| 5 | NoHitDelay | `noHitDelay` |
+| 6 | Criticals | `criticals` |
+| 7 | WTap | `wTap` |
+| 8 | Piercing | `piercing` |
+| 9 | AimBow | `aimBow` |
+| 10 | AutoBlock | `blockHit` (`Module` name `BlockHit`; config key `BlockHit`) |
+| 11 | AutoRod | `autoRod` |
+| 12 | AntiBot | `antiBot` |
+| 13 | SilentAura | `silentAura` |
 
-// Single section
-ui::section("Title", []() { /* widgets */ });
-```
+**Visuals (tab 1)**
 
-### Available Widgets
+| i | Label | Pointer |
+|---|--------|---------|
+| 0 | NameTags | `nameTags` |
+| 1 | ESP | `esp` |
+| 2 | ItemESP | `itemEsp` |
+| 3 | Tracers | `tracers` |
+| 4 | BlockESP | `blockESP` |
+| 5 | Trajectories | `trajectories` |
+| 6 | AntiDebuff | `antiDebuff` |
+| 7 | ArrayList | HUD (`src/ui/hud/arraylist.*`) |
+| 8 | DroppedInfo | `droppedInfo` |
+| 9 | Notifications | HUD |
+| 10 | Watermark | HUD |
+| 11 | Pings | `pingsModule` |
+| 12 | Chams | `chams` |
 
-| Widget | Usage |
-|--------|-------|
-| `ui::Checkbox(label, &bool)` | Toggle on/off |
-| `ui::CheckboxBind(label, &bool, &key)` | Checkbox + keybind |
-| `ui::SliderFloat(label, &float, min, max, fmt)` | Float slider |
-| `ui::SliderInt(label, &int, min, max, fmt)` | Int slider |
-| `ui::Binder(label, &key)` | Keybind only |
-| `ui::color(label, float[4], alpha)` | Color picker |
-| `ui::Combo(label, &int, items[], count)` | Dropdown selector |
+**Movement (tab 2):** Timer, TimerRange, NoSlowDown, NoJumpDelay, Sprint, InventoryMove, FastStop.
 
-### Standard onRenderMenu() Pattern
+**Utility (tab 3):** ArmorSwitch, AutoRefill, ThrowPots, AutoPot, FastPlace, NoItemRelease, BridgeAssist, Scaffold, Clutch, Breaker, AutoTool, InvManager, FastBreak, AltManager, Teams.
 
-```cpp
-void MyModule::onRenderMenu()
-{
-    ui::two_column(
-        "General", [this]() {
-            ui::CheckboxBind("Enabled", &enabled, &keybind);
-            ImGui::Spacing();
-            // Core settings here
-        },
-        "Conditions", [this]() {
-            // Toggles/options here
-        }
-    );
-}
-```
+**Network (tab 4):** Backtrack, Blink, FakeLag.
 
-### Visual Order Convention
+**Configs (tab 5)** and **Settings (tab 6)** have no modules. Freelook is a Settings checkbox (`Settings::Freelook`), ticked from `ModuleManager::update`. Camera hooks go through `BacktrackGhostGate`.
 
-1. **Enabled checkbox** (always first)
-2. **Core value sliders**
-3. **Mode selector** (if applicable)
-4. **Condition checkboxes**
+Locked modules (`locked = true` in the constructor) show a lock on the card until the experimental unlock on the config page. Currently Scaffold, Clutch, and FakeLag.
 
 ---
 
-## Anti-Patterns
+## Removing a module
 
-### ❌ Never Do This
+Delete all of it in one change:
 
-```cpp
-// Static module (causes crash on inject)
-AutoClicker autoClicker;  // WRONG
+- `.h` / `.cpp` (and any JNI gate)
+- `Cobble.vcxproj` ClCompile / ClInclude
+- `cobble.cpp` include, `new`, `registerModule`, `delete`
+- `ui::tabs` label **and** `getModuleForSubtab` case, then reindex later cases
+- `kModuleDescriptions` / `kOptionDescriptions`
+- menu.cpp include
 
-// Use heap allocation instead:
-autoClicker = new AutoClicker();  // CORRECT
-```
-
-```cpp
-// Hard-coded magic numbers
-float delay = 0.0167f;  // WRONG
-
-// Use named constants:
-static constexpr float TICK_RATE = 1.0f / 60.0f;  // CORRECT
-```
-
-```cpp
-// Duplicate widget implementations
-// Each file has its own SliderFloat...  // WRONG
-
-// All widgets live in widgets.cpp  // CORRECT
-```
-
-```cpp
-// Module-specific code in menu.cpp
-if (cur_tab == 0 && subtab == 0) {
-    ImGui::Checkbox("AutoClicker", &autoClicker->enabled);  // WRONG
-}
-
-// Use module->onRenderMenu() instead  // CORRECT
-```
-
-```cpp
-// Raw ImGui widgets in onRenderMenu() (animation desync)
-void onRenderMenu() {
-    ImGui::BeginCombo("Mode", ...);  // WRONG - won't fade with menu
-}
-
-// Use ui:: wrapped widgets instead:
-void onRenderMenu() {
-    ui::Combo("Mode", &mode, items, count);  // CORRECT
-```
-
-### ❌ JNI Safety
-
-```cpp
-// Never call JNI from render thread
-void onRenderMenu() {
-    player.getHealth();  // WRONG - may crash
-}
-
-// Cache values in onUpdate(), display in onRenderMenu()
-void onUpdate() {
-    cachedHealth = player.getHealth();  // CORRECT
-}
-```
+Do not leave comments, `#if 0`, or empty vcxproj rows “for later”. `Clutch::aimAt(..., bool freshOpportunity)` is an aim flag, not a leftover of the removed Opportunity module. `HealthPredictor` is used by ESP and NameTags.
 
 ---
 
-## PacketInterceptor (Apollo + NoItemRelease)
+## Invariants
 
-PacketInterceptor is now a focused observer/gate:
-
-- Incoming hooks (Apollo): `channelRead0`, `handleCustomPayload`, `handleTeams`,
-  `LCNetHandlerClient.handleNametagsUpdate`, `handleOverrideNametags`
-- Outgoing gate (NoItemRelease): `NetworkManager.sendPacket(...)` only for
-  `C07PacketPlayerDigging.RELEASE_USE_ITEM`
-
-There is no tick/drain path anymore; Apollo runs on incoming hooks only.
-
----
-
-## Overlay Context Stability
-
-The overlay is sensitive to context switches (Alt+Tab, resize, fullscreen).
-
-- Reinit only on OpenGL context change, not on every HDC change.
-- The overlay binds to the first valid window/context and ignores others.
-- A cooldown/suspend window prevents reinit loops and white flashes.
-- If you see `GL ERROR 1282` spam, confirm the target window/context is stable.
-
----
-
-## Build Commands
-
-## Build Commands
-
-```powershell
-# Full build (recommended) - Builds DLL + Loader + Signs Manifest
-.\build.ps1 -Release
-
-# Prepare for Release (Signing + ZIP)
-.\build.ps1 -PrepareRelease
-
-# Quick DLL rebuild (for module development)
-msbuild Cobble.vcxproj /p:Configuration=Release /p:Platform=x64
-```
-
----
-
-## Testing Autoupdater
-
-1. **Setup Server**: Ensure `cobble-server` is running locally or remotely.
-2. **Build Latest**:
-   ```powershell
-   # In cobble.json: set "version": "1.0.10"
-   .\build.ps1 -PrepareRelease
-   # Upload out/releases/latest/* to /opt/cobble-server/releases/latest/
-   ```
-3. **Build Old**:
-   ```powershell
-   # In cobble.json: set "version": "1.0.0"
-   .\build.ps1 -Release
-   ```
-4. **Run**: Launch `out/bin/Release/CobbleLoader.exe`. It should detect the update ("1.0.10"), download it, and restart itself using the integrated update mode.
-
-### Debugging Update Mode
-
-The loader has an integrated "Update Mode" triggered by CLI args. You generally don't run this manually, but it's good to know:
-- **Flag**: `--update-pid <PID>`
-- **Behavior**: Waits for PID to exit, then moves `--update-new` file to `--update-old` path.
-- **Logs**: If build fails or loops, check `loader/main.cpp` Phase 2.5 logic.
-
-
----
-
-## Debugging Tips
-
-### Useful Log Points
-
-```cpp
-log_ok("Module enabled: %s", name);
-log_err("JNI call failed!");
-log_debug("Value: %.2f", someFloat);
-```
-
-### Testing Modules Safely
-
-1. Start with module disabled by default
-2. Use defensive checks in `onUpdate()`:
-   ```cpp
-   if (!enabled) return;
-   if (Menu::isOpen) return;
-   if (!player.isValid()) return;
-   ```
-3. Test keybind toggle before testing logic
-
----
-
-## Checklist for New Modules
-
-- [ ] Header with `onRenderMenu()` override
-- [ ] Implementation with UI using `ui::two_column()`
-- [ ] Registered in `cobble.cpp` (alloc, register, cleanup)
-- [ ] Added to `widgets.cpp` tab definition
-- [ ] Added to `menu.cpp` subtab lookup
-- [ ] Added to `config.cpp` (applyConfig + buildConfigFromModules)
-- [ ] Added to `Cobble.vcxproj`
-- [ ] Tested build
-- [ ] Tested in-game
+- JNI on the Cobble worker; ImGui on `wglSwapBuffers`.
+- Font atlas slots 0–5 stay in that order. Do not strip slot 4. Keep FontAwesome.
+- `ui::tabs` order ≡ `getModuleForSubtab`.
+- Do not rewrite `loader/`.
+- Do not put module pointers in `cobble.hpp`.
+- Do not restore ClickGUI.
+- Chams draws in the game world pass (`onRender3D` from the ghost gate), not as overlay `worldVisual`.
+- Overlay font slot 5 is ArrayList Regular; HUD family pickers append after slot 5.
