@@ -34,8 +34,10 @@ Thumbs.db
 .idea/
 .vscode/
 .claude/
+.kiro/
+.codex/
 
-# Personal launchers (contain secrets)
+# Personal launchers
 cc.bat
 
 # Update System (sensitive)
@@ -61,7 +63,6 @@ cobble.json
 mcp/
 textures/
 event/
-.kiro/
 tests/
 
 # Third-party client binaries pulled apart for reference — never ours to ship
