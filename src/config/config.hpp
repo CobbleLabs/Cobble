@@ -596,7 +596,7 @@ private:
     // parse failure. Shared by the public-config workers.
     bool verifySignedEnvelope(const std::string& responseBody, json::Value& outPayload);
 
-    static constexpr int CONFIG_VERSION = 1;
+    static constexpr int CONFIG_VERSION = 2;
 
     // Public-config schema version. Bumped independently of CONFIG_VERSION
     // because the shareable format evolves separately from the on-disk one.

@@ -7,6 +7,7 @@
 #include "../ui/hud/watermark.h"
 #include "../ui/hud/notifications.h"
 #include "../ui/menu/menu.h"
+#include "../ui/menu/settings.h"
 #include "../ui/widgets/theme.hpp"
 #include "../util/team/friends_manager.h"
 
@@ -701,6 +702,10 @@ void ConfigManager::applyDefaults() {
 
     // Settings
     config_["settings"]["cloudSync"] = false;
+    config_["settings"]["freelookEnabled"] = false;
+    config_["settings"]["freelookKeybind"] = 0;
+    config_["settings"]["freelookHoldKey"] = false;
+    config_["settings"]["freelookPerspective"] = 1;
     COBBLE_TRACE("applyDefaults:cloudSync set");
 
     // HUD
@@ -731,6 +736,12 @@ void ConfigManager::applyConfig() {
         }
         ui::theme::accentRainbow = config_["settings"]["accentRainbow"].as_bool(false);
         ui::theme::rainbowType = config_["settings"]["rainbowType"].as_int(0);
+        Settings::Freelook::keybind = config_["settings"]["freelookKeybind"].as_int(0);
+        Settings::Freelook::holdKey = config_["settings"]["freelookHoldKey"].as_bool(false);
+        Settings::Freelook::perspective =
+            std::clamp(config_["settings"]["freelookPerspective"].as_int(1), 1, 2);
+        Settings::Freelook::setEnabled(config_["settings"]["freelookEnabled"].as_bool(false) &&
+                                       !Settings::Freelook::holdKey);
     }
 
     // Apply HUD settings
@@ -961,6 +972,10 @@ void ConfigManager::buildConfigFromModules() {
     config_["settings"]["accentColor"]["a"] = ui::theme::accentColor[3];
     config_["settings"]["accentRainbow"] = ui::theme::accentRainbow;
     config_["settings"]["rainbowType"] = ui::theme::rainbowType;
+    config_["settings"]["freelookEnabled"] = Settings::Freelook::enabled;
+    config_["settings"]["freelookKeybind"] = Settings::Freelook::keybind;
+    config_["settings"]["freelookHoldKey"] = Settings::Freelook::holdKey;
+    config_["settings"]["freelookPerspective"] = Settings::Freelook::perspective;
 
     // HUD
     config_["hud"]["arrayList"] = enabled;
@@ -1113,6 +1128,7 @@ void ConfigManager::buildConfigFromModules() {
     }
 
     config_["modules"].remove("Cosmetics");
+    config_["modules"].remove("Freelook");
 
     // Build modules config
     int enabledCount = 0;
@@ -1138,8 +1154,14 @@ void ConfigManager::buildConfigFromModules() {
 void ConfigManager::migrateConfig(int fromVersion) {
     std::lock_guard<std::mutex> lock(configMutex_);
 
-    // Add migrations here as needed
-    // if (fromVersion < 2) { ... }
+    if (fromVersion < 2 && config_.has("modules") && config_["modules"].has("Freelook")) {
+        const json::Value legacy = config_["modules"]["Freelook"];
+        config_["settings"]["freelookEnabled"] = legacy["enabled"].as_bool(false);
+        config_["settings"]["freelookKeybind"] = legacy["keybind"].as_int(0);
+        config_["settings"]["freelookHoldKey"] = legacy["holdKey"].as_bool(false);
+        config_["settings"]["freelookPerspective"] = std::clamp(legacy["perspective"].as_int(1), 1, 2);
+        config_["modules"].remove("Freelook");
+    }
 
     config_["version"] = CONFIG_VERSION;
 }

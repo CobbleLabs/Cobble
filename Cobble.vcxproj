@@ -141,7 +141,7 @@
     <ClCompile Include="src\module\movement\no_slow_down.cpp" />
     <ClCompile Include="src\module\visual\esp.cpp" />
     <ClCompile Include="src\module\visual\chams.cpp" />
-    <ClCompile Include="src\module\visual\freelook.cpp" />
+    <ClCompile Include="src\ui\menu\settings.cpp" />
     <ClCompile Include="src\module\visual\item_esp.cpp" />
     <ClCompile Include="src\module\visual\tracers.cpp" />
     <ClCompile Include="src\module\visual\blockesp.cpp" />
@@ -241,7 +241,7 @@
     <ClInclude Include="src\module\movement\no_slow_down.h" />
     <ClInclude Include="src\module\visual\esp.h" />
     <ClInclude Include="src\module\visual\chams.h" />
-    <ClInclude Include="src\module\visual\freelook.h" />
+    <ClInclude Include="src\ui\menu\settings.h" />
     <ClInclude Include="src\module\visual\item_esp.h" />
     <ClInclude Include="src\module\visual\tracers.h" />
     <ClInclude Include="src\module\visual\blockesp.h" />

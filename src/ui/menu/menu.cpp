@@ -2,6 +2,7 @@
 #define IMGUI_DEFINE_MATH_OPERATORS
 #endif
 #include "menu.h"
+#include "settings.h"
 #include "../../cobble.hpp"
 #include "../../config/config.hpp"
 #include "../../module/combat/aimassist.h"
@@ -46,7 +47,6 @@
 #include "../../module/utility/autopot.h"
 #include "../../module/visual/blockesp.h"
 #include "../../module/visual/chams.h"
-#include "../../module/visual/freelook.h"
 #include "../../module/visual/esp.h"
 #include "../../module/visual/item_esp.h"
 #include "../../module/visual/nametags.h"
@@ -143,8 +143,6 @@ Module* getModuleForSubtab(int tabIdx, int subtabIdx) {
                 return pingsModule;
             case 12:
                 return chams;
-            case 13:
-                return freelook;
         }
     }
     // Movement Tab (2): Timer, TimerRange, NoSlowDown, NoJumpDelay, Sprint, InventoryMove
@@ -231,6 +229,26 @@ static void renderSettingsPage() {
         {
             ui::Binder("Menu Key", &Menu::menuKey);
 
+            ImGui::Spacing();
+            ImGui::Separator();
+            ImGui::Spacing();
+
+            bool freelookEnabled = Settings::Freelook::enabled;
+            if (ui::CheckboxBind("Freelook", &freelookEnabled, &Settings::Freelook::keybind) &&
+                freelookEnabled != Settings::Freelook::enabled)
+                Settings::Freelook::setEnabled(freelookEnabled);
+            if (ui::Checkbox("Hold Key", &Settings::Freelook::holdKey) && Settings::Freelook::holdKey)
+                Settings::Freelook::setEnabled(false);
+
+            static const char* perspectives[] = {"Back", "Front"};
+            int selectedPerspective = Settings::Freelook::perspective - 1;
+            if (ui::Combo("Perspective", &selectedPerspective, perspectives, 2)) {
+                Settings::Freelook::perspective = selectedPerspective + 1;
+                Settings::Freelook::update();
+            }
+
+            ImGui::Spacing();
+            ImGui::Separator();
             ImGui::Spacing();
 
             ui::color("Accent Color", g_SchemeColor);
@@ -385,8 +403,7 @@ static void renderSettingsPage() {
                         }
                     }
                 }
-                // Persist the all-off state immediately so PANIC survives a
-                // hard close, not just a clean menu-close.
+                Settings::Freelook::setEnabled(false);
                 ConfigManager::get().onSettingChanged();
             }
 
@@ -1753,7 +1770,7 @@ static void renderPage() {
     s_prevTab = ui::cur_tab;
 
     if (ui::cur_tab == settingsIdx) {
-        ui::SetDescriptionContext("Settings");
+        ui::SetDescriptionContext("Settings", /*allowTips=*/true);
         renderSettingsPage();
         return;
     }

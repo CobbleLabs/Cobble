@@ -43,7 +43,7 @@
 
 #include "module/visual/blockesp.h"
 #include "module/visual/chams.h"
-#include "module/visual/freelook.h"
+#include "ui/menu/settings.h"
 #include "module/visual/esp.h"
 #include "module/visual/item_esp.h"
 #include "module/visual/nametags.h"
@@ -252,8 +252,6 @@ void cobble::context::initialize(HMODULE hModule) {
     esp = new ESP();
     COBBLE_TRACE("alloc:Chams");
     chams = new Chams();
-    COBBLE_TRACE("alloc:Freelook");
-    freelook = new Freelook();
     COBBLE_TRACE("alloc:ItemESP");
     itemEsp = new ItemESP();
     COBBLE_TRACE("alloc:Tracers");
@@ -320,7 +318,6 @@ void cobble::context::initialize(HMODULE hModule) {
     moduleManager->registerModule(antiDebuff);
     moduleManager->registerModule(esp);
     moduleManager->registerModule(chams);
-    moduleManager->registerModule(freelook);
     moduleManager->registerModule(itemEsp);
     moduleManager->registerModule(tracers);
     moduleManager->registerModule(blockESP);
@@ -535,6 +532,7 @@ bool cobble::context::shutdown() {
             log_debug("[MOD] %s: DISABLED (shutdown)", module->name);
         }
     }
+    Settings::Freelook::shutdown();
 
     // Release JNI GlobalRefs held by NoSlowDown while env is still valid.
     if (noSlowDown) {
@@ -790,10 +788,6 @@ bool cobble::context::shutdown() {
     if (chams) {
         delete chams;
         chams = nullptr;
-    }
-    if (freelook) {
-        delete freelook;
-        freelook = nullptr;
     }
     if (itemEsp) {
         delete itemEsp;

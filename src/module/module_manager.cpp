@@ -4,6 +4,7 @@
 #include "../sdk/core/minecraft.h"
 #include "../sdk/player/render_data.h"
 #include "../ui/menu/menu.h"
+#include "../ui/menu/settings.h"
 #include "../util/diagnostics.hpp"
 #include "../util/inject_trace.hpp"
 #include "../util/state_check.hpp"
@@ -181,6 +182,7 @@ void ModuleManager::update() {
         }
 #endif
     }
+    Settings::Freelook::update();
     Diagnostics::g_currentOperation.store("moduleManager.update.done");
 
     // Apply any pending vanilla-nametag hide/restore on the main JVM thread
@@ -206,6 +208,7 @@ void ModuleManager::onWorldChange() {
     for (auto* mod : modules) {
         mod->onWorldChange();
     }
+    Settings::Freelook::onWorldChange();
 #ifdef COBBLE_DEV_BUILD
     COBBLE_TRACE("ModuleManager::onWorldChange:done");
 #endif
@@ -269,6 +272,13 @@ void ModuleManager::checkKeybinds(bool allowActivation) {
         activeKeys[activeKeyCount++] = key;
     }
 
+    const int freelookKey = Settings::Freelook::keybind;
+    if (freelookKey > 0 && freelookKey < 256 && !queried[freelookKey]) {
+        queried[freelookKey] = true;
+        currentStates[freelookKey] = (GetAsyncKeyState(freelookKey) & 0x8000) != 0;
+        activeKeys[activeKeyCount++] = freelookKey;
+    }
+
     for (auto* mod : modules) {
         const int key = mod->keybind;
         const bool validKey = key > 0 && key < 256;
@@ -282,6 +292,15 @@ void ModuleManager::checkKeybinds(bool allowActivation) {
 
         if (inputAllowed && validKey && currentStates[key] && !keyStates[key])
             mod->toggle();
+    }
+
+    const bool validFreelookKey = freelookKey > 0 && freelookKey < 256;
+    if (Settings::Freelook::holdKey) {
+        const bool shouldEnable = inputAllowed && validFreelookKey && currentStates[freelookKey];
+        if (shouldEnable != Settings::Freelook::enabled)
+            Settings::Freelook::setEnabled(shouldEnable);
+    } else if (inputAllowed && validFreelookKey && currentStates[freelookKey] && !keyStates[freelookKey]) {
+        Settings::Freelook::setEnabled(!Settings::Freelook::enabled);
     }
 
     for (int i = 0; i < activeKeyCount; ++i) {
