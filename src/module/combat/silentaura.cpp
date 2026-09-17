@@ -254,21 +254,46 @@ bool packetQueueActive() {
 }
 
 bool readProtocolPosition(JNIEnv* env, jobject entity, double& x, double& y, double& z) {
-    if (!env || !entity || !JniCache::fid_serverPosX ||
-        !JniCache::fid_serverPosY || !JniCache::fid_serverPosZ) {
+    if (!env || !entity)
         return false;
+
+    if (JniCache::fid_serverPosX && JniCache::fid_serverPosY && JniCache::fid_serverPosZ) {
+        const int fixedX = env->GetIntField(entity, JniCache::fid_serverPosX);
+        const int fixedY = env->GetIntField(entity, JniCache::fid_serverPosY);
+        const int fixedZ = env->GetIntField(entity, JniCache::fid_serverPosZ);
+        if (!env->ExceptionCheck()) {
+            x = static_cast<double>(fixedX) / 32.0;
+            y = static_cast<double>(fixedY) / 32.0;
+            z = static_cast<double>(fixedZ) / 32.0;
+            return true;
+        }
+        env->ExceptionClear();
     }
-    const int fixedX = env->GetIntField(entity, JniCache::fid_serverPosX);
-    const int fixedY = env->GetIntField(entity, JniCache::fid_serverPosY);
-    const int fixedZ = env->GetIntField(entity, JniCache::fid_serverPosZ);
+
+    if (!JniCache::fid_posX || !JniCache::fid_posY || !JniCache::fid_posZ)
+        return false;
+    x = env->GetDoubleField(entity, JniCache::fid_posX);
+    y = env->GetDoubleField(entity, JniCache::fid_posY);
+    z = env->GetDoubleField(entity, JniCache::fid_posZ);
     if (env->ExceptionCheck()) {
         env->ExceptionClear();
         return false;
     }
-    x = static_cast<double>(fixedX) / 32.0;
-    y = static_cast<double>(fixedY) / 32.0;
-    z = static_cast<double>(fixedZ) / 32.0;
-    return true;
+    return std::isfinite(x) && std::isfinite(y) && std::isfinite(z);
+}
+
+bool localAttackOrigin(double& x, double& y, double& z) {
+    if (player.hasLastReportedPosition()) {
+        x = player.getLastReportedPosX();
+        y = player.getLastReportedPosY();
+        z = player.getLastReportedPosZ();
+        if (std::isfinite(x) && std::isfinite(y) && std::isfinite(z))
+            return true;
+    }
+    x = player.getPosX();
+    y = player.getPosY();
+    z = player.getPosZ();
+    return std::isfinite(x) && std::isfinite(y) && std::isfinite(z);
 }
 
 float mouseRotationStep() {
@@ -287,8 +312,6 @@ SilentAura::~SilentAura() {
 }
 
 void SilentAura::onEnable() {
-    if (autoClicker && autoClicker->enabled)
-        autoClicker->setEnabled(false);
     if (blockHit && blockHit->enabled)
         blockHit->setEnabled(false);
     if (aimAssist && aimAssist->enabled)
@@ -303,6 +326,8 @@ void SilentAura::onEnable() {
     nextAttackAt_ = now + std::chrono::milliseconds(50);
     controllerUpdatedAt_ = now;
     packetPreparedAt_ = now;
+    observedClickerClick_ = autoClicker ? autoClicker->lastAutoClick : std::chrono::steady_clock::time_point{};
+    clickerAttackPending_ = false;
     preparedPacketSerial_ = rotationPacketSerial_.load(std::memory_order_acquire);
     consumedPacketSerial_ = preparedPacketSerial_;
 }
@@ -327,6 +352,7 @@ void SilentAura::clearTarget(JNIEnv* env) {
     rotationActive_.store(false, std::memory_order_release);
     invalidatePublishedRotation();
     managedRotationInitialized_ = false;
+    clickerAttackPending_ = false;
     yawResidual_ = 0.0;
     pitchResidual_ = 0.0;
     if (target_.entity) {
@@ -344,13 +370,13 @@ bool SilentAura::selectTarget(JNIEnv* env) {
         return false;
     }
 
-    if (!player.hasLastReportedPosition()) {
+    double localX = 0.0;
+    double localY = 0.0;
+    double localZ = 0.0;
+    if (!localAttackOrigin(localX, localY, localZ)) {
         clearTarget(env);
         return false;
     }
-    const double localX = player.getLastReportedPosX();
-    const double localY = player.getLastReportedPosY();
-    const double localZ = player.getLastReportedPosZ();
     const double eyeY = localY + (player.isSneaking() ? 1.54 : 1.62);
     const float visibleYaw = player.getYaw();
     const float visiblePitch = player.getPitch();
@@ -513,15 +539,14 @@ bool SilentAura::selectTarget(JNIEnv* env) {
 
 bool SilentAura::updateRotation(std::chrono::steady_clock::time_point now) {
     JNIEnv* env = Java::Env();
-    if (!target_.entity || !player.hasLastReportedPosition() || !env ||
-        !resolveC02(env) || !resolveC0A(env)) {
+    double localX = 0.0;
+    double localY = 0.0;
+    double localZ = 0.0;
+    if (!target_.entity || !env || !resolveC02(env) || !localAttackOrigin(localX, localY, localZ)) {
         rotationActive_.store(false, std::memory_order_release);
         return false;
     }
 
-    const double localX = player.getLastReportedPosX();
-    const double localY = player.getLastReportedPosY();
-    const double localZ = player.getLastReportedPosZ();
     const double eyeY = localY + (player.isSneaking() ? 1.54 : 1.62);
     const auto [targetYaw, targetPitch] = anglesTo(localX, eyeY, localZ,
                                                    target_.aimX, target_.aimY, target_.aimZ);
@@ -531,12 +556,9 @@ bool SilentAura::updateRotation(std::chrono::steady_clock::time_point now) {
 
     if (!managedRotationInitialized_) {
         std::lock_guard<std::mutex> publicationLock(publicationMutex_);
-        if (!wireRotationKnown_.load(std::memory_order_relaxed)) {
-            rotationActive_.store(false, std::memory_order_release);
-            return false;
-        }
-        managedYaw_ = wireYaw_.load(std::memory_order_relaxed);
-        managedPitch_ = wirePitch_.load(std::memory_order_relaxed);
+        const bool wireKnown = wireRotationKnown_.load(std::memory_order_relaxed);
+        managedYaw_ = wireKnown ? wireYaw_.load(std::memory_order_relaxed) : player.getYaw();
+        managedPitch_ = wireKnown ? wirePitch_.load(std::memory_order_relaxed) : player.getPitch();
         yawResidual_ = 0.0;
         pitchResidual_ = 0.0;
         managedRotationInitialized_ = true;
@@ -586,7 +608,7 @@ bool SilentAura::updateRotation(std::chrono::steady_clock::time_point now) {
 }
 
 bool SilentAura::publishedRayHitsTarget(JNIEnv* env, float yaw, float pitch) {
-    if (!env || !target_.entity || !player.hasLastReportedPosition() || !JniCache::mid_isSneaking)
+    if (!env || !target_.entity || !JniCache::mid_isSneaking)
         return false;
 
     double entityX = 0.0;
@@ -609,10 +631,12 @@ bool SilentAura::publishedRayHitsTarget(JNIEnv* env, float yaw, float pitch) {
     const double maxY = entityY + height;
     const double maxZ = entityZ + 0.3;
 
-    const double originX = player.getLastReportedPosX();
-    const double originYFeet = player.getLastReportedPosY();
+    double originX = 0.0;
+    double originYFeet = 0.0;
+    double originZ = 0.0;
+    if (!localAttackOrigin(originX, originYFeet, originZ))
+        return false;
     const double originY = originYFeet + (player.isSneaking() ? 1.54 : 1.62);
-    const double originZ = player.getLastReportedPosZ();
     const double centerDx = entityX - originX;
     const double centerDy = entityY - originYFeet;
     const double centerDz = entityZ - originZ;
@@ -657,8 +681,20 @@ bool SilentAura::publishedRayHitsTarget(JNIEnv* env, float yaw, float pitch) {
 }
 
 void SilentAura::tryAttack(JNIEnv* env, std::chrono::steady_clock::time_point now, bool aimReady) {
-    if (!aimReady || !target_.entity || now < nextAttackAt_)
+    if (!aimReady || !target_.entity)
         return;
+
+    const bool clickerPaced = autoClicker && autoClicker->enabled;
+    if (clickerPaced) {
+        if (autoClicker->lastAutoClick != observedClickerClick_) {
+            observedClickerClick_ = autoClicker->lastAutoClick;
+            clickerAttackPending_ = true;
+        }
+        if (!clickerAttackPending_)
+            return;
+    } else if (now < nextAttackAt_) {
+        return;
+    }
 
     std::uint64_t publicationVersion = 0;
     std::uint64_t packetSerial = 0;
@@ -705,6 +741,7 @@ void SilentAura::tryAttack(JNIEnv* env, std::chrono::steady_clock::time_point no
     }
 
     if (attacked) {
+        clickerAttackPending_ = false;
         scheduleNextAttack(now);
     } else {
         nextAttackAt_ = now + std::chrono::milliseconds(50);

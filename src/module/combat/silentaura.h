@@ -75,6 +75,8 @@ private:
     std::chrono::steady_clock::time_point nextAttackAt_{};
     std::chrono::steady_clock::time_point controllerUpdatedAt_{};
     std::chrono::steady_clock::time_point packetPreparedAt_{};
+    std::chrono::steady_clock::time_point observedClickerClick_{};
+    bool clickerAttackPending_ = false;
 
     float managedYaw_ = 0.0f;
     float managedPitch_ = 0.0f;
