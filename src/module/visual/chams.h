@@ -6,8 +6,7 @@ class Chams : public Module {
 public:
     Chams();
 
-    void onRender() override;   // 2D pass (unused — GL chams replaces it)
-    void onRender3D();          // GL model chams, called from the world render hook
+    void onRender3D();
     void onRenderMenu() override;
     std::string getDisplayInfo() override;
     void saveSettings(json::Value& node) const override;

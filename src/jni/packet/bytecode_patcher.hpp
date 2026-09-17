@@ -14,7 +14,6 @@ struct HookTargets {
     bool slowdown = false;  // patch EntityLivingBase.onLivingUpdate ONLY when SlowDownHook native is registered
     bool renderGhost = false;  // patch RenderGlobal.renderEntities ONLY when BacktrackGhostHook native is registered
     bool renderCamera = false;  // patch EntityRenderer.renderWorld ONLY when BacktrackGhostHook native is registered
-    bool backtrack = false;  // legacy S14/S18 processPacket patch; keep disabled
 };
 
 void SetTargets(const HookTargets& targets);

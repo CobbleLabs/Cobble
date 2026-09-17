@@ -103,10 +103,7 @@ bool Init() {
             targets.renderGhost = bgInit;
             targets.renderCamera = bgInit;
 
-            // Backtrack blocks only at the already-verified NetworkManager.channelRead0
-            // entry. Keep the legacy S14/S18 processPacket retransforms permanently off.
             targets.incomingBacktrack = regHooks && btInit;
-            targets.backtrack = false;
             BytecodePatcher::SetTargets(targets);
 
             bool instHook = BytecodePatcher::InstallBytecodeHook(env);

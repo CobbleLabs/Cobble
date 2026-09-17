@@ -60,7 +60,6 @@
 #include "jni/packet/packet_interceptor.hpp"
 #include "sdk/network/lunar_packet_listener.hpp"
 #include "sdk/network/lunar_sender.hpp"
-#include "sdk/network/network_probe.hpp"
 #include "sdk/player/render_data.h"
 #include "sdk/player/visual_cache.h"
 #include "security/dll_integrity.hpp"
@@ -166,12 +165,6 @@ void cobble::context::initialize(HMODULE hModule) {
     sdk::internal::wireGateD();      // Wire distributed-check function pointer.
     COBBLE_TRACE("after onCacheReady");
     log_ok("SDK initialized");
-
-    // Run NetworkManager discovery probe (output goes to dev console)
-    log_raw("Running NetworkManager probe...");
-    COBBLE_TRACE("before NetworkProbe::run");
-    NetworkProbe::run();
-    COBBLE_TRACE("after NetworkProbe::run");
 
     log_raw("Allocating modules...");
     // Dynamically allocate modules to avoid static initialization order issues

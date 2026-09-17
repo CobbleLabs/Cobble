@@ -3,7 +3,6 @@
 // WinSock2.h MUST be included before Windows.h to avoid redefinition errors
 #include <WinSock2.h>
 
-#include "../sdk/core/minecraft.h"
 #include "../util/logger.hpp"
 
 #include <Windows.h>
@@ -31,17 +30,12 @@ typedef int(WINAPI* WSASend_t)(SOCKET, LPWSABUF, DWORD, LPDWORD, DWORD, LPWSAOVE
                                LPWSAOVERLAPPED_COMPLETION_ROUTINE);
 typedef int(WINAPI* WSARecv_t)(SOCKET, LPWSABUF, DWORD, LPDWORD, LPDWORD, LPWSAOVERLAPPED,
                                LPWSAOVERLAPPED_COMPLETION_ROUTINE);
-typedef int(WINAPI* send_t)(SOCKET, const char*, int, int);
 
 WSASend_t OriginalWSASend = nullptr;
 WSARecv_t OriginalWSARecv = nullptr;
-send_t OriginalSend = nullptr;
 NtDeviceIoControlFile_t OriginalNtDeviceIoControlFile = nullptr;
 
 bool hooksInitialized = false;
-std::atomic<int> blockedPacketCount{0};
-std::atomic<int> sendCallCount{0};
-std::atomic<int> afdSendBlockedCount{0};  // Track NIO blocked sends
 
 // Thread allowed to bypass the stalls below. Only ever one at a time (the Alt
 // Manager serializes its login worker), so a single id is enough.
@@ -58,9 +52,6 @@ NTSTATUS NTAPI HookedNtDeviceIoControlFile(HANDLE FileHandle, HANDLE Event, PVOI
                                            ULONG InputBufferLength, PVOID OutputBuffer, ULONG OutputBufferLength) {
     // Check if this is an AFD send operation (used by Java NIO for socket sends)
     if (IoControlCode == IOCTL_AFD_SEND && WinsockHooks::StopOutbound.load() && !callerIsExempt()) {
-        afdSendBlockedCount++;
-
-        // Block by busy-waiting until StopOutbound is false
         while (WinsockHooks::StopOutbound.load()) {
             Sleep(1);
         }
@@ -74,7 +65,6 @@ NTSTATUS NTAPI HookedNtDeviceIoControlFile(HANDLE FileHandle, HANDLE Event, PVOI
 int WINAPI HookedWSASend(SOCKET s, LPWSABUF lpBuffers, DWORD dwBufferCount, LPDWORD lpNumberOfBytesSent, DWORD dwFlags,
                          LPWSAOVERLAPPED lpOverlapped, LPWSAOVERLAPPED_COMPLETION_ROUTINE lpCompletionRoutine) {
     if (WinsockHooks::StopOutbound.load() && !callerIsExempt()) {
-        blockedPacketCount++;
         while (WinsockHooks::StopOutbound.load()) {
             Sleep(1);
         }
@@ -82,15 +72,6 @@ int WINAPI HookedWSASend(SOCKET s, LPWSABUF lpBuffers, DWORD dwBufferCount, LPDW
 
     return OriginalWSASend(s, lpBuffers, dwBufferCount, lpNumberOfBytesSent, dwFlags, lpOverlapped,
                            lpCompletionRoutine);
-}
-
-// Hooked send - counts packets for debugging
-int WINAPI HookedSend(SOCKET s, const char* buf, int len, int flags) {
-    if (WinsockHooks::StopOutbound.load()) {
-        sendCallCount++;
-    }
-
-    return OriginalSend(s, buf, len, flags);
 }
 
 // Hooked WSARecv - blocks inbound packets when StopInbound is true
@@ -166,7 +147,6 @@ bool WinsockHooks::Init() {
     if (ws2_32) {
         LPVOID pWSASend = (LPVOID)GetProcAddress(ws2_32, "WSASend");
         LPVOID pWSARecv = (LPVOID)GetProcAddress(ws2_32, "WSARecv");
-        LPVOID pSend = (LPVOID)GetProcAddress(ws2_32, "send");
 
         log_debug("[WSA] hooking WSASend @ 0x%p", pWSASend);
         if (pWSASend) {
@@ -177,11 +157,6 @@ bool WinsockHooks::Init() {
                 log_warn("[WSA] WSASend hook FAILED");
             }
         }
-
-        // NOTE: send() hook removed — it was debug-only (packet counting) and
-        // caused crashes due to race conditions with game threads calling send()
-        // during prologue patching. NtDeviceIoControlFile + WSASend cover all
-        // actual blocking needs.
 
         log_debug("[WSA] hooking WSARecv @ 0x%p", pWSARecv);
         if (pWSARecv) {
@@ -224,22 +199,4 @@ void WinsockHooks::Shutdown() {
 
 bool WinsockHooks::IsInitialized() {
     return hooksInitialized;
-}
-
-int WinsockHooks::GetBlockedCount() {
-    return blockedPacketCount.load();
-}
-
-int WinsockHooks::GetSendCount() {
-    return sendCallCount.load();
-}
-
-int WinsockHooks::GetAfdSendBlockedCount() {
-    return afdSendBlockedCount.load();
-}
-
-void WinsockHooks::ResetBlockedCount() {
-    blockedPacketCount = 0;
-    sendCallCount = 0;
-    afdSendBlockedCount = 0;
 }

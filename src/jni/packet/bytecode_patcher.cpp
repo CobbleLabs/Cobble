@@ -72,26 +72,6 @@ static inline std::string kIncomingHookMethodName() {
 static inline std::string kIncomingHookMethodDesc() {
     return OBFUSCATE_STRING("(Ljava/lang/Object;Ljava/lang/Object;)Z");
 }
-static inline std::string kS14ClassMarker() {
-    return OBFUSCATE_STRING("S14PacketEntity");
-}
-static inline std::string kS18ClassMarker() {
-    return OBFUSCATE_STRING("S18PacketEntityTeleport");
-}
-// We patch processPacket on the PACKET classes themselves (not the NetHandler), so it
-// survives clients like Lunar that mixin/replace the entity handlers.
-static inline std::string kS14ClassSlash() {
-    return OBFUSCATE_STRING("net/minecraft/network/play/server/S14PacketEntity");
-}
-static inline std::string kS18ClassSlash() {
-    return OBFUSCATE_STRING("net/minecraft/network/play/server/S18PacketEntityTeleport");
-}
-static inline std::string kProcessPacketName() {
-    return OBFUSCATE_STRING("processPacket");
-}
-static inline std::string kProcessPacketNameObf() {
-    return OBFUSCATE_STRING("func_148833_a");
-}
 
 // Vanilla nametag rendering. RendererLivingEntity.renderName draws the actual
 // name for every living entity (RenderPlayer.renderName overrides it and also
@@ -125,9 +105,6 @@ static inline std::string kPassSpecialRenderMethodObf() {
 }
 
 static HookTargets g_targets{};
-// True only while patching an S14/S18 packet class, so the shared method patcher knows
-// to look for processPacket (and grab `this`, the packet, with aload_0).
-static std::atomic<bool> g_btPacketClass{false};
 static std::atomic<bool> g_hideVanillaNames{false};
 static std::atomic<bool> bytecodeHookInstalled{false};
 static std::atomic<bool> hooksRegistered{false};
@@ -136,8 +113,6 @@ static std::atomic<bool> slowDownHookApplied{false};
 static std::atomic<bool> g_networkManagerPatched{false};
 static std::atomic<bool> g_lunarNetHandlerPatched{false};
 static std::atomic<bool> g_netHandlerPlayClientPatched{false};
-static std::atomic<bool> g_s14Patched{false};
-static std::atomic<bool> g_s18Patched{false};
 static std::atomic<bool> g_renderGlobalPatched{false};
 static std::atomic<bool> g_entityRendererPatched{false};
 static std::atomic<std::uint32_t> g_classFileLoadCallbacksInFlight{0};
@@ -1316,7 +1291,6 @@ static int patchNetworkManagerClass(const uint8_t* data, size_t len, std::vector
     // Lunar Client injects ~120 extra methods into NetHandlerPlayClient via Mixins.
     // Patching that inflated version causes a JVM VerifyError (mixin StackMapTable
     // frames). Vanilla NetHandlerPlayClient has ~40 methods; over 80 is modded — skip.
-    // (Backtrack no longer needs this class: it patches S14/S18 processPacket instead.)
     if (methods_count > 80) {
         COBBLE_TRACE("patchNetworkManagerClass: methods_count too high (Lunar mixin class) — skipping patch");
         return 0;
@@ -1342,7 +1316,6 @@ static int patchNetworkManagerClass(const uint8_t* data, size_t len, std::vector
         bool is_target = false;
         bool is_incoming_target = false;
         bool is_channel_read_target = false;
-        bool is_backtrack_target = false;  // legacy S14/S18 processPacket hook
         int incoming_packet_slot = 2;      // Default: second param for channelRead0
         if (m_name < utf8.size() && m_desc < utf8.size()) {
             const std::string& name = utf8[m_name];
@@ -1431,17 +1404,6 @@ static int patchNetworkManagerClass(const uint8_t* data, size_t len, std::vector
                 }
             }
 
-            // Backtrack: patch processPacket(INetHandler)V on the S14/S18 PACKET class
-            // itself. processPacket calls the NetHandler's entity handler; cutting it here
-            // holds the packet without touching the handler — so it survives clients like
-            // Lunar that mixin/replace the handlers. `this` (the packet) is grabbed below.
-            if (g_targets.backtrack && g_btPacketClass.load(std::memory_order_relaxed) && desc.back() == 'V' &&
-                std::count(desc.begin(), desc.end(), ';') == 1 &&
-                (name == kProcessPacketName() || name == kProcessPacketNameObf())) {
-                is_backtrack_target = true;
-                log_debug("[PacketInterceptor] Found backtrack processPacket: %s %s", name.c_str(), desc.c_str());
-            }
-
             // Mark that we've logged methods
             if (!loggedMethods && i == methods_count - 1) {
                 loggedMethods = true;
@@ -1524,24 +1486,6 @@ static int patchNetworkManagerClass(const uint8_t* data, size_t len, std::vector
                            useIncomingBacktrack ? " (observer + backtrack gate)" : "");
                 } else {
                     log_debug("[PacketInterceptor] Incoming patch FAILED for: %s", method_name.c_str());
-                }
-            }
-
-            // Patch S14/S18 processPacket (Backtrack) - BLOCKING hook. is_static=true emits
-            // aload_0, i.e. `this` = the packet, which is what IncomingHook.canProcess wants.
-            // When it returns false the method returns early, so the entity handler is never
-            // called and the entity stays at its held position.
-            if (!patched && is_backtrack_target && attr_name && strcmp(attr_name, "Code") == 0 &&
-                (m_access & (0x0100 | 0x0400)) == 0) {
-                COBBLE_TRACE("patchNetworkManagerClass: calling tryPatchCodeAttribute (backtrack)");
-                if (tryPatchCodeAttribute(attr_data, attr_len, cp, utf8, idx_bt_methodref,
-                                          /*is_static=*/true, patched_attr)) {
-                    w.WriteU2(name_index);
-                    w.WriteU4(static_cast<uint32_t>(patched_attr.size()));
-                    w.WriteBytes(patched_attr.data(), patched_attr.size());
-                    patched = true;
-                    ++patched_methods;
-                    log_ok("[PacketInterceptor] Patched backtrack entity handler (blocking)");
                 }
             }
 
@@ -2310,35 +2254,6 @@ static void JNICALL onClassFileLoadHook(jvmtiEnv* jvmti_env, JNIEnv* jni_env, jc
         return;
     }
 
-    // Backtrack: patch processPacket on the S14/S18 packet classes (small, un-mixined).
-    if (g_targets.backtrack &&
-        (strcmp(name, kS14ClassSlash().c_str()) == 0 || strcmp(name, kS18ClassSlash().c_str()) == 0)) {
-        std::vector<uint8_t> patched;
-        g_btPacketClass.store(true, std::memory_order_relaxed);
-        int patched_methods = 0;
-        try {
-            patched_methods = patchNetworkManagerClass(class_data, static_cast<size_t>(class_data_len), patched);
-        } catch (...) {
-            patched_methods = -1;
-        }
-        g_btPacketClass.store(false, std::memory_order_relaxed);
-        if (patched_methods > 0) {
-            unsigned char* buffer = nullptr;
-            jvmtiError err = jvmti_env->Allocate(static_cast<jint>(patched.size()), &buffer);
-            if (err == JVMTI_ERROR_NONE && buffer) {
-                memcpy(buffer, patched.data(), patched.size());
-                *new_class_data_len = static_cast<jint>(patched.size());
-                *new_class_data = buffer;
-                if (strcmp(name, kS14ClassSlash().c_str()) == 0)
-                    g_s14Patched.store(true, std::memory_order_release);
-                else
-                    g_s18Patched.store(true, std::memory_order_release);
-                log_ok("[PacketInterceptor] Patched backtrack packet class %s (%d method(s))", name, patched_methods);
-            }
-        }
-        return;
-    }
-
     // Hook NetHandlerPlayClient.handleCustomPayload for incoming Lunar packets
     if ((g_targets.customPayload || g_targets.teams) && strcmp(name, kIncomingTargetClassSlash().c_str()) == 0) {
         log_debug("[PacketInterceptor] NetHandlerPlayClient loaded - patching handleCustomPayload");
@@ -2778,27 +2693,6 @@ bool InstallBytecodeHook(JNIEnv* env) {
         }
     }
 
-    if (g_targets.backtrack) {
-        const char* btDots[2] = {"net.minecraft.network.play.server.S14PacketEntity",
-                                 "net.minecraft.network.play.server.S18PacketEntityTeleport"};
-        for (const char* dot : btDots) {
-            jclass btCls = nullptr;
-            if (Java::AssignClass(dot, btCls)) {
-                jclass classes[1] = {btCls};
-                err = Java::tiEnv->RetransformClasses(1, classes);
-                if (err == JVMTI_ERROR_NONE)
-                    log_ok("[PacketInterceptor] Retransform requested for backtrack packet class %s", dot);
-                else
-                    log_warn("[PacketInterceptor] Backtrack packet class retransform failed: %d", err);
-                env->DeleteLocalRef(btCls);
-            } else {
-                if (env->ExceptionCheck())
-                    env->ExceptionClear();
-                log_debug("[PacketInterceptor] Backtrack packet class %s not loaded yet (will patch on load)", dot);
-            }
-        }
-    }
-
     if (incomingBacktrackRequested &&
         !(incomingBacktrackPrefixApplied.load(std::memory_order_acquire) &&
           slowDownHookApplied.load(std::memory_order_acquire))) {
@@ -2871,8 +2765,6 @@ bool Shutdown(JNIEnv* env) {
         g_lunarNetHandlerPatched.load(std::memory_order_acquire);
     const bool netHandlerPlayClientPatched =
         g_netHandlerPlayClientPatched.load(std::memory_order_acquire);
-    const bool s14Patched = g_s14Patched.load(std::memory_order_acquire);
-    const bool s18Patched = g_s18Patched.load(std::memory_order_acquire);
     const bool slowDownPatched = slowDownHookApplied.load(std::memory_order_acquire);
     const bool renderGlobalPatched =
         g_renderGlobalPatched.load(std::memory_order_acquire);
@@ -2880,7 +2772,7 @@ bool Shutdown(JNIEnv* env) {
         g_entityRendererPatched.load(std::memory_order_acquire);
     const bool anyClassPatched =
         networkManagerPatched || lunarNetHandlerPatched ||
-        netHandlerPlayClientPatched || s14Patched || s18Patched ||
+        netHandlerPlayClientPatched ||
         slowDownPatched || renderGlobalPatched || entityRendererPatched;
 
     jclass classesToRetransform[8]{};
@@ -2930,13 +2822,6 @@ bool Shutdown(JNIEnv* env) {
             "LCNetHandlerClient") ||
         !addPatchedClass(netHandlerPlayClientPatched, nullptr,
                          kIncomingTargetClassDot(), "NetHandlerPlayClient") ||
-        !addPatchedClass(s14Patched, nullptr,
-                         OBFUSCATE_STRING("net.minecraft.network.play.server.S14PacketEntity"),
-                         "S14PacketEntity") ||
-        !addPatchedClass(
-            s18Patched, nullptr,
-            OBFUSCATE_STRING("net.minecraft.network.play.server.S18PacketEntityTeleport"),
-            "S18PacketEntityTeleport") ||
         !addPatchedClass(
             slowDownPatched, cls_SlowdownTarget,
             OBFUSCATE_STRING("net.minecraft.entity.EntityLivingBase"),
@@ -3017,8 +2902,6 @@ bool Shutdown(JNIEnv* env) {
     g_networkManagerPatched.store(false, std::memory_order_release);
     g_lunarNetHandlerPatched.store(false, std::memory_order_release);
     g_netHandlerPlayClientPatched.store(false, std::memory_order_release);
-    g_s14Patched.store(false, std::memory_order_release);
-    g_s18Patched.store(false, std::memory_order_release);
     g_renderGlobalPatched.store(false, std::memory_order_release);
     g_entityRendererPatched.store(false, std::memory_order_release);
     incomingBacktrackPrefixApplied.store(false, std::memory_order_release);

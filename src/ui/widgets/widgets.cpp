@@ -603,7 +603,7 @@ std::vector<ui::tab_t> ui::tabs = {
     {ICON_FA_EYE,
      "Visuals",
      {"NameTags", "ESP", "ItemESP", "Tracers", "BlockESP", "Trajectories", "AntiDebuff", "ArrayList",
-      "DroppedInfo", "Notifications", "Watermark", "ClickGUI", "Pings", "Chams", "Freelook"}},
+      "DroppedInfo", "Notifications", "Watermark", "Pings", "Chams", "Freelook"}},
     {ICON_FA_RUNNING,
      "Movement",
      {"Timer", "TimerRange", "NoSlowDown", "NoJumpDelay", "Sprint", "InventoryMove", "FastStop"}},

@@ -5,28 +5,15 @@
 #include "../../sdk/core/minecraft.h"
 #include "../../sdk/player/visual_cache.h"
 #include "../../ui/widgets/widgets.hpp"
-#include "../../util/logger.hpp"
 #include "../../util/network/json.hpp"
 
 Chams* chams = nullptr;
 
 Chams::Chams() : Module("Chams") {
     keybind = 0;
-    renders = true;          // keep the module in the render list
     usesPlayerCache = true;
 }
 
-// ---------------------------------------------------------------------------
-// onRender — 2D pass. The real chams re-renders the entity model in GL (see
-// onRender3D, driven by the world render hook), so this stays empty.
-// ---------------------------------------------------------------------------
-void Chams::onRender() {}
-
-// ---------------------------------------------------------------------------
-// onRender3D — GL model chams. Runs inside Minecraft's world render pass so it
-// has the correct matrices/GL state. Fill draws a solid flat-color model; See
-// Player keeps the real skin, both rendered through walls.
-// ---------------------------------------------------------------------------
 void Chams::onRender3D() {
     if (!enabled || !mc.isValid())
         return;
@@ -34,12 +21,6 @@ void Chams::onRender3D() {
     const auto snap = VisualCache::GetSnapshot();
     if (!snap.valid)
         return;
-
-    static bool loggedFirst = false;
-    if (!loggedFirst) {
-        loggedFirst = true;
-        log_ok("[Chams] onRender3D fired: %d players in cache", (int)snap.players.size());
-    }
 
     const float partial = std::clamp(snap.partialTicks, 0.0f, 1.0f);
     const double localX = snap.localLastX + (snap.localX - snap.localLastX) * partial;
@@ -72,9 +53,6 @@ void Chams::onRender3D() {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Menu
-// ---------------------------------------------------------------------------
 void Chams::onRenderMenu() {
     bool enabledValue = enabled;
 

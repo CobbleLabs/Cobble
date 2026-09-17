@@ -754,7 +754,6 @@ void ConfigManager::applyConfig() {
         color[0] = config_["hud"]["arrayListColorR"].as_float(color[0]);
         color[1] = config_["hud"]["arrayListColorG"].as_float(color[1]);
         color[2] = config_["hud"]["arrayListColorB"].as_float(color[2]);
-        ui::gui_mode = config_["hud"]["guiMode"].as_int(ui::gui_mode);
         // Free position as a fraction of the anchored corner (see hud_place.hpp).
         // The old absolute arrayListPosX/PosY are deliberately NOT migrated: auto
         // placement used to write its own computed pixels into them, so a stored
@@ -985,7 +984,6 @@ void ConfigManager::buildConfigFromModules() {
     config_["hud"]["arrayListColorR"] = color[0];
     config_["hud"]["arrayListColorG"] = color[1];
     config_["hud"]["arrayListColorB"] = color[2];
-    config_["hud"]["guiMode"] = ui::gui_mode;
     // Fraction of the anchored corner, plus the bit that says the user actually
     // dragged it. Absolute pixels are gone; see hud/hud_place.hpp.
     config_["hud"]["arrayListRelX"] = relX;

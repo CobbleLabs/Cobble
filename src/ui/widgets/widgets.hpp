@@ -177,21 +177,14 @@ void handle_anims();
 void tab(int num);
 void subtab(int num, int tab_num);
 
-// Old Renewed nav: ui::tab() publishes the screen rect of the selected row so the
-// sidebar can draw ONE indicator that glides between rows, instead of every row
-// owning a highlight that pops on and off wherever the selection lands.
+// ui::tab() publishes the selected row's screen rect so the sidebar can draw
+// one rail that glides between rows instead of each row owning a highlight.
 inline ImVec2 nav_sel_min{0, 0};
 inline ImVec2 nav_sel_max{0, 0};
 inline bool nav_sel_valid = false;
 
-// ==================== STYLE ====================
 void apply_style();
 
-// Base window size
 inline ImVec2 baseSize{745, 520};
 inline ImVec2 size{745, 520};
-
-// ClickGUI visual mode: 0 = Old (the original), 1 = New (redesigned). Toggled
-// from the "ClickGUI" card in Visuals; persisted in config.
-inline int gui_mode = 1;  // 0 = Old Renewed, 1 = New (default)
 }  // namespace ui

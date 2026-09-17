@@ -31,12 +31,5 @@ void UnexemptCurrentThread();
 // busy-wait while the hooks themselves are being removed.
 void ReleaseStalls();
 
-// Check if hooks are installed
 bool IsInitialized();
-
-// Packet counting for debugging
-int GetBlockedCount();         // WSASend blocked count
-int GetSendCount();            // send() call count
-int GetAfdSendBlockedCount();  // NtDeviceIoControlFile AFD_SEND blocked (Java NIO)
-void ResetBlockedCount();
 }  // namespace WinsockHooks
