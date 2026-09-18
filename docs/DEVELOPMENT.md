@@ -89,7 +89,7 @@ Include the header. `new` after `moduleManager`. `registerModule`. `delete` in s
 Keep existing alloc order:
 
 - AntiBot before combat modules that query it
-- `scaffold = new Clutch(PlaceMode::Scaffold)` then `clutch = new Clutch(PlaceMode::Clutch)`
+- `scaffold = new Clutch(PlaceMode::Scaffold)`
 - `friendsManager` then `teamsModule`
 - Do not `registerModule(friendsManager)`
 
@@ -165,13 +165,13 @@ Call `ui::TickTooltip()` immediately after a widget whose value is in game ticks
 
 **Movement (tab 2):** Timer, TimerRange, NoSlowDown, NoJumpDelay, Sprint, InventoryMove, FastStop.
 
-**Utility (tab 3):** ArmorSwitch, AutoRefill, ThrowPots, AutoPot, FastPlace, NoItemRelease, BridgeAssist, Scaffold, Clutch, AutoTool, InvManager, AltManager, Teams.
+**Utility (tab 3):** ArmorSwitch, AutoRefill, ThrowPots, AutoPot, FastPlace, NoItemRelease, BridgeAssist, Scaffold, AutoTool, InvManager, AltManager, Teams.
 
 **Network (tab 4):** Backtrack, Blink, FakeLag.
 
 **Configs (tab 5)** and **Settings (tab 6)** have no modules. Freelook is a Settings checkbox (`Settings::Freelook`), ticked from `ModuleManager::update`. Camera hooks go through `BacktrackGhostGate`.
 
-Locked modules (`locked = true` in the constructor) show a lock on the card until the experimental unlock on the config page. Currently Scaffold, Clutch, and FakeLag.
+Locked modules (`locked = true` in the constructor) show a lock on the card until the experimental unlock on the config page. Currently Scaffold and FakeLag.
 
 ---
 

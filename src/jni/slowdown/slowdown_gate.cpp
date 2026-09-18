@@ -312,9 +312,8 @@ void JNICALL NativeOnSlowDown(JNIEnv* env, jclass, jobject playerInstance) {
     const bool wantSlow = noSlowDown && noSlowDown->enabled;
     const bool wantBt = backtrack && backtrack->needsClientTick();
     const bool wantBlock = blockHit && blockHit->needsClientTick();
-    const bool wantClutch = clutch && clutch->needsClientTick();
     const bool wantScaffold = scaffold && scaffold->needsClientTick();
-    if (!wantSlow && !wantBt && !wantBlock && !wantClutch && !wantScaffold)
+    if (!wantSlow && !wantBt && !wantBlock && !wantScaffold)
         return;
 
     // Use Minecraft.thePlayer as the authority. Backtrack's client-thread pump
@@ -338,7 +337,7 @@ void JNICALL NativeOnSlowDown(JNIEnv* env, jclass, jobject playerInstance) {
     if (wantBt)
         backtrack->onClientTick(env);
 
-    if (!wantSlow && !wantBlock && !wantClutch && !wantScaffold)
+    if (!wantSlow && !wantBlock && !wantScaffold)
         return;
 
     std::lock_guard<std::recursive_mutex> lock(player.instanceMutex);
@@ -349,11 +348,9 @@ void JNICALL NativeOnSlowDown(JNIEnv* env, jclass, jobject playerInstance) {
     }
     if (wantSlow)
         noSlowDown->applyMovement(env, playerInstance);
-    // Clutch/Scaffold move the REAL rotation, so they run here rather than on the async
-    // module loop: when a fall is about to kill you, the placement owns the head, and
-    // outgoing_gate defers the aim modules' packet rewrite for the same reason.
-    if (wantClutch)
-        clutch->onClientTick(env);
+    // Scaffold moves the REAL rotation, so it runs here rather than on the async
+    // module loop: the placement owns the head, and outgoing_gate defers the aim
+    // modules' packet rewrite for the same reason.
     if (wantScaffold)
         scaffold->onClientTick(env);
     if (wantBlock)

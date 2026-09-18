@@ -50,12 +50,11 @@ jboolean JNICALL NativeShouldSend(JNIEnv* env, jclass cls, jobject packet) {
     const bool autoPotPacketWork = autoPot && autoPot->enabled && autoPot->needsOutgoingPacket();
     const bool autoPotRotating = autoPotPacketWork && autoPot->isRewritingRotation();
     const bool potRotating = throwPotsRotating || autoPotRotating;
-    // Clutch/Scaffold no longer rewrite this packet: they move the real rotation on the
+    // Scaffold no longer rewrites this packet: it moves the real rotation on the
     // client tick, so the flying packet already carries the placement aim by the time it
     // gets here. What is still needed is the priority -- while the placement owns the
     // head, the aim modules must not overwrite it on the wire.
-    const bool clutchRotating = (clutch && clutch->enabled && clutch->isRewritingRotation()) ||
-                                (scaffold && scaffold->enabled && scaffold->isRewritingRotation());
+    const bool clutchRotating = scaffold && scaffold->enabled && scaffold->isRewritingRotation();
 
     const bool silentAuraRotating = silentAura && silentAura->isRewritingRotation();
 

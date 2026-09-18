@@ -31,7 +31,6 @@
 #include <limits>
 
 Clutch* scaffold = nullptr;
-Clutch* clutch = nullptr;
 
 namespace {
 constexpr double kPi = 3.14159265358979323846;

@@ -210,6 +210,4 @@ private:
     long long lastUpdateTick_ = 0;
 };
 
-// Two instances: the Scaffold module and its Clutch fork.
 extern Clutch* scaffold;
-extern Clutch* clutch;

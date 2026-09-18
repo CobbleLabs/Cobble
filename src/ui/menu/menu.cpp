@@ -173,14 +173,12 @@ Module* getModuleForSubtab(int tabIdx, int subtabIdx) {
             case 7:
                 return scaffold;
             case 8:
-                return clutch;
-            case 9:
                 return autoTool;
-            case 10:
+            case 9:
                 return inventoryManager;
-            case 11:
+            case 10:
                 return altManager;
-            case 12:
+            case 11:
                 return teamsModule;
         }
     }

@@ -208,8 +208,6 @@ void cobble::context::initialize(HMODULE hModule) {
     bridgeAssist = new BridgeAssist();
     COBBLE_TRACE("alloc:Scaffold");
     scaffold = new Clutch(PlaceMode::Scaffold);
-    COBBLE_TRACE("alloc:Clutch");
-    clutch = new Clutch(PlaceMode::Clutch);
     COBBLE_TRACE("alloc:Blink");
     blink = new Blink();
     COBBLE_TRACE("alloc:FakeLag");
@@ -283,7 +281,6 @@ void cobble::context::initialize(HMODULE hModule) {
     moduleManager->registerModule(noItemRelease);
     moduleManager->registerModule(bridgeAssist);
     moduleManager->registerModule(scaffold);
-    moduleManager->registerModule(clutch);
     moduleManager->registerModule(blink);
     moduleManager->registerModule(fakeLag);
     moduleManager->registerModule(fastPlace);
@@ -685,10 +682,6 @@ bool cobble::context::shutdown() {
     if (scaffold) {
         delete scaffold;
         scaffold = nullptr;
-    }
-    if (clutch) {
-        delete clutch;
-        clutch = nullptr;
     }
     if (blink) {
         delete blink;
