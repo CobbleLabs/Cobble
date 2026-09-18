@@ -1,7 +1,6 @@
 #include "clutch.h"
 
 #include "../../../infra/ext/imgui/imgui.h"
-#include "../../module/combat/autorod.h"
 #include "../../sdk/core/minecraft.h"
 #include "../../sdk/player/player.h"
 #include "../../sdk/player/render_data.h"
@@ -519,10 +518,9 @@ void Clutch::onClientTick(JNIEnv* env) {
     if (!env)
         return;
 
-    // Switched off mid-sequence, a screen went up, or AutoRod is mid-sequence and owns
-    // the hotbar and the use-item channel: hand the rotation, the slot and the phase
-    // back through one path so nothing can be left half-owned.
-    if (!enabled || !player.isValid() || Menu::isOpen || mc.isInGui() || (autoRod && autoRod->isSequencing())) {
+    // Switched off mid-sequence or a screen went up: hand the rotation, the slot
+    // and the phase back through one path so nothing can be left half-owned.
+    if (!enabled || !player.isValid() || Menu::isOpen || mc.isInGui()) {
         if (phase_ != Phase::Idle || originalSlot_ >= 0)
             abort(env);
         return;

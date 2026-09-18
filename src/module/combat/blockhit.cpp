@@ -10,7 +10,6 @@
 #include "../../util/network/json.hpp"
 #include "aimassist.h"
 #include "autoclicker.h"
-#include "autorod.h"
 #include "silentaura.h"
 
 #ifndef WIN32_LEAN_AND_MEAN
@@ -684,10 +683,6 @@ void BlockHit::onClientTick(JNIEnv* env) {
         gate = "Manual";
         handOver = foreignUse;
     }
-    // AutoRod owns the use-item channel while a sequence unwinds. isSequencing() is the whole
-    // test: it stays true after that module is toggled off until the sequence ends.
-    else if (autoRod && autoRod->isSequencing())
-        gate = "AutoRod";
     // Vanilla's slowdown branch is `isUsingItem() && !isRiding()`, so a block taken on a mount is
     // a block with no cost attached -- the exact mismatch this version exists to stop presenting.
     // Reproducing the branch would mean reproducing vehicle movement with it, so the module simply

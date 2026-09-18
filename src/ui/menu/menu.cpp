@@ -9,7 +9,6 @@
 #include "../../module/combat/aimbow.h"
 #include "../../module/combat/antibot.h"
 #include "../../module/combat/autoclicker.h"
-#include "../../module/combat/autorod.h"
 #include "../../module/combat/blockhit.h"
 #include "../../module/combat/backtrack.h"
 #include "../../module/combat/hitselect.h"
@@ -107,10 +106,8 @@ Module* getModuleForSubtab(int tabIdx, int subtabIdx) {
             case 10:
                 return blockHit;
             case 11:
-                return autoRod;
-            case 12:
                 return antiBot;
-            case 13:
+            case 12:
                 return silentAura;
         }
     }

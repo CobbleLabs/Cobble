@@ -4,7 +4,6 @@
 #include "module/combat/aimbow.h"
 #include "module/combat/antibot.h"
 #include "module/combat/autoclicker.h"
-#include "module/combat/autorod.h"
 #include "module/combat/blockhit.h"
 #include "module/combat/backtrack.h"
 #include "module/combat/hitselect.h"
@@ -170,7 +169,6 @@ void cobble::context::initialize(HMODULE hModule) {
     moduleManager = new ModuleManager();
     COBBLE_TRACE("alloc:AutoClicker");
     autoClicker = new AutoClicker();
-    autoRod = new AutoRod();
     blockHit = new BlockHit();
     COBBLE_TRACE("alloc:AimAssist");
     aimAssist = new AimAssist();
@@ -275,7 +273,6 @@ void cobble::context::initialize(HMODULE hModule) {
 
     log_raw("Registering modules...");
     moduleManager->registerModule(autoClicker);
-    moduleManager->registerModule(autoRod);
     moduleManager->registerModule(blockHit);
     moduleManager->registerModule(aimAssist);
     moduleManager->registerModule(silentAura);
@@ -619,10 +616,6 @@ bool cobble::context::shutdown() {
     if (autoClicker) {
         delete autoClicker;
         autoClicker = nullptr;
-    }
-    if (autoRod) {
-        delete autoRod;
-        autoRod = nullptr;
     }
     if (blockHit) {
         delete blockHit;

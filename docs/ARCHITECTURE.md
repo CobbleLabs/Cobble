@@ -70,7 +70,7 @@ Base type: `src/module/module.h`. Lifecycle: `onEnable` / `onDisable` / `onWorld
 
 The live menu lists and index map are in [DEVELOPMENT.md](DEVELOPMENT.md#menu-index-map).
 
-Removed from this tree (do not resurrect as leftovers): Opportunity, Spectate, TargetHUD, Animations, ClickGUI, NetworkProbe, LunarSender, the old `Math` class, VisualTeamResolver, Freelook-as-a-Visuals-module.
+Removed from this tree (do not resurrect as leftovers): Opportunity, Spectate, TargetHUD, Animations, ClickGUI, NetworkProbe, LunarSender, the old `Math` class, VisualTeamResolver, Freelook-as-a-Visuals-module, AutoRod.
 
 ---
 

@@ -144,9 +144,8 @@ Call `ui::TickTooltip()` immediately after a widget whose value is in game ticks
 | 8 | Piercing | `piercing` |
 | 9 | AimBow | `aimBow` |
 | 10 | AutoBlock | `blockHit` (`Module` name `BlockHit`; config key `BlockHit`) |
-| 11 | AutoRod | `autoRod` |
-| 12 | AntiBot | `antiBot` |
-| 13 | SilentAura | `silentAura` |
+| 11 | AntiBot | `antiBot` |
+| 12 | SilentAura | `silentAura` |
 
 **Visuals (tab 1)**
 

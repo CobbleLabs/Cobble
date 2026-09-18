@@ -15,7 +15,6 @@
 
 #include "../../module/movement/no_slow_down.h"
 #include "../../module/combat/backtrack.h"
-#include "../../module/combat/autorod.h"
 #include "../../module/combat/blockhit.h"
 #include "../../module/utility/clutch.h"
 #include "../../sdk/core/minecraft.h"
@@ -312,11 +311,10 @@ void JNICALL NativeOnSlowDown(JNIEnv* env, jclass, jobject playerInstance) {
 
     const bool wantSlow = noSlowDown && noSlowDown->enabled;
     const bool wantBt = backtrack && backtrack->needsClientTick();
-    const bool wantRod = autoRod && autoRod->needsClientTick();
     const bool wantBlock = blockHit && blockHit->needsClientTick();
     const bool wantClutch = clutch && clutch->needsClientTick();
     const bool wantScaffold = scaffold && scaffold->needsClientTick();
-    if (!wantSlow && !wantBt && !wantRod && !wantBlock && !wantClutch && !wantScaffold)
+    if (!wantSlow && !wantBt && !wantBlock && !wantClutch && !wantScaffold)
         return;
 
     // Use Minecraft.thePlayer as the authority. Backtrack's client-thread pump
@@ -340,7 +338,7 @@ void JNICALL NativeOnSlowDown(JNIEnv* env, jclass, jobject playerInstance) {
     if (wantBt)
         backtrack->onClientTick(env);
 
-    if (!wantSlow && !wantRod && !wantBlock && !wantClutch && !wantScaffold)
+    if (!wantSlow && !wantBlock && !wantClutch && !wantScaffold)
         return;
 
     std::lock_guard<std::recursive_mutex> lock(player.instanceMutex);
@@ -351,22 +349,13 @@ void JNICALL NativeOnSlowDown(JNIEnv* env, jclass, jobject playerInstance) {
     }
     if (wantSlow)
         noSlowDown->applyMovement(env, playerInstance);
-    // AutoRod's hotbar swaps and use-item have to be tick-aligned to stay in
-    // vanilla packet order, so the whole sequence is driven from here rather than
-    // from the async module loop.
-    if (wantRod)
-        autoRod->onClientTick(env);
     // Clutch/Scaffold move the REAL rotation, so they run here rather than on the async
     // module loop: when a fall is about to kill you, the placement owns the head, and
-    // outgoing_gate defers the aim modules' packet rewrite for the same reason. Both
-    // stand down on their own while AutoRod is sequencing, so the hotbar has one owner.
+    // outgoing_gate defers the aim modules' packet rewrite for the same reason.
     if (wantClutch)
         clutch->onClientTick(env);
     if (wantScaffold)
         scaffold->onClientTick(env);
-    // BlockHit is dispatched LAST on purpose: AutoRod has already claimed the use-item
-    // keybind for any tick where it needs it, and the swing this tick's release window is
-    // timed against has already been recorded.
     if (wantBlock)
         blockHit->onClientTick(env);
 }
