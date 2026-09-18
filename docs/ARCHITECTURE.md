@@ -70,7 +70,7 @@ Base type: `src/module/module.h`. Lifecycle: `onEnable` / `onDisable` / `onWorld
 
 The live menu lists and index map are in [DEVELOPMENT.md](DEVELOPMENT.md#menu-index-map).
 
-Removed from this tree (do not resurrect as leftovers): Opportunity, Spectate, TargetHUD, Animations, ClickGUI, NetworkProbe, LunarSender, the old `Math` class, VisualTeamResolver, Freelook-as-a-Visuals-module, AutoRod, AimBow.
+Removed from this tree (do not resurrect as leftovers): Opportunity, Spectate, TargetHUD, Animations, ClickGUI, NetworkProbe, LunarSender, the old `Math` class, VisualTeamResolver, Freelook-as-a-Visuals-module, AutoRod, AimBow, Trajectories.
 
 ---
 
@@ -78,7 +78,7 @@ Removed from this tree (do not resurrect as leftovers): Opportunity, Spectate, T
 
 One sidebar. Insert (`VK_INSERT`) toggles it (`Menu::menuKey`). Escape closes.
 
-Tabs live in `ui::tabs` (`src/ui/widgets/widgets.cpp`). `getModuleForSubtab` (`src/ui/menu/menu.cpp`) must match that order exactly. Visuals indices 7 / 9 / 10 are HUD pages (ArrayList, Notifications, Watermark), not `Module*`. Combat label `AutoBlock` maps to `blockHit`. Freelook is a Settings control (`Settings::Freelook`), not a module.
+Tabs live in `ui::tabs` (`src/ui/widgets/widgets.cpp`). `getModuleForSubtab` (`src/ui/menu/menu.cpp`) must match that order exactly. Visuals indices 6 / 8 / 9 are HUD pages (ArrayList, Notifications, Watermark), not `Module*`. Combat label `AutoBlock` maps to `blockHit`. Freelook is a Settings control (`Settings::Freelook`), not a module.
 
 `HookedSwapBuffers` draws the overlay HUD, then `Menu::Render`. `Overlay::Render` calls `moduleManager->onRender()` plus ArrayList, Watermark, and Notifications.
 

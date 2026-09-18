@@ -50,7 +50,6 @@
 #include "../../module/visual/nametags.h"
 #include "../../module/visual/anti_debuff.h"
 #include "../../module/visual/tracers.h"
-#include "../../module/visual/trajectories.h"
 #include "../../module/visual/dropped_info.h"
 #include "../../sdk/core/minecraft.h"
 #include "../../security/session_validator.hpp"
@@ -122,20 +121,18 @@ Module* getModuleForSubtab(int tabIdx, int subtabIdx) {
             case 4:
                 return blockESP;
             case 5:
-                return trajectories;
-            case 6:
                 return antiDebuff;
-            case 7:
+            case 6:
                 return nullptr;  // ArrayList - special handling
-            case 8:
+            case 7:
                 return droppedInfo;  // DroppedInfo
-            case 9:
+            case 8:
                 return nullptr;  // Notifications - special handling
-            case 10:
+            case 9:
                 return nullptr;  // Watermark - special handling
-            case 11:
+            case 10:
                 return pingsModule;
-            case 12:
+            case 11:
                 return chams;
         }
     }
@@ -1038,7 +1035,7 @@ static void renderModuleList(int tab) {
         int originalSubtab = result.subtabIdx;
 
         // Centralized routing (Req 3.3 / 4.4). m == nullptr for the Visuals
-        // ArrayList (7), Notifications (9) and Watermark (10) special pages.
+        // ArrayList (6), Notifications (8) and Watermark (9) special pages.
         Module* m = getModuleForSubtab(originalTab, originalSubtab);
         bool isLocked = m && m->showsDeveloperOnly();
         // Special pages (no Module): reflect their own enabled flag so the card
@@ -1364,7 +1361,7 @@ static void renderModuleConfig(int tab) {
         }
     }
     // Special pages (ArrayList, Notifications) - no Module, render inline
-    else if (ui::cur_tab == 1 && t.cur_subtab == 7) {
+    else if (ui::cur_tab == 1 && t.cur_subtab == 6) {
         // ArrayList settings
         ui::SetDescriptionContext("ArrayList", /*allowTips=*/true);
         ui::two_column(
@@ -1413,11 +1410,11 @@ static void renderModuleConfig(int tab) {
                         ui::color("Color", ArrayListRenderer::color, /*alpha=*/false);
                 }
             });
-    } else if (ui::cur_tab == 1 && t.cur_subtab == 9) {
+    } else if (ui::cur_tab == 1 && t.cur_subtab == 8) {
         // Notifications settings
         ui::SetDescriptionContext("Notifications", /*allowTips=*/true);
         ui::section("Settings", []() { ui::Checkbox("Enabled", &NotificationManager::enabled); });
-    } else if (ui::cur_tab == 1 && t.cur_subtab == 10) {
+    } else if (ui::cur_tab == 1 && t.cur_subtab == 9) {
         // Watermark settings. The badge is a strip of ITEMS drawn inside an
         // optional card, so this page is an item editor plus the card / bar /
         // effect chrome. Nothing here assumes a fixed "name | version | FPS"

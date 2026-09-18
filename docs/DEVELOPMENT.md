@@ -101,7 +101,7 @@ Append the label to the correct vector in `ui::tabs` (`src/ui/widgets/widgets.cp
 
 Those two lists are the same index space. Inserting in the middle of one without shifting the other maps the wrong module for every later card. Search, gear, and right-click all go through `getModuleForSubtab`.
 
-Combat currently ends **AntiBot then SilentAura**. Visuals special pages (not modules): ArrayList **7**, Notifications **9**, Watermark **10**.
+Combat currently ends **AntiBot then SilentAura**. Visuals special pages (not modules): ArrayList **6**, Notifications **8**, Watermark **9**.
 
 ### 5. Config
 
@@ -155,14 +155,13 @@ Call `ui::TickTooltip()` immediately after a widget whose value is in game ticks
 | 2 | ItemESP | `itemEsp` |
 | 3 | Tracers | `tracers` |
 | 4 | BlockESP | `blockESP` |
-| 5 | Trajectories | `trajectories` |
-| 6 | AntiDebuff | `antiDebuff` |
-| 7 | ArrayList | HUD (`src/ui/hud/arraylist.*`) |
-| 8 | DroppedInfo | `droppedInfo` |
-| 9 | Notifications | HUD |
-| 10 | Watermark | HUD |
-| 11 | Pings | `pingsModule` |
-| 12 | Chams | `chams` |
+| 5 | AntiDebuff | `antiDebuff` |
+| 6 | ArrayList | HUD (`src/ui/hud/arraylist.*`) |
+| 7 | DroppedInfo | `droppedInfo` |
+| 8 | Notifications | HUD |
+| 9 | Watermark | HUD |
+| 10 | Pings | `pingsModule` |
+| 11 | Chams | `chams` |
 
 **Movement (tab 2):** Timer, TimerRange, NoSlowDown, NoJumpDelay, Sprint, InventoryMove, FastStop.
 

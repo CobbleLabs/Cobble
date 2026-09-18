@@ -47,7 +47,6 @@
 #include "module/visual/nametags.h"
 #include "module/visual/anti_debuff.h"
 #include "module/visual/tracers.h"
-#include "module/visual/trajectories.h"
 #include "module/visual/dropped_info.h"
 #include "module/visual/pings.h"
 
@@ -253,8 +252,6 @@ void cobble::context::initialize(HMODULE hModule) {
     tracers = new Tracers();
     COBBLE_TRACE("alloc:BlockESP");
     blockESP = new BlockESP();
-    COBBLE_TRACE("alloc:Trajectories");
-    trajectories = new Trajectories();
     COBBLE_TRACE("alloc:DroppedInfo");
     droppedInfo = new DroppedInfo();
     COBBLE_TRACE("alloc:Pings");
@@ -314,7 +311,6 @@ void cobble::context::initialize(HMODULE hModule) {
     moduleManager->registerModule(itemEsp);
     moduleManager->registerModule(tracers);
     moduleManager->registerModule(blockESP);
-    moduleManager->registerModule(trajectories);
     moduleManager->registerModule(droppedInfo);
     moduleManager->registerModule(pingsModule);
     log_ok("Modules registered");
@@ -785,10 +781,6 @@ bool cobble::context::shutdown() {
     if (blockESP) {
         delete blockESP;
         blockESP = nullptr;
-    }
-    if (trajectories) {
-        delete trajectories;
-        trajectories = nullptr;
     }
     if (droppedInfo) {
         delete droppedInfo;
