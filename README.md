@@ -33,7 +33,7 @@ Config is local-first. Cloud sync is opt-in from Settings and uses **POST** `/ap
 |-----|----------|
 | Combat | AutoClicker, AimAssist, Velocity, Reach, HitSelect, NoHitDelay, Criticals, WTap, Piercing, AutoBlock, AntiBot |
 | Visuals | NameTags, ESP, ItemESP, Tracers, BlockESP, AntiDebuff, ArrayList, DroppedInfo, Notifications, Watermark, Pings, Chams |
-| Movement | Timer, TimerRange, NoSlowDown, NoJumpDelay, Sprint, InventoryMove, FastStop |
+| Movement | Timer, NoSlowDown, NoJumpDelay, Sprint, InventoryMove, FastStop |
 | Utility | ArmorSwitch, AutoRefill, ThrowPots, FastPlace, NoItemRelease, BridgeAssist, AutoTool, InvManager, AltManager, Teams |
 | Network | Backtrack, Blink |
 | Configs / Settings | Cloud configs; menu key, Freelook, and related client options |

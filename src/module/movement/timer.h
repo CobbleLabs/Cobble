@@ -6,7 +6,6 @@ class TimerMod : public Module {
 public:
     TimerMod();
 
-    void onEnable() override;
     void onDisable() override;
     void onUpdate() override;
     void onRenderMenu() override;

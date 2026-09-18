@@ -24,7 +24,6 @@
 #include "../../module/movement/no_slow_down.h"
 #include "../../module/movement/blink.h"
 #include "../../module/movement/timer.h"
-#include "../../module/movement/timerrange.h"
 #include "../../module/movement/sprint.h"
 #include "../../module/movement/faststop.h"
 #include "../../module/utility/armorswitch.h"
@@ -128,22 +127,20 @@ Module* getModuleForSubtab(int tabIdx, int subtabIdx) {
                 return chams;
         }
     }
-    // Movement Tab (2): Timer, TimerRange, NoSlowDown, NoJumpDelay, Sprint, InventoryMove
+    // Movement Tab (2): Timer, NoSlowDown, NoJumpDelay, Sprint, InventoryMove
     else if (tabIdx == 2) {
         switch (subtabIdx) {
             case 0:
                 return timerModule;
             case 1:
-                return timerRange;
-            case 2:
                 return noSlowDown;
-            case 3:
+            case 2:
                 return noJumpDelay;
-            case 4:
+            case 3:
                 return sprint;
-            case 5:
+            case 4:
                 return inventoryMove;
-            case 6:
+            case 5:
                 return fastStop;
         }
     }

@@ -4,7 +4,6 @@
 #include "../noitemrelease/noitemrelease_gate.hpp"
 #include "../blink/blink_gate.hpp"
 #include "../../module/combat/piercing.h"
-#include "../../module/movement/timerrange.h"
 #include "../../module/movement/blink.h"
 #include "../../module/utility/autorefill.h"
 #include "../../module/utility/altmanager.h"
@@ -50,9 +49,6 @@ jboolean JNICALL NativeShouldSend(JNIEnv* env, jclass cls, jobject packet) {
     if (piercing && piercing->enabled && !piercing->shouldSendOutgoingPacket(env, packet))
         return JNI_FALSE;
 
-    if (timerRange && timerRange->enabled)
-        timerRange->onOutgoingPacket(env, packet, TimerRange::PacketPhase::PRE);
-
     // Check Blink - if it blocks, don't send.
     if (::blink && ::blink->enabled) {
         if (!BlinkGate::ShouldSendPacket(env, packet))
@@ -71,8 +67,6 @@ jboolean JNICALL NativeShouldSend(JNIEnv* env, jclass cls, jobject packet) {
     if (noItemRelease && noItemRelease->enabled) {
         shouldSend = NoItemReleaseGate::NativeShouldSend(env, cls, packet);
     }
-    if (shouldSend == JNI_TRUE && timerRange && timerRange->enabled)
-        timerRange->onOutgoingPacket(env, packet, TimerRange::PacketPhase::POST);
 
     return shouldSend;
 }

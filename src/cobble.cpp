@@ -19,7 +19,6 @@
 #include "module/movement/no_slow_down.h"
 #include "module/movement/blink.h"
 #include "module/movement/timer.h"
-#include "module/movement/timerrange.h"
 #include "module/movement/sprint.h"
 #include "module/movement/faststop.h"
 #include "module/utility/armorswitch.h"
@@ -204,8 +203,6 @@ void cobble::context::initialize(HMODULE hModule) {
     fastPlace = new FastPlace();
     COBBLE_TRACE("alloc:TimerMod");
     timerModule = new TimerMod();
-    COBBLE_TRACE("alloc:TimerRange");
-    timerRange = new TimerRange();
     COBBLE_TRACE("alloc:Sprint");
     sprint = new Sprint();
     COBBLE_TRACE("alloc:InventoryMove");
@@ -269,7 +266,6 @@ void cobble::context::initialize(HMODULE hModule) {
     moduleManager->registerModule(blink);
     moduleManager->registerModule(fastPlace);
     moduleManager->registerModule(timerModule);
-    moduleManager->registerModule(timerRange);
     moduleManager->registerModule(sprint);
     moduleManager->registerModule(inventoryMove);
     moduleManager->registerModule(autoTool);
@@ -666,10 +662,6 @@ bool cobble::context::shutdown() {
     if (timerModule) {
         delete timerModule;
         timerModule = nullptr;
-    }
-    if (timerRange) {
-        delete timerRange;
-        timerRange = nullptr;
     }
     if (sprint) {
         delete sprint;

@@ -161,7 +161,7 @@ Call `ui::TickTooltip()` immediately after a widget whose value is in game ticks
 | 10 | Pings | `pingsModule` |
 | 11 | Chams | `chams` |
 
-**Movement (tab 2):** Timer, TimerRange, NoSlowDown, NoJumpDelay, Sprint, InventoryMove, FastStop.
+**Movement (tab 2):** Timer, NoSlowDown, NoJumpDelay, Sprint, InventoryMove, FastStop.
 
 **Utility (tab 3):** ArmorSwitch, AutoRefill, ThrowPots, FastPlace, NoItemRelease, BridgeAssist, AutoTool, InvManager, AltManager, Teams.
 
