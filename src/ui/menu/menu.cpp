@@ -33,7 +33,6 @@
 #include "../../module/utility/autorefill.h"
 #include "../../module/utility/altmanager.h"
 #include "../../module/utility/autotool.h"
-#include "../../module/utility/breaker.h"
 #include "../../module/utility/bridgeassist.h"
 #include "../../module/utility/clutch.h"
 #include "../../module/utility/fastplace.h"
@@ -177,16 +176,14 @@ Module* getModuleForSubtab(int tabIdx, int subtabIdx) {
             case 8:
                 return clutch;
             case 9:
-                return breaker;
-            case 10:
                 return autoTool;
-            case 11:
+            case 10:
                 return inventoryManager;
-            case 12:
+            case 11:
                 return fastBreak;
-            case 13:
+            case 12:
                 return altManager;
-            case 14:
+            case 13:
                 return teamsModule;
         }
     }

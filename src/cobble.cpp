@@ -28,7 +28,6 @@
 #include "module/utility/autorefill.h"
 #include "module/utility/altmanager.h"
 #include "module/utility/autotool.h"
-#include "module/utility/breaker.h"
 #include "module/utility/bridgeassist.h"
 #include "module/utility/clutch.h"
 #include "module/utility/fastplace.h"
@@ -212,8 +211,6 @@ void cobble::context::initialize(HMODULE hModule) {
     scaffold = new Clutch(PlaceMode::Scaffold);
     COBBLE_TRACE("alloc:Clutch");
     clutch = new Clutch(PlaceMode::Clutch);
-    COBBLE_TRACE("alloc:Breaker");
-    breaker = new Breaker();
     COBBLE_TRACE("alloc:Blink");
     blink = new Blink();
     COBBLE_TRACE("alloc:FakeLag");
@@ -290,7 +287,6 @@ void cobble::context::initialize(HMODULE hModule) {
     moduleManager->registerModule(bridgeAssist);
     moduleManager->registerModule(scaffold);
     moduleManager->registerModule(clutch);
-    moduleManager->registerModule(breaker);
     moduleManager->registerModule(blink);
     moduleManager->registerModule(fakeLag);
     moduleManager->registerModule(fastPlace);
@@ -697,10 +693,6 @@ bool cobble::context::shutdown() {
     if (clutch) {
         delete clutch;
         clutch = nullptr;
-    }
-    if (breaker) {
-        delete breaker;
-        breaker = nullptr;
     }
     if (blink) {
         delete blink;

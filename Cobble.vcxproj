@@ -118,7 +118,6 @@
     <ClCompile Include="src\module\utility\noitemrelease.cpp" />
     <ClCompile Include="src\module\utility\bridgeassist.cpp" />
     <ClCompile Include="src\module\utility\clutch.cpp" />
-    <ClCompile Include="src\module\utility\breaker.cpp" />
 
     <ClCompile Include="src\module\utility\fastplace.cpp" />
     <ClCompile Include="src\module\utility\fastbreak.cpp" />
@@ -217,7 +216,6 @@
     <ClInclude Include="src\module\movement\nojumpdelay.h" />
     <ClInclude Include="src\module\utility\bridgeassist.h" />
     <ClInclude Include="src\module\utility\clutch.h" />
-    <ClInclude Include="src\module\utility\breaker.h" />
 
     <ClInclude Include="src\module\utility\fastplace.h" />
     <ClInclude Include="src\module\utility\fastbreak.h" />
