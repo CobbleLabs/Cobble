@@ -34,7 +34,6 @@
 #include "module/utility/inventorymanager.h"
 #include "module/utility/teams.h"
 #include "module/utility/throwpots.h"
-#include "module/utility/autopot.h"
 
 #include "module/visual/blockesp.h"
 #include "module/visual/chams.h"
@@ -178,8 +177,6 @@ void cobble::context::initialize(HMODULE hModule) {
     autoRefill = new AutoRefill();
     COBBLE_TRACE("alloc:ThrowPots");
     throwPots = new ThrowPots();
-    COBBLE_TRACE("alloc:AutoPot");
-    autoPot = new AutoPot();
     COBBLE_TRACE("alloc:Velocity");
     velocity = new Velocity();
     COBBLE_TRACE("alloc:Reach");
@@ -263,7 +260,6 @@ void cobble::context::initialize(HMODULE hModule) {
     moduleManager->registerModule(armorSwitch);
     moduleManager->registerModule(autoRefill);
     moduleManager->registerModule(throwPots);
-    moduleManager->registerModule(autoPot);
     moduleManager->registerModule(velocity);
     moduleManager->registerModule(reach);
     moduleManager->registerModule(piercing);
@@ -621,10 +617,6 @@ bool cobble::context::shutdown() {
     if (throwPots) {
         delete throwPots;
         throwPots = nullptr;
-    }
-    if (autoPot) {
-        delete autoPot;
-        autoPot = nullptr;
     }
     if (velocity) {
         delete velocity;

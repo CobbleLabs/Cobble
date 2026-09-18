@@ -70,7 +70,7 @@ Base type: `src/module/module.h`. Lifecycle: `onEnable` / `onDisable` / `onWorld
 
 The live menu lists and index map are in [DEVELOPMENT.md](DEVELOPMENT.md#menu-index-map).
 
-Removed from this tree (do not resurrect as leftovers): Opportunity, Spectate, TargetHUD, Animations, ClickGUI, NetworkProbe, LunarSender, the old `Math` class, VisualTeamResolver, Freelook-as-a-Visuals-module, AutoRod, AimBow, Trajectories, Breaker, FastBreak, Clutch, Scaffold.
+Removed from this tree (do not resurrect as leftovers): Opportunity, Spectate, TargetHUD, Animations, ClickGUI, NetworkProbe, LunarSender, the old `Math` class, VisualTeamResolver, Freelook-as-a-Visuals-module, AutoRod, AimBow, Trajectories, Breaker, FastBreak, Clutch, Scaffold, AutoPot.
 
 ---
 
@@ -92,7 +92,7 @@ Font atlas slots 0–5 are fixed (`src/ui/core/overlay.cpp`). Slot 4 (`notificat
 
 | Unit | Role |
 |------|------|
-| `OutgoingPacketGate` | Single `sendPacket` native: SilentAura, FakeLag, Blink, pots, piercing, alt spoof, TimerRange, NoItemRelease, AimAssist rotation |
+| `OutgoingPacketGate` | Single `sendPacket` native: SilentAura, FakeLag, Blink, ThrowPots, piercing, alt spoof, TimerRange, NoItemRelease, AimAssist rotation |
 | `NoItemReleaseGate` | Drop `C07PacketPlayerDigging.RELEASE_USE_ITEM` while the module holds use |
 | `BlinkGate` | Hold selected outgoing packets |
 | `BacktrackGate` | Hold incoming entity movement; replay on the client thread |

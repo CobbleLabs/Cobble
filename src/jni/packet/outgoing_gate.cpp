@@ -11,7 +11,6 @@
 #include "../../module/utility/altmanager.h"
 #include "../../module/utility/noitemrelease.h"
 #include "../../module/utility/throwpots.h"
-#include "../../module/utility/autopot.h"
 #include "../../module/combat/aimassist.h"
 #include "../../module/combat/silentaura.h"
 #include "../../module/combat/backtrack.h"
@@ -42,20 +41,13 @@ jboolean JNICALL NativeShouldSend(JNIEnv* env, jclass cls, jobject packet) {
 
     const bool throwPotsPacketWork = throwPots && throwPots->enabled && throwPots->needsOutgoingPacket();
     const bool throwPotsRotating = throwPotsPacketWork && throwPots->isRewritingRotation();
-    // AutoPot is the automatic counterpart and stands down whenever ThrowPots is
-    // running, so the two can never claim the packet at the same time. Its silent
-    // pitch outranks the aim modules for the same reason ThrowPots' does: a potion
-    // aimed anywhere but the ground is a wasted potion.
-    const bool autoPotPacketWork = autoPot && autoPot->enabled && autoPot->needsOutgoingPacket();
-    const bool autoPotRotating = autoPotPacketWork && autoPot->isRewritingRotation();
-    const bool potRotating = throwPotsRotating || autoPotRotating;
 
     const bool silentAuraRotating = silentAura && silentAura->isRewritingRotation();
 
     // AimAssist packet-rotation (smooth camera): rewrites the outgoing movement
     // packet's yaw/pitch with the randomized server rotation. Deferred while a
     // potion or SilentAura owns the rotation.
-    if (aimAssist && aimAssist->enabled && !silentAuraRotating && !potRotating) {
+    if (aimAssist && aimAssist->enabled && !silentAuraRotating && !throwPotsRotating) {
         aimAssist->onOutgoingPacket(env, packet);
     }
 
@@ -90,18 +82,13 @@ jboolean JNICALL NativeShouldSend(JNIEnv* env, jclass cls, jobject packet) {
         throwPots->onOutgoingPacket(env, packet);
     }
 
-    // Same placement, same reasoning, for the automatic one.
-    if (autoPotPacketWork) {
-        autoPot->onOutgoingPacket(env, packet);
-    }
-
     // Finally check NoItemRelease. Only queries the gate if the module is on.
     jboolean shouldSend = JNI_TRUE;
     if (noItemRelease && noItemRelease->enabled) {
         shouldSend = NoItemReleaseGate::NativeShouldSend(env, cls, packet);
     }
     if (shouldSend == JNI_TRUE && silentAura) {
-        if (silentAuraRotating && !potRotating)
+        if (silentAuraRotating && !throwPotsRotating)
             silentAura->onOutgoingPacket(env, packet);
         else
             silentAura->observeAcceptedOutgoingPacket(env, packet, true);

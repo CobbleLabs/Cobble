@@ -71,9 +71,6 @@ static const DescriptionEntry kModuleDescriptions[] = {
     {"", "InvManager", "", "Organizes the inventory and hotbar using your saved preferences."},
     {"", "AltManager", "", "Sets the offline-mode username used on the next server connection."},
     {"", "Teams", "", "Decides who counts as a teammate, from server team data, nametag colors and the scoreboard."},
-    {"", "AutoPot", "",
-     "Throws splash healing potions at your feet when your health drops, counting the heal already in the air so a "
-     "burst spends exactly as many potions as the missing health calls for."},
     {"", "FastStop", "", "Cancels leftover momentum instantly when you release the movement keys."},
 };
 
@@ -341,52 +338,6 @@ static const DescriptionEntry kOptionDescriptions[] = {
      "Adds whoever you are looking at to your friends with one key. The friend list itself lives in Settings."},
     {"Teams", "Clear Detected", "",
      "Forgets every auto-detected teammate so the next packets rebuild the list. Your manual friends stay."},
-    {"AutoPot", "Pot Below (%)", "",
-     "Health at which a burst starts, as a share of your maximum. 55% is roughly where a good player reaches for a "
-     "potion: low enough not to waste them, high enough to survive the next combo."},
-    {"AutoPot", "Heal Until (%)", "",
-     "The burst stops once predicted health reaches this. Predicted, not current, so potions still in the air already "
-     "count and you never overheal by two throws."},
-    {"AutoPot", "Max Pots", "", "Hard ceiling on one burst, whatever the health maths asks for."},
-    {"AutoPot", "Prefer Heal II", "",
-     "Spends the strong potions first, ending the burst in fewer throws. Turn it off to save Heal II and pay with Heal "
-     "I."},
-    {"AutoPot", "Allow Heal I", "", "Lets plain Instant Health count. Off means only Instant Health II is ever used."},
-    {"AutoPot", "Only On Ground", "",
-     "Skips throws while airborne, where the potion lands somewhere other than under you."},
-    {"AutoPot", "Only In Combat", "",
-     "Waits for recent damage before potting, so you do not spend potions topping off between fights."},
-    {"AutoPot", "Combat Window (ms)", "", "How long after taking a hit you still count as in combat."},
-    {"AutoPot", "Preset", "",
-     "Named timing bundles. Instant is as fast as the protocol allows, Human is what a good player actually does, "
-     "Legit is visibly unhurried. Moving any timing slider switches this to Custom instead of mislabelling itself."},
-    {"AutoPot", "Reaction (ms)", "",
-     "Delay between health dropping and your hand moving. Zero is machine-fast; humans sit near 140. If health has "
-     "already been low for a moment this is shortened, because a player watching the bar reacts sooner."},
-    {"AutoPot", "Jitter (%)", "",
-     "Spread applied to every delay, drawn so most throws land near the base and the extremes stay rare. Zero makes "
-     "every burst identically timed, which is the easiest thing in the world to spot."},
-    {"AutoPot", "Switch (ms)", "", "Gap between selecting the hotbar slot and the right click."},
-    {"AutoPot", "Throw Gap (ms)", "", "Pause between potions of one burst."},
-    {"AutoPot", "Restore (ms)", "", "Pause after the last throw before the sword comes back."},
-    {"AutoPot", "Fatigue", "",
-     "A long fight slows the delays slightly, the way real hands do, and resets once you stop potting."},
-    {"AutoPot", "Aim", "",
-     "Silent points the outgoing packet down and leaves your camera alone. Snap moves the real pitch and jumps back. "
-     "Smooth pulls it down over a few frames like a mouse. None throws wherever you already look."},
-    {"AutoPot", "Pitch", "", "Degrees down for the throw. 90 is straight at your feet."},
-    {"AutoPot", "Pitch Jitter", "",
-     "Degrees of variation per throw. Invisible inside the splash radius, very visible in a rotation log if absent."},
-    {"AutoPot", "Flick Time (ms)", "", "How long the Smooth pull down takes."},
-    {"AutoPot", "Switch Back", "", "Returns to the slot you were holding once the burst ends."},
-    {"AutoPot", "Retry On Fail", "",
-     "If a throw does not register, tries again with the same potion instead of abandoning the burst."},
-    {"AutoPot", "Heal Credit (ms)", "",
-     "How long a thrown potion's heal is assumed to be on its way. The server reports it a tick or two late, and "
-     "without this window the same missing health gets potted twice."},
-    {"AutoPot", "Misclick Chance (%)", "",
-     "Chance of grabbing a neighbouring hotbar slot first, noticing, and correcting. Costs one switch delay. Zero by "
-     "default because it is a liability in a real fight."},
     {"AutoRefill", "Mode", "Packet",
      "No screen and no cursor: the inventory is opened, swapped and closed over packets alone. Nothing is drawn, so "
      "this is the one to use in a fight."},
@@ -576,8 +527,8 @@ std::vector<ui::tab_t> ui::tabs = {
      {"Timer", "TimerRange", "NoSlowDown", "NoJumpDelay", "Sprint", "InventoryMove", "FastStop"}},
     {ICON_FA_KEYBOARD,
      "Utility",
-     {"ArmorSwitch", "AutoRefill", "ThrowPots", "AutoPot", "FastPlace", "NoItemRelease", "BridgeAssist", "AutoTool",
-      "InvManager", "AltManager", "Teams"}},
+     {"ArmorSwitch", "AutoRefill", "ThrowPots", "FastPlace", "NoItemRelease", "BridgeAssist", "AutoTool", "InvManager",
+      "AltManager", "Teams"}},
     {ICON_FA_WIFI, "Network", {"Backtrack", "Blink", "FakeLag"}},
     {ICON_FA_SAVE, "Configs", {}},
     {ICON_FA_GEAR, "Settings", {}}};

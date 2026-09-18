@@ -39,7 +39,6 @@
 #include "../../module/utility/inventorymanager.h"
 #include "../../module/utility/teams.h"
 #include "../../module/utility/throwpots.h"
-#include "../../module/utility/autopot.h"
 #include "../../module/visual/blockesp.h"
 #include "../../module/visual/chams.h"
 #include "../../module/visual/esp.h"
@@ -162,20 +161,18 @@ Module* getModuleForSubtab(int tabIdx, int subtabIdx) {
             case 2:
                 return throwPots;
             case 3:
-                return autoPot;
-            case 4:
                 return fastPlace;
-            case 5:
+            case 4:
                 return noItemRelease;
-            case 6:
+            case 5:
                 return bridgeAssist;
-            case 7:
+            case 6:
                 return autoTool;
-            case 8:
+            case 7:
                 return inventoryManager;
-            case 9:
+            case 8:
                 return altManager;
-            case 10:
+            case 9:
                 return teamsModule;
         }
     }

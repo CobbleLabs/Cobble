@@ -246,7 +246,7 @@
 // exists; everywhere else the release really goes out.
 //
 // While the player physically holds right-click, or the client is in use-item state for any
-// other reason — NoItemRelease, AutoPot, ThrowPots, eating — the module stands down completely
+// other reason — NoItemRelease, ThrowPots, eating — the module stands down completely
 // and lets vanilla own the block, including vanilla's own C07 on release. That hand-over is
 // silent: the taker's right-click already sent its own C08 earlier in the same tick, so
 // releasing on top of it would only cancel the block they just started and burn vanilla's
