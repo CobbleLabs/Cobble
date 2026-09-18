@@ -24,7 +24,6 @@
 #include "../../module/movement/nojumpdelay.h"
 #include "../../module/movement/no_slow_down.h"
 #include "../../module/movement/blink.h"
-#include "../../module/movement/fakelag.h"
 #include "../../module/movement/timer.h"
 #include "../../module/movement/timerrange.h"
 #include "../../module/movement/sprint.h"
@@ -183,8 +182,6 @@ Module* getModuleForSubtab(int tabIdx, int subtabIdx) {
                 return backtrack;
             case 1:
                 return blink;
-            case 2:
-                return fakeLag;
         }
     }
     // Configs/Settings tabs - no module, handled specially

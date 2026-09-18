@@ -85,7 +85,6 @@
     <ClCompile Include="src\jni\altmanager\altmanager_gate.cpp" />
     <ClCompile Include="src\jni\render\backtrack_ghost_gate.cpp" />
     <ClCompile Include="src\module\movement\blink.cpp" />
-    <ClCompile Include="src\module\movement\fakelag.cpp" />
     <ClCompile Include="src\sdk\core\minecraft.cpp" />
     <ClCompile Include="src\sdk\player\player.cpp" />
     <ClCompile Include="src\sdk\player\effect_tracker.cpp" />
@@ -275,7 +274,6 @@
     <ClInclude Include="src\util\math\geometry.h" />
     <ClInclude Include="src\util\math\worldToScreen.h" />
     <ClInclude Include="src\jni\blink\blink_gate.hpp" />
-    <ClInclude Include="src\module\movement\fakelag.h" />
     <ClInclude Include="src\module\utility\noitemrelease.h" />
     <ClInclude Include="src\module\utility\throwpots.h" />
     <ClInclude Include="src\module\utility\teams.h" />

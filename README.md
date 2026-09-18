@@ -35,7 +35,7 @@ Config is local-first. Cloud sync is opt-in from Settings and uses **POST** `/ap
 | Visuals | NameTags, ESP, ItemESP, Tracers, BlockESP, AntiDebuff, ArrayList, DroppedInfo, Notifications, Watermark, Pings, Chams |
 | Movement | Timer, TimerRange, NoSlowDown, NoJumpDelay, Sprint, InventoryMove, FastStop |
 | Utility | ArmorSwitch, AutoRefill, ThrowPots, FastPlace, NoItemRelease, BridgeAssist, AutoTool, InvManager, AltManager, Teams |
-| Network | Backtrack, Blink, FakeLag |
+| Network | Backtrack, Blink |
 | Configs / Settings | Cloud configs; menu key, Freelook, and related client options |
 
 ArrayList, Notifications, and Watermark are HUD pages, not `Module` instances. Freelook lives in Settings. Team detection is `FriendsManager`; the Teams module edits its policy.

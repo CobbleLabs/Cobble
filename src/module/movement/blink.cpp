@@ -1,5 +1,4 @@
 #include "blink.h"
-#include "fakelag.h"
 #include "../../ui/menu/menu.h"
 #include "../../ui/widgets/widgets.hpp"
 #include "../../util/aes_string.hpp"
@@ -87,8 +86,6 @@ Blink::Blink() : Module("Blink") {
 }
 
 void Blink::onEnable() {
-    if (fakeLag && fakeLag->enabled)
-        fakeLag->setEnabled(false);
     isBlinking = true;
     blinkStartTime = GetTickCount64();
     pathPositions.clear();

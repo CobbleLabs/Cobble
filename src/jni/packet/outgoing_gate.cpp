@@ -4,7 +4,6 @@
 #include "../noitemrelease/noitemrelease_gate.hpp"
 #include "../blink/blink_gate.hpp"
 #include "../../module/combat/piercing.h"
-#include "../../module/movement/fakelag.h"
 #include "../../module/movement/timerrange.h"
 #include "../../module/movement/blink.h"
 #include "../../module/utility/autorefill.h"
@@ -51,19 +50,10 @@ jboolean JNICALL NativeShouldSend(JNIEnv* env, jclass cls, jobject packet) {
         aimAssist->onOutgoingPacket(env, packet);
     }
 
-    const bool releasingFakeLagPacket = fakeLag && fakeLag->enabled && fakeLag->isReleasing();
-
     // Piercing may perform a synchronous through-wall attack from the Windows
     // input hook. LWJGL can observe the same click once more through polling;
     // discard only that duplicate swing/attack before other packet observers.
-    // A packet already accepted and retained by FakeLag must not be classified
-    // as a fresh duplicate when it is released later.
-    if (!releasingFakeLagPacket && piercing && piercing->enabled && !piercing->shouldSendOutgoingPacket(env, packet))
-        return JNI_FALSE;
-
-    // FakeLag retains only movement packets. Run it before packet observers so
-    // a retained packet is observed once, when it is actually released.
-    if (fakeLag && fakeLag->enabled && !fakeLag->handleOutgoingPacket(env, packet))
+    if (piercing && piercing->enabled && !piercing->shouldSendOutgoingPacket(env, packet))
         return JNI_FALSE;
 
     if (timerRange && timerRange->enabled)
@@ -75,7 +65,7 @@ jboolean JNICALL NativeShouldSend(JNIEnv* env, jclass cls, jobject packet) {
             return JNI_FALSE;
     }
 
-    // ThrowPots runs after FakeLag/Blink so a queued PlayerControllerMP
+    // ThrowPots runs after Blink so a queued PlayerControllerMP
     // sendUseItem is emitted only before a flying packet that will really pass.
     // When aiming down, its pitch also has final ownership of that packet.
     if (throwPotsPacketWork) {

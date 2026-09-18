@@ -53,7 +53,6 @@ static const DescriptionEntry kModuleDescriptions[] = {
     {"", "TimerRange", "", "Applies a random timer multiplier before, after, per hit, or constantly."},
     {"", "NoSlowDown", "", "Prevents item use from applying the normal movement slowdown."},
     {"", "NoJumpDelay", "", "Removes the short delay between consecutive jumps."},
-    {"", "FakeLag", "", "Adds calculated movement latency from your measured RTT and configured target ping."},
     {"", "Blink", "", "Queues movement packets temporarily, then releases them together."},
     {"", "Sprint", "", "Keeps sprint active automatically while you move."},
     {"", "InventoryMove", "", "Lets you keep walking, jumping and sprinting while a screen is open."},
@@ -192,11 +191,6 @@ static const DescriptionEntry kOptionDescriptions[] = {
     {"", "Timer Limit", "", "Sets the maximum time packets may remain queued."},
     {"", "Show Timer", "", "Displays how long Blink has been queuing packets."},
     {"", "Show Breadcrumbs", "", "Draws the path traveled while packets are queued."},
-    {"", "Moving Only", "", "Applies the feature only while horizontal movement is detected."},
-    {"", "Render Server Player", "", "Draws a player-sized ghost at the position estimated from measured latency."},
-    {"", "Filled Render", "", "Adds a translucent fill inside the server-position ghost."},
-    {"", "Render Line", "", "Connects your current position to the rendered server position."},
-    {"", "Show Status", "", "Shows measured round-trip and estimated one-way latency."},
     {"", "Blocks Only", "", "Applies the placement delay reduction only to blocks."},
     {"", "Refill Soup", "", "Refills empty hotbar slots with mushroom stew."},
     {"", "Refill Potions", "", "Refills empty hotbar slots with supported healing potions."},
@@ -529,7 +523,7 @@ std::vector<ui::tab_t> ui::tabs = {
      "Utility",
      {"ArmorSwitch", "AutoRefill", "ThrowPots", "FastPlace", "NoItemRelease", "BridgeAssist", "AutoTool", "InvManager",
       "AltManager", "Teams"}},
-    {ICON_FA_WIFI, "Network", {"Backtrack", "Blink", "FakeLag"}},
+    {ICON_FA_WIFI, "Network", {"Backtrack", "Blink"}},
     {ICON_FA_SAVE, "Configs", {}},
     {ICON_FA_GEAR, "Settings", {}}};
 

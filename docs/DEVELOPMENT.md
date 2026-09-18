@@ -166,11 +166,11 @@ Call `ui::TickTooltip()` immediately after a widget whose value is in game ticks
 
 **Utility (tab 3):** ArmorSwitch, AutoRefill, ThrowPots, FastPlace, NoItemRelease, BridgeAssist, AutoTool, InvManager, AltManager, Teams.
 
-**Network (tab 4):** Backtrack, Blink, FakeLag.
+**Network (tab 4):** Backtrack, Blink.
 
 **Configs (tab 5)** and **Settings (tab 6)** have no modules. Freelook is a Settings checkbox (`Settings::Freelook`), ticked from `ModuleManager::update`. Camera hooks go through `BacktrackGhostGate`.
 
-Locked modules (`locked = true` in the constructor) show a lock on the card until the experimental unlock on the config page. Currently FakeLag.
+Locked modules (`locked = true` in the constructor) show a lock on the card until the experimental unlock on the config page.
 
 ---
 

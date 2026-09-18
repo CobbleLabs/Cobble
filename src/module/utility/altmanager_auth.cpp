@@ -1341,7 +1341,7 @@ bool startWorker(std::function<void()> job) {
     }
 
     g_worker = std::thread([job]() {
-        // Blink/FakeLag stall every socket call in the process, not just the
+        // Blink stalls every socket call in the process, not just the
         // game's, so without this a login started while Blink is on would hang -
         // and ejecting mid-blink would deadlock the join below.
         WinsockHooks::ExemptCurrentThread();

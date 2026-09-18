@@ -7,7 +7,6 @@
 #include "reach.h"
 #include "../../jni/java.h"
 #include "../../module/movement/blink.h"
-#include "../../module/movement/fakelag.h"
 #include "../../sdk/core/minecraft.h"
 #include "../../sdk/jni/jni_cache.h"
 #include "../../sdk/jni/member_resolver.h"
@@ -249,7 +248,7 @@ bool gameFocused() {
 }
 
 bool packetQueueActive() {
-    return (blink && blink->enabled) || (fakeLag && fakeLag->enabled);
+    return blink && blink->enabled;
 }
 
 bool readProtocolPosition(JNIEnv* env, jobject entity, double& x, double& y, double& z) {
