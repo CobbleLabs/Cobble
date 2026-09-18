@@ -72,7 +72,6 @@ static const DescriptionEntry kModuleDescriptions[] = {
     {"", "AutoTool", "", "Selects the best hotbar tool for the block or target."},
     {"", "InvManager", "", "Organizes the inventory and hotbar using your saved preferences."},
     {"", "AltManager", "", "Sets the offline-mode username used on the next server connection."},
-    {"", "FastBreak", "", "Removes the cooldown between block mining hits so blocks break faster."},
     {"", "Teams", "", "Decides who counts as a teammate, from server team data, nametag colors and the scoreboard."},
     {"", "AutoPot", "",
      "Throws splash healing potions at your feet when your health drops, counting the heal already in the air so a "
@@ -582,7 +581,7 @@ std::vector<ui::tab_t> ui::tabs = {
     {ICON_FA_KEYBOARD,
      "Utility",
      {"ArmorSwitch", "AutoRefill", "ThrowPots", "AutoPot", "FastPlace", "NoItemRelease", "BridgeAssist", "Scaffold",
-      "Clutch", "AutoTool", "InvManager", "FastBreak", "AltManager", "Teams"}},
+      "Clutch", "AutoTool", "InvManager", "AltManager", "Teams"}},
     {ICON_FA_WIFI, "Network", {"Backtrack", "Blink", "FakeLag"}},
     {ICON_FA_SAVE, "Configs", {}},
     {ICON_FA_GEAR, "Settings", {}}};

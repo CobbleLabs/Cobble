@@ -36,7 +36,6 @@
 #include "../../module/utility/bridgeassist.h"
 #include "../../module/utility/clutch.h"
 #include "../../module/utility/fastplace.h"
-#include "../../module/utility/fastbreak.h"
 #include "../../module/utility/noitemrelease.h"
 #include "../../module/utility/inventorymanager.h"
 #include "../../module/utility/teams.h"
@@ -180,10 +179,8 @@ Module* getModuleForSubtab(int tabIdx, int subtabIdx) {
             case 10:
                 return inventoryManager;
             case 11:
-                return fastBreak;
-            case 12:
                 return altManager;
-            case 13:
+            case 12:
                 return teamsModule;
         }
     }
@@ -965,6 +962,11 @@ static void renderModuleList(int tab) {
 
     // ── Module search bar ──
     static char searchBuf[64] = "";
+    static int searchTab = -1;
+    if (searchTab != tab) {
+        searchBuf[0] = '\0';
+        searchTab = tab;
+    }
     {
         ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, ui::s(ui::theme::rounding::Frame));
         ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(ui::s(8), ui::s(6)));
@@ -1061,14 +1063,15 @@ static void renderModuleList(int tab) {
         // Open the Module_Config_View for this card (transforms the content area
         // in place). Shared by the gear control and by a right-click on the card.
         auto openConfig = [&]() {
-            // If the module belongs to another tab, sync the current active tab.
-            if (ui::cur_tab != originalTab) {
-                ui::cur_tab = originalTab;
-            }
+            // handle_anims copies next_tab onto cur_tab every idle frame, so both
+            // have to move or a cross-category search click snaps back.
+            ui::cur_tab = originalTab;
+            ui::next_tab = originalTab;
             auto& activeTab = ui::tabs[originalTab];
             activeTab.next_subtab = originalSubtab;
             activeTab.next_view = ui::CategoryView::Config;
             ui::content_anim_dst = 0.f;
+            searchBuf[0] = '\0';
         };
 
         // Toggle this card's module / special page on or off, then persist

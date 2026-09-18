@@ -120,7 +120,6 @@
     <ClCompile Include="src\module\utility\clutch.cpp" />
 
     <ClCompile Include="src\module\utility\fastplace.cpp" />
-    <ClCompile Include="src\module\utility\fastbreak.cpp" />
     <ClCompile Include="src\module\movement\timer.cpp" />
     <ClCompile Include="src\module\movement\timerrange.cpp" />
     <ClCompile Include="src\module\movement\sprint.cpp" />
@@ -218,7 +217,6 @@
     <ClInclude Include="src\module\utility\clutch.h" />
 
     <ClInclude Include="src\module\utility\fastplace.h" />
-    <ClInclude Include="src\module\utility\fastbreak.h" />
     <ClInclude Include="src\module\movement\timer.h" />
     <ClInclude Include="src\module\movement\timerrange.h" />
     <ClInclude Include="src\module\movement\sprint.h" />
