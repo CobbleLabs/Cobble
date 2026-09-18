@@ -1,6 +1,5 @@
 #include "reach.h"
 #include "antibot.h"
-#include "silentaura.h"
 #include "../../jni/java.h"
 #include "../../sdk/core/minecraft.h"
 #include "../../sdk/jni/jni_cache.h"
@@ -28,8 +27,6 @@ Reach::Reach() : Module("Reach") {
 }
 
 void Reach::onEnable() {
-    if (silentAura && silentAura->enabled)
-        silentAura->setEnabled(false);
     tickCounter = 0;
     rngState ^= static_cast<unsigned int>(GetTickCount());
 }

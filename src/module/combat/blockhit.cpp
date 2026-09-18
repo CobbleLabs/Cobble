@@ -10,7 +10,6 @@
 #include "../../util/network/json.hpp"
 #include "aimassist.h"
 #include "autoclicker.h"
-#include "silentaura.h"
 
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
@@ -65,8 +64,6 @@ BlockHit::BlockHit() : Module("BlockHit"), rng_((unsigned)nowMs()) {
 }
 
 void BlockHit::onEnable() {
-    if (silentAura && silentAura->enabled)
-        silentAura->setEnabled(false);
     tick_ = 0;
     blockedAtTick_ = 0;
     releasedAtTick_ = 0;

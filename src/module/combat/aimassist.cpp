@@ -1,6 +1,5 @@
 #include "aimassist.h"
 #include "antibot.h"
-#include "silentaura.h"
 #include "../../jni/java.h"
 #include "../../sdk/core/minecraft.h"
 #include "../../sdk/jni/jni_cache.h"
@@ -330,9 +329,6 @@ void AimAssist::onWorldChange() {
 
 void AimAssist::onEnable() {
     log_ok("AimAssist enabled");
-
-    if (silentAura && silentAura->enabled)
-        silentAura->setEnabled(false);
 
     std::lock_guard<std::recursive_mutex> lock(targetMutex_);
     JNIEnv* env = Java::Env();

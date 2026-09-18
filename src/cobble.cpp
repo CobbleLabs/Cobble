@@ -9,7 +9,6 @@
 #include "module/combat/nohitdelay.h"
 #include "module/combat/criticals.h"
 #include "module/combat/piercing.h"
-#include "module/combat/silentaura.h"
 #include "module/combat/wtap.h"
 
 #include "module/combat/reach.h"
@@ -165,8 +164,6 @@ void cobble::context::initialize(HMODULE hModule) {
     blockHit = new BlockHit();
     COBBLE_TRACE("alloc:AimAssist");
     aimAssist = new AimAssist();
-    COBBLE_TRACE("alloc:SilentAura");
-    silentAura = new SilentAura();
     // Allocated before anything can target: every combat module's target filter calls into it.
     COBBLE_TRACE("alloc:AntiBot");
     antiBot = new AntiBot();
@@ -252,7 +249,6 @@ void cobble::context::initialize(HMODULE hModule) {
     moduleManager->registerModule(autoClicker);
     moduleManager->registerModule(blockHit);
     moduleManager->registerModule(aimAssist);
-    moduleManager->registerModule(silentAura);
     moduleManager->registerModule(antiBot);
     moduleManager->registerModule(armorSwitch);
     moduleManager->registerModule(autoRefill);
@@ -593,10 +589,6 @@ bool cobble::context::shutdown() {
     if (aimAssist) {
         delete aimAssist;
         aimAssist = nullptr;
-    }
-    if (silentAura) {
-        delete silentAura;
-        silentAura = nullptr;
     }
     if (antiBot) {
         delete antiBot;

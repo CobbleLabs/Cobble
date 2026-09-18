@@ -100,7 +100,7 @@ Append the label to the correct vector in `ui::tabs` (`src/ui/widgets/widgets.cp
 
 Those two lists are the same index space. Inserting in the middle of one without shifting the other maps the wrong module for every later card. Search, gear, and right-click all go through `getModuleForSubtab`.
 
-Combat currently ends **AntiBot then SilentAura**. Visuals special pages (not modules): ArrayList **6**, Notifications **8**, Watermark **9**.
+Combat currently ends **AntiBot**. Visuals special pages (not modules): ArrayList **6**, Notifications **8**, Watermark **9**.
 
 ### 5. Config
 
@@ -143,7 +143,6 @@ Call `ui::TickTooltip()` immediately after a widget whose value is in game ticks
 | 8 | Piercing | `piercing` |
 | 9 | AutoBlock | `blockHit` (`Module` name `BlockHit`; config key `BlockHit`) |
 | 10 | AntiBot | `antiBot` |
-| 11 | SilentAura | `silentAura` |
 
 **Visuals (tab 1)**
 

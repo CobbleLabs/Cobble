@@ -14,7 +14,6 @@
 #include "../../module/combat/nohitdelay.h"
 #include "../../module/combat/criticals.h"
 #include "../../module/combat/piercing.h"
-#include "../../module/combat/silentaura.h"
 #include "../../module/combat/wtap.h"
 
 #include "../../module/combat/reach.h"
@@ -98,8 +97,6 @@ Module* getModuleForSubtab(int tabIdx, int subtabIdx) {
                 return blockHit;
             case 10:
                 return antiBot;
-            case 11:
-                return silentAura;
         }
     }
     // Visuals Tab (1)

@@ -11,7 +11,6 @@
 #include "../../module/utility/noitemrelease.h"
 #include "../../module/utility/throwpots.h"
 #include "../../module/combat/aimassist.h"
-#include "../../module/combat/silentaura.h"
 #include "../../module/combat/backtrack.h"
 
 namespace OutgoingPacketGate {
@@ -29,9 +28,6 @@ jboolean JNICALL NativeShouldSend(JNIEnv* env, jclass cls, jobject packet) {
         AltManagerGate::MaybeSpoofLoginPacket(env, packet);
     }
 
-    if (silentAura && !silentAura->shouldSendOutgoingPacket(env, packet))
-        return JNI_FALSE;
-
     // Flush a complete AutoRefill swap command immediately before the next
     // flying packet. The atomic command is the only state shared with Netty.
     if (autoRefill && autoRefill->hasPendingClick()) {
@@ -41,12 +37,10 @@ jboolean JNICALL NativeShouldSend(JNIEnv* env, jclass cls, jobject packet) {
     const bool throwPotsPacketWork = throwPots && throwPots->enabled && throwPots->needsOutgoingPacket();
     const bool throwPotsRotating = throwPotsPacketWork && throwPots->isRewritingRotation();
 
-    const bool silentAuraRotating = silentAura && silentAura->isRewritingRotation();
-
     // AimAssist packet-rotation (smooth camera): rewrites the outgoing movement
     // packet's yaw/pitch with the randomized server rotation. Deferred while a
-    // potion or SilentAura owns the rotation.
-    if (aimAssist && aimAssist->enabled && !silentAuraRotating && !throwPotsRotating) {
+    // potion owns the rotation.
+    if (aimAssist && aimAssist->enabled && !throwPotsRotating) {
         aimAssist->onOutgoingPacket(env, packet);
     }
 
@@ -76,12 +70,6 @@ jboolean JNICALL NativeShouldSend(JNIEnv* env, jclass cls, jobject packet) {
     jboolean shouldSend = JNI_TRUE;
     if (noItemRelease && noItemRelease->enabled) {
         shouldSend = NoItemReleaseGate::NativeShouldSend(env, cls, packet);
-    }
-    if (shouldSend == JNI_TRUE && silentAura) {
-        if (silentAuraRotating && !throwPotsRotating)
-            silentAura->onOutgoingPacket(env, packet);
-        else
-            silentAura->observeAcceptedOutgoingPacket(env, packet, true);
     }
     if (shouldSend == JNI_TRUE && timerRange && timerRange->enabled)
         timerRange->onOutgoingPacket(env, packet, TimerRange::PacketPhase::POST);
