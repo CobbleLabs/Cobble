@@ -597,7 +597,10 @@ bool cobble::context::shutdown() {
 
     WinsockHooks::Shutdown();
 
-    Overlay::Shutdown();
+    if (!Overlay::Shutdown()) {
+        log_err("Overlay teardown was incomplete; aborting DLL unload");
+        return false;
+    }
 
     // Clean up cached global JNI references before thread detach/JVM shutdown
     JNIEnv* env = Java::Env();

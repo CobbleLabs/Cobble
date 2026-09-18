@@ -9,7 +9,9 @@
 namespace Overlay {
 // Initialization and cleanup
 void Init();
-void Shutdown();
+// False means a presentation callback could not be drained; caller must keep
+// the DLL loaded rather than unloading code that may still be executing.
+bool Shutdown();
 
 // Render the overlay content (modules, HUD elements)
 void Render();

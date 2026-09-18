@@ -12,6 +12,7 @@
 #include "../hud/notifications.h"
 #include "../hud/watermark.h"
 #include "../menu/menu.h"
+#include "../vape_preview/vape_preview_host.h"
 #include "../widgets/icons.hpp"
 #include "../widgets/widgets.hpp"
 #include "hud_fonts.h"
@@ -182,6 +183,7 @@ std::atomic<bool> initStarted{false};
 std::atomic<bool> hookInstalled{false};
 std::atomic<bool> shutdownRequested{false};
 std::atomic<bool> suppressPiercingRelease{false};
+std::atomic<unsigned int> activeSwapCalls{0};
 
 HGLRC lastOriginalContext = nullptr;
 HDC lastHDC = nullptr;
@@ -317,6 +319,13 @@ void SetupImGui() {
     }
 
     Overlay::initialized = true;
+
+    // The preview remains native HTML/CSS/JS. WebView2 is hosted as a fixed
+    // 800x480 child of Minecraft rather than approximating it with ImGui.
+    VapePreviewHost::Start(Overlay::gameWindow);
+    VapePreviewHost::UpdateBounds(RenderData::screenWidth, RenderData::screenHeight);
+    VapePreviewHost::SetMenuKey(Menu::menuKey);
+    VapePreviewHost::SetVisible(Menu::isOpen);
     
     // Initialize item textures (embedded in DLL, no path needed)
     ItemTextureManager::get().init("");
@@ -326,6 +335,29 @@ LRESULT CALLBACK HookedWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam
     if (!Overlay::initialized || !originalWndProc) {
         return originalWndProc ? CallWindowProcA(originalWndProc, hWnd, msg, wParam, lParam)
                                : DefWindowProcA(hWnd, msg, wParam, lParam);
+    }
+
+    // Escape/menu-key events originating in the WebView return here so Cobble
+    // remains the sole owner of movement keys, mouse capture and config saves.
+    if (msg == VapePreviewHost::kCloseMenuMessage) {
+        if (Menu::isOpen) {
+            Menu::isOpen = false;
+            ImGui::GetIO().MouseDrawCursor = false;
+            mc.restoreMovementKeys();
+            if (!mc.isInGui())
+                mc.grabMouse();
+            ConfigManager::get().onSettingChanged();
+        }
+        VapePreviewHost::SetVisible(false);
+        return 1;
+    }
+
+    if (msg == VapePreviewHost::kRestoreGameFocusMessage) {
+        // Focus must be changed by the HWND-owning thread. Never steal it back
+        // after an alt-tab; only restore it while Minecraft is foreground.
+        if (GetForegroundWindow() == hWnd)
+            SetFocus(hWnd);
+        return 1;
     }
 
     // Don't toggle menu if a keybind binder is active (user is selecting a new key)
@@ -456,7 +488,7 @@ LRESULT CALLBACK HookedWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam
     return CallWindowProcA(originalWndProc, hWnd, msg, wParam, lParam);
 }
 
-BOOL __stdcall HookedSwapBuffers(HDC hdc) {
+BOOL __stdcall HookedSwapBuffersImpl(HDC hdc) {
     if (shutdownRequested)
         return originalSwapBuffers(hdc);
 
@@ -505,6 +537,7 @@ BOOL __stdcall HookedSwapBuffers(HDC hdc) {
                     originalWndProc = nullptr;
                 }
 
+                VapePreviewHost::SetVisible(false);
                 if (Overlay::initialized) {
                     ImGui_ImplOpenGL2_Shutdown();
                     ImGui_ImplWin32_Shutdown();
@@ -524,6 +557,7 @@ BOOL __stdcall HookedSwapBuffers(HDC hdc) {
                       (void*)targetContext, (void*)currentOriginalContext);
 
             Menu::isOpen = false;
+            VapePreviewHost::SetVisible(false);
             AltManagerWindow::Close();
 
             ImGui_ImplOpenGL2_Shutdown();
@@ -594,6 +628,13 @@ BOOL __stdcall HookedSwapBuffers(HDC hdc) {
             RenderData::screenHeight = newHeight;
         }
 
+        // Keep the browser child centered without ever scaling its 800x480 CSS
+        // viewport. This runs before the render early-out so closing the menu
+        // always hides the child even when there is no ImGui work left.
+        VapePreviewHost::UpdateBounds(RenderData::screenWidth, RenderData::screenHeight);
+        VapePreviewHost::SetMenuKey(Menu::menuKey);
+        VapePreviewHost::SetVisible(Menu::isOpen);
+
         bool hasRenderWork = moduleManager && moduleManager->hasRenderWork();
         bool hasNotifications = NotificationManager::hasActive();
         bool hasArrayList = ArrayListRenderer::hasActive();
@@ -620,7 +661,8 @@ BOOL __stdcall HookedSwapBuffers(HDC hdc) {
 
         ImGuiIO& io = ImGui::GetIO();
         io.DisplaySize = ImVec2((float)RenderData::screenWidth, (float)RenderData::screenHeight);
-        io.MouseDrawCursor = Menu::isOpen || AltManagerWindow::isOpen;
+        const bool webMenuVisible = Menu::isOpen && VapePreviewHost::HandlesMenu();
+        io.MouseDrawCursor = (Menu::isOpen && !webMenuVisible) || AltManagerWindow::isOpen;
 
         // Auto-close menu on alt-tab. The watermark's file dialog runs on its own
         // thread and legitimately takes the foreground, so it is not an alt-tab:
@@ -652,7 +694,10 @@ BOOL __stdcall HookedSwapBuffers(HDC hdc) {
 
         ImGui::End();
 
-        Menu::Render();
+        // Keep the original menu implementation untouched as a startup-failure
+        // fallback, but never draw it behind the exact WebView-hosted preview.
+        if (!VapePreviewHost::HandlesMenu())
+            Menu::Render();
         AltManagerWindow::Render();
 
         ImGui::EndFrame();
@@ -672,6 +717,13 @@ BOOL __stdcall HookedSwapBuffers(HDC hdc) {
     }
 
     return originalSwapBuffers(hdc);
+}
+
+BOOL __stdcall HookedSwapBuffers(HDC hdc) {
+    activeSwapCalls.fetch_add(1, std::memory_order_acq_rel);
+    const BOOL result = HookedSwapBuffersImpl(hdc);
+    activeSwapCalls.fetch_sub(1, std::memory_order_acq_rel);
+    return result;
 }
 }  // namespace
 
@@ -708,30 +760,45 @@ void Overlay::Init() {
     log_ok("Overlay hooks installed");
 }
 
-void Overlay::Shutdown() {
-    shutdownRequested = true;
+bool Overlay::Shutdown() {
+    shutdownRequested.store(true, std::memory_order_release);
+    VapePreviewHost::BeginShutdown();
 
-    // Wait for any in-flight SwapBuffers calls to complete
-    std::this_thread::sleep_for(std::chrono::milliseconds(50));
-
-    // Restore window procedure FIRST to stop input interception
+    // Restore the game WndProc first so no new UI input enters Cobble while its
+    // renderer and browser child are being drained.
     if (originalWndProc && (lastWindow || gameWindow)) {
         HWND targetWnd = lastWindow ? lastWindow : gameWindow;
-        if (IsWindow(targetWnd)) {
+        if (IsWindow(targetWnd))
             SetWindowLongPtrA(targetWnd, GWLP_WNDPROC, (LONG_PTR)originalWndProc);
-        }
         originalWndProc = nullptr;
         lastWindow = nullptr;
     }
 
-    // Disable hooks before ImGui cleanup
+    // Stop new presentation callbacks before waiting for calls which already
+    // entered the detour. BeginShutdown above prevents those calls restarting
+    // the browser while this barrier is active.
     if (hookInstalled) {
-        MH_DisableHook(MH_ALL_HOOKS);
+        const MH_STATUS disableStatus = MH_DisableHook(MH_ALL_HOOKS);
+        if (disableStatus != MH_OK && disableStatus != MH_ERROR_DISABLED) {
+            log_err("Overlay: failed to disable hooks; keeping DLL loaded");
+            return false;
+        }
         hookInstalled = false;
     }
 
-    // Wait for hook to be fully disabled
-    std::this_thread::sleep_for(std::chrono::milliseconds(16));
+    const auto drainDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+    while (activeSwapCalls.load(std::memory_order_acquire) != 0 &&
+           std::chrono::steady_clock::now() < drainDeadline) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    if (activeSwapCalls.load(std::memory_order_acquire) != 0) {
+        log_err("Overlay: SwapBuffers detour did not quiesce; keeping DLL loaded");
+        return false;
+    }
+
+    // No render callback can now call into the host. It is safe to pump any
+    // pending WebView2 creation completion and join its STA before DLL unload.
+    VapePreviewHost::Shutdown();
 
     if (initialized) {
         ImGui_ImplOpenGL2_Shutdown();
@@ -745,6 +812,7 @@ void Overlay::Shutdown() {
 
     initialized = false;
     initStarted = false;
+    return true;
 }
 
 void Overlay::Render() {

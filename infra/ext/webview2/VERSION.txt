@@ -1,0 +1,9 @@
+Microsoft.Web.WebView2 1.0.4191.47
+Source: https://api.nuget.org/v3-flatcontainer/microsoft.web.webview2/1.0.4191.47/microsoft.web.webview2.1.0.4191.47.nupkg
+Package SHA-512: ADF91BDA1A71D860C098CD0E426B5A238E187EA73C694832F8FDE36809A9165FDA8844FC9C2B9FC8A870B0DA53CD9EB97EC140D9A2F104A228301FFAE841DB8C
+Included artifacts:
+- build/native/include/WebView2.h
+- runtimes/win-x64/native/WebView2Loader.dll, embedded byte-for-byte in src/ui/vape_preview/vape_preview_assets.cpp
+- LICENSE.txt
+
+WebView2Loader.dll SHA-256: C66E4A92FDC7A216118E43B7A5024EA2200E8C43F9310BF20D96A0084F82C5BC

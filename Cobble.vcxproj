@@ -303,5 +303,11 @@
     <ClInclude Include="infra\ext\jni\jni_md.h" />
     <ClInclude Include="infra\ext\jni\jvmti.h" />
   </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="src\ui\vape_preview\vape_preview_assets.cpp" />
+    <ClCompile Include="src\ui\vape_preview\vape_preview_host.cpp" />
+    <ClInclude Include="src\ui\vape_preview\vape_preview_assets.h" />
+    <ClInclude Include="src\ui\vape_preview\vape_preview_host.h" />
+  </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
 </Project>
