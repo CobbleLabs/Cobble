@@ -66,11 +66,11 @@ World-space ImGui (`Module::worldVisual`) is skipped while `RenderData::guiCover
 
 Base type: `src/module/module.h`. Lifecycle: `onEnable` / `onDisable` / `onWorldChange` / `onUpdate` / `onRender` / `onRenderMenu`. Persistence: `saveSettings` / `loadSettings` for module-owned fields; `ConfigManager` writes `enabled` and `keybind`.
 
-`ModuleManager` (`src/module/module_manager.cpp`) ticks enabled modules, dispatches keybinds, and calls `Settings::Freelook::update()` every pass. AutoRefill may run while disabled (inventory-open refill). Scaffold is a `Clutch*` (`PlaceMode::Scaffold`).
+`ModuleManager` (`src/module/module_manager.cpp`) ticks enabled modules, dispatches keybinds, and calls `Settings::Freelook::update()` every pass. AutoRefill may run while disabled (inventory-open refill).
 
 The live menu lists and index map are in [DEVELOPMENT.md](DEVELOPMENT.md#menu-index-map).
 
-Removed from this tree (do not resurrect as leftovers): Opportunity, Spectate, TargetHUD, Animations, ClickGUI, NetworkProbe, LunarSender, the old `Math` class, VisualTeamResolver, Freelook-as-a-Visuals-module, AutoRod, AimBow, Trajectories, Breaker, FastBreak, Clutch.
+Removed from this tree (do not resurrect as leftovers): Opportunity, Spectate, TargetHUD, Animations, ClickGUI, NetworkProbe, LunarSender, the old `Math` class, VisualTeamResolver, Freelook-as-a-Visuals-module, AutoRod, AimBow, Trajectories, Breaker, FastBreak, Clutch, Scaffold.
 
 ---
 

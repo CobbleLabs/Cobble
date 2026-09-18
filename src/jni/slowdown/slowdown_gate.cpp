@@ -16,7 +16,6 @@
 #include "../../module/movement/no_slow_down.h"
 #include "../../module/combat/backtrack.h"
 #include "../../module/combat/blockhit.h"
-#include "../../module/utility/clutch.h"
 #include "../../sdk/core/minecraft.h"
 #include "../../sdk/jni/jni_cache.h"
 #include "../../sdk/player/player.h"
@@ -312,8 +311,7 @@ void JNICALL NativeOnSlowDown(JNIEnv* env, jclass, jobject playerInstance) {
     const bool wantSlow = noSlowDown && noSlowDown->enabled;
     const bool wantBt = backtrack && backtrack->needsClientTick();
     const bool wantBlock = blockHit && blockHit->needsClientTick();
-    const bool wantScaffold = scaffold && scaffold->needsClientTick();
-    if (!wantSlow && !wantBt && !wantBlock && !wantScaffold)
+    if (!wantSlow && !wantBt && !wantBlock)
         return;
 
     // Use Minecraft.thePlayer as the authority. Backtrack's client-thread pump
@@ -337,7 +335,7 @@ void JNICALL NativeOnSlowDown(JNIEnv* env, jclass, jobject playerInstance) {
     if (wantBt)
         backtrack->onClientTick(env);
 
-    if (!wantSlow && !wantBlock && !wantScaffold)
+    if (!wantSlow && !wantBlock)
         return;
 
     std::lock_guard<std::recursive_mutex> lock(player.instanceMutex);
@@ -348,11 +346,6 @@ void JNICALL NativeOnSlowDown(JNIEnv* env, jclass, jobject playerInstance) {
     }
     if (wantSlow)
         noSlowDown->applyMovement(env, playerInstance);
-    // Scaffold moves the REAL rotation, so it runs here rather than on the async
-    // module loop: the placement owns the head, and outgoing_gate defers the aim
-    // modules' packet rewrite for the same reason.
-    if (wantScaffold)
-        scaffold->onClientTick(env);
     if (wantBlock)
         blockHit->onClientTick(env);
 }

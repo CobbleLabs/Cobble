@@ -29,7 +29,6 @@
 #include "module/utility/altmanager.h"
 #include "module/utility/autotool.h"
 #include "module/utility/bridgeassist.h"
-#include "module/utility/clutch.h"
 #include "module/utility/fastplace.h"
 #include "module/utility/noitemrelease.h"
 #include "module/utility/inventorymanager.h"
@@ -206,8 +205,6 @@ void cobble::context::initialize(HMODULE hModule) {
     noItemRelease = new NoItemRelease();
     COBBLE_TRACE("alloc:BridgeAssist");
     bridgeAssist = new BridgeAssist();
-    COBBLE_TRACE("alloc:Scaffold");
-    scaffold = new Clutch(PlaceMode::Scaffold);
     COBBLE_TRACE("alloc:Blink");
     blink = new Blink();
     COBBLE_TRACE("alloc:FakeLag");
@@ -280,7 +277,6 @@ void cobble::context::initialize(HMODULE hModule) {
     moduleManager->registerModule(noJumpDelay);
     moduleManager->registerModule(noItemRelease);
     moduleManager->registerModule(bridgeAssist);
-    moduleManager->registerModule(scaffold);
     moduleManager->registerModule(blink);
     moduleManager->registerModule(fakeLag);
     moduleManager->registerModule(fastPlace);
@@ -678,10 +674,6 @@ bool cobble::context::shutdown() {
     if (bridgeAssist) {
         delete bridgeAssist;
         bridgeAssist = nullptr;
-    }
-    if (scaffold) {
-        delete scaffold;
-        scaffold = nullptr;
     }
     if (blink) {
         delete blink;

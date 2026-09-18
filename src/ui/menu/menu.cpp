@@ -34,7 +34,6 @@
 #include "../../module/utility/altmanager.h"
 #include "../../module/utility/autotool.h"
 #include "../../module/utility/bridgeassist.h"
-#include "../../module/utility/clutch.h"
 #include "../../module/utility/fastplace.h"
 #include "../../module/utility/noitemrelease.h"
 #include "../../module/utility/inventorymanager.h"
@@ -171,14 +170,12 @@ Module* getModuleForSubtab(int tabIdx, int subtabIdx) {
             case 6:
                 return bridgeAssist;
             case 7:
-                return scaffold;
-            case 8:
                 return autoTool;
-            case 9:
+            case 8:
                 return inventoryManager;
-            case 10:
+            case 9:
                 return altManager;
-            case 11:
+            case 10:
                 return teamsModule;
         }
     }

@@ -7,7 +7,6 @@
 #include "../../module/movement/fakelag.h"
 #include "../../module/movement/timerrange.h"
 #include "../../module/movement/blink.h"
-#include "../../module/utility/clutch.h"
 #include "../../module/utility/autorefill.h"
 #include "../../module/utility/altmanager.h"
 #include "../../module/utility/noitemrelease.h"
@@ -50,18 +49,13 @@ jboolean JNICALL NativeShouldSend(JNIEnv* env, jclass cls, jobject packet) {
     const bool autoPotPacketWork = autoPot && autoPot->enabled && autoPot->needsOutgoingPacket();
     const bool autoPotRotating = autoPotPacketWork && autoPot->isRewritingRotation();
     const bool potRotating = throwPotsRotating || autoPotRotating;
-    // Scaffold no longer rewrites this packet: it moves the real rotation on the
-    // client tick, so the flying packet already carries the placement aim by the time it
-    // gets here. What is still needed is the priority -- while the placement owns the
-    // head, the aim modules must not overwrite it on the wire.
-    const bool clutchRotating = scaffold && scaffold->enabled && scaffold->isRewritingRotation();
 
     const bool silentAuraRotating = silentAura && silentAura->isRewritingRotation();
 
     // AimAssist packet-rotation (smooth camera): rewrites the outgoing movement
     // packet's yaw/pitch with the randomized server rotation. Deferred while a
-    // placement, potion, or SilentAura owns the rotation.
-    if (aimAssist && aimAssist->enabled && !silentAuraRotating && !clutchRotating && !potRotating) {
+    // potion or SilentAura owns the rotation.
+    if (aimAssist && aimAssist->enabled && !silentAuraRotating && !potRotating) {
         aimAssist->onOutgoingPacket(env, packet);
     }
 
@@ -107,7 +101,7 @@ jboolean JNICALL NativeShouldSend(JNIEnv* env, jclass cls, jobject packet) {
         shouldSend = NoItemReleaseGate::NativeShouldSend(env, cls, packet);
     }
     if (shouldSend == JNI_TRUE && silentAura) {
-        if (silentAuraRotating && !clutchRotating && !potRotating)
+        if (silentAuraRotating && !potRotating)
             silentAura->onOutgoingPacket(env, packet);
         else
             silentAura->observeAcceptedOutgoingPacket(env, packet, true);
