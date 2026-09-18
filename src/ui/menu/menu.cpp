@@ -6,7 +6,6 @@
 #include "../../cobble.hpp"
 #include "../../config/config.hpp"
 #include "../../module/combat/aimassist.h"
-#include "../../module/combat/aimbow.h"
 #include "../../module/combat/antibot.h"
 #include "../../module/combat/autoclicker.h"
 #include "../../module/combat/blockhit.h"
@@ -102,12 +101,10 @@ Module* getModuleForSubtab(int tabIdx, int subtabIdx) {
             case 8:
                 return piercing;
             case 9:
-                return aimBow;
-            case 10:
                 return blockHit;
-            case 11:
+            case 10:
                 return antiBot;
-            case 12:
+            case 11:
                 return silentAura;
         }
     }

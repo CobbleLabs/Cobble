@@ -26,7 +26,6 @@ static const DescriptionEntry kModuleDescriptions[] = {
     {"", "AutoClicker", "", "Clicks automatically while you hold the attack button."},
     {"", "AimAssist", "", "Smoothly guides your aim toward a valid player target."},
     {"", "SilentAura", "", "Attacks valid players using a separate server-side rotation without moving your camera."},
-    {"", "AimBow", "", "Aims the bow at the nearest player, solving the arrow arc and lead."},
     {"", "Velocity", "", "Controls how much enemy knockback affects your movement."},
     {"", "Reach", "", "Extends the distance at which attacks can connect."},
     {"", "HitSelect", "", "Times attacks around combo state to improve hit selection."},
@@ -304,25 +303,6 @@ static const DescriptionEntry kOptionDescriptions[] = {
      "Holds packets only while you are actually swinging — the mouse held down, or AutoClicker running."},
     {"Backtrack", "Color", "",
      "Color of the ghost box drawn where the server still believes the target is. Its alpha is the overall opacity."},
-
-    {"AimBow", "Aim Height", "",
-     "Where on the body to aim, measured from the feet: 0 is the feet, 1 the top of the head. 0.62 is the chest, the "
-     "widest part of the hitbox."},
-    {"AimBow", "Live Charge", "",
-     "Solves for the charge actually on the bow instead of assuming a full draw. Off means every solution assumes a "
-     "full-power shot."},
-    {"AimBow", "Min Charge", "",
-     "Floor for the charge the solver assumes. An almost-empty bow needs an absurd loft, so without a floor the "
-     "crosshair flies up the moment you right-click."},
-    {"AimBow", "Strength", "",
-     "How far ahead of a moving target to aim horizontally. 1.00x is the arrow's real flight time; lower under-leads, "
-     "higher over-leads."},
-    {"AimBow", "Vertical Lead", "",
-     "How much to lead a target that is rising or falling. Kept low by default: vertical speed reverses inside a jump, "
-     "so a long shot leads to where they no longer are."},
-    {"AimBow", "Aim Mode", "Automatic", "Targets the nearest player in range."},
-    {"AimBow", "Aim Mode", "Closest to Crosshair",
-     "Targets whoever your own crosshair is already nearest to, so you choose who gets shot."},
 
     {"AntiBot", "Name Tag", "",
      "Flags a player whose name gives it away: an explicit [NPC] tag, an empty or one-letter name, or a name made only "
@@ -603,7 +583,7 @@ std::vector<ui::tab_t> ui::tabs = {
     {ICON_FA_CROSSHAIRS,
      "Combat",
      {"AutoClicker", "AimAssist", "Velocity", "Reach", "HitSelect", "NoHitDelay", "Criticals", "WTap", "Piercing",
-      "AimBow", "AutoBlock", "AntiBot", "SilentAura"}},
+      "AutoBlock", "AntiBot", "SilentAura"}},
     {ICON_FA_EYE,
      "Visuals",
      {"NameTags", "ESP", "ItemESP", "Tracers", "BlockESP", "Trajectories", "AntiDebuff", "ArrayList", "DroppedInfo",

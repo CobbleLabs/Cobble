@@ -101,7 +101,6 @@
     <ClCompile Include="src\module\combat\blockhit.cpp" />
     <ClCompile Include="src\module\combat\aimassist.cpp" />
     <ClCompile Include="src\module\combat\silentaura.cpp" />
-    <ClCompile Include="src\module\combat\aimbow.cpp" />
     <ClCompile Include="src\module\combat\antibot.cpp" />
     <ClCompile Include="src\module\utility\armorswitch.cpp" />
     <ClCompile Include="src\module\utility\autorefill.cpp" />
@@ -203,7 +202,6 @@
     <ClInclude Include="src\module\combat\blockhit.h" />
     <ClInclude Include="src\module\combat\aimassist.h" />
     <ClInclude Include="src\module\combat\silentaura.h" />
-    <ClInclude Include="src\module\combat\aimbow.h" />
     <ClInclude Include="src\module\combat\antibot.h" />
     <ClInclude Include="src\module\utility\armorswitch.h" />
     <ClInclude Include="src\module\utility\autorefill.h" />

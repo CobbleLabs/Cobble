@@ -1,7 +1,6 @@
 #include "cobble.hpp"
 #include "config/config.hpp"
 #include "module/combat/aimassist.h"
-#include "module/combat/aimbow.h"
 #include "module/combat/antibot.h"
 #include "module/combat/autoclicker.h"
 #include "module/combat/blockhit.h"
@@ -174,8 +173,6 @@ void cobble::context::initialize(HMODULE hModule) {
     aimAssist = new AimAssist();
     COBBLE_TRACE("alloc:SilentAura");
     silentAura = new SilentAura();
-    COBBLE_TRACE("alloc:AimBow");
-    aimBow = new AimBow();
     // Allocated before anything can target: every combat module's target filter calls into it.
     COBBLE_TRACE("alloc:AntiBot");
     antiBot = new AntiBot();
@@ -276,7 +273,6 @@ void cobble::context::initialize(HMODULE hModule) {
     moduleManager->registerModule(blockHit);
     moduleManager->registerModule(aimAssist);
     moduleManager->registerModule(silentAura);
-    moduleManager->registerModule(aimBow);
     moduleManager->registerModule(antiBot);
     moduleManager->registerModule(armorSwitch);
     moduleManager->registerModule(autoRefill);
@@ -628,10 +624,6 @@ bool cobble::context::shutdown() {
     if (silentAura) {
         delete silentAura;
         silentAura = nullptr;
-    }
-    if (aimBow) {
-        delete aimBow;
-        aimBow = nullptr;
     }
     if (antiBot) {
         delete antiBot;
