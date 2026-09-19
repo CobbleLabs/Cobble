@@ -12,6 +12,7 @@
 #include "../hud/notifications.h"
 #include "../hud/watermark.h"
 #include "../menu/menu.h"
+#include "../rml/rml_overlay.h"
 #include "../widgets/icons.hpp"
 #include "../widgets/widgets.hpp"
 #include "hud_fonts.h"
@@ -321,6 +322,8 @@ void SetupImGui() {
 
     Overlay::initialized = true;
 
+    RmlOverlay::Init(Overlay::gameWindow, viewport[2], viewport[3]);
+
     // Initialize item textures (embedded in DLL, no path needed)
     ItemTextureManager::get().init("");
 }
@@ -425,7 +428,7 @@ LRESULT CALLBACK HookedWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam
             return CallWindowProcA(originalWndProc, hWnd, msg, wParam, lParam);
         }
 
-        ImGui_ImplWin32_WndProcHandler(hWnd, msg, wParam, lParam);
+        RmlOverlay::ProcessEvent(hWnd, msg, wParam, lParam);
         return 1;
     }
 
@@ -464,10 +467,10 @@ BOOL __stdcall HookedSwapBuffers(HDC hdc) {
         return originalSwapBuffers(hdc);
 
     // Track whether the previous frame opened ImGui state but failed to close
-    // it (typically because Overlay::Render or Menu::Render faulted and the
-    // SEH below swallowed the exception). If so, drain it before NewFrame()
-    // or ImGui asserts in Debug ("Forgot to call Render() or EndFrame()...")
-    // and silently mis-tracks frame counts in Release.
+    // it (typically because Overlay::Render faulted and the SEH below swallowed
+    // the exception). If so, drain it before NewFrame() or ImGui asserts in
+    // Debug ("Forgot to call Render() or EndFrame()...") and silently
+    // mis-tracks frame counts in Release.
     static bool s_frameLeaked = false;
     if (s_frameLeaked && Overlay::initialized) {
         COBBLE_TRACE("HookedSwapBuffers: draining leaked frame");
@@ -509,6 +512,7 @@ BOOL __stdcall HookedSwapBuffers(HDC hdc) {
                 }
 
                 if (Overlay::initialized) {
+                    RmlOverlay::Shutdown();
                     ImGui_ImplOpenGL2_Shutdown();
                     ImGui_ImplWin32_Shutdown();
                     ImGui::DestroyContext();
@@ -529,6 +533,7 @@ BOOL __stdcall HookedSwapBuffers(HDC hdc) {
             Menu::isOpen = false;
             AltManagerWindow::Close();
 
+            RmlOverlay::Shutdown();
             ImGui_ImplOpenGL2_Shutdown();
             ImGui_ImplWin32_Shutdown();
             ImGui::DestroyContext();
@@ -595,6 +600,7 @@ BOOL __stdcall HookedSwapBuffers(HDC hdc) {
             (newWidth != RenderData::screenWidth || newHeight != RenderData::screenHeight)) {
             RenderData::screenWidth = newWidth;
             RenderData::screenHeight = newHeight;
+            RmlOverlay::SetDimensions(newWidth, newHeight);
         }
 
         bool hasRenderWork = moduleManager && moduleManager->hasRenderWork();
@@ -656,13 +662,15 @@ BOOL __stdcall HookedSwapBuffers(HDC hdc) {
 
         ImGui::End();
 
-        Menu::Render();
         AltManagerWindow::Render();
 
         ImGui::EndFrame();
         frameStarted = false;
         ImGui::Render();
         ImGui_ImplOpenGL2_RenderDrawData(ImGui::GetDrawData());
+
+        if (Menu::isOpen)
+            RmlOverlay::Render();
     } __except (EXCEPTION_EXECUTE_HANDLER) {
         // SEH unwinding can't run C++ destructors. Just record that the frame
         // is mid-flight; next invocation drains it before NewFrame() so ImGui
@@ -738,6 +746,7 @@ void Overlay::Shutdown() {
     std::this_thread::sleep_for(std::chrono::milliseconds(16));
 
     if (initialized) {
+        RmlOverlay::Shutdown();
         ImGui_ImplOpenGL2_Shutdown();
         ImGui_ImplWin32_Shutdown();
         ImGui::DestroyContext();
