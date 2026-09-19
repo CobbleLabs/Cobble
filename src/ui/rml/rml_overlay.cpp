@@ -1,7 +1,9 @@
 #include "rml_overlay.h"
+#include "menu_document.hpp"
 
 #include "../../util/logger.hpp"
 #include "../core/fonts/inter_bold.hpp"
+#include "../core/fonts/inter_regular.hpp"
 
 #include <RmlUi/Core.h>
 #include <RmlUi/Core/Context.h>
@@ -27,45 +29,6 @@ public:
         return true;
     }
 };
-
-const char kDocument[] = R"RML(<rml>
-<head>
-    <style>
-        body {
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            width: 100%;
-            height: 100%;
-            font-family: Inter;
-            font-size: 18dp;
-            color: #f2f4f8;
-            background-color: #00000088;
-        }
-        #panel {
-            width: 360dp;
-            padding: 28dp 32dp;
-            background-color: #0d0e11ee;
-            border: 1dp #3a3d45;
-            border-radius: 12dp;
-        }
-        h1 {
-            font-size: 28dp;
-            color: #7eb8ff;
-            margin-bottom: 10dp;
-        }
-        p {
-            color: #c5c9d3;
-        }
-    </style>
-</head>
-<body>
-    <div id="panel">
-        <h1>Cobble</h1>
-        <p>RmlUi overlay is running.</p>
-    </div>
-</body>
-</rml>)RML";
 
 CobbleSystemInterface* g_system = nullptr;
 RenderInterface_GL2* g_renderer = nullptr;
@@ -124,8 +87,11 @@ void RmlOverlay::Init(HWND hwnd, int width, int height) {
     }
     g_rml_alive = true;
 
-    const Rml::byte* font = reinterpret_cast<const Rml::byte*>(inter_bold_ttf_data);
-    if (!Rml::LoadFontFace(Rml::Span<const Rml::byte>(font, inter_bold_ttf_size), "Inter", Rml::Style::FontStyle::Normal,
+    const Rml::byte* regular = reinterpret_cast<const Rml::byte*>(inter_regular_ttf_data);
+    const Rml::byte* bold = reinterpret_cast<const Rml::byte*>(inter_bold_ttf_data);
+    if (!Rml::LoadFontFace(Rml::Span<const Rml::byte>(regular, inter_regular_ttf_size), "Inter", Rml::Style::FontStyle::Normal,
+                           Rml::Style::FontWeight::Normal) ||
+        !Rml::LoadFontFace(Rml::Span<const Rml::byte>(bold, inter_bold_ttf_size), "Inter", Rml::Style::FontStyle::Normal,
                            Rml::Style::FontWeight::Bold)) {
         log_err("RmlUi failed to load Inter");
         Shutdown();
@@ -139,7 +105,7 @@ void RmlOverlay::Init(HWND hwnd, int width, int height) {
         return;
     }
 
-    g_document = g_context->LoadDocumentFromMemory(kDocument, "cobble.rml");
+    g_document = g_context->LoadDocumentFromMemory(kMenuDocument, "menu.rml");
     if (!g_document) {
         log_err("RmlUi LoadDocumentFromMemory failed");
         Shutdown();

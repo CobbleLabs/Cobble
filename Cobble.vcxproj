@@ -847,6 +847,7 @@
   <ItemGroup>
     <ClInclude Include="src\cobble.hpp" />
     <ClInclude Include="src\ui\rml\rml_overlay.h" />
+    <ClInclude Include="src\ui\rml\menu_document.hpp" />
     <ClInclude Include="src\jni\apollo\apollo_packet_observer.hpp" />
     <ClInclude Include="src\jni\apollo\apollo_handshake.hpp" />
     <ClInclude Include="src\jni\packet\bytecode_patcher.hpp" />
