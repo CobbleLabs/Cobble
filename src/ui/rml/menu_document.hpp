@@ -1,13 +1,21 @@
 #pragma once
 
-// Port of Documents/newui/browser (index.html + menu.css).
-// px -> dp, border without 'solid', ease-out -> quadratic-out,
-// linear-gradient -> vertical-gradient decorator. .stage is the 1024x512 layout
-// root only (no mock backdrop).
-
 static const char kMenuDocument[] = R"RML(<rml>
 <head>
 <style>
+/* Cobble menu stylesheet. Loaded as-is by the browser preview and by RmlUi.
+   Port to Cobble: paste this into <style> in src/ui/rml/menu_document.hpp together
+   with the body of menu.rml. Do not use grid, calc(), or JS.
+
+   A few properties are doubled so both engines accept the file:
+     decorator / background-image, cubic-out / ease-out, border-style (browser only).
+
+   Scale: everything is px at a 1.2x pass over the first draft. If you want to
+   resize the whole menu without touching this file, switch the units to dp and
+   call Context::SetDensityIndependentPixelRatio() in C++ (dp is invalid in the
+   browser preview, so that trade-off is yours to make).
+*/
+
 * { box-sizing: border-box; }
 
 body {
@@ -31,7 +39,7 @@ body {
     margin: 0;
     padding: 0;
     font-family: Inter;
-    font-size: 12dp;
+    font-size: 14px;
     font-weight: 400;
     color: var(--text);
     background-color: #00000080;
@@ -39,209 +47,316 @@ body {
 
 .stage {
     position: relative;
-    width: 1024dp;
-    height: 512dp;
+    width: 1216px;
+    height: 616px;
 }
 
 .pw { position: absolute; }
 
 .panel {
     overflow: hidden;
-    border-radius: 10dp;
+    border-radius: 12px;
     background-color: var(--panel);
-    border: 1dp #ffffff0a;
+    border-width: 1px;
+    border-color: #ffffff0a;
+    border-style: solid;
 }
 
 .glow {
-    height: 13dp;
-    margin: 0 5dp;
+    height: 16px;
+    margin: 0 6px;
+    background-image: linear-gradient(to bottom, #1ee3db40, #1ee3db00);
     decorator: vertical-gradient(#1ee3db40 #1ee3db00);
 }
 
 .accent {
-    height: 2dp;
+    height: 2px;
     background-color: var(--accent);
-    border-radius: 1dp;
+    border-radius: 1px;
 }
 
-.p-main    { left: 52dp;  top: 72dp; width: 176dp; }
-.p-combat  { left: 264dp; top: 44dp; width: 182dp; }
-.p-world   { left: 462dp; top: 46dp; width: 178dp; }
-.p-render  { left: 644dp; top: 48dp; width: 178dp; }
-.p-utility { left: 836dp; top: 50dp; width: 178dp; }
+.p-main    { left: 48px;  top: 84px; width: 212px; }
+.p-combat  { left: 292px; top: 52px; width: 218px; }
+.p-world   { left: 530px; top: 54px; width: 214px; }
+.p-render  { left: 764px; top: 56px; width: 214px; }
+.p-utility { left: 990px; top: 36px; width: 214px; }
 
 .p-head {
     display: flex;
     align-items: center;
-    padding: 9dp 10dp;
+    padding: 11px 12px 11px 14px;
     background-color: var(--panel-head);
-    border-bottom: 1dp var(--hairline);
+    border-bottom-width: 1px;
+    border-bottom-color: var(--hairline);
+    border-bottom-style: solid;
 }
 
 .p-title {
     flex-grow: 1;
-    font-size: 12dp;
+    font-size: 14px;
     font-weight: 600;
-    letter-spacing: 0.2dp;
+    letter-spacing: 0.2px;
     color: var(--text);
 }
 
 .tag {
-    font-size: 9dp;
+    font-size: 11px;
     font-weight: 500;
-    letter-spacing: 0.3dp;
+    letter-spacing: 0.3px;
     color: var(--text-off);
-    margin-left: 6dp;
+    margin-left: 7px;
 }
 
 .p-foot {
     display: flex;
     align-items: center;
-    padding: 8dp 11dp;
-    border-top: 1dp var(--hairline);
+    padding: 10px 14px;
+    border-top-width: 1px;
+    border-top-color: var(--hairline);
+    border-top-style: solid;
 }
 
 .grow { flex-grow: 1; }
 
-.p-body { padding: 4dp 0 6dp 0; }
+.p-body { padding: 5px 0 7px 0; }
 
 .nav {
     display: flex;
     align-items: center;
-    padding: 7dp 11dp;
-    transition: background-color 0.12s quadratic-out;
+    padding: 9px 14px;
+    transition: background-color 0.12s ease-out;
+    transition: background-color 0.12s cubic-out;
 }
 .nav:hover { background-color: var(--row-hover); }
 
 .nl {
     flex-grow: 1;
-    font-size: 12dp;
+    font-size: 14px;
     font-weight: 500;
     color: var(--text);
 }
 .nav.dim .nl { color: var(--text-off); font-weight: 400; }
 
 .sep {
-    height: 1dp;
-    margin: 6dp 11dp;
+    height: 1px;
+    margin: 7px 14px;
     background-color: var(--hairline);
 }
+
+/* ============================ module rows ============================
+   .mw wraps one module: the row itself plus its (hidden) settings drawer.
+   The id lives on .mw, so C++ does GetElementById("m-killaura")->SetClass("open", ...).
+*/
 
 .mod {
     display: flex;
     align-items: center;
-    padding: 6dp 8dp 6dp 12dp;
-    transition: background-color 0.12s quadratic-out;
+    padding: 7px 10px 7px 14px;
+    transition: background-color 0.12s ease-out;
+    transition: background-color 0.12s cubic-out;
 }
 .mod:hover { background-color: var(--row-hover); }
 
 .mn {
     flex-grow: 1;
-    font-size: 11.5dp;
+    font-size: 13.5px;
     font-weight: 400;
-    letter-spacing: 0.1dp;
+    letter-spacing: 0.1px;
     color: var(--text-off);
 }
 .mod.on .mn { color: var(--text); font-weight: 500; }
 
 .key {
-    font-size: 9dp;
+    font-size: 11px;
     font-weight: 500;
     color: var(--text-off);
-    border: 1dp var(--hairline);
-    border-radius: 3dp;
-    padding: 1dp 4dp;
-    margin-right: 4dp;
+    border-width: 1px;
+    border-color: var(--hairline);
+    border-style: solid;
+    border-radius: 3px;
+    padding: 2px 5px;
+    margin-right: 6px;
 }
 
 .dots {
     display: flex;
     flex-direction: column;
     align-items: center;
-    padding: 3dp 3dp 1dp 3dp;
+    padding: 4px 4px 2px 4px;
 }
 .d {
-    width: 2dp;
-    height: 2dp;
-    border-radius: 1dp;
-    margin-bottom: 2dp;
+    width: 3px;
+    height: 3px;
+    border-radius: 2px;
+    margin-bottom: 2px;
     background-color: var(--dot);
-    transition: background-color 0.12s quadratic-out;
+    transition: background-color 0.12s ease-out;
+    transition: background-color 0.12s cubic-out;
 }
 .mod:hover .d { background-color: var(--text-mid); }
 
+/* ============================ settings drawer ============================
+   Opened by right-clicking the row or clicking the three dots. Both are wired
+   in C++ (menu_events.cpp) because RmlUi only emits `click` for the left button.
+*/
+
+.drawer {
+    display: none;
+    margin-left: 14px;
+    padding: 5px 14px 11px 13px;
+    background-color: #ffffff05;
+}
+.mw.open .drawer { display: block; }
+.mw.open .mod { background-color: var(--row-hover); }
+.mw.open .d { background-color: var(--accent); }
+
+.st { padding: 6px 0 6px 0; }
+
+.st-r {
+    display: flex;
+    align-items: center;
+}
+
+.st-h {
+    display: flex;
+    align-items: center;
+    margin-bottom: 8px;
+}
+
+.sn {
+    flex-grow: 1;
+    font-size: 12.5px;
+    color: var(--text-mid);
+}
+
+.sv {
+    font-size: 12.5px;
+    font-weight: 500;
+    color: var(--accent);
+}
+
+/* slider */
+.track {
+    display: flex;
+    align-items: center;
+    height: 4px;
+    border-radius: 2px;
+    background-color: #ffffff1a;
+}
+.fill {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    height: 4px;
+    border-radius: 2px;
+    background-color: var(--accent);
+}
+.knob {
+    width: 11px;
+    height: 11px;
+    border-radius: 6px;
+    margin-right: -5px;
+    background-color: #ffffff;
+}
+
+/* toggle */
+.sw {
+    display: flex;
+    align-items: center;
+    width: 28px;
+    height: 15px;
+    padding: 2px;
+    border-radius: 8px;
+    background-color: #ffffff1a;
+    transition: background-color 0.12s ease-out;
+    transition: background-color 0.12s cubic-out;
+}
+.nub {
+    width: 11px;
+    height: 11px;
+    border-radius: 6px;
+    background-color: var(--text-off);
+}
+.sw.on { background-color: var(--accent); justify-content: flex-end; }
+.sw.on .nub { background-color: #05181b; }
+
+/* enum / mode picker */
+.pick {
+    display: flex;
+    align-items: center;
+    padding: 3px 8px;
+    border-radius: 5px;
+    font-size: 12.5px;
+    color: var(--text);
+    background-color: #ffffff0f;
+}
+.pick .chev { margin-left: 9px; }
+
+/* ============================ chevrons ============================ */
+
 .chev {
-    width: 4dp;
-    height: 4dp;
-    border-right: 1dp var(--text-off);
-    border-bottom: 1dp var(--text-off);
+    width: 5px;
+    height: 5px;
+    border-style: solid;
+    border-width: 0;
+    border-right-width: 1px;
+    border-bottom-width: 1px;
+    border-color: var(--text-off);
 }
 .chev-r { transform: rotate(-45deg); }
 .chev-u { transform: rotate(-135deg); }
+.chev-d { transform: rotate(45deg); }
+
+/* ============================ icons ============================
+   Categories are text-only. What is left: the logo gem in the main header and
+   the two footer buttons.
+*/
 
 .ic {
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 13dp;
-    height: 13dp;
-    margin-right: 9dp;
+    width: 15px;
+    height: 15px;
+    margin-right: 10px;
 }
 
 .ic-logo {
-    width: 11dp;
-    height: 11dp;
-    border-radius: 2dp;
+    width: 13px;
+    height: 13px;
+    border-radius: 2px;
     transform: rotate(45deg);
+    background-image: linear-gradient(to bottom, #6df6ef, #0fb2ac);
     decorator: vertical-gradient(#6df6ef #0fb2ac);
 }
 
 .i-diamond {
-    width: 7dp;
-    height: 7dp;
-    border-radius: 1dp;
+    width: 6px;
+    height: 6px;
+    border-radius: 1px;
     transform: rotate(45deg);
-    background-color: var(--accent);
-}
-.i-diamond.sm { width: 5dp; height: 5dp; }
-
-.ic-render, .ic-world, .ic-gear {
-    border: 1dp var(--accent);
-    border-radius: 7dp;
-}
-.i-dot {
-    width: 4dp;
-    height: 4dp;
-    border-radius: 2dp;
-    background-color: var(--accent);
-}
-.i-bar {
-    width: 11dp;
-    height: 1dp;
-    background-color: var(--accent);
-}
-
-.ic-utility {
-    border: 1dp var(--accent);
-    border-radius: 4dp;
-}
-.i-square {
-    width: 5dp;
-    height: 5dp;
-    border-radius: 1dp;
     background-color: var(--accent);
 }
 
 .ic-gear {
-    width: 12dp;
-    height: 12dp;
+    width: 14px;
+    height: 14px;
     margin-right: 0;
+    border-width: 1px;
     border-color: var(--text-off);
+    border-style: solid;
+    border-radius: 7px;
 }
-.ic-gear .i-dot { width: 3dp; height: 3dp; background-color: var(--text-mid); }
+.i-dot {
+    width: 4px;
+    height: 4px;
+    border-radius: 2px;
+    background-color: var(--text-mid);
+}
 
-.ic-pin { width: 12dp; height: 12dp; margin-right: 0; }
-.ic-pin .i-diamond { background-color: var(--accent); }
+.ic-pin { width: 14px; height: 14px; margin-right: 0; }
+.st-r .key { margin-right: 0; }
+
 </style>
 </head>
 <body>
@@ -255,10 +370,10 @@ body {
         <div class="chev chev-u"></div>
       </div>
       <div class="p-body">
-        <div class="nav" id="cat-combat"><div class="ic ic-combat"><div class="i-diamond"></div></div><div class="nl">Combat</div><div class="chev chev-r"></div></div>
-        <div class="nav" id="cat-render"><div class="ic ic-render"><div class="i-dot"></div></div><div class="nl">Render</div><div class="chev chev-r"></div></div>
-        <div class="nav" id="cat-utility"><div class="ic ic-utility"><div class="i-square"></div></div><div class="nl">Utility</div><div class="chev chev-r"></div></div>
-        <div class="nav" id="cat-world"><div class="ic ic-world"><div class="i-bar"></div></div><div class="nl">World</div><div class="chev chev-r"></div></div>
+        <div class="nav" id="cat-combat"><div class="nl">Combat</div><div class="chev chev-r"></div></div>
+        <div class="nav" id="cat-render"><div class="nl">Render</div><div class="chev chev-r"></div></div>
+        <div class="nav" id="cat-utility"><div class="nl">Utility</div><div class="chev chev-r"></div></div>
+        <div class="nav" id="cat-world"><div class="nl">World</div><div class="chev chev-r"></div></div>
         <div class="sep"></div>
         <div class="nav dim" id="cat-friends"><div class="nl">Friends</div><div class="chev chev-r"></div></div>
         <div class="nav dim" id="cat-profiles"><div class="nl">Profiles</div><div class="chev chev-r"></div></div>
@@ -267,7 +382,7 @@ body {
       <div class="p-foot">
         <div class="ic ic-gear" id="btn-settings"><div class="i-dot"></div></div>
         <div class="grow"></div>
-        <div class="ic ic-pin" id="btn-pin"><div class="i-diamond sm"></div></div>
+        <div class="ic ic-pin" id="btn-pin"><div class="i-diamond"></div></div>
       </div>
       <div class="accent"></div>
     </div>
@@ -277,20 +392,45 @@ body {
   <div class="pw p-combat">
     <div class="panel">
       <div class="p-head">
-        <div class="ic ic-combat"><div class="i-diamond"></div></div>
         <div class="p-title">Combat</div>
         <div class="chev chev-u"></div>
       </div>
       <div class="p-body">
-        <div class="mod on" id="m-killaura"><div class="mn">KillAura</div><div class="key">R</div><div class="dots"><div class="d"></div><div class="d"></div><div class="d"></div></div></div>
-        <div class="mod on" id="m-aimassist"><div class="mn">AimAssist</div><div class="dots"><div class="d"></div><div class="d"></div><div class="d"></div></div></div>
-        <div class="mod on" id="m-reach"><div class="mn">Reach</div><div class="dots"><div class="d"></div><div class="d"></div><div class="d"></div></div></div>
-        <div class="mod on" id="m-velocity"><div class="mn">Velocity</div><div class="key">V</div><div class="dots"><div class="d"></div><div class="d"></div><div class="d"></div></div></div>
-        <div class="mod" id="m-triggerbot"><div class="mn">TriggerBot</div><div class="dots"><div class="d"></div><div class="d"></div><div class="d"></div></div></div>
-        <div class="mod" id="m-autoclicker"><div class="mn">AutoClicker</div><div class="dots"><div class="d"></div><div class="d"></div><div class="d"></div></div></div>
-        <div class="mod" id="m-antibot"><div class="mn">AntiBot</div><div class="dots"><div class="d"></div><div class="d"></div><div class="d"></div></div></div>
-        <div class="mod" id="m-hitselect"><div class="mn">HitSelect</div><div class="dots"><div class="d"></div><div class="d"></div><div class="d"></div></div></div>
-        <div class="mod" id="m-blockhit"><div class="mn">BlockHit</div><div class="dots"><div class="d"></div><div class="d"></div><div class="d"></div></div></div>
+
+        <!-- a module with settings: right-click the row or click the dots to fold it open -->
+        <div class="mw open" id="m-killaura">
+          <div class="mod on"><div class="mn">KillAura</div><div class="key">R</div><div class="dots"><div class="d"></div><div class="d"></div><div class="d"></div></div></div>
+          <div class="drawer">
+            <div class="st">
+              <div class="st-h"><div class="sn">Range</div><div class="sv">3.4</div></div>
+              <div class="track"><div class="fill" style="width: 62%;"><div class="knob"></div></div></div>
+            </div>
+            <div class="st st-r"><div class="sn">Mode</div><div class="pick">Switch<div class="chev chev-d"></div></div></div>
+            <div class="st st-r"><div class="sn">Through Walls</div><div class="sw on"><div class="nub"></div></div></div>
+            <div class="st st-r"><div class="sn">Target Players</div><div class="sw on"><div class="nub"></div></div></div>
+            <div class="st st-r"><div class="sn">Keybind</div><div class="key">R</div></div>
+          </div>
+        </div>
+
+        <div class="mw" id="m-aimassist"><div class="mod on"><div class="mn">AimAssist</div><div class="dots"><div class="d"></div><div class="d"></div><div class="d"></div></div></div></div>
+
+        <div class="mw" id="m-reach">
+          <div class="mod on"><div class="mn">Reach</div><div class="dots"><div class="d"></div><div class="d"></div><div class="d"></div></div></div>
+          <div class="drawer">
+            <div class="st">
+              <div class="st-h"><div class="sn">Distance</div><div class="sv">3.2</div></div>
+              <div class="track"><div class="fill" style="width: 48%;"><div class="knob"></div></div></div>
+            </div>
+            <div class="st st-r"><div class="sn">Only While Combat</div><div class="sw"><div class="nub"></div></div></div>
+          </div>
+        </div>
+
+        <div class="mw" id="m-velocity"><div class="mod on"><div class="mn">Velocity</div><div class="key">V</div><div class="dots"><div class="d"></div><div class="d"></div><div class="d"></div></div></div></div>
+        <div class="mw" id="m-triggerbot"><div class="mod"><div class="mn">TriggerBot</div><div class="dots"><div class="d"></div><div class="d"></div><div class="d"></div></div></div></div>
+        <div class="mw" id="m-autoclicker"><div class="mod"><div class="mn">AutoClicker</div><div class="dots"><div class="d"></div><div class="d"></div><div class="d"></div></div></div></div>
+        <div class="mw" id="m-antibot"><div class="mod"><div class="mn">AntiBot</div><div class="dots"><div class="d"></div><div class="d"></div><div class="d"></div></div></div></div>
+        <div class="mw" id="m-hitselect"><div class="mod"><div class="mn">HitSelect</div><div class="dots"><div class="d"></div><div class="d"></div><div class="d"></div></div></div></div>
+        <div class="mw" id="m-blockhit"><div class="mod"><div class="mn">BlockHit</div><div class="dots"><div class="d"></div><div class="d"></div><div class="d"></div></div></div></div>
       </div>
       <div class="accent"></div>
     </div>
@@ -300,16 +440,23 @@ body {
   <div class="pw p-world">
     <div class="panel">
       <div class="p-head">
-        <div class="ic ic-world"><div class="i-bar"></div></div>
         <div class="p-title">World</div>
         <div class="chev chev-u"></div>
       </div>
       <div class="p-body">
-        <div class="mod" id="m-autotool"><div class="mn">AutoTool</div><div class="dots"><div class="d"></div><div class="d"></div><div class="d"></div></div></div>
-        <div class="mod" id="m-blockin"><div class="mn">Block-In</div><div class="dots"><div class="d"></div><div class="d"></div><div class="d"></div></div></div>
-        <div class="mod" id="m-safewalk"><div class="mn">SafeWalk</div><div class="dots"><div class="d"></div><div class="d"></div><div class="d"></div></div></div>
-        <div class="mod" id="m-mlg"><div class="mn">MLG</div><div class="dots"><div class="d"></div><div class="d"></div><div class="d"></div></div></div>
-        <div class="mod on" id="m-sprint"><div class="mn">Sprint</div><div class="dots"><div class="d"></div><div class="d"></div><div class="d"></div></div></div>
+        <div class="mw" id="m-autotool"><div class="mod"><div class="mn">AutoTool</div><div class="dots"><div class="d"></div><div class="d"></div><div class="d"></div></div></div></div>
+        <div class="mw" id="m-blockin"><div class="mod"><div class="mn">Block-In</div><div class="dots"><div class="d"></div><div class="d"></div><div class="d"></div></div></div></div>
+        <div class="mw" id="m-safewalk"><div class="mod"><div class="mn">SafeWalk</div><div class="dots"><div class="d"></div><div class="d"></div><div class="d"></div></div></div></div>
+        <div class="mw" id="m-mlg"><div class="mod"><div class="mn">MLG</div><div class="dots"><div class="d"></div><div class="d"></div><div class="d"></div></div></div></div>
+
+        <div class="mw" id="m-sprint">
+          <div class="mod on"><div class="mn">Sprint</div><div class="dots"><div class="d"></div><div class="d"></div><div class="d"></div></div></div>
+          <div class="drawer">
+            <div class="st st-r"><div class="sn">Mode</div><div class="pick">Always<div class="chev chev-d"></div></div></div>
+            <div class="st st-r"><div class="sn">Omni Sprint</div><div class="sw on"><div class="nub"></div></div></div>
+            <div class="st st-r"><div class="sn">Keep Sprint</div><div class="sw"><div class="nub"></div></div></div>
+          </div>
+        </div>
       </div>
       <div class="accent"></div>
     </div>
@@ -319,19 +466,32 @@ body {
   <div class="pw p-render">
     <div class="panel">
       <div class="p-head">
-        <div class="ic ic-render"><div class="i-dot"></div></div>
         <div class="p-title">Render</div>
         <div class="chev chev-u"></div>
       </div>
       <div class="p-body">
-        <div class="mod on" id="m-esp"><div class="mn">ESP</div><div class="key">G</div><div class="dots"><div class="d"></div><div class="d"></div><div class="d"></div></div></div>
-        <div class="mod" id="m-tracers"><div class="mn">Tracers</div><div class="dots"><div class="d"></div><div class="d"></div><div class="d"></div></div></div>
-        <div class="mod" id="m-chestesp"><div class="mn">ChestESP</div><div class="dots"><div class="d"></div><div class="d"></div><div class="d"></div></div></div>
-        <div class="mod on" id="m-xray"><div class="mn">X-Ray</div><div class="dots"><div class="d"></div><div class="d"></div><div class="d"></div></div></div>
-        <div class="mod" id="m-chams"><div class="mn">Chams</div><div class="dots"><div class="d"></div><div class="d"></div><div class="d"></div></div></div>
-        <div class="mod" id="m-nametags"><div class="mn">NameTags</div><div class="dots"><div class="d"></div><div class="d"></div><div class="d"></div></div></div>
-        <div class="mod" id="m-itemesp"><div class="mn">ItemESP</div><div class="dots"><div class="d"></div><div class="d"></div><div class="d"></div></div></div>
-        <div class="mod on" id="m-storageesp"><div class="mn">StorageESP</div><div class="dots"><div class="d"></div><div class="d"></div><div class="d"></div></div></div>
+
+        <div class="mw" id="m-esp">
+          <div class="mod on"><div class="mn">ESP</div><div class="key">G</div><div class="dots"><div class="d"></div><div class="d"></div><div class="d"></div></div></div>
+          <div class="drawer">
+            <div class="st st-r"><div class="sn">Mode</div><div class="pick">Box<div class="chev chev-d"></div></div></div>
+            <div class="st">
+              <div class="st-h"><div class="sn">Opacity</div><div class="sv">0.80</div></div>
+              <div class="track"><div class="fill" style="width: 80%;"><div class="knob"></div></div></div>
+            </div>
+            <div class="st st-r"><div class="sn">Players</div><div class="sw on"><div class="nub"></div></div></div>
+            <div class="st st-r"><div class="sn">Mobs</div><div class="sw"><div class="nub"></div></div></div>
+            <div class="st st-r"><div class="sn">Keybind</div><div class="key">G</div></div>
+          </div>
+        </div>
+
+        <div class="mw" id="m-tracers"><div class="mod"><div class="mn">Tracers</div><div class="dots"><div class="d"></div><div class="d"></div><div class="d"></div></div></div></div>
+        <div class="mw" id="m-chestesp"><div class="mod"><div class="mn">ChestESP</div><div class="dots"><div class="d"></div><div class="d"></div><div class="d"></div></div></div></div>
+        <div class="mw" id="m-xray"><div class="mod on"><div class="mn">X-Ray</div><div class="dots"><div class="d"></div><div class="d"></div><div class="d"></div></div></div></div>
+        <div class="mw" id="m-chams"><div class="mod"><div class="mn">Chams</div><div class="dots"><div class="d"></div><div class="d"></div><div class="d"></div></div></div></div>
+        <div class="mw" id="m-nametags"><div class="mod"><div class="mn">NameTags</div><div class="dots"><div class="d"></div><div class="d"></div><div class="d"></div></div></div></div>
+        <div class="mw" id="m-itemesp"><div class="mod"><div class="mn">ItemESP</div><div class="dots"><div class="d"></div><div class="d"></div><div class="d"></div></div></div></div>
+        <div class="mw" id="m-storageesp"><div class="mod on"><div class="mn">StorageESP</div><div class="dots"><div class="d"></div><div class="d"></div><div class="d"></div></div></div></div>
       </div>
       <div class="accent"></div>
     </div>
@@ -341,25 +501,36 @@ body {
   <div class="pw p-utility">
     <div class="panel">
       <div class="p-head">
-        <div class="ic ic-utility"><div class="i-square"></div></div>
         <div class="p-title">Utility</div>
         <div class="chev chev-u"></div>
       </div>
       <div class="p-body">
-        <div class="mod on" id="m-fly"><div class="mn">Fly</div><div class="key">F</div><div class="dots"><div class="d"></div><div class="d"></div><div class="d"></div></div></div>
-        <div class="mod" id="m-scaffold"><div class="mn">Scaffold</div><div class="dots"><div class="d"></div><div class="d"></div><div class="d"></div></div></div>
-        <div class="mod" id="m-timer"><div class="mn">Timer</div><div class="dots"><div class="d"></div><div class="d"></div><div class="d"></div></div></div>
-        <div class="mod" id="m-blink"><div class="mn">Blink</div><div class="dots"><div class="d"></div><div class="d"></div><div class="d"></div></div></div>
-        <div class="mod" id="m-phase"><div class="mn">Phase</div><div class="dots"><div class="d"></div><div class="d"></div><div class="d"></div></div></div>
-        <div class="mod" id="m-nofall"><div class="mn">NoFall</div><div class="dots"><div class="d"></div><div class="d"></div><div class="d"></div></div></div>
-        <div class="mod" id="m-autoarmor"><div class="mn">AutoArmor</div><div class="dots"><div class="d"></div><div class="d"></div><div class="d"></div></div></div>
-        <div class="mod" id="m-bhop"><div class="mn">BHop</div><div class="dots"><div class="d"></div><div class="d"></div><div class="d"></div></div></div>
-        <div class="mod" id="m-fastplace"><div class="mn">FastPlace</div><div class="dots"><div class="d"></div><div class="d"></div><div class="d"></div></div></div>
-        <div class="mod" id="m-autopot"><div class="mn">AutoPot</div><div class="dots"><div class="d"></div><div class="d"></div><div class="d"></div></div></div>
-        <div class="mod" id="m-cheststeal"><div class="mn">ChestSteal</div><div class="dots"><div class="d"></div><div class="d"></div><div class="d"></div></div></div>
-        <div class="mod" id="m-antiafk"><div class="mn">Anti-AFK</div><div class="dots"><div class="d"></div><div class="d"></div><div class="d"></div></div></div>
-        <div class="mod" id="m-freecam"><div class="mn">Freecam</div><div class="dots"><div class="d"></div><div class="d"></div><div class="d"></div></div></div>
-        <div class="mod" id="m-parkour"><div class="mn">Parkour</div><div class="dots"><div class="d"></div><div class="d"></div><div class="d"></div></div></div>
+
+        <div class="mw" id="m-fly">
+          <div class="mod on"><div class="mn">Fly</div><div class="key">F</div><div class="dots"><div class="d"></div><div class="d"></div><div class="d"></div></div></div>
+          <div class="drawer">
+            <div class="st">
+              <div class="st-h"><div class="sn">Speed</div><div class="sv">1.8</div></div>
+              <div class="track"><div class="fill" style="width: 45%;"><div class="knob"></div></div></div>
+            </div>
+            <div class="st st-r"><div class="sn">Mode</div><div class="pick">Vanilla<div class="chev chev-d"></div></div></div>
+            <div class="st st-r"><div class="sn">Anti Kick</div><div class="sw on"><div class="nub"></div></div></div>
+          </div>
+        </div>
+
+        <div class="mw" id="m-scaffold"><div class="mod"><div class="mn">Scaffold</div><div class="dots"><div class="d"></div><div class="d"></div><div class="d"></div></div></div></div>
+        <div class="mw" id="m-timer"><div class="mod"><div class="mn">Timer</div><div class="dots"><div class="d"></div><div class="d"></div><div class="d"></div></div></div></div>
+        <div class="mw" id="m-blink"><div class="mod"><div class="mn">Blink</div><div class="dots"><div class="d"></div><div class="d"></div><div class="d"></div></div></div></div>
+        <div class="mw" id="m-phase"><div class="mod"><div class="mn">Phase</div><div class="dots"><div class="d"></div><div class="d"></div><div class="d"></div></div></div></div>
+        <div class="mw" id="m-nofall"><div class="mod"><div class="mn">NoFall</div><div class="dots"><div class="d"></div><div class="d"></div><div class="d"></div></div></div></div>
+        <div class="mw" id="m-autoarmor"><div class="mod"><div class="mn">AutoArmor</div><div class="dots"><div class="d"></div><div class="d"></div><div class="d"></div></div></div></div>
+        <div class="mw" id="m-bhop"><div class="mod"><div class="mn">BHop</div><div class="dots"><div class="d"></div><div class="d"></div><div class="d"></div></div></div></div>
+        <div class="mw" id="m-fastplace"><div class="mod"><div class="mn">FastPlace</div><div class="dots"><div class="d"></div><div class="d"></div><div class="d"></div></div></div></div>
+        <div class="mw" id="m-autopot"><div class="mod"><div class="mn">AutoPot</div><div class="dots"><div class="d"></div><div class="d"></div><div class="d"></div></div></div></div>
+        <div class="mw" id="m-cheststeal"><div class="mod"><div class="mn">ChestSteal</div><div class="dots"><div class="d"></div><div class="d"></div><div class="d"></div></div></div></div>
+        <div class="mw" id="m-antiafk"><div class="mod"><div class="mn">Anti-AFK</div><div class="dots"><div class="d"></div><div class="d"></div><div class="d"></div></div></div></div>
+        <div class="mw" id="m-freecam"><div class="mod"><div class="mn">Freecam</div><div class="dots"><div class="d"></div><div class="d"></div><div class="d"></div></div></div></div>
+        <div class="mw" id="m-parkour"><div class="mod"><div class="mn">Parkour</div><div class="dots"><div class="d"></div><div class="d"></div><div class="d"></div></div></div></div>
       </div>
       <div class="accent"></div>
     </div>
@@ -368,4 +539,5 @@ body {
 
 </div>
 </body>
-</rml>)RML";
+</rml>
+)RML";
