@@ -2,8 +2,7 @@
 #include "menu_document.hpp"
 
 #include "../../util/logger.hpp"
-#include "../core/fonts/inter_bold.hpp"
-#include "../core/fonts/inter_regular.hpp"
+#include "../core/fonts/inter_var.hpp"
 
 #include <RmlUi/Core.h>
 #include <RmlUi/Core/Context.h>
@@ -87,12 +86,9 @@ void RmlOverlay::Init(HWND hwnd, int width, int height) {
     }
     g_rml_alive = true;
 
-    const Rml::byte* regular = reinterpret_cast<const Rml::byte*>(inter_regular_ttf_data);
-    const Rml::byte* bold = reinterpret_cast<const Rml::byte*>(inter_bold_ttf_data);
-    if (!Rml::LoadFontFace(Rml::Span<const Rml::byte>(regular, inter_regular_ttf_size), "Inter", Rml::Style::FontStyle::Normal,
-                           Rml::Style::FontWeight::Normal) ||
-        !Rml::LoadFontFace(Rml::Span<const Rml::byte>(bold, inter_bold_ttf_size), "Inter", Rml::Style::FontStyle::Normal,
-                           Rml::Style::FontWeight::Bold)) {
+    const Rml::byte* inter = reinterpret_cast<const Rml::byte*>(inter_var_ttf_data);
+    if (!Rml::LoadFontFace(Rml::Span<const Rml::byte>(inter, inter_var_ttf_size), "Inter", Rml::Style::FontStyle::Normal,
+                           Rml::Style::FontWeight::Auto)) {
         log_err("RmlUi failed to load Inter");
         Shutdown();
         return;

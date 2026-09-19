@@ -293,7 +293,7 @@ static bool BuildGlyph(FT_Face ft_face, const Character character, FontGlyphMap&
 	if (index == 0)
 		return false;
 
-	FT_Error error = FT_Load_Glyph(ft_face, index, FT_LOAD_COLOR);
+	FT_Error error = FT_Load_Glyph(ft_face, index, FT_LOAD_COLOR | FT_LOAD_TARGET_LIGHT);
 	if (error != 0)
 	{
 #ifdef RMLUI_DEBUG
@@ -306,7 +306,7 @@ static bool BuildGlyph(FT_Face ft_face, const Character character, FontGlyphMap&
 #endif
 	}
 
-	error = FT_Render_Glyph(ft_face->glyph, FT_RENDER_MODE_NORMAL);
+	error = FT_Render_Glyph(ft_face->glyph, FT_RENDER_MODE_LIGHT);
 	if (error != 0)
 	{
 #ifdef RMLUI_DEBUG
