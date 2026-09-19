@@ -1,6 +1,8 @@
 #pragma once
 
-static const char kMenuDocument[] = R"RML(<rml>
+// Split: MSVC C2026 rejects a single string literal over ~16KB.
+static const char kMenuDocument[] =
+    R"RML(<rml>
 <head>
 <style>
 /* Cobble menu stylesheet. Loaded as-is by the browser preview and by RmlUi.
@@ -427,7 +429,8 @@ body {
 
         <div class="mw" id="m-velocity"><div class="mod on"><div class="mn">Velocity</div><div class="key">V</div><div class="dots"><div class="d"></div><div class="d"></div><div class="d"></div></div></div></div>
         <div class="mw" id="m-triggerbot"><div class="mod"><div class="mn">TriggerBot</div><div class="dots"><div class="d"></div><div class="d"></div><div class="d"></div></div></div></div>
-        <div class="mw" id="m-autoclicker"><div class="mod"><div class="mn">AutoClicker</div><div class="dots"><div class="d"></div><div class="d"></div><div class="d"></div></div></div></div>
+        <div class="mw" id="m-autoclicker"><div cla)RML"
+    R"RML(ss="mod"><div class="mn">AutoClicker</div><div class="dots"><div class="d"></div><div class="d"></div><div class="d"></div></div></div></div>
         <div class="mw" id="m-antibot"><div class="mod"><div class="mn">AntiBot</div><div class="dots"><div class="d"></div><div class="d"></div><div class="d"></div></div></div></div>
         <div class="mw" id="m-hitselect"><div class="mod"><div class="mn">HitSelect</div><div class="dots"><div class="d"></div><div class="d"></div><div class="d"></div></div></div></div>
         <div class="mw" id="m-blockhit"><div class="mod"><div class="mn">BlockHit</div><div class="dots"><div class="d"></div><div class="d"></div><div class="d"></div></div></div></div>
