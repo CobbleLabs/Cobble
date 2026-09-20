@@ -6,7 +6,10 @@
 
 #include <RmlUi/Core.h>
 #include <RmlUi/Core/Context.h>
+#include <RmlUi/Core/Element.h>
 #include <RmlUi/Core/ElementDocument.h>
+#include <RmlUi/Core/Event.h>
+#include <RmlUi/Core/EventListener.h>
 #include <RmlUi/Core/Log.h>
 #include <RmlUi/Core/RenderInterface.h>
 #include <RmlUi/Core/SystemInterface.h>
@@ -29,9 +32,54 @@ public:
     }
 };
 
+Rml::Element* ClosestClass(Rml::Element* el, const char* cls) {
+    while (el) {
+        if (el->IsClassSet(cls))
+            return el;
+        el = el->GetParentNode();
+    }
+    return nullptr;
+}
+
+Rml::Element* FindClass(Rml::Element* root, const char* cls) {
+    if (!root)
+        return nullptr;
+    if (root->IsClassSet(cls))
+        return root;
+    const int n = root->GetNumChildren();
+    for (int i = 0; i < n; ++i) {
+        if (Rml::Element* found = FindClass(root->GetChild(i), cls))
+            return found;
+    }
+    return nullptr;
+}
+
+class MenuEvents : public Rml::EventListener {
+public:
+    void ProcessEvent(Rml::Event& event) override {
+        if (event.GetId() != Rml::EventId::Mousedown)
+            return;
+        Rml::Element* target = event.GetTargetElement();
+        Rml::Element* wrap = ClosestClass(target, "mw");
+        if (!wrap)
+            return;
+        const int button = event.GetParameter("button", 0);
+        if (button == 1 || ClosestClass(target, "dots")) {
+            wrap->SetClass("open", !wrap->IsClassSet("open"));
+            event.StopPropagation();
+            return;
+        }
+        if (button == 0 && !ClosestClass(target, "drawer")) {
+            if (Rml::Element* row = FindClass(wrap, "mod"))
+                row->SetClass("on", !row->IsClassSet("on"));
+        }
+    }
+};
+
 CobbleSystemInterface* g_system = nullptr;
 RenderInterface_GL2* g_renderer = nullptr;
 TextInputMethodEditor_Win32* g_ime = nullptr;
+MenuEvents* g_events = nullptr;
 Rml::Context* g_context = nullptr;
 Rml::ElementDocument* g_document = nullptr;
 bool g_ready = false;
@@ -40,6 +88,8 @@ int g_width = 0;
 int g_height = 0;
 
 void DestroyInterfaces() {
+    delete g_events;
+    g_events = nullptr;
     delete g_ime;
     g_ime = nullptr;
     delete g_renderer;
@@ -87,12 +137,16 @@ void RmlOverlay::Init(HWND hwnd, int width, int height) {
     g_rml_alive = true;
 
     const Rml::byte* inter = reinterpret_cast<const Rml::byte*>(inter_var_ttf_data);
-    if (!Rml::LoadFontFace(Rml::Span<const Rml::byte>(inter, inter_var_ttf_size), "Inter", Rml::Style::FontStyle::Normal,
-                           Rml::Style::FontWeight::Auto)) {
+    const Rml::Span<const Rml::byte> inter_span(inter, inter_var_ttf_size);
+    if (!Rml::LoadFontFace(inter_span, "Inter", Rml::Style::FontStyle::Normal, Rml::Style::FontWeight::Auto)) {
         log_err("RmlUi failed to load Inter");
         Shutdown();
         return;
     }
+    const Rml::Style::FontWeight weights[] = {
+        Rml::Style::FontWeight::Normal, (Rml::Style::FontWeight)500, (Rml::Style::FontWeight)600, Rml::Style::FontWeight::Bold};
+    for (Rml::Style::FontWeight w : weights)
+        Rml::LoadFontFace(inter_span, "Inter", Rml::Style::FontStyle::Normal, w);
 
     g_context = Rml::CreateContext("main", Rml::Vector2i(width, height));
     if (!g_context) {
@@ -109,6 +163,8 @@ void RmlOverlay::Init(HWND hwnd, int width, int height) {
     }
 
     g_document->Show();
+    g_events = new MenuEvents();
+    g_document->AddEventListener(Rml::EventId::Mousedown, g_events, true);
     g_width = width;
     g_height = height;
     g_ready = true;

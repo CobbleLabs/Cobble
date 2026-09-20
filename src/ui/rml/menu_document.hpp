@@ -237,36 +237,42 @@ body {
     color: var(--accent);
 }
 
-/* slider */
+/* slider — track is 11px tall so the knob isn't clipped by flex/overflow */
 .track {
     display: flex;
     align-items: center;
+    height: 11px;
+}
+.bar {
+    width: 100%;
     height: 4px;
     border-radius: 2px;
     background-color: #ffffff1a;
 }
 .fill {
-    display: flex;
-    align-items: center;
-    justify-content: flex-end;
+    position: relative;
     height: 4px;
     border-radius: 2px;
     background-color: var(--accent);
 }
 .knob {
+    position: absolute;
+    right: -5px;
+    top: 50%;
+    margin-top: -5px;
     width: 11px;
     height: 11px;
     border-radius: 6px;
-    margin-right: -5px;
     background-color: #ffffff;
 }
 
 /* toggle */
 .sw {
     display: flex;
+    flex-shrink: 0;
     align-items: center;
     width: 28px;
-    height: 15px;
+    height: 16px;
     padding: 2px;
     border-radius: 8px;
     background-color: #ffffff1a;
@@ -274,23 +280,27 @@ body {
     transition: background-color 0.12s cubic-out;
 }
 .nub {
-    width: 11px;
-    height: 11px;
+    flex-shrink: 0;
+    width: 12px;
+    height: 12px;
     border-radius: 6px;
     background-color: var(--text-off);
 }
 .sw.on { background-color: var(--accent); justify-content: flex-end; }
 .sw.on .nub { background-color: #05181b; }
 
-/* enum / mode picker */
+/* enum / mode picker — label is a real element; RmlUi drops anonymous flex text */
 .pick {
     display: flex;
+    flex-shrink: 0;
     align-items: center;
     padding: 3px 8px;
     border-radius: 5px;
+    background-color: #ffffff0f;
+}
+.pl {
     font-size: 12.5px;
     color: var(--text);
-    background-color: #ffffff0f;
 }
 .pick .chev { margin-left: 9px; }
 
@@ -405,9 +415,9 @@ body {
           <div class="drawer">
             <div class="st">
               <div class="st-h"><div class="sn">Range</div><div class="sv">3.4</div></div>
-              <div class="track"><div class="fill" style="width: 62%;"><div class="knob"></div></div></div>
+              <div class="track"><div class="bar"><div class="fill" style="width: 62%;"><div class="knob"></div></div></div></div>
             </div>
-            <div class="st st-r"><div class="sn">Mode</div><div class="pick">Switch<div class="chev chev-d"></div></div></div>
+            <div class="st st-r"><div class="sn">Mode</div><div class="pick"><div class="pl">Switch</div><div class="chev chev-d"></div></div></div>
             <div class="st st-r"><div class="sn">Through Walls</div><div class="sw on"><div class="nub"></div></div></div>
             <div class="st st-r"><div class="sn">Target Players</div><div class="sw on"><div class="nub"></div></div></div>
             <div class="st st-r"><div class="sn">Keybind</div><div class="key">R</div></div>
@@ -421,16 +431,16 @@ body {
           <div class="drawer">
             <div class="st">
               <div class="st-h"><div class="sn">Distance</div><div class="sv">3.2</div></div>
-              <div class="track"><div class="fill" style="width: 48%;"><div class="knob"></div></div></div>
+              <div class="track"><div class="bar"><div class="fill" style="width: 48%;"><div class="knob"></div></div></div></div>
             </div>
             <div class="st st-r"><div class="sn">Only While Combat</div><div class="sw"><div class="nub"></div></div></div>
           </div>
         </div>
 
-        <div class="mw" id="m-velocity"><div class="mod on"><div class="mn">Velocity</div><div class="key">V</div><div class="dots"><div class="d"></div><div class="d"></div><div class="d"></div></div></div></div>
+        <div class="mw" id="m-velocity"><div class="mod on"><div class="mn">Velocity</div><div class="key">V</div><div class="dots"><div class="d"></di)RML"
+    R"RML(v><div class="d"></div><div class="d"></div></div></div></div>
         <div class="mw" id="m-triggerbot"><div class="mod"><div class="mn">TriggerBot</div><div class="dots"><div class="d"></div><div class="d"></div><div class="d"></div></div></div></div>
-        <div class="mw" id="m-autoclicker"><div cla)RML"
-    R"RML(ss="mod"><div class="mn">AutoClicker</div><div class="dots"><div class="d"></div><div class="d"></div><div class="d"></div></div></div></div>
+        <div class="mw" id="m-autoclicker"><div class="mod"><div class="mn">AutoClicker</div><div class="dots"><div class="d"></div><div class="d"></div><div class="d"></div></div></div></div>
         <div class="mw" id="m-antibot"><div class="mod"><div class="mn">AntiBot</div><div class="dots"><div class="d"></div><div class="d"></div><div class="d"></div></div></div></div>
         <div class="mw" id="m-hitselect"><div class="mod"><div class="mn">HitSelect</div><div class="dots"><div class="d"></div><div class="d"></div><div class="d"></div></div></div></div>
         <div class="mw" id="m-blockhit"><div class="mod"><div class="mn">BlockHit</div><div class="dots"><div class="d"></div><div class="d"></div><div class="d"></div></div></div></div>
@@ -455,7 +465,7 @@ body {
         <div class="mw" id="m-sprint">
           <div class="mod on"><div class="mn">Sprint</div><div class="dots"><div class="d"></div><div class="d"></div><div class="d"></div></div></div>
           <div class="drawer">
-            <div class="st st-r"><div class="sn">Mode</div><div class="pick">Always<div class="chev chev-d"></div></div></div>
+            <div class="st st-r"><div class="sn">Mode</div><div class="pick"><div class="pl">Always</div><div class="chev chev-d"></div></div></div>
             <div class="st st-r"><div class="sn">Omni Sprint</div><div class="sw on"><div class="nub"></div></div></div>
             <div class="st st-r"><div class="sn">Keep Sprint</div><div class="sw"><div class="nub"></div></div></div>
           </div>
@@ -477,10 +487,10 @@ body {
         <div class="mw" id="m-esp">
           <div class="mod on"><div class="mn">ESP</div><div class="key">G</div><div class="dots"><div class="d"></div><div class="d"></div><div class="d"></div></div></div>
           <div class="drawer">
-            <div class="st st-r"><div class="sn">Mode</div><div class="pick">Box<div class="chev chev-d"></div></div></div>
+            <div class="st st-r"><div class="sn">Mode</div><div class="pick"><div class="pl">Box</div><div class="chev chev-d"></div></div></div>
             <div class="st">
               <div class="st-h"><div class="sn">Opacity</div><div class="sv">0.80</div></div>
-              <div class="track"><div class="fill" style="width: 80%;"><div class="knob"></div></div></div>
+              <div class="track"><div class="bar"><div class="fill" style="width: 80%;"><div class="knob"></div></div></div></div>
             </div>
             <div class="st st-r"><div class="sn">Players</div><div class="sw on"><div class="nub"></div></div></div>
             <div class="st st-r"><div class="sn">Mobs</div><div class="sw"><div class="nub"></div></div></div>
@@ -514,9 +524,9 @@ body {
           <div class="drawer">
             <div class="st">
               <div class="st-h"><div class="sn">Speed</div><div class="sv">1.8</div></div>
-              <div class="track"><div class="fill" style="width: 45%;"><div class="knob"></div></div></div>
+              <div class="track"><div class="bar"><div class="fill" style="width: 45%;"><div class="knob"></div></div></div></div>
             </div>
-            <div class="st st-r"><div class="sn">Mode</div><div class="pick">Vanilla<div class="chev chev-d"></div></div></div>
+            <div class="st st-r"><div class="sn">Mode</div><div class="pick"><div class="pl">Vanilla</div><div class="chev chev-d"></div></div></div>
             <div class="st st-r"><div class="sn">Anti Kick</div><div class="sw on"><div class="nub"></div></div></div>
           </div>
         </div>
