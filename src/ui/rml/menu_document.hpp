@@ -62,19 +62,17 @@ body {
     border-width: 1px;
     border-color: #ffffff0a;
     border-style: solid;
+    border-bottom-width: 2px;
+    border-bottom-color: var(--accent);
 }
 
 .glow {
-    height: 16px;
+    height: 0;
+    padding-top: 16px;
     margin: 0 6px;
+    background-color: #1ee3db18;
     background-image: linear-gradient(to bottom, #1ee3db40, #1ee3db00);
     decorator: vertical-gradient(#1ee3db40 #1ee3db00);
-}
-
-.accent {
-    height: 2px;
-    background-color: var(--accent);
-    border-radius: 1px;
 }
 
 .p-main    { left: 48px;  top: 84px; width: 212px; }
@@ -396,7 +394,6 @@ body {
         <div class="grow"></div>
         <div class="ic ic-pin" id="btn-pin"><div class="i-diamond"></div></div>
       </div>
-      <div class="accent"></div>
     </div>
     <div class="glow"></div>
   </div>
@@ -437,15 +434,14 @@ body {
           </div>
         </div>
 
-        <div class="mw" id="m-velocity"><div class="mod on"><div class="mn">Velocity</div><div class="key">V</div><div class="dots"><div class="d"></di)RML"
-    R"RML(v><div class="d"></div><div class="d"></div></div></div></div>
+        <div class="mw" id="m-velocity"><div class="mod on"><div class="mn">Velocity</div><div class="key">V</div><div class="dots"><div class="d"></div)RML"
+    R"RML(><div class="d"></div><div class="d"></div></div></div></div>
         <div class="mw" id="m-triggerbot"><div class="mod"><div class="mn">TriggerBot</div><div class="dots"><div class="d"></div><div class="d"></div><div class="d"></div></div></div></div>
         <div class="mw" id="m-autoclicker"><div class="mod"><div class="mn">AutoClicker</div><div class="dots"><div class="d"></div><div class="d"></div><div class="d"></div></div></div></div>
         <div class="mw" id="m-antibot"><div class="mod"><div class="mn">AntiBot</div><div class="dots"><div class="d"></div><div class="d"></div><div class="d"></div></div></div></div>
         <div class="mw" id="m-hitselect"><div class="mod"><div class="mn">HitSelect</div><div class="dots"><div class="d"></div><div class="d"></div><div class="d"></div></div></div></div>
         <div class="mw" id="m-blockhit"><div class="mod"><div class="mn">BlockHit</div><div class="dots"><div class="d"></div><div class="d"></div><div class="d"></div></div></div></div>
       </div>
-      <div class="accent"></div>
     </div>
     <div class="glow"></div>
   </div>
@@ -471,7 +467,6 @@ body {
           </div>
         </div>
       </div>
-      <div class="accent"></div>
     </div>
     <div class="glow"></div>
   </div>
@@ -506,7 +501,6 @@ body {
         <div class="mw" id="m-itemesp"><div class="mod"><div class="mn">ItemESP</div><div class="dots"><div class="d"></div><div class="d"></div><div class="d"></div></div></div></div>
         <div class="mw" id="m-storageesp"><div class="mod on"><div class="mn">StorageESP</div><div class="dots"><div class="d"></div><div class="d"></div><div class="d"></div></div></div></div>
       </div>
-      <div class="accent"></div>
     </div>
     <div class="glow"></div>
   </div>
@@ -545,7 +539,6 @@ body {
         <div class="mw" id="m-freecam"><div class="mod"><div class="mn">Freecam</div><div class="dots"><div class="d"></div><div class="d"></div><div class="d"></div></div></div></div>
         <div class="mw" id="m-parkour"><div class="mod"><div class="mn">Parkour</div><div class="dots"><div class="d"></div><div class="d"></div><div class="d"></div></div></div></div>
       </div>
-      <div class="accent"></div>
     </div>
     <div class="glow"></div>
   </div>
