@@ -4,8 +4,8 @@
 // Cobble Logger
 //
 // Dev builds: all log macros write to %TEMP%\cobble_trace.log via the
-// crash-safe Win32 tracer (inject_trace.hpp). This replaces the previous
-// printf-to-nowhere approach (the dev console is disabled).
+// crash-safe Win32 tracer (inject_trace.hpp). No console is allocated: closing one
+// sends CTRL_CLOSE_EVENT to the host and kills the game.
 //
 // Pack builds: all macros expand to ((void)0), zero overhead.
 // ============================================================================
@@ -78,7 +78,6 @@ class c_logger {
 public:
     static void initialize() {
         // Trace file is already active from DllMain (COBBLE_TRACE_RESET).
-        // Nothing else needed — no console allocation.
         cobble_trace::write_step("=== Logger initialized ===");
     }
     static void shutdown() { cobble_trace::write_step("=== Logger shutdown ==="); }

@@ -22,6 +22,12 @@ namespace BacktrackGhostGate {
 // with a live GL context. The arg is the view entity (Object), currently unused.
 void JNICALL NativeOnRenderWorld(JNIEnv* env, jclass, jobject viewEntity);
 
+// Injected at ModelBiped.render entry, once per model per frame, on the render thread.
+// Captures the player body silhouette for Outline.
+void JNICALL NativeOnModelRender(JNIEnv* env, jclass, jobject model, jobject entity, jfloat limbSwing,
+                                 jfloat limbSwingAmount, jfloat ageInTicks, jfloat netHeadYaw, jfloat headPitch,
+                                 jfloat scale);
+
 // Define com.cobble.agent.BacktrackGhostHook and bind the native method.
 bool Init(JNIEnv* env);
 

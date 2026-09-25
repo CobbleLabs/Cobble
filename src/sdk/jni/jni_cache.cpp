@@ -641,6 +641,11 @@ static bool resolveIds(JNIEnv* env) {
             TRY_FIELD(fid_boundingBox, cls_Entity, "entityBoundingBox",
                       "Lnet/minecraft/util/AxisAlignedBB;");  // 1.8.x field name
         }
+        if (!fid_boundingBox) {
+            TRY_FIELD(fid_boundingBox, cls_Entity, "field_70121_D",
+                      "Lnet/minecraft/util/AxisAlignedBB;");  // 1.7.10 SRG
+        }
+        log_debug("[JniCache] Entity.boundingBox: %s", fid_boundingBox ? "OK" : "FAILED");
     }
 
     // java.util.UUID class (for player identity)
@@ -713,24 +718,51 @@ static bool resolveIds(JNIEnv* env) {
     // AxisAlignedBB class and fields (for hitbox)
     CACHE_CLASS(cls_AxisAlignedBB, "net.minecraft.util.AxisAlignedBB");
     if (cls_AxisAlignedBB) {
+        // All six fields are doubles, so TRY_FIELD's find-the-unique-field-by-signature
+        // fallback cannot disambiguate them and an explicit name is the only way in.
+        // That also makes a wrong name dangerous rather than merely useless: it resolves
+        // and silently binds the wrong axis. The SRG numbers below are taken from the
+        // 1.7.10 MCP fields.csv, not inferred -- note that maxZ breaks the otherwise
+        // ascending run (..._e is 72337, ..._f is 72334), which is exactly the kind of
+        // thing that makes guessing them unsafe.
         TRY_FIELD(fid_aabb_minX, cls_AxisAlignedBB, "minX", "D");
+        if (!fid_aabb_minX)
+            TRY_FIELD(fid_aabb_minX, cls_AxisAlignedBB, "field_72340_a", "D");  // 1.7.10 SRG
         if (!fid_aabb_minX && !is_1_7_10)
             TRY_FIELD(fid_aabb_minX, cls_AxisAlignedBB, "a", "D");
         TRY_FIELD(fid_aabb_minY, cls_AxisAlignedBB, "minY", "D");
+        if (!fid_aabb_minY)
+            TRY_FIELD(fid_aabb_minY, cls_AxisAlignedBB, "field_72338_b", "D");  // 1.7.10 SRG
         if (!fid_aabb_minY && !is_1_7_10)
             TRY_FIELD(fid_aabb_minY, cls_AxisAlignedBB, "b", "D");
         TRY_FIELD(fid_aabb_minZ, cls_AxisAlignedBB, "minZ", "D");
+        if (!fid_aabb_minZ)
+            TRY_FIELD(fid_aabb_minZ, cls_AxisAlignedBB, "field_72339_c", "D");  // 1.7.10 SRG
         if (!fid_aabb_minZ && !is_1_7_10)
             TRY_FIELD(fid_aabb_minZ, cls_AxisAlignedBB, "c", "D");
         TRY_FIELD(fid_aabb_maxX, cls_AxisAlignedBB, "maxX", "D");
+        if (!fid_aabb_maxX)
+            TRY_FIELD(fid_aabb_maxX, cls_AxisAlignedBB, "field_72336_d", "D");  // 1.7.10 SRG
         if (!fid_aabb_maxX && !is_1_7_10)
             TRY_FIELD(fid_aabb_maxX, cls_AxisAlignedBB, "d", "D");
         TRY_FIELD(fid_aabb_maxY, cls_AxisAlignedBB, "maxY", "D");
+        if (!fid_aabb_maxY)
+            TRY_FIELD(fid_aabb_maxY, cls_AxisAlignedBB, "field_72337_e", "D");  // 1.7.10 SRG
         if (!fid_aabb_maxY && !is_1_7_10)
             TRY_FIELD(fid_aabb_maxY, cls_AxisAlignedBB, "e", "D");
         TRY_FIELD(fid_aabb_maxZ, cls_AxisAlignedBB, "maxZ", "D");
+        if (!fid_aabb_maxZ)
+            TRY_FIELD(fid_aabb_maxZ, cls_AxisAlignedBB, "field_72334_f", "D");  // 1.7.10 SRG
         if (!fid_aabb_maxZ && !is_1_7_10)
             TRY_FIELD(fid_aabb_maxZ, cls_AxisAlignedBB, "f", "D");
+
+        const int resolved = (fid_aabb_minX != nullptr) + (fid_aabb_minY != nullptr) + (fid_aabb_minZ != nullptr) +
+                             (fid_aabb_maxX != nullptr) + (fid_aabb_maxY != nullptr) + (fid_aabb_maxZ != nullptr);
+        log_debug("[JniCache] AxisAlignedBB %d/6 resolved (minX=%d minY=%d minZ=%d maxX=%d maxY=%d maxZ=%d)", resolved,
+                  fid_aabb_minX != nullptr, fid_aabb_minY != nullptr, fid_aabb_minZ != nullptr,
+                  fid_aabb_maxX != nullptr, fid_aabb_maxY != nullptr, fid_aabb_maxZ != nullptr);
+        if (resolved != 6)
+            log_warn("[JniCache] AxisAlignedBB partially resolved - hitbox reads will be wrong");
     }
 
     // =========================================================================

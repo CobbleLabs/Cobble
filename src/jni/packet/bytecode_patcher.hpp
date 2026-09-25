@@ -14,6 +14,7 @@ struct HookTargets {
     bool slowdown = false;      // patch EntityLivingBase.onLivingUpdate ONLY when SlowDownHook native is registered
     bool renderGhost = false;   // patch RenderGlobal.renderEntities ONLY when BacktrackGhostHook native is registered
     bool renderCamera = false;  // patch EntityRenderer.renderWorld ONLY when BacktrackGhostHook native is registered
+    bool modelOutline = false;  // patch ModelBiped.render ONLY when BacktrackGhostHook native is registered
 };
 
 void SetTargets(const HookTargets& targets);
@@ -37,6 +38,9 @@ bool IsIncomingBacktrackReady();
 
 // True only when both render callbacks required for a bounded camera swap are active.
 bool IsRenderCameraReady();
+
+// True once ModelBiped.render carries the outline mask callback.
+bool IsModelOutlineReady();
 
 // Restores every class known to contain an injected native call and unregisters
 // PacketHook. False means teardown is incomplete and the caller must keep the DLL loaded.

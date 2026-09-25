@@ -38,6 +38,7 @@
 #include "../../module/utility/throwpots.h"
 #include "../../module/visual/blockesp.h"
 #include "../../module/visual/chams.h"
+#include "../../module/visual/outline.h"
 #include "../../module/visual/esp.h"
 #include "../../module/visual/item_esp.h"
 #include "../../module/visual/nametags.h"
@@ -125,6 +126,8 @@ Module* getModuleForSubtab(int tabIdx, int subtabIdx) {
                 return pingsModule;
             case 11:
                 return chams;
+            case 12:
+                return outline;
         }
     }
     // Movement Tab (2): Timer, NoSlowDown, NoJumpDelay, Sprint, InventoryMove

@@ -5,6 +5,7 @@
 #include <chrono>
 #include <random>
 #include <mutex>
+#include "../../jni/java.h"
 #include "../module.h"
 
 // Simple Timer class since util/timer.h is missing
@@ -21,29 +22,6 @@ public:
         return (float)std::chrono::duration_cast<DurationT>(std::chrono::high_resolution_clock::now() - m_start)
             .count();
     }
-};
-
-// ============================================================
-// AimBoost - Speed multiplier randomization
-// ============================================================
-class AimBoost {
-public:
-    AimBoost(float speed_mult_min, float speed_mult_max, float freq_min_ms, float freq_max_ms, bool continuous);
-    AimBoost() = default;
-
-    float speed_mult_min = 0.5f;
-    float speed_mult_max = 1.8f;
-    uint32_t frequency_min_ms = 400;
-    uint32_t frequency_max_ms = 700;
-    uint32_t frequency_ms = 500;
-    bool continuous = true;
-
-    float Delay();
-
-private:
-    float prev_speed_mult = 1.f;
-    float speed_mult = 1.f;
-    Timer timer;
 };
 
 class AimAssist : public Module {
@@ -77,20 +55,17 @@ public:
     bool isRewritingRotation() const;
 
     std::string getDisplayInfo() override;
-    void setEntityLock(bool enabled);
     void saveSettings(json::Value& node) const override;
     void loadSettings(const json::Value& node) override;
 
     enum class TargetMode { HEALTH, DISTANCE, FOV, SWITCH };
     enum class SortBy { DISTANCE, HEALTH, FOV, HURT_TIME };
 
-    // Aim application style:
-    //   SMOOTH   - humanized, speed-limited tracking (the original behaviour).
-    //   ADAPTIVE - auto-tunes the speed each tick from the angle error, target
-    //              distance and target velocity (fast to catch up, slow for
-    //              precision when on target).
-    //   BLATANT  - instant hard lock: sets the exact rotation onto the target
-    //              every tick (obvious aimbot look, moves the real camera).
+    // How the two speed settings are turned into a response rate.
+    //   SMOOTH   - the speeds are used exactly as configured.
+    //   ADAPTIVE - scales the rate with the current angular error: quick to close a
+    //              large gap, gentle once it is already on the target.
+    //   BLATANT  - ignores the low end of the sliders and snaps onto the target.
     enum class AimMode { SMOOTH = 0, ADAPTIVE = 1, BLATANT = 2 };
 
     // Armor tier filter: only lock onto players wearing this armor tier (on any slot)
@@ -103,20 +78,6 @@ public:
         GOLD = 5,
         DIAMOND = 6,
     };
-
-    // Aim bone: named point inside the hitbox expressed as (x,y,z) ratios of
-    // the AABB (0 = min side, 1 = max side). Aim always resolves to a bone;
-    // adding a new one is a single entry in kBones[].
-    struct Bone {
-        const char* name;
-        float xRatio;
-        float yRatio;
-        float zRatio;
-    };
-    static constexpr Bone kBones[] = {
-        {"Center", 0.5f, 0.5f, 0.5f},
-    };
-    static constexpr int kBoneCount = static_cast<int>(sizeof(kBones) / sizeof(kBones[0]));
 
     // Multi-select armor filter: a bitmask of tiers to target. A player matches
     // if ANY of their armor pieces is one of the checked tiers (ARMOR_NO_ARMOR
@@ -131,12 +92,10 @@ public:
     };
 
     struct Settings {
-        bool horizontalOnly = false;  // false = aim yaw AND pitch (vertical works)
         bool invisibles = false;
         bool alwaysAim = false;
         bool breakBlocks = false;
         bool aimAtClosestPoint = false;
-        bool entityLock = false;  // Keep the acquired entity until it becomes invalid
         bool weaponOnly = false;
         bool stopOnHitbox = false;  // Stops aim assist when crosshair is inside hitbox
         // Bot filtering moved out to the AntiBot module (src/module/combat/antibot.h) so one
@@ -148,13 +107,24 @@ public:
         bool hurtTimeLock = false;               // Instant aim when switching targets in Hurt Time mode
         int fov = 180;
         float distance = 5.0f;
-        float speed = 50.0f;
+
+        // Hard lock. Once a target is acquired it is held across button releases, wins
+        // over every target-selection rule including Switch, keeps extra reach, and
+        // ignores Stop On Hitbox. Releases only when the target dies, leaves the world
+        // or goes genuinely out of range.
+        bool lockIn = false;
+
+        // How hard the aim pulls on each axis, 1..100, mapped linearly onto the
+        // controller's response rate.
+        float horizontalSpeed = 50.0f;
+        float verticalSpeed = 50.0f;
+
+        // Yaw only. Hides Vertical Speed rather than leaving a slider that does nothing.
+        bool horizontalOnly = false;
+
         float jitterPercent = 0.0f;
         float prediction = 0.0f;      // 0-100%: lead the aim by the target's velocity
         bool packetRotation = false;  // Smooth camera, jitter only on the sent packet
-        int reactionTime = 50;        // ms
-
-        int aimBone = 0;  // Index into kBones[]; 0 = Center
 
         ArmorFilter armorFilter = ArmorFilter::ANY;  // Legacy single-select (kept for config migration)
         int armorTierMask = 0;                       // Multi-select bitmask of ArmorTierBit (0 = no restriction)
@@ -172,6 +142,11 @@ private:
     // turns the next update into one large catch-up snap instead of a step.
     void markAimIdle() { controllerTimer.Start(); }
 
+    bool aimsPitch() const { return !settings.horizontalOnly && settings.verticalSpeed > 0.0f; }
+
+    // How far past the configured reach an already-acquired target is still held.
+    double retentionSlack() const;
+
     // Stamped every time a rotation write actually lands on the player. Read from the client
     // tick and from the outgoing packet gate, hence the atomic.
     void markRotationWrite();
@@ -185,18 +160,67 @@ private:
     std::pair<float, float> getAngles(double x1, double y1, double z1, double x2, double y2, double z2);
     float randFloat(float min, float max);
     int randInt(int min, int max);
-    float slerp(float start, float end, float t);
 
     // Target finding - returns true if target found, fills position
     bool findTarget(double& targetX, double& targetY, double& targetZ);
 
-    // Single time-based controller used by every aim mode. Unlike the legacy
-    // stack of reaction ramps/accumulators, this consumes one error vector once
-    // per update and is independent of the 2 ms module-loop cadence.
+    // Reads position and hitbox straight off the cached entity and applies the
+    // retention rules. The player-list scan only ever *picks* a target; this is
+    // what *keeps* one, so a scan that misses for a frame cannot break the lock.
+    bool readCachedTarget(double& targetX, double& targetY, double& targetZ);
+
+    // Single time-based controller used by both axes. Unlike the legacy stack of
+    // reaction ramps/accumulators, this consumes one error vector once per update
+    // and is independent of the 2 ms module-loop cadence.
     void applyAimController(float yawDiff, float pitchDiff);
 
-    // Get aim point (handles closest point vs center)
-    bool getAimPoint(double targetX, double targetY, double targetZ, double& aimX, double& aimY, double& aimZ);
+    // Resolves the aim point inside the target hitbox and publishes resolvedBox_.
+    void getAimPoint(double targetX, double targetY, double targetZ, double& aimX, double& aimY, double& aimZ);
+    void resolveAimHorizontal(double minX, double maxX, double minZ, double maxZ, double localX, double localZ,
+                              double& aimX, double& aimZ);
+
+    // Whether this version needs the head-tracking and jump-offset machinery. Only 1.7.10
+    // does: its remote bounding box arrives a yOffset too low, so the plain box centre lands
+    // on the target's legs. Every other version aims at the centre like it always did, which
+    // is the behaviour that keeps the camera from riding the target up and down.
+    bool usesJumpAimLogic() const { return Java::Version == MinecraftVersion::MC_1_7_10; }
+
+    // Eases aimHeightBlend_ toward the chest while the target is airborne and back to
+    // the head once it lands. Called once per update, before the aim point is resolved.
+    void updateAimHeightBlend(JNIEnv* env, double targetFeetY);
+
+    // Whether the target is off the ground.
+    //
+    // 1.7.10's entity move packets carry no ground flag -- that arrived in 1.8 -- so
+    // Entity.onGround is never synced for a remote player there and every target reads
+    // as airborne forever. On that version the answer is derived from the hitbox
+    // instead: a standing or walking player holds one feet height, a jumping or falling
+    // one does not. Every other version keeps reading the field, which is accurate.
+    bool resolveTargetAirborne(JNIEnv* env, double targetFeetY);
+    double lastFeetY_ = 0.0;
+    bool hasLastFeetY_ = false;
+    Timer feetMovingTimer_;
+
+    // Resolves how far Entity.posY sits above an entity's feet. Zero on every version
+    // except 1.7.10, which is the only one this correction touches at all.
+    //
+    // 1.7.10 still carries Entity.yOffset and EntityPlayer sets it to 1.62, so posY is
+    // the EYE height there while the bounding box bottom is the feet. 1.8 dropped
+    // yOffset and posY became the feet, so the two agree. Every vertical in this module
+    // is feet-space, and leaving the difference in made the eye origin and the hitbox
+    // sanity check each carry their own 1.62 error -- they cancelled on 1.8 and did not
+    // on 1.7.10, which is what put the aim a body-length low there.
+    //
+    // The 1.62 is confirmed against the local player's own box rather than assumed, so a
+    // 1.7.10 client that already normalises posY is left alone too.
+    void measurePosYFeetDelta(JNIEnv* env);
+    double posYFeetDelta_ = 0.0;
+    bool posYFeetDeltaKnown_ = false;
+
+    // Throttles the vertical-solve trace so the console stays readable: this module runs
+    // at ~500 Hz and an unthrottled line per update is unreadable and slow.
+    Timer verticalTraceTimer_;
+    int targetOnGroundRaw_ = -1;  // -1 = Entity.onGround unavailable
 
     // The AABB getAimPoint actually resolved this update, after its detached-box repair.
     // Everything that offsets the aim afterwards -- the prediction lead, the packet jitter --
@@ -205,28 +229,15 @@ private:
     struct AimBox {
         double minX = 0.0, minY = 0.0, minZ = 0.0;
         double maxX = 0.0, maxY = 0.0, maxZ = 0.0;
-        bool valid = false;
     } resolvedBox_;
-
-    // Boost systems
-    AimBoost yawBoost{0.9f, 1.1f, 450, 600, true};
-    AimBoost yawBoost2{1.0f, 1.3f, 800, 1000, false};
-    AimBoost pitchBoost{0.8f, 1.2f, 450, 600, true};
-    AimBoost pitchBoost2{0.7f, 1.3f, 600, 900, false};
 
     // Mouse + smoothing state
     // Preserve sub-GCD movement so fast tracking never quantizes to zero for
     // several ticks and feels stuck.
     double yawRotationResidual = 0.0;
     double pitchRotationResidual = 0.0;
-    double cursorAccumY = 0.0;
     float cachedMouseSensitivity = 0.5f;
 
-    float pitchdiffSpeed = 0.f;
-    float yawdiffSpeed = 0.f;
-    float targetYawSpeed = 0.f;
-    float targetPitchSpeed = 0.f;
-    bool reactionPrimed = false;
     bool targetHasHitbox = false;
     float targetHitboxMinX = 0.0f;
     float targetHitboxMinY = 0.0f;
@@ -235,18 +246,29 @@ private:
     float targetHitboxMaxY = 0.0f;
     float targetHitboxMaxZ = 0.0f;
     bool armorFilterKeyPrev_ = false;  // Edge-detection state for armor filter keybind
-    bool prevFrameHadTarget = false;
     bool targetChangedThisFrame = false;
-    bool clickStartedThisFrame = false;
-    bool lastMouseDown = false;
-    Timer targetRampTimer;
-    float targetRampDurationMs = 200.0f;
-    Timer clickRampTimer;
-    float clickRampDurationMs = 140.0f;
-    Timer hitboxRefreshTimer;
-    float hitboxRefreshMs = 140.0f;
-    float targetSpeedVariance = 1.0f;
-    float aimHumanizer = 1.0f;
+
+    // 0 = aim on the head, 1 = aim on the airborne torso point. Eased rather than
+    // switched, because the two points are a fair fraction of a block apart and
+    // stepping between them would be a jump the player sees and an anti-cheat measures.
+    float aimHeightBlend_ = 0.0f;
+    Timer aimHeightTimer_;
+    bool targetAirborne_ = false;
+
+    // Multiplier on the vertical speed setting, 1.0 on the ground. Only updateAimHeightBlend
+    // writes it and only 1.7.10 calls that, so every other version keeps a flat 1.0.
+    float verticalDamping_ = 1.0f;
+
+    // Smoothed local airborne state, kept apart from aimHeightBlend_ because a local jump
+    // should soften pitch fully while moving the aim point only slightly.
+    float localAirBlend_ = 0.0f;
+
+    // Feet height of the target the last time it was on the ground. Mid-air this lags
+    // the rising hitbox by the displacement of the jump, and the aim point is measured
+    // from a partial step back toward it, so the crosshair follows a jump without
+    // tracking all of it.
+    double groundFeetY_ = 0.0;
+    bool hasGroundAnchor_ = false;
     Timer simulatedJitterTimer;
     float simulatedJitterYaw = 0.0f;
     float simulatedJitterPitch = 0.0f;
@@ -262,21 +284,14 @@ private:
     float appliedJitterYaw_ = 0.0f;
     float appliedJitterPitch_ = 0.0f;
 
-    Timer reactionTimeTimer;
     Timer controllerTimer;
 
     // Cached Target for hybrid tracking
     jobject cachedTarget = nullptr;
-    std::atomic<bool> entityLockEnabled_{false};
+    int cachedTargetMissingScans_ = 0;
     std::atomic<bool> targetResetRequested_{false};
 
-    // Locked target position
-    bool hasLockedTarget = false;
-    double lockedTargetX = 0.0;
-    double lockedTargetY = 0.0;
-    double lockedTargetZ = 0.0;
-
-    // Target velocity estimate (blocks/sec, smoothed) for prediction + adaptive speed.
+    // Target velocity estimate (blocks/sec, smoothed) for prediction.
     double predPrevX = 0.0, predPrevY = 0.0, predPrevZ = 0.0;
     double predVelX = 0.0, predVelY = 0.0, predVelZ = 0.0;
     Timer predTimer;

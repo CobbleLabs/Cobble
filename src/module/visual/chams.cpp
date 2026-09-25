@@ -28,7 +28,6 @@ void Chams::onRender3D() {
     const double localZ = snap.localLastZ + (snap.localZ - snap.localLastZ) * partial;
     const double maxDistanceSq = static_cast<double>(settings.range) * settings.range;
 
-    const bool fill = (settings.mode == MODE_FILL);
     const float r = settings.color[0];
     const float g = settings.color[1];
     const float b = settings.color[2];
@@ -49,7 +48,9 @@ void Chams::onRender3D() {
         if (dx * dx + dy * dy + dz * dz > maxDistanceSq)
             continue;
 
-        mc.renderEntityChams(target.entityId, r, g, b, a, fill);
+        // fill=false: keep the real textured skin and draw it through walls. The flat-colour
+        // fill variant is gone, so the parameter is now a constant rather than a mode.
+        mc.renderEntityChams(target.entityId, r, g, b, a, false);
     }
 }
 
@@ -62,9 +63,6 @@ void Chams::onRenderMenu() {
             if (ui::CheckboxBind("Enabled", &enabledValue, &keybind) && enabledValue != enabled)
                 setEnabled(enabledValue);
 
-            static const char* modeItems[] = {"Fill", "See Player"};
-            ui::Combo("Mode", &settings.mode, modeItems, 2);
-
             ui::Checkbox("Draw Invisibles", &settings.drawInvisiblePlayers);
             ui::SliderFloat("Range", &settings.range, 16.0f, 255.0f, "%.0fm");
         },
@@ -75,23 +73,16 @@ void Chams::onRenderMenu() {
         });
 }
 
-std::string Chams::getDisplayInfo() {
-    if (!enabled)
-        return "Disabled";
-    return settings.mode == MODE_FILL ? "Fill" : "See Player";
-}
-
 void Chams::saveSettings(json::Value& node) const {
+    node.remove("mode");  // the Fill/See Player choice is gone; See Player is the behaviour
     node["drawInvisiblePlayers"] = settings.drawInvisiblePlayers;
     node["range"] = settings.range;
-    node["mode"] = settings.mode;
     json::writeColor(node, "color", settings.color);
 }
 
 void Chams::loadSettings(const json::Value& node) {
     settings.drawInvisiblePlayers = node["drawInvisiblePlayers"].as_bool(settings.drawInvisiblePlayers);
     settings.range = std::clamp(node["range"].as_float(settings.range), 16.0f, 255.0f);
-    settings.mode = std::clamp(node["mode"].as_int(settings.mode), 0, 1);
     json::readColor(node, "color", settings.color);
     settings.color[3] = std::clamp(settings.color[3], 0.05f, 1.0f);
 }

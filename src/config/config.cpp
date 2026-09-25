@@ -917,8 +917,8 @@ void ConfigManager::applyConfig() {
         config_["modules"]["AntiDebuff"] = config_["modules"]["NoVisualEffects"];
 
     const auto& modules = config_["modules"].object();
-    log_raw("[CFG] applyConfig: %d module nodes in config, AimAssist.speed(json)=%d enabled(json)=%d",
-            (int)modules.size(), (int)config_["modules"]["AimAssist"]["speed"].as_float(-1.0f),
+    log_raw("[CFG] applyConfig: %d module nodes in config, AimAssist.horizontalSpeed(json)=%d enabled(json)=%d",
+            (int)modules.size(), (int)config_["modules"]["AimAssist"]["horizontalSpeed"].as_float(-1.0f),
             (int)config_["modules"]["AimAssist"]["enabled"].as_bool(false));
 
     int matched = 0, enabledCount = 0;
@@ -1145,8 +1145,8 @@ void ConfigManager::buildConfigFromModules() {
         // rest and is the single source of truth per module.
         mod->saveSettings(config_["modules"][name]);
     }
-    log_raw("[CFG] buildConfigFromModules: %d modules enabled, AimAssist.speed(live)=%d enabled(live)=%d", enabledCount,
-            (int)config_["modules"]["AimAssist"]["speed"].as_float(-1.0f),
+    log_raw("[CFG] buildConfigFromModules: %d modules enabled, AimAssist.horizontalSpeed(live)=%d enabled(live)=%d",
+            enabledCount, (int)config_["modules"]["AimAssist"]["horizontalSpeed"].as_float(-1.0f),
             (int)config_["modules"]["AimAssist"]["enabled"].as_bool(false));
 }
 

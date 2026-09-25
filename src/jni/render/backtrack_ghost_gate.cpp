@@ -18,7 +18,10 @@
 //
 //   package com.cobble.agent;
 //   public class BacktrackGhostHook {
-//       public static native void onRenderWorld(float partialTicks);
+//       public static native void onRenderWorld(Object viewEntity);
+//       public static native void onModelRender(Object model, Object entity,
+//                                               float limbSwing, float limbSwingAmount, float ageInTicks,
+//                                               float netHeadYaw, float headPitch, float scale);
 //   }
 //
 #include "../../sdk/player/render_data.h"
@@ -36,9 +39,9 @@ static const uint8_t kBacktrackGhostHookBytecode[] = {
     0x00,
     0x00,
     0x34,
-    // Constant pool count = 12 (11 entries + 1)
+    // Constant pool count = 14 (13 entries + 1)
     0x00,
-    0x0C,
+    0x0E,
     // #1 Utf8 "com/cobble/agent/BacktrackGhostHook" (35 chars)
     0x01,
     0x00,
@@ -185,6 +188,12 @@ static const uint8_t kBacktrackGhostHookBytecode[] = {
     0x04,
     0x00,
     0x0A,
+    // #12 Utf8 "onModelRender" (13 chars)
+    0x01, 0x00, 0x0D, 'o', 'n', 'M', 'o', 'd', 'e', 'l', 'R', 'e', 'n', 'd', 'e', 'r',
+    // #13 Utf8 "(Ljava/lang/Object;Ljava/lang/Object;FFFFFF)V" (45 chars)
+    0x01, 0x00, 0x2D, '(', 'L', 'j', 'a', 'v', 'a', '/', 'l', 'a', 'n', 'g', '/', 'O', 'b', 'j', 'e', 'c', 't', ';',
+    'L', 'j', 'a', 'v', 'a', '/', 'l', 'a', 'n', 'g', '/', 'O', 'b', 'j', 'e', 'c', 't', ';', 'F', 'F', 'F', 'F', 'F',
+    'F', ')', 'V',
 
     // access_flags = ACC_PUBLIC (0x0001)
     0x00,
@@ -201,9 +210,9 @@ static const uint8_t kBacktrackGhostHookBytecode[] = {
     // fields_count = 0
     0x00,
     0x00,
-    // methods_count = 2
+    // methods_count = 3
     0x00,
-    0x02,
+    0x03,
 
     // --- Method 0: <init> ()V ---
     0x00,
@@ -238,16 +247,22 @@ static const uint8_t kBacktrackGhostHookBytecode[] = {
     0x00,
     0x00,  // attributes_count = 0
 
-    // --- Method 1: onRenderWorld (F)V ---
+    // --- Method 1: onRenderWorld (Ljava/lang/Object;)V ---
     // ACC_PUBLIC | ACC_STATIC | ACC_NATIVE = 0x0109
     0x01,
     0x09,
     0x00,
     0x08,  // name = #8 "onRenderWorld"
     0x00,
-    0x09,  // descriptor = #9 "(F)V"
+    0x09,  // descriptor = #9
     0x00,
     0x00,  // attributes_count = 0 (native has no Code)
+
+    // --- Method 2: onModelRender (Ljava/lang/Object;Ljava/lang/Object;FFFFFF)V ---
+    0x01, 0x09,  // ACC_PUBLIC | ACC_STATIC | ACC_NATIVE
+    0x00, 0x0C,  // name = #12 "onModelRender"
+    0x00, 0x0D,  // descriptor = #13
+    0x00, 0x00,  // attributes_count = 0
 
     // class_attributes_count = 0
     0x00,
@@ -268,9 +283,87 @@ struct CallbackScope {
 
 #include "../../module/visual/pings.h"
 #include "../../module/visual/chams.h"
+#include "../../module/visual/outline.h"
 #include "../../sdk/jni/jni_cache.h"
+#include "../../sdk/jni/member_resolver.h"
 #include "../../ui/menu/settings.h"
 #include "../packet/bytecode_patcher.hpp"
+
+namespace {
+
+// The patcher injects at method entry and lets the original body run, so calling render a
+// second time on the same model re-enters this hook. The nested call must fall straight
+// through to the body it exists to draw.
+thread_local int g_modelReplayDepth = 0;
+
+struct ModelReplay {
+    JNIEnv* env;
+    jobject model;
+    jobject entity;
+    jfloat limbSwing;
+    jfloat limbSwingAmount;
+    jfloat ageInTicks;
+    jfloat netHeadYaw;
+    jfloat headPitch;
+    jfloat scale;
+    jmethodID render;
+};
+
+void replayModel(void* context) {
+    auto* replay = static_cast<ModelReplay*>(context);
+    replay->env->CallVoidMethod(replay->model, replay->render, replay->entity, replay->limbSwing,
+                                replay->limbSwingAmount, replay->ageInTicks, replay->netHeadYaw, replay->headPitch,
+                                replay->scale);
+    if (replay->env->ExceptionCheck())
+        replay->env->ExceptionClear();
+}
+
+// Resolved off ModelBiped itself so one id covers every subclass; the call still dispatches
+// virtually, which is what picks up ModelPlayer's extra skin layers.
+jmethodID resolveModelRender(JNIEnv* env) {
+    static jmethodID cached = nullptr;
+    static bool tried = false;
+    if (tried)
+        return cached;
+    tried = true;
+
+    jclass modelBiped = nullptr;
+    if (!Java::AssignClass("net.minecraft.client.model.ModelBiped", modelBiped) || !modelBiped) {
+        if (env->ExceptionCheck())
+            env->ExceptionClear();
+        log_warn("[BacktrackGhostGate] ModelBiped unavailable; outline mask disabled");
+        return nullptr;
+    }
+    for (const char* name : {"render", "func_78088_a", "a"}) {
+        cached = env->GetMethodID(modelBiped, name, "(Lnet/minecraft/entity/Entity;FFFFFF)V");
+        if (env->ExceptionCheck())
+            env->ExceptionClear();
+        if (cached)
+            break;
+    }
+    if (!cached) {
+        cached = jni_resolver::findUniqueMethodBySignature(modelBiped, "(Lnet/minecraft/entity/Entity;FFFFFF)V", false);
+    }
+    env->DeleteLocalRef(modelBiped);
+    if (!cached)
+        log_warn("[BacktrackGhostGate] ModelBiped.render not resolvable; outline mask disabled");
+    return cached;
+}
+
+bool isLocalPlayer(JNIEnv* env, jobject entity) {
+    if (!mc.instance || !JniCache::fid_thePlayer)
+        return false;
+    jobject local = env->GetObjectField(mc.instance, JniCache::fid_thePlayer);
+    if (env->ExceptionCheck())
+        env->ExceptionClear();
+    if (!local)
+        return false;
+    const bool same = env->IsSameObject(entity, local) == JNI_TRUE;
+    env->DeleteLocalRef(local);
+    return same;
+}
+
+}  // namespace
 
 namespace BacktrackGhostGate {
 
@@ -353,6 +446,60 @@ void JNICALL NativeOnRenderWorld(JNIEnv* env, jclass, jobject viewEntity) {
     if (chams && chams->enabled) {
         chams->onRender3D();
     }
+
+    // Outline captures its silhouette mask here, in the same world pass, because that is the
+    // only place the world matrices are live. The dilation and compositing happen later, in
+    // the overlay pass.
+    if (outline && outline->enabled) {
+        outline->onRender3D();
+    }
+}
+
+// Injected at ModelBiped.render entry. Draws the player's body geometry a second time into
+// Outline's mask with a coverage shader bound, then returns and lets the original body draw
+// the player normally. Only the model is replayed, which is exactly why the held item, the
+// drop shadow, fire and the nametag never reach the mask.
+void JNICALL NativeOnModelRender(JNIEnv* env, jclass, jobject model, jobject entity, jfloat limbSwing,
+                                 jfloat limbSwingAmount, jfloat ageInTicks, jfloat netHeadYaw, jfloat headPitch,
+                                 jfloat scale) {
+    CallbackScope callback;
+    if (g_modelReplayDepth > 0)
+        return;
+    if (g_shuttingDown.load(std::memory_order_acquire) || !env || !model || !entity)
+        return;
+    if (!outline || !outline->maskActive())
+        return;
+    if (!JniCache::cls_EntityPlayer || !JniCache::fid_posX || !JniCache::fid_posY || !JniCache::fid_posZ)
+        return;
+
+    const jboolean isPlayer = env->IsInstanceOf(entity, JniCache::cls_EntityPlayer);
+    if (env->ExceptionCheck())
+        env->ExceptionClear();
+    if (isPlayer != JNI_TRUE || isLocalPlayer(env, entity))
+        return;
+
+    bool invisible = false;
+    if (JniCache::mid_isInvisible) {
+        invisible = env->CallBooleanMethod(entity, JniCache::mid_isInvisible) == JNI_TRUE;
+        if (env->ExceptionCheck())
+            env->ExceptionClear();
+    }
+
+    const double x = env->GetDoubleField(entity, JniCache::fid_posX);
+    const double y = env->GetDoubleField(entity, JniCache::fid_posY);
+    const double z = env->GetDoubleField(entity, JniCache::fid_posZ);
+    if (!outline->maskWantsEntity(x, y, z, invisible))
+        return;
+
+    const jmethodID render = resolveModelRender(env);
+    if (!render)
+        return;
+
+    ModelReplay replay{env,        model,       entity,     limbSwing, limbSwingAmount,
+                       ageInTicks, netHeadYaw,  headPitch,  scale,     render};
+    ++g_modelReplayDepth;
+    outline->captureModel(&replayModel, &replay);
+    --g_modelReplayDepth;
 }
 
 bool Init(JNIEnv* env) {
@@ -388,14 +535,16 @@ bool Init(JNIEnv* env) {
         return false;
     }
 
-    JNINativeMethod methods[1];
-    const char* mName = "onRenderWorld";
-    const char* mDesc = "(Ljava/lang/Object;)V";
-    methods[0].name = const_cast<char*>(mName);
-    methods[0].signature = const_cast<char*>(mDesc);
+    JNINativeMethod methods[2];
+    methods[0].name = const_cast<char*>("onRenderWorld");
+    methods[0].signature = const_cast<char*>("(Ljava/lang/Object;)V");
     methods[0].fnPtr = reinterpret_cast<void*>(&NativeOnRenderWorld);
 
-    if (env->RegisterNatives(hook, methods, 1) != 0) {
+    methods[1].name = const_cast<char*>("onModelRender");
+    methods[1].signature = const_cast<char*>("(Ljava/lang/Object;Ljava/lang/Object;FFFFFF)V");
+    methods[1].fnPtr = reinterpret_cast<void*>(&NativeOnModelRender);
+
+    if (env->RegisterNatives(hook, methods, 2) != 0) {
         if (env->ExceptionCheck())
             env->ExceptionClear();
         log_err("[BacktrackGhostGate] RegisterNatives failed");

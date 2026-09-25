@@ -108,6 +108,7 @@ bool Init() {
             // registered, so a failed DefineClass cannot leave a dangling call.
             targets.renderGhost = bgInit;
             targets.renderCamera = bgInit;
+            targets.modelOutline = bgInit;
 
             targets.incomingBacktrack = regHooks && btInit;
             BytecodePatcher::SetTargets(targets);

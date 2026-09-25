@@ -30,6 +30,100 @@ AimAssist* aimAssist = nullptr;
 // of the mouse hands the head back within a fifth of a second.
 static constexpr unsigned long long kRotClaimTailMs = 250ull;
 
+// Where inside the target's hitbox the aim sits, as a fraction of its height.
+// 0.88 of a 1.8-block player box is ~1.58 above the feet: the head, just under the
+// crown so vertical tracking error still lands on the box instead of skimming past
+// the top face. Expressing it as a ratio keeps it on the head for a sneaking, riding
+// or otherwise shorter box too.
+static constexpr double kHeadRatio = 0.88;
+
+// Aim height for every version except 1.7.10, which runs the jump machinery further down and
+// has its own point. 0.72 of a 1.8-block box is ~1.30 above the feet: the upper chest.
+//
+// This is deliberately not either extreme. The hitbox centre is what the module used to aim
+// at, and it holds the camera still, but 0.9 above the feet is the abdomen. The head at 0.88
+// tracks the part of a player that moves most, which is what made the camera nod on every
+// jump. The upper chest is high on the body while still being close enough to the box centre
+// that a jump barely moves it.
+static constexpr double kAimRatio1_8_9 = 0.72;
+
+// Upper-torso height, as a fraction of the hitbox, used while the target is airborne.
+// 0.8 of a 1.8-block box is ~1.44 above the reference feet height.
+static constexpr double kChestRatio = 0.80;
+
+// How much of a jump's vertical displacement the aim point follows.
+//
+// The two ends are both worse than the middle. At 0 the point is measured from the
+// ground the target took off from: the crosshair barely moves, but by the apex the aim
+// has slid down to the target's shins. At 1 it is measured from the live box: the aim
+// stays on the torso, but the crosshair travels the full ~1.25 blocks of the jump,
+// which is the flick this was written to remove. Half tracks the body closely enough
+// to keep the point on the waist while cutting the travel to roughly a third.
+static constexpr double kJumpFollow = 0.5;
+
+// Extra aim height on 1.7.10 only, in blocks, applied after the hitbox clamp so it always
+// takes full effect. 1.0 is one block; a player is 1.8 tall and the eye line sits at 1.62.
+//
+// Was 1.6 while the aim was being biased to paper over a target box that sat a whole
+// yOffset too low. getAimPoint now rebases that box on posY, so the aim lands on the head
+// on its own and this is back to being a pure trim knob. Positive aims higher.
+static constexpr double kAimHeightBias1_7_10 = 0.0;
+
+// Time constant of the head <-> chest ease, in 1/seconds. A vanilla jump takes about
+// half a second to reach its apex, so the offset has to be fully in place well before
+// then while still being slow enough that no single update steps the camera.
+static constexpr float kAimHeightEaseRate = 8.0f;
+
+// Separation from the ground, in blocks, at which the aim is fully on the chest. A vanilla
+// jump peaks near 1.25, so completing the shift around half a block up puts it in place well
+// before the apex -- which is exactly where head tracking would reverse direction and start
+// the nod. Driving this off measured height rather than the on/off flag is what makes the
+// takeoff progressive instead of a step.
+static constexpr double kFullAirSeparation = 0.55;
+
+// What leaving the ground is worth on its own, before any height is gained. Without it the
+// shift would not begin until the target had already climbed, which is too late.
+static constexpr float kTakeoffAirFloor = 0.35f;
+
+// Vertical response multiplier once fully airborne. Softening pitch turns the residual
+// motion into a drift instead of a chase; horizontal is deliberately left untouched so
+// strafes are still tracked at full speed.
+static constexpr float kAirVerticalDamping = 0.45f;
+
+// How much of the chest shift a *local* jump is worth.
+//
+// Kept small on purpose. When the target jumps, its head is the thing moving and dropping to
+// the chest is the fix. When the player jumps, the target is standing still and only the
+// camera moves -- the aim point is fine where it is, so pulling it down the body would just
+// give up the head for nothing. The stability there comes from the pitch damping instead,
+// which a local jump still earns in full.
+static constexpr float kLocalAirHeightShare = 0.25f;
+
+// How long the target's feet must hold one height before it counts as landed. Remote
+// positions arrive at ~20 Hz, so the window has to absorb a whole packet gap and the brief
+// pause at the apex of a jump without absorbing an actual landing. 150 ms was inside the
+// jitter of a 160 ms connection and mid-air stalls were being read as landings.
+static constexpr float kFeetSettleMs = 260.0f;
+
+// Vertical movement below this is packet noise, not a jump.
+static constexpr double kFeetMoveEpsilon = 0.003;
+
+// How far the ground anchor may lag below the live box. A jump lifts a player about
+// 1.25 blocks, so a larger gap is a stale anchor rather than a jump -- a target that
+// never reported landing. Letting it lag without bound pushed the aim point under the
+// hitbox, where the clamp pinned it to the feet. Tracking the box once the gap is
+// reached keeps the aim steady instead of snapping it back.
+static constexpr double kMaxAnchorLag = 1.4;
+
+// Extra reach a target keeps once it is acquired. A strafing player crosses the
+// configured distance boundary several times a second, and handing the aim back on
+// each crossing is the "loses the target for no reason" behaviour.
+static constexpr double kLockDistanceSlack = 1.5;
+
+// Lock In trades give-up distance for stickiness: the target is meant to survive a
+// disengage-and-chase, not just a strafe, so it is held well past attack range.
+static constexpr double kLockInDistanceSlack = 4.0;
+
 void AimAssist::markRotationWrite() {
     lastRotWriteMs_.store(GetTickCount64(), std::memory_order_release);
 }
@@ -42,6 +136,108 @@ bool AimAssist::isRewritingRotation() const {
         return false;
     const unsigned long long now = GetTickCount64();
     return now >= last && (now - last) <= kRotClaimTailMs;
+}
+
+// Entity.onGround for the target, resolved lazily off the already-cached Entity
+// class. A runtime-obfuscated client with no alias for it leaves the field null, and
+// the aim then simply stays on the head as it did before.
+static jfieldID g_aim_fid_onGround = nullptr;
+static bool g_aimResolvedOnGround = false;
+
+static void resolveAimOnGround(JNIEnv* env) {
+    if (g_aimResolvedOnGround || !JniCache::cls_Entity)
+        return;
+    g_aimResolvedOnGround = true;
+
+    for (const char* name : {"onGround", "field_70122_E", "C"}) {
+        g_aim_fid_onGround = env->GetFieldID(JniCache::cls_Entity, name, "Z");
+        if (env->ExceptionCheck())
+            env->ExceptionClear();
+        if (g_aim_fid_onGround)
+            return;
+    }
+}
+
+// Vertical eye offset of a player, measured from its feet.
+static constexpr double kEyeHeight = 1.62;
+
+// Ground truth for where the crosshair actually lands: Minecraft's own raytrace result,
+// Minecraft.objectMouseOver.hitVec.
+//
+// Every other number in the vertical trace is derived from this module's own assumptions
+// about eye height and coordinate spaces, so it agrees with itself whether or not those
+// assumptions hold. This one does not: the game computed it from the real camera and the
+// rotation we wrote, so comparing its Y against the target's feet settles where the aim
+// really is without trusting any of our arithmetic.
+static jfieldID g_aim_fid_hitVec = nullptr;
+static jfieldID g_aim_fid_vecY = nullptr;
+static bool g_aimResolvedHitVec = false;
+
+static void resolveAimHitVec(JNIEnv* env) {
+    if (g_aimResolvedHitVec || !JniCache::cls_MovingObjectPosition || !JniCache::cls_Vec3)
+        return;
+    g_aimResolvedHitVec = true;
+
+    for (const char* name : {"hitVec", "field_72307_f"}) {
+        g_aim_fid_hitVec = env->GetFieldID(JniCache::cls_MovingObjectPosition, name, "Lnet/minecraft/util/Vec3;");
+        if (env->ExceptionCheck())
+            env->ExceptionClear();
+        if (g_aim_fid_hitVec)
+            break;
+    }
+    for (const char* name : {"yCoord", "field_72448_b"}) {
+        g_aim_fid_vecY = env->GetFieldID(JniCache::cls_Vec3, name, "D");
+        if (env->ExceptionCheck())
+            env->ExceptionClear();
+        if (g_aim_fid_vecY)
+            break;
+    }
+}
+
+// Y of the crosshair's raytrace hit, or NaN when the game is not hitting anything.
+// hitType: 0 = nothing, 1 = block, 2 = the entity we are tracking, 3 = another entity.
+static double readCrosshairHitY(JNIEnv* env, jobject trackedTarget, int& hitType) {
+    hitType = 0;
+    const double kNone = std::numeric_limits<double>::quiet_NaN();
+    resolveAimHitVec(env);
+    if (!g_aim_fid_hitVec || !g_aim_fid_vecY || !JniCache::fid_objectMouseOver || !mc.isValid())
+        return kNone;
+
+    jobject mop = env->GetObjectField(mc.instance, JniCache::fid_objectMouseOver);
+    if (!mop) {
+        if (env->ExceptionCheck())
+            env->ExceptionClear();
+        return kNone;
+    }
+
+    double y = kNone;
+    jobject entityHit = JniCache::fid_entityHit ? env->GetObjectField(mop, JniCache::fid_entityHit) : nullptr;
+    hitType = entityHit ? (trackedTarget && env->IsSameObject(entityHit, trackedTarget) ? 2 : 3) : 1;
+    if (entityHit)
+        env->DeleteLocalRef(entityHit);
+
+    jobject vec = env->GetObjectField(mop, g_aim_fid_hitVec);
+    if (vec) {
+        y = env->GetDoubleField(vec, g_aim_fid_vecY);
+        env->DeleteLocalRef(vec);
+    }
+    env->DeleteLocalRef(mop);
+    if (env->ExceptionCheck())
+        env->ExceptionClear();
+    return y;
+}
+
+// The module loop runs at ~500 Hz, but an early-out (menu open, no target) can leave
+// a timer running far longer. Anything outside that cadence collapses to one period,
+// because a large dt makes an exponential step cover most of its remaining distance
+// in a single update -- the visible snap.
+static float stepSeconds(Timer& timer) {
+    float dt = timer.Elapsed<std::chrono::duration<float, std::milli>>() / 1000.0f;
+    timer.Start();
+    constexpr float kLoopPeriodSec = 0.002f;  // ModuleManager cadence
+    if (!(dt > 0.0001f) || dt > 0.02f)
+        dt = kLoopPeriodSec;
+    return dt;
 }
 
 // ── C03PacketPlayer resolution for packet-rotation (mirrors clutch) ──────────
@@ -95,64 +291,6 @@ constexpr int IRON_AXE = 258;
 constexpr int DIAMOND_AXE = 279;
 constexpr int GOLD_AXE = 286;
 }  // namespace ItemIds
-
-// Neuromotor state for human-like aiming
-struct NeuromotorState {
-    float driftYaw = 0.0f;  // Accumulated Brownian drift
-    float driftPitch = 0.0f;
-    float reactionJitter = 0.0f;   // Variable reaction delay
-    float overshootFactor = 1.0f;  // Tendency to over/undershoot
-    int ticksUntilCorrection = 0;  // When to apply micro-correction
-    Timer stateRefreshTimer;
-
-    void update(std::mt19937& rng, float speedSetting = 50.0f) {
-        auto randF = [&](float min, float max) {
-            std::uniform_real_distribution<float> d(min, max);
-            return d(rng);
-        };
-        auto randI = [&](int min, int max) {
-            std::uniform_int_distribution<int> d(min, max);
-            return d(rng);
-        };
-
-        // Scale drift based on speed setting
-        // Low speed needs minimal drift (clean aim), high speed also needs clean aim
-        // Medium-low speeds (40-60) can have slightly more drift for human-like feel
-        // Formula creates bell curve peaking around speed 50
-        float speedNorm = speedSetting / 100.0f;
-        float bellCurve = std::exp(-std::pow((speedNorm - 0.5f) * 2.5f, 2.0f));
-        float speedScale = 0.15f + bellCurve * 0.45f;  // Range: 0.15 to 0.60
-
-        // Brownian drift: small random walk that accumulates
-        float yawDriftStep = randF(-0.012f, 0.012f) * speedScale;
-        float pitchDriftStep = randF(-0.008f, 0.008f) * speedScale;
-
-        driftYaw += yawDriftStep;
-        driftPitch += pitchDriftStep;
-
-        // Decay drift slowly (mean-reverting) - faster decay at low speeds
-        float decayRate = std::lerp(0.85f, 0.94f, speedScale);
-        driftYaw *= decayRate;
-        driftPitch *= decayRate;
-
-        // Clamp drift to realistic ranges (scaled)
-        float maxDrift = 0.06f * speedScale;
-        driftYaw = std::clamp(driftYaw, -maxDrift, maxDrift);
-        driftPitch = std::clamp(driftPitch, -maxDrift * 0.8f, maxDrift * 0.8f);
-
-        // Refresh overshoot tendency periodically (humans are inconsistent)
-        if (stateRefreshTimer.Elapsed<>() > randF(800.f, 2000.f)) {
-            // Overshoot closer to 1.0 at low speeds (more precise)
-            float overshootRange = std::lerp(0.02f, 0.08f, speedScale);
-            overshootFactor = 1.0f + randF(-overshootRange, overshootRange);
-            reactionJitter = randF(-15.f, 15.f) * speedScale;
-            ticksUntilCorrection = randI(3, 12);
-            stateRefreshTimer.Start();
-        }
-    }
-};
-
-static NeuromotorState g_neuroState;
 
 // GCD calculation based on Minecraft's mouse sensitivity formula
 static float calculateGCD(float sensitivity) {
@@ -226,60 +364,12 @@ static void varyStepCounts(float& yawDelta, float& pitchDelta, float gcd, std::m
 }
 
 static float g_cachedGCD = 0.0f;
-static Timer g_gcdRefreshTimer;
-
-// AimBoost Implementation
-AimBoost::AimBoost(float speed_mult_min, float speed_mult_max, float freq_min_ms, float freq_max_ms, bool continuous)
-    : speed_mult_min(speed_mult_min),
-      speed_mult_max(speed_mult_max),
-      frequency_min_ms((uint32_t)freq_min_ms),
-      frequency_max_ms((uint32_t)freq_max_ms),
-      continuous(continuous) {
-    speed_mult = (speed_mult_min + speed_mult_max) / 2;
-    prev_speed_mult = speed_mult;
-}
-
-float AimBoost::Delay() {
-    static std::random_device rd;
-    static std::mt19937 gen(rd());
-
-    auto randFloat = [&](float min, float max) -> float {
-        std::uniform_real_distribution<float> dis(min, max);
-        return dis(gen);
-    };
-
-    auto randInt = [&](int min, int max) -> int {
-        std::uniform_int_distribution<int> dis(min, max);
-        return dis(gen);
-    };
-
-    auto slerp = [](float start, float end, float t) -> float {
-        t = std::clamp(t, 0.0f, 1.0f);
-        t = t * t * (3.0f - 2.0f * t);
-        return start + (end - start) * t;
-    };
-
-    if (timer.Elapsed<>() >= frequency_ms) {
-        if (continuous) {
-            prev_speed_mult = randFloat(speed_mult_min, speed_mult_max);
-        } else {
-            prev_speed_mult = speed_mult;
-            speed_mult = randFloat(speed_mult_min, speed_mult_max);
-        }
-
-        frequency_ms = randInt(frequency_min_ms, frequency_max_ms);
-        timer.Start();
-    }
-
-    return slerp(prev_speed_mult, continuous ? speed_mult : 1.f, timer.Elapsed<>() / frequency_ms);
-}
 
 // AimAssist Implementation
 AimAssist::AimAssist() : Module("AimAssist") {
     keybind = 0;
     std::random_device rd;
     rng.seed(rd());
-    entityLockEnabled_.store(settings.entityLock, std::memory_order_relaxed);
 }
 
 void AimAssist::releaseCachedTarget(JNIEnv* env) {
@@ -293,33 +383,28 @@ void AimAssist::releaseCachedTarget(JNIEnv* env) {
     if (env->ExceptionCheck())
         env->ExceptionClear();
     cachedTarget = nullptr;
+    cachedTargetMissingScans_ = 0;
 }
 
 void AimAssist::resetTargetState(JNIEnv* env) {
     std::lock_guard<std::recursive_mutex> lock(targetMutex_);
     releaseCachedTarget(env);
-    hasLockedTarget = false;
     targetHasHitbox = false;
-    prevFrameHadTarget = false;
     targetChangedThisFrame = false;
-    reactionPrimed = false;
+    cachedTargetMissingScans_ = 0;
+    aimHeightBlend_ = 0.0f;
+    aimHeightTimer_.Start();
+    localAirBlend_ = 0.0f;
+    verticalDamping_ = 1.0f;
+    hasGroundAnchor_ = false;
     controllerTimer.Start();
-    yawdiffSpeed = 0.0f;
-    pitchdiffSpeed = 0.0f;
     simulatedJitterYaw = simulatedJitterPitch = 0.0f;
     simulatedJitterTargetYaw = simulatedJitterTargetPitch = 0.0f;
     appliedJitterYaw_ = appliedJitterPitch_ = 0.0f;
     yawRotationResidual = pitchRotationResidual = 0.0;
-    cursorAccumY = 0.0;
     // Drop the velocity estimate with the target it was measured from.
     predVelX = predVelY = predVelZ = 0.0;
     predTimer.Start();
-}
-
-void AimAssist::setEntityLock(bool enabled) {
-    settings.entityLock = enabled;
-    entityLockEnabled_.store(enabled, std::memory_order_release);
-    targetResetRequested_.store(true, std::memory_order_release);
 }
 
 void AimAssist::onWorldChange() {
@@ -329,60 +414,18 @@ void AimAssist::onWorldChange() {
 
 void AimAssist::onEnable() {
     log_ok("AimAssist enabled");
-
-    std::lock_guard<std::recursive_mutex> lock(targetMutex_);
-    JNIEnv* env = Java::Env();
-    releaseCachedTarget(env);
-    entityLockEnabled_.store(settings.entityLock, std::memory_order_release);
+    resetTargetState(Java::Env());
     targetResetRequested_.store(false, std::memory_order_release);
-    hasLockedTarget = false;
-    pitchdiffSpeed = 0.f;
-    yawdiffSpeed = 0.f;
-    cursorAccumY = 0.0;
-    yawRotationResidual = pitchRotationResidual = 0.0;
-    targetYawSpeed = 0.f;
-    targetPitchSpeed = 0.f;
-    reactionPrimed = false;
-    controllerTimer.Start();
-    targetHasHitbox = false;
-    targetHitboxMinX = targetHitboxMinY = targetHitboxMinZ = 0.0f;
-    targetHitboxMaxX = targetHitboxMaxY = targetHitboxMaxZ = 0.0f;
-    prevFrameHadTarget = false;
-    targetRampTimer.Start();
-    clickRampTimer.Start();
-    hitboxRefreshTimer.Start();
-    lastMouseDown = false;
-    clickStartedThisFrame = false;
-    targetSpeedVariance = 1.0f;
-    aimHumanizer = 1.0f;
-    simulatedJitterYaw = simulatedJitterPitch = 0.0f;
-    simulatedJitterTargetYaw = simulatedJitterTargetPitch = 0.0f;
-    appliedJitterYaw_ = appliedJitterPitch_ = 0.0f;
-    simulatedJitterTimer.Start();
 }
 
 void AimAssist::onDisable() {
     log_ok("AimAssist disabled");
-    std::lock_guard<std::recursive_mutex> lock(targetMutex_);
-    hasLockedTarget = false;
-
-    releaseCachedTarget(Java::Env());
+    resetTargetState(Java::Env());
     targetResetRequested_.store(false, std::memory_order_release);
-    cursorAccumY = 0.0;
-    yawRotationResidual = pitchRotationResidual = 0.0;
-    pitchdiffSpeed = yawdiffSpeed = 0.f;
-    targetYawSpeed = 0.f;
-    targetPitchSpeed = 0.f;
-    reactionPrimed = false;
-    targetHasHitbox = false;
-    targetHitboxMinX = targetHitboxMinY = targetHitboxMinZ = 0.0f;
-    targetHitboxMaxX = targetHitboxMaxY = targetHitboxMaxZ = 0.0f;
-    reactionTimeTimer.Start();
-    lastMouseDown = false;
-    clickStartedThisFrame = false;
-    simulatedJitterYaw = simulatedJitterPitch = 0.0f;
-    simulatedJitterTargetYaw = simulatedJitterTargetPitch = 0.0f;
-    appliedJitterYaw_ = appliedJitterPitch_ = 0.0f;
+}
+
+double AimAssist::retentionSlack() const {
+    return settings.lockIn ? kLockInDistanceSlack : kLockDistanceSlack;
 }
 
 float AimAssist::wrapTo180(float value) {
@@ -415,15 +458,8 @@ int AimAssist::randInt(int min, int max) {
     return dis(rng);
 }
 
-float AimAssist::slerp(float start, float end, float t) {
-    t = std::clamp(t, 0.0f, 1.0f);
-    t = t * t * (3.0f - 2.0f * t);
-    return start + (end - start) * t;
-}
-
 void AimAssist::onUpdate() {
     std::lock_guard<std::recursive_mutex> lock(targetMutex_);
-    clickStartedThisFrame = false;
     // Default off each tick; applyAimController re-arms it only while actively
     // aiming with packetRotation, so idle/no-target ticks never rewrite packets.
     hasServerRotation_.store(false, std::memory_order_relaxed);
@@ -434,7 +470,6 @@ void AimAssist::onUpdate() {
     if (targetResetRequested_.exchange(false, std::memory_order_acq_rel))
         resetTargetState(env);
 
-    const bool entityLock = entityLockEnabled_.load(std::memory_order_acquire);
     if (!player.isValid()) {
         markAimIdle();
         return;
@@ -461,22 +496,13 @@ void AimAssist::onUpdate() {
     bool mouseDown = (GetAsyncKeyState(VK_LBUTTON) & 0x8000) != 0;
 
     if (!settings.alwaysAim && !mouseDown) {
-        // Entity Lock keeps the target between clicks. Without it, the next
-        // click starts with a fresh target selection.
-        if (!entityLock)
+        // Letting go of the attack button normally ends the engagement, so the next
+        // click picks a target fresh. Lock In is exactly the opt-out: it holds the
+        // acquired entity across releases so re-clicking resumes on the same player.
+        if (!settings.lockIn)
             resetTargetState(env);
-        lastMouseDown = false;
         markAimIdle();
         return;
-    }
-
-    if (mouseDown && !lastMouseDown) {
-        clickStartedThisFrame = true;
-        clickRampTimer.Start();
-        targetRampTimer.Start();
-        yawdiffSpeed = 0.f;
-        pitchdiffSpeed = 0.f;
-        reactionPrimed = false;
     }
 
     if (settings.breakBlocks && mouseDown) {
@@ -497,40 +523,29 @@ void AimAssist::onUpdate() {
     double localX = player.getPosX();
     double localY = player.getPosY();
     double localZ = player.getPosZ();
-    // Angles must originate from the eyes, not the feet, or the pitch aims ~1.62
-    // blocks too high (the "vertical aims above the player" bug).
-    double eyeY = localY + 1.62;
+    measurePosYFeetDelta(env);
+    // Angles must originate from the eyes, not the feet, or the pitch aims ~1.62 blocks
+    // too high (the "vertical aims above the player" bug). posY is already the eye
+    // height on 1.7.10, so adding the offset there aimed a body-length too LOW instead.
+    double eyeY = localY - posYFeetDelta_ + kEyeHeight;
     targetChangedThisFrame = false;
 
     double targetX = 0.0;
     double targetY = 0.0;
     double targetZ = 0.0;
 
-    hasLockedTarget = findTarget(targetX, targetY, targetZ);
-
-    if (!hasLockedTarget) {
-        prevFrameHadTarget = false;
-        // Do not leave the last correction velocity/residual alive when a
-        // target scan misses for a frame. Otherwise the next click can inherit
-        // an old direction and pull the camera toward the floor or a nearby
-        // block even though the button is still held.
-        yawdiffSpeed = pitchdiffSpeed = 0.0f;
-        targetYawSpeed = targetPitchSpeed = 0.0f;
+    if (!findTarget(targetX, targetY, targetZ)) {
+        // Do not leave the last correction residual alive when a target scan
+        // misses. Otherwise the next click can inherit an old direction and pull
+        // the camera toward the floor or a nearby block.
         yawRotationResidual = pitchRotationResidual = 0.0;
-        cursorAccumY = 0.0;
-        reactionPrimed = false;
         // The velocity estimate belongs to a target we no longer have; a stale
         // lead is what makes the next acquisition start with a flick.
         predVelX = predVelY = predVelZ = 0.0;
         predTimer.Start();
         controllerTimer.Start();
-        lastMouseDown = mouseDown;
         return;
     }
-
-    lockedTargetX = targetX;
-    lockedTargetY = targetY;
-    lockedTargetZ = targetZ;
 
     // Estimate the target's velocity (blocks/sec, smoothed).
     //
@@ -587,10 +602,6 @@ void AimAssist::onUpdate() {
         predVelZ = std::clamp(predVelZ, -12.0, 12.0);
     }
 
-    // Adaptive + Entity Lock = hard-lock chest mode. Any of the two alone keeps
-    // the classic aim-assist behavior. Gate all the "sticky chest" changes on it.
-    const bool adaptiveLock = (settings.aimMode == AimMode::ADAPTIVE) && entityLock;
-
     // Resolve the aim point from the target's REAL position. Feeding a predicted
     // position in here tripped getAimPoint's "detached hitbox" guards as soon as
     // the lead passed 1.5 blocks: the box got rebuilt around the predicted point
@@ -598,15 +609,16 @@ void AimAssist::onUpdate() {
     // prediction affected the result at all, since the aim point is otherwise
     // derived from the (unpredicted) AABB. Prediction is a bounded offset on the
     // resolved point instead.
+    // Only 1.7.10 runs the jump machinery, so only 1.7.10 pays for its per-update JNI read.
+    // Leaving the blend at zero elsewhere also restores the full vertical prediction lead.
+    if (usesJumpAimLogic())
+        updateAimHeightBlend(env, targetHasHitbox ? (double)targetHitboxMinY : targetY);
+
     double aimX, aimY, aimZ;
-    if (!getAimPoint(targetX, targetY, targetZ, aimX, aimY, aimZ)) {
-        markAimIdle();
-        return;
-    }
+    getAimPoint(targetX, targetY, targetZ, aimX, aimY, aimZ);
 
     // Prediction: lead the aim point by the target's velocity so tracking sits
-    // ahead of a strafing target instead of trailing it. Hard-lock skips the
-    // vertical lead so a jumping/falling target does not pull the aim off chest.
+    // ahead of a strafing target instead of trailing it.
     //
     // The lead is bounded by the hitbox itself, not by a constant. A player box is
     // 0.6 blocks wide, so the +-0.75 block clamp this used to carry allowed an aim
@@ -615,7 +627,7 @@ void AimAssist::onUpdate() {
     // still went out was one the server raytraced into nothing -- which is exactly
     // what Intave reports as AttackRaytrace "attacked a player out of sight".
     // Leading is only worth anything while the led point is still on the target.
-    if (settings.prediction > 0.0f && resolvedBox_.valid) {
+    if (settings.prediction > 0.0f) {
         const double leadSec = (settings.prediction / 100.0) * 0.16;
         // Keep the ray off the faces: a point exactly on the plane is a coin flip
         // between hit and miss once the server's copy of the position differs from
@@ -630,8 +642,15 @@ void AimAssist::onUpdate() {
         };
         aimX += lead(predVelX, aimX, resolvedBox_.minX, resolvedBox_.maxX);
         aimZ += lead(predVelZ, aimZ, resolvedBox_.minZ, resolvedBox_.maxZ);
-        if (!settings.horizontalOnly && !adaptiveLock)
-            aimY += lead(predVelY, aimY, resolvedBox_.minY, resolvedBox_.maxY);
+        // The vertical lead fades out as the target leaves the ground. A jump is a
+        // parabola, so a linear lead points above the target on the way up and below it
+        // on the way down -- it adds crosshair travel to the exact moment the anchored
+        // aim point is there to remove it. Fading on the same eased signal keeps the
+        // hand-off continuous.
+        if (aimsPitch()) {
+            const double airFade = 1.0 - (double)aimHeightBlend_;
+            aimY += lead(predVelY, aimY, resolvedBox_.minY, resolvedBox_.maxY) * airFade;
+        }
     }
 
     // How far the rotation may be nudged off the aim point before the ray leaves the
@@ -642,37 +661,77 @@ void AimAssist::onUpdate() {
     // budget; at max reach the budget collapses and so does the jitter.
     {
         float yawBudget = 0.0f, pitchBudget = 0.0f;
-        if (resolvedBox_.valid) {
-            const double dx = aimX - localX;
-            const double dz = aimZ - localZ;
-            const double flat = std::sqrt(dx * dx + dz * dz);
-            const double dy = aimY - eyeY;
-            const double dist = std::sqrt(flat * flat + dy * dy);
-            const double halfW =
-                std::min(resolvedBox_.maxX - resolvedBox_.minX, resolvedBox_.maxZ - resolvedBox_.minZ) * 0.5;
-            const double halfH = (resolvedBox_.maxY - resolvedBox_.minY) * 0.5;
-            if (flat > 0.05 && halfW > 0.0)
-                yawBudget = (float)(std::atan2(halfW - 0.09, flat) * 57.29577951308232);
-            if (dist > 0.05 && halfH > 0.0)
-                pitchBudget = (float)(std::atan2(halfH - 0.09, dist) * 57.29577951308232);
-            // Only part of the budget is spent, because the rendered rotation is itself
-            // still converging on the aim point and owns the rest of it.
-            yawBudget = std::clamp(yawBudget * 0.5f, 0.0f, 3.0f);
-            pitchBudget = std::clamp(pitchBudget * 0.5f, 0.0f, 3.0f);
-        }
-        packetYawBudget_.store(yawBudget, std::memory_order_release);
-        packetPitchBudget_.store(pitchBudget, std::memory_order_release);
+        const double dx = aimX - localX;
+        const double dz = aimZ - localZ;
+        const double flat = std::sqrt(dx * dx + dz * dz);
+        const double dy = aimY - eyeY;
+        const double dist = std::sqrt(flat * flat + dy * dy);
+        const double halfW =
+            std::min(resolvedBox_.maxX - resolvedBox_.minX, resolvedBox_.maxZ - resolvedBox_.minZ) * 0.5;
+        const double halfH = (resolvedBox_.maxY - resolvedBox_.minY) * 0.5;
+        if (flat > 0.05 && halfW > 0.0)
+            yawBudget = (float)(std::atan2(halfW - 0.09, flat) * 57.29577951308232);
+        if (dist > 0.05 && halfH > 0.0)
+            pitchBudget = (float)(std::atan2(halfH - 0.09, dist) * 57.29577951308232);
+        // Only part of the budget is spent, because the rendered rotation is itself
+        // still converging on the aim point and owns the rest of it.
+        packetYawBudget_.store(std::clamp(yawBudget * 0.5f, 0.0f, 3.0f), std::memory_order_release);
+        packetPitchBudget_.store(std::clamp(pitchBudget * 0.5f, 0.0f, 3.0f), std::memory_order_release);
     }
 
     auto [yawTarget, pitchTarget] = getAngles(localX, eyeY, localZ, aimX, aimY, aimZ);
+    const double aimDx = aimX - localX;
+    const double aimDz = aimZ - localZ;
+    // When the two horizontal positions coincide there is no direction to turn
+    // toward. Keep yaw where it is instead of letting atan2(0, 0) manufacture -90°.
+    if (aimDx * aimDx + aimDz * aimDz < 1e-6)
+        yawTarget = localYaw;
 
     float yawDiff = wrapTo180(-(localYaw - yawTarget));
     float pitchDiff = wrapTo180(-(localPitch - pitchTarget));
 
+    // Vertical-solve trace. "aimAboveFeet" should read ~1.58 on a grounded target and
+    // "eyeAboveFeet" ~1.62 on every version; anything else localises the fault to the
+    // aim point or to the eye origin without having to guess from the crosshair.
+    if (verticalTraceTimer_.Elapsed<>() >= 250.0f) {
+        verticalTraceTimer_.Start();
+        int crosshairHitType = 0;
+        const double crosshairHitY = readCrosshairHitY(env, cachedTarget, crosshairHitType);
+        log_debug(
+            "[AIM-V] %s posY->feet=%.2f(known=%d) fields(bbox=%d,aabbY=%d,posY=%d) hitbox=%d "
+            // wx/wz must both read 0.600 for a player. A swapped AABB field mapping binds
+            // the wrong axis and shows up here as a wrong width or depth long before it
+            // shows up as a wrong aim height.
+            // Which entity is being tracked, not just how high the aim sits on it. With
+            // several candidates around -- lobby NPCs, a second player further back --
+            // a correct aim height on the wrong target looks exactly like a wrong aim
+            // height on the right one.
+            "targetXZ=(%.1f,%.1f) dist=%.2f "
+            "targetPosY=%.3f box=[%.3f,%.3f] h=%.3f wx=%.3f wz=%.3f localPosY=%.3f eyeY=%.3f aimY=%.3f "
+            // HIT* is the only line here the module did not compute from its own
+            // assumptions. hitType 2 means the crosshair is on the tracked entity, and
+            // then HITABOVEFEET is literally where the aim landed on the body.
+            "aimAboveFeet=%.3f hitType=%d HITABOVEFEET=%.3f anchor=%.3f lag=%.3f onGround=%s airborne=%d "
+            "blend=%.2f vdamp=%.2f localAir=%d pitch=%.1f/%.1f",
+            Java::Version == MinecraftVersion::MC_1_7_10  ? "1.7.10"
+            : Java::Version == MinecraftVersion::MC_1_8_9 ? "1.8.9"
+                                                          : "UNDETECTED",
+            posYFeetDelta_, (int)posYFeetDeltaKnown_, JniCache::fid_boundingBox != nullptr,
+            JniCache::fid_aabb_minY != nullptr, JniCache::fid_posY != nullptr, (int)targetHasHitbox, targetX, targetZ,
+            std::sqrt((targetX - localX) * (targetX - localX) + (targetY - localY) * (targetY - localY) +
+                      (targetZ - localZ) * (targetZ - localZ)),
+            targetY,
+            resolvedBox_.minY, resolvedBox_.maxY, resolvedBox_.maxY - resolvedBox_.minY,
+            resolvedBox_.maxX - resolvedBox_.minX, resolvedBox_.maxZ - resolvedBox_.minZ, localY, eyeY, aimY,
+            aimY - resolvedBox_.minY, crosshairHitType, crosshairHitY - resolvedBox_.minY, groundFeetY_,
+            resolvedBox_.minY - groundFeetY_,
+            targetOnGroundRaw_ < 0 ? "n/a" : targetOnGroundRaw_ ? "true" : "false", (int)targetAirborne_,
+            aimHeightBlend_, verticalDamping_, (int)!player.isOnGround(), localPitch, pitchTarget);
+    }
+
     // Stop On Hitbox: If crosshair is already inside the hitbox, let user aim freely.
-    // Adaptive+EntityLock is a hard-lock mode by design — never release, even
-    // mid-hitbox, so the aim stays pinned on the chest when the enemy is close.
-    if (settings.stopOnHitbox && targetHasHitbox && !adaptiveLock) {
+    // Lock In means "stay pinned", so it never hands the rotation back mid-hitbox.
+    if (settings.stopOnHitbox && targetHasHitbox && !settings.lockIn) {
         float hitboxWidth = targetHitboxMaxX - targetHitboxMinX;
         float hitboxHeight = targetHitboxMaxY - targetHitboxMinY;
 
@@ -692,11 +751,9 @@ void AimAssist::onUpdate() {
             bool insideYaw = (yawDiffToMinX * yawDiffToMaxX) <= 0.0f;
             bool insidePitch = (pitchDiffToMinY * pitchDiffToMaxY) <= 0.0f;
 
-            bool insideHitbox = settings.horizontalOnly ? insideYaw : (insideYaw && insidePitch);
+            bool insideHitbox = aimsPitch() ? (insideYaw && insidePitch) : insideYaw;
 
             if (insideHitbox) {
-                prevFrameHadTarget = hasLockedTarget;
-                lastMouseDown = mouseDown;
                 markAimIdle();
                 return;
             }
@@ -717,7 +774,7 @@ void AimAssist::onUpdate() {
         const float snappedYaw = yawNow + applyGCDStrict(wrapTo180(yawTarget - yawNow), gcdSnap);
         player.setYaw(snappedYaw);
         player.setPrevYaw(snappedYaw);
-        if (!settings.horizontalOnly) {
+        if (aimsPitch()) {
             const float pitchNow = player.getPitch();
             const float stepped = pitchNow + applyGCDStrict(pitchTarget - pitchNow, gcdSnap);
             const float snappedPitch = limitPitchOnGrid(stepped, gcdSnap);
@@ -725,8 +782,6 @@ void AimAssist::onUpdate() {
             player.setPrevPitch(snappedPitch);
         }
         markRotationWrite();
-        prevFrameHadTarget = hasLockedTarget;
-        lastMouseDown = mouseDown;
         // The rotation was written absolutely, so no jitter offset is folded in
         // any more - forget it instead of unwinding it on the next update.
         appliedJitterYaw_ = appliedJitterPitch_ = 0.0f;
@@ -735,173 +790,126 @@ void AimAssist::onUpdate() {
     }
 
     cachedMouseSensitivity = mc.getMouseSensitivity();
-
-    // All aim modes now share one time-based controller. The mode only changes
-    // response rate; it no longer swaps in a separate pitch/yaw implementation.
     applyAimController(yawDiff, pitchDiff);
-    prevFrameHadTarget = hasLockedTarget;
-    lastMouseDown = mouseDown;
+}
+
+bool AimAssist::readCachedTarget(double& targetX, double& targetY, double& targetZ) {
+    JNIEnv* env = Java::Env();
+    if (!env || !cachedTarget)
+        return false;
+
+    const auto drop = [&](const char* why) {
+        log_debug("[AimAssist] target dropped: %s", why);
+        releaseCachedTarget(env);
+        targetHasHitbox = false;
+        return false;
+    };
+
+    if (env->IsSameObject(cachedTarget, NULL))
+        return drop("entity gone");
+    if (!JniCache::fid_posX || !JniCache::fid_posY || !JniCache::fid_posZ)
+        return drop("position fields unresolved");
+
+    const double cX = env->GetDoubleField(cachedTarget, JniCache::fid_posX);
+    const double cY = env->GetDoubleField(cachedTarget, JniCache::fid_posY);
+    const double cZ = env->GetDoubleField(cachedTarget, JniCache::fid_posZ);
+    if (env->ExceptionCheck()) {
+        env->ExceptionClear();
+        return drop("position read failed");
+    }
+
+    // The cached entity position is refreshed every iteration, so refresh its
+    // absolute AABB with it. Keeping the first scan's box while the player strafes
+    // makes the aim point drift to an old coordinate (the apparent random flick).
+    if (JniCache::fid_boundingBox && JniCache::cls_AxisAlignedBB) {
+        jobject aabb = env->GetObjectField(cachedTarget, JniCache::fid_boundingBox);
+        if (aabb) {
+            if (JniCache::fid_aabb_minX)
+                targetHitboxMinX = (float)env->GetDoubleField(aabb, JniCache::fid_aabb_minX);
+            if (JniCache::fid_aabb_minY)
+                targetHitboxMinY = (float)env->GetDoubleField(aabb, JniCache::fid_aabb_minY);
+            if (JniCache::fid_aabb_minZ)
+                targetHitboxMinZ = (float)env->GetDoubleField(aabb, JniCache::fid_aabb_minZ);
+            if (JniCache::fid_aabb_maxX)
+                targetHitboxMaxX = (float)env->GetDoubleField(aabb, JniCache::fid_aabb_maxX);
+            if (JniCache::fid_aabb_maxY)
+                targetHitboxMaxY = (float)env->GetDoubleField(aabb, JniCache::fid_aabb_maxY);
+            if (JniCache::fid_aabb_maxZ)
+                targetHitboxMaxZ = (float)env->GetDoubleField(aabb, JniCache::fid_aabb_maxZ);
+            env->DeleteLocalRef(aabb);
+            const float w = targetHitboxMaxX - targetHitboxMinX;
+            const float h = targetHitboxMaxY - targetHitboxMinY;
+            targetHasHitbox = w > 0.01f && h > 0.01f;
+        }
+        if (env->ExceptionCheck())
+            env->ExceptionClear();
+    }
+
+    // Distance is the only thing that can break a lock. FOV deliberately plays no
+    // part: it decides which players may be *acquired*, and testing it again here is
+    // what dropped a target the moment it sprinted past the crosshair, since its
+    // angular speed at point-blank range outruns any tracking speed by far.
+    const double dx = cX - player.getPosX();
+    const double dy = cY - player.getPosY();
+    const double dz = cZ - player.getPosZ();
+    if (std::sqrt(dx * dx + dy * dy + dz * dz) > settings.distance + retentionSlack())
+        return drop("out of range");
+
+    targetX = cX;
+    targetY = cY;
+    targetZ = cZ;
+    return true;
 }
 
 bool AimAssist::findTarget(double& targetX, double& targetY, double& targetZ) {
     // HYBRID TRACKING SYSTEM
-    // 1. Fast Path (Every Frame): Update position of locked target directly (JNI)
-    // 2. Slow Path (Scan Interval): Scan full player list for new/better targets
+    // 1. Fast Path (Every Frame): Read the locked target straight off its entity
+    // 2. Slow Path (Scan Interval): Scan the full player list for a new target
     static Timer scanTimer;
     JNIEnv* env = Java::Env();
     if (!env)
         return false;
-    const bool entityLock = entityLockEnabled_.load(std::memory_order_acquire);
 
     // CRITICAL: Clear any pending JNI exceptions that could cause silent failures
-    if (env && env->ExceptionCheck()) {
+    if (env->ExceptionCheck()) {
         env->ExceptionClear();
-        if (cachedTarget) {
-            env->DeleteGlobalRef(cachedTarget);
-            cachedTarget = nullptr;
-        }
+        releaseCachedTarget(env);
         targetHasHitbox = false;
         log_warn("[AimAssist] Cleared JNI exception - cache reset");
     }
 
-    bool wantHitboxRefresh = entityLock && cachedTarget && hitboxRefreshTimer.Elapsed<>() >= hitboxRefreshMs;
-    bool forceScan = false;
-
-    // FAST PATH: If we have a cached target, update its position & validate
-    if (cachedTarget && scanTimer.Elapsed<>() < 50 && !wantHitboxRefresh)  // Rescan every 50ms
-    {
-        // Check validity (basic)
-        if (Java::Env()->IsSameObject(cachedTarget, NULL)) {
-            Java::Env()->DeleteGlobalRef(cachedTarget);  // Clean up invalid ref
-            cachedTarget = nullptr;                      // Invalid
-            targetHasHitbox = false;
-            prevFrameHadTarget = false;
-            forceScan = true;
-        } else {
-            if (!JniCache::fid_posX || !JniCache::fid_posY || !JniCache::fid_posZ) {
-                Java::Env()->ExceptionClear();
-                Java::Env()->DeleteGlobalRef(cachedTarget);
-                cachedTarget = nullptr;
-                targetHasHitbox = false;
-                forceScan = true;
-            } else {
-                // Update position
-                double cX = Java::Env()->GetDoubleField(cachedTarget, JniCache::fid_posX);
-                double cY = Java::Env()->GetDoubleField(cachedTarget, JniCache::fid_posY);
-                double cZ = Java::Env()->GetDoubleField(cachedTarget, JniCache::fid_posZ);
-
-                if (Java::Env()->ExceptionCheck()) {
-                    Java::Env()->ExceptionClear();
-                    Java::Env()->DeleteGlobalRef(cachedTarget);
-                    cachedTarget = nullptr;
-                    targetHasHitbox = false;
-                    prevFrameHadTarget = false;
-                    forceScan = true;
-                } else {
-                    // The cached entity position is refreshed every frame, so
-                    // refresh its absolute AABB with it. Keeping the first scan's
-                    // box while the player strafes makes the aim point drift to
-                    // an old/nearby coordinate (the apparent random block flick).
-                    if (JniCache::fid_boundingBox && JniCache::cls_AxisAlignedBB) {
-                        jobject aabb = Java::Env()->GetObjectField(cachedTarget, JniCache::fid_boundingBox);
-                        if (aabb) {
-                            if (JniCache::fid_aabb_minX)
-                                targetHitboxMinX = (float)Java::Env()->GetDoubleField(aabb, JniCache::fid_aabb_minX);
-                            if (JniCache::fid_aabb_minY)
-                                targetHitboxMinY = (float)Java::Env()->GetDoubleField(aabb, JniCache::fid_aabb_minY);
-                            if (JniCache::fid_aabb_minZ)
-                                targetHitboxMinZ = (float)Java::Env()->GetDoubleField(aabb, JniCache::fid_aabb_minZ);
-                            if (JniCache::fid_aabb_maxX)
-                                targetHitboxMaxX = (float)Java::Env()->GetDoubleField(aabb, JniCache::fid_aabb_maxX);
-                            if (JniCache::fid_aabb_maxY)
-                                targetHitboxMaxY = (float)Java::Env()->GetDoubleField(aabb, JniCache::fid_aabb_maxY);
-                            if (JniCache::fid_aabb_maxZ)
-                                targetHitboxMaxZ = (float)Java::Env()->GetDoubleField(aabb, JniCache::fid_aabb_maxZ);
-                            Java::Env()->DeleteLocalRef(aabb);
-                            const float w = targetHitboxMaxX - targetHitboxMinX;
-                            const float h = targetHitboxMaxY - targetHitboxMinY;
-                            targetHasHitbox = w > 0.01f && h > 0.01f;
-                        }
-                        if (Java::Env()->ExceptionCheck())
-                            Java::Env()->ExceptionClear();
-                    }
-                    // Basic distance check to see if we should drop it immediately
-                    double localX = player.getPosX();
-                    double localY = player.getPosY();
-                    double localZ = player.getPosZ();
-                    double dx = cX - localX;
-                    double dy = cY - localY;
-                    double dz = cZ - localZ;
-                    double dist = std::sqrt(dx * dx + dy * dy + dz * dz);
-                    // Adaptive + Entity Lock is a hard-lock — a locked target stays
-                    // locked even past the configured FOV/distance until it's really
-                    // out of reach. Adaptive alone follows the normal drop rules.
-                    const bool adaptiveHardLock = (settings.aimMode == AimMode::ADAPTIVE) && entityLock;
-                    double maxDist = entityLock ? (settings.distance + 1.5f) : settings.distance;
-                    if (adaptiveHardLock)
-                        maxDist = std::max<double>(maxDist, settings.distance + 3.0);
-
-                    // If angle error is large, force slow scan to re-acquire smoothly
-                    float localYaw = player.getYaw();
-                    // Position fields are feet-space; target selection must use
-                    // the same eye/chest space as the actual aim point.
-                    float yawToTarget = getAngles(localX, localY + 1.62, localZ, cX, cY + 0.9, cZ).first;
-                    float yawDiff = std::abs(wrapTo180(-(localYaw - yawToTarget)));
-                    float limit = entityLock ? std::max(90.0f, settings.fov * 0.5f) : (settings.fov * 0.5f);
-                    if (adaptiveHardLock)
-                        limit = std::max(limit, 180.0f);
-                    // Point-blank targets: don't drop them through tight strafes even
-                    // when the configured FOV is narrow. Fixes "close targets sometimes
-                    // don't work" — up close a small position change swings the yaw a lot.
-                    if (dist < 3.0f)
-                        limit = std::max(limit, 150.0f);
-
-                    if (dist > maxDist || dist < 0.08f || yawDiff > limit) {
-                        log_debug("[AimAssist] target dropped: dist=%.1f yaw=%.1f", dist, yawDiff);
-                        Java::Env()->DeleteGlobalRef(cachedTarget);
-                        cachedTarget = nullptr;
-                        targetHasHitbox = false;
-                        prevFrameHadTarget = false;
-                        forceScan = true;  // force slow scan to drop/find new target
-                    } else {
-                        targetX = cX;
-                        targetY = cY;
-                        targetZ = cZ;
-                        return true;
-                    }
-                }
-            }
-        }
-    }
-
-    // SLOW PATH GUARD: If we didn't take the fast path, checks if we are allowed to scan
-    if (!forceScan && scanTimer.Elapsed<>() < 50 && !wantHitboxRefresh) {
-        return false;  // Skip scan (rate limited)
-    }
+    const bool scanDue = scanTimer.Elapsed<>() >= 50;
+    if (cachedTarget && !scanDue)
+        return readCachedTarget(targetX, targetY, targetZ);
+    if (!scanDue)
+        return false;
 
     // SLOW PATH: Full Scan
     scanTimer.Start();
 
     auto players = mc.getPlayerList();
 
-    // Clear any exceptions that occurred during player list fetch
-    if (env && env->ExceptionCheck()) {
+    const bool playerListReadFailed = env->ExceptionCheck();
+    if (playerListReadFailed)
         env->ExceptionClear();
-    }
 
-    if (friendsManager) {
+    if (friendsManager)
         friendsManager->resolvePending(players);
-    }
 
     if (players.empty()) {
-        if (cachedTarget) {
-            Java::Env()->DeleteGlobalRef(cachedTarget);
-            cachedTarget = nullptr;
-        }
+        if (!cachedTarget)
+            return false;
+        // A failed JNI read says nothing about membership. A valid empty list does:
+        // tolerate one scan to bridge a transient snapshot, then release the strong
+        // GlobalRef before it can turn a removed entity into a persistent target.
+        if (playerListReadFailed || ++cachedTargetMissingScans_ < 2)
+            return readCachedTarget(targetX, targetY, targetZ);
+        releaseCachedTarget(env);
         targetHasHitbox = false;
         return false;
     }
 
+    const bool hadCachedTarget = cachedTarget != nullptr;
     float localYaw = player.getYaw();
     double localX = player.getPosX();
     double localY = player.getPosY();
@@ -915,8 +923,11 @@ bool AimAssist::findTarget(double& targetX, double& targetY, double& targetZ) {
 
     jobject bestPlayerObjLocal = nullptr;
     PlayerInfo closestPlayer;
-    bool refreshedHitbox = false;
     bool lockedEntityFound = false;
+    // Whether the locked entity showed up in this scan's list at all, regardless of
+    // whether it passed the filters. Distinguishes "it stopped qualifying" (drop it)
+    // from "the list read missed it" (keep it).
+    bool lockedEntitySeen = false;
     auto releasePlayerRef = [env](PlayerInfo& candidate) {
         if (candidate.instance && env) {
             env->DeleteGlobalRef(candidate.instance);
@@ -926,27 +937,15 @@ bool AimAssist::findTarget(double& targetX, double& targetY, double& targetZ) {
 
     for (auto& p : players) {
         bool sameAsLocked = false;
-        if (cachedTarget && env) {
-            if (env->IsSameObject(cachedTarget, NULL)) {
-                Java::Env()->DeleteGlobalRef(cachedTarget);
-                cachedTarget = nullptr;
-            } else {
+        if (cachedTarget) {
+            if (env->IsSameObject(cachedTarget, NULL))
+                releaseCachedTarget(env);
+            else
                 sameAsLocked = env->IsSameObject(cachedTarget, p.instance);
-            }
         }
-
-        // Refresh stored hitbox for Entity Lock to avoid stale dimensions.
-        if (sameAsLocked && entityLock) {
-            targetHitboxMinX = p.hitboxMinX;
-            targetHitboxMinY = p.hitboxMinY;
-            targetHitboxMinZ = p.hitboxMinZ;
-            targetHitboxMaxX = p.hitboxMaxX;
-            targetHitboxMaxY = p.hitboxMaxY;
-            targetHitboxMaxZ = p.hitboxMaxZ;
-            float hitboxWidth = targetHitboxMaxX - targetHitboxMinX;
-            float hitboxHeight = targetHitboxMaxY - targetHitboxMinY;
-            targetHasHitbox = (hitboxWidth > 0.01f) && (hitboxHeight > 0.01f);
-            refreshedHitbox = true;
+        if (sameAsLocked) {
+            lockedEntitySeen = true;
+            cachedTargetMissingScans_ = 0;
         }
 
         double dx = p.posX - localX;
@@ -954,8 +953,10 @@ bool AimAssist::findTarget(double& targetX, double& targetY, double& targetZ) {
         double dz = p.posZ - localZ;
         float dist = (float)std::sqrt(dx * dx + dy * dy + dz * dz);
 
-        float maxDist = (entityLock && sameAsLocked) ? (settings.distance + 1.5f) : settings.distance;
-        if (dist > maxDist || dist < 0.08f) {
+        // The target already held gets the same retention slack readCachedTarget uses,
+        // so the two paths never disagree about whether it is still in range.
+        float maxDist = sameAsLocked ? (float)(settings.distance + retentionSlack()) : settings.distance;
+        if (dist > maxDist) {
             releasePlayerRef(p);
             continue;
         }
@@ -1062,20 +1063,29 @@ bool AimAssist::findTarget(double& targetX, double& targetY, double& targetZ) {
         }
         // ─────────────────────────────────────────────────────────────────────
 
-        float yawToTarget = getAngles(localX, localY + 1.62, localZ, p.posX, p.posY + 0.9, p.posZ).first;
+        // Only the yaw is read out, so the heights here cancel and need no feet-space
+        // correction; they are passed just to keep the call shape of the real aim path.
+        float yawToTarget = getAngles(localX, localY, localZ, p.posX, p.posY, p.posZ).first;
         float yawDiff = std::abs(wrapTo180(-(localYaw - yawToTarget)));
 
-        float maxYawDiff = (entityLock && sameAsLocked) ? std::max(90.0f, settings.fov * 0.5f) : (settings.fov * 0.5f);
-        // Acquire close targets even at wide angles (see fast-path note above).
+        // FOV gates acquisition only. The target already held is exempt, so it cannot
+        // be dropped by its own angular speed when it runs past the crosshair. Nearby
+        // targets get a wider acquisition cone because they can cross a narrow cone
+        // entirely between the 50 ms scans.
+        float acquisitionFov = settings.fov * 0.5f;
         if (dist < 3.0f)
-            maxYawDiff = std::max(maxYawDiff, 150.0f);
-        if (yawDiff > maxYawDiff) {
+            acquisitionFov = std::max(acquisitionFov, 150.0f);
+        if (!sameAsLocked && yawDiff > acquisitionFov) {
             releasePlayerRef(p);
             continue;
         }
 
-        // A valid locked entity wins regardless of target or switch sort mode.
-        if (entityLock && sameAsLocked) {
+        // The target already held wins every comparison: this is a tracking aid, and
+        // re-deciding who to follow while a fight is in progress is what made it let
+        // go of a player over a fraction of a block. Switch mode is the opt-in for
+        // continuous re-evaluation, and keeps its own hysteresis below -- unless Lock
+        // In is on, which outranks every selection rule by definition.
+        if (sameAsLocked && (settings.lockIn || settings.targetMode != TargetMode::SWITCH)) {
             if (bestPlayerObjLocal && env)
                 env->DeleteLocalRef(bestPlayerObjLocal);
             bestPlayerObjLocal = env && p.instance ? env->NewLocalRef(p.instance) : nullptr;
@@ -1162,6 +1172,18 @@ bool AimAssist::findTarget(double& targetX, double& targetY, double& targetZ) {
         releasePlayerRef(p);
     }
 
+    // Do not switch merely because one otherwise-valid list snapshot omitted the
+    // current entity. On the second consecutive miss, release the strong reference
+    // and allow the already selected replacement to take over in this same frame.
+    if (hadCachedTarget && cachedTarget && !lockedEntitySeen) {
+        if (++cachedTargetMissingScans_ < 2) {
+            if (bestPlayerObjLocal)
+                env->DeleteLocalRef(bestPlayerObjLocal);
+            return readCachedTarget(targetX, targetY, targetZ);
+        }
+        releaseCachedTarget(env);
+    }
+
     if (found) {
         targetX = closestPlayer.posX;
         targetY = closestPlayer.posY;
@@ -1180,34 +1202,23 @@ bool AimAssist::findTarget(double& targetX, double& targetY, double& targetZ) {
         targetHasHitbox = false;
     }
 
-    if (found && bestPlayerObjLocal) {
-        if (cachedTarget) {
-            // Check if it's the SAME object to avoid delete/new overhead?
-            if (!Java::Env()->IsSameObject(cachedTarget, bestPlayerObjLocal)) {
-                Java::Env()->DeleteGlobalRef(cachedTarget);
-                cachedTarget = Java::Env()->NewGlobalRef(bestPlayerObjLocal);
-                targetChangedThisFrame = true;
-            }
-        } else {
-            cachedTarget = Java::Env()->NewGlobalRef(bestPlayerObjLocal);
-            targetChangedThisFrame = true;
-        }
-    } else {
-        if (cachedTarget) {
-            Java::Env()->DeleteGlobalRef(cachedTarget);
-            cachedTarget = nullptr;
-        }
+    if (found && bestPlayerObjLocal && (!cachedTarget || !env->IsSameObject(cachedTarget, bestPlayerObjLocal))) {
+        releaseCachedTarget(env);
+        cachedTarget = env->NewGlobalRef(bestPlayerObjLocal);
+        targetChangedThisFrame = true;
     }
 
-    if (bestPlayerObjLocal && env) {
+    if (bestPlayerObjLocal)
         env->DeleteLocalRef(bestPlayerObjLocal);
+
+    if (found) {
+        cachedTargetMissingScans_ = 0;
+        return true;
     }
 
-    if (refreshedHitbox) {
-        hitboxRefreshTimer.Start();
-    }
-
-    return found;
+    releaseCachedTarget(env);
+    targetHasHitbox = false;
+    return false;
 }
 
 void AimAssist::updateSimulatedJitter() {
@@ -1236,33 +1247,34 @@ void AimAssist::updateSimulatedJitter() {
 }
 
 void AimAssist::applyAimController(float yawDiff, float pitchDiff) {
-    float dt = controllerTimer.Elapsed<std::chrono::duration<float, std::milli>>() / 1000.0f;
-    controllerTimer.Start();
-    // dt must describe the module cadence, nothing else. Anything long enough to
-    // be a stall (or a timer left running through an early-out) collapses to one
-    // loop period: a large dt makes alpha jump toward 1.0 and the whole remaining
-    // error gets applied in a single update, which is exactly the visible snap.
-    constexpr float kLoopPeriodSec = 0.002f;  // ModuleManager cadence
-    if (!(dt > 0.0001f) || dt > 0.02f)
-        dt = kLoopPeriodSec;
+    const float dt = stepSeconds(controllerTimer);
 
-    const float speed = std::clamp(settings.speed, 1.0f, 120.0f);
-    float rate = 3.0f + (speed / 120.0f) * 13.0f;
-    if (settings.aimMode == AimMode::ADAPTIVE) {
-        const float error = std::sqrt(yawDiff * yawDiff + pitchDiff * pitchDiff);
-        rate *= std::clamp(0.75f + error / 90.0f, 0.75f, 1.55f);
-    } else if (settings.aimMode == AimMode::BLATANT) {
-        rate = 18.0f + (speed / 120.0f) * 10.0f;
-    }
+    // Adaptive reads the whole error vector once, so both axes stay in step instead of
+    // each speeding up on its own and bending the path between them.
+    const float error = std::sqrt(yawDiff * yawDiff + pitchDiff * pitchDiff);
+    const AimMode mode = settings.aimMode;
 
-    // Exponential response is frame-rate independent: the module may run every
-    // 2 ms, but the same time constant is used on every machine.
-    const float alpha = 1.0f - std::exp(-rate * dt);
-    float yawStep = yawDiff * alpha;
-    float pitchStep = settings.horizontalOnly ? 0.0f : pitchDiff * alpha;
+    // One setting per axis, mapped linearly onto the exponential response rate, so the
+    // number on the slider is proportional to how fast the remaining error is eaten:
+    // 1 closes ~2%/10 ms, 100 closes ~18%/10 ms. The mode only reshapes that rate.
+    // Exponential response is frame-rate independent, so the same value behaves the
+    // same on every machine.
+    const auto alphaFor = [dt, mode, error](float speed) {
+        float rate = 2.0f + std::clamp(speed, 1.0f, 100.0f) * 0.18f;
+        if (mode == AimMode::ADAPTIVE)
+            rate *= std::clamp(0.75f + error / 90.0f, 0.75f, 1.55f);
+        else if (mode == AimMode::BLATANT)
+            rate = 18.0f + std::clamp(speed, 1.0f, 100.0f) * 0.10f;
+        return 1.0f - std::exp(-rate * dt);
+    };
+
+    // Horizontal is never damped -- a strafing target has to be tracked at full speed
+    // whether or not anyone is in the air.
+    float yawStep = yawDiff * alphaFor(settings.horizontalSpeed);
+    float pitchStep = aimsPitch() ? pitchDiff * alphaFor(settings.verticalSpeed * verticalDamping_) : 0.0f;
     if (std::abs(yawDiff) < 0.03f)
         yawStep = yawDiff;
-    if (std::abs(pitchDiff) < 0.03f)
+    if (aimsPitch() && std::abs(pitchDiff) < 0.03f)
         pitchStep = pitchDiff;
 
     updateSimulatedJitter();
@@ -1281,7 +1293,7 @@ void AimAssist::applyAimController(float yawDiff, float pitchDiff) {
         const float pitchCap = std::floor(packetPitchBudget_.load(std::memory_order_acquire) / gcd);
         const float yawSteps = std::clamp(steps(simulatedJitterYaw), -yawCap, yawCap);
         const float pitchSteps =
-            settings.horizontalOnly ? 0.0f : std::clamp(steps(simulatedJitterPitch), -pitchCap, pitchCap);
+            aimsPitch() ? std::clamp(steps(simulatedJitterPitch), -pitchCap, pitchCap) : 0.0f;
         serverYawOffset_.store(yawSteps * gcd, std::memory_order_relaxed);
         serverPitchOffset_.store(pitchSteps * gcd, std::memory_order_relaxed);
         hasServerRotation_.store(true, std::memory_order_release);
@@ -1289,12 +1301,12 @@ void AimAssist::applyAimController(float yawDiff, float pitchDiff) {
 
     // Fold the jitter in as a bounded offset. `desired` is what the rotation
     // should currently carry (nothing at all while the jitter rides on the packet
-    // instead, or on pitch in horizontal-only), and only the difference against
-    // what was already applied becomes a step. That keeps the offset at exactly
-    // +-amplitude no matter how often this runs, instead of accumulating it once
-    // per loop into a drift the tracking error has to fight.
+    // instead, or on pitch when vertical correction is off), and only the difference
+    // against what was already applied becomes a step. That keeps the offset at
+    // exactly +-amplitude no matter how often this runs, instead of accumulating it
+    // once per loop into a drift the tracking error has to fight.
     const float desiredJitterYaw = settings.packetRotation ? 0.0f : simulatedJitterYaw;
-    const float desiredJitterPitch = (settings.packetRotation || settings.horizontalOnly) ? 0.0f : simulatedJitterPitch;
+    const float desiredJitterPitch = (settings.packetRotation || !aimsPitch()) ? 0.0f : simulatedJitterPitch;
     yawStep += desiredJitterYaw - appliedJitterYaw_;
     pitchStep += desiredJitterPitch - appliedJitterPitch_;
     appliedJitterYaw_ = desiredJitterYaw;
@@ -1329,7 +1341,7 @@ void AimAssist::applyAimController(float yawDiff, float pitchDiff) {
         player.setPrevYaw(std::lerp(currentYaw, nextYaw, 0.82f));
         markRotationWrite();
     }
-    if (!settings.horizontalOnly && std::abs(pitchApply) > 0.0001f) {
+    if (aimsPitch() && std::abs(pitchApply) > 0.0001f) {
         const float currentPitch = player.getPitch();
         // Stop just shy of straight up/down, and only ever on a whole step.
         const float nextPitch = limitPitchOnGrid(currentPitch + pitchApply, gcdNow);
@@ -1358,7 +1370,7 @@ void AimAssist::onOutgoingPacket(JNIEnv* env, jobject packet) {
     // Compute the rotation we are about to send (render rotation + jitter offset).
     float finalYaw = 0.0f, finalPitch = 0.0f;
     bool haveYaw = g_aim_fid_yaw != nullptr;
-    bool havePitch = g_aim_fid_pitch != nullptr && !settings.horizontalOnly;
+    bool havePitch = g_aim_fid_pitch != nullptr && aimsPitch();
     if (haveYaw)
         finalYaw = env->GetFloatField(packet, g_aim_fid_yaw) + offY;
     if (havePitch) {
@@ -1442,21 +1454,18 @@ bool AimAssist::isHoldingWeapon() {
     return false;
 }
 
-bool AimAssist::getAimPoint(double targetX, double targetY, double targetZ, double& aimX, double& aimY, double& aimZ) {
-    double localX = player.getPosX();
-    double localY = player.getPosY();
-    double localZ = player.getPosZ();
-    float localYaw = player.getYaw();
+void AimAssist::getAimPoint(double targetX, double targetY, double targetZ, double& aimX, double& aimY, double& aimZ) {
+    const double localX = player.getPosX();
+    const double localZ = player.getPosZ();
 
-    // Prefer precise hitbox data from PlayerInfo when available
+    double minX, maxX, minY, maxY, minZ, maxZ;
     if (targetHasHitbox) {
-        double minX = targetHitboxMinX;
-        double maxX = targetHitboxMaxX;
-        double minY = targetHitboxMinY;
-        double maxY = targetHitboxMaxY;
-        double minZ = targetHitboxMinZ;
-        double maxZ = targetHitboxMaxZ;
-        double height = maxY - minY;
+        minX = targetHitboxMinX;
+        maxX = targetHitboxMaxX;
+        minY = targetHitboxMinY;
+        maxY = targetHitboxMaxY;
+        minZ = targetHitboxMinZ;
+        maxZ = targetHitboxMaxZ;
 
         // AABB values are absolute world coordinates. If a client mapping or
         // stale entity snapshot supplies a box in a different origin, rebuild
@@ -1472,79 +1481,239 @@ bool AimAssist::getAimPoint(double targetX, double targetY, double targetZ, doub
             minZ = targetZ - halfD;
             maxZ = targetZ + halfD;
         }
-        if (std::abs(minY - targetY) > 1.5 || maxY < targetY - 0.25) {
+        // On 1.7.10 a remote player's box floor is not its feet.
+        //
+        // The server sends feet coordinates, EntityOtherPlayerMP stores them straight into
+        // posY, but setPosition still builds the box as posY - yOffset. So posY is the
+        // feet and minY sits a full 1.62 below the body. Aiming at minY + headRatio then
+        // lands on the real feet, which is exactly the symptom this module had.
+        //
+        // Proven rather than assumed: with the local eye at posY, local feet and the
+        // target's posY read the same floor height, while minY read 1.62 lower. Rebase the
+        // box on posY, keeping the height the AABB reported so a sneaking or otherwise
+        // resized target still scales.
+        if (posYFeetDelta_ > 0.0) {
+            const double reportedHeight = maxY - minY;
             minY = targetY;
-            maxY = targetY + std::clamp(height, 1.5, 2.0);
-            height = maxY - minY;
+            maxY = targetY + reportedHeight;
         }
 
-        // Publish the repaired box. Whatever offsets the aim after this point has to
-        // stay inside it, and the repair above is the only place that knows which of
-        // the raw AABB and the rebuilt one actually got used.
-        resolvedBox_ = {minX, minY, minZ, maxX, maxY, maxZ, true};
-
-        if (settings.aimAtClosestPoint) {
-            aimX = std::clamp(localX, minX, maxX);
-            // Closest-point selection is horizontal only. Using the local eye
-            // height vertically biases targets toward maxY (the head) whenever
-            // the player is above them. Keep pitch on a stable body point.
-            aimY = minY + height * 0.5;
-            aimZ = std::clamp(localZ, minZ, maxZ);
-            // Point-blank: if we're horizontally inside the hitbox the clamp
-            // collapses the aim point onto our own position and the yaw becomes
-            // undefined (atan2(0,0)), so the camera stops turning. Fall back to the
-            // hitbox centre so it keeps tracking at very close range.
-            double hdx = aimX - localX, hdz = aimZ - localZ;
-            if (hdx * hdx + hdz * hdz < 0.02) {
-                aimX = (minX + maxX) * 0.5;
-                aimZ = (minZ + maxZ) * 0.5;
-            }
-            return true;
+        const double targetFeetY = minY;
+        if (std::abs(minY - targetFeetY) > 1.5 || maxY < targetFeetY - 0.25) {
+            const double height = maxY - minY;
+            minY = targetFeetY;
+            maxY = targetFeetY + std::clamp(height, 1.5, 2.0);
         }
-
-        // Bones map (xR,yR,zR) in [0,1] to a point inside the AABB.
-        int boneIdx = settings.aimBone;
-        if (boneIdx < 0 || boneIdx >= kBoneCount)
-            boneIdx = 0;
-        const Bone& bone = kBones[boneIdx];
-        double width = maxX - minX;
-        double depth = maxZ - minZ;
-        aimX = minX + width * bone.xRatio;
-        aimZ = minZ + depth * bone.zRatio;
-        aimY = height > 0.01 ? minY + height * bone.yRatio : targetY;
-        (void)localYaw;  // no adaptive lateral nudge — aim stays exactly on the bone
-        return true;
-    }
-
-    constexpr double HALF_WIDTH = 0.3;
-
-    // No AABB arrived, so assume the vanilla player box around the feet position.
-    resolvedBox_ = {targetX - HALF_WIDTH, targetY, targetZ - HALF_WIDTH, targetX + HALF_WIDTH, targetY + 1.8,
-                    targetZ + HALF_WIDTH, true};
-
-    if (settings.aimAtClosestPoint) {
-        double minX = targetX - HALF_WIDTH;
-        double maxX = targetX + HALF_WIDTH;
-        // PlayerInfo.posY is the feet position. Build a normal player box and
-        // aim at its chest when no precise AABB was available.
-        double minY = targetY;
-        double maxY = targetY + 1.8;
-        double minZ = targetZ - HALF_WIDTH;
-        double maxZ = targetZ + HALF_WIDTH;
-
-        aimX = std::clamp(localX, minX, maxX);
-        aimY = std::clamp(localY + (player.isSneaking() ? 1.54 : 1.62), minY + 0.3, maxY - 0.2);
-        aimZ = std::clamp(localZ, minZ, maxZ);
-        return true;
     } else {
-        // Use one stable chest point. The former corner/FOV rejection could
-        // return false as the target crossed a corner, causing reacquisition
-        // oscillation and leaving the camera pointed at the last floor point.
-        aimX = targetX;
-        aimY = targetY + 0.9;
-        aimZ = targetZ;
-        return true;
+        // No AABB arrived, so assume the vanilla player box around the feet position.
+        // posY is the feet for a remote player on both versions (see the box note above).
+        constexpr double kHalfWidth = 0.3;
+        const double targetFeetY = targetY;
+        minX = targetX - kHalfWidth;
+        maxX = targetX + kHalfWidth;
+        minY = targetFeetY;
+        maxY = targetFeetY + 1.8;
+        minZ = targetZ - kHalfWidth;
+        maxZ = targetZ + kHalfWidth;
     }
+
+    // Publish the repaired box. Whatever offsets the aim after this point has to
+    // stay inside it, and the repair above is the only place that knows which of
+    // the raw AABB and the rebuilt one actually got used.
+    resolvedBox_ = {minX, minY, minZ, maxX, maxY, maxZ};
+
+    const double height = maxY - minY;
+
+    // Anything but 1.7.10 takes one fixed ratio off the live box. No anchor, no head/chest
+    // ease, no jump offset: those exist to repair a box that arrives a yOffset too low, and
+    // on 1.8.9 minY really is the feet, so a plain ratio lands where it says it does. Holding
+    // a single point also keeps the camera from riding the target's vertical motion.
+    if (!usesJumpAimLogic()) {
+        aimY = minY + height * kAimRatio1_8_9;
+        resolveAimHorizontal(minX, maxX, minZ, maxZ, localX, localZ, aimX, aimZ);
+        return;
+    }
+
+    // Trim knob for 1.7.10, added at the very end so the hitbox clamp cannot swallow it.
+    const double versionBias = kAimHeightBias1_7_10;
+
+    // Keeps the aim on the body. The top margin has to leave room for the head point
+    // itself: kHeadRatio puts it 0.216 below the box top on a standing player, so the old
+    // 0.25 clamped every grounded shot down to 1.55 and the aim never reached the eye line.
+    const double maxAimY = maxY - std::min(0.15, height * 0.15);
+
+    // Grounded: track the head off the live box, so vertical aim follows the target
+    // around the map instead of sliding along its torso.
+    const double headY = std::min(minY + height * kHeadRatio, maxAimY);
+
+    // While the target is on the ground its feet are the reference a jump is measured
+    // from. Refreshing it only while grounded is what lets the aim follow a jump
+    // partially: mid-air the reference stays behind the rising box by exactly the
+    // displacement of the jump, and kJumpFollow decides how much of that to give back.
+    if (!targetAirborne_ || !hasGroundAnchor_) {
+        groundFeetY_ = minY;
+        hasGroundAnchor_ = true;
+    }
+    // Two invariants on the anchor, both of which the live trace caught being violated.
+    //
+    // It cannot sit above the feet: it means "the ground this target jumped from", and a
+    // jump only goes up. Remote positions arrive at ~20 Hz, so on a laggy connection a gap
+    // between packets outlasts the settle window, the target reads as landed in mid-air and
+    // the anchor latches onto the apex. The trace showed that as a negative lag, after
+    // which the aim height wandered for the rest of the jump. Clamping here also lets a
+    // target that really did walk uphill pull the anchor along immediately.
+    //
+    // And it cannot fall further behind than a jump can explain, which is what makes
+    // aiming at the feet impossible even when the airborne reading is wrong.
+    groundFeetY_ = std::clamp(groundFeetY_, minY - kMaxAnchorLag, minY);
+
+    const double referenceFeetY = std::lerp(groundFeetY_, minY, kJumpFollow);
+
+    // The result still has to be a point on the target, so it is clamped into the live
+    // box with room to spare -- a rotation that leaves the box is one the server
+    // raytraces into empty air.
+    const double inset = std::min(0.25, height * 0.25);
+    const double airborneY = std::clamp(referenceFeetY + height * kChestRatio, minY + inset, maxAimY);
+
+    aimY = std::lerp(headY, airborneY, (double)aimHeightBlend_) + versionBias;
+    resolveAimHorizontal(minX, maxX, minZ, maxZ, localX, localZ, aimX, aimZ);
+}
+
+void AimAssist::resolveAimHorizontal(double minX, double maxX, double minZ, double maxZ, double localX, double localZ,
+                                     double& aimX, double& aimZ) {
+    if (settings.aimAtClosestPoint) {
+        aimX = std::clamp(localX, minX, maxX);
+        aimZ = std::clamp(localZ, minZ, maxZ);
+        // Point-blank: if we're horizontally inside the hitbox the clamp collapses
+        // the aim point onto our own position and the yaw becomes undefined
+        // (atan2(0,0)), so the camera stops turning. Fall back to the hitbox centre
+        // so it keeps tracking at very close range.
+        const double hdx = aimX - localX, hdz = aimZ - localZ;
+        if (hdx * hdx + hdz * hdz >= 0.02)
+            return;
+    }
+
+    aimX = (minX + maxX) * 0.5;
+    aimZ = (minZ + maxZ) * 0.5;
+}
+
+void AimAssist::measurePosYFeetDelta(JNIEnv* env) {
+    if (posYFeetDeltaKnown_ || !env || !player.isValid())
+        return;
+
+    // 1.7.10 is the only version with Entity.yOffset, so it is the only one that can
+    // need this. Settling the answer to zero on a *known* other version keeps 1.8.9 on
+    // exactly the arithmetic it already had rather than at the mercy of a measurement.
+    //
+    // An undetected version falls through to the measurement instead of to zero. Version
+    // detection can fail (java.cpp resorts to a BlockPos class probe and may still give
+    // up), and returning zero there would silently disable the correction on a 1.7.10
+    // client and bring the whole bug back with no code change. The measurement is
+    // self-validating -- it can only report 1.62 on a client whose posY really is
+    // eye-space -- so it is the safe default when the version is unknown.
+    if (Java::Version != MinecraftVersion::MC_1_7_10 && Java::Version != MinecraftVersion::UNDEFINED) {
+        posYFeetDelta_ = 0.0;
+        posYFeetDeltaKnown_ = true;
+        return;
+    }
+
+    if (!JniCache::fid_boundingBox || !JniCache::fid_aabb_minY)
+        return;
+
+    jobject aabb = env->GetObjectField(player.instance, JniCache::fid_boundingBox);
+    if (!aabb) {
+        if (env->ExceptionCheck())
+            env->ExceptionClear();
+        return;
+    }
+    const double boxMinY = env->GetDoubleField(aabb, JniCache::fid_aabb_minY);
+    env->DeleteLocalRef(aabb);
+    if (env->ExceptionCheck()) {
+        env->ExceptionClear();
+        return;
+    }
+
+    // 1.7.10 builds the box as posY - yOffset + ySize, and ySize only decays to zero a
+    // few ticks after stepping up. Measuring mid-step would read an offset between the
+    // two conventions, so wait for a sample that is unambiguously one or the other.
+    const double delta = player.getPosY() - boxMinY;
+    if (delta > 0.2 && delta < 1.4)
+        return;
+
+    posYFeetDelta_ = delta >= 1.4 ? kEyeHeight : 0.0;
+    posYFeetDeltaKnown_ = true;
+    log_ok("[AimAssist] Entity.posY is %s-space (yOffset %.2f, measured %.3f)", posYFeetDelta_ > 0.0 ? "eye" : "feet",
+           posYFeetDelta_, delta);
+}
+
+bool AimAssist::resolveTargetAirborne(JNIEnv* env, double targetFeetY) {
+    resolveAimOnGround(env);
+
+    targetOnGroundRaw_ = -1;
+    if (g_aim_fid_onGround && cachedTarget) {
+        targetOnGroundRaw_ = env->GetBooleanField(cachedTarget, g_aim_fid_onGround) != JNI_FALSE ? 1 : 0;
+        if (env->ExceptionCheck()) {
+            env->ExceptionClear();
+            targetOnGroundRaw_ = -1;
+        }
+    }
+
+    if (Java::Version != MinecraftVersion::MC_1_7_10) {
+        // Unknown grounded state means "aim at the head", which is the behaviour this
+        // module had before the jump handling existed.
+        return targetOnGroundRaw_ == 0;
+    }
+
+    if (hasLastFeetY_ && std::abs(targetFeetY - lastFeetY_) > kFeetMoveEpsilon)
+        feetMovingTimer_.Start();
+    const bool airborne = hasLastFeetY_ && feetMovingTimer_.Elapsed<>() < kFeetSettleMs;
+    lastFeetY_ = targetFeetY;
+    hasLastFeetY_ = true;
+    return airborne;
+}
+
+void AimAssist::updateAimHeightBlend(JNIEnv* env, double targetFeetY) {
+    // Another player's anchor is meaningless, and so is a blend measured against them.
+    if (targetChangedThisFrame) {
+        hasGroundAnchor_ = false;
+        hasLastFeetY_ = false;
+        aimHeightBlend_ = 0.0f;
+    }
+
+    targetAirborne_ = resolveTargetAirborne(env, targetFeetY);
+
+    // How far the target has climbed off the ground it left, not merely whether it is off it.
+    // groundFeetY_ is last update's anchor, which at ~500 Hz is close enough and is already
+    // clamped to sit at or below the feet, so this cannot go negative.
+    const double separation = hasGroundAnchor_ ? std::max(0.0, targetFeetY - groundFeetY_) : 0.0;
+    const float bySeparation = (float)std::clamp(separation / kFullAirSeparation, 0.0, 1.0);
+    const float targetGoal = targetAirborne_ ? std::max(kTakeoffAirFloor, bySeparation) : 0.0f;
+
+    // A jumping local player moves the camera rather than the target. Tracked on its own
+    // smoothed signal so it can soften the pitch fully while barely moving the aim point --
+    // the two effects are wanted in very different amounts here. Unlike a remote entity's,
+    // the local onGround flag is maintained by this client's own physics, so it is reliable.
+    const bool localAirborne = !player.isOnGround();
+    const float dt = stepSeconds(aimHeightTimer_);
+    const float alpha = 1.0f - std::exp(-kAimHeightEaseRate * dt);
+    localAirBlend_ += ((localAirborne ? 1.0f : 0.0f) - localAirBlend_) * alpha;
+    localAirBlend_ = std::clamp(localAirBlend_, 0.0f, 1.0f);
+
+    const float goal = std::max(targetGoal, localAirBlend_ * kLocalAirHeightShare);
+    float next = aimHeightBlend_ + (goal - aimHeightBlend_) * alpha;
+
+    // Hold the peak for the rest of the jump. Easing back toward the head while the target is
+    // still falling would walk the aim up just as the head drops past it, and that downstroke
+    // is the second half of the nod. Only landing releases it.
+    if ((targetAirborne_ || localAirborne) && next < aimHeightBlend_)
+        next = aimHeightBlend_;
+
+    aimHeightBlend_ = std::clamp(next, 0.0f, 1.0f);
+
+    // Damping takes whichever is airborne more, not the aim blend: a local jump barely moves
+    // the aim point but still needs the full soft pitch, because the whole reason the camera
+    // is drifting is that it is the thing moving.
+    verticalDamping_ = std::lerp(1.0f, kAirVerticalDamping, std::max(aimHeightBlend_, localAirBlend_));
 }
 
 void AimAssist::onRenderMenu() {
@@ -1567,23 +1736,24 @@ void AimAssist::onRenderMenu() {
             int am = static_cast<int>(settings.aimMode);
             if (ui::Combo("Mode", &am, aimModes, IM_ARRAYSIZE(aimModes)))
                 settings.aimMode = static_cast<AimMode>(am);
+            if (settings.aimMode == AimMode::ADAPTIVE)
+                ImGui::TextDisabled("Speeds scale with the angle to the target");
+            else if (settings.aimMode == AimMode::BLATANT)
+                ImGui::TextDisabled("Snaps onto the target - very obvious");
 
-            if (settings.aimMode == AimMode::BLATANT) {
-                ImGui::TextDisabled("Fast lock with bounded smoothing");
-            } else {
-                if (settings.aimMode == AimMode::ADAPTIVE)
-                    ImGui::TextDisabled("Speed auto-tunes to error, distance & motion");
-                else
-                    ui::SliderFloat("Speed", &settings.speed, 1.0f, 120.0f, "%.0f", true);
-                ui::SliderInt("FOV", &settings.fov, 10, 360, "%d");
-                ui::SliderFloat("Distance", &settings.distance, 3.0f, 8.0f, "%.1f");
-                ui::SliderFloat("Prediction", &settings.prediction, 0.0f, 100.0f, "%.0f%%");
-                ui::SliderInt("Reaction Time", &settings.reactionTime, 0, 200, "%d ms");
-                ui::SliderFloat("Jitter", &settings.jitterPercent, 0.0f, 100.0f, "%.0f%%");
-                ui::Checkbox("Smooth Camera", &settings.packetRotation);
-                if (settings.packetRotation)
-                    ImGui::TextDisabled("Jitter only on sent packet (1st person smooth)");
-            }
+            ui::SliderFloat("Horizontal Speed", &settings.horizontalSpeed, 1.0f, 100.0f, "%.0f", true);
+            // Hidden rather than disabled while Horizontal Only is on: the switch lives in
+            // the Options column, so a greyed slider here would be a control with no
+            // visible cause.
+            if (!settings.horizontalOnly)
+                ui::SliderFloat("Vertical Speed", &settings.verticalSpeed, 0.0f, 100.0f, "%.0f", true);
+            ui::SliderInt("FOV", &settings.fov, 10, 360, "%d");
+            ui::SliderFloat("Distance", &settings.distance, 3.0f, 8.0f, "%.1f");
+            ui::SliderFloat("Prediction", &settings.prediction, 0.0f, 100.0f, "%.0f%%");
+            ui::SliderFloat("Jitter", &settings.jitterPercent, 0.0f, 100.0f, "%.0f%%");
+            ui::Checkbox("Smooth Camera", &settings.packetRotation);
+            if (settings.packetRotation)
+                ImGui::TextDisabled("Jitter only on sent packet (1st person smooth)");
         },
         "Options",
         [this, &currentMode, &currentSortBy]() {
@@ -1592,19 +1762,11 @@ void AimAssist::onRenderMenu() {
             ui::Checkbox("Break Blocks", &settings.breakBlocks);
             ui::Checkbox("Weapon Only", &settings.weaponOnly);
             ui::Checkbox("Aim Closest Point", &settings.aimAtClosestPoint);
-            if (!settings.aimAtClosestPoint) {
-                const char* boneNames[kBoneCount];
-                for (int i = 0; i < kBoneCount; ++i)
-                    boneNames[i] = kBones[i].name;
-                int boneIdx = std::clamp(settings.aimBone, 0, kBoneCount - 1);
-                if (ui::Combo("Bone", &boneIdx, boneNames, kBoneCount))
-                    settings.aimBone = boneIdx;
-            }
             ui::Checkbox("Target Invisibles", &settings.invisibles);
             ui::Checkbox("Stop On Hitbox", &settings.stopOnHitbox);
-            bool entityLock = entityLockEnabled_.load(std::memory_order_acquire);
-            if (ui::Checkbox("Entity Lock", &entityLock))
-                setEntityLock(entityLock);
+            ui::Checkbox("Lock In", &settings.lockIn);
+            if (settings.lockIn)
+                ImGui::TextDisabled("Holds one target until it dies or escapes");
             ImGui::Spacing();
             if (ui::Combo("Target Mode", &currentMode, targetModes, IM_ARRAYSIZE(targetModes))) {
                 settings.targetMode = static_cast<TargetMode>(currentMode);
@@ -1662,22 +1824,26 @@ std::string AimAssist::getDisplayInfo() {
 }
 
 void AimAssist::saveSettings(json::Value& node) const {
+    node.remove("speed");
+    node.remove("reactionTime");
+    node.remove("aimBone");
+    node.remove("debugOverlay");
+
+    node["aimMode"] = static_cast<int>(settings.aimMode);
+    node["lockIn"] = settings.lockIn;
+    node["horizontalSpeed"] = settings.horizontalSpeed;
+    node["verticalSpeed"] = settings.verticalSpeed;
     node["horizontalOnly"] = settings.horizontalOnly;
-    node["speed"] = settings.speed;
     node["fov"] = settings.fov;
     node["distance"] = settings.distance;
-    node["reactionTime"] = settings.reactionTime;
-    node["aimMode"] = static_cast<int>(settings.aimMode);
     node["targetMode"] = static_cast<int>(settings.targetMode);
     node["switchSortBy"] = static_cast<int>(settings.switchSortBy);
     node["hurtTimeLock"] = settings.hurtTimeLock;
     node["breakBlocks"] = settings.breakBlocks;
     node["weaponOnly"] = settings.weaponOnly;
     node["aimAtClosestPoint"] = settings.aimAtClosestPoint;
-    node["aimBone"] = settings.aimBone;
     node["alwaysAim"] = settings.alwaysAim;
     node["invisibles"] = settings.invisibles;
-    node["entityLock"] = settings.entityLock;
     node["stopOnHitbox"] = settings.stopOnHitbox;
     node["jitterPercent"] = settings.jitterPercent;
     node["prediction"] = settings.prediction;
@@ -1689,27 +1855,26 @@ void AimAssist::saveSettings(json::Value& node) const {
 }
 
 void AimAssist::loadSettings(const json::Value& node) {
+    // The single "speed" slider became one per axis; old configs fall back to it.
+    const float legacySpeed = std::clamp(node["speed"].as_float(settings.horizontalSpeed), 1.0f, 100.0f);
+    settings.horizontalSpeed = std::clamp(node["horizontalSpeed"].as_float(legacySpeed), 1.0f, 100.0f);
+    settings.verticalSpeed = std::clamp(node["verticalSpeed"].as_float(legacySpeed), 0.0f, 100.0f);
     settings.horizontalOnly = node["horizontalOnly"].as_bool(settings.horizontalOnly);
-    settings.speed = std::clamp(node["speed"].as_float(settings.speed), 1.0f, 120.0f);
+    const int mode = node["aimMode"].as_int(static_cast<int>(settings.aimMode));
+    settings.aimMode = static_cast<AimMode>(std::clamp(mode, 0, 2));
+    // "entityLock"/"lockAim" were the old name for this switch.
+    const bool legacyLock = node.has("entityLock") ? node["entityLock"].as_bool(false) : node["lockAim"].as_bool(false);
+    settings.lockIn = node["lockIn"].as_bool(legacyLock);
     settings.fov = node["fov"].as_int(settings.fov);
     settings.distance = node["distance"].as_float(settings.distance);
-    settings.reactionTime = node["reactionTime"].as_int(settings.reactionTime);
-    settings.aimMode = static_cast<AimMode>(node["aimMode"].as_int(static_cast<int>(settings.aimMode)));
     settings.targetMode = static_cast<TargetMode>(node["targetMode"].as_int(static_cast<int>(settings.targetMode)));
     settings.switchSortBy = static_cast<SortBy>(node["switchSortBy"].as_int(static_cast<int>(settings.switchSortBy)));
     settings.hurtTimeLock = node["hurtTimeLock"].as_bool(settings.hurtTimeLock);
     settings.breakBlocks = node["breakBlocks"].as_bool(settings.breakBlocks);
     settings.weaponOnly = node["weaponOnly"].as_bool(settings.weaponOnly);
     settings.aimAtClosestPoint = node["aimAtClosestPoint"].as_bool(settings.aimAtClosestPoint);
-    settings.aimBone = std::clamp(node["aimBone"].as_int(settings.aimBone), 0, kBoneCount - 1);
     settings.alwaysAim = node["alwaysAim"].as_bool(settings.alwaysAim);
     settings.invisibles = node["invisibles"].as_bool(settings.invisibles);
-    // Legacy "lockAim" was renamed to "entityLock"; honor either key so old
-    // configs keep working. setEntityLock() also flips the atomic flag used
-    // by the runtime.
-    bool entityLock = node.has("entityLock") ? node["entityLock"].as_bool(settings.entityLock)
-                                             : node["lockAim"].as_bool(settings.entityLock);
-    setEntityLock(entityLock);
     settings.stopOnHitbox = node["stopOnHitbox"].as_bool(settings.stopOnHitbox);
     settings.jitterPercent = (std::clamp)(node["jitterPercent"].as_float(settings.jitterPercent), 0.0f, 100.0f);
     settings.prediction = (std::clamp)(node["prediction"].as_float(settings.prediction), 0.0f, 100.0f);

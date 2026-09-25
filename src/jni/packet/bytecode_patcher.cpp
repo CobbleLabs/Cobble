@@ -115,12 +115,14 @@ static std::atomic<bool> g_lunarNetHandlerPatched{false};
 static std::atomic<bool> g_netHandlerPlayClientPatched{false};
 static std::atomic<bool> g_renderGlobalPatched{false};
 static std::atomic<bool> g_entityRendererPatched{false};
+static std::atomic<bool> g_modelBipedPatched{false};
 static std::atomic<std::uint32_t> g_classFileLoadCallbacksInFlight{0};
 static jclass cls_PacketHook = nullptr;
 static jclass cls_NetworkManagerTarget = nullptr;
 static jclass cls_SlowdownTarget = nullptr;
 static jclass cls_RenderGlobalTarget = nullptr;
 static jclass cls_EntityRendererTarget = nullptr;
+static jclass cls_ModelBipedTarget = nullptr;
 constexpr int kPrefixLen = 8;
 
 struct ClassFileLoadCallbackScope {
@@ -754,6 +756,146 @@ static bool tryPatchCodeAttributeObserver(const uint8_t* data, size_t len, const
         } else if (attr_name &&
                    (strcmp(attr_name, "LocalVariableTable") == 0 || strcmp(attr_name, "LocalVariableTypeTable") == 0)) {
             if (!patchLocalVariableTable(attr_data, attr_len, actual_prefix_len, patched))
+                return false;
+            replaced = true;
+        }
+
+        w.WriteU2(name_index);
+        if (replaced) {
+            w.WriteU4(static_cast<uint32_t>(patched.size()));
+            w.WriteBytes(patched.data(), patched.size());
+        } else {
+            w.WriteU4(attr_len);
+            w.WriteBytes(attr_data, attr_len);
+        }
+    }
+
+    if (!r.ok)
+        return false;
+    out = std::move(w.out);
+    return true;
+}
+
+// Observer prefix for a model render method, which needs more than one argument:
+//   aload_0; aload_1; fload 2..7; ModelHook.onModelRender(model, entity, f0..f5);
+//
+// The model is needed so the native side can invoke render on it a second time, and the six
+// floats are the animation state for this frame -- limb swing, age, head yaw and pitch, and
+// scale. Replaying without them would draw the model in a different pose than the one on
+// screen, so a silhouette captured that way would not line up with the body.
+//
+// aload_0 and aload_1 are single-byte opcodes; the floats use the generic two-byte fload so
+// the prefix has one constant length regardless of slot numbering.
+constexpr int kModelObserverPrefixLen = 2 + (6 * 2) + 3;
+
+static bool tryPatchCodeAttributeModelObserver(const uint8_t* data, size_t len, const std::vector<CpEntry>& cp,
+                                               const std::vector<std::string>& utf8, uint16_t hook_methodref,
+                                               std::vector<uint8_t>& out) {
+    Reader r(data, len);
+    uint16_t max_stack = r.ReadU2();
+    uint16_t max_locals = r.ReadU2();
+    uint32_t code_len = r.ReadU4();
+    const uint8_t* code = r.ReadBytes(code_len);
+    if (!r.ok)
+        return false;
+
+    // render(Entity, FFFFFF) puts the last float in slot 7, so anything with fewer locals is
+    // not the method this prefix was written for and the floads would read garbage.
+    if (max_locals < 8)
+        return false;
+
+    // Already patched: the invokestatic sits at a fixed offset inside our own prefix.
+    if (code_len >= static_cast<uint32_t>(kModelObserverPrefixLen) && code[14] == 0xb8) {
+        const uint16_t method_ref = static_cast<uint16_t>((code[15] << 8) | code[16]);
+        if (isHookMethodRef(cp, utf8, method_ref))
+            return false;
+    }
+
+    uint16_t ex_count = r.ReadU2();
+    if (!r.ok)
+        return false;
+
+    struct ExEntry {
+        uint16_t start_pc, end_pc, handler_pc, catch_type;
+    };
+    std::vector<ExEntry> exceptions;
+    exceptions.reserve(ex_count);
+    for (uint16_t i = 0; i < ex_count; ++i) {
+        ExEntry entry;
+        entry.start_pc = r.ReadU2();
+        entry.end_pc = r.ReadU2();
+        entry.handler_pc = r.ReadU2();
+        entry.catch_type = r.ReadU2();
+        if (!r.ok)
+            return false;
+        exceptions.push_back(entry);
+    }
+
+    uint16_t attrs_count = r.ReadU2();
+    if (!r.ok)
+        return false;
+
+    std::vector<uint8_t> new_code;
+    new_code.reserve(code_len + kModelObserverPrefixLen);
+
+    new_code.push_back(0x2a);  // aload_0 -> the model
+    new_code.push_back(0x2b);  // aload_1 -> the entity
+    for (uint8_t slot = 2; slot <= 7; ++slot) {
+        new_code.push_back(0x17);  // fload
+        new_code.push_back(slot);
+    }
+    new_code.push_back(0xb8);  // invokestatic, void return, no control flow change
+    new_code.push_back(static_cast<uint8_t>((hook_methodref >> 8) & 0xFF));
+    new_code.push_back(static_cast<uint8_t>(hook_methodref & 0xFF));
+
+    new_code.insert(new_code.end(), code, code + code_len);
+
+    Writer w;
+    // Eight operands are live at once just before the call.
+    w.WriteU2(std::max<uint16_t>(max_stack, static_cast<uint16_t>(8)));
+    w.WriteU2(max_locals);
+    w.WriteU4(code_len + kModelObserverPrefixLen);
+    w.WriteBytes(new_code.data(), new_code.size());
+
+    w.WriteU2(ex_count);
+    for (const auto& entry : exceptions) {
+        w.WriteU2(static_cast<uint16_t>(entry.start_pc + kModelObserverPrefixLen));
+        w.WriteU2(static_cast<uint16_t>(entry.end_pc + kModelObserverPrefixLen));
+        w.WriteU2(static_cast<uint16_t>(entry.handler_pc + kModelObserverPrefixLen));
+        w.WriteU2(entry.catch_type);
+    }
+
+    w.WriteU2(attrs_count);
+    for (uint16_t i = 0; i < attrs_count; ++i) {
+        uint16_t name_index = r.ReadU2();
+        uint32_t attr_len = r.ReadU4();
+        if (!r.ok)
+            return false;
+        Reader sub = r.Slice(attr_len);
+        if (!r.ok)
+            return false;
+        const uint8_t* attr_data = sub.data;
+
+        const char* attr_name = nullptr;
+        if (name_index < utf8.size())
+            attr_name = utf8[name_index].c_str();
+
+        std::vector<uint8_t> patched;
+        bool replaced = false;
+
+        // Every offset-bearing attribute shifts by the whole prefix. The prefix itself adds
+        // no branch targets, so the frames only move; none of them change shape.
+        if (attr_name && strcmp(attr_name, "StackMapTable") == 0) {
+            if (!patchStackMapTable(attr_data, attr_len, kModelObserverPrefixLen, patched))
+                return false;
+            replaced = true;
+        } else if (attr_name && strcmp(attr_name, "LineNumberTable") == 0) {
+            if (!patchLineNumberTable(attr_data, attr_len, kModelObserverPrefixLen, patched))
+                return false;
+            replaced = true;
+        } else if (attr_name &&
+                   (strcmp(attr_name, "LocalVariableTable") == 0 || strcmp(attr_name, "LocalVariableTypeTable") == 0)) {
+            if (!patchLocalVariableTable(attr_data, attr_len, kModelObserverPrefixLen, patched))
                 return false;
             replaced = true;
         }
@@ -1734,7 +1876,13 @@ static int patchLivingBaseClass(const uint8_t* data, size_t len, std::vector<uin
 // Inject `BacktrackGhostHook.onRenderWorld(Object)` at a world-render method
 // entry. RenderGlobal passes its view Entity from slot 1; EntityRenderer passes
 // itself from slot 0 so the native bridge can delimit the temporary camera swap.
-static int patchRenderHookClass(const uint8_t* data, size_t len, std::vector<uint8_t>& out, bool cameraTarget) {
+// ModelBiped instead reaches BacktrackGhostHook.onModelRender with the model, the
+// entity and the six animation floats, which is everything needed to replay the
+// body geometry into the outline mask.
+enum class RenderHookTarget { Entities, Camera, ModelBiped };
+
+static int patchRenderHookClass(const uint8_t* data, size_t len, std::vector<uint8_t>& out,
+                                RenderHookTarget target) {
     Reader r(data, len);
     uint32_t magic = r.ReadU4();
     if (!r.ok || magic != 0xCAFEBABE)
@@ -1781,18 +1929,21 @@ static int patchRenderHookClass(const uint8_t* data, size_t len, std::vector<uin
     w.WriteU1(7);
     w.WriteU2(idx_utf8_class);
 
-    // onRenderWorld method name
+    const bool modelTarget = (target == RenderHookTarget::ModelBiped);
+
+    // hook method name
     w.WriteU1(1);
     {
-        std::string _s = OBFUSCATE_STRING("onRenderWorld");
+        std::string _s = modelTarget ? OBFUSCATE_STRING("onModelRender") : OBFUSCATE_STRING("onRenderWorld");
         w.WriteU2(static_cast<uint16_t>(_s.size()));
         w.WriteBytes(reinterpret_cast<const uint8_t*>(_s.data()), _s.size());
     }
 
-    // (Ljava/lang/Object;)V descriptor
+    // hook method descriptor
     w.WriteU1(1);
     {
-        std::string _s = OBFUSCATE_STRING("(Ljava/lang/Object;)V");
+        std::string _s = modelTarget ? OBFUSCATE_STRING("(Ljava/lang/Object;Ljava/lang/Object;FFFFFF)V")
+                                     : OBFUSCATE_STRING("(Ljava/lang/Object;)V");
         w.WriteU2(static_cast<uint16_t>(_s.size()));
         w.WriteBytes(reinterpret_cast<const uint8_t*>(_s.data()), _s.size());
     }
@@ -1877,7 +2028,13 @@ static int patchRenderHookClass(const uint8_t* data, size_t len, std::vector<uin
             const std::string& name = utf8[m_name];
             const std::string& desc = utf8[m_desc];
             bool descMatch = false;
-            if (cameraTarget) {
+            if (modelTarget) {
+                // render(Entity, float x6). The entity parameter is the only obfuscated part of
+                // the descriptor, so matching on the float tail covers every mapping.
+                const bool nameMatch = (name == "render" || name == "func_78088_a" || name == "a");
+                descMatch = nameMatch && desc.size() > 10 && desc.compare(0, 2, "(L") == 0 &&
+                            desc.compare(desc.size() - 9, 9, ";FFFFFF)V") == 0;
+            } else if (target == RenderHookTarget::Camera) {
                 const bool nameMatch = (name == "renderWorld" || name == "func_78471_a" || name == "a");
                 descMatch = nameMatch && desc == "(FJ)V";
             } else {
@@ -1920,8 +2077,12 @@ static int patchRenderHookClass(const uint8_t* data, size_t len, std::vector<uin
             std::vector<uint8_t> patched_attr;
 
             if (is_target && attr_name && strcmp(attr_name, "Code") == 0 && (m_access & (0x0100 | 0x0400)) == 0) {
-                if (tryPatchCodeAttributeObserver(attr_data, attr_len, cp, utf8, idx_methodref, cameraTarget ? 0 : 1,
-                                                  patched_attr)) {
+                const bool emitted =
+                    modelTarget
+                        ? tryPatchCodeAttributeModelObserver(attr_data, attr_len, cp, utf8, idx_methodref, patched_attr)
+                        : tryPatchCodeAttributeObserver(attr_data, attr_len, cp, utf8, idx_methodref,
+                                                        target == RenderHookTarget::Camera ? 0 : 1, patched_attr);
+                if (emitted) {
                     w.WriteU2(name_index);
                     w.WriteU4(static_cast<uint32_t>(patched_attr.size()));
                     w.WriteBytes(patched_attr.data(), patched_attr.size());
@@ -2304,7 +2465,8 @@ static void JNICALL onClassFileLoadHook(jvmtiEnv* jvmti_env, JNIEnv* jni_env, jc
     if (isRenderGlobalTarget) {
         COBBLE_TRACE("onClassFileLoadHook: RenderGlobal matched");
         std::vector<uint8_t> patched;
-        int patched_methods = patchRenderHookClass(class_data, static_cast<size_t>(class_data_len), patched, false);
+        int patched_methods = patchRenderHookClass(class_data, static_cast<size_t>(class_data_len), patched,
+                                                   RenderHookTarget::Entities);
         if (patched_methods > 0) {
             unsigned char* buffer = nullptr;
             jvmtiError err = jvmti_env->Allocate(static_cast<jint>(patched.size()), &buffer);
@@ -2330,7 +2492,8 @@ static void JNICALL onClassFileLoadHook(jvmtiEnv* jvmti_env, JNIEnv* jni_env, jc
     if (isEntityRendererTarget) {
         COBBLE_TRACE("onClassFileLoadHook: EntityRenderer matched");
         std::vector<uint8_t> patched;
-        int patched_methods = patchRenderHookClass(class_data, static_cast<size_t>(class_data_len), patched, true);
+        int patched_methods = patchRenderHookClass(class_data, static_cast<size_t>(class_data_len), patched,
+                                                   RenderHookTarget::Camera);
         if (patched_methods > 0) {
             unsigned char* buffer = nullptr;
             jvmtiError err = jvmti_env->Allocate(static_cast<jint>(patched.size()), &buffer);
@@ -2344,6 +2507,31 @@ static void JNICALL onClassFileLoadHook(jvmtiEnv* jvmti_env, JNIEnv* jni_env, jc
             }
         } else {
             COBBLE_TRACE("onClassFileLoadHook: EntityRenderer patch failed or returned 0");
+        }
+        return;
+    }
+
+    const bool isModelBipedTarget =
+        g_targets.modelOutline && ((cls_ModelBipedTarget && class_being_redefined &&
+                                    jni_env->IsSameObject(class_being_redefined, cls_ModelBipedTarget) == JNI_TRUE) ||
+                                   (name && strcmp(name, "net/minecraft/client/model/ModelBiped") == 0));
+    if (isModelBipedTarget) {
+        COBBLE_TRACE("onClassFileLoadHook: ModelBiped matched");
+        std::vector<uint8_t> patched;
+        int patched_methods = patchRenderHookClass(class_data, static_cast<size_t>(class_data_len), patched,
+                                                   RenderHookTarget::ModelBiped);
+        if (patched_methods > 0) {
+            unsigned char* buffer = nullptr;
+            jvmtiError err = jvmti_env->Allocate(static_cast<jint>(patched.size()), &buffer);
+            if (err == JVMTI_ERROR_NONE && buffer) {
+                memcpy(buffer, patched.data(), patched.size());
+                *new_class_data_len = static_cast<jint>(patched.size());
+                *new_class_data = buffer;
+                g_modelBipedPatched.store(true, std::memory_order_release);
+                log_ok("[PacketInterceptor] Patched ModelBiped.render bytecode (%d method(s))", patched_methods);
+            }
+        } else {
+            COBBLE_TRACE("onClassFileLoadHook: ModelBiped patch failed or returned 0");
         }
         return;
     }
@@ -2676,6 +2864,33 @@ bool InstallBytecodeHook(JNIEnv* env) {
         }
     }
 
+    if (g_targets.modelOutline) {
+        jclass modelBipedCls = nullptr;
+        if (Java::AssignClass(OBFUSCATE_STRING("net.minecraft.client.model.ModelBiped"), modelBipedCls)) {
+            if (cls_ModelBipedTarget)
+                env->DeleteGlobalRef(cls_ModelBipedTarget);
+            cls_ModelBipedTarget = static_cast<jclass>(env->NewGlobalRef(modelBipedCls));
+            if (!cls_ModelBipedTarget || env->ExceptionCheck()) {
+                if (env->ExceptionCheck())
+                    env->ExceptionClear();
+                cls_ModelBipedTarget = nullptr;
+                log_warn("[PacketInterceptor] Failed to retain ModelBiped for retransform");
+            } else {
+                jclass classes[1] = {modelBipedCls};
+                err = Java::tiEnv->RetransformClasses(1, classes);
+                if (err == JVMTI_ERROR_NONE)
+                    log_ok("[PacketInterceptor] Retransform requested for ModelBiped");
+                else
+                    log_warn("[PacketInterceptor] ModelBiped retransform failed: %d", err);
+            }
+            env->DeleteLocalRef(modelBipedCls);
+        } else {
+            if (env->ExceptionCheck())
+                env->ExceptionClear();
+            log_warn("[PacketInterceptor] ModelBiped not available for retransform");
+        }
+    }
+
     if (incomingBacktrackRequested && !(incomingBacktrackPrefixApplied.load(std::memory_order_acquire) &&
                                         slowDownHookApplied.load(std::memory_order_acquire))) {
         g_targets.incomingBacktrack = false;
@@ -2705,6 +2920,10 @@ bool IsIncomingBacktrackReady() {
 bool IsRenderCameraReady() {
     return g_renderGlobalPatched.load(std::memory_order_acquire) &&
            g_entityRendererPatched.load(std::memory_order_acquire);
+}
+
+bool IsModelOutlineReady() {
+    return g_modelBipedPatched.load(std::memory_order_acquire);
 }
 
 bool Shutdown(JNIEnv* env) {
@@ -2747,8 +2966,9 @@ bool Shutdown(JNIEnv* env) {
     const bool slowDownPatched = slowDownHookApplied.load(std::memory_order_acquire);
     const bool renderGlobalPatched = g_renderGlobalPatched.load(std::memory_order_acquire);
     const bool entityRendererPatched = g_entityRendererPatched.load(std::memory_order_acquire);
+    const bool modelBipedPatched = g_modelBipedPatched.load(std::memory_order_acquire);
     const bool anyClassPatched = networkManagerPatched || lunarNetHandlerPatched || netHandlerPlayClientPatched ||
-                                 slowDownPatched || renderGlobalPatched || entityRendererPatched;
+                                 slowDownPatched || renderGlobalPatched || entityRendererPatched || modelBipedPatched;
 
     jclass classesToRetransform[8]{};
     bool temporaryLocalRef[8]{};
@@ -2797,7 +3017,9 @@ bool Shutdown(JNIEnv* env) {
         !addPatchedClass(renderGlobalPatched, cls_RenderGlobalTarget,
                          OBFUSCATE_STRING("net.minecraft.client.renderer.RenderGlobal"), "RenderGlobal") ||
         !addPatchedClass(entityRendererPatched, cls_EntityRendererTarget,
-                         OBFUSCATE_STRING("net.minecraft.client.renderer.EntityRenderer"), "EntityRenderer")) {
+                         OBFUSCATE_STRING("net.minecraft.client.renderer.EntityRenderer"), "EntityRenderer") ||
+        !addPatchedClass(modelBipedPatched, cls_ModelBipedTarget,
+                         OBFUSCATE_STRING("net.minecraft.client.model.ModelBiped"), "ModelBiped")) {
         cleanupTemporaryRefs();
         return false;
     }
@@ -2860,12 +3082,17 @@ bool Shutdown(JNIEnv* env) {
         env->DeleteGlobalRef(cls_EntityRendererTarget);
         cls_EntityRendererTarget = nullptr;
     }
+    if (cls_ModelBipedTarget) {
+        env->DeleteGlobalRef(cls_ModelBipedTarget);
+        cls_ModelBipedTarget = nullptr;
+    }
 
     g_networkManagerPatched.store(false, std::memory_order_release);
     g_lunarNetHandlerPatched.store(false, std::memory_order_release);
     g_netHandlerPlayClientPatched.store(false, std::memory_order_release);
     g_renderGlobalPatched.store(false, std::memory_order_release);
     g_entityRendererPatched.store(false, std::memory_order_release);
+    g_modelBipedPatched.store(false, std::memory_order_release);
     incomingBacktrackPrefixApplied.store(false, std::memory_order_release);
     slowDownHookApplied.store(false, std::memory_order_release);
     hooksRegistered.store(false, std::memory_order_release);

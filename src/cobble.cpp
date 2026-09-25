@@ -34,6 +34,7 @@
 
 #include "module/visual/blockesp.h"
 #include "module/visual/chams.h"
+#include "module/visual/outline.h"
 #include "ui/menu/settings.h"
 #include "module/visual/esp.h"
 #include "module/visual/item_esp.h"
@@ -223,6 +224,8 @@ void cobble::context::initialize(HMODULE hModule) {
     esp = new ESP();
     COBBLE_TRACE("alloc:Chams");
     chams = new Chams();
+    COBBLE_TRACE("alloc:Outline");
+    outline = new Outline();
     COBBLE_TRACE("alloc:ItemESP");
     itemEsp = new ItemESP();
     COBBLE_TRACE("alloc:Tracers");
@@ -277,6 +280,7 @@ void cobble::context::initialize(HMODULE hModule) {
     moduleManager->registerModule(antiDebuff);
     moduleManager->registerModule(esp);
     moduleManager->registerModule(chams);
+    moduleManager->registerModule(outline);
     moduleManager->registerModule(itemEsp);
     moduleManager->registerModule(tracers);
     moduleManager->registerModule(blockESP);
@@ -706,6 +710,13 @@ bool cobble::context::shutdown() {
     if (chams) {
         delete chams;
         chams = nullptr;
+    }
+    if (outline) {
+        // GL objects belong to the render thread's context, which is already gone by the
+        // time shutdown runs here, so releaseGL() only drops the handles.
+        outline->releaseGL();
+        delete outline;
+        outline = nullptr;
     }
     if (itemEsp) {
         delete itemEsp;
