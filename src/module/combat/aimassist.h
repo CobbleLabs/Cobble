@@ -185,9 +185,15 @@ private:
     // is the behaviour that keeps the camera from riding the target up and down.
     bool usesJumpAimLogic() const { return Java::Version == MinecraftVersion::MC_1_7_10; }
 
-    // Eases aimHeightBlend_ toward the chest while the target is airborne and back to
-    // the head once it lands. Called once per update, before the aim point is resolved.
-    void updateAimHeightBlend(JNIEnv* env, double targetFeetY);
+    // Resolves the airborne state and the smoothing multiplier. Runs on every version, first
+    // thing each update, because the smoothing is the one part of this that is not version
+    // specific -- a trade looks the same on both.
+    void updateMotionDamping(JNIEnv* env, double targetFeetY);
+
+    // Eases aimHeightBlend_ toward the chest while the target is airborne and back to the head
+    // once it lands. 1.7.10 only, and runs after updateMotionDamping, whose airborne reading
+    // and ease factor it reuses.
+    void updateAimHeightBlend(double targetFeetY);
 
     // Whether the target is off the ground.
     //
@@ -255,13 +261,24 @@ private:
     Timer aimHeightTimer_;
     bool targetAirborne_ = false;
 
-    // Multiplier on the vertical speed setting, 1.0 on the ground. Only updateAimHeightBlend
-    // writes it and only 1.7.10 calls that, so every other version keeps a flat 1.0.
-    float verticalDamping_ = 1.0f;
+    // Multiplier on BOTH speed settings, 1.0 on the ground and falling toward kMotionDamping
+    // while either player is off it.
+    //
+    // It scales the sliders rather than sitting beside them: the slider stays the only thing
+    // that decides how fast the aim closes, and this decides how much of that speed a trade is
+    // allowed to use. That is why there is no separate smoothing control.
+    float motionDamping_ = 1.0f;
 
-    // Smoothed local airborne state, kept apart from aimHeightBlend_ because a local jump
-    // should soften pitch fully while moving the aim point only slightly.
+    // Ease factor for this update, shared so both airborne blends and the 1.7.10 height blend
+    // move on one clock. Stepping the timer twice in an update would hand the second caller a
+    // dt of zero.
+    float easeAlpha_ = 0.0f;
+
+    // Smoothed airborne states, kept apart from aimHeightBlend_ because a local jump should
+    // soften the response fully while moving the aim point only slightly. Smoothed rather than
+    // read raw so the multiplier eases in instead of stepping the moment a foot leaves ground.
     float localAirBlend_ = 0.0f;
+    float targetAirBlend_ = 0.0f;
 
     // Feet height of the target the last time it was on the ground. Mid-air this lags
     // the rising hitbox by the displacement of the jump, and the aim point is measured

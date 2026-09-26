@@ -85,10 +85,10 @@ static constexpr double kFullAirSeparation = 0.55;
 // shift would not begin until the target had already climbed, which is too late.
 static constexpr float kTakeoffAirFloor = 0.35f;
 
-// Vertical response multiplier once fully airborne. Softening pitch turns the residual
-// motion into a drift instead of a chase; horizontal is deliberately left untouched so
-// strafes are still tracked at full speed.
-static constexpr float kAirVerticalDamping = 0.45f;
+// Response multiplier while either player is off the ground, applied to both axes. Softening
+// the response turns the residual motion into a drift instead of a chase, which is what stops
+// the camera nodding through a trade where both players are jumping and taking knockback.
+static constexpr float kMotionDamping = 0.45f;
 
 // How much of the chest shift a *local* jump is worth.
 //
@@ -395,7 +395,8 @@ void AimAssist::resetTargetState(JNIEnv* env) {
     aimHeightBlend_ = 0.0f;
     aimHeightTimer_.Start();
     localAirBlend_ = 0.0f;
-    verticalDamping_ = 1.0f;
+    targetAirBlend_ = 0.0f;
+    motionDamping_ = 1.0f;
     hasGroundAnchor_ = false;
     controllerTimer.Start();
     simulatedJitterYaw = simulatedJitterPitch = 0.0f;
@@ -609,10 +610,11 @@ void AimAssist::onUpdate() {
     // prediction affected the result at all, since the aim point is otherwise
     // derived from the (unpredicted) AABB. Prediction is a bounded offset on the
     // resolved point instead.
-    // Only 1.7.10 runs the jump machinery, so only 1.7.10 pays for its per-update JNI read.
-    // Leaving the blend at zero elsewhere also restores the full vertical prediction lead.
+    // Damping runs everywhere; only 1.7.10 additionally runs the head/chest jump machinery.
+    const double targetFeetY = targetHasHitbox ? (double)targetHitboxMinY : targetY;
+    updateMotionDamping(env, targetFeetY);
     if (usesJumpAimLogic())
-        updateAimHeightBlend(env, targetHasHitbox ? (double)targetHitboxMinY : targetY);
+        updateAimHeightBlend(targetFeetY);
 
     double aimX, aimY, aimZ;
     getAimPoint(targetX, targetY, targetZ, aimX, aimY, aimZ);
@@ -726,7 +728,7 @@ void AimAssist::onUpdate() {
             aimY - resolvedBox_.minY, crosshairHitType, crosshairHitY - resolvedBox_.minY, groundFeetY_,
             resolvedBox_.minY - groundFeetY_,
             targetOnGroundRaw_ < 0 ? "n/a" : targetOnGroundRaw_ ? "true" : "false", (int)targetAirborne_,
-            aimHeightBlend_, verticalDamping_, (int)!player.isOnGround(), localPitch, pitchTarget);
+            aimHeightBlend_, motionDamping_, (int)!player.isOnGround(), localPitch, pitchTarget);
     }
 
     // Stop On Hitbox: If crosshair is already inside the hitbox, let user aim freely.
@@ -1268,10 +1270,11 @@ void AimAssist::applyAimController(float yawDiff, float pitchDiff) {
         return 1.0f - std::exp(-rate * dt);
     };
 
-    // Horizontal is never damped -- a strafing target has to be tracked at full speed
-    // whether or not anyone is in the air.
-    float yawStep = yawDiff * alphaFor(settings.horizontalSpeed);
-    float pitchStep = aimsPitch() ? pitchDiff * alphaFor(settings.verticalSpeed * verticalDamping_) : 0.0f;
+    // Both axes are damped together. Damping one alone bends the path between them: the
+    // rotation would close horizontally faster than vertically and arrive at the aim point
+    // along a curve rather than straight.
+    float yawStep = yawDiff * alphaFor(settings.horizontalSpeed * motionDamping_);
+    float pitchStep = aimsPitch() ? pitchDiff * alphaFor(settings.verticalSpeed * motionDamping_) : 0.0f;
     if (std::abs(yawDiff) < 0.03f)
         yawStep = yawDiff;
     if (aimsPitch() && std::abs(pitchDiff) < 0.03f)
@@ -1672,16 +1675,31 @@ bool AimAssist::resolveTargetAirborne(JNIEnv* env, double targetFeetY) {
     return airborne;
 }
 
-void AimAssist::updateAimHeightBlend(JNIEnv* env, double targetFeetY) {
+void AimAssist::updateMotionDamping(JNIEnv* env, double targetFeetY) {
     // Another player's anchor is meaningless, and so is a blend measured against them.
     if (targetChangedThisFrame) {
         hasGroundAnchor_ = false;
         hasLastFeetY_ = false;
         aimHeightBlend_ = 0.0f;
+        targetAirBlend_ = 0.0f;
     }
 
     targetAirborne_ = resolveTargetAirborne(env, targetFeetY);
+    easeAlpha_ = 1.0f - std::exp(-kAimHeightEaseRate * stepSeconds(aimHeightTimer_));
 
+    // The local flag is maintained by this client's own physics and is reliable; the remote one
+    // is whatever resolveTargetAirborne could establish for this version.
+    const bool localAirborne = !player.isOnGround();
+    localAirBlend_ += ((localAirborne ? 1.0f : 0.0f) - localAirBlend_) * easeAlpha_;
+    localAirBlend_ = std::clamp(localAirBlend_, 0.0f, 1.0f);
+    targetAirBlend_ += ((targetAirborne_ ? 1.0f : 0.0f) - targetAirBlend_) * easeAlpha_;
+    targetAirBlend_ = std::clamp(targetAirBlend_, 0.0f, 1.0f);
+
+    // Whichever of the two is airborne more sets the softening.
+    motionDamping_ = std::lerp(1.0f, kMotionDamping, std::max(targetAirBlend_, localAirBlend_));
+}
+
+void AimAssist::updateAimHeightBlend(double targetFeetY) {
     // How far the target has climbed off the ground it left, not merely whether it is off it.
     // groundFeetY_ is last update's anchor, which at ~500 Hz is close enough and is already
     // clamped to sit at or below the feet, so this cannot go negative.
@@ -1689,31 +1707,18 @@ void AimAssist::updateAimHeightBlend(JNIEnv* env, double targetFeetY) {
     const float bySeparation = (float)std::clamp(separation / kFullAirSeparation, 0.0, 1.0);
     const float targetGoal = targetAirborne_ ? std::max(kTakeoffAirFloor, bySeparation) : 0.0f;
 
-    // A jumping local player moves the camera rather than the target. Tracked on its own
-    // smoothed signal so it can soften the pitch fully while barely moving the aim point --
-    // the two effects are wanted in very different amounts here. Unlike a remote entity's,
-    // the local onGround flag is maintained by this client's own physics, so it is reliable.
-    const bool localAirborne = !player.isOnGround();
-    const float dt = stepSeconds(aimHeightTimer_);
-    const float alpha = 1.0f - std::exp(-kAimHeightEaseRate * dt);
-    localAirBlend_ += ((localAirborne ? 1.0f : 0.0f) - localAirBlend_) * alpha;
-    localAirBlend_ = std::clamp(localAirBlend_, 0.0f, 1.0f);
-
+    // A jumping local player moves the camera rather than the target, so it is worth only a
+    // fraction of the height shift; the damping is what handles that case.
     const float goal = std::max(targetGoal, localAirBlend_ * kLocalAirHeightShare);
-    float next = aimHeightBlend_ + (goal - aimHeightBlend_) * alpha;
+    float next = aimHeightBlend_ + (goal - aimHeightBlend_) * easeAlpha_;
 
     // Hold the peak for the rest of the jump. Easing back toward the head while the target is
     // still falling would walk the aim up just as the head drops past it, and that downstroke
     // is the second half of the nod. Only landing releases it.
-    if ((targetAirborne_ || localAirborne) && next < aimHeightBlend_)
+    if ((targetAirborne_ || !player.isOnGround()) && next < aimHeightBlend_)
         next = aimHeightBlend_;
 
     aimHeightBlend_ = std::clamp(next, 0.0f, 1.0f);
-
-    // Damping takes whichever is airborne more, not the aim blend: a local jump barely moves
-    // the aim point but still needs the full soft pitch, because the whole reason the camera
-    // is drifting is that it is the thing moving.
-    verticalDamping_ = std::lerp(1.0f, kAirVerticalDamping, std::max(aimHeightBlend_, localAirBlend_));
 }
 
 void AimAssist::onRenderMenu() {
