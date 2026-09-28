@@ -1207,8 +1207,8 @@ bool ui::SliderFloat(const char* label, float* v, float v_min, float v_max, cons
 
         // A typed value is deliberately NOT clamped to [v_min, v_max]. The slider's
         // range is what the grab can reach comfortably, not a hard limit -- typing
-        // is how you ask for a value past the end of it (a 10x watermark image from a
-        // slider that stops at 4x). Whoever reads the value is what bounds it.
+        // is how you ask for a value past the end of it. Whoever reads the value is
+        // what bounds it.
         auto commit = [&]() {
             float newVal = 0.0f;
             if (sscanf_s(inputState.buffer, "%f", &newVal) == 1 && std::isfinite(newVal)) {
