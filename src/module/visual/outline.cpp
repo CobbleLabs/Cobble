@@ -5,7 +5,6 @@
 #include <cstdint>
 
 #include "../../../infra/ext/imgui/imgui.h"
-#include "../../sdk/core/minecraft.h"
 #include "../../sdk/player/visual_cache.h"
 #include "../../ui/widgets/widgets.hpp"
 #include "../../util/logger.hpp"
@@ -278,7 +277,7 @@ void Outline::destroyTargets() {
     for (auto& texture : textures_)
         texture = 0;
     width_ = height_ = 0;
-    armed_ = captured_ = false;
+    captured_ = false;
 }
 
 void Outline::destroyResources() {
@@ -303,7 +302,7 @@ bool Outline::prepare(int width, int height) {
         for (auto& texture : textures_)
             texture = 0;
         width_ = height_ = 0;
-        glFailed_ = armed_ = captured_ = false;
+        glFailed_ = captured_ = false;
         if (!loadGL()) {
             glFailed_ = true;
             log_warn("[Outline] required OpenGL functions unavailable; effect disabled");
@@ -389,11 +388,11 @@ bool Outline::isWorldPass() const {
     return std::abs(projection[15]) <= 0.001 && currentProgram == 0;
 }
 
+// Caches the interpolated eye position for maskWantsEntity's range test and touches no GL, so
+// a bad pass or a stale snapshot costs at most a one-frame-old position rather than the frame's
+// whole mask.
 void Outline::onRender3D() {
-    armed_ = false;
-    if (!enabled || glFailed_ || !fbo_ || !mc.isValid())
-        return;
-    if (glOwner_ != wglGetCurrentContext() || !isWorldPass())
+    if (!enabled)
         return;
 
     const auto snap = VisualCache::GetSnapshot();
@@ -404,18 +403,10 @@ void Outline::onRender3D() {
     localX_ = snap.localLastX + (snap.localX - snap.localLastX) * partial;
     localY_ = snap.localLastY + (snap.localY - snap.localLastY) * partial;
     localZ_ = snap.localLastZ + (snap.localZ - snap.localLastZ) * partial;
-
-    GLStateGuard guard;
-    glBindFramebuffer(kFramebuffer, fbo_);
-    glFramebufferTexture2D(kFramebuffer, kColorAttachment0, GL_TEXTURE_2D, textures_[0], 0);
-    applyMaskState(width_, height_);
-    glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
-    glClear(GL_COLOR_BUFFER_BIT);
-    armed_ = true;
 }
 
 bool Outline::maskActive() const {
-    return enabled && armed_ && !glFailed_ && fbo_ != 0;
+    return enabled && !glFailed_ && fbo_ != 0;
 }
 
 bool Outline::maskWantsEntity(double x, double y, double z, bool invisible) const {
@@ -433,7 +424,14 @@ void Outline::captureModel(void (*draw)(void*), void* context) {
 
     GLStateGuard guard;
     glBindFramebuffer(kFramebuffer, fbo_);
+    glFramebufferTexture2D(kFramebuffer, kColorAttachment0, GL_TEXTURE_2D, textures_[0], 0);
     applyMaskState(width_, height_);
+    // The frame's first capture owns the clear, so the mask never depends on a separate arming
+    // step that a rejected pass could skip.
+    if (!captured_) {
+        glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
+        glClear(GL_COLOR_BUFFER_BIT);
+    }
     glUseProgram(maskProgram_);
     draw(context);
     captured_ = true;
@@ -498,7 +496,7 @@ void Outline::onRender() {
 }
 
 void Outline::onWorldChange() {
-    armed_ = captured_ = false;
+    captured_ = false;
 }
 
 void Outline::releaseGL() {
@@ -509,7 +507,7 @@ void Outline::releaseGL() {
     for (auto& texture : textures_)
         texture = 0;
     width_ = height_ = 0;
-    armed_ = captured_ = false;
+    captured_ = false;
     glFailed_ = false;
 }
 

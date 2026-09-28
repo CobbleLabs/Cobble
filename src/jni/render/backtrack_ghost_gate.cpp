@@ -294,7 +294,11 @@ namespace {
 // The patcher injects at method entry and lets the original body run, so calling render a
 // second time on the same model re-enters this hook. The nested call must fall straight
 // through to the body it exists to draw.
-thread_local int g_modelReplayDepth = 0;
+//
+// Not thread_local: the manual mapper never allocates this DLL's static TLS slot, so a
+// thread_local here reads the host's TLS block and sees garbage. Models only render on the
+// client thread.
+int g_modelReplayDepth = 0;
 
 struct ModelReplay {
     JNIEnv* env;

@@ -58,6 +58,7 @@ void AutoClicker::onEnable() {
 
     // Random mode
     lastClick = now;
+    inventoryLastClick = now;
     lastClickWasDown = false;
     wasBreakingBlock = false;
     clicksSinceRangeChange = 0;
@@ -144,8 +145,9 @@ void AutoClicker::onUpdate() {
 
     // Not holding left mouse button - resync timeline to prevent burst on re-press
     if (!(GetAsyncKeyState(VK_LBUTTON) & 0x8000)) {
+        auto now = std::chrono::steady_clock::now();
+        inventoryLastClick = now;
         if (settings.stableCPS) {
-            auto now = std::chrono::steady_clock::now();
             stableTimelineStart = now;
             stableLastClick = now;
             stableClickCount = 0;
@@ -224,6 +226,26 @@ void AutoClicker::onUpdate() {
         if (!isTargetingPlayer()) {
             return;
         }
+    }
+
+    // Inventory refill runs at a fixed, strictly-paced rate rather than the combat CPS.
+    // A container transfer is gated by the server round trip, not by how fast the clicks
+    // arrive, so a wandering rate here only drops transfers. Takes precedence over
+    // Stable CPS, which is why it sits ahead of it.
+    if (inInventory) {
+        constexpr double kInventoryIntervalMs = 1000.0 / 16.0;
+        auto now = std::chrono::steady_clock::now();
+        const double sinceLastInventoryClick =
+            std::chrono::duration<double, std::milli>(now - inventoryLastClick).count();
+        if (sinceLastInventoryClick < kInventoryIntervalMs)
+            return;
+
+        // Shift is guaranteed held here by the gate above, which is what made the older
+        // paths choose right-click: it avoids the bounce a left-click transfer produces.
+        PostMessage(hwnd, WM_RBUTTONDOWN, MK_RBUTTON, 0);
+        PostMessage(hwnd, WM_RBUTTONUP, 0, 0);
+        inventoryLastClick = now;
+        return;
     }
 
     // =======================
@@ -410,24 +432,29 @@ float AutoClicker::generateHumanIntervalMs(float minCps, float maxCps) {
     minCps = std::clamp(minCps, 1.0f, 20.0f);
     maxCps = std::clamp(maxCps, minCps, 20.0f);
 
+    const float intensity = static_cast<float>(settings.randomizationIntensity) / 100.0f;
+    const float center = (minCps + maxCps) * 0.5f;
+    const float minEff = std::lerp(center, minCps, intensity);
+    const float maxEff = std::lerp(center, maxCps, intensity);
+
     // Slowly-wandering tempo: re-target every few clicks toward a bell-weighted
     // point in the band, then mean-revert (natural autocorrelation, not a fixed
     // rate and not the too-rigid clamp the old "+" mode used).
     updateShapeParams();
     if (plusStateClicksRemaining <= 0) {
         const double u = (secureUnit() + secureUnit() + secureUnit()) / 3.0;  // central tendency
-        const float target = minCps + static_cast<float>(u) * (maxCps - minCps);
-        plusCpsState = std::clamp(0.5f * plusCpsState + 0.5f * target, minCps, maxCps);
+        const float target = minEff + static_cast<float>(u) * (maxEff - minEff);
+        plusCpsState = std::clamp(0.5f * plusCpsState + 0.5f * target, minEff, maxEff);
         plusStateClicksRemaining = 4 + static_cast<int>(secureUnit() * 9.0);  // hold 4-12 clicks
     }
     --plusStateClicksRemaining;
-    const float center = (minCps + maxCps) * 0.5f;
-    const float step = static_cast<float>(secureUnit() - secureUnit()) * (maxCps - minCps) * tempoStepScale;
-    plusCpsState = std::clamp(plusCpsState + step + (center - plusCpsState) * tempoPull, minCps, maxCps);
+    const float step =
+        static_cast<float>(secureUnit() - secureUnit()) * (maxEff - minEff) * tempoStepScale * intensity;
+    plusCpsState = std::clamp(plusCpsState + step + (center - plusCpsState) * tempoPull, minEff, maxEff);
 
     float interval = 1000.0f / std::max(plusCpsState, 1.0f);
-    interval *= fatigueMultiplier;     // session fatigue: >1 = gradually slower
-    interval *= burstSpeedMultiplier;  // bursts: <1 = faster cluster, >1 = slower cluster
+    interval *= 1.0f + (fatigueMultiplier - 1.0f) * intensity;     // session fatigue: >1 = gradually slower
+    interval *= 1.0f + (burstSpeedMultiplier - 1.0f) * intensity;  // bursts: <1 = faster cluster, >1 = slower cluster
 
     // Log-normal multiplicative jitter (Box-Muller normal in log space). This is
     // what lifts the kurtosis and adds the right-hand tail humans have; the
@@ -438,21 +465,26 @@ float AutoClicker::generateHumanIntervalMs(float minCps, float maxCps) {
     const double z = std::sqrt(-2.0 * std::log(u1)) * std::cos(6.283185307179586 * u2);
     // Session offset shifts the whole sigma track so back-to-back windows never
     // measure the same std / tail coverage.
-    const double sigma = std::clamp(static_cast<double>(sigmaState + sigmaSessionOffset), 0.08, 0.42);
+    // Clamped first and scaled after: the other order would leave a 0.08 floor
+    // that makes the zero-intensity constant interval unreachable.
+    const double sigmaBase = std::clamp(static_cast<double>(sigmaState + sigmaSessionOffset), 0.08, 0.42);
+    const double sigma = sigmaBase * intensity;
     interval *= static_cast<float>(std::exp(sigma * z - 0.5 * sigma * sigma));
 
     // 1/f (pink) component: human motor timing exhibits scale-free long-range
     // dependence that spectral analysis detects as missing in pure random
     // walks. Applied in log space like the jitter above.
-    interval *= static_cast<float>(std::exp(static_cast<double>(nextPink()) * pinkAmplitude));
+    interval *= static_cast<float>(std::exp(static_cast<double>(nextPink()) * pinkAmplitude * intensity));
 
     // Rare human quirks. Rates drift per shape phase so tail mass is never
     // a fixed, measurable fraction of the population.
     const double q = secureUnit();
-    if (q < hesitationChance) {
+    const float hesEff = hesitationChance * intensity;
+    const float tapEff = doubleTapChance * intensity;
+    if (q < hesEff) {
         // Hesitation / attention lapse — an occasional noticeably longer pause.
         interval += 40.0f + static_cast<float>(secureUnit()) * 160.0f;
-    } else if (q < hesitationChance + doubleTapChance) {
+    } else if (q < hesEff + tapEff) {
         // Quick double-tap — a shorter gap (still floored below).
         interval *= 0.70f + static_cast<float>(secureUnit()) * 0.12f;
     }
@@ -717,6 +749,8 @@ void AutoClicker::onRenderMenu() {
                 (void)randomizationMode;
                 (void)randomizationModes;
                 ui::Checkbox("Randomization", &settings.randomization);
+                if (settings.randomization)
+                    ui::SliderInt("Randomization (%)", &settings.randomizationIntensity, 0, 100, "%d");
             }
         },
         "Conditions",
@@ -742,6 +776,7 @@ void AutoClicker::saveSettings(json::Value& node) const {
     node["workInInventory"] = settings.workInInventory;
     node["randomizationMode"] = static_cast<int>(settings.randomizationMode);
     node["randomization"] = settings.randomization;
+    node["randomizationIntensity"] = settings.randomizationIntensity;
     node["stableCps"] = settings.stableCPS;
     node["stableCpsValue"] = settings.stableCPSValue;
     node["advancedMode"] = settings.advancedMode;
@@ -761,6 +796,8 @@ void AutoClicker::loadSettings(const json::Value& node) {
     settings.randomizationMode = static_cast<RandomizationMode>(
         (std::clamp)(node["randomizationMode"].as_int(static_cast<int>(settings.randomizationMode)), 0, 2));
     settings.randomization = node["randomization"].as_bool(settings.randomization);
+    settings.randomizationIntensity =
+        (std::clamp)(node["randomizationIntensity"].as_int(settings.randomizationIntensity), 0, 100);
     settings.stableCPS = node["stableCps"].as_bool(settings.stableCPS);
     settings.stableCPSValue = node["stableCpsValue"].as_float(settings.stableCPSValue);
     settings.advancedMode = node["advancedMode"].as_bool(settings.advancedMode);

@@ -28,6 +28,7 @@ public:
         bool workInInventory = true;
         RandomizationMode randomizationMode = RandomizationMode::HUMAN;
         bool randomization = true;  // ON = human humanization; OFF = plain uniform CPS
+        int randomizationIntensity = 100;
 
         // Stable CPS mode - no randomization, exact CPS
         bool stableCPS = false;
@@ -49,6 +50,7 @@ private:
     std::chrono::steady_clock::time_point nextEventTime;
     std::chrono::steady_clock::time_point stableTimelineStart;
     std::chrono::steady_clock::time_point stableLastClick;  // For strict min interval enforcement
+    std::chrono::steady_clock::time_point inventoryLastClick;
     int stableClickCount = 0;
     int nextDelayMs = 100;
     std::mt19937 rng;

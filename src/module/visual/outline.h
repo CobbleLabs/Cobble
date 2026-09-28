@@ -11,8 +11,10 @@
 // separable two-pass dilation then subtracts the body from its own dilation, leaving the rim.
 //
 // Three phases, because each one is only correct in one place:
-//   onRender3D   - world pass entry: clear the mask and arm it.
-//   captureModel - per model, from the Java hook, while the entity transform is live.
+//   onRender3D   - world pass entry: cache the local eye position for the range test.
+//   captureModel - per model, from the Java hook, while the entity transform is live. The
+//                  frame's first capture clears the mask, so no separate arming step exists
+//                  that could silently drop a whole frame.
 //   onRender     - overlay pass: dilate and composite.
 class Outline : public Module {
 public:
@@ -64,8 +66,8 @@ private:
     int width_ = 0;
     int height_ = 0;
     bool glFailed_ = false;
-    // armed_: the mask was cleared for this frame. captured_: something was drawn into it.
-    bool armed_ = false;
+    // Something reached the mask this frame. Reset by the overlay pass, which is what makes
+    // the next frame's first capture clear.
     bool captured_ = false;
     double localX_ = 0.0;
     double localY_ = 0.0;
