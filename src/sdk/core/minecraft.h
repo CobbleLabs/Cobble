@@ -154,6 +154,8 @@ struct Minecraft {
     // PlayerControllerMP.sendUseItem(player, world, heldStack). Returns true
     // when vanilla accepted and applied the held-item use locally.
     bool sendUseHeldItem();
+    // PlayerControllerMP.syncCurrentPlayItem() - syncs current hotbar slot to server via C09
+    void syncCurrentPlayItem();
     void updateMouseOver();
 
     // NetHandlerPlayClient (the incoming/outgoing packet handler). Caller deletes the

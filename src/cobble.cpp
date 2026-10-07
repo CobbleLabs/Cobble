@@ -31,6 +31,7 @@
 #include "module/utility/inventorymanager.h"
 #include "module/utility/teams.h"
 #include "module/utility/throwpots.h"
+#include "module/utility/bardhelper.h"
 
 #include "module/visual/blockesp.h"
 #include "module/visual/chams.h"
@@ -242,6 +243,8 @@ void cobble::context::initialize(HMODULE hModule) {
     // and its constructor/registration path already assumes the manager exists.
     COBBLE_TRACE("alloc:Teams");
     teamsModule = new Teams();
+    COBBLE_TRACE("alloc:BardHelper");
+    bardHelper = new BardHelper();
     log_ok("Modules allocated");
     COBBLE_TRACE("modules allocated");
 
@@ -274,6 +277,7 @@ void cobble::context::initialize(HMODULE hModule) {
     moduleManager->registerModule(autoTool);
     moduleManager->registerModule(inventoryManager);
     moduleManager->registerModule(teamsModule);
+    moduleManager->registerModule(bardHelper);
     moduleManager->registerModule(altManager);
     moduleManager->registerModule(fastStop);
     moduleManager->registerModule(nameTags);
@@ -686,6 +690,10 @@ bool cobble::context::shutdown() {
     if (teamsModule) {
         delete teamsModule;
         teamsModule = nullptr;
+    }
+    if (bardHelper) {
+        delete bardHelper;
+        bardHelper = nullptr;
     }
     if (altManager) {
         delete altManager;

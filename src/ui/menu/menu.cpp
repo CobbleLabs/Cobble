@@ -36,6 +36,7 @@
 #include "../../module/utility/inventorymanager.h"
 #include "../../module/utility/teams.h"
 #include "../../module/utility/throwpots.h"
+#include "../../module/utility/bardhelper.h"
 #include "../../module/visual/blockesp.h"
 #include "../../module/visual/chams.h"
 #include "../../module/visual/outline.h"
@@ -170,6 +171,8 @@ Module* getModuleForSubtab(int tabIdx, int subtabIdx) {
                 return altManager;
             case 9:
                 return teamsModule;
+            case 10:
+                return bardHelper;
         }
     }
     // Network Tab (4)

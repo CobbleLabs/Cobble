@@ -72,6 +72,7 @@ static const DescriptionEntry kModuleDescriptions[] = {
     {"", "InvManager", "", "Organizes the inventory and hotbar using your saved preferences."},
     {"", "AltManager", "", "Sets the offline-mode username used on the next server connection."},
     {"", "Teams", "", "Decides who counts as a teammate, from server team data, nametag colors and the scoreboard."},
+    {"", "BardHelper", "", "Cycles through bard buff items in the hotbar on a keybind, with optional right-click activation."},
     {"", "FastStop", "", "Cancels leftover momentum instantly when you release the movement keys."},
 };
 
@@ -509,7 +510,7 @@ std::vector<ui::tab_t> ui::tabs = {
     {ICON_FA_KEYBOARD,
      "Utility",
      {"ArmorSwitch", "AutoRefill", "ThrowPots", "FastPlace", "NoItemRelease", "BridgeAssist", "AutoTool", "InvManager",
-      "AltManager", "Teams"}},
+      "AltManager", "Teams", "BardHelper"}},
     {ICON_FA_WIFI, "Network", {"Backtrack", "Blink"}},
     {ICON_FA_SAVE, "Configs", {}},
     {ICON_FA_GEAR, "Settings", {}}};

@@ -665,6 +665,89 @@ bool Minecraft::sendUseHeldItem() {
     return used;
 }
 
+void Minecraft::syncCurrentPlayItem() {
+    JNIEnv* env = Java::Env();
+    if (!isValid() || !env || !JniCache::fid_playerController)
+        return;
+
+    if (env->PushLocalFrame(16) < 0)
+        return;
+
+    jobject controller = env->GetObjectField(instance, JniCache::fid_playerController);
+    if (!controller || env->ExceptionCheck()) {
+        env->ExceptionClear();
+        env->PopLocalFrame(nullptr);
+        return;
+    }
+
+    jclass controllerClass = env->GetObjectClass(controller);
+    bool synced = false;
+    if (controllerClass) {
+        static jmethodID mid_sync = nullptr;
+        if (!mid_sync) {
+            mid_sync = env->GetMethodID(controllerClass, OBFUSCATE_STRING("syncCurrentPlayItem").c_str(), "()V");
+            if (!mid_sync) {
+                env->ExceptionClear();
+                mid_sync = env->GetMethodID(controllerClass, OBFUSCATE_STRING("func_78750_j").c_str(), "()V");
+            }
+            if (!mid_sync) {
+                env->ExceptionClear();
+                mid_sync = env->GetMethodID(controllerClass, OBFUSCATE_STRING("c").c_str(), "()V");
+            }
+        }
+        if (mid_sync) {
+            env->CallVoidMethod(controller, mid_sync);
+            if (env->ExceptionCheck()) {
+                env->ExceptionClear();
+            } else {
+                synced = true;
+            }
+        }
+    }
+
+    // Direct C09 fallback if controller method could not be dispatched
+    if (!synced) {
+        static jclass cls_c09 = nullptr;
+        static jmethodID mid_c09_init = nullptr;
+        static bool c09_resolved = false;
+        if (!c09_resolved) {
+            c09_resolved = true;
+            jclass local = nullptr;
+            if (Java::AssignClass(OBFUSCATE_STRING("net.minecraft.network.play.client.C09PacketHeldItemChange").c_str(), local) ||
+                Java::AssignClass(OBFUSCATE_STRING("iz").c_str(), local)) {
+                cls_c09 = static_cast<jclass>(env->NewGlobalRef(local));
+                env->DeleteLocalRef(local);
+                mid_c09_init = env->GetMethodID(cls_c09, "<init>", "(I)V");
+                if (!mid_c09_init)
+                    env->ExceptionClear();
+            }
+        }
+        if (cls_c09 && mid_c09_init && JniCache::fid_inventory && JniCache::fid_currentItem) {
+            jobject localPlayer = getPlayer();
+            if (localPlayer) {
+                jobject inv = env->GetObjectField(localPlayer, JniCache::fid_inventory);
+                if (inv && !env->ExceptionCheck()) {
+                    int slot = env->GetIntField(inv, JniCache::fid_currentItem);
+                    if (slot >= 0 && slot <= 8) {
+                        jobject pkt = env->NewObject(cls_c09, mid_c09_init, slot);
+                        if (pkt) {
+                            sendPacket(pkt);
+                            env->DeleteLocalRef(pkt);
+                        }
+                    }
+                }
+                if (env->ExceptionCheck())
+                    env->ExceptionClear();
+                if (inv)
+                    env->DeleteLocalRef(inv);
+                env->DeleteLocalRef(localPlayer);
+            }
+        }
+    }
+
+    env->PopLocalFrame(nullptr);
+}
+
 void Minecraft::updateMouseOver() {
     JNIEnv* env = Java::Env();
     if (!isValid() || !env || !JniCache::fid_entityRenderer || !JniCache::mid_getMouseOver)

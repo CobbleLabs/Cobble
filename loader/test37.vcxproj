@@ -59,16 +59,16 @@
       <AdditionalLibraryDirectories>$(ProjectDir)..\reprotect\bin\64\Release;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
     </Link>
   </ItemDefinitionGroup>
-  <!-- Pack mode: VMProtect-compatible flags. VMProtect cannot process
+  <!-- Protected build: VMProtect-compatible flags. VMProtect cannot process
        LTCG (/GL + LinkTimeCodeGeneration) or incremental linking - both
        rewrite call targets after marker detection and cause an AV on
        startup (0xC0000005 in unknown module). DLL project already does
        this; loader was missing it, which broke option 4. -->
-  <PropertyGroup Condition="'$(CobbleBuildMode)'=='Pack'">
+  <PropertyGroup Condition="'$(CobbleBuildMode)'=='Pack' Or '$(CobbleProtectArtifacts)'=='True'">
     <WholeProgramOptimization>false</WholeProgramOptimization>
   </PropertyGroup>
-  <!-- Pack mode: link the VMProtect marker/runtime SDK. -->
-  <ItemDefinitionGroup Condition="'$(CobbleBuildMode)'=='Pack'">
+  <!-- Protected build: link the VMProtect marker/runtime SDK. -->
+  <ItemDefinitionGroup Condition="'$(CobbleBuildMode)'=='Pack' Or '$(CobbleProtectArtifacts)'=='True'">
     <ClCompile>
       <WholeProgramOptimization>false</WholeProgramOptimization>
       <AdditionalOptions>/GL- %(AdditionalOptions)</AdditionalOptions>

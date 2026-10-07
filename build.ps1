@@ -158,6 +158,7 @@ function Invoke-MSBuild {
         "/p:Configuration=$Configuration" `
         "/p:Platform=$Platform" `
         "/p:CobbleBuildMode=$BuildMode" `
+        "/p:CobbleProtectArtifacts=$ProtectArtifacts" `
         "/v:minimal" "/nologo"
     if ($LASTEXITCODE -ne 0) { Write-Log "$Label build failed" FAIL; exit 1 }
 }
