@@ -29,6 +29,7 @@ namespace Diagnostics {
 inline std::atomic<const char*> g_currentOperation{"idle"};
 inline std::atomic<uint64_t> g_lastTickTime{0};
 inline std::atomic<bool> g_watchdogRunning{false};
+inline std::atomic<bool> g_watchdogExited{true};
 inline std::atomic<bool> g_inWorldChange{false};
 
 // Freeze threshold in milliseconds
@@ -101,6 +102,7 @@ inline void watchdogThread() {
     }
 
     log_ok("[DIAG] Watchdog thread stopped");
+    g_watchdogExited.store(true);
 }
 
 // Start watchdog
@@ -108,13 +110,17 @@ inline void startWatchdog() {
     if (g_watchdogRunning.load())
         return;
 
+    g_watchdogExited.store(false);
     g_watchdogRunning.store(true);
     std::thread(watchdogThread).detach();
 }
 
-// Stop watchdog
+// Stop watchdog and wait for the detached thread to leave DLL code; the caller
+// unloads the module right after shutdown.
 inline void stopWatchdog() {
     g_watchdogRunning.store(false);
+    while (!g_watchdogExited.load())
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
 }
 
 // SEH exception filter for crash reporting

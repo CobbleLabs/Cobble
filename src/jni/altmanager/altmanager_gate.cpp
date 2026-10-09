@@ -30,12 +30,12 @@ void clearPendingException(JNIEnv* env) {
 }
 
 jfieldID findProfileField(JNIEnv* env, jclass loginStartClass) {
-    jfieldID field = env->GetFieldID(loginStartClass, "profile", kGameProfileSignature);
+    jfieldID field = Java::GetFieldID(env, loginStartClass, "profile", kGameProfileSignature);
     if (field)
         return field;
 
     clearPendingException(env);
-    field = env->GetFieldID(loginStartClass, "field_149305_a", kGameProfileSignature);
+    field = Java::GetFieldID(env, loginStartClass, "field_149305_a", kGameProfileSignature);
     clearPendingException(env);
     return field;
 }
@@ -87,11 +87,11 @@ bool ensureCache(JNIEnv* env) {
     }
 
     g_profileField = findProfileField(env, g_loginStartClass);
-    g_profileConstructor = env->GetMethodID(g_gameProfileClass, "<init>", "(Ljava/util/UUID;Ljava/lang/String;)V");
+    g_profileConstructor = Java::GetMethodID(env, g_gameProfileClass, "<init>", "(Ljava/util/UUID;Ljava/lang/String;)V");
     if (!g_profileConstructor)
         clearPendingException(env);
 
-    g_getProfileId = env->GetMethodID(g_gameProfileClass, "getId", "()Ljava/util/UUID;");
+    g_getProfileId = Java::GetMethodID(env, g_gameProfileClass, "getId", "()Ljava/util/UUID;");
     if (!g_getProfileId)
         clearPendingException(env);
 
@@ -127,18 +127,18 @@ bool ensureSessionAccess(JNIEnv* env) {
     if (!mc.cls || !mc.instance)
         return false;
 
-    g_getSessionMid = env->GetMethodID(mc.cls, "getSession", kSessionSignature);
+    g_getSessionMid = Java::GetMethodID(env, mc.cls, "getSession", kSessionSignature);
     if (!g_getSessionMid) {
         clearPendingException(env);
-        g_getSessionMid = env->GetMethodID(mc.cls, "func_110432_I", kSessionSignature);
+        g_getSessionMid = Java::GetMethodID(env, mc.cls, "func_110432_I", kSessionSignature);
     }
     if (!g_getSessionMid) {
         clearPendingException(env);
-        g_sessionField = env->GetFieldID(mc.cls, "session", kSessionSignature);
+        g_sessionField = Java::GetFieldID(env, mc.cls, "session", kSessionSignature);
     }
     if (!g_getSessionMid && !g_sessionField) {
         clearPendingException(env);
-        g_sessionField = env->GetFieldID(mc.cls, "field_71449_j", kSessionSignature);
+        g_sessionField = Java::GetFieldID(env, mc.cls, "field_71449_j", kSessionSignature);
     }
     clearPendingException(env);
 
@@ -191,10 +191,10 @@ bool forEachSessionString(JNIEnv* env, jobject session, Fn&& fn) {
         return false;
     }
 
-    jmethodID midDeclaredFields = env->GetMethodID(classCls, "getDeclaredFields", "()[Ljava/lang/reflect/Field;");
-    jmethodID midClassName = env->GetMethodID(classCls, "getName", "()Ljava/lang/String;");
-    jmethodID midFieldType = env->GetMethodID(fieldCls, "getType", "()Ljava/lang/Class;");
-    jmethodID midSetAccessible = env->GetMethodID(fieldCls, "setAccessible", "(Z)V");
+    jmethodID midDeclaredFields = Java::GetMethodID(env, classCls, "getDeclaredFields", "()[Ljava/lang/reflect/Field;");
+    jmethodID midClassName = Java::GetMethodID(env, classCls, "getName", "()Ljava/lang/String;");
+    jmethodID midFieldType = Java::GetMethodID(env, fieldCls, "getType", "()Ljava/lang/Class;");
+    jmethodID midSetAccessible = Java::GetMethodID(env, fieldCls, "setAccessible", "(Z)V");
     clearPendingException(env);
     if (!midDeclaredFields || !midClassName || !midFieldType || !midSetAccessible) {
         release();
@@ -323,7 +323,7 @@ bool SetSession(JNIEnv* env, const char* username, const char* uuid, const char*
 
     jclass fieldCls = env->FindClass("java/lang/reflect/Field");
     jmethodID midSet =
-        fieldCls ? env->GetMethodID(fieldCls, "set", "(Ljava/lang/Object;Ljava/lang/Object;)V") : nullptr;
+        fieldCls ? Java::GetMethodID(env, fieldCls, "set", "(Ljava/lang/Object;Ljava/lang/Object;)V") : nullptr;
     clearPendingException(env);
     if (!midSet) {
         if (fieldCls)
@@ -375,7 +375,7 @@ bool GetSession(JNIEnv* env, std::string& username, std::string& uuid, std::stri
         return false;
 
     jclass fieldCls = env->FindClass("java/lang/reflect/Field");
-    jmethodID midGet = fieldCls ? env->GetMethodID(fieldCls, "get", "(Ljava/lang/Object;)Ljava/lang/Object;") : nullptr;
+    jmethodID midGet = fieldCls ? Java::GetMethodID(env, fieldCls, "get", "(Ljava/lang/Object;)Ljava/lang/Object;") : nullptr;
     clearPendingException(env);
     if (!midGet) {
         if (fieldCls)

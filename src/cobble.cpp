@@ -470,6 +470,7 @@ void cobble::context::initialize(HMODULE hModule) {
 }
 
 bool cobble::context::shutdown() {
+    Diagnostics::stopWatchdog();
     SessionValidator::StopHeartbeatThread();
 
     // Final encrypted log upload BEFORE modules are disabled below, so the config

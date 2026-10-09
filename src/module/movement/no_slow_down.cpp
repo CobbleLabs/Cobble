@@ -154,10 +154,10 @@ bool NoSlowDown::initializeFields(JNIEnv* env, jobject playerInstance) {
 
     const auto findField = [env](jclass cls, const char* name, const char* fallback,
                                  const char* signature) -> jfieldID {
-        jfieldID field = env->GetFieldID(cls, name, signature);
+        jfieldID field = Java::GetFieldID(env, cls, name, signature);
         if (!field) {
             clearJniException(env);
-            field = env->GetFieldID(cls, fallback, signature);
+            field = Java::GetFieldID(env, cls, fallback, signature);
         }
         clearJniException(env);
         return field;

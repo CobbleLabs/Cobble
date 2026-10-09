@@ -535,14 +535,14 @@ void Minecraft::renderGhostEntity(int entityId, double wx, double wy, double wz,
         triedIds = true;
         jclass wcls = env->GetObjectClass(world);
         if (wcls) {
-            mid_getEntityByID = env->GetMethodID(wcls, OBFUSCATE_STRING("getEntityByID").c_str(),
+            mid_getEntityByID = Java::GetMethodID(env, wcls, OBFUSCATE_STRING("getEntityByID").c_str(),
                                                  OBFUSCATE_STRING("(I)Lnet/minecraft/entity/Entity;").c_str());
             env->DeleteLocalRef(wcls);
         }
         if (env->ExceptionCheck())
             env->ExceptionClear();
         // 1.8.x doRenderEntity returns boolean; try that first, then a void mapping.
-        mid_doRenderEntity = env->GetMethodID(JniCache::cls_RenderManager, OBFUSCATE_STRING("doRenderEntity").c_str(),
+        mid_doRenderEntity = Java::GetMethodID(env, JniCache::cls_RenderManager, OBFUSCATE_STRING("doRenderEntity").c_str(),
                                               OBFUSCATE_STRING("(Lnet/minecraft/entity/Entity;DDDFFZ)Z").c_str());
         if (env->ExceptionCheck())
             env->ExceptionClear();
@@ -550,18 +550,17 @@ void Minecraft::renderGhostEntity(int entityId, double wx, double wy, double wz,
             doRenderReturnsBool = true;
         } else {
             mid_doRenderEntity =
-                env->GetMethodID(JniCache::cls_RenderManager, OBFUSCATE_STRING("doRenderEntity").c_str(),
+                Java::GetMethodID(env, JniCache::cls_RenderManager, OBFUSCATE_STRING("doRenderEntity").c_str(),
                                  OBFUSCATE_STRING("(Lnet/minecraft/entity/Entity;DDDFFZ)V").c_str());
             if (env->ExceptionCheck())
                 env->ExceptionClear();
         }
         log_debug("[BacktrackGhost] ids: getEntityByID=%p doRenderEntity=%p (bool=%d)", (void*)mid_getEntityByID,
                   (void*)mid_doRenderEntity, doRenderReturnsBool ? 1 : 0);
-        jclass ecls = env->FindClass(OBFUSCATE_STRING("net/minecraft/entity/Entity").c_str());
-        if (ecls) {
-            fid_rotationYaw = env->GetFieldID(ecls, OBFUSCATE_STRING("rotationYaw").c_str(), "F");
-            fid_prevRotationYaw = env->GetFieldID(ecls, OBFUSCATE_STRING("prevRotationYaw").c_str(), "F");
-            env->DeleteLocalRef(ecls);
+        if (JniCache::cls_Entity) {
+            fid_rotationYaw = Java::GetFieldID(env, JniCache::cls_Entity, OBFUSCATE_STRING("rotationYaw").c_str(), "F");
+            fid_prevRotationYaw =
+                Java::GetFieldID(env, JniCache::cls_Entity, OBFUSCATE_STRING("prevRotationYaw").c_str(), "F");
         }
         if (env->ExceptionCheck())
             env->ExceptionClear();
@@ -612,11 +611,11 @@ void Minecraft::renderGhostEntity(int entityId, double wx, double wy, double wz,
             if (!triedHideGUI) {
                 triedHideGUI = true;
                 if (JniCache::cls_GameSettings) {
-                    fid_hideGUI = env->GetFieldID(JniCache::cls_GameSettings, "hideGUI", "Z");
+                    fid_hideGUI = Java::GetFieldID(env, JniCache::cls_GameSettings, "hideGUI", "Z");
                     if (!fid_hideGUI) {
                         if (env->ExceptionCheck())
                             env->ExceptionClear();
-                        fid_hideGUI = env->GetFieldID(JniCache::cls_GameSettings, "field_74319_N", "Z");
+                        fid_hideGUI = Java::GetFieldID(env, JniCache::cls_GameSettings, "field_74319_N", "Z");
                     }
                     if (env->ExceptionCheck())
                         env->ExceptionClear();
@@ -642,12 +641,12 @@ void Minecraft::renderGhostEntity(int entityId, double wx, double wy, double wz,
                 triedInvisibleIds = true;
                 jclass entityClass = env->GetObjectClass(entity);
                 if (entityClass) {
-                    mid_isInvisible = env->GetMethodID(entityClass, "isInvisible", "()Z");
+                    mid_isInvisible = Java::GetMethodID(env, entityClass, "isInvisible", "()Z");
                     if (env->ExceptionCheck()) {
                         env->ExceptionClear();
                         mid_isInvisible = nullptr;
                     }
-                    mid_setInvisible = env->GetMethodID(entityClass, "setInvisible", "(Z)V");
+                    mid_setInvisible = Java::GetMethodID(env, entityClass, "setInvisible", "(Z)V");
                     if (env->ExceptionCheck()) {
                         env->ExceptionClear();
                         mid_setInvisible = nullptr;
@@ -733,13 +732,13 @@ void Minecraft::renderGhostEntity(int entityId, double wx, double wy, double wz,
                     triedEquipIds = true;
                     jclass entityCls = env->GetObjectClass(entity);
                     if (entityCls) {
-                        mid_getEquip = env->GetMethodID(entityCls, OBFUSCATE_STRING("getEquipmentInSlot").c_str(),
+                        mid_getEquip = Java::GetMethodID(env, entityCls, OBFUSCATE_STRING("getEquipmentInSlot").c_str(),
                                                         OBFUSCATE_STRING("(I)Lnet/minecraft/item/ItemStack;").c_str());
                         if (env->ExceptionCheck()) {
                             env->ExceptionClear();
                             mid_getEquip = nullptr;
                         }
-                        mid_setEquip = env->GetMethodID(entityCls, OBFUSCATE_STRING("setCurrentItemOrArmor").c_str(),
+                        mid_setEquip = Java::GetMethodID(env, entityCls, OBFUSCATE_STRING("setCurrentItemOrArmor").c_str(),
                                                         OBFUSCATE_STRING("(ILnet/minecraft/item/ItemStack;)V").c_str());
                         if (env->ExceptionCheck()) {
                             env->ExceptionClear();
@@ -795,7 +794,7 @@ void Minecraft::renderGhostEntity(int entityId, double wx, double wy, double wz,
                     triedSneakId = true;
                     jclass entityCls = env->GetObjectClass(entity);
                     if (entityCls) {
-                        mid_isSneaking = env->GetMethodID(entityCls, OBFUSCATE_STRING("isSneaking").c_str(), "()Z");
+                        mid_isSneaking = Java::GetMethodID(env, entityCls, OBFUSCATE_STRING("isSneaking").c_str(), "()Z");
                         if (env->ExceptionCheck()) {
                             env->ExceptionClear();
                             mid_isSneaking = nullptr;
@@ -996,7 +995,7 @@ void Minecraft::renderEntityChams(int entityId, float r, float g, float b, float
         if (is_1_7_10) {
             // 1.7.10: RenderManager is a singleton — RenderManager.instance
             if (JniCache::cls_RenderManager) {
-                s_sfid_rmInstance = env->GetStaticFieldID(
+                s_sfid_rmInstance = Java::GetStaticFieldID(env, 
                     JniCache::cls_RenderManager, OBFUSCATE_STRING("instance").c_str(),
                     OBFUSCATE_STRING("Lnet/minecraft/client/renderer/entity/RenderManager;").c_str());
                 if (env->ExceptionCheck()) {
@@ -1004,7 +1003,7 @@ void Minecraft::renderEntityChams(int entityId, float r, float g, float b, float
                     s_sfid_rmInstance = nullptr;
                 }
                 if (!s_sfid_rmInstance) {
-                    s_sfid_rmInstance = env->GetStaticFieldID(
+                    s_sfid_rmInstance = Java::GetStaticFieldID(env, 
                         JniCache::cls_RenderManager, OBFUSCATE_STRING("field_78727_a").c_str(),
                         OBFUSCATE_STRING("Lnet/minecraft/client/renderer/entity/RenderManager;").c_str());
                     if (env->ExceptionCheck()) {
@@ -1062,21 +1061,21 @@ void Minecraft::renderEntityChams(int entityId, float r, float g, float b, float
         // ---- World.getEntityByID(int) -> Entity ----
         jclass wcls = env->GetObjectClass(world);
         if (wcls) {
-            mid_getEntityByID = env->GetMethodID(wcls, OBFUSCATE_STRING("getEntityByID").c_str(),
+            mid_getEntityByID = Java::GetMethodID(env, wcls, OBFUSCATE_STRING("getEntityByID").c_str(),
                                                  OBFUSCATE_STRING("(I)Lnet/minecraft/entity/Entity;").c_str());
             if (env->ExceptionCheck()) {
                 env->ExceptionClear();
                 mid_getEntityByID = nullptr;
             }
             if (!mid_getEntityByID) {
-                mid_getEntityByID = env->GetMethodID(wcls, OBFUSCATE_STRING("func_73045_a").c_str(),
+                mid_getEntityByID = Java::GetMethodID(env, wcls, OBFUSCATE_STRING("func_73045_a").c_str(),
                                                      OBFUSCATE_STRING("(I)Lnet/minecraft/entity/Entity;").c_str());
                 if (env->ExceptionCheck()) {
                     env->ExceptionClear();
                     mid_getEntityByID = nullptr;
                 }
             }
-            // Descriptor search (handles Notch via NotchDescriptor).
+            // Descriptor search (handles renamed clients via RuntimeDescriptor).
             if (!mid_getEntityByID) {
                 mid_getEntityByID =
                     jni_resolver::findUniqueMethodBySignature(wcls, "(I)Lnet/minecraft/entity/Entity;", false);
@@ -1087,7 +1086,7 @@ void Minecraft::renderEntityChams(int entityId, float r, float g, float b, float
         // ---- RenderManager.renderEntitySimple(Entity, float) -> boolean ----
         if (JniCache::cls_RenderManager) {
             mid_renderEntitySimple =
-                env->GetMethodID(JniCache::cls_RenderManager, OBFUSCATE_STRING("renderEntitySimple").c_str(),
+                Java::GetMethodID(env, JniCache::cls_RenderManager, OBFUSCATE_STRING("renderEntitySimple").c_str(),
                                  OBFUSCATE_STRING("(Lnet/minecraft/entity/Entity;F)Z").c_str());
             if (env->ExceptionCheck()) {
                 env->ExceptionClear();
@@ -1095,7 +1094,7 @@ void Minecraft::renderEntityChams(int entityId, float r, float g, float b, float
             }
             if (!mid_renderEntitySimple) {
                 mid_renderEntitySimple =
-                    env->GetMethodID(JniCache::cls_RenderManager, OBFUSCATE_STRING("func_147936_a").c_str(),
+                    Java::GetMethodID(env, JniCache::cls_RenderManager, OBFUSCATE_STRING("func_147936_a").c_str(),
                                      OBFUSCATE_STRING("(Lnet/minecraft/entity/Entity;F)Z").c_str());
                 if (env->ExceptionCheck()) {
                     env->ExceptionClear();
@@ -1112,7 +1111,7 @@ void Minecraft::renderEntityChams(int entityId, float r, float g, float b, float
             // 1.7.10 signature: renderEntityWithPosYaw(Entity, DDD, F, F) -> Z
             if (!is_1_7_10) {
                 mid_doRenderEntity =
-                    env->GetMethodID(JniCache::cls_RenderManager, OBFUSCATE_STRING("doRenderEntity").c_str(),
+                    Java::GetMethodID(env, JniCache::cls_RenderManager, OBFUSCATE_STRING("doRenderEntity").c_str(),
                                      OBFUSCATE_STRING("(Lnet/minecraft/entity/Entity;DDDFFZ)Z").c_str());
                 if (env->ExceptionCheck()) {
                     env->ExceptionClear();
@@ -1123,7 +1122,7 @@ void Minecraft::renderEntityChams(int entityId, float r, float g, float b, float
                     doRenderTakesExtraBool = true;
                 } else {
                     mid_doRenderEntity =
-                        env->GetMethodID(JniCache::cls_RenderManager, OBFUSCATE_STRING("doRenderEntity").c_str(),
+                        Java::GetMethodID(env, JniCache::cls_RenderManager, OBFUSCATE_STRING("doRenderEntity").c_str(),
                                          OBFUSCATE_STRING("(Lnet/minecraft/entity/Entity;DDDFFZ)V").c_str());
                     if (env->ExceptionCheck()) {
                         env->ExceptionClear();
@@ -1148,7 +1147,7 @@ void Minecraft::renderEntityChams(int entityId, float r, float g, float b, float
                 }
             } else {
                 mid_doRenderEntity =
-                    env->GetMethodID(JniCache::cls_RenderManager, OBFUSCATE_STRING("renderEntityWithPosYaw").c_str(),
+                    Java::GetMethodID(env, JniCache::cls_RenderManager, OBFUSCATE_STRING("renderEntityWithPosYaw").c_str(),
                                      OBFUSCATE_STRING("(Lnet/minecraft/entity/Entity;DDDFF)Z").c_str());
                 if (env->ExceptionCheck()) {
                     env->ExceptionClear();
@@ -1158,7 +1157,7 @@ void Minecraft::renderEntityChams(int entityId, float r, float g, float b, float
                     doRenderReturnsBool = true;
                 } else {
                     mid_doRenderEntity =
-                        env->GetMethodID(JniCache::cls_RenderManager, OBFUSCATE_STRING("func_147939_a").c_str(),
+                        Java::GetMethodID(env, JniCache::cls_RenderManager, OBFUSCATE_STRING("func_147939_a").c_str(),
                                          OBFUSCATE_STRING("(Lnet/minecraft/entity/Entity;DDDFF)Z").c_str());
                     if (env->ExceptionCheck()) {
                         env->ExceptionClear();
@@ -1194,11 +1193,11 @@ void Minecraft::renderEntityChams(int entityId, float r, float g, float b, float
             if (!triedHideGUI) {
                 triedHideGUI = true;
                 if (JniCache::cls_GameSettings) {
-                    fid_hideGUI = env->GetFieldID(JniCache::cls_GameSettings, "hideGUI", "Z");
+                    fid_hideGUI = Java::GetFieldID(env, JniCache::cls_GameSettings, "hideGUI", "Z");
                     if (!fid_hideGUI) {
                         if (env->ExceptionCheck())
                             env->ExceptionClear();
-                        fid_hideGUI = env->GetFieldID(JniCache::cls_GameSettings, "field_74319_N", "Z");
+                        fid_hideGUI = Java::GetFieldID(env, JniCache::cls_GameSettings, "field_74319_N", "Z");
                     }
                     if (env->ExceptionCheck())
                         env->ExceptionClear();
@@ -1292,28 +1291,28 @@ void Minecraft::renderEntityChams(int entityId, float r, float g, float b, float
                     if (!ecls)
                         ecls = env->GetObjectClass(entity);
                     if (ecls) {
-                        fid_posX = env->GetFieldID(ecls, "posX", "D");
+                        fid_posX = Java::GetFieldID(env, ecls, "posX", "D");
                         if (env->ExceptionCheck())
                             env->ExceptionClear();
-                        fid_posY = env->GetFieldID(ecls, "posY", "D");
+                        fid_posY = Java::GetFieldID(env, ecls, "posY", "D");
                         if (env->ExceptionCheck())
                             env->ExceptionClear();
-                        fid_posZ = env->GetFieldID(ecls, "posZ", "D");
+                        fid_posZ = Java::GetFieldID(env, ecls, "posZ", "D");
                         if (env->ExceptionCheck())
                             env->ExceptionClear();
-                        fid_lastX = env->GetFieldID(ecls, "lastTickPosX", "D");
+                        fid_lastX = Java::GetFieldID(env, ecls, "lastTickPosX", "D");
                         if (env->ExceptionCheck())
                             env->ExceptionClear();
-                        fid_lastY = env->GetFieldID(ecls, "lastTickPosY", "D");
+                        fid_lastY = Java::GetFieldID(env, ecls, "lastTickPosY", "D");
                         if (env->ExceptionCheck())
                             env->ExceptionClear();
-                        fid_lastZ = env->GetFieldID(ecls, "lastTickPosZ", "D");
+                        fid_lastZ = Java::GetFieldID(env, ecls, "lastTickPosZ", "D");
                         if (env->ExceptionCheck())
                             env->ExceptionClear();
-                        fid_rotYaw = env->GetFieldID(ecls, OBFUSCATE_STRING("rotationYaw").c_str(), "F");
+                        fid_rotYaw = Java::GetFieldID(env, ecls, OBFUSCATE_STRING("rotationYaw").c_str(), "F");
                         if (env->ExceptionCheck())
                             env->ExceptionClear();
-                        fid_prevYaw = env->GetFieldID(ecls, OBFUSCATE_STRING("prevRotationYaw").c_str(), "F");
+                        fid_prevYaw = Java::GetFieldID(env, ecls, OBFUSCATE_STRING("prevRotationYaw").c_str(), "F");
                         if (env->ExceptionCheck())
                             env->ExceptionClear();
                         env->DeleteLocalRef(ecls);

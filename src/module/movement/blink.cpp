@@ -25,16 +25,16 @@ static jmethodID getSendPacketMethod(JNIEnv* env, jobject netHandler) {
     if (!cls)
         return nullptr;
 
-    mid_sendPacket = env->GetMethodID(cls, OBFUSCATE_STRING("addToSendQueue").c_str(),
+    mid_sendPacket = Java::GetMethodID(env, cls, OBFUSCATE_STRING("addToSendQueue").c_str(),
                                       OBFUSCATE_STRING("(Lnet/minecraft/network/Packet;)V").c_str());
     if (!mid_sendPacket) {
         env->ExceptionClear();
-        mid_sendPacket = env->GetMethodID(cls, OBFUSCATE_STRING("func_147297_a").c_str(),
+        mid_sendPacket = Java::GetMethodID(env, cls, OBFUSCATE_STRING("func_147297_a").c_str(),
                                           OBFUSCATE_STRING("(Lnet/minecraft/network/Packet;)V").c_str());
     }
     if (!mid_sendPacket) {
         env->ExceptionClear();
-        mid_sendPacket = env->GetMethodID(cls, OBFUSCATE_STRING("sendPacket").c_str(),
+        mid_sendPacket = Java::GetMethodID(env, cls, OBFUSCATE_STRING("sendPacket").c_str(),
                                           OBFUSCATE_STRING("(Lnet/minecraft/network/Packet;)V").c_str());
     }
     env->DeleteLocalRef(cls);

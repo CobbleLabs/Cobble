@@ -51,15 +51,15 @@ static bool containerSlotScreenPosition(int containerSlot, POINT& position) {
         env->DeleteLocalRef(screen);
         return false;
     }
-    jfieldID width = env->GetFieldID(guiScreen, "width", "I");
+    jfieldID width = Java::GetFieldID(env, guiScreen, "width", "I");
     if (!width) {
         env->ExceptionClear();
-        width = env->GetFieldID(guiScreen, "field_146294_l", "I");
+        width = Java::GetFieldID(env, guiScreen, "field_146294_l", "I");
     }
-    jfieldID height = env->GetFieldID(guiScreen, "height", "I");
+    jfieldID height = Java::GetFieldID(env, guiScreen, "height", "I");
     if (!height) {
         env->ExceptionClear();
-        height = env->GetFieldID(guiScreen, "field_146295_m", "I");
+        height = Java::GetFieldID(env, guiScreen, "field_146295_m", "I");
     }
     const int guiWidth = width ? env->GetIntField(screen, width) : 0;
     const int guiHeight = height ? env->GetIntField(screen, height) : 0;

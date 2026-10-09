@@ -339,7 +339,7 @@ jmethodID resolveModelRender(JNIEnv* env) {
         return nullptr;
     }
     for (const char* name : {"render", "func_78088_a", "a"}) {
-        cached = env->GetMethodID(modelBiped, name, "(Lnet/minecraft/entity/Entity;FFFFFF)V");
+        cached = Java::GetMethodID(env, modelBiped, name, "(Lnet/minecraft/entity/Entity;FFFFFF)V");
         if (env->ExceptionCheck())
             env->ExceptionClear();
         if (cached)
@@ -429,6 +429,7 @@ void JNICALL NativeOnRenderWorld(JNIEnv* env, jclass, jobject viewEntity) {
     RenderData::modelView.m32 = mv[14];
     RenderData::modelView.m33 = mv[15];
 
+    RenderData::hookProvidesMatrices.store(true, std::memory_order_release);
     bool wasUpdated = RenderData::updated;
     RenderData::updated =
         RenderData::IsMatrixValid(RenderData::projection) && RenderData::IsMatrixValid(RenderData::modelView);

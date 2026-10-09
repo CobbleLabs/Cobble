@@ -39,21 +39,21 @@ static int readEnchantLevel(JNIEnv* env, jobject itemStack, int wantEnchantId) {
         Java::AssignClass(OBFUSCATE_STRING("net.minecraft.nbt.NBTTagCompound"), cmp);
         if (cmp) {
             s_nbtCompoundCls = (jclass)env->NewGlobalRef(cmp);
-            s_getShort = env->GetMethodID(cmp, OBFUSCATE_STRING("getShort").c_str(),
+            s_getShort = Java::GetMethodID(env, cmp, OBFUSCATE_STRING("getShort").c_str(),
                                           OBFUSCATE_STRING("(Ljava/lang/String;)S").c_str());
             if (!s_getShort) {
                 env->ExceptionClear();
-                s_getShort = env->GetMethodID(cmp, OBFUSCATE_STRING("func_74765_d").c_str(),
+                s_getShort = Java::GetMethodID(env, cmp, OBFUSCATE_STRING("func_74765_d").c_str(),
                                               OBFUSCATE_STRING("(Ljava/lang/String;)S").c_str());
                 if (!s_getShort) {
                     env->ExceptionClear();
                 }
             }
-            s_getInteger = env->GetMethodID(cmp, OBFUSCATE_STRING("getInteger").c_str(),
+            s_getInteger = Java::GetMethodID(env, cmp, OBFUSCATE_STRING("getInteger").c_str(),
                                             OBFUSCATE_STRING("(Ljava/lang/String;)I").c_str());
             if (!s_getInteger) {
                 env->ExceptionClear();
-                s_getInteger = env->GetMethodID(cmp, OBFUSCATE_STRING("func_74762_e").c_str(),
+                s_getInteger = Java::GetMethodID(env, cmp, OBFUSCATE_STRING("func_74762_e").c_str(),
                                                 OBFUSCATE_STRING("(Ljava/lang/String;)I").c_str());
                 if (!s_getInteger) {
                     env->ExceptionClear();
@@ -63,11 +63,11 @@ static int readEnchantLevel(JNIEnv* env, jobject itemStack, int wantEnchantId) {
         }
         jclass stackCls = env->GetObjectClass(itemStack);
         if (stackCls) {
-            s_getEnchantTagList = env->GetMethodID(stackCls, OBFUSCATE_STRING("getEnchantmentTagList").c_str(),
+            s_getEnchantTagList = Java::GetMethodID(env, stackCls, OBFUSCATE_STRING("getEnchantmentTagList").c_str(),
                                                    OBFUSCATE_STRING("()Lnet/minecraft/nbt/NBTTagList;").c_str());
             if (!s_getEnchantTagList) {
                 env->ExceptionClear();
-                s_getEnchantTagList = env->GetMethodID(stackCls, OBFUSCATE_STRING("func_77986_q").c_str(),
+                s_getEnchantTagList = Java::GetMethodID(env, stackCls, OBFUSCATE_STRING("func_77986_q").c_str(),
                                                        OBFUSCATE_STRING("()Lnet/minecraft/nbt/NBTTagList;").c_str());
                 if (!s_getEnchantTagList) {
                     env->ExceptionClear();
@@ -78,20 +78,20 @@ static int readEnchantLevel(JNIEnv* env, jobject itemStack, int wantEnchantId) {
         jclass tlc = nullptr;
         Java::AssignClass(OBFUSCATE_STRING("net.minecraft.nbt.NBTTagList"), tlc);
         if (tlc) {
-            s_tagCount = env->GetMethodID(tlc, OBFUSCATE_STRING("tagCount").c_str(), OBFUSCATE_STRING("()I").c_str());
+            s_tagCount = Java::GetMethodID(env, tlc, OBFUSCATE_STRING("tagCount").c_str(), OBFUSCATE_STRING("()I").c_str());
             if (!s_tagCount) {
                 env->ExceptionClear();
                 s_tagCount =
-                    env->GetMethodID(tlc, OBFUSCATE_STRING("func_74745_c").c_str(), OBFUSCATE_STRING("()I").c_str());
+                    Java::GetMethodID(env, tlc, OBFUSCATE_STRING("func_74745_c").c_str(), OBFUSCATE_STRING("()I").c_str());
                 if (!s_tagCount) {
                     env->ExceptionClear();
                 }
             }
-            s_getCompoundAt = env->GetMethodID(tlc, OBFUSCATE_STRING("getCompoundTagAt").c_str(),
+            s_getCompoundAt = Java::GetMethodID(env, tlc, OBFUSCATE_STRING("getCompoundTagAt").c_str(),
                                                OBFUSCATE_STRING("(I)Lnet/minecraft/nbt/NBTTagCompound;").c_str());
             if (!s_getCompoundAt) {
                 env->ExceptionClear();
-                s_getCompoundAt = env->GetMethodID(tlc, OBFUSCATE_STRING("func_150305_b").c_str(),
+                s_getCompoundAt = Java::GetMethodID(env, tlc, OBFUSCATE_STRING("func_150305_b").c_str(),
                                                    OBFUSCATE_STRING("(I)Lnet/minecraft/nbt/NBTTagCompound;").c_str());
                 if (!s_getCompoundAt) {
                     env->ExceptionClear();
@@ -243,10 +243,10 @@ static bool init_reflect_potions(JNIEnv* env) {
     env->DeleteLocalRef(localAccessible);
 
     g_refPotions.mid_getDeclaredFields =
-        env->GetMethodID(g_refPotions.cls_Class, "getDeclaredFields", "()[Ljava/lang/reflect/Field;");
+        Java::GetMethodID(env, g_refPotions.cls_Class, "getDeclaredFields", "()[Ljava/lang/reflect/Field;");
     g_refPotions.mid_fieldGet =
-        env->GetMethodID(g_refPotions.cls_Field, "get", "(Ljava/lang/Object;)Ljava/lang/Object;");
-    g_refPotions.mid_setAccessible = env->GetMethodID(g_refPotions.cls_AccessibleObject, "setAccessible", "(Z)V");
+        Java::GetMethodID(env, g_refPotions.cls_Field, "get", "(Ljava/lang/Object;)Ljava/lang/Object;");
+    g_refPotions.mid_setAccessible = Java::GetMethodID(env, g_refPotions.cls_AccessibleObject, "setAccessible", "(Z)V");
     env->ExceptionClear();
 
     return g_refPotions.mid_getDeclaredFields && g_refPotions.mid_fieldGet && g_refPotions.mid_setAccessible;
@@ -503,7 +503,7 @@ std::vector<PlayerInfo> Minecraft::getPlayerList() {
         jclass localPlayerClass = env->GetObjectClass(localPlayer);
         if (localPlayerClass) {
             mid_isOnSameTeam_cached =
-                env->GetMethodID(localPlayerClass, "isOnSameTeam", "(Lnet/minecraft/entity/EntityLivingBase;)Z");
+                Java::GetMethodID(env, localPlayerClass, "isOnSameTeam", "(Lnet/minecraft/entity/EntityLivingBase;)Z");
             if (env->ExceptionCheck())
                 env->ExceptionClear();
             env->DeleteLocalRef(localPlayerClass);

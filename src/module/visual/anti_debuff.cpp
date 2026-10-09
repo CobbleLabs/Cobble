@@ -35,8 +35,8 @@ bool AntiDebuff::initializeJni() {
     if (!integerClass)
         return false;
 
-    integerValueOf = env->GetStaticMethodID(integerClass, "valueOf", "(I)Ljava/lang/Integer;");
-    mapRemove = env->GetMethodID(JniCache::cls_Map, "remove", "(Ljava/lang/Object;)Ljava/lang/Object;");
+    integerValueOf = Java::GetStaticMethodID(env, integerClass, "valueOf", "(I)Ljava/lang/Integer;");
+    mapRemove = Java::GetMethodID(env, JniCache::cls_Map, "remove", "(Ljava/lang/Object;)Ljava/lang/Object;");
 
     if (env->ExceptionCheck() || !integerValueOf || !mapRemove) {
         env->ExceptionClear();

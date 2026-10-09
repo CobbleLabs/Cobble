@@ -150,7 +150,7 @@ static void resolveAimOnGround(JNIEnv* env) {
     g_aimResolvedOnGround = true;
 
     for (const char* name : {"onGround", "field_70122_E", "C"}) {
-        g_aim_fid_onGround = env->GetFieldID(JniCache::cls_Entity, name, "Z");
+        g_aim_fid_onGround = Java::GetFieldID(env, JniCache::cls_Entity, name, "Z");
         if (env->ExceptionCheck())
             env->ExceptionClear();
         if (g_aim_fid_onGround)
@@ -179,14 +179,14 @@ static void resolveAimHitVec(JNIEnv* env) {
     g_aimResolvedHitVec = true;
 
     for (const char* name : {"hitVec", "field_72307_f"}) {
-        g_aim_fid_hitVec = env->GetFieldID(JniCache::cls_MovingObjectPosition, name, "Lnet/minecraft/util/Vec3;");
+        g_aim_fid_hitVec = Java::GetFieldID(env, JniCache::cls_MovingObjectPosition, name, "Lnet/minecraft/util/Vec3;");
         if (env->ExceptionCheck())
             env->ExceptionClear();
         if (g_aim_fid_hitVec)
             break;
     }
     for (const char* name : {"yCoord", "field_72448_b"}) {
-        g_aim_fid_vecY = env->GetFieldID(JniCache::cls_Vec3, name, "D");
+        g_aim_fid_vecY = Java::GetFieldID(env, JniCache::cls_Vec3, name, "D");
         if (env->ExceptionCheck())
             env->ExceptionClear();
         if (g_aim_fid_vecY)
@@ -258,17 +258,17 @@ static void resolveAimC03(JNIEnv* env) {
     if (Java::AssignClass("net.minecraft.network.play.client.C03PacketPlayer", localClass)) {
         g_aimC03 = (jclass)env->NewGlobalRef(localClass);
 
-        g_aim_fid_yaw = env->GetFieldID(g_aimC03, "yaw", "F");
+        g_aim_fid_yaw = Java::GetFieldID(env, g_aimC03, "yaw", "F");
         if (!g_aim_fid_yaw)
-            g_aim_fid_yaw = env->GetFieldID(g_aimC03, "field_149476_e", "F");
+            g_aim_fid_yaw = Java::GetFieldID(env, g_aimC03, "field_149476_e", "F");
 
-        g_aim_fid_pitch = env->GetFieldID(g_aimC03, "pitch", "F");
+        g_aim_fid_pitch = Java::GetFieldID(env, g_aimC03, "pitch", "F");
         if (!g_aim_fid_pitch)
-            g_aim_fid_pitch = env->GetFieldID(g_aimC03, "field_149473_f", "F");
+            g_aim_fid_pitch = Java::GetFieldID(env, g_aimC03, "field_149473_f", "F");
 
-        g_aim_fid_rotating = env->GetFieldID(g_aimC03, "rotating", "Z");
+        g_aim_fid_rotating = Java::GetFieldID(env, g_aimC03, "rotating", "Z");
         if (!g_aim_fid_rotating)
-            g_aim_fid_rotating = env->GetFieldID(g_aimC03, "field_149481_i", "Z");
+            g_aim_fid_rotating = Java::GetFieldID(env, g_aimC03, "field_149481_i", "Z");
 
         if (env->ExceptionCheck())
             env->ExceptionClear();

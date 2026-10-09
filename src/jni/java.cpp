@@ -1,4 +1,6 @@
 #include "java.h"
+#include "mappings/cheatbreaker_1_7_10.hpp"
+#include "mappings/cheatbreaker_1_8_9.hpp"
 #include "../sdk/jni/jstring_util.h"
 #include "../sdk/jni/member_resolver.h"
 #include "../util/logger.hpp"
@@ -6,6 +8,8 @@
 #include "../util/inject_trace.hpp"
 
 #include <algorithm>
+#include <cstring>
+#include <deque>
 
 namespace {
 const char* notchClassName(const std::string& mcpName) {
@@ -85,6 +89,81 @@ const char* notchClassName(const std::string& mcpName) {
     return nullptr;
 }
 
+constexpr const mappings::RuntimeMappings* kRenamingClients[] = {&mappings::kCheatBreaker189,
+                                                                  &mappings::kCheatBreaker1710};
+
+const char* runtimeClassName(const mappings::RuntimeMappings& table, const std::string& mcpSlashName) {
+    for (const auto& entry : table.classes) {
+        if (mcpSlashName == entry.mcp)
+            return entry.runtime;
+    }
+    return nullptr;
+}
+
+const char* mcpClassName(const mappings::RuntimeMappings& table, const std::string& runtimeName) {
+    for (const auto& entry : table.classes) {
+        if (runtimeName == entry.runtime)
+            return entry.mcp;
+    }
+    return nullptr;
+}
+
+// Runtime internal name of a loaded class ("Lfoo/Bar;" -> "foo/Bar").
+std::string internalName(jclass cls) {
+    char* sig = nullptr;
+    if (Java::tiEnv->GetClassSignature(cls, &sig, nullptr) != JVMTI_ERROR_NONE || !sig)
+        return {};
+    std::string name(sig);
+    Java::tiEnv->Deallocate(reinterpret_cast<unsigned char*>(sig));
+    return name.size() > 2 ? name.substr(1, name.size() - 2) : std::string{};
+}
+
+// JNI resolves members through superclasses and superinterfaces, so the table
+// lookup walks the same hierarchy and matches on the declaring MCP class.
+const mappings::MemberMapping* findMember(JNIEnv* env, jclass cls, const char* name, const char* sig) {
+    const mappings::RuntimeMappings& table = *Java::Mappings;
+    std::deque<jclass> pending{static_cast<jclass>(env->NewLocalRef(cls))};
+    const mappings::MemberMapping* found = nullptr;
+
+    while (!pending.empty()) {
+        jclass cur = pending.front();
+        pending.pop_front();
+        if (!found) {
+            if (const char* owner = mcpClassName(table, internalName(cur))) {
+                for (const auto& member : table.members) {
+                    if (std::strcmp(member.owner, owner) == 0 && std::strcmp(member.desc, sig) == 0 &&
+                        (std::strcmp(member.mcpName, name) == 0 || std::strcmp(member.srgName, name) == 0)) {
+                        found = &member;
+                        break;
+                    }
+                }
+            }
+            if (!found) {
+                if (jclass parent = env->GetSuperclass(cur))
+                    pending.push_back(parent);
+                jint count = 0;
+                jclass* interfaces = nullptr;
+                if (Java::tiEnv->GetImplementedInterfaces(cur, &count, &interfaces) == JVMTI_ERROR_NONE && interfaces) {
+                    for (jint i = 0; i < count; ++i)
+                        pending.push_back(interfaces[i]);
+                    Java::tiEnv->Deallocate(reinterpret_cast<unsigned char*>(interfaces));
+                }
+            }
+        }
+        env->DeleteLocalRef(cur);
+    }
+    return found;
+}
+
+template <typename Lookup>
+auto lookupMember(JNIEnv* env, jclass cls, const char* name, const char* sig, Lookup jniLookup) {
+    if (!Java::Mappings)
+        return jniLookup(name, sig);
+    if (const auto* member = findMember(env, cls, name, sig))
+        return jniLookup(member->runtimeName, member->runtimeDesc);
+    return jniLookup(name, Java::RuntimeDescriptor(sig).c_str());
+}
+
 jobject loadClass(JNIEnv* env, const std::string& name) {
     jstring className = env->NewStringUTF(name.c_str());
     if (!className)
@@ -131,11 +210,19 @@ void setupClassLoader() {
             // 1.8.9 = Lave;
             // 1.7.10 = Lbao;
             // 1.12 = Lbib;
-            if (sig == "Lnet/minecraft/client/Minecraft;" || sig == "Lave;" || sig == "Lbao;" || sig == "Lbib;") {
+            const mappings::RuntimeMappings* renamingClient = nullptr;
+            for (const auto* table : kRenamingClients) {
+                const char* minecraft = runtimeClassName(*table, "net/minecraft/client/Minecraft");
+                if (minecraft && sig == std::string("L") + minecraft + ";")
+                    renamingClient = table;
+            }
+            if (sig == "Lnet/minecraft/client/Minecraft;" || sig == "Lave;" || sig == "Lbao;" || sig == "Lbib;" ||
+                renamingClient) {
                 jobject loader = nullptr;
                 if (Java::tiEnv->GetClassLoader(classes[i], &loader) == JVMTI_ERROR_NONE && loader) {
                     targetLoader = loader;
                     Java::RuntimeObfuscated = (sig == "Lave;" || sig == "Lbao;" || sig == "Lbib;");
+                    Java::Mappings = renamingClient;
                     COBBLE_TRACE("setupClassLoader: found Minecraft ClassLoader via JVMTI!");
                     break;
                 }
@@ -276,6 +363,16 @@ bool Java::AssignClass(std::string name, jclass& out) {
     // loadClass is required for class-loader delegation.  The findClass retry
     // retains compatibility with launchers that expose their game classes only
     // through a custom findClass implementation.
+    if (Java::Mappings) {
+        std::string slashName = name;
+        std::replace(slashName.begin(), slashName.end(), '.', '/');
+        if (const char* runtime = runtimeClassName(*Java::Mappings, slashName)) {
+            std::string binaryName = runtime;
+            std::replace(binaryName.begin(), binaryName.end(), '/', '.');
+            name = binaryName;
+        }
+    }
+
     jobject findClass = loadClass(env, name);
 
     // Vanilla 1.8.9 exposes Notch class names (ave, pr, bfr, ...). The rest
@@ -295,7 +392,7 @@ bool Java::AssignClass(std::string name, jclass& out) {
     return false;
 }
 
-std::string Java::NotchDescriptor(const std::string& descriptor) {
+std::string Java::RuntimeDescriptor(const std::string& descriptor) {
     std::string translated;
     translated.reserve(descriptor.size());
 
@@ -312,10 +409,16 @@ std::string Java::NotchDescriptor(const std::string& descriptor) {
         }
 
         std::string className = descriptor.substr(i + 1, end - i - 1);
-        std::replace(className.begin(), className.end(), '/', '.');
-        if (const char* notchName = notchClassName(className)) {
+        const char* runtimeName = nullptr;
+        if (Java::Mappings) {
+            runtimeName = runtimeClassName(*Java::Mappings, className);
+        } else {
+            std::replace(className.begin(), className.end(), '/', '.');
+            runtimeName = notchClassName(className);
+        }
+        if (runtimeName) {
             translated.push_back('L');
-            translated.append(notchName);
+            translated.append(runtimeName);
             translated.push_back(';');
         } else {
             translated.append(descriptor, i, end - i + 1);
@@ -326,8 +429,55 @@ std::string Java::NotchDescriptor(const std::string& descriptor) {
     return translated;
 }
 
+jfieldID Java::GetFieldID(JNIEnv* env, jclass cls, const char* name, const char* sig) {
+    return lookupMember(env, cls, name, sig, [&](const char* n, const char* s) { return env->GetFieldID(cls, n, s); });
+}
+
+jfieldID Java::GetStaticFieldID(JNIEnv* env, jclass cls, const char* name, const char* sig) {
+    return lookupMember(env, cls, name, sig,
+                        [&](const char* n, const char* s) { return env->GetStaticFieldID(cls, n, s); });
+}
+
+jmethodID Java::GetMethodID(JNIEnv* env, jclass cls, const char* name, const char* sig) {
+    return lookupMember(env, cls, name, sig, [&](const char* n, const char* s) { return env->GetMethodID(cls, n, s); });
+}
+
+jmethodID Java::GetStaticMethodID(JNIEnv* env, jclass cls, const char* name, const char* sig) {
+    return lookupMember(env, cls, name, sig,
+                        [&](const char* n, const char* s) { return env->GetStaticMethodID(cls, n, s); });
+}
+
+bool Java::IsRuntimeMember(const char* mcpOwner, const char* mcpName, const std::string& name,
+                           const std::string& desc) {
+    if (!Java::Mappings)
+        return false;
+    for (const auto& member : Java::Mappings->members) {
+        if (std::strcmp(member.owner, mcpOwner) == 0 && std::strcmp(member.mcpName, mcpName) == 0 &&
+            name == member.runtimeName && desc == member.runtimeDesc)
+            return true;
+    }
+    return false;
+}
+
+bool Java::IsRuntimeClass(const char* internalName, const char* mcpSlashName) {
+    if (!internalName)
+        return false;
+    if (std::strcmp(internalName, mcpSlashName) == 0)
+        return true;
+    const char* runtime = Java::Mappings ? runtimeClassName(*Java::Mappings, mcpSlashName) : nullptr;
+    return runtime && std::strcmp(internalName, runtime) == 0;
+}
+
 void Java::GetMinecraftVersion() {
     Java::Version = MinecraftVersion::UNDEFINED;
+
+    // Renaming clients report their own brand as the launched version.
+    if (Java::Mappings) {
+        Java::Version = Java::Mappings->version;
+        log_ok("detected cheatbreaker %s",
+               Java::Version == MinecraftVersion::MC_1_8_9 ? "1.8.9" : "1.7.10");
+        return;
+    }
 
     JNIEnv* env = Env();
     if (!env)

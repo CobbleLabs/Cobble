@@ -114,11 +114,11 @@ bool Minecraft::damageBlock(int x, int y, int z) {
 
     bool damaged = false;
     if (Java::Version == MinecraftVersion::MC_1_7_10) {
-        jmethodID damageMethod = env->GetMethodID(controllerClass, OBFUSCATE_STRING("onPlayerDamageBlock").c_str(),
+        jmethodID damageMethod = Java::GetMethodID(env, controllerClass, OBFUSCATE_STRING("onPlayerDamageBlock").c_str(),
                                                   OBFUSCATE_STRING("(IIII)Z").c_str());
         if (!damageMethod) {
             env->ExceptionClear();
-            damageMethod = env->GetMethodID(controllerClass, OBFUSCATE_STRING("func_78759_c").c_str(),
+            damageMethod = Java::GetMethodID(env, controllerClass, OBFUSCATE_STRING("func_78759_c").c_str(),
                                             OBFUSCATE_STRING("(IIII)Z").c_str());
         }
         if (!damageMethod && env->ExceptionCheck())
@@ -126,12 +126,12 @@ bool Minecraft::damageBlock(int x, int y, int z) {
         if (damageMethod)
             damaged = env->CallBooleanMethod(controller, damageMethod, x, y, z, 1) == JNI_TRUE;
     } else if (JniCache::cls_BlockPos && JniCache::mid_blockPosInit) {
-        jmethodID damageMethod = env->GetMethodID(
+        jmethodID damageMethod = Java::GetMethodID(env, 
             controllerClass, OBFUSCATE_STRING("onPlayerDamageBlock").c_str(),
             OBFUSCATE_STRING("(Lnet/minecraft/util/BlockPos;Lnet/minecraft/util/EnumFacing;)Z").c_str());
         if (!damageMethod) {
             env->ExceptionClear();
-            damageMethod = env->GetMethodID(
+            damageMethod = Java::GetMethodID(env, 
                 controllerClass, OBFUSCATE_STRING("func_180512_c").c_str(),
                 OBFUSCATE_STRING("(Lnet/minecraft/util/BlockPos;Lnet/minecraft/util/EnumFacing;)Z").c_str());
         }
@@ -141,7 +141,7 @@ bool Minecraft::damageBlock(int x, int y, int z) {
         jclass facingClass = nullptr;
         if (damageMethod && Java::AssignClass(OBFUSCATE_STRING("net.minecraft.util.EnumFacing"), facingClass)) {
             jmethodID valuesMethod =
-                env->GetStaticMethodID(facingClass, OBFUSCATE_STRING("values").c_str(),
+                Java::GetStaticMethodID(env, facingClass, OBFUSCATE_STRING("values").c_str(),
                                        OBFUSCATE_STRING("()[Lnet/minecraft/util/EnumFacing;").c_str());
             if (!valuesMethod && env->ExceptionCheck())
                 env->ExceptionClear();
@@ -200,11 +200,11 @@ bool Minecraft::damageTargetedBlock() {
         // sideHit : EnumFacing — the exact face vanilla reports for this hit.
         // Using the real side keeps our STOP_DESTROY_BLOCK consistent with the
         // START the game already sent. SRG name fallback for non-MCP mappings.
-        jfieldID fidSideHit = env->GetFieldID(JniCache::cls_MovingObjectPosition, OBFUSCATE_STRING("sideHit").c_str(),
+        jfieldID fidSideHit = Java::GetFieldID(env, JniCache::cls_MovingObjectPosition, OBFUSCATE_STRING("sideHit").c_str(),
                                               OBFUSCATE_STRING("Lnet/minecraft/util/EnumFacing;").c_str());
         if (!fidSideHit) {
             env->ExceptionClear();
-            fidSideHit = env->GetFieldID(JniCache::cls_MovingObjectPosition, OBFUSCATE_STRING("field_178784_b").c_str(),
+            fidSideHit = Java::GetFieldID(env, JniCache::cls_MovingObjectPosition, OBFUSCATE_STRING("field_178784_b").c_str(),
                                          OBFUSCATE_STRING("Lnet/minecraft/util/EnumFacing;").c_str());
         }
         if (!fidSideHit) {
@@ -219,12 +219,12 @@ bool Minecraft::damageTargetedBlock() {
         if (!controllerClass)
             break;
 
-        jmethodID damageMethod = env->GetMethodID(
+        jmethodID damageMethod = Java::GetMethodID(env, 
             controllerClass, OBFUSCATE_STRING("onPlayerDamageBlock").c_str(),
             OBFUSCATE_STRING("(Lnet/minecraft/util/BlockPos;Lnet/minecraft/util/EnumFacing;)Z").c_str());
         if (!damageMethod) {
             env->ExceptionClear();
-            damageMethod = env->GetMethodID(
+            damageMethod = Java::GetMethodID(env, 
                 controllerClass, OBFUSCATE_STRING("func_180512_c").c_str(),
                 OBFUSCATE_STRING("(Lnet/minecraft/util/BlockPos;Lnet/minecraft/util/EnumFacing;)Z").c_str());
         }

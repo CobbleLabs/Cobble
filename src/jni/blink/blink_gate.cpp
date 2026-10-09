@@ -1,172 +1,41 @@
 #include "blink_gate.hpp"
 
-#include <cstring>
 #include "../../module/movement/blink.h"
 #include "../../util/aes_string.hpp"
 #include "../../util/logger.hpp"
 
 namespace {
 
-// Check if packet is a movement packet (C03PacketPlayer and subclasses)
-static bool isMovementPacket(JNIEnv* env, jobject packet) {
-    if (!packet)
-        return false;
+// Packets are matched by class identity: renaming clients (CheatBreaker) hide the
+// MCP class names, and IsInstanceOf also covers the C04/C05/C06 movement subclasses.
+struct PacketClasses {
+    jclass movement = nullptr;
+    jclass useEntity = nullptr;
+    jclass blockPlacement = nullptr;
+    jclass digging = nullptr;
+};
 
-    jclass cls = env->GetObjectClass(packet);
-    if (!cls) {
-        if (env->ExceptionCheck())
-            env->ExceptionClear();
-        return false;
-    }
-
-    jclass clsCls = env->GetObjectClass(cls);
-    if (!clsCls) {
-        env->DeleteLocalRef(cls);
-        return false;
-    }
-
-    jmethodID mid =
-        env->GetMethodID(clsCls, OBFUSCATE_STRING("getName").c_str(), OBFUSCATE_STRING("()Ljava/lang/String;").c_str());
-    if (!mid) {
-        env->DeleteLocalRef(clsCls);
-        env->DeleteLocalRef(cls);
-        return false;
-    }
-
-    jstring jname = (jstring)env->CallObjectMethod(cls, mid);
-    if (!jname) {
-        env->DeleteLocalRef(clsCls);
-        env->DeleteLocalRef(cls);
-        return false;
-    }
-
-    const char* cstr = env->GetStringUTFChars(jname, nullptr);
-    bool isMovement = false;
-
-    if (cstr) {
-        // C03PacketPlayer and its subclasses:
-        // - C03PacketPlayer
-        // - C03PacketPlayer$C04PacketPlayerPosition
-        // - C03PacketPlayer$C05PacketPlayerLook
-        // - C03PacketPlayer$C06PacketPlayerPosLook
-        isMovement = (strstr(cstr, OBFUSCATE_STRING("C03PacketPlayer").c_str()) != nullptr);
-        env->ReleaseStringUTFChars(jname, cstr);
-    }
-
-    env->DeleteLocalRef(jname);
-    env->DeleteLocalRef(clsCls);
-    env->DeleteLocalRef(cls);
-
-    if (env->ExceptionCheck()) {
-        env->ExceptionClear();
-    }
-
-    return isMovement;
+jclass resolveClass(JNIEnv* env, const std::string& name) {
+    jclass local = nullptr;
+    if (!Java::AssignClass(name, local))
+        return nullptr;
+    jclass global = static_cast<jclass>(env->NewGlobalRef(local));
+    env->DeleteLocalRef(local);
+    return global;
 }
 
-static bool isUseEntityPacket(JNIEnv* env, jobject packet) {
-    if (!packet)
-        return false;
-
-    jclass cls = env->GetObjectClass(packet);
-    if (!cls) {
-        if (env->ExceptionCheck())
-            env->ExceptionClear();
-        return false;
-    }
-
-    jclass clsCls = env->GetObjectClass(cls);
-    if (!clsCls) {
-        env->DeleteLocalRef(cls);
-        return false;
-    }
-
-    jmethodID mid =
-        env->GetMethodID(clsCls, OBFUSCATE_STRING("getName").c_str(), OBFUSCATE_STRING("()Ljava/lang/String;").c_str());
-    if (!mid) {
-        env->DeleteLocalRef(clsCls);
-        env->DeleteLocalRef(cls);
-        return false;
-    }
-
-    jstring jname = (jstring)env->CallObjectMethod(cls, mid);
-    if (!jname) {
-        env->DeleteLocalRef(clsCls);
-        env->DeleteLocalRef(cls);
-        return false;
-    }
-
-    const char* cstr = env->GetStringUTFChars(jname, nullptr);
-    bool isUseEntity = false;
-
-    if (cstr) {
-        // C02PacketUseEntity (attack/interact)
-        isUseEntity = (strstr(cstr, OBFUSCATE_STRING("C02PacketUseEntity").c_str()) != nullptr);
-        env->ReleaseStringUTFChars(jname, cstr);
-    }
-
-    env->DeleteLocalRef(jname);
-    env->DeleteLocalRef(clsCls);
-    env->DeleteLocalRef(cls);
-
-    if (env->ExceptionCheck()) {
-        env->ExceptionClear();
-    }
-
-    return isUseEntity;
+const PacketClasses& packetClasses(JNIEnv* env) {
+    static const PacketClasses classes{
+        resolveClass(env, OBFUSCATE_STRING("net.minecraft.network.play.client.C03PacketPlayer")),
+        resolveClass(env, OBFUSCATE_STRING("net.minecraft.network.play.client.C02PacketUseEntity")),
+        resolveClass(env, OBFUSCATE_STRING("net.minecraft.network.play.client.C08PacketPlayerBlockPlacement")),
+        resolveClass(env, OBFUSCATE_STRING("net.minecraft.network.play.client.C07PacketPlayerDigging")),
+    };
+    return classes;
 }
 
-static bool isBowUsePacket(JNIEnv* env, jobject packet) {
-    if (!packet)
-        return false;
-
-    jclass cls = env->GetObjectClass(packet);
-    if (!cls) {
-        if (env->ExceptionCheck())
-            env->ExceptionClear();
-        return false;
-    }
-
-    jclass clsCls = env->GetObjectClass(cls);
-    if (!clsCls) {
-        env->DeleteLocalRef(cls);
-        return false;
-    }
-
-    jmethodID mid =
-        env->GetMethodID(clsCls, OBFUSCATE_STRING("getName").c_str(), OBFUSCATE_STRING("()Ljava/lang/String;").c_str());
-    if (!mid) {
-        env->DeleteLocalRef(clsCls);
-        env->DeleteLocalRef(cls);
-        return false;
-    }
-
-    jstring jname = (jstring)env->CallObjectMethod(cls, mid);
-    if (!jname) {
-        env->DeleteLocalRef(clsCls);
-        env->DeleteLocalRef(cls);
-        return false;
-    }
-
-    const char* cstr = env->GetStringUTFChars(jname, nullptr);
-    bool isBow = false;
-
-    if (cstr) {
-        // C08PacketPlayerBlockPlacement (use item) + C07PacketPlayerDigging (release use)
-        isBow = (strstr(cstr, OBFUSCATE_STRING("C08PacketPlayerBlockPlacement").c_str()) != nullptr) ||
-                (strstr(cstr, OBFUSCATE_STRING("C07PacketPlayerDigging").c_str()) != nullptr);
-        env->ReleaseStringUTFChars(jname, cstr);
-    }
-
-    env->DeleteLocalRef(jname);
-    env->DeleteLocalRef(clsCls);
-    env->DeleteLocalRef(cls);
-
-    if (env->ExceptionCheck()) {
-        env->ExceptionClear();
-    }
-
-    return isBow;
+bool isInstance(JNIEnv* env, jobject packet, jclass cls) {
+    return packet && cls && env->IsInstanceOf(packet, cls);
 }
 
 }  // namespace
@@ -184,21 +53,23 @@ bool ShouldSendPacket(JNIEnv* env, jobject packet) {
         return true;  // Don't block
     }
 
+    const PacketClasses& classes = packetClasses(env);
+
     // Block use entity while blink is active (anti-ban)
-    if (isUseEntityPacket(env, packet)) {
+    if (isInstance(env, packet, classes.useEntity)) {
         log_warn("[Blink] Blocked UseEntity while blinking");
         return false;
     }
 
-    // Block bow use while blink is active
-    if (isBowUsePacket(env, packet)) {
+    // Block bow use (C08 use item + C07 release use) while blink is active
+    if (isInstance(env, packet, classes.blockPlacement) || isInstance(env, packet, classes.digging)) {
         log_warn("[Blink] Blocked bow use while blinking");
         return false;
     }
 
     // If movement only is enabled, only block movement packets
     if (::blink->settings.movementOnly) {
-        if (!isMovementPacket(env, packet)) {
+        if (!isInstance(env, packet, classes.movement)) {
             return true;  // Not movement, let it pass
         }
     }

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <atomic>
 #include <chrono>
 #include <string>
 #include <vector>
@@ -45,6 +46,16 @@ struct RenderData {
     static inline jfieldID projectionField = nullptr;
     static inline jfieldID modelViewField = nullptr;
 
+    // Native storage behind ActiveRenderInfo's static matrix buffers, pinned by
+    // global refs. Minecraft rewrites them every frame before the swap, so the
+    // render thread can copy them without JNI when no render hook delivers them.
+    static inline jobject projectionBufferRef = nullptr;
+    static inline jobject modelViewBufferRef = nullptr;
+    static inline std::atomic<const float*> projectionData{nullptr};
+    static inline std::atomic<const float*> modelViewData{nullptr};
+    // Set once the in-world render hook writes the matrices itself.
+    static inline std::atomic<bool> hookProvidesMatrices{false};
+
     static inline jclass floatBufferClass = nullptr;
     static inline jmethodID floatBufferGet = nullptr;
 
@@ -83,14 +94,14 @@ struct RenderData {
         log_debug("RenderData: ActiveRenderInfo class found");
 
         // Try uppercase first (1.8.9), then lowercase (1.7.10)
-        projectionField = Java::Env()->GetStaticFieldID(activeRenderInfoClass, OBFUSCATE_STRING("PROJECTION").c_str(),
+        projectionField = Java::GetStaticFieldID(Java::Env(), activeRenderInfoClass, OBFUSCATE_STRING("PROJECTION").c_str(),
                                                         OBFUSCATE_STRING("Ljava/nio/FloatBuffer;").c_str());
         if (projectionField) {
             log_debug("RenderData: Found PROJECTION (1.8.x style)");
         } else {
             Java::Env()->ExceptionClear();
             projectionField =
-                Java::Env()->GetStaticFieldID(activeRenderInfoClass, OBFUSCATE_STRING("projection").c_str(),
+                Java::GetStaticFieldID(Java::Env(), activeRenderInfoClass, OBFUSCATE_STRING("projection").c_str(),
                                               OBFUSCATE_STRING("Ljava/nio/FloatBuffer;").c_str());
             if (projectionField)
                 log_debug("RenderData: Found projection (1.7.x style)");
@@ -98,14 +109,14 @@ struct RenderData {
         if (!projectionField) {
             Java::Env()->ExceptionClear();
             projectionField =
-                Java::Env()->GetStaticFieldID(activeRenderInfoClass, "field_178813_c", "Ljava/nio/FloatBuffer;");
+                Java::GetStaticFieldID(Java::Env(), activeRenderInfoClass, "field_178813_c", "Ljava/nio/FloatBuffer;");
             if (projectionField)
                 log_debug("RenderData: Found Forge SRG PROJECTION");
         }
         // Badlion can expose an MCP class with Notch member names.
         if (!projectionField) {
             Java::Env()->ExceptionClear();
-            projectionField = Java::Env()->GetStaticFieldID(activeRenderInfoClass, "c", "Ljava/nio/FloatBuffer;");
+            projectionField = Java::GetStaticFieldID(Java::Env(), activeRenderInfoClass, "c", "Ljava/nio/FloatBuffer;");
             if (projectionField)
                 log_debug("RenderData: Found Badlion/Notch PROJECTION");
         }
@@ -113,18 +124,18 @@ struct RenderData {
         // MODELVIEW, PROJECTION and OBJECTCOORDS respectively.
         if (!projectionField && Java::RuntimeObfuscated) {
             Java::Env()->ExceptionClear();
-            projectionField = Java::Env()->GetStaticFieldID(activeRenderInfoClass, "c", "Ljava/nio/FloatBuffer;");
+            projectionField = Java::GetStaticFieldID(Java::Env(), activeRenderInfoClass, "c", "Ljava/nio/FloatBuffer;");
             if (projectionField)
                 log_debug("RenderData: Found vanilla 1.8.9 PROJECTION");
         }
 
-        modelViewField = Java::Env()->GetStaticFieldID(activeRenderInfoClass, OBFUSCATE_STRING("MODELVIEW").c_str(),
+        modelViewField = Java::GetStaticFieldID(Java::Env(), activeRenderInfoClass, OBFUSCATE_STRING("MODELVIEW").c_str(),
                                                        OBFUSCATE_STRING("Ljava/nio/FloatBuffer;").c_str());
         if (modelViewField) {
             log_debug("RenderData: Found MODELVIEW (1.8.x style)");
         } else {
             Java::Env()->ExceptionClear();
-            modelViewField = Java::Env()->GetStaticFieldID(activeRenderInfoClass, OBFUSCATE_STRING("modelview").c_str(),
+            modelViewField = Java::GetStaticFieldID(Java::Env(), activeRenderInfoClass, OBFUSCATE_STRING("modelview").c_str(),
                                                            OBFUSCATE_STRING("Ljava/nio/FloatBuffer;").c_str());
             if (modelViewField)
                 log_debug("RenderData: Found modelview (1.7.x style)");
@@ -132,13 +143,13 @@ struct RenderData {
         if (!modelViewField) {
             Java::Env()->ExceptionClear();
             modelViewField =
-                Java::Env()->GetStaticFieldID(activeRenderInfoClass, "field_178812_b", "Ljava/nio/FloatBuffer;");
+                Java::GetStaticFieldID(Java::Env(), activeRenderInfoClass, "field_178812_b", "Ljava/nio/FloatBuffer;");
             if (modelViewField)
                 log_debug("RenderData: Found Forge SRG MODELVIEW");
         }
         if (!modelViewField) {
             Java::Env()->ExceptionClear();
-            modelViewField = Java::Env()->GetStaticFieldID(activeRenderInfoClass, "b", "Ljava/nio/FloatBuffer;");
+            modelViewField = Java::GetStaticFieldID(Java::Env(), activeRenderInfoClass, "b", "Ljava/nio/FloatBuffer;");
             if (modelViewField)
                 log_debug("RenderData: Found Badlion/Notch MODELVIEW");
         }
@@ -156,7 +167,7 @@ struct RenderData {
         }
         if (!modelViewField && Java::RuntimeObfuscated) {
             Java::Env()->ExceptionClear();
-            modelViewField = Java::Env()->GetStaticFieldID(activeRenderInfoClass, "b", "Ljava/nio/FloatBuffer;");
+            modelViewField = Java::GetStaticFieldID(Java::Env(), activeRenderInfoClass, "b", "Ljava/nio/FloatBuffer;");
             if (modelViewField)
                 log_debug("RenderData: Found vanilla 1.8.9 MODELVIEW");
         }
@@ -181,7 +192,7 @@ struct RenderData {
         floatBufferClass = (jclass)Java::Env()->NewGlobalRef(fbLocal);
         Java::Env()->DeleteLocalRef(fbLocal);
 
-        floatBufferGet = Java::Env()->GetMethodID(floatBufferClass, OBFUSCATE_STRING("get").c_str(),
+        floatBufferGet = Java::GetMethodID(Java::Env(), floatBufferClass, OBFUSCATE_STRING("get").c_str(),
                                                   OBFUSCATE_STRING("(I)F").c_str());
         if (!floatBufferGet) {
             initFailed = true;
@@ -193,6 +204,37 @@ struct RenderData {
         return true;
     }
 
+    static Matrix FromFloats(const float* data) {
+        Matrix m{};
+        m.m00 = data[0];
+        m.m01 = data[1];
+        m.m02 = data[2];
+        m.m03 = data[3];
+        m.m10 = data[4];
+        m.m11 = data[5];
+        m.m12 = data[6];
+        m.m13 = data[7];
+        m.m20 = data[8];
+        m.m21 = data[9];
+        m.m22 = data[10];
+        m.m23 = data[11];
+        m.m30 = data[12];
+        m.m31 = data[13];
+        m.m32 = data[14];
+        m.m33 = data[15];
+        return m;
+    }
+
+    static void PinBuffer(jobject buffer, jobject& ref, std::atomic<const float*>& data) {
+        if (ref)
+            return;
+        void* address = Java::Env()->GetDirectBufferAddress(buffer);
+        if (!address)
+            return;
+        ref = Java::Env()->NewGlobalRef(buffer);
+        data.store(static_cast<const float*>(address), std::memory_order_release);
+    }
+
     static Matrix ReadMatrix(jobject floatBuffer, const char* name) {
         Matrix m{};
         if (!floatBuffer) {
@@ -202,23 +244,7 @@ struct RenderData {
 
         void* directPtr = Java::Env()->GetDirectBufferAddress(floatBuffer);
         if (directPtr) {
-            float* data = static_cast<float*>(directPtr);
-            m.m00 = data[0];
-            m.m01 = data[1];
-            m.m02 = data[2];
-            m.m03 = data[3];
-            m.m10 = data[4];
-            m.m11 = data[5];
-            m.m12 = data[6];
-            m.m13 = data[7];
-            m.m20 = data[8];
-            m.m21 = data[9];
-            m.m22 = data[10];
-            m.m23 = data[11];
-            m.m30 = data[12];
-            m.m31 = data[13];
-            m.m32 = data[14];
-            m.m33 = data[15];
+            m = FromFloats(static_cast<const float*>(directPtr));
             log_debug("RenderData: ReadMatrix %s via direct buffer. m00=%d, m11=%d, m22=%d, m33=%d", name,
                       (int)(m.m00 * 1000.0f), (int)(m.m11 * 1000.0f), (int)(m.m22 * 1000.0f), (int)(m.m33 * 1000.0f));
             return m;
@@ -256,9 +282,10 @@ struct RenderData {
         return m.m00 != 0.0f || m.m11 != 0.0f || m.m22 != 0.0f || m.m33 != 0.0f;
     }
 
-    // Update render data
+    // Worker thread: resolve and pin the matrix buffers, then seed the matrices.
     static void Update() {
-        if (updated && IsMatrixValid(projection) && IsMatrixValid(modelView)) {
+        if (updated && IsMatrixValid(projection) && IsMatrixValid(modelView) &&
+            (hookProvidesMatrices.load(std::memory_order_acquire) || modelViewData.load(std::memory_order_acquire))) {
             return;
         }
 
@@ -272,6 +299,7 @@ struct RenderData {
             if (IsMatrixValid(newProj)) {
                 projection = newProj;
             }
+            PinBuffer(projBuffer, projectionBufferRef, projectionData);
             Java::Env()->DeleteLocalRef(projBuffer);
         } else {
             log_warn("RenderData: GetStaticObjectField projectionField returned null");
@@ -284,6 +312,7 @@ struct RenderData {
             if (IsMatrixValid(newMv)) {
                 modelView = newMv;
             }
+            PinBuffer(mvBuffer, modelViewBufferRef, modelViewData);
             Java::Env()->DeleteLocalRef(mvBuffer);
         } else {
             log_warn("RenderData: GetStaticObjectField modelViewField returned null");
@@ -296,6 +325,24 @@ struct RenderData {
             log_ok("RenderData: Successfully verified non-zero projection and modelview matrices!");
         } else if (!updated && wasUpdated) {
             log_warn("RenderData: Matrices went invalid (all zeros detected)!");
+        }
+    }
+
+    // Render thread, before drawing: copy the matrices Minecraft wrote for this
+    // frame. Without this, clients lacking the render hook keep the first matrices
+    // read and every world-space visual drifts as soon as the camera turns.
+    static void RefreshFromBuffers() {
+        if (hookProvidesMatrices.load(std::memory_order_acquire))
+            return;
+        const float* proj = projectionData.load(std::memory_order_acquire);
+        const float* mv = modelViewData.load(std::memory_order_acquire);
+        if (!proj || !mv)
+            return;
+        const Matrix newProj = FromFloats(proj);
+        const Matrix newMv = FromFloats(mv);
+        if (IsMatrixValid(newProj) && IsMatrixValid(newMv)) {
+            projection = newProj;
+            modelView = newMv;
         }
     }
 

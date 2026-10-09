@@ -33,20 +33,20 @@ void resolveC03(JNIEnv* env) {
     tpC03Class = static_cast<jclass>(env->NewGlobalRef(local));
     env->DeleteLocalRef(local);
 
-    tpYawField = env->GetFieldID(tpC03Class, "yaw", "F");
+    tpYawField = Java::GetFieldID(env, tpC03Class, "yaw", "F");
     if (!tpYawField) {
         env->ExceptionClear();
-        tpYawField = env->GetFieldID(tpC03Class, "field_149476_e", "F");
+        tpYawField = Java::GetFieldID(env, tpC03Class, "field_149476_e", "F");
     }
-    tpPitchField = env->GetFieldID(tpC03Class, "pitch", "F");
+    tpPitchField = Java::GetFieldID(env, tpC03Class, "pitch", "F");
     if (!tpPitchField) {
         env->ExceptionClear();
-        tpPitchField = env->GetFieldID(tpC03Class, "field_149473_f", "F");
+        tpPitchField = Java::GetFieldID(env, tpC03Class, "field_149473_f", "F");
     }
-    tpRotatingField = env->GetFieldID(tpC03Class, "rotating", "Z");
+    tpRotatingField = Java::GetFieldID(env, tpC03Class, "rotating", "Z");
     if (!tpRotatingField) {
         env->ExceptionClear();
-        tpRotatingField = env->GetFieldID(tpC03Class, "field_149480_h", "Z");
+        tpRotatingField = Java::GetFieldID(env, tpC03Class, "field_149480_h", "Z");
     }
     if (env->ExceptionCheck())
         env->ExceptionClear();

@@ -173,6 +173,9 @@
     <ClInclude Include="src\jni\packet\bytecode_patcher.hpp" />
     <ClInclude Include="src\jni\packet\packet_hook_enc.hpp" />
     <ClInclude Include="src\jni\java.h" />
+    <ClInclude Include="src\jni\mappings\cheatbreaker_1_7_10.hpp" />
+    <ClInclude Include="src\jni\mappings\cheatbreaker_1_8_9.hpp" />
+    <ClInclude Include="src\jni\mappings\runtime_mappings.hpp" />
     <ClInclude Include="src\jni\noitemrelease\noitemrelease_gate.hpp" />
     <ClInclude Include="src\jni\packet\packet_interceptor.hpp" />
     <ClInclude Include="src\jni\slowdown\slowdown_gate.hpp" />

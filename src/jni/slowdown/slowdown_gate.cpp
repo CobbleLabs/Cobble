@@ -381,13 +381,13 @@ bool Init(JNIEnv* env) {
                     jclass exClass = env->GetObjectClass(ex);
                     jclass classClass = env->FindClass("java/lang/Class");
                     jmethodID mid_getName =
-                        classClass ? env->GetMethodID(classClass, "getName", "()Ljava/lang/String;") : nullptr;
+                        classClass ? Java::GetMethodID(env, classClass, "getName", "()Ljava/lang/String;") : nullptr;
                     jstring nameStr =
                         (exClass && mid_getName) ? (jstring)env->CallObjectMethod(exClass, mid_getName) : nullptr;
 
                     jclass throwableClass = env->FindClass("java/lang/Throwable");
                     jmethodID mid_getMessage =
-                        throwableClass ? env->GetMethodID(throwableClass, "getMessage", "()Ljava/lang/String;")
+                        throwableClass ? Java::GetMethodID(env, throwableClass, "getMessage", "()Ljava/lang/String;")
                                        : nullptr;
                     jstring msgStr =
                         (ex && mid_getMessage) ? (jstring)env->CallObjectMethod(ex, mid_getMessage) : nullptr;

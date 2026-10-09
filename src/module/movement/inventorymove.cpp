@@ -100,8 +100,8 @@ void InventoryMove::resolveClasses(JNIEnv* env) {
     classesResolved_ = true;
     clsGuiContainer_ = globalClass(env, "net.minecraft.client.gui.inventory.GuiContainer");
     clsGuiChat_ = globalClass(env, "net.minecraft.client.gui.GuiChat");
-    clsGuiRepair_ = globalClass(env, "net.minecraft.client.gui.inventory.GuiRepair");
-    clsGuiEditSign_ = globalClass(env, "net.minecraft.client.gui.GuiEditSign");
+    clsGuiRepair_ = globalClass(env, "net.minecraft.client.gui.GuiRepair");
+    clsGuiEditSign_ = globalClass(env, "net.minecraft.client.gui.inventory.GuiEditSign");
     clsGuiBook_ = globalClass(env, "net.minecraft.client.gui.GuiScreenBook");
 }
 

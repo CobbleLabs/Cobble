@@ -260,9 +260,9 @@ bool BlockHit::resolveApi(JNIEnv* env, jobject playerInstance) {
     // because in a packed build it is a compile-time AES over sizeof(str), not a runtime call.
     const auto field = [&](jclass cls, const std::string& name, const std::string& srg,
                            const std::string& sig) -> jfieldID {
-        jfieldID id = env->GetFieldID(cls, name.c_str(), sig.c_str());
+        jfieldID id = Java::GetFieldID(env, cls, name.c_str(), sig.c_str());
         if (clearEx(env) || !id) {
-            id = env->GetFieldID(cls, srg.c_str(), sig.c_str());
+            id = Java::GetFieldID(env, cls, srg.c_str(), sig.c_str());
             clearEx(env);
         }
         return id;
@@ -302,10 +302,10 @@ bool BlockHit::resolveApi(JNIEnv* env, jobject playerInstance) {
     if (!clearEx(env) && controllerCls) {
         const std::string playerSig = OBFUSCATE_STRING("(Lnet/minecraft/entity/player/EntityPlayer;)V");
         midOnStoppedUsing_ =
-            env->GetMethodID(controllerCls, OBFUSCATE_STRING("onStoppedUsingItem").c_str(), playerSig.c_str());
+            Java::GetMethodID(env, controllerCls, OBFUSCATE_STRING("onStoppedUsingItem").c_str(), playerSig.c_str());
         if (clearEx(env) || !midOnStoppedUsing_) {
             midOnStoppedUsing_ =
-                env->GetMethodID(controllerCls, OBFUSCATE_STRING("func_78766_b").c_str(), playerSig.c_str());
+                Java::GetMethodID(env, controllerCls, OBFUSCATE_STRING("func_78766_b").c_str(), playerSig.c_str());
             clearEx(env);
         }
         env->DeleteLocalRef(controllerCls);

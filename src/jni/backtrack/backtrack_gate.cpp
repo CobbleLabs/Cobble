@@ -470,7 +470,7 @@ jfieldID resolveField(JNIEnv* env, jclass cls, std::initializer_list<const char*
     if (!env || !cls)
         return nullptr;
     for (const char* name : names) {
-        jfieldID field = env->GetFieldID(cls, name, signature);
+        jfieldID field = Java::GetFieldID(env, cls, name, signature);
         if (field)
             return field;
         clearException(env);
@@ -513,7 +513,7 @@ jmethodID resolveProcessMethod(JNIEnv* env, jclass cls) {
         const auto variants = jni_resolver::signatureVariants(descriptor);
         for (const char* name : {"processPacket", "func_148833_a", "a"}) {
             for (const std::string& variant : variants) {
-                jmethodID method = env->GetMethodID(cls, name, variant.c_str());
+                jmethodID method = Java::GetMethodID(env, cls, name, variant.c_str());
                 if (method)
                     return method;
                 clearException(env);
@@ -668,7 +668,7 @@ bool resolvePacketListener(JNIEnv* env) {
     const auto signatures = jni_resolver::signatureVariants("Lnet/minecraft/network/INetHandler;");
     for (const char* name : {"packetListener", "field_150744_m", "m"}) {
         for (const std::string& signature : signatures) {
-            g_packetListener = env->GetFieldID(g_networkManager, name, signature.c_str());
+            g_packetListener = Java::GetFieldID(env, g_networkManager, name, signature.c_str());
             if (g_packetListener)
                 return true;
             clearException(env);

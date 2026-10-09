@@ -583,6 +583,10 @@ bool SendPingRequest(JNIEnv* env) {
 }
 
 void OnWorldChange(JNIEnv* env) {
+    // CheatBreaker is not an Apollo client; announcing one would misidentify the player.
+    if (Java::Mappings)
+        return;
+
     // Debounce repeated world-change triggers that can happen back-to-back
     auto now = std::chrono::steady_clock::now().time_since_epoch();
     int64_t nowMs = std::chrono::duration_cast<std::chrono::milliseconds>(now).count();

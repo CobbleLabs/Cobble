@@ -67,6 +67,7 @@ ProcessInfo findLunarClient() {
             proc.windowTitle.find(OBFUSCATE_WSTRING(L"Lunar Client")) != std::wstring::npos ||
             proc.windowTitle.find(OBFUSCATE_WSTRING(L"Badlion Minecraft")) != std::wstring::npos ||
             proc.windowTitle.find(OBFUSCATE_WSTRING(L"Badlion Client")) != std::wstring::npos ||
+            proc.windowTitle.find(OBFUSCATE_WSTRING(L"CheatBreaker")) != std::wstring::npos ||
             proc.windowTitle.find(OBFUSCATE_WSTRING(L"Minecraft")) != std::wstring::npos) {
             return proc;
         }

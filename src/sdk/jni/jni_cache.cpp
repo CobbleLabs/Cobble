@@ -20,7 +20,7 @@ static jfieldID resolveExplicitField(JNIEnv* env, jclass cls, std::initializer_l
     if (!env || !cls || !signature)
         return nullptr;
     for (const char* name : names) {
-        jfieldID field = env->GetFieldID(cls, name, signature);
+        jfieldID field = Java::GetFieldID(env, cls, name, signature);
         if (field)
             return field;
         if (env->ExceptionCheck())
@@ -316,7 +316,7 @@ jmethodID mid_setGrabbed = nullptr;
             break;                                                                    \
         std::string _mn = OBFUSCATE_STRING(name);                                     \
         std::string _ms = OBFUSCATE_STRING(sig);                                      \
-        var = env->GetMethodID(cls, _mn.c_str(), _ms.c_str());                        \
+        var = Java::GetMethodID(env, cls, _mn.c_str(), _ms.c_str());                        \
         if (!var)                                                                     \
             env->ExceptionClear();                                                    \
         if (!var)                                                                     \
@@ -329,7 +329,7 @@ jmethodID mid_setGrabbed = nullptr;
             break;                                                                   \
         std::string _mn = OBFUSCATE_STRING(name);                                    \
         std::string _ms = OBFUSCATE_STRING(sig);                                     \
-        var = env->GetStaticMethodID(cls, _mn.c_str(), _ms.c_str());                 \
+        var = Java::GetStaticMethodID(env, cls, _mn.c_str(), _ms.c_str());                 \
         if (!var)                                                                    \
             env->ExceptionClear();                                                   \
         if (!var)                                                                    \
@@ -342,7 +342,7 @@ jmethodID mid_setGrabbed = nullptr;
             break;                                                                   \
         std::string _fn = OBFUSCATE_STRING(name);                                    \
         std::string _fs = OBFUSCATE_STRING(sig);                                     \
-        var = env->GetFieldID(cls, _fn.c_str(), _fs.c_str());                        \
+        var = Java::GetFieldID(env, cls, _fn.c_str(), _fs.c_str());                        \
         if (!var)                                                                    \
             env->ExceptionClear();                                                   \
         if (!var)                                                                    \
@@ -355,7 +355,7 @@ jmethodID mid_setGrabbed = nullptr;
             break;                                                                  \
         std::string _fn = OBFUSCATE_STRING(name);                                   \
         std::string _fs = OBFUSCATE_STRING(sig);                                    \
-        var = env->GetStaticFieldID(cls, _fn.c_str(), _fs.c_str());                 \
+        var = Java::GetStaticFieldID(env, cls, _fn.c_str(), _fs.c_str());                 \
         if (!var)                                                                   \
             env->ExceptionClear();                                                  \
         if (!var)                                                                   \

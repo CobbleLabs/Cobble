@@ -18,9 +18,9 @@ inline std::vector<std::string> signatureVariants(const char* signature) {
         return variants;
 
     variants.emplace_back(signature);
-    std::string notchSignature = Java::NotchDescriptor(signature);
-    if (notchSignature != signature)
-        variants.push_back(std::move(notchSignature));
+    std::string runtimeSignature = Java::RuntimeDescriptor(signature);
+    if (runtimeSignature != signature)
+        variants.push_back(std::move(runtimeSignature));
     return variants;
 }
 

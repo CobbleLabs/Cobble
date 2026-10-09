@@ -21,7 +21,6 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
-#include <cstring>
 #include <limits>
 
 Piercing* piercing = nullptr;
@@ -72,36 +71,24 @@ Box hitboxOf(const PlayerInfo& candidate, double expand) {
     return box;
 }
 
+jclass globalClass(JNIEnv* env, const std::string& name) {
+    jclass local = nullptr;
+    if (!Java::AssignClass(name, local))
+        return nullptr;
+    jclass global = static_cast<jclass>(env->NewGlobalRef(local));
+    env->DeleteLocalRef(local);
+    return global;
+}
+
+// Matched by class identity: renaming clients (CheatBreaker) hide the MCP class names.
 bool isAttackOrSwingPacket(JNIEnv* env, jobject packet) {
     if (!env || !packet)
         return false;
-
-    jclass packetClass = env->GetObjectClass(packet);
-    jclass classClass = packetClass ? env->GetObjectClass(packetClass) : nullptr;
-    jmethodID getName = classClass ? env->GetMethodID(classClass, OBFUSCATE_STRING("getName").c_str(),
-                                                      OBFUSCATE_STRING("()Ljava/lang/String;").c_str())
-                                   : nullptr;
-    jstring name = getName ? static_cast<jstring>(env->CallObjectMethod(packetClass, getName)) : nullptr;
-
-    bool result = false;
-    if (name && !env->ExceptionCheck()) {
-        const char* chars = env->GetStringUTFChars(name, nullptr);
-        if (chars) {
-            result = std::strstr(chars, OBFUSCATE_STRING("C02PacketUseEntity").c_str()) != nullptr ||
-                     std::strstr(chars, OBFUSCATE_STRING("C0APacketAnimation").c_str()) != nullptr;
-            env->ReleaseStringUTFChars(name, chars);
-        }
-    }
-
-    if (name)
-        env->DeleteLocalRef(name);
-    if (classClass)
-        env->DeleteLocalRef(classClass);
-    if (packetClass)
-        env->DeleteLocalRef(packetClass);
-    if (env->ExceptionCheck())
-        env->ExceptionClear();
-    return result;
+    static const jclass useEntity =
+        globalClass(env, OBFUSCATE_STRING("net.minecraft.network.play.client.C02PacketUseEntity"));
+    static const jclass animation =
+        globalClass(env, OBFUSCATE_STRING("net.minecraft.network.play.client.C0APacketAnimation"));
+    return (useEntity && env->IsInstanceOf(packet, useEntity)) || (animation && env->IsInstanceOf(packet, animation));
 }
 }  // namespace
 

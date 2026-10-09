@@ -19,7 +19,7 @@ jfieldID resolveField(jclass cls, std::initializer_list<const char*> names, cons
         if (!name)
             continue;
         for (const auto& candidate : signatures) {
-            jfieldID field = env->GetFieldID(cls, name, candidate.c_str());
+            jfieldID field = Java::GetFieldID(env, cls, name, candidate.c_str());
             if (field)
                 return field;
             env->ExceptionClear();
@@ -39,8 +39,8 @@ jmethodID resolveMethod(jclass cls, std::initializer_list<const char*> names, co
         if (!name)
             continue;
         for (const auto& candidate : signatures) {
-            jmethodID method = isStatic ? env->GetStaticMethodID(cls, name, candidate.c_str())
-                                        : env->GetMethodID(cls, name, candidate.c_str());
+            jmethodID method = isStatic ? Java::GetStaticMethodID(env, cls, name, candidate.c_str())
+                                        : Java::GetMethodID(env, cls, name, candidate.c_str());
             if (method)
                 return method;
             env->ExceptionClear();
@@ -130,10 +130,10 @@ void LocalPlayer::initFields() {
         // EntityPlayer carries a dozen int fields, so resolveField()'s
         // find-the-unique-one fallback would hand back an unrelated counter.
         JNIEnv* env = Java::Env();
-        fid_itemInUseCount = env->GetFieldID(JniCache::cls_EntityPlayer, "itemInUseCount", "I");
+        fid_itemInUseCount = Java::GetFieldID(env, JniCache::cls_EntityPlayer, "itemInUseCount", "I");
         if (!fid_itemInUseCount) {
             env->ExceptionClear();
-            fid_itemInUseCount = env->GetFieldID(JniCache::cls_EntityPlayer, "field_71072_f", "I");
+            fid_itemInUseCount = Java::GetFieldID(env, JniCache::cls_EntityPlayer, "field_71072_f", "I");
         }
         if (!fid_itemInUseCount)
             env->ExceptionClear();

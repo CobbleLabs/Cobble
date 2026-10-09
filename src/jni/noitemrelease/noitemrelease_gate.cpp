@@ -1,118 +1,81 @@
 #include "noitemrelease_gate.hpp"
 
-#include <cstring>
+#include <initializer_list>
+#include <string>
+
 #include "../../module/utility/noitemrelease.h"
 #include "../../util/aes_string.hpp"
 
 namespace {
 
-static bool shouldSendPacket(JNIEnv* env, jobject packet) {
-    if (!packet)
-        return true;
+// C07PacketPlayerDigging carries RELEASE_USE_ITEM as an enum constant on 1.8.9
+// and as the int 5 on 1.7.10. Classes and constants are compared by identity so
+// clients that rename them (CheatBreaker) match the same way vanilla does.
+struct DiggingPacketIds {
+    jclass cls = nullptr;
+    jfieldID actionField = nullptr;
+    jobject releaseUseItem = nullptr;
+    jfieldID intStatusField = nullptr;
+};
 
-    if (!::noItemRelease || !::noItemRelease->enabled || !::noItemRelease->wasUsingItem) {
-        return true;
-    }
-
-    // ===== NOITEMRELEASE PACKET BLOCKING =====
-    // Check for C07PacketPlayerDigging with RELEASE_USE_ITEM action
-    jclass cls = env->GetObjectClass(packet);
-    if (!cls) {
+jfieldID firstField(JNIEnv* env, jclass cls, const char* sig, std::initializer_list<std::string> names) {
+    for (const auto& name : names) {
+        jfieldID id = Java::GetFieldID(env, cls, name.c_str(), sig);
         if (env->ExceptionCheck())
             env->ExceptionClear();
-        return true;
+        if (id)
+            return id;
+    }
+    return nullptr;
+}
+
+DiggingPacketIds resolveDiggingPacket(JNIEnv* env) {
+    DiggingPacketIds ids;
+    jclass local = nullptr;
+    if (!Java::AssignClass(OBFUSCATE_STRING("net.minecraft.network.play.client.C07PacketPlayerDigging"), local))
+        return ids;
+    ids.cls = static_cast<jclass>(env->NewGlobalRef(local));
+    env->DeleteLocalRef(local);
+
+    if (Java::Version == MinecraftVersion::MC_1_7_10) {
+        ids.intStatusField = firstField(env, ids.cls, "I", {OBFUSCATE_STRING("status"), OBFUSCATE_STRING("field_149508_e")});
+        return ids;
     }
 
-    jclass clsCls = env->GetObjectClass(cls);
-    if (clsCls) {
-        jmethodID mid = env->GetMethodID(clsCls, OBFUSCATE_STRING("getName").c_str(),
-                                         OBFUSCATE_STRING("()Ljava/lang/String;").c_str());
-        if (mid) {
-            jstring jname = (jstring)env->CallObjectMethod(cls, mid);
-            if (jname) {
-                const char* cstr = env->GetStringUTFChars(jname, nullptr);
-                if (cstr) {
-                    if (strstr(cstr, OBFUSCATE_STRING("C07PacketPlayerDigging").c_str()) != nullptr) {
-                        bool shouldBlock = false;
+    const std::string actionSig = OBFUSCATE_STRING("Lnet/minecraft/network/play/client/C07PacketPlayerDigging$Action;");
+    ids.actionField = firstField(env, ids.cls, actionSig.c_str(), {OBFUSCATE_STRING("status"), OBFUSCATE_STRING("field_149508_e")});
 
-                        // Try 1.8.9+ method first: enum Action field
-                        jfieldID statusField = env->GetFieldID(
-                            cls, OBFUSCATE_STRING("status").c_str(),
-                            OBFUSCATE_STRING("Lnet/minecraft/network/play/client/C07PacketPlayerDigging$Action;")
-                                .c_str());
-                        if (env->ExceptionCheck())
-                            env->ExceptionClear();
-
-                        if (statusField) {
-                            jobject statusObj = env->GetObjectField(packet, statusField);
-                            if (statusObj) {
-                                jclass statusCls = env->GetObjectClass(statusObj);
-                                if (statusCls) {
-                                    jmethodID nameMethod =
-                                        env->GetMethodID(statusCls, OBFUSCATE_STRING("name").c_str(),
-                                                         OBFUSCATE_STRING("()Ljava/lang/String;").c_str());
-                                    if (nameMethod) {
-                                        jstring enumName = (jstring)env->CallObjectMethod(statusObj, nameMethod);
-                                        if (enumName) {
-                                            const char* statusStr = env->GetStringUTFChars(enumName, nullptr);
-                                            if (statusStr) {
-                                                shouldBlock =
-                                                    (strcmp(statusStr, OBFUSCATE_STRING("RELEASE_USE_ITEM").c_str()) ==
-                                                     0);
-                                                env->ReleaseStringUTFChars(enumName, statusStr);
-                                            }
-                                            env->DeleteLocalRef(enumName);
-                                        }
-                                    }
-                                    env->DeleteLocalRef(statusCls);
-                                }
-                                env->DeleteLocalRef(statusObj);
-                            }
-                        } else {
-                            // 1.7.10 path: int field (field_149508_e), value 5 = RELEASE_USE_ITEM
-                            jfieldID intStatusField = env->GetFieldID(cls, OBFUSCATE_STRING("field_149508_e").c_str(),
-                                                                      OBFUSCATE_STRING("I").c_str());
-                            if (env->ExceptionCheck())
-                                env->ExceptionClear();
-
-                            if (!intStatusField) {
-                                intStatusField = env->GetFieldID(cls, OBFUSCATE_STRING("status").c_str(),
-                                                                 OBFUSCATE_STRING("I").c_str());
-                                if (env->ExceptionCheck())
-                                    env->ExceptionClear();
-                            }
-
-                            if (intStatusField) {
-                                jint statusValue = env->GetIntField(packet, intStatusField);
-                                shouldBlock = (statusValue == 5);
-                            }
-                        }
-
-                        env->ReleaseStringUTFChars(jname, cstr);
-                        env->DeleteLocalRef(jname);
-                        env->DeleteLocalRef(clsCls);
-                        env->DeleteLocalRef(cls);
-
-                        if (shouldBlock) {
-                            return false;
-                        }
-                        goto skip_cleanup;
-                    }
-                    env->ReleaseStringUTFChars(jname, cstr);
-                }
-                env->DeleteLocalRef(jname);
-            }
-        }
-        env->DeleteLocalRef(clsCls);
-    }
-skip_cleanup:
-    env->DeleteLocalRef(cls);
-
-    if (env->ExceptionCheck()) {
+    jclass action = nullptr;
+    if (!Java::AssignClass(OBFUSCATE_STRING("net.minecraft.network.play.client.C07PacketPlayerDigging$Action"), action))
+        return ids;
+    jfieldID constant =
+        Java::GetStaticFieldID(env, action, OBFUSCATE_STRING("RELEASE_USE_ITEM").c_str(), actionSig.c_str());
+    if (env->ExceptionCheck())
         env->ExceptionClear();
+    if (constant) {
+        jobject value = env->GetStaticObjectField(action, constant);
+        if (value) {
+            ids.releaseUseItem = env->NewGlobalRef(value);
+            env->DeleteLocalRef(value);
+        }
     }
+    env->DeleteLocalRef(action);
+    return ids;
+}
 
-    return true;
+bool isReleaseUseItem(JNIEnv* env, jobject packet) {
+    static const DiggingPacketIds ids = resolveDiggingPacket(env);
+    if (!ids.cls || !env->IsInstanceOf(packet, ids.cls))
+        return false;
+
+    if (ids.actionField && ids.releaseUseItem) {
+        jobject status = env->GetObjectField(packet, ids.actionField);
+        const bool release = status && env->IsSameObject(status, ids.releaseUseItem);
+        if (status)
+            env->DeleteLocalRef(status);
+        return release;
+    }
+    return ids.intStatusField && env->GetIntField(packet, ids.intStatusField) == 5;
 }
 
 }  // namespace
@@ -120,7 +83,9 @@ skip_cleanup:
 namespace NoItemReleaseGate {
 
 jboolean JNICALL NativeShouldSend(JNIEnv* env, jclass, jobject packet) {
-    return shouldSendPacket(env, packet) ? JNI_TRUE : JNI_FALSE;
+    if (!packet || !::noItemRelease || !::noItemRelease->enabled || !::noItemRelease->wasUsingItem)
+        return JNI_TRUE;
+    return isReleaseUseItem(env, packet) ? JNI_FALSE : JNI_TRUE;
 }
 
 }  // namespace NoItemReleaseGate

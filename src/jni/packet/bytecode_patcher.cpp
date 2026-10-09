@@ -1465,9 +1465,12 @@ static int patchNetworkManagerClass(const uint8_t* data, size_t len, std::vector
                 log_debug("[PacketInterceptor] NetworkManager method: %s %s", name.c_str(), desc.c_str());
             }
 
-            if (g_targets.outgoing &&
-                (name == OBFUSCATE_STRING("sendPacket") || name == OBFUSCATE_STRING("scheduleOutboundPacket")) &&
-                desc.size() >= 3 && desc.back() == 'V' && desc[desc.size() - 2] == ')') {
+            const bool sendName =
+                name == OBFUSCATE_STRING("sendPacket") || name == OBFUSCATE_STRING("scheduleOutboundPacket") ||
+                Java::IsRuntimeMember("net/minecraft/network/NetworkManager", "sendPacket", name, desc) ||
+                Java::IsRuntimeMember("net/minecraft/network/NetworkManager", "scheduleOutboundPacket", name, desc);
+            if (g_targets.outgoing && sendName && desc.size() >= 3 && desc.back() == 'V' &&
+                desc[desc.size() - 2] == ')') {
                 // Accept either full MCP name or obfuscated single-letter class name
                 if (desc.rfind(OBFUSCATE_STRING("(Lnet/minecraft/network/Packet;"), 0) == 0) {
                     is_target = true;
@@ -1808,7 +1811,8 @@ static int patchLivingBaseClass(const uint8_t* data, size_t len, std::vector<uin
             const std::string& name = utf8[m_name];
             const std::string& desc = utf8[m_desc];
 
-            if (desc == "()V" && (name == "onLivingUpdate" || name == "func_70636_d" || name == "m")) {
+            if ((desc == "()V" && (name == "onLivingUpdate" || name == "func_70636_d" || name == "m")) ||
+                Java::IsRuntimeMember("net/minecraft/entity/EntityLivingBase", "onLivingUpdate", name, desc)) {
                 is_target = true;
                 log_debug("[PacketInterceptor] Found living update method: %s %s", name.c_str(), desc.c_str());
             }
@@ -2032,15 +2036,19 @@ static int patchRenderHookClass(const uint8_t* data, size_t len, std::vector<uin
                 // render(Entity, float x6). The entity parameter is the only obfuscated part of
                 // the descriptor, so matching on the float tail covers every mapping.
                 const bool nameMatch = (name == "render" || name == "func_78088_a" || name == "a");
-                descMatch = nameMatch && desc.size() > 10 && desc.compare(0, 2, "(L") == 0 &&
-                            desc.compare(desc.size() - 9, 9, ";FFFFFF)V") == 0;
+                descMatch = (nameMatch && desc.size() > 10 && desc.compare(0, 2, "(L") == 0 &&
+                             desc.compare(desc.size() - 9, 9, ";FFFFFF)V") == 0) ||
+                            Java::IsRuntimeMember("net/minecraft/client/model/ModelBiped", "render", name, desc);
             } else if (target == RenderHookTarget::Camera) {
                 const bool nameMatch = (name == "renderWorld" || name == "func_78471_a" || name == "a");
-                descMatch = nameMatch && desc == "(FJ)V";
+                descMatch = (nameMatch && desc == "(FJ)V") ||
+                            Java::IsRuntimeMember("net/minecraft/client/renderer/EntityRenderer", "renderWorld", name, desc);
             } else {
                 const bool nameMatch =
                     (name == "renderEntities" || name == "func_180446_a" || name == "func_147589_a" || name == "a");
-                if (nameMatch) {
+                if (Java::IsRuntimeMember("net/minecraft/client/renderer/RenderGlobal", "renderEntities", name, desc)) {
+                    descMatch = true;
+                } else if (nameMatch) {
                     if (desc.find("ICamera") != std::string::npos && desc.rfind(")V") != std::string::npos) {
                         descMatch = true;
                     } else if (desc == "(Lpk;Lbia;F)V") {
@@ -2222,9 +2230,13 @@ static int patchRenderNameNoop(const uint8_t* data, size_t len, std::vector<uint
             const std::string& name = utf8[m_name];
             const std::string& desc = utf8[m_desc];
             bool concrete = (m_access & (0x0100 | 0x0400)) == 0;  // not native/abstract
+            const bool renamedRenderName =
+                Java::IsRuntimeMember(kRendererLivingSlash().c_str(), "renderName", name, desc) ||
+                Java::IsRuntimeMember(kRenderPlayerSlash().c_str(), "renderName", name, desc) ||
+                Java::IsRuntimeMember(kRendererLivingSlash().c_str(), "passSpecialRender", name, desc);
             if (concrete &&
                 (name == kRenderNameMethod() || name == kPassSpecialRenderMethod() ||
-                 name == kPassSpecialRenderMethodObf()) &&
+                 name == kPassSpecialRenderMethodObf() || renamedRenderName) &&
                 !desc.empty() && desc.back() == 'V')
                 is_target = true;
         }
@@ -2311,8 +2323,8 @@ static void JNICALL onClassFileLoadHook(jvmtiEnv* jvmti_env, JNIEnv* jni_env, jc
     // When the flag is off (incl. a retransform to restore), this branch is skipped
     // and the original bytes are kept.
     if (name && g_hideVanillaNames.load() &&
-        (strcmp(name, kRenderPlayerSlash().c_str()) == 0 || strcmp(name, kRendererLivingSlash().c_str()) == 0 ||
-         strcmp(name, kRenderArmorStandSlash().c_str()) == 0)) {
+        (Java::IsRuntimeClass(name, kRenderPlayerSlash().c_str()) || Java::IsRuntimeClass(name, kRendererLivingSlash().c_str()) ||
+         Java::IsRuntimeClass(name, kRenderArmorStandSlash().c_str()))) {
         std::vector<uint8_t> patched;
         int n = patchRenderNameNoop(class_data, static_cast<size_t>(class_data_len), patched);
         if (n > 0) {
@@ -2433,7 +2445,7 @@ static void JNICALL onClassFileLoadHook(jvmtiEnv* jvmti_env, JNIEnv* jni_env, jc
     const bool isSlowdownTarget =
         g_targets.slowdown && ((cls_SlowdownTarget && class_being_redefined &&
                                 jni_env->IsSameObject(class_being_redefined, cls_SlowdownTarget) == JNI_TRUE) ||
-                               strcmp(name, "net/minecraft/entity/EntityLivingBase") == 0);
+                               Java::IsRuntimeClass(name, "net/minecraft/entity/EntityLivingBase"));
     if (isSlowdownTarget) {
         COBBLE_TRACE("onClassFileLoadHook: EntityLivingBase matched");
         log_debug("[PacketInterceptor] onClassFileLoadHook triggered for living base: %s", name);
@@ -2461,7 +2473,7 @@ static void JNICALL onClassFileLoadHook(jvmtiEnv* jvmti_env, JNIEnv* jni_env, jc
     const bool isRenderGlobalTarget =
         g_targets.renderGhost && ((cls_RenderGlobalTarget && class_being_redefined &&
                                    jni_env->IsSameObject(class_being_redefined, cls_RenderGlobalTarget) == JNI_TRUE) ||
-                                  (name && strcmp(name, "net/minecraft/client/renderer/RenderGlobal") == 0));
+                                  Java::IsRuntimeClass(name, "net/minecraft/client/renderer/RenderGlobal"));
     if (isRenderGlobalTarget) {
         COBBLE_TRACE("onClassFileLoadHook: RenderGlobal matched");
         std::vector<uint8_t> patched;
@@ -2488,7 +2500,7 @@ static void JNICALL onClassFileLoadHook(jvmtiEnv* jvmti_env, JNIEnv* jni_env, jc
         g_targets.renderCamera &&
         ((cls_EntityRendererTarget && class_being_redefined &&
           jni_env->IsSameObject(class_being_redefined, cls_EntityRendererTarget) == JNI_TRUE) ||
-         (name && strcmp(name, "net/minecraft/client/renderer/EntityRenderer") == 0));
+         Java::IsRuntimeClass(name, "net/minecraft/client/renderer/EntityRenderer"));
     if (isEntityRendererTarget) {
         COBBLE_TRACE("onClassFileLoadHook: EntityRenderer matched");
         std::vector<uint8_t> patched;
@@ -2514,7 +2526,7 @@ static void JNICALL onClassFileLoadHook(jvmtiEnv* jvmti_env, JNIEnv* jni_env, jc
     const bool isModelBipedTarget =
         g_targets.modelOutline && ((cls_ModelBipedTarget && class_being_redefined &&
                                     jni_env->IsSameObject(class_being_redefined, cls_ModelBipedTarget) == JNI_TRUE) ||
-                                   (name && strcmp(name, "net/minecraft/client/model/ModelBiped") == 0));
+                                   Java::IsRuntimeClass(name, "net/minecraft/client/model/ModelBiped"));
     if (isModelBipedTarget) {
         COBBLE_TRACE("onClassFileLoadHook: ModelBiped matched");
         std::vector<uint8_t> patched;
@@ -2694,6 +2706,13 @@ bool InstallBytecodeHook(JNIEnv* env) {
         return true;
     if (!Java::tiEnv || !env)
         return false;
+    // The custom payload, teams and Lunar nametag sites feed Lunar's Apollo API,
+    // which a renaming client (CheatBreaker) does not speak.
+    if (Java::Mappings) {
+        g_targets.customPayload = false;
+        g_targets.teams = false;
+        g_targets.lunarNametags = false;
+    }
 
     jvmtiEventCallbacks callbacks;
     memset(&callbacks, 0, sizeof(callbacks));
