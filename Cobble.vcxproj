@@ -141,6 +141,7 @@
     <ClCompile Include="src\module\visual\pings.cpp" />
     <!-- UI structure -->
     <ClCompile Include="src\ui\core\overlay.cpp" />
+    <ClCompile Include="src\ui\core\stream_proof.cpp" />
     <ClCompile Include="src\ui\menu\menu.cpp" />
     <ClCompile Include="src\ui\hud\notifications.cpp" />
     <ClCompile Include="src\ui\hud\arraylist.cpp" />
@@ -243,6 +244,7 @@
     <ClInclude Include="src\ui\hud\hud_color.hpp" />
     <ClInclude Include="src\ui\hud\hud_place.hpp" />
     <ClInclude Include="src\ui\hud\watermark.h" />
+    <ClInclude Include="src\ui\core\stream_proof.h" />
     <ClInclude Include="src\ui\hud\notifications.h" />
     <ClInclude Include="src\ui\widgets\widgets.hpp" />
     <ClInclude Include="src\ui\widgets\theme.hpp" />

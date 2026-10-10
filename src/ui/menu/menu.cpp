@@ -52,6 +52,7 @@
 #include "../../util/network/http.hpp"
 #include "../../util/team/friends_manager.h"
 #include "../core/hud_fonts.h"
+#include "../core/stream_proof.h"
 #include "../hud/arraylist.h"
 #include "../hud/watermark.h"
 #include "../../module/visual/pings.h"
@@ -129,6 +130,8 @@ Module* getModuleForSubtab(int tabIdx, int subtabIdx) {
                 return chams;
             case 12:
                 return outline;
+            case 13:
+                return nullptr;  // StreamProof - special handling
         }
     }
     // Movement Tab (2): Timer, NoSlowDown, NoJumpDelay, Sprint, InventoryMove
@@ -1023,7 +1026,7 @@ static void renderModuleList(int tab) {
         int originalSubtab = result.subtabIdx;
 
         // Centralized routing (Req 3.3 / 4.4). m == nullptr for the Visuals
-        // ArrayList (6), Notifications (8) and Watermark (9) special pages.
+        // ArrayList (6), Notifications (8), Watermark (9) and StreamProof (13) special pages.
         Module* m = getModuleForSubtab(originalTab, originalSubtab);
         bool isLocked = m && m->showsDeveloperOnly();
         // Special pages (no Module): reflect their own enabled flag so the card
@@ -1031,10 +1034,13 @@ static void renderModuleList(int tab) {
         bool isArrayList = !m && strcmp(name, "ArrayList") == 0;
         bool isNotifications = !m && strcmp(name, "Notifications") == 0;
         bool isWatermark = !m && strcmp(name, "Watermark") == 0;
+        bool isStreamProof = !m && strcmp(name, "StreamProof") == 0;
         bool isEnabled = m ? m->enabled
                            : (isArrayList ? ArrayListRenderer::enabled
                                           : (isNotifications ? NotificationManager::enabled
-                                                             : (isWatermark ? Watermark::enabled : false)));
+                                                             : (isWatermark ? Watermark::enabled
+                                                                            : (isStreamProof ? StreamProof::enabled
+                                                                                             : false))));
 
         ImGui::PushID(idx);
 
@@ -1078,6 +1084,8 @@ static void renderModuleList(int tab) {
                 NotificationManager::enabled = !NotificationManager::enabled;
             } else if (isWatermark) {
                 Watermark::enabled = !Watermark::enabled;
+            } else if (isStreamProof) {
+                StreamProof::enabled = !StreamProof::enabled;
             }
             ConfigManager::get().onSettingChanged();
         };
@@ -1420,6 +1428,17 @@ static void renderModuleConfig(int tab) {
 
             ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetColorU32(ImGuiCol_TextDisabled));
             ImGui::TextWrapped("Drag the Watermark directly on screen to move it.");
+            ImGui::PopStyleColor();
+        });
+    } else if (ui::cur_tab == 1 && t.cur_subtab == 13) {
+        ui::SetDescriptionContext("StreamProof", /*allowTips=*/true);
+        ui::section("Settings", []() {
+            ui::Checkbox("Enabled", &StreamProof::enabled);
+
+            ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetColorU32(ImGuiCol_TextDisabled));
+            ImGui::TextWrapped(
+                "Hides the menu, HUD, NameTags, ESP and every other 2D visual from recordings and streams. "
+                "Chams are drawn into the world and stay visible. Needs Windows 10 2004 or newer.");
             ImGui::PopStyleColor();
         });
     }

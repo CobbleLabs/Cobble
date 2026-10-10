@@ -15,6 +15,7 @@
 #include "../widgets/icons.hpp"
 #include "../widgets/widgets.hpp"
 #include "hud_fonts.h"
+#include "stream_proof.h"
 #include "../../jni/apollo/apollo_handshake.hpp"
 
 // Embedded font data
@@ -460,8 +461,10 @@ LRESULT CALLBACK HookedWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam
 }
 
 BOOL __stdcall HookedSwapBuffers(HDC hdc) {
-    if (shutdownRequested)
+    if (shutdownRequested) {
+        StreamProof::ReleaseGl();
         return originalSwapBuffers(hdc);
+    }
 
     // Track whether the previous frame opened ImGui state but failed to close
     // it (typically because Overlay::Render or Menu::Render faulted and the
@@ -612,6 +615,7 @@ BOOL __stdcall HookedSwapBuffers(HDC hdc) {
 #endif
         if (!Menu::isOpen && !menuAnimating && !altWindowOpen && !hasRenderWork && !hasNotifications && !hasArrayList &&
             !hasWatermark && !hasDevWarning) {
+            StreamProof::Hide();
             return originalSwapBuffers(hdc);
         }
 
@@ -659,7 +663,10 @@ BOOL __stdcall HookedSwapBuffers(HDC hdc) {
         ImGui::EndFrame();
         frameStarted = false;
         ImGui::Render();
-        ImGui_ImplOpenGL2_RenderDrawData(ImGui::GetDrawData());
+        if (!StreamProof::enabled || !StreamProof::Present(ImGui::GetDrawData(), Overlay::gameWindow)) {
+            StreamProof::Hide();
+            ImGui_ImplOpenGL2_RenderDrawData(ImGui::GetDrawData());
+        }
     } __except (EXCEPTION_EXECUTE_HANDLER) {
         // SEH unwinding can't run C++ destructors. Just record that the frame
         // is mid-flight; next invocation drains it before NewFrame() so ImGui
@@ -733,6 +740,8 @@ void Overlay::Shutdown() {
 
     // Wait for hook to be fully disabled
     std::this_thread::sleep_for(std::chrono::milliseconds(16));
+
+    StreamProof::Shutdown();
 
     if (initialized) {
         ImGui_ImplOpenGL2_Shutdown();

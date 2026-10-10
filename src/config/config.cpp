@@ -6,6 +6,7 @@
 #include "../ui/widgets/widgets.hpp"
 #include "../ui/hud/watermark.h"
 #include "../ui/hud/notifications.h"
+#include "../ui/core/stream_proof.h"
 #include "../ui/menu/menu.h"
 #include "../ui/menu/settings.h"
 #include "../ui/widgets/theme.hpp"
@@ -672,6 +673,7 @@ void ConfigManager::applyConfig() {
         Watermark::relY = config_["hud"]["watermarkRelY"].as_float(Watermark::relY);
         Watermark::userPlaced = config_["hud"]["watermarkPlaced"].as_bool(false);
         NotificationManager::enabled = config_["hud"]["notifications"].as_bool(true);
+        StreamProof::enabled = config_["hud"]["streamProof"].as_bool(false);
     }
 
     // Apply friends settings
@@ -821,6 +823,7 @@ void ConfigManager::buildConfigFromModules() {
     config_["hud"]["watermarkRelY"] = Watermark::relY;
     config_["hud"]["watermarkPlaced"] = Watermark::userPlaced;
     config_["hud"]["notifications"] = NotificationManager::enabled;
+    config_["hud"]["streamProof"] = StreamProof::enabled;
 
     // Friends
     if (friendsManager) {
